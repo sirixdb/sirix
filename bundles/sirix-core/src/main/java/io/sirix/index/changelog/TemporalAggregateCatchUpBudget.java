@@ -9,12 +9,26 @@ public final class TemporalAggregateCatchUpBudget {
 
   /** Execution-owned budget, replenished for each execution even when its context is reused. */
   public static final class Budget {
+    private final boolean complete;
     private int chunks = 512;
     private int entries = 16_384;
     private int cells = 262_144;
 
+    public Budget() {
+      this(false);
+    }
+
+    private Budget(final boolean complete) {
+      this.complete = complete;
+    }
+
+    /** Exact combining cannot abandon a valid tail because an earlier point consumed its budget. */
+    public static Budget complete() {
+      return new Budget(true);
+    }
+
     public void chunk() {
-      if (chunks-- <= 0) {
+      if (!complete && chunks-- <= 0) {
         throw new LimitExceeded();
       }
     }
@@ -23,6 +37,9 @@ public final class TemporalAggregateCatchUpBudget {
     public void summary(final int endpoints, final int frequencies, final int lanes) {
       if (endpoints < 0 || frequencies < 0 || lanes < 0 || lanes > 16) {
         throw new IllegalArgumentException("Invalid summary work");
+      }
+      if (complete) {
+        return;
       }
       final long units = (long) endpoints + frequencies;
       final long requiredCells = (long) endpoints * (1 + 3 * lanes) + 5L * frequencies;

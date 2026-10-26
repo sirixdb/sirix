@@ -179,7 +179,7 @@ public final class TemporalAggregateSummaryLog {
         final long unsupported = in.getLong();
         final int flags = in.getInt();
         validateCoverage(flags);
-        if (unsupported != 0 || flags != 0 || groups > 4096) {
+        if (unsupported != 0 || flags != 0) {
           throw new TemporalAggregateCatchUpBudget.LimitExceeded();
         }
         final byte[] identity = new byte[16];

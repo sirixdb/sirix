@@ -84,7 +84,7 @@ failure table and tells the reader where the work went.
 | `sirix-query` `ValidTimeRunWorkBudgetTest` | half-open valid-time slices over multiple posting chunks | an exact slice stabs its intervals twice, emits unsorted/duplicate keys, or a repeated stab in a fresh read transaction reloads an index root page or decodes companion postings instead of reusing immutable masks; one match in each of 1,000 chunks retains dense candidate bitmaps or scans unoccupied words |
 | `sirix-query` `IndexRoutedGroupWorkBudgetTest` | grouped aggregate over `jn:open-bitemporal` served from the projection under the valid-time index's row mask | the routed grouping materialises an object (a cursor move or child-pointer read on the opener's document), stops being served, reads a leaf that holds no admitted key (the row source stops pruning), maps the outer source twice for membership, refetches/decodes an all-kept membership column during grouping or repeated execution, loses bounded snapshot reuse for a dense selective membership-only column, or reloads sparse membership after an admission/fill refusal; empty-inner anti joins read no membership column even after a decline. Cold/repeated semi/anti checks also change inner values to guard cached source-mask ownership. The generic reference and sparse selective membership reads are positive controls (mechanism: `docs/INDEX_ROUTED_ROW_SOURCE.md`) |
 | `sirix-query` `TemporalAggregateDictionaryWorkBudgetTest` | ordinary and correlated grouped points after deleting 255/4095 groups, repeated group churn and complete deletion; ordered integral count/min/max after one group-key change, with and without stored child counts, across all versioning types | dictionary admission visits more than current rows plus one, retries a declined primitive dictionary through object output, decodes declined heads, reads declined aggregate nodes, or walks history-sized pages; populated historical revisions remain exact and served |
-| `sirix-query` `TemporalAggregateCatchUpWorkBudgetTest` | paused derived frontier with 20 changed rows beside 256/4096 source rows, at lag 0/1/8/16 and over-limit lag 17 | bounded tails stop serving, base reads exceed three chunks, tail reads exceed two chunks per lagging revision or repeat across instants, source columns are loaded on an admitted fold, or excessive lag reads tail payloads before declining |
+| `sirix-query` `TemporalAggregateCatchUpWorkBudgetTest` | paused derived frontier with 20 changed rows beside 256/4096 source rows, at lag 0/1/8/16/17; folded lag 8/16/64 and a 64-publication history | complete tails stop serving, base reads exceed three chunks, raw summaries are reread across increasing historical points, folded fixture reads exceed seven chunks, repeated points reread tails, or source columns are loaded |
 | `sirix-query` `TemporalAggregateSourceWorkBudgetTest` | ordinary and correlated indexed scans with absent, uncovered, covering and oversized aggregate dictionaries | admission and masked fallback evaluate or open a document reader twice per binding, node work grows with source population, or any empty-array comparison mode evaluates an invalid point; covering aggregates remain served |
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
@@ -424,9 +424,16 @@ aggregate kernel) in `EngineWorkCounters`. The first two use `sirix.hot.mergeDia
 use `sirix.changelog.workDiag`. Source work is captured with the maintainer paused so background
 maintenance cannot contaminate the process-global counts.
 
-`TemporalAggregateCatchUpWorkBudgetTest` checks lag 0, 1, 8 and 16 against an exact arithmetic
-oracle, requires the aggregate route, and bounds the fixture's single changed group to two summary
-chunks per revision; repeated points read no tail chunks. Lag 17 must decline before reading the tail.
+`TemporalAggregateCatchUpWorkBudgetTest` checks lag 0, 1, 8, 16 and 17 against an exact arithmetic
+oracle, requires the aggregate route, and keeps the fixture's two-summary-chunks-per-revision bound;
+repeated points read no tail chunks. Lag 17 now must serve: the former zero-tail-read decline check
+is replaced by zero fallback and zero source-column reads, as required by complete tail combining.
+The previously admitted cases retain their bounds. Standalone queries over a 64-publication ascending
+history share one context and read at most two chunks per distinct revision; reverse queries reuse
+immutable answers with zero tail reads. Scalar revision loops are outside the route's admission.
+The raw history is a positive control (at least 64 chunks); after independently folding summaries,
+lag 8/16/64 queries need at most seven chunks while the aggregate base remains at revision 1. This
+fixture runs for all four versioning types and clears caches before each folded lag.
 Mutation evidence (2026-10-15): disabling catch-up preserved both fixture answers but failed the
 served-route requirement at lag 1 for 256 and 4,096 source rows. The fallback read two/eight
 projection BODY segments instead of zero. The source was restored before full validation.

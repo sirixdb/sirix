@@ -54,7 +54,7 @@ final class DerivedIndexCrashRecoveryTest {
   File directory;
 
   static Stream<Arguments> boundaries() {
-    return Stream.of("source", "before-beacon", "after-beacon")
+    return Stream.of("source", "before-beacon", "after-beacon", "fold-before-beacon", "fold-after-beacon")
                  .flatMap(boundary -> Stream.of(VersioningType.values())
                                             .map(versioning -> Arguments.of(boundary, versioning)));
   }
@@ -173,7 +173,11 @@ final class DerivedIndexCrashRecoveryTest {
             Runtime.getRuntime().halt(87);
           }
           armed = true;
-          resource.drain();
+          if (boundary.startsWith("fold-")) {
+            resource.foldNextSummaryBatch();
+          } else {
+            resource.drain();
+          }
           throw new AssertionError("Crash boundary was not reached");
         }
       }
@@ -214,11 +218,11 @@ final class DerivedIndexCrashRecoveryTest {
                 return Proxy.newProxyInstance(Writer.class.getClassLoader(), new Class<?>[] {Writer.class},
                     (writerProxy, writerMethod, writerArgs) -> {
                       final boolean beacon = armed && writerMethod.getName().equals("writeUberPageReference");
-                      if (beacon && boundary.equals("before-beacon")) {
+                      if (beacon && boundary.endsWith("before-beacon")) {
                         Runtime.getRuntime().halt(87);
                       }
                       final Object value = invoke(writerMethod, result, writerArgs);
-                      if (beacon && boundary.equals("after-beacon")) {
+                      if (beacon && boundary.endsWith("after-beacon")) {
                         Runtime.getRuntime().halt(87);
                       }
                       return value;

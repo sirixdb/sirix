@@ -6,6 +6,7 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.page.UberPage;
 import java.util.Objects;
+import java.util.Arrays;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
@@ -24,6 +25,7 @@ public final class DerivedAggregateCatchUp implements AutoCloseable {
   private final UberPage publication;
   private final int sourceRevision;
   private TemporalAggregateCatchUpBudget.Budget budget;
+  private @Nullable TailCache tailCache;
   private final Int2ObjectOpenHashMap<TemporalAggregateIndexes.CatchUp> tails = new Int2ObjectOpenHashMap<>();
   private final IntOpenHashSet declined = new IntOpenHashSet();
 
@@ -37,7 +39,7 @@ public final class DerivedAggregateCatchUp implements AutoCloseable {
   }
 
   public static @Nullable DerivedAggregateCatchUp open(final StorageEngineReader source) {
-    return open(source, new TemporalAggregateCatchUpBudget.Budget());
+    return open(source, TemporalAggregateCatchUpBudget.Budget.complete());
   }
 
   static @Nullable DerivedAggregateCatchUp open(final StorageEngineReader source,
@@ -62,6 +64,37 @@ public final class DerivedAggregateCatchUp implements AutoCloseable {
     if (this.budget != budget) {
       this.budget = Objects.requireNonNull(budget);
       declined.clear();
+    }
+  }
+
+  void useTails(final TailCache cache) {
+    tailCache = Objects.requireNonNull(cache);
+  }
+
+  boolean needsPrefix() {
+    // The first historical point can be only one revision past the base even when later
+    // points in the same pinned publication need its prefix. Keep that first operand reusable.
+    return publication.getRevisionNumber() - snapshot.sourceRevision() > 1;
+  }
+
+  /** Bounded context-owned prefixes shared by monotonically increasing historical views. */
+  static final class TailCache {
+    private final TemporalAggregateIndexes.CatchUpAccumulator[] prefixes =
+        new TemporalAggregateIndexes.CatchUpAccumulator[64];
+
+    TemporalAggregateIndexes.CatchUpAccumulator borrow(final StorageEngineReader source, final int base,
+        final IndexDef definition) {
+      final int slot = (System.identityHashCode(source.getResourceSession()) + 31 * base + definition.getID()) & 63;
+      TemporalAggregateIndexes.CatchUpAccumulator prefix = prefixes[slot];
+      if (prefix == null || !prefix.matches(source, base, definition)) {
+        prefix = new TemporalAggregateIndexes.CatchUpAccumulator(source, base, definition);
+        prefixes[slot] = prefix;
+      }
+      return prefix;
+    }
+
+    void clear() {
+      Arrays.fill(prefixes, null);
     }
   }
 
@@ -93,7 +126,14 @@ public final class DerivedAggregateCatchUp implements AutoCloseable {
         return null;
       }
       try {
-        result = TemporalAggregateIndexes.catchUp(source, snapshot.sourceRevision(), definition, projection, budget);
+        if (tailCache == null) {
+          result = TemporalAggregateIndexes.catchUp(source, snapshot.sourceRevision(), definition, projection, budget);
+        } else {
+          final TemporalAggregateIndexes.CatchUpAccumulator prefix =
+              tailCache.borrow(source, snapshot.sourceRevision(), definition);
+          result = TemporalAggregateIndexes.catchUpIncrementally(source, snapshot.sourceRevision(), definition,
+              projection, budget, prefix);
+        }
         tails.put(id, result);
       } catch (final TemporalAggregateCatchUpBudget.LimitExceeded exceeded) {
         declined.add(id);

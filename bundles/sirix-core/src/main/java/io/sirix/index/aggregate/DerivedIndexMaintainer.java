@@ -15,6 +15,7 @@ import io.sirix.cache.PageContainer;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.index.changelog.ChangeLogSlab;
 import io.sirix.index.changelog.ChangeLogStorage;
+import io.sirix.index.changelog.TemporalAggregateSummaryFolds;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -24,6 +25,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeSet;
@@ -40,7 +42,6 @@ import java.util.function.IntConsumer;
 /** One database-owned worker. Source publication does nothing but unpark this thread. */
 public final class DerivedIndexMaintainer implements AutoCloseable {
   public static final String SUFFIX = "$derived";
-  public static final int MAX_QUERY_LAG = 16;
   private static final Logger LOGGER = LoggerFactory.getLogger(DerivedIndexMaintainer.class);
   private static final DerivedIndex AGGREGATE = new TemporalAggregateDerivedIndex();
   private final ConcurrentHashMap<Path, Resource> resources = new ConcurrentHashMap<>();
@@ -179,6 +180,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
     private int lastFoldRevision;
     private boolean truncatePending;
     private boolean foldRequired;
+    private boolean summariesNext = true;
     private final Int2ObjectOpenHashMap<TreeSet<byte[]>> pendingFolds = new Int2ObjectOpenHashMap<>();
 
     private Resource(final JsonResourceSession source, final JsonResourceSession derived) {
@@ -302,7 +304,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       }
     }
 
-    /** Greatest durable mapping in the bounded query window, including cold cache misses. */
+    /** Greatest durable mapping at or before the source view, including cold cache misses. */
     public @Nullable DerivedIndexSnapshot openCatchUpSnapshot(final StorageEngineReader sourceReader) {
       final int revision = sourceReader.getRevisionNumber();
       if (closed || poisonedRevision >= 0 || revision < 1) {
@@ -312,15 +314,81 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       if (selected == null) {
         // A cached floor is not necessarily the durable floor after eviction or cold startup.
         try (StorageEngineReader latest = derived.createStorageEngineReader()) {
-          selected = DerivedRevisionMapping.floor(latest, revision, MAX_QUERY_LAG);
+          selected = DerivedRevisionMapping.floor(latest, revision);
         }
       }
-      if (selected == null || revision - selected.sourceRevision() > MAX_QUERY_LAG || selected.projection() < 0
-          || !selected.matchesIdentity(sourceReader)) {
+      if (selected == null || selected.projection() < 0 || !selected.matchesIdentity(sourceReader)) {
         return null;
       }
       return new DerivedIndexSnapshot(derived.createStorageEngineReader(selected.indexRevision()),
           selected.sourceRevision());
+    }
+
+    /**
+     * The caller owns this immutable publication and validates each folded range against its source.
+     */
+    public StorageEngineReader openSummaryReader() {
+      return derived.createStorageEngineReader();
+    }
+
+    /**
+     * Fold a bounded summary batch without advancing the aggregate base (also useful to embedded
+     * operators).
+     */
+    public boolean foldNextSummaryBatch() {
+      if (!paused) {
+        throw new IllegalStateException("Pause the maintainer before explicit summary folding");
+      }
+      historyLock.lock();
+      try {
+        if (closed || stopped || failure != null) {
+          throw new IllegalStateException("Derived summary maintenance is unavailable", failure);
+        }
+        if (!initialized) {
+          initializeFrontier();
+        }
+        if (truncatePending) {
+          rewindToFrontier();
+        }
+        try {
+          return foldSummaries();
+        } catch (final RuntimeException | Error exception) {
+          poison(exception);
+          throw exception;
+        }
+      } finally {
+        historyLock.unlock();
+      }
+    }
+
+    private boolean foldSummaries() {
+      try (StorageEngineReader sourceReader = source.createStorageEngineReader();
+          StorageEngineReader derivedReader = derived.createStorageEngineReader()) {
+        final int frontier = TemporalAggregateSummaryFolds.frontier(derivedReader, sourceReader);
+        if (frontier >= sourceReader.getRevisionNumber()) {
+          return false;
+        }
+        if (writer == null) {
+          writer = derived.beginNodeTrx();
+        }
+        final int last = (int) Math.min(sourceReader.getRevisionNumber(), (long) frontier + 8);
+        processingRevision = frontier + 1;
+        TemporalAggregateSummaryFolds.advance(writer.getStorageEngineWriter(), sourceReader, frontier + 1, last);
+        // The aggregate base is unchanged, but its new mapping keeps the fold publication durable
+        // across restart/rewind. No source transaction or source publication listener does this work.
+        final DerivedRevisionMapping base = mapping(maintained);
+        if (base != null) {
+          final DerivedRevisionMapping replacement = new DerivedRevisionMapping(base.sourceRevision(),
+              writer.getRevisionNumber(), base.projection(), base.timestamp(), base.identityHigh(), base.identityLow());
+          replacement.write(writer.getStorageEngineWriter());
+          writer.commit("summary fold through src=" + last, Instant.ofEpochMilli(base.timestamp()));
+          mappings.put(maintained, replacement);
+        } else {
+          writer.commit("summary fold through src=" + last,
+              Instant.ofEpochMilli(derivedReader.getActualRevisionRootPage().getRevisionTimestamp()));
+        }
+        return true;
+      }
     }
 
     private @Nullable DerivedRevisionMapping loadMapping(final StorageEngineReader sourceReader) {
@@ -417,6 +485,16 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       if (truncatePending) {
         rewindToFrontier();
       }
+      // A normal aggregate batch already bounds a tail of eight publications. Do not decode
+      // and persist a second representation of that same work on every small source commit.
+      // Larger backlogs alternate summary folding and base advancement so neither can starve.
+      if (!manual && summariesNext && source.getMostRecentRevisionNumber() - maintained > 8) {
+        summariesNext = false;
+        if (foldSummaries()) {
+          return true;
+        }
+      }
+      summariesNext = true;
       if (maintained >= source.getMostRecentRevisionNumber()) {
         return fold();
       }

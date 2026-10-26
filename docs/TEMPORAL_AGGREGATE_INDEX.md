@@ -134,12 +134,15 @@ callers may explicitly choose `jn:await-derived` when waiting is preferable.
 A cold query can read the durable mapping before the daemon has initialized its bounded memory
 cache. Mapping-cache admission validates source identities, and rewinds evict discarded history.
 Maintenance resolves its frontier from durable mappings when bounded cache eviction removes it.
-When an exact mapping is absent, a bounded durable mapping lookup selects the greatest maintained
-source revision `s <= r` within 16 revisions of the pinned source revision `r`. The query folds
-per-commit signed group operands from `(s, r]` into one immutable, unencoded signed part.
+When an exact mapping is absent, a durable mapping lookup searches successively older windows
+for the greatest maintained source revision `s <= r`. Lag alone never rejects a complete tail.
+The query combines signed group operands from `(s, r]` into one immutable, unencoded signed part.
 That part joins the stored parts before counts and extrema are validated. This preserves deleted
 minima/maxima, wide sums, group moves and newly inserted groups. A coordinating query context owns
-the base reader and reuses each declaration's tail across point instants; it does not write either
+the base reader and reuses each declaration's tail across point instants. Increasing historical
+views with the same base extend one bounded-cache prefix instead of rereading overlapping tails.
+Each published tail owns its arrays, so reverse/repeated reads retain their original answers. A
+failed extension invalidates the mutable prefix before another view can reuse it. The query does not write either
 resource. Concurrent source or maintainer commits cannot change the pinned answer.
 
 The source commit computes each declaration's operands solely from the change log's already
@@ -157,11 +160,22 @@ in the same transaction being read after the operands are replaced. Empty revisi
 headers. Historical raw slabs without summary coverage decline safely.
 The packed operand layout is specified in [DISK_FORMAT.md](DISK_FORMAT.md#2-pages).
 
-Each query execution receives a fresh budget of 512 chunk fetches, 16,384 decoded endpoint/frequency
-units and 262,144 primitive cells, shared across its revisions and declarations even when the query
-context is reused. Budget-caused declines can be retried by a later execution; completed immutable
-tails remain reusable. Counts are charged before decoding; tail builders admit at most 4,096 groups.
-No bound is relaxed for a large operand. Counted read bounds are owned by the
+For backlogs larger than eight source publications, the maintainer alternates ordinary aggregate
+maintenance with batches of at most eight publications of summary folding. Smaller backlogs advance
+the aggregate base directly; an up-to-date base does not trigger redundant summary publications.
+Two adjacent, equally sized ranges combine into a binary range;
+children remain available for historical queries. Fold data, the fold frontier and the unchanged
+aggregate-base mapping publish in one derived commit. Every range carries its source publication
+identity, so a truncate/reissue cannot reuse another history's fold. This adds no source-commit work.
+
+A completely folded interval uses at most two ranges per revision bit (60 ranges for positive Java
+revision integers). The query reads any newer, not-yet-folded suffix from the original per-commit
+summaries. It always finishes combining valid summaries; the former execution-wide decode limits
+must not turn a later historical point into a source scan. A paused or slower maintainer can leave
+an arbitrarily long raw suffix: correctness is retained, but a constant latency bound cannot be
+promised while all maintenance is stopped. `foldNextSummaryBatch()` lets paused embedded operators
+fold summaries independently of advancing the aggregate base. Source operand size and unsupported
+value checks remain unchanged. Counted read bounds are owned by the
 [work-budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md).
 `TemporalAggregateSummaryLog.lastWrite()` reports the last declaration's summary groups,
 serialized bytes (including its header), and HOT slots separately from
@@ -169,7 +183,7 @@ serialized bytes (including its header), and HOT slots separately from
 `TemporalAggregateIndexes.lastSummaryWrite()` sums the declarations for the last logged source
 projection publication, for per-commit byte/slot reporting.
 
-The exact masked/scan route handles missing coverage, lag above 16, unsupported tail cells,
+The exact masked/scan route handles missing coverage, oversized source operands, unsupported tail cells,
 revert discontinuities, poisoned maintenance and unavailable derived snapshots. A previously
 validated snapshot remains exact for its immutable source view. The route never serves a stale
 summary. Declaration-free admission remains before any derived lookup.

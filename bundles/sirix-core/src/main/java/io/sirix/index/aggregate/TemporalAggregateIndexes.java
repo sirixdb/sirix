@@ -1,12 +1,17 @@
 package io.sirix.index.aggregate;
 
+import io.sirix.access.trx.node.AbstractResourceSession;
+import io.sirix.api.ResourceSession;
+import io.sirix.page.UberPage;
+
 import io.sirix.index.changelog.ChangeLogSlab;
 import io.sirix.index.changelog.ChangeLogGroupKey;
 import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
 import io.sirix.index.changelog.TemporalAggregateSummaryLog;
+import io.sirix.index.changelog.TemporalAggregateSummaryFolds;
+import java.util.function.BiConsumer;
 import io.sirix.index.changelog.TemporalAggregateSummaryLog.WriteWork;
 import io.sirix.index.changelog.ChangeLogStorage;
-import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.path.summary.PathSummaryReader;
 import java.util.function.LongFunction;
@@ -351,39 +356,155 @@ public final class TemporalAggregateIndexes {
     }
   }
 
-  /**
-   * Fold every compact group operand in the revision tail. Any missing coverage, discontinuous base,
-   * unsupported cell or exhausted budget aborts the entire route. Nothing is written to either
-   * resource.
-   */
+  /** Mutable prefix owned by one coordinating query thread; snapshots never borrow its arrays. */
+  public static final class CatchUpAccumulator {
+    private final ResourceSession<?, ?> session;
+    private final UberPage publication;
+    private final int maintained;
+    private final IndexDef definition;
+    private final TreeMap<byte[], TemporalAggregateParts.SummaryBuilder> builders =
+        new TreeMap<>(Arrays::compareUnsigned);
+    private @Nullable TemporalAggregateParts parts;
+    private int revision;
+    private boolean valid = true;
+
+    public CatchUpAccumulator(final StorageEngineReader source, final int maintained, final IndexDef definition) {
+      if (maintained < 1 || maintained > source.getRevisionNumber()) {
+        throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+      }
+      session = source.getResourceSession();
+      publication = source.getUberPage();
+      this.maintained = maintained;
+      this.definition = Objects.requireNonNull(definition);
+      revision = maintained;
+    }
+
+    @SuppressWarnings("ReferenceEquality") // A publication object distinguishes truncated/reissued histories.
+    public boolean matches(final StorageEngineReader source, final int base, final IndexDef requested) {
+      return valid && session == source.getResourceSession() && publication == source.getUberPage()
+          && maintained == base && revision <= source.getRevisionNumber() && definition.hasSameDefinition(requested);
+    }
+  }
+
+  /** Combine every complete operand in the tail; unsupported coverage aborts the whole result. */
   public static CatchUp catchUp(final StorageEngineReader source, final int maintained, final IndexDef definition,
       final IndexDef projection, final TemporalAggregateCatchUpBudget.Budget budget) {
-    final int target = source.getRevisionNumber();
-    if (maintained < 1 || maintained > target || target - maintained > DerivedIndexMaintainer.MAX_QUERY_LAG) {
-      throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+    if (maintained >= 1 && source.getRevisionNumber() - maintained == 1) {
+      return catchUpSingleRevision(source, definition, projection, budget);
     }
+    return catchUpIncrementally(source, maintained, definition, projection, budget,
+        new CatchUpAccumulator(source, maintained, definition));
+  }
+
+  /** One source publication already has unique, sorted groups and compact endpoints. */
+  private static CatchUp catchUpSingleRevision(final StorageEngineReader source, final IndexDef definition,
+      final IndexDef projection, final TemporalAggregateCatchUpBudget.Budget budget) {
     final ValidTimeConfig config =
         Objects.requireNonNull(source.getResourceSession().getResourceConfig().getValidTimeConfig());
     validate(definition, projection, config);
     final TemporalAggregateParts parts =
         new TemporalAggregateParts(definition.getTemporalAggregateSpec(), DOMAIN.height());
-    final TreeMap<byte[], TemporalAggregateParts.SummaryBuilder> builders = new TreeMap<>(Arrays::compareUnsigned);
-    for (int offset = 1; offset <= target - maintained; offset++) {
-      final int revision = maintained + offset;
-      try (var log =
-          new TemporalAggregateSummaryLog.Reader(source, projection.getID(), revision, definition.getID(), budget)) {
-        log.visit((key, operand) -> {
-          if (!builders.containsKey(key) && builders.size() >= 4096) {
-            throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+    final CatchUp result = new CatchUp(parts);
+    try (var log = new TemporalAggregateSummaryLog.Reader(source, projection.getID(), source.getRevisionNumber(),
+        definition.getID(), budget)) {
+      log.visit((key, operand) -> {
+        final TemporalAggregateParts.SummaryBuilder builder = parts.summaryBuilder();
+        builder.merge(operand, budget);
+        result.groups.put(key, builder.snapshotWithoutCompaction());
+      });
+    }
+    return result;
+  }
+
+  /** Extend a reusable prefix, avoiding quadratic rereads across historical points of one query. */
+  public static CatchUp catchUpIncrementally(final StorageEngineReader source, final int maintained,
+      final IndexDef definition, final IndexDef projection, final TemporalAggregateCatchUpBudget.Budget budget,
+      final CatchUpAccumulator accumulator) {
+    // Every folded range ends at an even revision and spans at least two publications.
+    // A single new operand (common across historical points) needs only its source log;
+    // opening another derived transaction cannot contribute a range in that case.
+    final int lastRangeEnd = source.getRevisionNumber() & ~1;
+    if (lastRangeEnd - accumulator.revision > 1
+        && source.getResourceSession() instanceof AbstractResourceSession<?, ?> session) {
+      final DerivedIndexMaintainer.Resource resource = session.getDerivedResource();
+      if (resource != null) {
+        try (StorageEngineReader folded = resource.openSummaryReader()) {
+          return combine(source, maintained, definition, projection, budget, folded, accumulator);
+        }
+      }
+    }
+    return combine(source, maintained, definition, projection, budget, null, accumulator);
+  }
+
+  public static CatchUp catchUp(final StorageEngineReader source, final int maintained, final IndexDef definition,
+      final IndexDef projection, final TemporalAggregateCatchUpBudget.Budget budget,
+      final @Nullable StorageEngineReader folded) {
+    return combine(source, maintained, definition, projection, budget, folded,
+        new CatchUpAccumulator(source, maintained, definition));
+  }
+
+  private static CatchUp combine(final StorageEngineReader source, final int maintained, final IndexDef definition,
+      final IndexDef projection, final TemporalAggregateCatchUpBudget.Budget budget,
+      final @Nullable StorageEngineReader folded, final CatchUpAccumulator accumulator) {
+    final int target = source.getRevisionNumber();
+    if (maintained < 1 || maintained > target) {
+      throw new TemporalAggregateCatchUpBudget.LimitExceeded();
+    }
+    final ValidTimeConfig config =
+        Objects.requireNonNull(source.getResourceSession().getResourceConfig().getValidTimeConfig());
+    validate(definition, projection, config);
+    if (!accumulator.matches(source, maintained, definition)) {
+      throw new IllegalArgumentException("Catch-up accumulator belongs to another publication, base or declaration");
+    }
+    // Any incomplete decode poisons the mutable prefix. Published CatchUp snapshots own their arrays.
+    accumulator.valid = false;
+    if (accumulator.parts == null) {
+      accumulator.parts = new TemporalAggregateParts(definition.getTemporalAggregateSpec(), DOMAIN.height());
+    }
+    final TemporalAggregateParts parts = accumulator.parts;
+    final TreeMap<byte[], TemporalAggregateParts.SummaryBuilder> builders = accumulator.builders;
+    final int combinedThrough = accumulator.revision;
+    final BiConsumer<byte[], byte[]> merge =
+        (key, operand) -> builders.computeIfAbsent(key, ignored -> parts.summaryBuilder()).mergeFolded(operand, budget);
+    try (var folds = folded == null
+        ? null
+        : new TemporalAggregateSummaryFolds.Reader(folded, budget)) {
+      int revision = target;
+      while (revision > combinedThrough) {
+        boolean combined = false;
+        if (folds != null) {
+          final int level = Math.min(Integer.numberOfTrailingZeros(revision),
+              31 - Integer.numberOfLeadingZeros(revision - combinedThrough));
+          for (int candidate = level; candidate > 0; candidate--) {
+            if (folds.visit(source, definition, revision, candidate, merge)) {
+              revision -= 1 << candidate;
+              combined = true;
+              break;
+            }
           }
-          builders.computeIfAbsent(key, ignored -> parts.summaryBuilder()).merge(operand, budget);
-        });
+        }
+        if (!combined) {
+          try (var log = new TemporalAggregateSummaryLog.Reader(source, projection.getID(), revision,
+              definition.getID(), budget)) {
+            log.visit(merge);
+          }
+          revision--;
+        }
       }
     }
     final CatchUp result = new CatchUp(parts);
-    for (final var group : builders.entrySet()) {
-      result.groups.put(group.getKey(), group.getValue().snapshot());
+    final var groups = builders.entrySet().iterator();
+    while (groups.hasNext()) {
+      final var group = groups.next();
+      final TemporalAggregateParts.Delta delta = group.getValue().snapshot();
+      if (delta.isEmpty()) {
+        groups.remove();
+      } else {
+        result.groups.put(group.getKey(), delta);
+      }
     }
+    accumulator.revision = target;
+    accumulator.valid = true;
     return result;
   }
 

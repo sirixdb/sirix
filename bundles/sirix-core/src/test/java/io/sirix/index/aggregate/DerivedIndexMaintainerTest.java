@@ -21,6 +21,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.changelog.ChangeLogSlab;
 import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
+import io.sirix.index.changelog.TemporalAggregateSummaryFolds;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -1165,6 +1166,39 @@ final class DerivedIndexMaintainerTest {
         }
         resource.drain();
         assertSum(session, 180, 180);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void smallPublicationsAdvanceTheBaseWithoutRedundantSummaryCommits(final VersioningType versioning) {
+    final var path = directory.toPath().resolve("small-publications");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        for (int revision = 1; revision <= 16; revision++) {
+          setNumber(writer, revision);
+          writer.commit();
+          await(resource, revision);
+        }
+        resource.pause();
+        assertNull(resource.failure());
+        assertSum(session, 16, 16);
+        try (StorageEngineReader source = session.createStorageEngineReader();
+            StorageEngineReader derived = resource.openSummaryReader()) {
+          assertEquals(0, TemporalAggregateSummaryFolds.frontier(derived, source),
+              "A caught-up base needs no duplicate summary publications");
+        }
       }
     }
   }

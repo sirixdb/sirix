@@ -122,14 +122,62 @@ record DerivedRevisionMapping(int sourceRevision, int indexRevision, int project
 
   /** A bounded floor lookup never decodes mappings newer than the requested source view. */
   static @Nullable DerivedRevisionMapping floor(final StorageEngineReader reader, final int revision, final int lag) {
-    if (revision < 1 || lag < 0 || lag > DerivedIndexMaintainer.MAX_QUERY_LAG) {
+    if (revision < 1 || lag < 0) {
       throw new IllegalArgumentException("Invalid derived mapping window");
     }
-    final List<DerivedRevisionMapping> window =
-        readRange(reader, key(Math.max(1, revision - lag)), key(revision), lag + 1);
+    int lower = Math.max(1, revision - lag);
+    int upper = revision;
+    if (upper - lower > 16) {
+      final PageReference root =
+          reader.getTemporalAggregateIndexPage(reader.getActualRevisionRootPage()).getIndexReference(0);
+      if (root == null) {
+        return null;
+      }
+      try (HOTTrieReader trie = new HOTTrieReader(reader)) {
+        if (!containsMapping(trie, root, lower, upper)) {
+          return null;
+        }
+        // A wide empty suffix must not turn the first nonempty window into a history scan.
+        // Probe only keys until at most seventeen candidate mappings remain to decode.
+        while (upper - lower > 16) {
+          final int middle = lower + (upper - lower) / 2 + 1;
+          if (containsMapping(trie, root, middle, upper)) {
+            lower = middle;
+          } else {
+            upper = middle - 1;
+          }
+        }
+      }
+    }
+    final List<DerivedRevisionMapping> window = readRange(reader, key(lower), key(upper), upper - lower + 1);
     return window.isEmpty()
         ? null
         : window.getLast();
+  }
+
+  /** Exponentially seek older windows; a long unmaintained suffix never causes a route decline. */
+  static @Nullable DerivedRevisionMapping floor(final StorageEngineReader reader, final int revision) {
+    if (revision < 1) {
+      throw new IllegalArgumentException("Invalid derived mapping revision");
+    }
+    int end = revision;
+    int width = 16;
+    while (end > 0) {
+      final DerivedRevisionMapping result = floor(reader, end, Math.min(end - 1, width - 1));
+      if (result != null) {
+        return result;
+      }
+      end = Math.max(0, end - width);
+      width = (int) Math.min(Integer.MAX_VALUE, 2L * width);
+    }
+    return null;
+  }
+
+  private static boolean containsMapping(final HOTTrieReader trie, final PageReference root, final int lower,
+      final int upper) {
+    try (HOTRangeCursor cursor = trie.range(root, key(lower), key(upper))) {
+      return cursor.hasNext();
+    }
   }
 
   private static List<DerivedRevisionMapping> readRange(final StorageEngineReader reader, final byte[] lower,

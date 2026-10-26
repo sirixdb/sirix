@@ -266,6 +266,11 @@ final class TemporalAggregateDerivedLagTest {
       }
       final JsonDBStore borrowedStore = mock(JsonDBStore.class, delegatesTo(store));
       doNothing().when(borrowedStore).close();
+      if (storeChildCount) {
+        while (resource.foldNextSummaryBatch()) {
+          assertEquals(0, resource.maintainedRevision());
+        }
+      }
       do {
         try (var fresh = SirixQueryContext.createWithJsonStore(borrowedStore)) {
           assertHistory(chain, fresh, session, history);
@@ -333,8 +338,7 @@ final class TemporalAggregateDerivedLagTest {
           StorageEngineReader derived = session.openDerivedIndexReader(source)) {
         final int frontier =
             Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource()).maintainedRevision();
-        if (derived == null
-            && (frontier == 0 || revision - frontier > DerivedIndexMaintainer.MAX_QUERY_LAG || revision == 20)) {
+        if (derived == null && (frontier == 0 || revision == 20)) {
           assertEquals(served, TemporalAggregateRoute.servedCount(), "Uncovered or discontinuous tails must decline");
         } else {
           assertEquals(served + 1, TemporalAggregateRoute.servedCount(),

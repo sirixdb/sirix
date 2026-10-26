@@ -242,6 +242,15 @@ public final class TemporalAggregateParts {
       if (limit < 16 || limit > 4096) {
         throw new IllegalArgumentException("Invalid summary byte limit");
       }
+      return encodeSummary(limit);
+    }
+
+    /** Maintainer-owned folds are chunked by their store, independently of source operand limits. */
+    public byte[] encodeFolded() {
+      return Objects.requireNonNull(encodeSummary(Integer.MAX_VALUE));
+    }
+
+    private byte @Nullable [] encodeSummary(final int limit) {
       if (oversized) {
         return null;
       }
@@ -283,6 +292,11 @@ public final class TemporalAggregateParts {
       if (encoded.length == 0 || encoded.length > 4096) {
         throw new TemporalAggregateCatchUpBudget.LimitExceeded();
       }
+      mergeFolded(encoded, budget);
+    }
+
+    /** Decode a folded operand with the same exact arithmetic as a source operand. */
+    public void mergeFolded(final byte[] encoded, final TemporalAggregateCatchUpBudget.Budget budget) {
       final ByteBuffer in = ByteBuffer.wrap(encoded);
       final int points = boundedUnsigned(in, encoded.length);
       final int values = boundedUnsigned(in, encoded.length);
@@ -322,6 +336,12 @@ public final class TemporalAggregateParts {
     }
 
     public Delta snapshot() {
+      endpoints.values().removeIf(sums -> allZero(sums.data));
+      return snapshotWithoutCompaction();
+    }
+
+    /** A single decoded source operand was compacted before publication; no merge can cancel it. */
+    Delta snapshotWithoutCompaction() {
       if (oversized) {
         throw new TemporalAggregateCatchUpBudget.LimitExceeded();
       }
@@ -1106,6 +1126,18 @@ public final class TemporalAggregateParts {
     private final long[] coordinates;
     private final Sums[] prefixes;
     private final long[][] intervals;
+
+    public boolean isEmpty() {
+      if (coordinates.length != 0) {
+        return false;
+      }
+      for (final long[] lane : intervals) {
+        if (lane != null) {
+          return false;
+        }
+      }
+      return true;
+    }
 
     private Delta(final SummaryBuilder builder) {
       coordinates = builder.endpoints.keySet().toLongArray();
