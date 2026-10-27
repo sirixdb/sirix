@@ -31,6 +31,7 @@ import java.util.Objects;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 import org.roaringbitmap.RelativeRangeConsumer;
+import org.roaringbitmap.longlong.LongConsumer;
 import java.util.function.LongFunction;
 
 public final class ValidTimeIntervalIndex {
@@ -38,6 +39,16 @@ public final class ValidTimeIntervalIndex {
     private static final boolean SCAN_DIAGNOSTICS = HotOrderedStore.scanDiagnosticsEnabled();
     private static final LongAdder CANDIDATE_WORDS_VISITED = new LongAdder();
     private static final LongAdder CANDIDATE_BITMAPS_CREATED = new LongAdder();
+    private static final LongAdder RUN_MERGES = new LongAdder();
+    private static final LongAdder RUN_KEYS_MERGED = new LongAdder();
+  }
+
+  public static long runMerges() {
+    return Diagnostics.RUN_MERGES.sum();
+  }
+
+  public static long runKeysMerged() {
+    return Diagnostics.RUN_KEYS_MERGED.sum();
   }
 
   public static long candidateWordsVisited() {
@@ -108,7 +119,7 @@ public final class ValidTimeIntervalIndex {
     if (!new IntervalDomain().isExact(instant)) {
       return null;
     }
-    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, null, definition.getID());
+    return new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd, null, definition.getID(), true);
   }
 
   /**
@@ -294,7 +305,7 @@ public final class ValidTimeIntervalIndex {
     return !(document instanceof AbstractJsonDBArray<?>) || document instanceof JsonDBArray;
   }
 
-  /** Intersect compressed runs before expansion; every candidate is emitted once in key order. */
+  /** Filter chunk keys against companion masks; emit every candidate once in key order. */
   static Evidence candidates(final JsonDBItem document, final Instant instant, final boolean strictStart,
       final boolean strictEnd, final int indexId) {
     final IntervalDomain domain = new IntervalDomain();
@@ -350,7 +361,7 @@ public final class ValidTimeIntervalIndex {
         : Arrays.copyOf(sorted, count);
   }
 
-  static final class ChunkCandidates implements PostingChunkConsumer, RelativeRangeConsumer {
+  static final class ChunkCandidates implements PostingChunkConsumer, RelativeRangeConsumer, LongConsumer {
     private static final int WORDS = 1024;
     // An eight-byte run key and an eight-byte bitmap word break even at 1024 matches.
     private static final int DENSE_THRESHOLD = WORDS;
@@ -361,23 +372,30 @@ public final class ValidTimeIntervalIndex {
     private long[] chunkBases = new long[8];
     private Chunk[] chunkValues = new Chunk[8];
     private int chunkCount;
+    private int lastChunkIndex;
     private final RunBuffer runKeys = new RunBuffer();
     private final long[] scratch = new long[WORDS];
     private final int[] touchedWords = new int[WORDS];
     private int touchedCount;
     private boolean hasCandidates;
     private final long[] wordGroups = new long[WORDS / Long.SIZE];
+    // Per-key selection state while a bitmap-encoded chunk streams through {@link #accept(long)}.
+    private @Nullable Chunk streamChunk;
+    private long streamBase;
+    private boolean streamVerifyOnly;
+    private int streamAdded;
+    private int streamLastWord;
+    private int streamWords;
+    private int streamPosition;
 
     private static final class RunBuffer {
       private static final long[] EMPTY = new long[0];
       private long[] keys = EMPTY;
       private int size;
 
-      private void appendWord(final long prefix, long bits) {
-        if (bits == 0) {
-          return;
-        }
-        final int required = Math.addExact(size, Long.bitCount(bits));
+      /** Room for {@code extra} more keys, growing geometrically. */
+      private void ensureCapacity(final int extra) {
+        final int required = Math.addExact(size, extra);
         if (required > keys.length) {
           final long capacity = Math.max(16L, Math.max(required, (long) keys.length + (keys.length >> 1)));
           final int boundedCapacity = (int) Math.min(Integer.MAX_VALUE - 8L, capacity);
@@ -386,6 +404,13 @@ public final class ValidTimeIntervalIndex {
           }
           keys = Arrays.copyOf(keys, boundedCapacity);
         }
+      }
+
+      private void appendWord(final long prefix, long bits) {
+        if (bits == 0) {
+          return;
+        }
+        ensureCapacity(Long.bitCount(bits));
         final long[] output = keys;
         int position = size;
         while (bits != 0) {
@@ -493,8 +518,18 @@ public final class ValidTimeIntervalIndex {
     public void acceptAllAbsent(final int relativeFrom, final int relativeTo) {}
 
     private Chunk chunk(final long base) {
+      // Consecutive chunks of a logical key ascend, so the previous or next slot usually hits.
+      final int last = lastChunkIndex;
+      if (last < chunkCount && chunkBases[last] == base) {
+        return chunkValues[last];
+      }
+      if (last + 1 < chunkCount && chunkBases[last + 1] == base) {
+        lastChunkIndex = last + 1;
+        return chunkValues[last + 1];
+      }
       final int index = Arrays.binarySearch(chunkBases, 0, chunkCount, base);
       if (index >= 0) {
+        lastChunkIndex = index;
         return chunkValues[index];
       }
       final Chunk chunk = new Chunk(membership.apply(base));
@@ -508,6 +543,7 @@ public final class ValidTimeIntervalIndex {
       chunkBases[insert] = base;
       chunkValues[insert] = chunk;
       chunkCount++;
+      lastChunkIndex = insert;
       return chunk;
     }
 
@@ -523,98 +559,245 @@ public final class ValidTimeIntervalIndex {
       if (!references.hasNodeKeys()) {
         return;
       }
+      final long[] sorted = references.sortedKeysOrNull();
+      if (sorted != null) {
+        acceptSorted(base, sorted, sorted.length, verifyOnly);
+        return;
+      }
       final Chunk chunk = chunk(base);
       if (chunk.membership.isEmpty()) {
         return;
       }
-      collect(references);
-      try {
-        if (Diagnostics.SCAN_DIAGNOSTICS) {
-          Diagnostics.CANDIDATE_WORDS_VISITED.add(touchedCount);
-        }
-        int count = 0;
-        final long[] selected = chunk.selected;
-        for (int index = 0; index < touchedCount; index++) {
-          final int word = touchedWords[index];
-          long bits = scratch[word] & chunk.membership.word(word);
-          if (bits != 0) {
-            if (chunk.unverified == null) {
-              chunk.unverified = verification.apply(base);
-            }
-            if (verifyOnly) {
-              if (Diagnostics.SCAN_DIAGNOSTICS) {
-                Diagnostics.CANDIDATE_WORDS_VISITED.increment();
-              }
-              bits &= chunk.unverified.word(word);
-            }
-          }
-          scratch[word] = bits;
-          if (selected == null) {
-            count += Long.bitCount(bits);
-          } else {
-            count += Long.bitCount(bits & ~selected[word]);
-            selected[word] |= bits;
-          }
-        }
-        if (count == 0) {
-          return;
-        }
-        hasCandidates = true;
-        if (selected != null) {
-          chunk.count += count;
-          return;
-        }
-        if (chunk.first == null && count >= DENSE_THRESHOLD) {
-          if (Diagnostics.SCAN_DIAGNOSTICS) {
-            Diagnostics.CANDIDATE_BITMAPS_CREATED.increment();
-          }
-          chunk.selected = scratch.clone();
-          chunk.count = count;
-          return;
-        }
-        final int start = runKeys.size;
-        for (int index = 0; index < touchedCount; index++) {
-          final int word = touchedWords[index];
-          runKeys.appendWord(base | ((long) word << 6), scratch[word]);
-        }
-        final Run run = new Run(start, runKeys.size);
-        if (chunk.last == null) {
-          chunk.first = run;
-        } else {
-          chunk.last.next = run;
-        }
-        chunk.last = run;
-        chunk.count += count;
-        if (chunk.count >= DENSE_THRESHOLD) {
-          resetScratch();
-          final int groups = mergeRuns(chunk);
-          int unique = 0;
-          for (int remaining = groups; remaining != 0; remaining &= remaining - 1) {
-            final int group = Integer.numberOfTrailingZeros(remaining);
-            for (long words = wordGroups[group]; words != 0; words &= words - 1) {
-              final int word = (group << 6) | Long.numberOfTrailingZeros(words);
-              unique += Long.bitCount(scratch[word]);
-            }
-          }
-          if (unique >= DENSE_THRESHOLD) {
-            if (Diagnostics.SCAN_DIAGNOSTICS) {
-              Diagnostics.CANDIDATE_BITMAPS_CREATED.increment();
-            }
-            chunk.selected = scratch.clone();
-            chunk.first = null;
-            chunk.last = null;
-          } else {
-            final int unionStart = runKeys.size;
-            emitWords(base, groups);
-            chunk.first = new Run(unionStart, runKeys.size);
-            chunk.last = chunk.first;
-          }
-          chunk.count = unique;
-          clearWordGroups(groups);
-        }
-      } finally {
-        resetScratch();
+      // A bitmap-encoded chunk streams key by key through the library's callback into the same
+      // single-pass selection as a sorted run; only strict-start removal still marks scratch.
+      streamChunk = chunk;
+      streamBase = base;
+      streamVerifyOnly = verifyOnly;
+      streamAdded = 0;
+      streamLastWord = -1;
+      streamWords = 0;
+      if (chunk.selected == null) {
+        runKeys.ensureCapacity((int) Math.min(WORDS << 6, references.cardinality()));
       }
+      final int start = runKeys.size;
+      streamPosition = start;
+      references.getNodeKeys().forEach(this);
+      streamChunk = null;
+      if (Diagnostics.SCAN_DIAGNOSTICS) {
+        Diagnostics.CANDIDATE_WORDS_VISITED.add(streamWords);
+      }
+      final int added = streamAdded;
+      if (added == 0) {
+        return;
+      }
+      hasCandidates = true;
+      if (chunk.selected != null) {
+        chunk.count += added;
+        return;
+      }
+      if (chunk.first == null && added >= DENSE_THRESHOLD) {
+        promoteRun(chunk, runKeys.keys, start, streamPosition, added);
+        return;
+      }
+      runKeys.size = streamPosition;
+      linkRun(chunk, base, start, added);
+    }
+
+    /**
+     * One streamed key of a bitmap-encoded chunk; see {@link #accept(long, NodeReferences, boolean)}.
+     */
+    @Override
+    public void accept(final long streamed) {
+      final Chunk chunk = Objects.requireNonNull(streamChunk);
+      final int key = (int) streamed;
+      final int word = key >>> 6;
+      if (word != streamLastWord) {
+        streamWords++;
+        streamLastWord = word;
+      }
+      final long bit = 1L << key;
+      if ((chunk.membership.word(word) & bit) == 0) {
+        return;
+      }
+      PostingMask unverified = chunk.unverified;
+      if (unverified == null) {
+        unverified = verification.apply(streamBase);
+        chunk.unverified = unverified;
+      }
+      if (streamVerifyOnly) {
+        if (Diagnostics.SCAN_DIAGNOSTICS) {
+          Diagnostics.CANDIDATE_WORDS_VISITED.increment();
+        }
+        if ((unverified.word(word) & bit) == 0) {
+          return;
+        }
+      }
+      final long[] selected = chunk.selected;
+      if (selected == null) {
+        runKeys.keys[streamPosition++] = streamBase | key;
+        streamAdded++;
+      } else if ((selected[word] & bit) == 0) {
+        selected[word] |= bit;
+        streamAdded++;
+      }
+    }
+
+    /**
+     * One pass over a compact ascending run: membership (and, for a tied end, verification) is tested
+     * per key against the immutable masks, candidates go straight into the chunk's bitmap or run. This
+     * compact path avoids scratch marking, touched-word bookkeeping and reset; bitmap-backed chunks use
+     * {@link #accept(long, NodeReferences, boolean)} instead.
+     */
+    @Override
+    public void acceptSorted(final long base, final long[] keys, final int count, final boolean verifyOnly) {
+      if (count == 0) {
+        return;
+      }
+      final Chunk chunk = chunk(base);
+      final PostingMask membership = chunk.membership;
+      if (membership.isEmpty()) {
+        return;
+      }
+      final long[] selected = chunk.selected;
+      int lastWord = -1;
+      int wordsVisited = 0;
+      int added = 0;
+      if (selected == null) {
+        runKeys.ensureCapacity(count);
+      }
+      final long[] output = runKeys.keys;
+      int position = runKeys.size;
+      for (int index = 0; index < count; index++) {
+        final int key = (int) keys[index];
+        final int word = key >>> 6;
+        if (word != lastWord) {
+          wordsVisited++;
+          lastWord = word;
+        }
+        final long bit = 1L << key;
+        if ((membership.word(word) & bit) == 0) {
+          continue;
+        }
+        PostingMask unverified = chunk.unverified;
+        if (unverified == null) {
+          unverified = verification.apply(base);
+          chunk.unverified = unverified;
+        }
+        if (verifyOnly) {
+          if (Diagnostics.SCAN_DIAGNOSTICS) {
+            Diagnostics.CANDIDATE_WORDS_VISITED.increment();
+          }
+          if ((unverified.word(word) & bit) == 0) {
+            continue;
+          }
+        }
+        if (selected == null) {
+          output[position++] = base | key;
+          added++;
+        } else if ((selected[word] & bit) == 0) {
+          selected[word] |= bit;
+          added++;
+        }
+      }
+      if (Diagnostics.SCAN_DIAGNOSTICS) {
+        Diagnostics.CANDIDATE_WORDS_VISITED.add(wordsVisited);
+      }
+      if (added == 0) {
+        return;
+      }
+      hasCandidates = true;
+      if (selected != null) {
+        chunk.count += added;
+        return;
+      }
+      final int start = runKeys.size;
+      if (chunk.first == null && added >= DENSE_THRESHOLD) {
+        // A first run is unique by construction: promote straight from it without a merge.
+        promoteRun(chunk, output, start, position, added);
+        return;
+      }
+      runKeys.size = position;
+      linkRun(chunk, base, start, added);
+    }
+
+    /** Turn one ascending run (already in the buffer, not yet linked) into the chunk's bitmap. */
+    private void promoteRun(final Chunk chunk, final long[] run, final int start, final int limit, final int added) {
+      if (Diagnostics.SCAN_DIAGNOSTICS) {
+        Diagnostics.CANDIDATE_BITMAPS_CREATED.increment();
+      }
+      final long[] selected = new long[WORDS];
+      for (int index = start; index < limit; index++) {
+        final long key = run[index];
+        selected[(int) ((key & 0xFFFFL) >>> 6)] |= 1L << key;
+      }
+      chunk.selected = selected;
+      chunk.count = added;
+    }
+
+    /** Append a run of {@code count} fresh candidates and promote the chunk once it is dense. */
+    private void linkRun(final Chunk chunk, final long base, final int start, final int count) {
+      final Run run = new Run(start, runKeys.size);
+      if (chunk.last == null) {
+        chunk.first = run;
+      } else {
+        chunk.last.next = run;
+      }
+      chunk.last = run;
+      chunk.count += count;
+      if (chunk.count >= DENSE_THRESHOLD) {
+        promoteOrUnion(chunk, base);
+      }
+    }
+
+    /**
+     * A chunk whose runs hold at least {@link #DENSE_THRESHOLD} keys: OR every run into the scratch
+     * words in one plain pass, count the unique keys, and either keep the bitmap or re-emit the union
+     * as a single run. The chunk is dense enough that scanning all 1024 words is proportional to its
+     * keys, so no occupied-word bookkeeping is needed here.
+     */
+    private void promoteOrUnion(final Chunk chunk, final long base) {
+      final long[] words = scratch; // all zero between accepts
+      final long[] source = runKeys.keys;
+      for (Run run = chunk.first; run != null; run = run.next) {
+        if (Diagnostics.SCAN_DIAGNOSTICS) {
+          Diagnostics.RUN_KEYS_MERGED.add(run.limit - run.position);
+        }
+        for (int index = run.position; index < run.limit; index++) {
+          final long key = source[index];
+          words[(int) ((key & 0xFFFFL) >>> 6)] |= 1L << key;
+        }
+      }
+      int unique = 0;
+      int occupied = 0;
+      for (int word = 0; word < WORDS; word++) {
+        final long bits = words[word];
+        if (bits != 0) {
+          occupied++;
+          unique += Long.bitCount(bits);
+        }
+      }
+      if (Diagnostics.SCAN_DIAGNOSTICS) {
+        Diagnostics.RUN_MERGES.increment();
+        Diagnostics.CANDIDATE_WORDS_VISITED.add(occupied);
+      }
+      if (unique >= DENSE_THRESHOLD) {
+        if (Diagnostics.SCAN_DIAGNOSTICS) {
+          Diagnostics.CANDIDATE_BITMAPS_CREATED.increment();
+        }
+        chunk.selected = words.clone();
+        chunk.first = null;
+        chunk.last = null;
+      } else {
+        // Duplicate references kept the chunk sparse: one union run replaces the list.
+        final int unionStart = runKeys.size;
+        for (int word = 0; word < WORDS; word++) {
+          runKeys.appendWord(base | ((long) word << 6), words[word]);
+        }
+        chunk.first = new Run(unionStart, runKeys.size);
+        chunk.last = chunk.first;
+      }
+      chunk.count = unique;
+      Arrays.fill(words, 0L);
     }
 
     void removeExactStarts(final long base, final NodeReferences references, final boolean ignored) {
@@ -741,9 +924,13 @@ public final class ValidTimeIntervalIndex {
     private int mergeRuns(final Chunk chunk) {
       int groups = 0;
       for (Run run = chunk.first; run != null; run = run.next) {
+        if (Diagnostics.SCAN_DIAGNOSTICS) {
+          Diagnostics.RUN_KEYS_MERGED.add(run.limit - run.position);
+        }
         groups = mergeRunWords(run, runKeys.keys, wordGroups, groups);
       }
       if (Diagnostics.SCAN_DIAGNOSTICS) {
+        Diagnostics.RUN_MERGES.increment();
         for (int remaining = groups; remaining != 0; remaining &= remaining - 1) {
           Diagnostics.CANDIDATE_WORDS_VISITED.add(Long.bitCount(wordGroups[Integer.numberOfTrailingZeros(remaining)]));
         }

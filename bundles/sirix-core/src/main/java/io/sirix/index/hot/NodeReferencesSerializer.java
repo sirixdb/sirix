@@ -1031,6 +1031,26 @@ public final class NodeReferencesSerializer {
       return true;
     }
 
+    /** Whether the accumulated chunk is still a compact ascending run rather than a spilled bitmap. */
+    public boolean isCompact() {
+      return bitmap == null;
+    }
+
+    /** Number of keys in the compact run; meaningful only while {@link #isCompact()}. */
+    public int compactCount() {
+      return count;
+    }
+
+    /**
+     * The live compact run while {@link #isCompact()}, valid up to {@link #compactCount()} until the
+     * next add or reset. Callers consume it in place instead of paying
+     * {@link #toNodeReferencesAndReset}'s copy, order re-check and object per chunk; they must not
+     * retain the array.
+     */
+    public long[] compactKeys() {
+      return keys;
+    }
+
     /**
      * Emit the accumulated result — compact for small packed lists, otherwise bitmap-backed — and reset
      * for reuse. {@code null} when nothing live was accumulated.

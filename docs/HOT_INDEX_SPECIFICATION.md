@@ -1775,8 +1775,8 @@ if !ok: re-resolve the PageReference and redo (slot indices stay valid: content 
   only called `clearPath()` and its Javadoc claimed "neither the cursor nor the reader pins leaves",
   which was false in guarded mode: the guard survived until `HOTTrieReader.close()`. A cursor whose
   `descendToFirstEntry` throws now closes itself before rethrowing (`hot/reader/HOTRangeCursor.java:148-153`).
-  All production users still close both (`hot/AbstractHOTIndexReader.java:896-911`; try-with-resources
-  in `proj/ProjectionIndexHOTStorage.java`).
+  A borrowed reader can therefore survive cursor close for reuse; the valid-time store's ownership
+  contract is documented in [`HotOrderedStore`](../bundles/sirix-core/src/main/java/io/sirix/index/interval/HotOrderedStore.java).
 - `FrameReusedException` is not caught explicitly on the HOT read path; as a `RuntimeException` it falls
   into the validate-then-retry-or-rethrow handling (`cache/FrameReusedException.java:6-14`).
 

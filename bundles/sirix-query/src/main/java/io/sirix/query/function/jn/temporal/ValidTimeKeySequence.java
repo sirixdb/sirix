@@ -31,12 +31,21 @@ final class ValidTimeKeySequence extends AbstractSequence {
   private final @Nullable ValidTimeResidual residual;
   private final int indexId;
   private final boolean exactPoint;
+  /** The caller proved the array an exact cohort, so a half-open exact point is exact from keys. */
+  private final boolean provenExact;
   private @Nullable Evidence evidence;
   private volatile long @Nullable [] candidates;
 
   ValidTimeKeySequence(final JsonDBItem document, final Instant instant, final ValidTimeConfig config,
       final boolean strictStart, final boolean strictEnd, final @Nullable ValidTimeResidual residual,
       final int indexId) {
+    this(document, instant, config, strictStart, strictEnd, residual, indexId, false);
+  }
+
+  ValidTimeKeySequence(final JsonDBItem document, final Instant instant, final ValidTimeConfig config,
+      final boolean strictStart, final boolean strictEnd, final @Nullable ValidTimeResidual residual, final int indexId,
+      final boolean provenExact) {
+    this.provenExact = provenExact;
     this.document = document;
     this.instant = instant;
     this.config = config;
@@ -59,7 +68,7 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   ValidTimeKeySequence withResidual(final ValidTimeResidual comparison) {
     final ValidTimeKeySequence verified = new ValidTimeKeySequence(document, instant, config, strictStart, strictEnd,
-        Objects.requireNonNull(comparison), indexId);
+        Objects.requireNonNull(comparison), indexId, provenExact);
     verified.evidence = evidence;
     verified.candidates = candidates;
     return verified;
@@ -67,7 +76,11 @@ final class ValidTimeKeySequence extends AbstractSequence {
 
   private long[] candidates() {
     if (candidates == null) {
-      evidence = ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId);
+      // A proven-exact cohort at an exact half-open point is the one-stab key route the primitive
+      // key request already takes: no end-equal chunk and no verification mask is read.
+      evidence = provenExact && exactPoint && strictEnd && !strictStart
+          ? new Evidence(ValidTimeIntervalIndex.exactCohortMembers(document, instant, indexId), new Roaring64Bitmap())
+          : ValidTimeIntervalIndex.candidates(document, instant, strictStart, strictEnd, indexId);
       candidates = evidence.members();
     }
     return candidates;

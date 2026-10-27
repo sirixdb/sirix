@@ -83,6 +83,14 @@ public final class HotOrderedStore implements OrderedStore {
   private final byte store;
   private final @Nullable HOTIndexWriter<ValidTimeKey> writer;
   private final @Nullable HOTIndexReader<ValidTimeKey> reader;
+  /**
+   * One trie reader per store instance, reused by every chunk walk. A stab issues one range walk per
+   * virtual-tree level and a membership probe per touched chunk; constructing a reader (its traversal
+   * path arrays, guard state) for each of them was fixed per-level work. A walk ends with
+   * {@link HOTTrieReader#endWalk()}, after which the reader is reusable, and a store instance is
+   * bound to one transaction and used sequentially, exactly like the reader it wraps.
+   */
+  private @Nullable HOTTrieReader trie;
 
   /**
    * @param store the interval or evidence discriminator defined by {@link ValidTimeKey}
@@ -131,6 +139,15 @@ public final class HotOrderedStore implements OrderedStore {
         exclusiveEnd, out);
   }
 
+  private HOTTrieReader trie(final HOTIndexReader<ValidTimeKey> r) {
+    HOTTrieReader t = trie;
+    if (t == null) {
+      t = new HOTTrieReader(r.getStorageEngineReader());
+      trie = t;
+    }
+    return t;
+  }
+
   private void walkChunks(final ValidTimeKey lower, final ValidTimeKey upper, final long exclusiveEnd,
       final PostingChunkConsumer out) {
     final HOTIndexReader<ValidTimeKey> r = requireNonNull(reader);
@@ -142,21 +159,40 @@ public final class HotOrderedStore implements OrderedStore {
     final byte[] to = new byte[from.length];
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(lower, 0, from, 0);
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(upper, -1, to, 0);
-    try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, from, to)) {
+    try (final PostingChunkCursor chunks = new PostingChunkCursor(trie(r), root, from, to)) {
       while (chunks.hasNext()) {
-        final NodeReferences refs = chunks.next(false);
+        chunks.load(false);
+        final boolean verifyOnly = exclusiveEnd >= 0 && chunks.endpoint() == exclusiveEnd;
+        if (chunks.isCompact()) {
+          // The common shape: a run of at most 512 ascending chunk-local keys handed over in place.
+          final int count = chunks.compactCount();
+          if (count == 0) {
+            continue;
+          }
+          if (SCAN_DIAGNOSTICS) {
+            countEmitted(count);
+          }
+          out.acceptSorted(chunks.chunkBase(), chunks.compactKeys(), count, verifyOnly);
+          chunks.resetAccumulator();
+          continue;
+        }
+        final NodeReferences refs = chunks.takeReferences();
         if (refs == null) {
           continue;
         }
         if (SCAN_DIAGNOSTICS) {
-          if (store == ValidTimeKey.STORE_LOWER || store == ValidTimeKey.STORE_UPPER) {
-            INTERVAL_REFS_EMITTED.add(refs.cardinality());
-          } else {
-            POSTING_REFS_EMITTED.add(refs.cardinality());
-          }
+          countEmitted(refs.cardinality());
         }
-        out.accept(chunks.chunkBase(), refs, exclusiveEnd >= 0 && chunks.endpoint() == exclusiveEnd);
+        out.accept(chunks.chunkBase(), refs, verifyOnly);
       }
+    }
+  }
+
+  private void countEmitted(final long count) {
+    if (store == ValidTimeKey.STORE_LOWER || store == ValidTimeKey.STORE_UPPER) {
+      INTERVAL_REFS_EMITTED.add(count);
+    } else {
+      POSTING_REFS_EMITTED.add(count);
     }
   }
 
@@ -180,7 +216,7 @@ public final class HotOrderedStore implements OrderedStore {
     if (root == null) {
       return null;
     }
-    try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, key, key)) {
+    try (final PostingChunkCursor chunks = new PostingChunkCursor(trie(r), root, key, key)) {
       return chunks.hasNext()
           ? chunks.next(true)
           : null;
@@ -223,7 +259,7 @@ public final class HotOrderedStore implements OrderedStore {
     final byte[] to = new byte[from.length];
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, 0, from, 0);
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, -1, to, 0);
-    try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, from, to)) {
+    try (final PostingChunkCursor chunks = new PostingChunkCursor(trie(r), root, from, to)) {
       while (chunks.hasNext()) {
         final NodeReferences refs = chunks.next(true);
         if (refs == null) {
@@ -253,7 +289,7 @@ public final class HotOrderedStore implements OrderedStore {
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, 0, from, 0);
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(key, -1, to, 0);
     long count = 0;
-    try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, from, to)) {
+    try (final PostingChunkCursor chunks = new PostingChunkCursor(trie(r), root, from, to)) {
       while (chunks.hasNext()) {
         final NodeReferences refs = chunks.next(true);
         if (refs != null) {
@@ -267,7 +303,11 @@ public final class HotOrderedStore implements OrderedStore {
     }
   }
 
-  /** Reads one bounded chunk at a time, including its chronological deltas and side payload. */
+  /**
+   * Reads one bounded chunk at a time, including its chronological deltas and side payload. The trie
+   * reader is borrowed from the owning store; closing the cursor ends its walk, which leaves the
+   * reader reusable.
+   */
   private static final class PostingChunkCursor implements AutoCloseable {
     private static final int COMPOSITE_BYTES = ValidTimeKeySerializer.KEY_BYTES + HOTKeySerializer.CHUNK_IDX_BYTES;
     private final HOTTrieReader trie;
@@ -276,9 +316,8 @@ public final class HotOrderedStore implements OrderedStore {
     private final ChunkAccumulator accumulator = ChunkAccumulator.forChunkLookup();
     private long chunkBase;
 
-    private PostingChunkCursor(final HOTIndexReader<ValidTimeKey> reader, final PageReference root, final byte[] from,
-        final byte[] to) {
-      trie = new HOTTrieReader(reader.getStorageEngineReader());
+    private PostingChunkCursor(final HOTTrieReader trie, final PageReference root, final byte[] from, final byte[] to) {
+      this.trie = trie;
       composite = Arrays.copyOf(from, COMPOSITE_BYTES);
       // A point bound ending at the base excludes every suffix delta. Include the complete
       // suffix domain of the last chunk without admitting the next chunk or logical key.
@@ -287,7 +326,7 @@ public final class HotOrderedStore implements OrderedStore {
       try {
         cursor = trie.range(root, from, upper);
       } catch (RuntimeException | Error e) {
-        trie.close();
+        trie.endWalk();
         throw e;
       }
     }
@@ -306,6 +345,33 @@ public final class HotOrderedStore implements OrderedStore {
     }
 
     private @Nullable NodeReferences next(final boolean countPostingChunk) {
+      load(countPostingChunk);
+      return takeReferences();
+    }
+
+    /** Whether the loaded chunk is a compact ascending run readable through {@link #compactKeys()}. */
+    private boolean isCompact() {
+      return accumulator.isCompact();
+    }
+
+    private int compactCount() {
+      return accumulator.compactCount();
+    }
+
+    private long[] compactKeys() {
+      return accumulator.compactKeys();
+    }
+
+    private void resetAccumulator() {
+      accumulator.reset();
+    }
+
+    private @Nullable NodeReferences takeReferences() {
+      return accumulator.toNodeReferencesAndReset();
+    }
+
+    /** Position at the next chunk and accumulate its base slot, deltas and side payload. */
+    private void load(final boolean countPostingChunk) {
       positionAtChunk();
       merge: for (int attempt = 0;; attempt++) {
         checkRetries(attempt);
@@ -359,7 +425,6 @@ public final class HotOrderedStore implements OrderedStore {
       if (SCAN_DIAGNOSTICS && countPostingChunk) {
         POSTING_CHUNKS_READ.increment();
       }
-      return accumulator.toNodeReferencesAndReset();
     }
 
     private void positionAtChunk() {
@@ -402,11 +467,7 @@ public final class HotOrderedStore implements OrderedStore {
 
     @Override
     public void close() {
-      try {
-        cursor.close();
-      } finally {
-        trie.close();
-      }
+      cursor.close(); // ends the borrowed reader's walk
     }
   }
 
@@ -440,13 +501,26 @@ public final class HotOrderedStore implements OrderedStore {
     final byte[] last = new byte[first.length];
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(from, 0, first, 0);
     ValidTimeKeySerializer.INSTANCE.serializeWithChunkIdx(to, -1, last, 0);
-    try (final PostingChunkCursor chunks = new PostingChunkCursor(r, root, first, last)) {
+    try (final PostingChunkCursor chunks = new PostingChunkCursor(trie(r), root, first, last)) {
       while (chunks.hasNext()) {
-        final NodeReferences refs = chunks.next(false);
+        chunks.load(false);
+        final long chunkBase = chunks.chunkBase();
+        if (chunks.isCompact()) {
+          final int count = chunks.compactCount();
+          final long[] keys = chunks.compactKeys();
+          if (SCAN_DIAGNOSTICS) {
+            countEmitted(count);
+          }
+          for (int index = 0; index < count; index++) {
+            out.accept(chunkBase | keys[index]);
+          }
+          chunks.resetAccumulator();
+          continue;
+        }
+        final NodeReferences refs = chunks.takeReferences();
         if (refs == null) {
           continue;
         }
-        final long chunkBase = chunks.chunkBase();
         final LongIterator iterator = refs.getNodeKeys().getLongIterator();
         while (iterator.hasNext()) {
           if (SCAN_DIAGNOSTICS) {

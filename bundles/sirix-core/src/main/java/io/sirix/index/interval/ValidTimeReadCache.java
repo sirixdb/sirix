@@ -21,8 +21,8 @@ import java.util.function.Supplier;
  * second loaded implementation of the interface every record read goes through. On a JVM that only
  * reads, the JIT otherwise binds those calls statically; loading the wrapper at the first stab
  * invalidated that assumption for the whole cold read path and cost more than the readers saved
- * (measured on cold Q4/Q9). Each walk constructs its own trie reader, two small objects bound to
- * the transaction.
+ * (measured on cold Q4/Q9). Transaction-bound trie reader reuse is owned by
+ * {@link HotOrderedStore}.
  */
 public final class ValidTimeReadCache {
   private static final LongAdder MASK_HITS = new LongAdder();
