@@ -89,24 +89,40 @@ public final class ProjectionRecordKeySet {
         continue;
       }
       final long[] mask = new long[(keys.length + 63) >>> 6];
-      boolean matched = false;
-      for (int row = 0; row < keys.length; row++) {
-        final long key = keys[row];
-        final boolean member;
-        if (key >= previous) {
-          while (cursor < sortedKeys.length && sortedKeys[cursor] < key) {
-            cursor++;
+      long matchedBits = 0;
+      // Leaf rows and the key set are both ascending in the common case, so one merge cursor serves
+      // every row. Membership is folded into the mask arithmetically: with a third of the rows
+      // selected, a data-dependent branch per row mispredicts constantly and dominated this walk.
+      // Each 64-row word is accumulated in a register and stored once; updating the mask word in
+      // memory per row would chain every row of the word through one read-modify-write.
+      final int limit = sortedKeys.length;
+      final int rows = keys.length;
+      int row = 0;
+      for (int word = 0; word < mask.length; word++) {
+        final int end = Math.min(row + 64, rows);
+        long bits = 0;
+        for (int bit = 0; row < end; row++, bit++) {
+          final long key = keys[row];
+          final long member;
+          if (key >= previous) {
+            while (cursor < limit && sortedKeys[cursor] < key) {
+              cursor++;
+            }
+            member = cursor < limit && sortedKeys[cursor] == key
+                ? 1L
+                : 0L;
+            previous = key;
+          } else {
+            member = Arrays.binarySearch(sortedKeys, 0, cursor, key) >= 0
+                ? 1L
+                : 0L;
           }
-          member = cursor < sortedKeys.length && sortedKeys[cursor] == key;
-          previous = key;
-        } else {
-          member = Arrays.binarySearch(sortedKeys, 0, cursor, key) >= 0;
+          bits |= member << bit;
         }
-        if (member) {
-          mask[row >>> 6] |= 1L << (row & 63);
-          matched = true;
-        }
+        mask[word] = bits;
+        matchedBits |= bits;
       }
+      final boolean matched = matchedBits != 0;
       if (matched && masks.put(keys[0], mask) != null) {
         throw new IllegalArgumentException("projection leaves repeat a record key");
       }

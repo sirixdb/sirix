@@ -5,6 +5,7 @@ import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Bool;
+import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.Numeric;
 import io.brackit.query.atomic.QNm;
 import io.sirix.query.json.JsonDBObject;
@@ -265,6 +266,58 @@ final class ValidTimeSliceWorkBudgetTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void provenCohortComparisonSequenceNeverReadsTheTieChunk(final VersioningType versioning) throws Exception {
+    // Row 3 ends exactly at the point: a closed stab would deliver its chunk for verification, the
+    // half-open stab of a proven-exact cohort never reads it. Nested 99 is inexact and registered
+    // over the whole domain, nested 98 matches; both are removed by membership, not by a field read.
+    shredRows("""
+        [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z",
+          "nested":[{"id":99,"vf":"2023-01-01T00:00:00.000500Z","vt":"2024-01-01T00:00:00.000500Z"},
+                    {"id":98,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]},
+         {"id":2,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+         {"id":3,"vf":"2023-01-01T00:00:00Z","vt":"2024-01-01T00:00:00Z"}]
+        """, versioning);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var context = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      new Query(chain,
+          "let $d := jn:doc('budget','rows') let $i := jn:create-valid-time-index($d) return sdb:commit($d)").evaluate(
+              context);
+      final JsonDBItem document = Objects.requireNonNull(store.lookup("budget").getDocument("rows"));
+      final var config = Objects.requireNonNull(document.getResourceSession().getResourceConfig().getValidTimeConfig());
+      // The first primitive request establishes the cohort proof; the second is the half-open reference.
+      assertEquals(2, ValidTimeIntervalIndex.keys(document, Instant.parse("2024-01-01T00:00:00Z"), true).length);
+      final var reference =
+          INDEX_WORK.call(() -> ValidTimeIntervalIndex.keys(document, Instant.parse("2024-01-01T00:00:00Z"), true));
+      final long[] expected = reference.result();
+      assertEquals(2, expected.length);
+      final long halfOpenRefs = reference.work().of(EngineWorkCounters.VALID_TIME_INTERVAL_REFS);
+      assertTrue(halfOpenRefs >= 2 && halfOpenRefs <= 4,
+          "the half-open stab emits the matches and the nested registrations");
+      final JsonNodeReadOnlyTrx cursor = mock(JsonNodeReadOnlyTrx.class, delegatesTo(document.getTrx()));
+      final JsonDBItem observed =
+          mock(JsonDBItem.class, withSettings().extraInterfaces(Array.class).defaultAnswer(delegatesTo(document)));
+      doReturn(cursor).when(observed).getTrx();
+      final var captured =
+          INDEX_WORK.call(() -> Objects
+                                       .requireNonNull(ValidTimeIntervalIndex.routedKeys(
+                                           ValidTimeIntervalIndex.comparisonSequence(observed,
+                                               () -> new DateTime("2024-01-01T00:00:00Z"), config, false, true)))
+                                       .keys());
+      assertArrayEquals(expected, captured.result());
+      captured.work()
+              .assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, halfOpenRefs,
+                  "the folded comparison on a proven cohort issues the same half-open stab as the primitive key"
+                      + " request, never the chunk of the interval ending at the point")
+              .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
+                  "cohort admission uses compressed evidence rather than enumerating its members");
+      verify(cursor, never()).moveTo(anyLong());
+      assertTimestampReads(cursor, 0, 0);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void exactHalfOpenRoutedKeysNeedOnlyOneStab(final VersioningType versioning) throws Exception {
     shredRows("""
         [{"id":1,"vf":"2023-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z",
@@ -482,13 +535,18 @@ final class ValidTimeSliceWorkBudgetTest {
                   }
                 }
               });
+              // The half-open exact point (mode 2) on a proven cohort is exact from keys: only the
+              // membership mask is consulted, never the verification mask.
+              final int probes = mode == 2
+                  ? 1
+                  : 2;
               warm.assertBetween(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 1, 2,
                   "only the selected outer interval may be stabbed")
                   .assertZero(EngineWorkCounters.VALID_TIME_POSTING_REFS,
                       "warm admission must not enumerate references")
-                  .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, 2,
-                      "only candidate membership and verification may be probed")
-                  .assertExactly(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS, 2,
+                  .assertExactly(EngineWorkCounters.VALID_TIME_POSTING_LOOKUPS, probes,
+                      "only candidate membership and, off the half-open exact route, verification may be probed")
+                  .assertExactly(EngineWorkCounters.VALID_TIME_EVIDENCE_VISITS, probes,
                       "warm admission must not decode cohort chunks again");
               assertTimestampReads(cursor, 0, 0);
               verify(cursor, times(request == 0
