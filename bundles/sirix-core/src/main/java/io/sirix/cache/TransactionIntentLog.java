@@ -836,6 +836,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public void put(final PageReference ref, final PageContainer value) {
     HftBoundaryTelemetry.tilWrite();
+    noteDocumentPagePut(value);
     // Clear cached hash before modifying key properties
     ref.clearCachedHash();
 
@@ -1444,6 +1445,34 @@ public final class TransactionIntentLog implements AutoCloseable {
   public static void resetKvlPromotionDiagnostics() {
     KVL_PAGES_PINNED_BY_PROMOTION.reset();
     KVL_PAGES_RETRIED_NEXT_EPOCH.reset();
+  }
+
+  /**
+   * The generation a document record page was last put into this log in, by record page key. A
+   * writer's captured record copies (see {@code WriterRecordSnapshot}) are valid only while the page
+   * was not put again after the capture; the map is never trimmed before {@link #clear()} because a
+   * flushed page's reference leaves every generation layer.
+   */
+  private final Long2IntOpenHashMap documentPagePutGeneration = newDocumentPagePutGenerationMap();
+
+  private static Long2IntOpenHashMap newDocumentPagePutGenerationMap() {
+    final Long2IntOpenHashMap map = new Long2IntOpenHashMap();
+    map.defaultReturnValue(-1);
+    return map;
+  }
+
+  private void noteDocumentPagePut(final PageContainer value) {
+    if (value.getModified() instanceof final KeyValueLeafPage page && page.getIndexType() == IndexType.DOCUMENT) {
+      documentPagePutGeneration.put(page.getPageKey(), currentGeneration);
+    }
+  }
+
+  /**
+   * The generation the document record page {@code recordPageKey} was last put into this log in, or
+   * {@code -1} if it never was.
+   */
+  public int documentPagePutGeneration(final long recordPageKey) {
+    return documentPagePutGeneration.get(recordPageKey);
   }
 
   /**
@@ -2217,6 +2246,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public void clear() {
     Throwable closeFailure = null;
+    documentPagePutGeneration.clear();
     if (hotPostingViewOwners != null) {
       hotPostingViewOwners.clear();
     }

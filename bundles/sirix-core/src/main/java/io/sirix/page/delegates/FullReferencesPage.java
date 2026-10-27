@@ -24,6 +24,7 @@ package io.sirix.page.delegates;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.io.IOStorage;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
@@ -144,7 +145,10 @@ public final class FullReferencesPage implements Page {
   @Override
   public void commit(final StorageEngineWriter storageEngineWriter) {
     for (final PageReference reference : references) {
-      if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT)) {
+      // A child that left the log has nothing to serialize, unless a storage epoch spilled it: the
+      // commit then copies its frame into the data file and finalizes its key.
+      if (reference != null
+          && (reference.getLogKey() != Constants.NULL_ID_INT || IOStorage.isSpillKey(reference.getKey()))) {
         storageEngineWriter.commit(reference);
       }
     }

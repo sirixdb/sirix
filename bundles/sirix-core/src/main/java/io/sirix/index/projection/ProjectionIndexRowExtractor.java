@@ -26,6 +26,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.function.LongFunction;
 import java.util.List;
 
 /**
@@ -310,11 +311,114 @@ public final class ProjectionIndexRowExtractor {
   }
 
   boolean extractInto(final JsonNodeReadOnlyTrx rtx, final long recordKey, final long[] selectedColumns) {
+    final LongFunction<CapturedRow> captured = capturedRows;
+    if (captured != null) {
+      final CapturedRow row = captured.apply(recordKey);
+      if (row != null) {
+        loadRow(row, selectedColumns);
+        return true;
+      }
+    }
     if (!rtx.moveTo(recordKey)) {
       return false;
     }
     extractAt(rtx, recordKey, selectedColumns);
     return true;
+  }
+
+  /**
+   * A record's extracted row detached from this extractor: the exact state of the row buffers after
+   * {@link #extractInto}. A plain transaction's storage epoch captures the rows of the records it is
+   * about to write out, and the commit-time maintenance pass loads them back instead of re-reading
+   * records whose pages have left the log.
+   */
+  static final class CapturedRow {
+    private final long[] longs;
+    private final boolean[] bools;
+    private final byte @Nullable [][] stringUtf8;
+    private final int[] stringUtf8Lengths;
+    private final String @Nullable [][] stringSets;
+    private final int[] stringSetLen;
+    private final boolean[] present;
+    private final boolean[] unrepresentable;
+    private final boolean[] nonIntegral;
+    private final boolean[] nonDoubleSource;
+
+    private CapturedRow(final int columns) {
+      longs = new long[columns];
+      bools = new boolean[columns];
+      stringUtf8 = new byte[columns][];
+      stringUtf8Lengths = new int[columns];
+      stringSets = new String[columns][];
+      stringSetLen = new int[columns];
+      present = new boolean[columns];
+      unrepresentable = new boolean[columns];
+      nonIntegral = new boolean[columns];
+      nonDoubleSource = new boolean[columns];
+    }
+  }
+
+  /** Detach the row the last {@link #extractInto} produced. */
+  CapturedRow captureRow() {
+    final int columns = columnKinds.length;
+    final CapturedRow row = new CapturedRow(columns);
+    System.arraycopy(rowLongs, 0, row.longs, 0, columns);
+    System.arraycopy(rowBools, 0, row.bools, 0, columns);
+    System.arraycopy(rowStringUtf8Lengths, 0, row.stringUtf8Lengths, 0, columns);
+    System.arraycopy(rowStringSetLen, 0, row.stringSetLen, 0, columns);
+    System.arraycopy(rowPresent, 0, row.present, 0, columns);
+    System.arraycopy(rowUnrepresentable, 0, row.unrepresentable, 0, columns);
+    System.arraycopy(rowNonIntegral, 0, row.nonIntegral, 0, columns);
+    System.arraycopy(rowNonDoubleSource, 0, row.nonDoubleSource, 0, columns);
+    for (int c = 0; c < columns; c++) {
+      final byte[] utf8 = rowStringUtf8[c];
+      row.stringUtf8[c] = utf8 == null
+          ? null
+          : Arrays.copyOf(utf8, rowStringUtf8Lengths[c]);
+      final String[] set = rowStringSets[c];
+      row.stringSets[c] = set == null || rowStringSetLen[c] == 0
+          ? null
+          : Arrays.copyOf(set, rowStringSetLen[c]);
+    }
+    return row;
+  }
+
+  /**
+   * Restore a captured row into the buffers, for the selected columns, exactly as extraction would.
+   */
+  private void loadRow(final CapturedRow row, final long @Nullable [] selectedColumns) {
+    resetRow(selectedColumns);
+    for (int c = 0; c < columnKinds.length; c++) {
+      if (!isSelected(c, selectedColumns)) {
+        continue;
+      }
+      rowLongs[c] = row.longs[c];
+      rowBools[c] = row.bools[c];
+      final byte[] utf8 = row.stringUtf8[c];
+      rowStringUtf8[c] = utf8 == null
+          ? null
+          : utf8.clone();
+      rowStringUtf8Lengths[c] = row.stringUtf8Lengths[c];
+      final String[] set = row.stringSets[c];
+      if (set != null) {
+        rowStringSets[c] = set.clone();
+      }
+      rowStringSetLen[c] = row.stringSetLen[c];
+      rowPresent[c] = row.present[c];
+      rowUnrepresentable[c] = row.unrepresentable[c];
+      rowNonIntegral[c] = row.nonIntegral[c];
+      rowNonDoubleSource[c] = row.nonDoubleSource[c];
+    }
+  }
+
+  private @Nullable LongFunction<CapturedRow> capturedRows;
+
+  /**
+   * Serve records from captured rows where one exists ({@code null} to extract from the document
+   * only). Only for an extractor that reads the state the rows were captured from.
+   */
+  void useCapturedRows(final @Nullable LongFunction<CapturedRow> rows) {
+    capturedRows = rows;
   }
 
   public boolean extractInto(final XmlNodeReadOnlyTrx rtx, final long recordKey) {

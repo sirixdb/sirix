@@ -115,6 +115,40 @@ public interface Writer extends Reader {
   default void flushBufferedWrites(final BytesOut<?> bufferedBytes) {}
 
   /**
+   * Whether this backend can take the pages a storage epoch flushes before the commit into a spill
+   * file ({@link #writeSpilled}), so that the data file only ever receives committed pages.
+   */
+  default boolean supportsSpilledWrites() {
+    return false;
+  }
+
+  /**
+   * Append {@code page} to the spill file through {@code bufferedBytes} and give the reference a
+   * spill key ({@link IOStorage#isSpillKey}). Flushed with {@link #flushSpilledBufferedWrites}; the
+   * buffer must hold spilled frames only.
+   */
+  default Writer writeSpilled(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
+      final Page page, final BytesOut<?> bufferedBytes) {
+    throw new UnsupportedOperationException("This backend does not support spilled writes.");
+  }
+
+  /** Write the buffered spilled frames out to the spill file. */
+  default void flushSpilledBufferedWrites(final BytesOut<?> bufferedBytes) {}
+
+  /**
+   * Copy the spilled frame {@code pageReference} addresses into the data file through
+   * {@code bufferedBytes}, exactly as {@link #write} would have appended that page, and give the
+   * reference its data-file key. The page hash is unchanged.
+   */
+  default void copySpilledPage(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
+      final BytesOut<?> bufferedBytes) {
+    throw new UnsupportedOperationException("This backend does not support spilled writes.");
+  }
+
+  /** Forget every spilled frame (after a commit copied the live ones, or on abort). */
+  default void discardSpilledWrites() {}
+
+  /**
    * Whether pages may be written before the owning revision is published. Such a page can be read
    * back by the writing transaction, becomes part of the revision its commit publishes, and is
    * unreachable after a rollback. This is what lets a long transaction write the pages it can no

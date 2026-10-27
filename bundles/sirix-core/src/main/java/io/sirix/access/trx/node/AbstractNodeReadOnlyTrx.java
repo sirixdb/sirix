@@ -575,6 +575,44 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     prepareForMove();
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>
+   * The write cursor reads straight from the record page the transaction-intent log serves, including
+   * a page the previous rotation froze: its content stays current until a copy-on-write, and nothing
+   * leases it. In singleton mode the cursor's flyweight is bound to that page's frame; in object mode
+   * {@link #bindWritePageSlot} hands out the page's own materialized record, which is a flyweight
+   * bound to the same frame. The next rotation retires that snapshot once its pages are on disk,
+   * closes them and releases their frames, so a cursor still bound to one of them reads whatever the
+   * frame holds next (another page, or zeros) and the mutation that triggered the rotation validates
+   * and links the wrong record. Only the physical binding is refreshed here, through the same
+   * TIL-aware resolution an ordinary move uses: the retired page is now served from its durable
+   * offset. Position and the approved self-move marker are untouched; the decoded structural keys are
+   * dropped because they are re-read from the binding.
+   * </p>
+   */
+  @Override
+  public final void rebindAfterStorageEpochRotation() {
+    if (cachedWriter == null || currentNodeKey < 0) {
+      return;
+    }
+    if (singletonMode) {
+      if (currentPage == null || cachedWriter.isReadOnlyPageForRead(currentPage)) {
+        // A durable read page is leased by the writer and survives the rotation.
+        return;
+      }
+    } else if (!(currentNode instanceof FlyweightNode flyweight && flyweight.isBound())) {
+      // A detached record is a heap copy; nothing of it lives in a frame the snapshot owns.
+      return;
+    }
+    invalidateStructKeys();
+    if (!moveToSingletonWrite(currentNodeKey, cachedWriter)) {
+      throw new IllegalStateException(
+          "Write cursor lost node " + currentNodeKey + " while re-binding after a storage-epoch rotation");
+    }
+  }
+
   @Override
   public final boolean tryMoveToLastAllocatedDocumentNode(final StorageEngineWriter writer, final long nodeKey) {
     if (cachedWriter != writer || writer.getAllocNodeKey() != nodeKey) {

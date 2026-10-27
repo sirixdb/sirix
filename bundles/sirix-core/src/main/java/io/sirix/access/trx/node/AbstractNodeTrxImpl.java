@@ -20,6 +20,7 @@ import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexType;
+import io.sirix.io.StorageType;
 import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
@@ -144,6 +145,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private final AfterCommitState afterCommitState;
 
   /**
+   * Whether this transaction bounds its intent log with storage-only epochs; see
+   * {@link #supportsStorageEpochRotation(AfterCommitState, StorageType)}.
+   */
+  private final boolean storageEpochRotationSupported;
+
+  /**
    * Modification counter.
    */
   private long modificationCount;
@@ -255,6 +262,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.resourceSession = requireNonNull(resourceSession);
     this.lock = transactionLock;
     this.afterCommitState = requireNonNull(afterCommitState);
+    this.storageEpochRotationSupported =
+        supportsStorageEpochRotation(afterCommitState, resourceSession.getResourceConfig().getStorageType());
     this.nodeHashing = requireNonNull(nodeHashing);
     this.buildPathSummary = resourceSession.getResourceConfig().withPathSummary;
     this.nodeFactory = requireNonNull(nodeFactory);
@@ -284,6 +293,31 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
       }), afterCommitDelay.toMillis(), afterCommitDelay.toMillis(), TimeUnit.MILLISECONDS);
     }
+  }
+
+  /**
+   * Whether a transaction in this mode bounds its intent log with storage-only epochs on this
+   * backend.
+   *
+   * <p>
+   * A storage epoch writes the record pages the transaction can no longer change out of memory before
+   * its final commit; it publishes no revision and leaves the logical transaction untouched. Without
+   * it a plain write transaction holds every record page it touched until commit, so a bulk load
+   * needs memory proportional to everything it has loaded. The epoch appends through the file-channel
+   * writer and is therefore available exactly where {@link AfterCommitState#KEEP_OPEN_ASYNC_FLUSH} is
+   * accepted: on the FILE_CHANNEL and MEMORY_MAPPED backends. Its page bound is the writer's
+   * {@code isStorageEpochLogBoundaryReached()}, sized from the off-heap budget rather than the small
+   * import bound of the async-flush mode. {@link AfterCommitState#KEEP_OPEN_ASYNC_COMMIT} owns its
+   * own pipelined revision epochs and keeps them.
+   * </p>
+   */
+  static boolean supportsStorageEpochRotation(final AfterCommitState afterCommitState, final StorageType storageType) {
+    requireNonNull(afterCommitState);
+    requireNonNull(storageType);
+    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
+      return false;
+    }
+    return storageType == StorageType.FILE_CHANNEL || storageType == StorageType.MEMORY_MAPPED;
   }
 
   /** Resolve the bounded storage-epoch threshold without changing any other commit mode. */
@@ -837,13 +871,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected final void checkAccessAndCommitBulk() {
     assertNotRollbackOnly();
     if (shouldRotateIntermediateEpoch()) {
-      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
-        asyncCommitInternal("autoCommit");
-      } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
-        flushIntermediateAsyncEpoch();
-      } else {
-        commitInternal("autoCommit", null, true);
-      }
+      rotateIntermediateEpoch();
     }
     mutationSequence++;
     modificationCount++;
@@ -868,13 +896,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     mutationSequence += mutations;
     modificationCount += mutations;
     if (shouldRotateIntermediateEpoch()) {
-      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
-        asyncCommitInternal("autoCommit");
-      } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
-        flushIntermediateAsyncEpoch();
-      } else {
-        commitInternal("autoCommit", null, true);
-      }
+      rotateIntermediateEpoch();
     }
   }
 
@@ -973,23 +995,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
     if (shouldRotateIntermediateEpoch()) {
-      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
-        asyncCommitInternal("autoCommit");
-      } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
-        flushIntermediateAsyncEpoch();
-      } else {
-        LOGGER.debug(
-            "AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
-        commitInternal("autoCommit", null, true);
-        LOGGER.debug("AUTO-COMMIT completed");
-      }
+      rotateIntermediateEpoch();
     }
   }
 
-  /** Test the two async work bounds only at a compound-operation-safe mutation boundary. */
+  /** Test the epoch bounds only at a compound-operation-safe mutation boundary. */
   private boolean shouldRotateIntermediateEpoch() {
-    if (compoundOperationDepth != 0
-        || (publicationScopeDepth != 0 && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+    if (compoundOperationDepth != 0) {
       return false;
     }
     if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
@@ -997,27 +1009,80 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // which grows whether or not the caller asked for count-based auto-commit.
       return modificationCount >= autoCommitNodeCountThreshold || storageEngineWriter.isAsyncFlushLogBoundaryReached();
     }
-    return maxNodeCount > 0 && modificationCount >= autoCommitNodeCountThreshold;
+    return isCountBasedCommitDue() || isStorageEpochDue();
+  }
+
+  /** A count-based auto-commit publishes a revision, so it never splits a publication scope. */
+  private boolean isCountBasedCommitDue() {
+    return publicationScopeDepth == 0 && maxNodeCount > 0 && modificationCount >= autoCommitNodeCountThreshold;
   }
 
   /**
-   * Rotate one bounded intermediate async-flush epoch.
+   * The live intent log has reached its page bound. A storage epoch publishes nothing, so it is due
+   * inside a publication scope as well; that is the same rule the async-flush mode already follows.
    */
-  private void flushIntermediateAsyncEpoch() {
+  private boolean isStorageEpochDue() {
+    return storageEpochRotationSupported && storageEngineWriter.isStorageEpochLogBoundaryReached();
+  }
+
+  /** Dispatch the rotation {@link #shouldRotateIntermediateEpoch()} found due. */
+  private void rotateIntermediateEpoch() {
+    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+      flushIntermediateAsyncEpoch(true);
+    } else if (isCountBasedCommitDue()) {
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
+        asyncCommitInternal("autoCommit");
+      } else {
+        LOGGER.debug(
+            "AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
+        commitInternal("autoCommit", null, true);
+        LOGGER.debug("AUTO-COMMIT completed");
+      }
+    } else {
+      // A plain transaction keeps its mutation count: it still drives the count-based commit.
+      flushIntermediateAsyncEpoch(false);
+    }
+  }
+
+  /**
+   * Rotate one bounded intermediate storage epoch: write the live intent log out in the background
+   * and continue the logical transaction on a fresh generation.
+   *
+   * @param resetModificationCount {@code true} in the async-flush mode, whose epoch also counts
+   *        mutations; {@code false} for a plain transaction, whose count drives its own auto-commit
+   */
+  private void flushIntermediateAsyncEpoch(final boolean resetModificationCount) {
     final long started = HFT_TELEMETRY_ENABLED
         ? System.nanoTime()
         : 0L;
     try {
-      // Index maintenance that has to READ the records it is maintaining must run while those records
-      // are still reachable through this transaction. The flush writes their pages out and lets go of
-      // them, and the revision they belong to is not committed yet, so nothing can read them back
-      // afterwards.
-      indexController.notifyBeforePageFlush();
-      storageEngineWriter.asyncFlush();
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+        // The async-flush import mode streams its index maintenance per epoch (a projection bulk load
+        // drains the records it has closed so far; incremental maintenance publishes its dirty set)
+        // so that neither the dirty bookkeeping nor the bulk-load row builder grows with the load.
+        indexController.notifyBeforePageFlush();
+      } else {
+        // A storage-only epoch of a plain transaction leaves index maintenance at the commit, where
+        // main runs it; listeners only capture the records that maintenance will re-read, while their
+        // pages are still in the intent log. Running the whole pass per epoch would move its work
+        // onto the applying thread and rewrite the open projection units once per epoch.
+        indexController.notifyBeforeStorageEpoch();
+      }
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
+        storageEngineWriter.asyncFlush();
+      } else {
+        storageEngineWriter.asyncFlushStorageEpoch();
+      }
+      // The rotation retired the previously frozen snapshot: its pages are on disk and their frames
+      // are released. The cursor may still be bound to one of them (the mutation that is about to run
+      // was positioned before this check), so re-resolve it before anything reads through it.
+      nodeReadOnlyTrx.rebindAfterStorageEpochRotation();
 
       // Keep failure semantics unchanged: the dirty counter is not reset if index maintenance or the
       // async rotation throws.
-      modificationCount = 0;
+      if (resetModificationCount) {
+        modificationCount = 0;
+      }
       // This is a storage-only epoch: the logical transaction and its bulk-insert maintenance mode
       // continue unchanged. Disabling incremental hashing here freezes ancestor hashes and
       // descendant counts at the first epoch boundary because no re-instantiation or postorder

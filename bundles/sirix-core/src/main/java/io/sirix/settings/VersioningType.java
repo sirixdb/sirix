@@ -1145,6 +1145,92 @@ public enum VersioningType {
     dst.copySlotFromPage(src, offset);
   }
 
+  /**
+   * Rebuild the container of a record page this transaction already wrote ahead of its commit.
+   *
+   * <p>
+   * A storage epoch flushes the page's modifying fragment and retires it from the intent log; the
+   * next modification reads it back as the newest owned fragment. That fragment belongs to the
+   * revision being written, not to a previous one: it is the modifying page the first copy-on-write
+   * produced, serialized with every record it had to carry. Feeding it through
+   * {@link #combineRecordPagesForModification} as if it were a committed fragment prepends its key to
+   * the reference's fragment chain and shortens the window by one real revision each time the page is
+   * flushed and touched again, so records whose newest copy lives in the oldest fragment drop out of
+   * the complete page ("Cannot retrieve record from cache") and the chain the commit then writes
+   * carries a duplicate revision. Here the container is rebuilt from the committed chain alone,
+   * exactly as the first copy-on-write built it (same complete page, same preservation marks, same
+   * fragment chain), and the owned fragment's records are laid over both its pages.
+   * </p>
+   *
+   * @param pages the owned fragment first, then the committed chain newest first
+   * @param revToRestore the versioning window
+   * @param storageEngineReader reader used to create pages
+   * @param reference the page reference, whose key is the owned fragment's; its fragment list ends up
+   *        as the first copy-on-write left it
+   * @param log the intent log the container is registered in
+   * @return the container holding the rebuilt complete page and the carried-over modifying page
+   */
+  public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineOwnedRecordPagesForModification(
+      final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
+      final PageReference reference, final TransactionIntentLog log) {
+    if (pages.isEmpty()) {
+      throw new IllegalArgumentException("the owned fragment is required");
+    }
+    assert noFragmentIsLazy(pages);
+    final T owned = pages.getFirst();
+    final long recordPageKey = owned.getPageKey();
+    final List<T> chain = pages.subList(1, pages.size());
+    final List<PageFragmentKey> chainKeys = reference.getPageFragments();
+    final PageContainer container;
+    if (chain.isEmpty()) {
+      // Nothing committed to combine: the page was created in this transaction, or the owned fragment
+      // is self-contained (every slot populated) and the reader skipped the chain. The fragment list
+      // stays as the first copy-on-write left it.
+      final T completePage = owned.newInstance(recordPageKey, owned.getIndexType(), storageEngineReader);
+      final T modifyingPage = owned.newInstance(recordPageKey, owned.getIndexType(), storageEngineReader);
+      ((KeyValueLeafPage) completePage).ensureSlottedPage();
+      ((KeyValueLeafPage) modifyingPage).ensureSlottedPage();
+      container = PageContainer.getInstance(completePage, modifyingPage);
+      log.put(reference, container);
+    } else {
+      if (chain.size() != chainKeys.size()) {
+        throw new IllegalStateException("page " + recordPageKey + ": " + chain.size() + " chain fragments read for "
+            + chainKeys.size() + " fragment keys");
+      }
+      // Replay the first copy-on-write: the combine takes the newest committed fragment's key from the
+      // reference, so hand it that key for the duration and restore the owned fragment's key after.
+      final long ownedKey = reference.getKey();
+      reference.setKey(chainKeys.getFirst().key());
+      reference.setPageFragments(new ArrayList<>(chainKeys.subList(1, chainKeys.size())));
+      try {
+        container = combineRecordPagesForModification(chain, revToRestore, storageEngineReader, reference, log);
+      } finally {
+        reference.setKey(ownedKey);
+      }
+    }
+    final KeyValueLeafPage ownedKvp = (KeyValueLeafPage) owned;
+    final KeyValueLeafPage completeKvp = (KeyValueLeafPage) container.getComplete();
+    final KeyValueLeafPage modifyingKvp = (KeyValueLeafPage) container.getModified();
+    // Neither target carries the owned fragment's symbol table: compressed strings are decompressed on
+    // the way over, as in every multi-fragment combine; the modifying page rebuilds its own table at
+    // commit.
+    final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(ownedKvp.getFsstSymbolTable());
+    for (final int offset : ownedKvp.populatedSlots()) {
+      final int nodeKindId = ownedKvp.getSlotNodeKindId(offset);
+      copySlotPreservingMetadata(ownedKvp, completeKvp, offset, nodeKindId, copier);
+      if (modifyingKvp != completeKvp) {
+        copySlotPreservingMetadata(ownedKvp, modifyingKvp, offset, nodeKindId, copier);
+      }
+    }
+    for (final Entry<Long, PageReference> entry : owned.referenceEntrySet()) {
+      copyOverflowCarrier(owned, completeKvp, entry.getKey(), entry.getValue());
+      if (modifyingKvp != completeKvp) {
+        copyOverflowCarrier(owned, modifyingKvp, entry.getKey(), entry.getValue());
+      }
+    }
+    return container;
+  }
+
   // ===== HOT Leaf Page Combining Methods =====
 
   /**

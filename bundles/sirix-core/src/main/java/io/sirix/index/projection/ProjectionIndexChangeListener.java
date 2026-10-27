@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.settings.Fixed;
 import io.sirix.index.changelog.ChangeLogSlab;
 import io.sirix.index.changelog.ChangeLogSlab.Entry;
 import io.sirix.index.changelog.ChangeLogStorage;
@@ -62,6 +63,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.LongFunction;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -231,6 +233,21 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private boolean maintenanceFailed;
   /** Record nodeKeys touched by this transaction; lazily allocated. */
   private @Nullable LongOpenHashSet dirtyRecordKeys;
+
+  /**
+   * Records dirtied since the last storage-only epoch of a plain transaction, whose current state the
+   * commit-time pass will re-read; {@link #beforeStorageEpoch()} hands them to the writer's record
+   * capture before their pages leave the log.
+   */
+  private @Nullable LongOpenHashSet recordsToCaptureBeforeEpoch;
+
+  /** Rows captured at storage epochs for records whose pages have left the log, by record key. */
+  private @Nullable Long2ObjectOpenHashMap<ProjectionIndexRowExtractor.CapturedRow> capturedRowsByRecord;
+
+  /** The captured rows the running commit-time pass may use ({@code null} outside such a pass). */
+  private @Nullable Long2ObjectOpenHashMap<ProjectionIndexRowExtractor.CapturedRow> activeCapturedRows;
+
+  private @Nullable ProjectionIndexRowExtractor captureExtractor;
   /** Last sorted key per touched record in this open transaction; null means filtered out. */
   private @Nullable Long2ObjectOpenHashMap<byte[]> sortedKeyByRecord;
   private @Nullable Long2ObjectOpenHashMap<long[]> dirtyColumnWordsByRecord;
@@ -450,6 +467,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // A cached controller can outlive the write transaction. Drop every potentially large,
       // transaction-owned memo/batch now rather than waiting for the controller itself to be evicted.
       dirtyRecordKeys = null;
+      recordsToCaptureBeforeEpoch = null;
+      capturedRowsByRecord = null;
       sortedKeyByRecord = null;
       dirtyColumnWordsByRecord = null;
       aggregateStates = null;
@@ -1233,6 +1252,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     if (recordKey == nodeKey) {
       recordFirstRootEvent(recordKey, type);
+      if (type == IndexController.ChangeType.DELETE) {
+        queueNeighboursForCapture(nodeKey);
+      }
       // Structural ordering is PER PROJECTED RECORD. A field of a record — thirteen of every
       // fourteen nodes on the ClickBench corpus — never reaches this point, so the ingestion hot
       // path performs no order-directory read or write for it.
@@ -1244,6 +1266,29 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     markDirty(recordKey, changedColumns == null
         ? allColumnWords
         : changedColumns);
+  }
+
+  /**
+   * A record about to be removed changes its neighbours' sibling pointers. Their captured root copies
+   * (if any) would go stale without anyone marking them dirty, so they are queued for a fresh capture
+   * at the next storage epoch; an inserted record's neighbours are captured from the inserted root
+   * itself.
+   */
+  private void queueNeighboursForCapture(final long recordKey) {
+    final ImmutableNode root = readNode(recordKey);
+    if (!(root instanceof final StructNode struct)) {
+      return;
+    }
+    if (recordsToCaptureBeforeEpoch == null) {
+      recordsToCaptureBeforeEpoch = new LongOpenHashSet();
+    }
+    final long nullKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+    if (struct.getLeftSiblingKey() != nullKey) {
+      recordsToCaptureBeforeEpoch.add(struct.getLeftSiblingKey());
+    }
+    if (struct.getRightSiblingKey() != nullKey) {
+      recordsToCaptureBeforeEpoch.add(struct.getRightSiblingKey());
+    }
   }
 
   private void recordFirstRootEvent(final long recordKey, final IndexController.ChangeType type) {
@@ -1955,6 +2000,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       dirtyColumnWordsByRecord = new Long2ObjectOpenHashMap<>();
     }
     boolean changed = dirtyRecordKeys.add(recordKey);
+    if (recordsToCaptureBeforeEpoch == null) {
+      recordsToCaptureBeforeEpoch = new LongOpenHashSet();
+    }
+    recordsToCaptureBeforeEpoch.add(recordKey);
     long[] recordWords = dirtyColumnWordsByRecord.get(recordKey);
     if (recordWords == null) {
       recordWords = changedColumnWords.clone();
@@ -2233,6 +2282,68 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     applyPendingMaintenance();
   }
 
+  @Override
+  public void beforeStorageEpoch() {
+    final ProjectionBulkLoad load = activeBulkLoad();
+    if (load != null) {
+      // A load-time build streams its rows per epoch in every transaction mode: the records it has
+      // closed are read from the log now, exactly as before an async-flush epoch.
+      beforePageFlush();
+      return;
+    }
+    // Incremental maintenance stays at the commit (one pass, like an unbounded transaction). It will
+    // re-read every dirty record and its fields; capture those that changed since the last epoch,
+    // while their pages are still in the log. Removed records are captured as deleted.
+    if (invalidated) {
+      return;
+    }
+    // Removals are only marked dirty when the structural delete candidates are drained; drain them
+    // now so the removed records (and their neighbours) are captured as they are, like the commit
+    // pass of an unbounded transaction would find them.
+    try {
+      drainStructuralDeleteCandidates(true);
+    } catch (final RuntimeException | Error failure) {
+      failMaintenance(failure);
+      throw failure;
+    }
+    final LongOpenHashSet pending = recordsToCaptureBeforeEpoch;
+    if (pending != null && !pending.isEmpty()) {
+      // The commit pass reads each dirty record's root (membership, parent, path class) and its row.
+      // The root is captured as a detached node; the row is extracted now, with the same extractor
+      // the pass uses, and loaded back there, so no field node has to be copied or re-read.
+      ProjectionIndexRowExtractor extractor = captureExtractor;
+      if (extractor == null) {
+        extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+        captureExtractor = extractor;
+      } else {
+        extractor.refresh(pathSummary);
+      }
+      Long2ObjectOpenHashMap<ProjectionIndexRowExtractor.CapturedRow> rows = capturedRowsByRecord;
+      if (rows == null) {
+        rows = new Long2ObjectOpenHashMap<>(Math.max(16, pending.size()));
+        capturedRowsByRecord = rows;
+      }
+      final long savedNodeKey = maintenanceTrx.getNodeKey();
+      try {
+        for (final LongIterator iterator = pending.iterator(); iterator.hasNext();) {
+          final long recordKey = iterator.nextLong();
+          storageEngineWriter.captureRecordForDeferredRead(recordKey);
+          if (isCurrentRecordRoot(recordKey) && extractInto(extractor, maintenanceTrx, recordKey)) {
+            rows.put(recordKey, extractor.captureRow());
+          } else {
+            rows.remove(recordKey);
+          }
+        }
+      } finally {
+        if (savedNodeKey >= 0 && !maintenanceTrx.moveTo(savedNodeKey)) {
+          throw new IllegalStateException("Projection index " + indexDef.getID()
+              + " could not restore the transaction cursor to node " + savedNodeKey + " after a storage-epoch capture");
+        }
+      }
+      pending.clear();
+    }
+  }
+
   private void awaitDurablePredecessor() {
     if (maintenanceTrx instanceof final NodeTrx nodeTrx) {
       nodeTrx.awaitPendingAsyncCommit();
@@ -2260,7 +2371,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     Long2ObjectOpenHashMap<long[]> dirtyColumnWords = dirtyColumnWordsByRecord;
     final Long2ByteOpenHashMap rootProvenance = rootProvenanceByRecord;
     final ArrayList<StructuralDelta> completedStructuralDeltas = structuralDeltas;
+    final Long2ObjectOpenHashMap<ProjectionIndexRowExtractor.CapturedRow> capturedRows = capturedRowsByRecord;
+    if (capturedRows != null && recordsToCaptureBeforeEpoch != null) {
+      // A record dirtied after the last epoch is still in the log: extract it live, not from its capture.
+      capturedRows.keySet().removeAll(recordsToCaptureBeforeEpoch);
+    }
+    activeCapturedRows = capturedRows == null || capturedRows.isEmpty()
+        ? null
+        : capturedRows;
+    capturedRowsByRecord = null;
     dirtyRecordKeys = null;
+    recordsToCaptureBeforeEpoch = null;
     dirtyColumnWordsByRecord = null;
     rootProvenanceByRecord = null;
     structuralDeltas = null;
@@ -2294,7 +2415,20 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     } catch (final RuntimeException | Error failure) {
       failMaintenance(failure);
       throw failure;
+    } finally {
+      activeCapturedRows = null;
     }
+  }
+
+  /**
+   * The captured rows an extractor over the transaction's current state may load instead of
+   * extracting.
+   */
+  private @Nullable LongFunction<ProjectionIndexRowExtractor.CapturedRow> capturedRowSource() {
+    final Long2ObjectOpenHashMap<ProjectionIndexRowExtractor.CapturedRow> rows = activeCapturedRows;
+    return rows == null || identityRemovalReader != null
+        ? null
+        : rows::get;
   }
 
   /**
@@ -2754,6 +2888,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           identityRemovalPaths == null
               ? pathSummary
               : identityRemovalPaths);
+      extractor.useCapturedRows(capturedRowSource());
       if (changeCapture != null) {
         for (final LeafEdit edit : edits.values()) {
           if (edit.oldPage != null) {
@@ -3105,6 +3240,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         unverified = new int[dirtyCount];
       }
       final ProjectionIndexRowExtractor currentExtractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+      currentExtractor.useCapturedRows(capturedRowSource());
       final ProjectionSortedRowEncoder currentEncoder =
           new ProjectionSortedRowEncoder(indexDef, currentExtractor, editor.layout());
       int at = 0;
@@ -4414,6 +4550,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     Objects.requireNonNull(reason, "reason");
     invalidated = true;
     dirtyRecordKeys = null;
+    recordsToCaptureBeforeEpoch = null;
+    capturedRowsByRecord = null;
     dirtyColumnWordsByRecord = null;
     maintenanceEpoch++;
     // The tombstone rides the write transaction: invisible to readers of

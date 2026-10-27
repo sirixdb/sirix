@@ -85,6 +85,48 @@ public interface IOStorage {
   /** A tombstone has no data-file address. Only the exact sentinel/tag pair is valid. */
   long PRUNED_REVISION_OFFSET = Long.MIN_VALUE;
 
+  /**
+   * Flag bit of a page key that addresses a writer's spill file instead of the data file. A storage
+   * epoch writes the pages it flushes before the commit there (see {@code Writer#writeSpilled}); the
+   * commit copies the ones still referenced into the data file and gives them ordinary keys, so the
+   * data file receives every page exactly once, as if the transaction had never rotated. Spill keys
+   * never reach a committed page or a shared cache.
+   */
+  long SPILL_KEY_BIT = 1L << 62;
+
+  /**
+   * Bits of a spill key that hold the spill-file offset; the bits above carry the spill generation.
+   */
+  int SPILL_OFFSET_BITS = 40;
+
+  long SPILL_OFFSET_MASK = (1L << SPILL_OFFSET_BITS) - 1L;
+
+  /** Whether {@code key} addresses the writer's spill file. */
+  static boolean isSpillKey(final long key) {
+    return key > 0L && (key & SPILL_KEY_BIT) != 0L;
+  }
+
+  /** The spill-file offset a spill key addresses. */
+  static long spillOffset(final long key) {
+    return key & SPILL_OFFSET_MASK;
+  }
+
+  /**
+   * A spill key for {@code offset} in spill generation {@code generation}. The generation advances
+   * whenever the spill file is discarded, so an offset reused by a later epoch set never repeats a
+   * key a cache may still remember.
+   */
+  static long spillKey(final long generation, final long offset) {
+    if (offset < 0L || offset > SPILL_OFFSET_MASK) {
+      throw new IllegalArgumentException("Spill offset out of range: " + offset);
+    }
+    final long maxGeneration = (1L << (62 - SPILL_OFFSET_BITS)) - 1L;
+    if (generation < 0L || generation > maxGeneration) {
+      throw new IllegalArgumentException("Spill generation out of range: " + generation);
+    }
+    return SPILL_KEY_BIT | (generation << SPILL_OFFSET_BITS) | offset;
+  }
+
   /** Tombstone type/version, covered by the record checksum. */
   long PRUNED_REVISION_TAG = 0x5052554E45440001L;
 

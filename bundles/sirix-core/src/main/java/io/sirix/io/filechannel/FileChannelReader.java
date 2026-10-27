@@ -81,6 +81,9 @@ public final class FileChannelReader extends AbstractReader {
    */
   private final FileChannel dataFileChannel;
 
+  /** The resource's spill file, for pages addressed by spill keys ({@link IOStorage#isSpillKey}). */
+  private @Nullable SpillChannelHolder spillChannelHolder;
+
   /** Switch for decoding coalesced batch members straight from the borrowed read buffer. */
   static final String BORROW_BATCH_INPUT = "sirix.filechannel.borrowBatchInput";
 
@@ -341,8 +344,13 @@ public final class FileChannelReader extends AbstractReader {
    * durable tail (found by the power-loss simulation harness).
    */
   private void readFully(final ByteBuffer buffer, final long offset, final String what) throws IOException {
+    readFully(dataFileChannel, buffer, offset, what);
+  }
+
+  private static void readFully(final FileChannel channel, final ByteBuffer buffer, final long offset,
+      final String what) throws IOException {
     while (buffer.hasRemaining()) {
-      final int n = readAt(dataFileChannel, buffer, offset + buffer.position());
+      final int n = readAt(channel, buffer, offset + buffer.position());
       if (n <= 0) {
         throw new SirixIOException("Truncated " + what + " at offset " + offset
             + " — the data file ends before the expected " + buffer.limit() + " bytes.");
@@ -437,18 +445,27 @@ public final class FileChannelReader extends AbstractReader {
   private ByteBuffer readPageImage(final PageReference reference, final long batchFileSize) throws IOException {
     ByteBuffer buffer = acquireBuffer(PAGE_PREFIX_BYTES);
     try {
-      final long position = reference.getKey();
-      final long fileSize = batchFileSize < 0L
-          ? dataFileChannel.size()
-          : batchFileSize;
+      final long key = reference.getKey();
+      final boolean spilled = IOStorage.isSpillKey(key);
+      final FileChannel channel = spilled
+          ? spilledChannel(key)
+          : dataFileChannel;
+      final long position = spilled
+          ? IOStorage.spillOffset(key)
+          : key;
+      final long fileSize = spilled
+          ? channel.size()
+          : batchFileSize < 0L
+              ? dataFileChannel.size()
+              : batchFileSize;
       final int prefixBytes = (int) Math.min(PAGE_PREFIX_BYTES, Math.max(Integer.BYTES, fileSize - position));
       buffer.clear().limit(prefixBytes);
       // A concurrent truncation beyond this page may shorten only the speculative suffix.
       // Require the header and declared body below, never bytes belonging to a following page.
-      readAtMost(buffer, position);
+      readAtMost(channel, buffer, position);
       if (buffer.position() < Integer.BYTES) {
         buffer.limit(Integer.BYTES);
-        readFully(buffer, position, "page length header");
+        readFully(channel, buffer, position, "page length header");
       }
       buffer.flip();
       final int dataLength = buffer.getInt();
@@ -467,7 +484,7 @@ public final class FileChannelReader extends AbstractReader {
           buffer.compact();
         }
         buffer.limit(dataLength);
-        readFully(buffer, position + Integer.BYTES, "page body");
+        readFully(channel, buffer, position + Integer.BYTES, "page body");
         buffer.flip();
       }
 
@@ -527,6 +544,9 @@ public final class FileChannelReader extends AbstractReader {
     ByteBuffer buffer = acquireBuffer(4);
     try {
       final long position = reference.getKey();
+      if (IOStorage.isSpillKey(position)) {
+        return null; // a spilled page is read through the full path, which knows the spill file
+      }
 
       buffer.clear().limit(4);
       readFully(buffer, position, "page length header");
@@ -629,12 +649,37 @@ public final class FileChannelReader extends AbstractReader {
 
   /** Read up to the buffer's limit; a short read at EOF is expected here, not an error. */
   private void readAtMost(final ByteBuffer buffer, final long offset) throws IOException {
+    readAtMost(dataFileChannel, buffer, offset);
+  }
+
+  private static void readAtMost(final FileChannel channel, final ByteBuffer buffer, final long offset)
+      throws IOException {
     while (buffer.hasRemaining()) {
-      final int n = readAt(dataFileChannel, buffer, offset + buffer.position());
+      final int n = readAt(channel, buffer, offset + buffer.position());
       if (n <= 0) {
         break;
       }
     }
+  }
+
+  /** Make spill keys readable: the storage hands every reader of a resource the same holder. */
+  void setSpillChannelHolder(final SpillChannelHolder holder) {
+    spillChannelHolder = holder;
+  }
+
+  private FileChannel spilledChannel(final long key) {
+    final SpillChannelHolder holder = spillChannelHolder;
+    final FileChannel channel = holder == null
+        ? null
+        : holder.get();
+    if (channel == null) {
+      throw new SirixIOException("Page key " + key + " addresses a spill file this reader has no access to (holder "
+          + (holder == null
+              ? "missing"
+              : "set, channel closed or not yet opened")
+          + ")");
+    }
+    return channel;
   }
 
   /**

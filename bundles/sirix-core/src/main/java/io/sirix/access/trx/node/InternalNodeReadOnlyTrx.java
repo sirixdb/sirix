@@ -36,6 +36,12 @@ public interface InternalNodeReadOnlyTrx<N extends ImmutableNode> extends NodeCu
   void prepareForApprovedSelfMove();
 
   /**
+   * Re-resolve the write cursor's physical page binding after a storage-epoch rotation retired the
+   * pages of the previously frozen snapshot. The logical cursor position is unchanged.
+   */
+  void rebindAfterStorageEpochRotation();
+
+  /**
    * Bind the cursor directly to the document record allocated most recently by {@code writer}.
    *
    * <p>

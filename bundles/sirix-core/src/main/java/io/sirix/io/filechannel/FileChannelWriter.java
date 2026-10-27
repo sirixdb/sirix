@@ -56,6 +56,10 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
+import org.slf4j.LoggerFactory;
+import org.slf4j.Logger;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.Files;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
@@ -77,6 +81,8 @@ import static java.util.Objects.requireNonNull;
  */
 public final class FileChannelWriter extends AbstractForwardingReader implements Writer {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(FileChannelWriter.class);
+
   /**
    * Random access to work on.
    */
@@ -92,6 +98,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * {@link FileChannelReader} reference for this writer.
    */
   private final FileChannelReader reader;
+
+  /**
+   * Spill file for the pages storage epochs write out before the commit ({@link #writeSpilled});
+   * opened on first use, truncated at every commit and deleted on close. Its frames have the data
+   * file's layout, so {@link #copySpilledPage} moves them byte for byte.
+   */
+  private final Path spillPath;
+  private @Nullable SpillChannelHolder spillChannelHolder;
+  private @Nullable FileChannel spillChannel;
+  private long spillFrontier;
+  private long spillGeneration;
+  private byte @Nullable [] spillCopyScratch;
 
   private final SerializationType serializationType;
 
@@ -394,6 +412,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     this.lazyRevisionRecords = lazyRevisionRecords && preallocatedCommit;
     this.dataAllocationDurability = requireNonNull(dataAllocationDurability);
     this.revisionsFilePath = requireNonNull(revisionsFilePath);
+    this.spillPath = this.revisionsFilePath.resolveSibling("sirix.spill");
     this.resourceUuidMsb = resourceUuidMsb;
     this.resourceUuidLsb = resourceUuidLsb;
     this.durability = RevisionRecordDurability.forFile(revisionsFilePath, resourceUuidMsb, resourceUuidLsb);
@@ -535,6 +554,170 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       return writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, offset);
     } catch (final IOException e) {
       throw new SirixIOException(e);
+    }
+  }
+
+  /**
+   * The file-channel storage shares its spill holder with every reader; only such a writer spills.
+   */
+  void setSpillChannelHolder(final SpillChannelHolder holder) {
+    spillChannelHolder = holder;
+    reader.setSpillChannelHolder(holder);
+  }
+
+  @Override
+  public boolean supportsSpilledWrites() {
+    return spillChannelHolder != null && serializationType == SerializationType.DATA;
+  }
+
+  private FileChannel spillChannel() throws IOException {
+    FileChannel channel = spillChannel;
+    if (channel == null) {
+      final SpillChannelHolder holder = spillChannelHolder;
+      if (holder == null) {
+        throw new IllegalStateException("This writer's storage does not share a spill file with its readers");
+      }
+      channel = FileChannel.open(spillPath, StandardOpenOption.CREATE, StandardOpenOption.READ,
+          StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+      spillChannel = channel;
+      spillFrontier = 0L;
+      holder.set(channel);
+    }
+    return channel;
+  }
+
+  @Override
+  public FileChannelWriter writeSpilled(final ResourceConfiguration resourceConfiguration,
+      final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes) {
+    try {
+      spillChannel();
+      final long offset = spillFrontier + bufferedBytes.writePosition();
+      final int pageAlignmentPadding = offset % PAGE_FRAGMENT_BYTE_ALIGN != 0
+          ? (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)))
+          : 0;
+      final long pageHash;
+      if (page instanceof final KeyValueLeafPage keyValueLeafPage) {
+        synchronized (keyValueLeafPage) {
+          if (keyValueLeafPage.isClosed()) {
+            throw new IllegalStateException("cannot spill a closed key-value leaf page");
+          }
+          pageHash = bufferSerializedPage(resourceConfiguration, page, bufferedBytes, pageAlignmentPadding);
+        }
+      } else {
+        pageHash = bufferSerializedPage(resourceConfiguration, page, bufferedBytes, pageAlignmentPadding);
+      }
+      if (bufferedBytes.writePosition() > FLUSH_SIZE) {
+        flushSpillBuffer(bufferedBytes);
+      }
+      pageReference.setKey(IOStorage.spillKey(spillGeneration, offset + pageAlignmentPadding));
+      pageReference.setHash(pageHash);
+      return this;
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  @Override
+  public void flushSpilledBufferedWrites(final BytesOut<?> bufferedBytes) {
+    if (bufferedBytes.writePosition() > 0) {
+      try {
+        flushSpillBuffer(bufferedBytes);
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
+      }
+    }
+  }
+
+  private void flushSpillBuffer(final BytesOut<?> bufferedBytes) throws IOException {
+    final ByteBuffer buffer = readableByteBuffer(bufferedBytes);
+    final int length = buffer.remaining();
+    writeFully(spillChannel(), buffer, spillFrontier);
+    spillFrontier += length;
+    bufferedBytes.clear();
+  }
+
+  @Override
+  public void copySpilledPage(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
+      final BytesOut<?> bufferedBytes) {
+    final long key = pageReference.getKey();
+    if (!IOStorage.isSpillKey(key)) {
+      throw new IllegalArgumentException("Not a spill key: " + key);
+    }
+    try {
+      final FileChannel channel = spillChannel;
+      if (channel == null) {
+        throw new SirixIOException("Spilled page " + key + " referenced, but this writer has no spill file");
+      }
+      final long spillOffset = IOStorage.spillOffset(key);
+      final ByteBuffer header = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+      readFully(channel, header, spillOffset);
+      header.flip();
+      final int length = header.getInt();
+      if (length <= 0 || spillOffset + Integer.BYTES + length > spillFrontier) {
+        throw new SirixIOException("Corrupt spilled frame at " + spillOffset + ": length " + length
+            + " exceeds the spill frontier " + spillFrontier);
+      }
+      byte[] scratch = spillCopyScratch;
+      if (scratch == null || scratch.length < length) {
+        scratch = new byte[Math.max(length, scratch == null
+            ? 1 << 16
+            : scratch.length << 1)];
+        spillCopyScratch = scratch;
+      }
+      readFully(channel, ByteBuffer.wrap(scratch, 0, length), spillOffset + Integer.BYTES);
+      // Frame it exactly as write() frames a fresh page at this data offset: alignment padding, the
+      // length header, the payload.
+      final long offset = getOffset(bufferedBytes);
+      final int pageAlignmentPadding = offset % PAGE_FRAGMENT_BYTE_ALIGN != 0
+          ? (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)))
+          : 0;
+      if (pageAlignmentPadding > 0) {
+        bufferedBytes.writePosition(bufferedBytes.writePosition() + pageAlignmentPadding);
+      }
+      bufferedBytes.writeInt(length);
+      bufferedBytes.writeSegment(MemorySegment.ofArray(scratch), 0, length);
+      if (bufferedBytes.writePosition() > FLUSH_SIZE) {
+        flushBuffer(bufferedBytes);
+      }
+      pageReference.setKey(offset + pageAlignmentPadding);
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    }
+  }
+
+  @Override
+  public void discardSpilledWrites() {
+    if (spillFrontier == 0L && spillChannel == null) {
+      return;
+    }
+    spillFrontier = 0L;
+    spillGeneration++;
+    final FileChannel channel = spillChannel;
+    if (channel != null) {
+      try {
+        channel.truncate(0L);
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
+      }
+    }
+  }
+
+  private void closeSpill() {
+    final FileChannel channel = spillChannel;
+    spillChannel = null;
+    spillFrontier = 0L;
+    if (channel == null) {
+      return;
+    }
+    final SpillChannelHolder holder = spillChannelHolder;
+    if (holder != null) {
+      holder.clearIf(channel);
+    }
+    try {
+      channel.close();
+      Files.deleteIfExists(spillPath);
+    } catch (final IOException e) {
+      LOGGER.warn("Could not remove the spill file {}", spillPath, e);
     }
   }
 
@@ -1214,6 +1397,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     if (!closed.compareAndSet(false, true)) {
       return;
     }
+    closeSpill();
     try {
       // Preallocated profile: fdatasync suffices when i_size was already durable. An aborted writer
       // may instead close with freshly zero-filled allocation metadata that never reached a commit

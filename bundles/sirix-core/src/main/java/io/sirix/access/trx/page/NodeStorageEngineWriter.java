@@ -36,11 +36,13 @@ import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.IndexLogKey;
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.PageGuard;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.path.json.JsonPCRCollector;
+import io.sirix.io.IOStorage;
 import io.sirix.io.SerializationBufferPool;
 import io.sirix.io.SharedArenas;
 import io.sirix.io.filechannel.FileChannelWriter;
@@ -55,6 +57,9 @@ import io.sirix.node.json.StringNode;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongIterator;
+import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.ValueDictionaryEntryNode;
@@ -75,6 +80,7 @@ import io.sirix.page.NamePage;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.page.PageKind;
+import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.page.PageReference;
 import io.sirix.page.PageSectionDiag;
 import io.sirix.page.PathPage;
@@ -125,6 +131,7 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -165,6 +172,77 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * </p>
    */
   static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = Integer.getInteger("sirix.asyncFlush.maxLogEntries", 16);
+
+  /**
+   * Record pages live in 64 KiB frames; the storage-epoch bound of a plain transaction is sized in
+   * them.
+   */
+  static final long RECORD_PAGE_FRAME_BYTES = 1L << 16;
+
+  /**
+   * Explicit live-TIL page bound for the storage epochs of a plain (non-async-flush) write
+   * transaction; {@code 0} sizes it from the off-heap budget, see
+   * {@link #storageEpochLogEntryCount()}.
+   */
+  private static final int CONFIGURED_STORAGE_EPOCH_LOG_ENTRY_COUNT =
+      Integer.getInteger("sirix.storageEpoch.maxLogEntries", 0);
+
+  /** Test seam: a positive value replaces the budget-derived plain-transaction bound. */
+  private static volatile int storageEpochLogEntryCountForTesting;
+
+  /**
+   * Share of the off-heap budget the live intent log of a plain write transaction may hold before it
+   * rotates a storage-only epoch ({@code -Dsirix.storageEpoch.budgetShare}, default one eighth).
+   */
+  private static final double STORAGE_EPOCH_BUDGET_SHARE = storageEpochBudgetShare();
+
+  private static double storageEpochBudgetShare() {
+    final String configured = System.getProperty("sirix.storageEpoch.budgetShare");
+    if (configured == null) {
+      return 0.125d;
+    }
+    final double share = Double.parseDouble(configured);
+    if (!(share > 0d && share <= 1d)) {
+      throw new IllegalArgumentException("sirix.storageEpoch.budgetShare must be in (0, 1]: " + configured);
+    }
+    return share;
+  }
+
+  /**
+   * Live-TIL page bound at which a plain write transaction rotates a storage-only epoch.
+   *
+   * <p>
+   * The rotation is pressure-driven: a transaction whose modified pages fit into the share of the
+   * off-heap budget never rotates and pays nothing (the code path is at parity with an unbounded
+   * transaction then); one that would otherwise grow with the data loaded rotates once the live log
+   * reaches that share, and pays for re-reading the pages it touches again. The share is one eighth
+   * of the budget in 64 KiB frames: with the frozen epoch of the same size in flight the log owns at
+   * most a quarter of the budget, the slice the cache sizing leaves free. A quarter (half with the
+   * frozen epoch) exhausted the allocator's small size class at t1M on a 4 GiB arena, since a log
+   * entry is a page of any size class, not a 64 KiB frame. The async-flush import bound
+   * ({@link #MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT}) is the floor, and an explicit page count
+   * ({@code -Dsirix.storageEpoch.maxLogEntries}) or the test seam replaces the derived bound.
+   * </p>
+   */
+  static int storageEpochLogEntryCount() {
+    final int forTesting = storageEpochLogEntryCountForTesting;
+    if (forTesting > 0) {
+      return forTesting;
+    }
+    if (CONFIGURED_STORAGE_EPOCH_LOG_ENTRY_COUNT > 0) {
+      return Math.max(MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT, CONFIGURED_STORAGE_EPOCH_LOG_ENTRY_COUNT);
+    }
+    final long budgetBytes = FrameSlotAllocator.getInstance().getMaxBufferSize();
+    final long epochBytes = (long) (budgetBytes * STORAGE_EPOCH_BUDGET_SHARE);
+    return (int) Math.max(MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT,
+        Math.min(Integer.MAX_VALUE, epochBytes / RECORD_PAGE_FRAME_BYTES));
+  }
+
+  /** Test seam: {@code 0} restores the budget-derived plain-transaction bound. */
+  public static void setStorageEpochLogEntryCountForTesting(final int count) {
+    checkArgument(count >= 0, "Negative storage-epoch bound is not accepted.");
+    storageEpochLogEntryCountForTesting = count;
+  }
 
   /**
    * Buffered output for page writes.
@@ -542,6 +620,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /** NAME-page readback retention is bounded by the configured arena and a fixed page ceiling. */
   private @Nullable WriterRecordPageCache recordReadPages;
 
+  /**
+   * Detached copies of document records captured before a storage-only epoch wrote their pages out,
+   * for the commit-time index maintenance that re-reads them; see {@link WriterRecordSnapshot}.
+   */
+  private @Nullable WriterRecordSnapshot recordSnapshot;
+
+  /**
+   * Document record reads that went to a page this transaction had already written out (diagnostics).
+   */
+  static final LongAdder DURABLE_DOCUMENT_RECORD_READS = new LongAdder();
   // Swizzled overflow payloads are not bounded by a page's native allocation. Preserve the
   // immediate-release route when that diagnostic mode explicitly requests retaining them.
   private static final boolean CACHE_RECORD_READ_PAGES =
@@ -985,6 +1073,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes, hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages,
         hftPinnedTrieSpillBatchMax, hftPinnedTrieLiveMax, hftPinnedTrieHighWater, hftSerializeJoinWaitNanosTotal,
         hftKvlAppendNanosTotal, hftSideNanosTotal, hftFinalFlushNanosTotal);
+    System.out.printf("# RECORD_SNAPSHOT captured=%d hits=%d tombstoneHits=%d absent=%d durableDocumentReads=%d%n",
+        WriterRecordSnapshot.capturedCount(), WriterRecordSnapshot.hitCount(), WriterRecordSnapshot.tombstoneHitCount(),
+        WriterRecordSnapshot.absentCount(), DURABLE_DOCUMENT_RECORD_READS.sum());
     if (hftMaxWorkerEpochId != 0L) {
       System.out.printf(
           "# HFT_ASYNC_MAX_WORKER epoch=%d queueWaitNs=%d workerNs=%d sideNs=%d "
@@ -1646,6 +1737,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final long recordPageKey = storageEngineReader.pageKey(recordKey, indexType);
 
     final int revision = newRevisionRootPage.getRevision();
+    if (indexType == IndexType.DOCUMENT && recordSnapshot != null) {
+      // A page a storage epoch wrote out is not in the current log generation. A record captured from
+      // it is answered from its copy without resolving the page at all (the commit-time maintenance's
+      // read path): every change to a record root re-queues it, so the copy is as current as the page.
+      final int pagePutGeneration = log.documentPagePutGeneration(recordPageKey);
+      if (pagePutGeneration >= 0 && pagePutGeneration != log.getCurrentGeneration()) {
+        final Object captured = recordSnapshot.lookup(recordKey);
+        if (captured != null) {
+          return captured == WriterRecordSnapshot.deleted()
+              ? null
+              : (V) captured;
+        }
+      }
+    }
     PageContainer pageCont = getMostRecentPageContainer(indexType, recordPageKey, index, revision);
     PageReference durableReference = null;
     if (pageCont == null) {
@@ -1675,6 +1780,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return (V) storageEngineReader.checkItemIfDeleted(node);
     }
 
+    if (indexType == IndexType.DOCUMENT && recordSnapshot != null) {
+      // The page was written out by a storage epoch. A record captured before that, whose page was
+      // not put into the log again afterwards, is served from its copy instead of the durable route.
+      final Object captured = recordSnapshot.lookup(recordKey);
+      if (captured != null) {
+        return captured == WriterRecordSnapshot.deleted()
+            ? null
+            : (V) captured;
+      }
+    }
     if (indexType == IndexType.NAME && CACHE_RECORD_READ_PAGES) {
       WriterRecordPageCache cache = recordReadPages;
       if (cache == null) {
@@ -1683,12 +1798,85 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       return (V) storageEngineReader.readDetachedRecord(cache.get(requireNonNull(durableReference)), recordKey);
     }
+    if (indexType == IndexType.DOCUMENT) {
+      DURABLE_DOCUMENT_RECORD_READS.increment();
+    }
     final KeyValueLeafPage durablePage =
         storageEngineReader.readRecordPageFromExactReference(requireNonNull(durableReference));
     try {
       return (V) storageEngineReader.readDetachedRecord(durablePage, recordKey);
     } finally {
       durablePage.retire();
+    }
+  }
+
+  @Override
+  public void captureRecordForDeferredRead(final long recordRootKey) {
+    storageEngineReader.assertNotClosed();
+    checkArgument(recordRootKey >= 0, "Negative record key is not accepted.");
+    WriterRecordSnapshot snapshot = recordSnapshot;
+    if (snapshot == null) {
+      snapshot = new WriterRecordSnapshot();
+      recordSnapshot = snapshot;
+    }
+    final int revision = newRevisionRootPage.getRevision();
+    final long nullKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+    // The record's root and its immediate siblings, shallowly: maintenance reads the root for
+    // membership
+    // (kind, parent, path class) and the siblings' pointers, which this record's insertion or removal
+    // changed; its field values travel as a captured row. Only nodes whose page is live in the log are
+    // copied: a node whose page is not live is either from a committed revision, which the commit-time
+    // read gets from the shared cache anyway, or was flushed by an earlier epoch and copied then. Every
+    // change to a root re-queues it (its own record dirtied, or a neighbour inserted or removed), so a
+    // copy is replaced whenever the node changed and the page was live again.
+    final LongArrayList pending = new LongArrayList();
+    pending.push(recordRootKey);
+    while (!pending.isEmpty()) {
+      final long nodeKey = pending.popLong();
+      final long recordPageKey = storageEngineReader.pageKey(nodeKey, IndexType.DOCUMENT);
+      PageContainer container = getMostRecentPageContainer(IndexType.DOCUMENT, recordPageKey, -1, revision);
+      if (container == null) {
+        container = resolvePageForRead(recordPageKey, -1, IndexType.DOCUMENT, revision).pageContainer;
+      }
+      final DataRecord node;
+      if (container != null) {
+        // Read exactly as getRecord does: the live record object (object mode) or the page-bound
+        // flyweight, then detach a copy. Slot bytes alone would miss edits and removals that object
+        // mode keeps in records[] until serialization.
+        DataRecord live = getRecordForWriteAccess((KeyValueLeafPage) container.getModified(), nodeKey);
+        if (live == null) {
+          live = getRecordForWriteAccess((KeyValueLeafPage) container.getComplete(), nodeKey);
+        }
+        live = live == null
+            ? null
+            : storageEngineReader.checkItemIfDeleted(live);
+        node = live instanceof final FlyweightNode flyweight
+            ? flyweight.toSnapshot()
+            : live;
+        snapshot.capture(nodeKey, node);
+      } else {
+        final Object existing = snapshot.lookup(nodeKey);
+        if (existing == null || existing == WriterRecordSnapshot.deleted()) {
+          continue;
+        }
+        node = (DataRecord) existing;
+      }
+      if (nodeKey == recordRootKey && node instanceof final StructNode struct) {
+        if (struct.getLeftSiblingKey() != nullKey) {
+          pending.push(struct.getLeftSiblingKey());
+        }
+        if (struct.getRightSiblingKey() != nullKey) {
+          pending.push(struct.getRightSiblingKey());
+        }
+      }
+    }
+  }
+
+  private void clearRecordSnapshot() {
+    final WriterRecordSnapshot snapshot = recordSnapshot;
+    if (snapshot != null) {
+      snapshot.clear();
+      recordSnapshot = null;
     }
   }
 
@@ -2081,6 +2269,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   // ==================== ASYNC AUTO-COMMIT ====================
 
+  /**
+   * Whether this transaction's epochs spill their record pages instead of appending them to the data
+   * file: set by the first {@link #asyncFlushStorageEpoch()}, never by {@link #asyncFlush()} (the
+   * async-flush import mode). Spilled epochs cannot write pinned trie pages ahead of the commit,
+   * since those would embed spill keys.
+   */
+  private boolean spillingStorageEpochs;
+
+  @Override
+  public void asyncFlushStorageEpoch() {
+    spillingStorageEpochs = storagePageReaderWriter.supportsSpilledWrites();
+    asyncFlush();
+  }
+
   @Override
   public void asyncFlush() {
     // Preserve the original asynchronous failure even after teardown has closed the reader.
@@ -2099,6 +2301,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public boolean isAsyncFlushLogBoundaryReached() {
     return log.liveEntryCount() >= MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
+  }
+
+  @Override
+  public boolean isStorageEpochLogBoundaryReached() {
+    final int live = log.liveEntryCount();
+    return live >= MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT && live >= storageEpochLogEntryCount();
   }
 
   static boolean isAsyncFlushLogBoundaryReached(final int liveEntryCount) {
@@ -2454,6 +2662,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * </p>
    */
   private void spillEligiblePinnedTriePages() {
+    if (spillingStorageEpochs) {
+      // A trie page written ahead of the commit embeds its children's keys; with spilled epochs those
+      // are spill keys, so the pinned trie pages stay in the log until the commit.
+      return;
+    }
     // Only a backend that cannot take pages ahead of the root keeps every pinned trie page until the
     // final commit. Reclaiming an aborted tail is not required: see stageUncommittedOverflowPage.
     if (!storagePageReaderWriter.supportsUncommittedWrites() || log.pinnedSize() == 0) {
@@ -2517,6 +2730,59 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       pinnedTrieSpillShadowReference.clearHash();
       pinnedTrieSpillShadowReference.setKey(Constants.NULL_ID_LONG);
       pinnedTrieSpillShadowReference.setPage(null);
+    }
+  }
+
+  /** Whether {@code key} addresses a page this transaction wrote out before the commit. */
+  private boolean isOwnedUncommittedPage(final long key) {
+    return IOStorage.isSpillKey(key)
+        || (firstUncommittedPageOffset != Long.MAX_VALUE && key >= firstUncommittedPageOffset);
+  }
+
+  /**
+   * A spill key must never reach the data file: not as a fragment of the page about to be written,
+   * and not as a child key inside it. The fragment chain is checked here; a child reference is
+   * checked when the recursion reaches it, so by the time a parent is written every child key is
+   * final.
+   */
+  private static void requireNoSpillKeys(final PageReference reference, final Page page) {
+    final List<PageFragmentKey> fragments = reference.getPageFragments();
+    for (int i = 0; i < fragments.size(); i++) {
+      if (IOStorage.isSpillKey(fragments.get(i).key())) {
+        throw new SirixIOException("Spill key " + fragments.get(i).key() + " leaked into the fragment chain of "
+            + page.getClass().getSimpleName() + " at reference " + reference);
+      }
+    }
+  }
+
+  /**
+   * A page a storage epoch spilled and the commit still references: copy its frame into the data file
+   * and give the reference (and the log's mirror of it) the data-file key. Pages the transaction
+   * modified again after the spill were re-read and are rewritten by the commit instead.
+   */
+  private void materializeSpilledPage(final PageReference reference) {
+    final long spillKey = reference.getKey();
+    if (!IOStorage.isSpillKey(spillKey)) {
+      return;
+    }
+    if (storagePageReaderWriter.supportsReclaimableUncommittedWrites()) {
+      hasUncommittedReclaimableWrites = true;
+    }
+    final List<PageFragmentKey> fragments = reference.getPageFragments();
+    for (int i = 0; i < fragments.size(); i++) {
+      if (IOStorage.isSpillKey(fragments.get(i).key())) {
+        throw new SirixIOException(
+            "Spill key " + fragments.get(i).key() + " leaked into the fragment chain of spilled page " + reference);
+      }
+    }
+    storagePageReaderWriter.copySpilledPage(getResourceSession().getResourceConfig(), reference, bufferBytes);
+    firstUncommittedPageOffset = Math.min(firstUncommittedPageOffset, reference.getKey());
+    final int logKey = reference.getLogKey();
+    if (logKey >= 0) {
+      final PageReference originalRef = log.getOriginalRef(reference);
+      if (originalRef != null && originalRef != reference && originalRef.getKey() == spillKey) {
+        originalRef.setKey(reference.getKey());
+      }
     }
   }
 
@@ -2930,6 +3196,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               sideNanos += System.nanoTime() - sideStart;
             }
           }
+          final boolean spillRecordPages = spillingStorageEpochs;
+          if (spillRecordPages) {
+            // Side pages have their data-file offsets embedded in the pages that reference them, so
+            // they stay in the data file; the record pages of this epoch go to the spill file and
+            // reach the data file only if the commit still references them. Separate the two targets
+            // in the shared buffer.
+            storagePageReaderWriter.flushBufferedWrites(bgBuffer);
+          }
 
           for (int base = 0; base < size; base += SNAPSHOT_FLUSH_WINDOW) {
             final long joinStart = HFT_TELEMETRY_ENABLED
@@ -2991,7 +3265,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                     encodedBytes = 0L;
                     frameCache = false;
                   }
-                  writeUncommittedPage(config, shadowRef, serializationCopy, bgBuffer);
+                  if (spillRecordPages) {
+                    storagePageReaderWriter.writeSpilled(config, shadowRef, serializationCopy, bgBuffer);
+                  } else {
+                    writeUncommittedPage(config, shadowRef, serializationCopy, bgBuffer);
+                  }
                   noteDocumentPageEncoded(serializationCopy);
                   if (HFT_TELEMETRY_ENABLED) {
                     // Count only KVL pages whose synchronous writer call consumed the encoded cache.
@@ -3067,7 +3345,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             ? System.nanoTime()
             : 0L;
         try {
-          storagePageReaderWriter.flushBufferedWrites(bgBuffer);
+          if (spillingStorageEpochs) {
+            storagePageReaderWriter.flushSpilledBufferedWrites(bgBuffer);
+          } else {
+            storagePageReaderWriter.flushBufferedWrites(bgBuffer);
+          }
         } finally {
           if (HFT_TELEMETRY_ENABLED) {
             finalFlushNanos += System.nanoTime() - finalFlushStart;
@@ -3882,6 +4164,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             + "): the referenced page is in no TIL layer and has no disk offset — refusing to"
             + " serialize a dangling child pointer (data would silently be lost).");
       }
+      materializeSpilledPage(reference);
       return;
     }
 
@@ -3903,11 +4186,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           }
         }
       }
+      materializeSpilledPage(reference);
       return;
     }
 
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
+    requireNoSpillKeys(reference, page);
     final PageReference.TransactionLogReference logReference = reference.transactionLogReference();
     writeUncommittedPage(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
     PageReference.completeTransactionLogReference(logReference, reference.getKey(), reference.getHashAsLong(),
@@ -4061,6 +4346,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // eventual close must not invalidate those committed offsets.
       hasUncommittedReclaimableWrites = false;
       firstUncommittedPageOffset = Long.MAX_VALUE;
+      clearRecordSnapshot();
+      storagePageReaderWriter.discardSpilledWrites();
       closeDurableReadPages();
 
       final long t4 = timing
@@ -4676,6 +4963,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private void invalidateCachesForAbortedUncommittedWrites() {
     if (!hasUncommittedReclaimableWrites) {
       firstUncommittedPageOffset = Long.MAX_VALUE;
+      clearRecordSnapshot();
+      storagePageReaderWriter.discardSpilledWrites();
       return;
     }
     // Use the retained immutable session/config directly: close() invokes this after the reader has
@@ -4684,6 +4973,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     Databases.clearCachesForResource(resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
     hasUncommittedReclaimableWrites = false;
     firstUncommittedPageOffset = Long.MAX_VALUE;
+    clearRecordSnapshot();
+    storagePageReaderWriter.discardSpilledWrites();
   }
 
   @Override
@@ -5066,7 +5357,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     if (resolved != null) {
       readPageResolution.setPageContainer(resolved);
-    } else if (firstUncommittedPageOffset != Long.MAX_VALUE && reference.getKey() >= firstUncommittedPageOffset) {
+    } else if (isOwnedUncommittedPage(reference.getKey())) {
       readPageResolution.setDurableReference(reference);
     }
     return readPageResolution;
@@ -5317,8 +5608,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storageEngineReader.closeCurrentPageGuard();
     }
 
-    final boolean ownedFragments =
-        firstUncommittedPageOffset != Long.MAX_VALUE && reference.getKey() >= firstUncommittedPageOffset;
+    final boolean ownedFragments = isOwnedUncommittedPage(reference.getKey());
     final var result = ownedFragments
         ? storageEngineReader.getOwnedPageFragments(reference)
         : storageEngineReader.getPageFragments(reference);
@@ -5331,6 +5621,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // page cache's compute, where walking the NAME trie would re-enter the cache.
       storageEngineReader.ensureFsstSymbolTablesLoaded();
       storageEngineReader.resolveFsstSymbolTables(result.pages());
+      if (ownedFragments && versioningType != VersioningType.FULL) {
+        // The newest fragment is this transaction's own flushed modifying page, not a previous
+        // revision: rebuild the committed state from the chain and lay the owned records over it.
+        return versioningType.combineOwnedRecordPagesForModification(result.pages(), mileStoneRevision, this, reference,
+            log);
+      }
       return versioningType.combineRecordPagesForModification(result.pages(), mileStoneRevision, this, reference, log);
     } finally {
       // Release the getPageFragments() guards. The writer's own guard accounting is balanced by
@@ -6079,6 +6375,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         storageEngineReader.getResourceId());
     hasUncommittedReclaimableWrites = false;
     firstUncommittedPageOffset = Long.MAX_VALUE;
+    clearRecordSnapshot();
+    storagePageReaderWriter.discardSpilledWrites();
     closeDurableReadPages();
     // Path-class records are cached per (resource, revision), and truncateTo RE-ISSUES the
     // truncated revision numbers over different content -- the same offset-reuse hazard the page

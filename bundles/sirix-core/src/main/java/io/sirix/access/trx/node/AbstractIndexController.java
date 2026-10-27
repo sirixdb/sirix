@@ -649,6 +649,14 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  public void notifyBeforeStorageEpoch() {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].beforeStorageEpoch();
+    }
+  }
+
+  @Override
   public void notifyTransactionAbort() {
     final ChangeListener[] activeListeners = listenerSnapshot;
     for (int i = 0; i < activeListeners.length; i++) {
