@@ -96,10 +96,11 @@ temporal residual always filters exact candidates as well, and disables key-only
 comparisons use the key-only sequence when the comparison matches the indexed bounds and all
 selected candidates are exact; otherwise they retain the built-in comparison and reuse the selected
 keys and evidence. Caller-supplied arbitrary predicates are not supported. Among source-valid records, a strict integer tie
-must not suppress an original cast error. Point candidates intersect compressed HOT chunks with
-immutable membership masks word-wise before expansion; verification-only chunks additionally
-intersect the verification mask. Matching keys are accumulated as runs by chunk base, unioned in
-occupied words and emitted once in ascending order, without a hash set or final key sort. Sparse
+must not suppress an original cast error. Point candidates stream compact ascending HOT runs directly
+from a borrowed array, or enumerate bitmap-backed chunks, testing each key against immutable membership
+masks. Verification-only chunks additionally test the verification mask. Matching keys are accumulated
+as runs by chunk base, unioned in occupied words and emitted once in ascending order, without a hash set
+or final key sort. Sparse
 chunks retain runs; dense chunks use bitmaps. The threshold and work bounds are owned by the
 [work-budget counter reference](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md#the-counters).
 Only matching candidate keys are retained; unrelated companion posting references are never
@@ -115,9 +116,11 @@ intersection with the array's membership. Exceptional intervals in other cohorts
 key-only counts over exact array members. The read index controller retains up to 256 cohort admission
 results, scoped to database, resource, immutable revision, definition identity, array key and length.
 Half-open primitive-key requests at an exactly representable point reuse a successful cached proof
-to issue the half-open chunk stab without reading end-equal chunks or verification masks. Membership
-postings still exclude matching records from other arrays. Without a cached proof, requests retain
-ordinary candidate verification; a nonempty matching result can establish the cohort proof for
+to issue the half-open chunk stab without reading end-equal chunks or verification masks. Admitted
+plain-FLWOR comparison sequences use this same route for an inclusive start and strict end;
+other endpoint modes retain ordinary candidate evidence. Membership postings still exclude matching
+records from other arrays. Without a cached proof, primitive-key requests retain ordinary candidate
+verification; a nonempty matching result can establish the cohort proof for
 later requests, while an empty result does not initiate cohort admission reads.
 Controller eviction or collection of the owning session releases these proofs; entries retain no
 readers or transactions. Every key-only factory declines writers and intent-log-backed serving
@@ -186,8 +189,9 @@ reads; exists and first demand construct one object, with work bounded by the th
 Opt-in 100,000-row versions exercise both placements in the dedicated Test phase. Multi-chunk plain
 FLWOR budgets put expired inexact nested records beside exact outer records with one match, first
 and last. Their first admission proves nonzero validation work; repeated count/exists/first queries
-visit only the two candidate evidence chunks, using cached masks when available. Packed and bitmap
-fixtures retain explicit reference enumeration and cardinality controls. Separate executable checks
+visit only candidate membership and verification evidence, using cached masks when available; the
+proven-cohort half-open route needs only membership evidence. Packed and bitmap fixtures retain
+explicit reference enumeration and cardinality controls. Separate executable checks
 cover warmed proofs across resource and cohort boundaries, changed points, writer mutations, reordered arrays, dropped/rebuilt definitions,
 reverts and reopened historical revisions. The two 100,000-row cohort variants are also opt-in.
 `ValidTimeMutableSliceTest` reproduces both pending-edit wrong-result directions through real writers,

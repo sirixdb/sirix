@@ -4,7 +4,7 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 
 import java.util.Arrays;
 
-/** Receives an owned 64K posting chunk before individual keys are expanded. */
+/** Receives 64K posting chunks as owned references or borrowed compact runs. */
 @FunctionalInterface
 public interface PostingChunkConsumer {
   /** A tied exclusive end contributes only records requiring exact endpoint verification. */

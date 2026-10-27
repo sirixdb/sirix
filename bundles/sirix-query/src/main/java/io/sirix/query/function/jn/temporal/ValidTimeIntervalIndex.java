@@ -305,7 +305,7 @@ public final class ValidTimeIntervalIndex {
     return !(document instanceof AbstractJsonDBArray<?>) || document instanceof JsonDBArray;
   }
 
-  /** Intersect compressed runs before expansion; every candidate is emitted once in key order. */
+  /** Filter chunk keys against companion masks; emit every candidate once in key order. */
   static Evidence candidates(final JsonDBItem document, final Instant instant, final boolean strictStart,
       final boolean strictEnd, final int indexId) {
     final IntervalDomain domain = new IntervalDomain();
@@ -645,8 +645,8 @@ public final class ValidTimeIntervalIndex {
     /**
      * One pass over a compact ascending run: membership (and, for a tied end, verification) is tested
      * per key against the immutable masks, candidates go straight into the chunk's bitmap or run. This
-     * is the shape every chunk of a stab arrives in, so it carries no scratch marking, no touched-word
-     * bookkeeping and no reset.
+     * compact path avoids scratch marking, touched-word bookkeeping and reset; bitmap-backed chunks use
+     * {@link #accept(long, NodeReferences, boolean)} instead.
      */
     @Override
     public void acceptSorted(final long base, final long[] keys, final int count, final boolean verifyOnly) {

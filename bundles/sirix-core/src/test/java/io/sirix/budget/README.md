@@ -243,8 +243,10 @@ maintains, so a budget quotes the same numbers an investigation would:
   print them on `# served:` (`groupAggregates`, `groupSummary`, `groupSliced`, `sortedGroupBys`,
   `predicateScans`, ...). What each route reads is section 7.3 of
   `docs/SEGMENT_PROJECTION_INDEXES.md`.
-- `QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS`: companion mask words inspected during candidate
-  intersection, run union, strict-start removal and unverified-key checks, gated by `sirix.validTime.scanDiag`.
+- `QueryWorkCounters.VALID_TIME_CANDIDATE_WORDS`: occupied-word visits per input run during membership
+  filtering, plus occupied words in run unions, strict-start removal and unverified-key checks, gated
+  by `sirix.validTime.scanDiag`. Membership filtering counts each occupied word once per run rather
+  than each per-key mask access; verification-only chunks additionally count each key's verification check.
   Sparse run fixtures require one occupied word per matching chunk; a full chunk requires 1,024.
   Chunks stay as sorted runs below 1,024 unique matches (8 KiB / eight-byte keys), and use a bitmap at or above
   that threshold. `VALID_TIME_CANDIDATE_BITMAPS` counts these allocations; sparse slices require zero.
