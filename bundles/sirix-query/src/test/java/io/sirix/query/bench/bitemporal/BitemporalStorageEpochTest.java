@@ -44,17 +44,7 @@ final class BitemporalStorageEpochTest {
 
   @Test
   void allPublicationsMatchTheUnboundedTwinAfterColdReopen() throws Exception {
-    // Exercise the generator/loader internals without their command-line campaign path restriction.
-    final Path eventsPath = directory.resolve("events.jsonl");
-    final Class<?> generatorType = nestedClass(BitemporalGenerateMain.class, "Generator");
-    final Constructor<?> generatorConstructor = generatorType.getDeclaredConstructor(Tier.class, Path.class);
-    generatorConstructor.setAccessible(true);
-    invoke(method(generatorType, "generate"), generatorConstructor.newInstance(Tier.DEVELOPMENT, eventsPath));
-    @SuppressWarnings("unchecked")
-    final List<Event>[] events = (List<Event>[]) invoke(
-        method(BitemporalSirixLoadMain.class, "readEvents", Path.class, Tier.class), null,
-        eventsPath, Tier.DEVELOPMENT);
-    assertEquals(4_776, List.of(events).stream().mapToInt(List::size).sum());
+    final List<Event>[] events = generateEvents(directory.resolve("events.jsonl"));
 
     final Path plain = directory.resolve("plain");
     assertEquals(0, load(plain, events, Integer.MAX_VALUE));
@@ -64,7 +54,21 @@ final class BitemporalStorageEpochTest {
     assertEquals(expected, coldPublications(bounded), "every resource at every publication");
   }
 
-  private static int load(final Path path, final List<Event>[] events, final int bound) throws Exception {
+  static List<Event>[] generateEvents(final Path eventsPath) throws Exception {
+    // Exercise the generator/loader internals without their command-line campaign path restriction.
+    final Class<?> generatorType = nestedClass(BitemporalGenerateMain.class, "Generator");
+    final Constructor<?> generatorConstructor = generatorType.getDeclaredConstructor(Tier.class, Path.class);
+    generatorConstructor.setAccessible(true);
+    invoke(method(generatorType, "generate"), generatorConstructor.newInstance(Tier.DEVELOPMENT, eventsPath));
+    @SuppressWarnings("unchecked")
+    final List<Event>[] events = (List<Event>[]) invoke(
+        method(BitemporalSirixLoadMain.class, "readEvents", Path.class, Tier.class), null,
+        eventsPath, Tier.DEVELOPMENT);
+    assertEquals(4_776, List.of(events).stream().mapToInt(List::size).sum());
+    return events;
+  }
+
+  static int load(final Path path, final List<Event>[] events, final int bound) throws Exception {
     StorageEpochTestSupport.setPlainTransactionBound(bound);
     final Class<?> stateType = nestedClass(BitemporalSirixLoadMain.class, "RelationState");
     final Constructor<?> stateConstructor = stateType.getDeclaredConstructor(String.class, int.class);
@@ -99,7 +103,7 @@ final class BitemporalStorageEpochTest {
     return events.stream().filter(event -> event.table().equals(resource)).toList();
   }
 
-  private static List<String> coldPublications(final Path path) throws Exception {
+  static List<String> coldPublications(final Path path) throws Exception {
     Databases.clearGlobalCaches();
     final List<String> digests = new ArrayList<>(RESOURCES.size() * BitemporalSchema.PUBLICATIONS);
     final MessageDigest digest = MessageDigest.getInstance("SHA-256");
