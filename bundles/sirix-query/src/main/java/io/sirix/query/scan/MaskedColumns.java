@@ -43,7 +43,7 @@ public final class MaskedColumns {
   /** Per field, per leaf: the leaf dictionary id → interned id table, built on first touch. */
   private final int[][][] dictToInterned;
   /**
-   * Whether these columns describe an immutable revision, so derived immutable views may be reused.
+   * Original masks of an immutable revision; derived state is reusable only while they still match.
    */
   private long @Nullable [][] immutableMasks;
   private final Object rowIdentity;
@@ -146,8 +146,8 @@ public final class MaskedColumns {
   }
 
   /**
-   * An identity shared by every view of one immutable snapshot and by nothing else: equal identities
-   * admit the same rows, so a derived immutable structure can be matched on it.
+   * An identity shared only by one loaded snapshot and its cached views, including its field roster.
+   * Derived caches must also check {@link #isImmutableRevision()} because a view's masks may change.
    */
   public Object rowIdentity() {
     return rowIdentity;

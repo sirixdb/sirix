@@ -645,7 +645,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * the margin operand and, when the side carries them, the distinct operand and the group key. Lanes
    * are immutable decoded arrays shared with the column store.
    */
-  private record SideLanes(long @Nullable [][] masks, long[][] join, long[][] from, long[][] to, long[][] margin,
+  @SuppressWarnings("ArrayRecordComponent") // Private lane carrier; array value equality is never used.
+  private record SideLanes(long[] @Nullable [] masks, long[][] join, long[][] from, long[][] to, long[][] margin,
       long @Nullable [][] distinct, long @Nullable [][] group) {
 
     static SideLanes capture(final MaskedColumns columns, final int fromSlot, final int toSlot, final int marginSlot,
@@ -806,8 +807,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
 
     /** Store and row identity by reference, signature by content. */
+    @SuppressWarnings("ArrayRecordComponent") // Signature equality and hashing are defined by content below.
     private record InFlightKey(ProjectionColumnStore store, Object rows, long[] signature) {
       @Override
+      @SuppressWarnings("ReferenceEquality") // The row token identifies one loaded snapshot, not equal row values.
       public boolean equals(final Object other) {
         return other instanceof InFlightKey key && key.store == store && key.rows == rows
             && Arrays.equals(key.signature, signature);
@@ -855,6 +858,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
      * Pack {@code lanes} in the background and publish the side; a no-op unless the revision is
      * immutable or when the same side is already being packed.
      */
+    @SuppressWarnings("FutureReturnValueIgnored") // Failures complete the separately tracked packing future.
     static void packAsync(final MaskedColumns columns, final long[] signature, final SideLanes lanes,
         final long keyMinimum, final int slots, final long groupMinimum) {
       if (!columns.isImmutableRevision()) {
@@ -985,6 +989,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
      * The unbounded-domain fallback, kept out of {@link #pair} so the hot fold stays small enough to
      * inline.
      */
+    @SuppressWarnings("NullAway") // Called only when bits is null, which proves sets is non-null.
     private void addToSet(final int group, final long distinctValue) {
       LongOpenHashSet set = sets[group];
       if (set == null) {
@@ -994,6 +999,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       set.add(distinctValue);
     }
 
+    @SuppressWarnings("NullAway") // The constructor allocates sets exactly when bits is null.
     long distinctCount(final int group) {
       return bits != null
           ? distinctCounts[group]
