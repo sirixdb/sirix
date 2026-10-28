@@ -15,6 +15,7 @@ import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.query.compiler.translator.SirixJoinedGroupAggregateExpr;
 import io.sirix.query.bench.bitemporal.BitemporalProjections;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.ValidTimeIndexes;
@@ -39,6 +40,9 @@ final class IntervalRangeJoinWorkBudgetTest {
   private static final int ROWS = 2200;
   private static final WorkCounter JOINED = WorkCounter.alwaysOn("served.joinGroup", "one joined column route",
       SirixVectorizedExecutor::joinGroupServedCount);
+  private static final WorkCounter BUCKETED_SIDES =
+      WorkCounter.alwaysOn("joinGroup.bucketedSidesBuilt", "join sides bucketed by key for the dense extrema kernel",
+          SirixJoinedGroupAggregateExpr::bucketedSidesBuiltCount);
   private static final String QUERY = """
       declare variable $L := xs:dateTime('2024-04-01T00:00:00Z');
       declare variable $U := xs:dateTime('2024-07-01T00:00:00Z');
@@ -96,6 +100,7 @@ final class IntervalRangeJoinWorkBudgetTest {
         var chain = SirixCompileChain.createWithJsonStore(store)) {
       assertEquals("{\"category\":1,\"n\":" + rows + ",\"minimum\":16}", run(chain, ctx));
       final WorkCapture.Captured<String> repeated = WorkCapture.of(JOINED)
+                                                               .and(BUCKETED_SIDES)
                                                                .and(EngineWorkCounters.VALID_TIME_INTERVAL_REFS)
                                                                .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                                                                .and(EngineWorkCounters.PROJECTION_DENSE_ROWS)
@@ -104,6 +109,7 @@ final class IntervalRangeJoinWorkBudgetTest {
       assertEquals("{\"category\":1,\"n\":" + rows + ",\"minimum\":16}", repeated.result());
       repeated.work()
               .assertExactly(JOINED, 1, "a fresh compiled query still performs the joined column kernel")
+              .assertExactly(BUCKETED_SIDES, 0, "an immutable revision reuses both bucketed join sides")
               .assertExactly(EngineWorkCounters.VALID_TIME_INTERVAL_REFS, 0,
                   "immutable revision and bounds reuse the membership-proved range keys")
               .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0,

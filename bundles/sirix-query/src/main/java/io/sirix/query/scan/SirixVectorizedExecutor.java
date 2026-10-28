@@ -9458,6 +9458,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
     }
     final MaskedColumns result = readMaskedColumns(store, fetcher, rowKeys, cols, kinds);
+    if (result != null && wtx == null) {
+      result.markImmutableRevision();
+    }
     if (result != null && cacheKeys != null) {
       NumericMaskedColumnCache.put(store, fields, cacheKeys, result);
     }

@@ -42,6 +42,14 @@ public final class MaskedColumns {
   private final Object2IntOpenHashMap<String> stringIds = new Object2IntOpenHashMap<>();
   /** Per field, per leaf: the leaf dictionary id → interned id table, built on first touch. */
   private final int[][][] dictToInterned;
+  /**
+   * Whether these columns describe an immutable revision, so derived immutable views may be reused.
+   */
+  private boolean immutableRevision;
+  /**
+   * Per field: 0 unknown, 1 every selected row present, 2 not; shared by the views of one snapshot.
+   */
+  private byte[] presenceMemo;
 
   MaskedColumns(final ProjectionColumnStore store, final long[][] rowMasks, final long[][] recordKeys,
       final ColumnSlice[][] slices, final byte[] kinds, final long rows) {
@@ -52,6 +60,7 @@ public final class MaskedColumns {
     this.kinds = kinds;
     this.rows = rows;
     this.dictToInterned = new int[kinds.length][rowMasks.length][];
+    this.presenceMemo = new byte[kinds.length];
     strings.add(null);
     stringIds.defaultReturnValue(0);
   }
@@ -59,9 +68,12 @@ public final class MaskedColumns {
   /** Numeric-only snapshots never retain a query's mutable string interner or its store key. */
   @SuppressWarnings("ArrayRecordComponent") // Cache lookup compares contents; views copy mutable masks.
   record NumericSnapshot(String[] fields, long[] keys, long[][] masks, long[][] recordKeys, ColumnSlice[][] slices,
-      byte[] kinds, long rows, int weight) {
+      byte[] kinds, long rows, int weight, byte[] presenceMemo) {
     MaskedColumns view(final ProjectionColumnStore store) {
-      return new MaskedColumns(store, copyMasks(masks), recordKeys, slices, kinds, rows);
+      final MaskedColumns view = new MaskedColumns(store, copyMasks(masks), recordKeys, slices, kinds, rows);
+      view.markImmutableRevision();
+      view.presenceMemo = presenceMemo;
+      return view;
     }
   }
 
@@ -111,12 +123,34 @@ public final class MaskedColumns {
 
   NumericSnapshot numericSnapshot(final String[] fields, final long[] keys, final int weight) {
     return new NumericSnapshot(fields.clone(), keys.clone(), copyMasks(rowMasks), recordKeys, slices, kinds, rows,
-        weight);
+        weight, presenceMemo);
   }
 
   /** How many rows the mask admits over every leaf. */
   public long rows() {
     return rows;
+  }
+
+  /** The column store these masks were read from; its identity scopes derived caches. */
+  public ProjectionColumnStore store() {
+    return store;
+  }
+
+  /**
+   * An identity shared by every view of one immutable snapshot and by nothing else: equal identities
+   * admit the same rows, so a derived immutable structure can be matched on it.
+   */
+  public Object rowIdentity() {
+    return recordKeys;
+  }
+
+  /** Mark the columns as read from an immutable revision (no write transaction). */
+  void markImmutableRevision() {
+    immutableRevision = true;
+  }
+
+  public boolean isImmutableRevision() {
+    return immutableRevision;
   }
 
   public int leafCount() {
@@ -175,6 +209,18 @@ public final class MaskedColumns {
 
   /** Whether every selected row has this field, proved by the already loaded presence words. */
   public boolean allSelectedPresent(final int field) {
+    final byte memo = presenceMemo[field];
+    if (memo != 0) {
+      return memo == 1;
+    }
+    final boolean present = scanSelectedPresent(field);
+    presenceMemo[field] = present
+        ? (byte) 1
+        : (byte) 2;
+    return present;
+  }
+
+  private boolean scanSelectedPresent(final int field) {
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       final long[] mask = rowMasks[leaf];
       if (mask == null) {
