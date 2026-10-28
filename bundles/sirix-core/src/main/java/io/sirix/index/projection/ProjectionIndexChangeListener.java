@@ -3039,7 +3039,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
               }
               if (changeCapture != null) {
                 changeCapture.after(key, extractor,
-                    extractionTrx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, null);
+                    extractor.recordKind() == NodeKind.OBJECT, null);
               }
               appended = extractor.appendTo(page, key, orderException, orderLabel);
               locality.rowsExtracted++;
@@ -4004,7 +4004,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
       if (changeCapture != null) {
         changeCapture.after(recordKey, extractor,
-            rtx instanceof JsonNodeReadOnlyTrx json && json.getKind() == NodeKind.OBJECT, changedColumnWords);
+            extractor.recordKind() == NodeKind.OBJECT, changedColumnWords);
       }
       for (int column = 0; column < persistedKinds.length; column++) {
         final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];

@@ -15,6 +15,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
+import io.sirix.index.IndexType;
 import io.sirix.io.IOStorage;
 import io.sirix.page.PageReference;
 import io.sirix.page.KeyValueLeafPage;
@@ -30,6 +31,9 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.util.Iterator;
+import java.util.stream.Stream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -52,29 +56,56 @@ final class StorageEpochStoreIdentityTest {
 
   @Test
   void mappedEpochsMatchThePlainStore() throws IOException {
-    compare(StorageType.MEMORY_MAPPED, StringCompressionType.NONE, false);
+    compare(StorageType.MEMORY_MAPPED, StringCompressionType.NONE, false, false, false);
   }
 
   @Test
   void deflatedEpochsMatchThePlainStore() throws IOException {
-    compare(StorageType.FILE_CHANNEL, StringCompressionType.NONE, true);
+    compare(StorageType.FILE_CHANNEL, StringCompressionType.NONE, true, false, false);
   }
 
   @Test
   void firstFsstTableAndStoreMatchThePlainTransaction() throws IOException {
-    compare(StorageType.FILE_CHANNEL, StringCompressionType.FSST, false);
+    compare(StorageType.FILE_CHANNEL, StringCompressionType.FSST, false, false, false);
   }
 
-  private void compare(final StorageType storage, final StringCompressionType compression, final boolean deflate)
-      throws IOException {
-    final Census plain = load(directory.resolve("plain"), storage, compression, deflate, false);
-    final Census bounded = load(directory.resolve("bounded"), storage, compression, deflate, true);
+  @Test
+  void supersededOverflowCarriersNeverReachTheDataFile() throws IOException {
+    compare(StorageType.FILE_CHANNEL, StringCompressionType.NONE, false, true, false);
+  }
+
+  @Test
+  void oversizedFsstInputsBecomeInlineLikeThePlainTwin() throws IOException {
+    compare(StorageType.FILE_CHANNEL, StringCompressionType.FSST, false, true, false);
+  }
+
+  @Test
+  void mappedOverflowCarriersMatchThePlainTwin() throws IOException {
+    compare(StorageType.MEMORY_MAPPED, StringCompressionType.NONE, false, true, false);
+  }
+
+  @Test
+  void reusedFsstTableKeepsOversizedEditsInlineLikeThePlainTwin() throws IOException {
+    compare(StorageType.FILE_CHANNEL, StringCompressionType.FSST, false, true, true);
+  }
+
+  private void compare(final StorageType storage, final StringCompressionType compression, final boolean deflate,
+      final boolean oversized, final boolean previousTable) throws IOException {
+    final Path seed = directory.resolve("seed");
+    createSeed(seed, storage, compression, deflate);
+    final Path plainPath = directory.resolve("plain");
+    final Path boundedPath = directory.resolve("bounded");
+    copySeed(seed, plainPath);
+    copySeed(seed, boundedPath);
+    final Census plain = load(plainPath, compression, false, oversized, previousTable);
+    final Census bounded = load(boundedPath, compression, true, oversized, previousTable);
     assertTrue(bounded.rotations() >= 3, "multiple epochs must be exercised");
     assertEquals(0, plain.rotations());
     assertEquals(plain.tableId(), bounded.tableId());
     assertArrayEquals(plain.table(), bounded.table());
-    assertEquals(plain.pages(), bounded.pages(), "page kinds, keys, and encoded lengths");
+    assertEquals(plain.pages().size(), bounded.pages().size(), "page count");
     for (int i = 0; i < plain.frames().size(); i++) {
+      assertEquals(plain.pages().get(i), bounded.pages().get(i), "page kind, key, and encoded length at " + i);
       assertArrayEquals(plain.frames().get(i), bounded.frames().get(i), "persisted page " + i);
     }
     assertEquals(plain.frontier(), bounded.frontier(), "logical data-file frontier");
@@ -82,21 +113,46 @@ final class StorageEpochStoreIdentityTest {
     if (compression == StringCompressionType.FSST) {
       assertTrue(bounded.tableId() > 0);
       assertTrue(bounded.table().length > 0);
+      if (oversized) {
+        assertEquals(0, bounded.documentCarriers(), "compressed strings stay inline");
+      }
     }
   }
 
-  private Census load(final Path path, final StorageType storage, final StringCompressionType compression,
-      final boolean deflate, final boolean bounded) throws IOException {
+  private static void createSeed(final Path path, final StorageType storage, final StringCompressionType compression,
+      final boolean deflate) {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
-    int rotations;
-    Path dataPath;
-    StorageEpochTestSupport.setPlainTransactionBound(bounded ? StorageEpochTestSupport.IMPORT_BOUND : Integer.MAX_VALUE);
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER)) {
       final ResourceConfiguration.Builder config = ResourceConfiguration.newBuilder("resource")
           .storageType(storage).stringCompressionType(compression).customCommitTimestamps(true);
       config.byteHandlerPipeline(deflate
           ? new ByteHandlerPipeline(new DeflateCompressor()) : new ByteHandlerPipeline());
       assertTrue(database.createResource(config.build()));
+    }
+    Databases.clearGlobalCaches();
+  }
+
+  private static void copySeed(final Path source, final Path target) throws IOException {
+    try (final Stream<Path> paths = Files.walk(source)) {
+      final Iterator<Path> iterator = paths.iterator();
+      while (iterator.hasNext()) {
+        final Path path = iterator.next();
+        final Path destination = target.resolve(source.relativize(path));
+        if (Files.isDirectory(path)) {
+          Files.createDirectories(destination);
+        } else {
+          Files.copy(path, destination);
+        }
+      }
+    }
+  }
+
+  private Census load(final Path path, final StringCompressionType compression, final boolean bounded,
+      final boolean oversized, final boolean previousTable) throws IOException {
+    int rotations;
+    Path dataPath;
+    StorageEpochTestSupport.setPlainTransactionBound(bounded ? StorageEpochTestSupport.IMPORT_BOUND : Integer.MAX_VALUE);
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER)) {
       try (final JsonResourceSession session = database.beginResourceSession("resource");
           final JsonNodeTrx writer = session.beginNodeTrx()) {
         dataPath = session.getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
@@ -106,15 +162,30 @@ final class StorageEpochStoreIdentityTest {
         final List<Long> keys = new ArrayList<>(RECORDS);
         for (int i = 0; i < RECORDS; i++) {
           assertTrue(writer.moveTo(array));
-          writer.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"v\":\"" + value(i, 0) + "\"}"),
+          writer.insertSubtreeAsLastChild(JsonShredder.createStringReader("{\"v\":\"" + value(i, 0, oversized) + "\"}"),
               JsonNodeTrx.Commit.NO);
           assertTrue(writer.moveTo(array) && writer.moveToLastChild());
           keys.add(writer.getNodeKey());
         }
+        if (previousTable) {
+          writer.commit(null, Instant.parse("2019-01-01T00:00:00Z"));
+        }
+        if (bounded && oversized) {
+          writer.getStorageEngineWriter().asyncFlushStorageEpoch();
+          writer.getStorageEngineWriter().awaitPendingAsyncFlush();
+        }
         for (int pass = 1; pass <= 3; pass++) {
           for (int i = 0; i < RECORDS; i += 251) {
             assertTrue(writer.moveTo(keys.get(i)) && writer.moveToFirstChild());
-            writer.setStringValue(value(i, pass));
+            writer.setStringValue(value(i, pass, oversized && compression == StringCompressionType.FSST));
+          }
+        }
+        if (oversized && compression == StringCompressionType.NONE) {
+          assertTrue(writer.moveTo(keys.get(1)));
+          writer.remove();
+          if (bounded) {
+            writer.getStorageEngineWriter().asyncFlushStorageEpoch();
+            writer.getStorageEngineWriter().awaitPendingAsyncFlush();
           }
         }
         rotations = StorageEpochTestSupport.rotatedEpochs(writer);
@@ -133,7 +204,7 @@ final class StorageEpochStoreIdentityTest {
         values.add(reader.getValue());
         assertTrue(reader.moveTo(key));
       } while (reader.moveToRightSibling());
-      assertEquals(RECORDS, values.size());
+      assertEquals(RECORDS - (oversized && compression == StringCompressionType.NONE ? 1 : 0), values.size());
       final StorageEngineReader engine = reader.getStorageEngineReader();
       final NamePage names = engine.getNamePage(engine.getActualRevisionRootPage());
       final long id = names.getLatestFsstSymbolTableId(DatabaseType.JSON);
@@ -149,6 +220,7 @@ final class StorageEpochStoreIdentityTest {
       final long frontier = rootOffset + Integer.BYTES + length.flip().getInt();
       final List<String> pages = new ArrayList<>();
       final List<byte[]> frames = new ArrayList<>();
+      int documentCarriers = 0;
       try (final FileChannel file = FileChannel.open(dataPath)) {
         long offset = IOStorage.DATA_REGION_START;
         while (offset < frontier) {
@@ -164,19 +236,24 @@ final class StorageEpochStoreIdentityTest {
           frames.add(payload.array());
           final Page page = ((NodeStorageEngineReader) engine).getReader().read(new PageReference().setKey(offset),
               session.getResourceConfig());
+          if (page instanceof final KeyValueLeafPage leaf && leaf.getIndexType() == IndexType.DOCUMENT) {
+            documentCarriers += leaf.getReferencesMap().size();
+          }
           pages.add(page.getClass().getSimpleName() + (page instanceof KeyValueLeafPage leaf
-              ? ":" + leaf.getIndexType() + ":" + leaf.getPageKey() : "") + "=" + size);
+              ? ":" + leaf.getIndexType() + ":" + leaf.getPageKey() + ":carriers=" + leaf.getReferencesMap().size()
+
+              : "") + "=" + size);
           page.close();
           offset = (offset + 4 + size + 7) & ~7L;
         }
       }
-      return new Census(frontier, values, id, table, rotations, pages, frames);
+      return new Census(frontier, values, id, table, rotations, pages, frames, documentCarriers);
     }
   }
 
-  private static String value(final int record, final int pass) {
-    return "https://sirix.io/records/common-prefix/" + record + "/publication/" + pass;
+  private static String value(final int record, final int pass, final boolean oversized) {
+    return "https://sirix.io/records/common-prefix/".repeat(oversized ? 40 : 1) + record + "/publication/" + pass;
   }
 
-  private record Census(long frontier, List<String> values, long tableId, byte[] table, int rotations, List<String> pages, List<byte[]> frames) {}
+  private record Census(long frontier, List<String> values, long tableId, byte[] table, int rotations, List<String> pages, List<byte[]> frames, int documentCarriers) {}
 }

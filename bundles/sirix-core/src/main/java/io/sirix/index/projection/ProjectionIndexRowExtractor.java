@@ -300,8 +300,8 @@ public final class ProjectionIndexRowExtractor {
   }
 
   /**
-   * Navigate to {@code recordKey} and fill the row buffers from its current state. The cursor is left
-   * positioned at {@code recordKey}.
+   * Fill the row buffers from the current state of {@code recordKey}. A captured-row hit leaves the
+   * cursor unchanged; otherwise the cursor is positioned at {@code recordKey}.
    *
    * @return {@code false} when the record no longer exists (deleted in the running transaction) — the
    *         caller drops the row
@@ -316,7 +316,7 @@ public final class ProjectionIndexRowExtractor {
       final CapturedRow row = captured.apply(recordKey);
       if (row != null) {
         loadRow(row, selectedColumns);
-        return rtx.moveTo(recordKey);
+        return true;
       }
     }
     if (!rtx.moveTo(recordKey)) {
@@ -326,6 +326,12 @@ public final class ProjectionIndexRowExtractor {
     return true;
   }
 
+  private byte recordKind;
+
+  NodeKind recordKind() {
+    return NodeKind.getKind(recordKind);
+  }
+
   /**
    * A record's extracted row detached from this extractor: the exact state of the row buffers after
    * {@link #extractInto}. A plain transaction's storage epoch captures the rows of the records it is
@@ -333,6 +339,7 @@ public final class ProjectionIndexRowExtractor {
    * records whose pages have left the log.
    */
   static final class CapturedRow {
+    private final byte recordKind;
     private final long[] longs;
     private final boolean[] bools;
     private final byte @Nullable [][] stringUtf8;
@@ -344,7 +351,8 @@ public final class ProjectionIndexRowExtractor {
     private final boolean[] nonIntegral;
     private final boolean[] nonDoubleSource;
 
-    private CapturedRow(final int columns) {
+    private CapturedRow(final int columns, final byte recordKind) {
+      this.recordKind = recordKind;
       longs = new long[columns];
       bools = new boolean[columns];
       stringUtf8 = new byte[columns][];
@@ -361,7 +369,7 @@ public final class ProjectionIndexRowExtractor {
   /** Detach the row the last {@link #extractInto} produced. */
   CapturedRow captureRow() {
     final int columns = columnKinds.length;
-    final CapturedRow row = new CapturedRow(columns);
+    final CapturedRow row = new CapturedRow(columns, recordKind);
     System.arraycopy(rowLongs, 0, row.longs, 0, columns);
     System.arraycopy(rowBools, 0, row.bools, 0, columns);
     System.arraycopy(rowStringUtf8Lengths, 0, row.stringUtf8Lengths, 0, columns);
@@ -388,6 +396,7 @@ public final class ProjectionIndexRowExtractor {
    */
   private void loadRow(final CapturedRow row, final long @Nullable [] selectedColumns) {
     resetRow(selectedColumns);
+    recordKind = row.recordKind;
     for (int c = 0; c < columnKinds.length; c++) {
       if (!isSelected(c, selectedColumns)) {
         continue;
@@ -754,6 +763,7 @@ public final class ProjectionIndexRowExtractor {
       } while (true);
     }
     rtx.moveTo(recordKey);
+    recordKind = rtx.getKind().getId();
   }
 
   void extractAt(final XmlNodeReadOnlyTrx rtx, final long recordKey) {
@@ -791,6 +801,7 @@ public final class ProjectionIndexRowExtractor {
       } while (true);
     }
     rtx.moveTo(recordKey);
+    recordKind = rtx.getKind().getId();
   }
 
   private void extractXmlAttributes(final XmlNodeReadOnlyTrx rtx, final long elementKey, final long[] selectedColumns) {

@@ -565,6 +565,8 @@ public interface StorageEngineWriter extends StorageEngineReader {
    */
   default void asyncFlush() {}
 
+  default void setStorageEpochSpilling(final boolean enabled) {}
+
   /**
    * {@link #asyncFlush()} for a storage-only epoch of a plain transaction: the flushed record pages
    * go to the writer's spill file where the backend supports it, so the data file receives only

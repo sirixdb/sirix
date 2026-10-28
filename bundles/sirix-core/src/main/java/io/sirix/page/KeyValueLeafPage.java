@@ -13,6 +13,7 @@ import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
+import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.Arrays;
 import java.util.Objects;
@@ -8099,6 +8100,39 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         }
       }
     }
+  }
+
+  public void compactForFinalEncoding() {
+    ensureSlottedPage();
+    refuseUnresolvedGlobalTags("the commit-time FSST compression pass");
+    ensureAllChunks();
+    unbindFlyweightsOwnedBy(slottedPage);
+    if (records != null) {
+      for (int slot = 0; slot < records.length; slot++) {
+        if (records[slot] != null) {
+          clearInlineSlotForOverflow(slot);
+          addedReferences = false;
+        }
+      }
+    }
+    if (cachedHeapEnd == cachedHeapUsed) {
+      return;
+    }
+    final int[] slots = populatedSlots();
+    IntArrays.quickSort(slots, (left, right) -> Integer.compare(PageLayout.getDirHeapOffset(slottedPage, left),
+        PageLayout.getDirHeapOffset(slottedPage, right)));
+    int end = 0;
+    for (final int slot : slots) {
+      final int offset = PageLayout.getDirHeapOffset(slottedPage, slot);
+      final int length = PageLayout.getDirDataLength(slottedPage, slot);
+      final int kind = PageLayout.getDirNodeKindId(slottedPage, slot);
+      MemorySegment.copy(slottedPage, PageLayout.heapAbsoluteOffset(offset), slottedPage,
+          PageLayout.heapAbsoluteOffset(end), length);
+      PageLayout.setDirEntry(slottedPage, slot, end, length, kind);
+      end += length;
+    }
+    updateHeapEnd(end);
+    clearSerializedCache();
   }
 
   /**

@@ -59,6 +59,7 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
@@ -1861,6 +1862,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private void clearRecordSnapshot() {
     epochFsstSamples = null;
+    spilledLeavesToEncode = null;
     epochFsstSampleCount = 0;
     commitFsstTable = null;
     commitFsstTableId = 0;
@@ -2260,17 +2262,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   // ==================== ASYNC AUTO-COMMIT ====================
 
-  /**
-   * Whether this transaction's epochs spill their record pages instead of appending them to the data
-   * file: set by the first {@link #asyncFlushStorageEpoch()}, never by {@link #asyncFlush()} (the
-   * async-flush import mode). Spilled epochs cannot write pinned trie pages ahead of the commit,
-   * since those would embed spill keys.
-   */
   private boolean spillingStorageEpochs;
+  private @Nullable LongOpenHashSet spilledLeavesToEncode;
+
+  @Override
+  public void setStorageEpochSpilling(final boolean enabled) {
+    spillingStorageEpochs = enabled && storagePageReaderWriter.supportsSpilledWrites();
+  }
 
   @Override
   public void asyncFlushStorageEpoch() {
-    spillingStorageEpochs = storagePageReaderWriter.supportsSpilledWrites();
+    setStorageEpochSpilling(true);
     asyncFlush();
   }
 
@@ -2279,6 +2281,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Preserve the original asynchronous failure even after teardown has closed the reader.
     throwIfAsyncFlushFailed();
     storageEngineReader.assertNotClosed();
+    if (spillingStorageEpochs && insertFsstEnabled) {
+      captureEpochFsstSamples();
+    }
     if (STAGE_ADOPTED_OVERFLOW_CARRIERS && carrierStagingSupported()) {
       // Only this epoch's mutable pages are visited. Materializing on the foreground thread exposes
       // overflow carriers before the snapshot serializer would create them on a disposable copy and
@@ -2421,9 +2426,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       if (includeTransactionLog && recordSnapshot != null) {
         log.forEachActiveRecordPage(this::refreshCapturedRecords);
-      }
-      if (includeTransactionLog && spillingStorageEpochs && insertFsstEnabled) {
-        captureEpochFsstSamples();
       }
 
       // O(1) snapshots — array swaps only. A side-only epoch MUST NOT rotate the TIL: it can run
@@ -2773,25 +2775,35 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             "Spill key " + fragments.get(i).key() + " leaked into the fragment chain of spilled page " + reference);
       }
     }
-    if (commitFsstTable != null) {
-      final KeyValueLeafPage page = (KeyValueLeafPage) storagePageReaderWriter.read(reference,
-          getResourceSession().getResourceConfig());
+    final ResourceConfiguration config = getResourceSession().getResourceConfig();
+    if (spilledLeavesToEncode != null && spilledLeavesToEncode.contains(spillKey)) {
+      final KeyValueLeafPage page = (KeyValueLeafPage) storagePageReaderWriter.read(reference, config);
       try {
-        if (needsSymbolTable(page)) {
+        final boolean bindTable = commitFsstTable != null && needsSymbolTable(page);
+        if (insertFsstEnabled && carriesSymbolTable(page)) {
+          storageEngineReader.ensureFsstSymbolTablesLoaded();
+          storageEngineReader.resolveFsstSymbolTables(List.of(page));
+        }
+        if (bindTable || page.getFsstSymbolTable() != null) {
+          restoreOverflowRecords(page);
+        }
+        if (bindTable) {
           page.setFsstSymbolTable(commitFsstTable);
           page.setFsstSymbolTableId(commitFsstTableId);
-          prepareFinalCommitKeyValuePage(getResourceSession().getResourceConfig(), page);
+        }
+        if (bindTable || hasSpilledCarriers(page)) {
+          prepareFinalCommitKeyValuePage(config, page);
           page.commit(this);
           requireNoSpillKeys(reference, page);
-          writeUncommittedPage(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
+          writeUncommittedPage(config, reference, page, bufferBytes);
         } else {
-          storagePageReaderWriter.copySpilledPage(getResourceSession().getResourceConfig(), reference, bufferBytes);
+          storagePageReaderWriter.copySpilledPage(config, reference, bufferBytes);
         }
       } finally {
         page.retire();
       }
     } else {
-      storagePageReaderWriter.copySpilledPage(getResourceSession().getResourceConfig(), reference, bufferBytes);
+      storagePageReaderWriter.copySpilledPage(config, reference, bufferBytes);
     }
     firstUncommittedPageOffset = Math.min(firstUncommittedPageOffset, reference.getKey());
     final int logKey = reference.getLogKey();
@@ -3216,13 +3228,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             }
           }
           final boolean spillRecordPages = spillingStorageEpochs;
-          if (spillRecordPages) {
-            // Side pages have their data-file offsets embedded in the pages that reference them, so
-            // they stay in the data file; the record pages of this epoch go to the spill file and
-            // reach the data file only if the commit still references them. Separate the two targets
-            // in the shared buffer.
-            storagePageReaderWriter.flushBufferedWrites(bgBuffer);
-          }
 
           for (int base = 0; base < size; base += SNAPSHOT_FLUSH_WINDOW) {
             final long joinStart = HFT_TELEMETRY_ENABLED
@@ -3286,6 +3291,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                   }
                   if (spillRecordPages) {
                     storagePageReaderWriter.writeSpilled(config, shadowRef, serializationCopy, bgBuffer);
+                    if (hasSpilledCarriers(serializationCopy) || (insertFsstEnabled && needsSymbolTable(serializationCopy))) {
+                      if (spilledLeavesToEncode == null) {
+                        spilledLeavesToEncode = new LongOpenHashSet();
+                      }
+                      spilledLeavesToEncode.add(shadowRef.getKey());
+                    }
                   } else {
                     writeUncommittedPage(config, shadowRef, serializationCopy, bgBuffer);
                   }
@@ -3517,7 +3528,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       shadowRef.setKey(Constants.NULL_ID_LONG);
       shadowRef.clearHash();
-      writeUncommittedPage(config, shadowRef, overflowPage, bgBuffer);
+      if (spillingStorageEpochs) {
+        storagePageReaderWriter.writeSpilled(config, shadowRef, overflowPage, bgBuffer);
+      } else {
+        writeUncommittedPage(config, shadowRef, overflowPage, bgBuffer);
+      }
       sidePages.diskOffsets[i] = shadowRef.getKey();
       if ((at & 63) == 63) {
         markAsyncFlushProgress();
@@ -4279,6 +4294,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Must precede the serialization pass: pages need the revision's symbol-table id in hand
       // by the time their bytes are cached, and the pass below is the last point before that.
       buildRevisionFsstSymbolTable();
+      if (insertFsstEnabled) {
+        for (final PageContainer container : log.getList()) {
+          if (container.getModified() instanceof final KeyValueLeafPage page && page.getFsstSymbolTable() != null) {
+            restoreOverflowRecords(page);
+          }
+        }
+      }
       parallelSerializationOfKeyValuePages();
       // THE SEAM. Above it every page of this revision has produced its bytes, so a dictionary those
       // pages minted into is complete; below it the page graph is being written, so a record added
@@ -4478,6 +4500,33 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private record FsstSamples(List<byte[]> values, int generation, boolean complete) {}
 
+  private void collectFsstSamples(final KeyValueLeafPage page, final List<byte[]> samples, final int cap) {
+    restoreOverflowRecords(page);
+    page.collectFsstStringSamples(samples, cap);
+  }
+
+  private void restoreOverflowRecords(final KeyValueLeafPage page) {
+    for (final Map.Entry<Long, PageReference> entry : page.referenceEntrySet()) {
+      final long key = entry.getKey();
+      if (page.getRecord(StorageEngineReader.recordPageOffset(key)) != null) {
+        continue;
+      }
+      final DataRecord record = storageEngineReader.readDetachedRecord(page, key);
+      if (record != null) {
+        page.setRecord(record);
+      }
+    }
+  }
+
+  private static boolean hasSpilledCarriers(final KeyValueLeafPage page) {
+    for (final PageReference reference : page.getReferencesMap().values()) {
+      if (IOStorage.isSpillKey(reference.getKey())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private void captureEpochFsstSamples() {
     if (epochFsstSamples == null) {
       epochFsstSamples = new Long2ObjectOpenHashMap<>();
@@ -4496,7 +4545,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         continue;
       }
       final List<byte[]> values = new ArrayList<>(remaining + 1);
-      page.collectFsstStringSamples(values, remaining + 1);
+      collectFsstSamples(page, values, remaining + 1);
       final boolean complete = values.size() <= remaining;
       if (!complete) {
         values.removeLast();
@@ -4570,14 +4619,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         if (resolution.pageContainer != null) {
           final KeyValueLeafPage page = (KeyValueLeafPage) resolution.pageContainer.getModified();
           if (needsSymbolTable(page)) {
-            page.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
+            collectFsstSamples(page, samples, FSST_REVISION_SAMPLE_CAP);
           }
         } else if (resolution.durableReference != null) {
           final KeyValueLeafPage page = (KeyValueLeafPage) storagePageReaderWriter.read(resolution.durableReference,
               getResourceSession().getResourceConfig());
           try {
             if (needsSymbolTable(page)) {
-              page.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
+              collectFsstSamples(page, samples, FSST_REVISION_SAMPLE_CAP);
             }
           } finally {
             page.retire();
@@ -4587,7 +4636,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     } else {
       for (final PageContainer container : log.getList()) {
         if (container.getModified() instanceof KeyValueLeafPage kvl && needsSymbolTable(kvl)) {
-          kvl.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
+          collectFsstSamples(kvl, samples, FSST_REVISION_SAMPLE_CAP);
           if (samples.size() >= FSST_REVISION_SAMPLE_CAP) {
             break;
           }
@@ -4907,13 +4956,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    *         otherwise (including a configured handler that declined an unresolved-overflow page)
    */
   static boolean prepareFinalCommitKeyValuePage(final ResourceConfiguration resourceConfig, final Page page) {
+    if (resourceConfig.stringCompressionType == StringCompressionType.FSST
+        && ((KeyValueLeafPage) page).getFsstSymbolTable() != null) {
+      ((KeyValueLeafPage) page).compactForFinalEncoding();
+    }
     // A page that carries a dictionary resolver MINTS while its string region is built, and the
     // region is built by serializePage — not by the three calls below. Left to the recursive commit,
     // that page would mint AFTER the seal, into a dictionary already written and released. So a
     // resolver forces the full encode here, in the pass the seal is allowed to assume has finished;
     // the bytes are cached on the page, so the recursive commit serves them rather than repeating
     // the work.
-    if (resourceConfig.byteHandlePipeline.isEmpty() && ((KeyValueLeafPage) page).globalStringDictionaries() == null) {
+    if ((resourceConfig.byteHandlePipeline.isEmpty() && ((KeyValueLeafPage) page).globalStringDictionaries() == null)
+        || hasSpilledCarriers((KeyValueLeafPage) page)) {
       final KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
       keyValueLeafPage.ensureSlottedPage();
       keyValueLeafPage.compressStringValues();
@@ -5898,7 +5952,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final ReadPageResolution resolution = resolvePageForRead(recordPageKey, index, indexType, revision);
       pc = resolution.pageContainer;
       if (pc == null && resolution.durableReference != null) {
-        return cursorPageFromExactReference(resolution.durableReference);
+        return cursorPageFromExactReference(resolution.durableReference, indexType);
       }
     }
     if (pc != null) {
@@ -5910,7 +5964,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return null;
   }
 
-  private KeyValueLeafPage cursorPageFromExactReference(final PageReference reference) {
+  private KeyValueLeafPage cursorPageFromExactReference(final PageReference reference, final IndexType indexType) {
     final KeyValueLeafPage currentPage = cursorDurableReadPage;
     if (currentPage != null && !currentPage.isClosed() && cursorDurableReadOffset == reference.getKey()) {
       return currentPage;
@@ -5918,6 +5972,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final KeyValueLeafPage secondPage = secondCursorDurableReadPage;
     if (secondPage != null && !secondPage.isClosed() && secondCursorDurableReadOffset == reference.getKey()) {
       return secondPage;
+    }
+    if (indexType == IndexType.DOCUMENT) {
+      DURABLE_DOCUMENT_RECORD_READS.increment();
     }
     final KeyValueLeafPage loadedPage = storageEngineReader.readRecordPageFromExactReference(reference);
     if (currentPage == null) {

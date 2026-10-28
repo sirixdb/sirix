@@ -277,6 +277,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         : new Long2ObjectOpenHashMap<>();
 
     this.storageEngineWriter = (StorageEngineWriter) nodeReadOnlyTrx.getStorageEngineReader();
+    storageEngineWriter.setStorageEpochSpilling(storageEpochRotationSupported
+        && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
 
     // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
@@ -1139,6 +1141,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       storageEngineWriter = resourceSession.createPageTransaction(trxID, revNumber, revNumber,
           InternalResourceSession.Abort.NO, true, pendingBaseUberPage);
+      storageEngineWriter.setStorageEpochSpilling(storageEpochRotationSupported
+          && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
       nodeReadOnlyTrx.setPageReadTransaction(null);
       nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
       resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
@@ -1279,6 +1283,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       storageEngineWriter =
           resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.YES, true);
+      storageEngineWriter.setStorageEpochSpilling(storageEpochRotationSupported
+          && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
       nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
       resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
 
@@ -1350,6 +1356,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       resourceSession.closeNodePageWriteTransaction(getId());
       storageEngineWriter =
           resourceSession.createPageTransaction(trxID, revision, revNumber - 1, InternalResourceSession.Abort.NO, true);
+      storageEngineWriter.setStorageEpochSpilling(storageEpochRotationSupported
+          && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
       nodeReadOnlyTrx.setPageReadTransaction(null);
       nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
       resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);

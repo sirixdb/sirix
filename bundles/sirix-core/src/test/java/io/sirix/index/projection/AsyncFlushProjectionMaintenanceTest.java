@@ -130,7 +130,7 @@ final class AsyncFlushProjectionMaintenanceTest {
   }
 
   @Test
-  void capturedRowsPositionTheCursorAndMutatedRootsMatchTheirTwin() {
+  void capturedRowsKeepTheirKindWithoutCursorReadsAndMutatedRootsMatchTheirTwin() {
     final var boundedPath = directory.resolve("capture-bounded");
     final var plainPath = directory.resolve("capture-plain");
     create(boundedPath);
@@ -156,12 +156,15 @@ final class AsyncFlushProjectionMaintenanceTest {
             writer.getStorageEngineWriter().awaitPendingAsyncFlush();
             extractor.useCapturedRows(record -> record == key ? row : null);
             assertTrue(writer.moveToDocumentRoot());
+            final long saved = writer.getNodeKey();
+            final long reads = StorageEpochTestSupport.durableDocumentRecordReads();
             assertTrue(extractor.extractInto(writer, key));
-            assertEquals(key, writer.getNodeKey());
-            assertEquals(NodeKind.OBJECT, writer.getKind());
-            assertTrue(writer.moveToDocumentRoot());
+            assertEquals(saved, writer.getNodeKey());
+            assertEquals(NodeKind.OBJECT, extractor.recordKind());
             assertTrue(extractor.extractInto(writer, key, new long[] {1L}));
-            assertEquals(key, writer.getNodeKey());
+            assertEquals(saved, writer.getNodeKey());
+            assertEquals(NodeKind.OBJECT, extractor.recordKind());
+            assertEquals(reads, StorageEpochTestSupport.durableDocumentRecordReads());
           }
           assertTrue(writer.moveTo(key));
           writer.insertObjectRecordAsFirstChild("extra", new StringValue("unindexed"));
