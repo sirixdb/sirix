@@ -2799,6 +2799,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         }
         if (bindTable) {
           final byte[] table = requireNonNull(commitFsstTable);
+          page.compactForFinalEncoding();
           page.setFsstSymbolTable(table);
           page.setFsstSymbolTableId(commitFsstTableId);
         }
@@ -4921,6 +4922,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     for (final PageContainer container : log.getList()) {
       if (container.getModified() instanceof KeyValueLeafPage kvl && needsSymbolTable(kvl)) {
         restoreOverflowRecords(kvl);
+        kvl.compactForFinalEncoding();
         kvl.setFsstSymbolTable(table);
         kvl.setFsstSymbolTableId(id);
       }
@@ -5011,10 +5013,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    *         otherwise (including a configured handler that declined an unresolved-overflow page)
    */
   static boolean prepareFinalCommitKeyValuePage(final ResourceConfiguration resourceConfig, final Page page) {
-    if (resourceConfig.stringCompressionType == StringCompressionType.FSST
-        && ((KeyValueLeafPage) page).getFsstSymbolTable() != null) {
-      ((KeyValueLeafPage) page).compactForFinalEncoding();
-    }
     // A page that carries a dictionary resolver MINTS while its string region is built, and the
     // region is built by serializePage — not by the three calls below. Left to the recursive commit,
     // that page would mint AFTER the seal, into a dictionary already written and released. So a

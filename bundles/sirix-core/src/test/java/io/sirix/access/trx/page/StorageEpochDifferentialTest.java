@@ -169,6 +169,12 @@ final class StorageEpochDifferentialTest {
       controller.createProjectionIndexAtLoadStart(projection(), writer, RECORDS);
       ParallelBulkJsonImporter.assembleBytes(writer,
           new ByteArrayInputStream(json.toString().getBytes(StandardCharsets.UTF_8)), 1 << 20, 1);
+      rotations = StorageEpochTestSupport.rotatedEpochs(writer);
+      if (rotating) {
+        assertTrue(rotations >= 1, context + ", initial import must rotate");
+      }
+      // Adopted pages may be serialized in place until commit publishes their durable images.
+      writer.commit(null, Instant.parse("2020-01-01T00:00:00Z"));
       assertTrue(writer.moveToDocumentRoot() && writer.moveToFirstChild(), context);
       assertTrue(writer.moveToFirstChild(), context);
       for (int i = 0; i < rows.size(); i++) {
@@ -178,11 +184,6 @@ final class StorageEpochDifferentialTest {
           assertTrue(writer.moveToRightSibling(), context);
         }
       }
-      rotations = StorageEpochTestSupport.rotatedEpochs(writer);
-      if (rotating) {
-        assertTrue(rotations >= 1, context + ", initial import must rotate");
-      }
-      writer.commit(null, Instant.parse("2020-01-01T00:00:00Z"));
       snapshots.add(read(session, rows, context));
       for (int op = 0; op < 96; op++) {
         final int index = random.nextInt(rows.size());
