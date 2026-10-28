@@ -7,20 +7,22 @@ import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.EncodedRowGro
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
+import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.Executors;
 import java.util.concurrent.CountDownLatch;
-import java.util.Arrays;
-import io.sirix.settings.Constants;
+import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class NumericMaskedColumnCacheTest {
@@ -61,6 +63,61 @@ final class NumericMaskedColumnCacheTest {
     Objects.requireNonNull(both.rowMask(0))[0] = 1;
     assertTrue(both.allSelectedPresent(0));
     assertEquals(1, both.numericLane(0, 0)[0]);
+  }
+
+  @Test
+  void immutableSnapshotPresenceProofsDoNotFollowMutableViews() {
+    final ProjectionColumnStore store = store();
+    final ColumnSlice sparseSlice =
+        new ColumnSlice(2, (byte) 0, 1, 2, new long[] {1}, new long[] {1, 2}, null, null, null, null, null, null);
+    final MaskedColumns original = new MaskedColumns(store, new long[][] {{3}}, new long[][] {{10, 11}},
+        new ColumnSlice[][] {{sparseSlice}}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 2);
+    original.markImmutableRevision();
+    assertFalse(original.allSelectedPresent(0));
+    final String[] fields = {"value"};
+    final long[] keys = {10, 11};
+    NumericMaskedColumnCache.put(store, fields, keys, original);
+    final MaskedColumns first = NumericMaskedColumnCache.get(store, fields, keys);
+    final MaskedColumns second = NumericMaskedColumnCache.get(store, fields, keys);
+    assertNotNull(first);
+    assertNotNull(second);
+    assertSame(original.rowIdentity(), first.rowIdentity());
+    assertSame(first.rowIdentity(), second.rowIdentity());
+    assertFalse(first.allSelectedPresent(0));
+    Objects.requireNonNull(first.rowMask(0))[0] = 1;
+    assertTrue(first.allSelectedPresent(0));
+    assertFalse(first.isImmutableRevision());
+    assertFalse(second.allSelectedPresent(0));
+    Objects.requireNonNull(second.rowMask(0))[0] = 1;
+    assertTrue(second.allSelectedPresent(0));
+    Objects.requireNonNull(first.rowMask(0))[0] = 2;
+    assertFalse(first.allSelectedPresent(0));
+    assertTrue(second.allSelectedPresent(0));
+    assertFalse(original.allSelectedPresent(0));
+  }
+
+  @Test
+  void snapshotsWithSharedRecordKeysKeepSeparateIdentitiesAndFieldRosters() {
+    final ProjectionColumnStore store = store();
+    final MaskedColumns first = columns(store);
+    final MaskedColumns.NumericSnapshot snapshot =
+        first.numericSnapshot(new String[] {"value"}, new long[] {10, 11}, 1);
+    final MaskedColumns second = new MaskedColumns(store, new long[][] {{2}}, snapshot.recordKeys(), snapshot.slices(),
+        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 1);
+    NumericMaskedColumnCache.put(store, new String[] {"value"}, new long[] {10, 11}, first);
+    NumericMaskedColumnCache.put(store, new String[] {"value"}, new long[] {11}, second);
+    NumericMaskedColumnCache.put(store, new String[] {"other"}, new long[] {11}, columns(store));
+    final MaskedColumns cachedFirst = NumericMaskedColumnCache.get(store, new String[] {"value"}, new long[] {10, 11});
+    final MaskedColumns cachedSecond = NumericMaskedColumnCache.get(store, new String[] {"value"}, new long[] {11});
+    final MaskedColumns otherField = NumericMaskedColumnCache.get(store, new String[] {"other"}, new long[] {11});
+    assertNotNull(cachedFirst);
+    assertNotNull(cachedSecond);
+    assertNotNull(otherField);
+    assertSame(first.rowIdentity(), cachedFirst.rowIdentity());
+    assertNotSame(cachedFirst.rowIdentity(), cachedSecond.rowIdentity());
+    assertNotSame(cachedSecond.rowIdentity(), otherField.rowIdentity());
+    assertEquals(3, Objects.requireNonNull(cachedFirst.rowMask(0))[0]);
+    assertEquals(2, Objects.requireNonNull(cachedSecond.rowMask(0))[0]);
   }
 
   @Test

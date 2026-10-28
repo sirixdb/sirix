@@ -17,6 +17,9 @@ import io.brackit.query.operator.TupleImpl;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.util.sort.Ordering;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionComputedColumn;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionTemporalCodec;
@@ -35,6 +38,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Serving of the COLUMN-SIDE equality join with a grouped aggregate (see
@@ -56,6 +64,13 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private static final String[] ARRAY_MEMBERS = {"[]"};
   private static final String COMPUTED_PREFIX = "prog:";
   private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
+  /** Work counter: bucketed sides built for the dense extrema kernel (a cache hit builds none). */
+  private static final LongAdder BUCKETED_SIDES_BUILT = new LongAdder();
+
+  public static long bucketedSidesBuiltCount() {
+    return BUCKETED_SIDES_BUILT.sum();
+  }
+
   private static final byte COUNT = 0;
   private static final byte COUNT_DISTINCT = 1;
   private static final byte SUM = 2;
@@ -352,6 +367,13 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       throws QueryException {
     final int buildFieldCount = sideFields[buildSide].length;
     final boolean denseBuild = denseNumeric(buildColumns, buildFieldCount);
+    if (denseBuild && !rowOutput) {
+      // The dense extrema kernel reads the build lanes itself; it needs no row table or chains.
+      final DenseExtrema extrema = denseExtrema(buildColumns, buildSide, probeColumns);
+      if (extrema != null) {
+        return joinExtrema(buildColumns, buildSide, probeColumns, extrema, stringKeys, timestampKeys);
+      }
+    }
     final BuildRows buildRows = new BuildRows(buildFieldCount, buildColumns.rows(), denseBuild);
     final int[] nextRow = build(buildColumns, buildFieldCount, buildRows, denseBuild);
     // A bounded dense domain can address heads directly. Sparse or overflowing domains keep the
@@ -378,15 +400,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         nextRow[row] = firstRow.get(key);
         firstRow.put(key, row);
       }
-    }
-    final DenseExtrema extrema = denseBuild && denseHeads != null && !rowOutput
-        ? denseExtrema(buildColumns, buildSide, probeColumns)
-        : null;
-    if (extrema != null) {
-      @SuppressWarnings("NullAway") // A non-null extrema plan above proves denseHeads is non-null.
-      final Sequence result =
-          joinExtrema(buildColumns, buildRows, nextRow, denseHeads, probeColumns, extrema, stringKeys, timestampKeys);
-      return result;
     }
     return probeJoin(buildColumns, buildSide, probeColumns, probeSide, stringKeys, timestampKeys, buildRows, nextRow,
         denseHeads, firstRow, denseBuild);
@@ -527,16 +540,17 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
 
   /**
    * Bound operands for distinct count and min/max of one cross-side subtraction, with strict overlap.
+   * {@code joinMinimum} and {@code joinSlots} describe the build side's dense join-key domain.
    */
   private record DenseExtrema(int distinct, int minimum, int maximum, int groupSlot, long groupMinimum, int groups,
       int distinctSlot, boolean distinctBuild, int buildMarginSlot, int probeMarginSlot, boolean buildMinusProbe,
-      int buildFromSlot, int buildToSlot, int probeFromSlot, int probeToSlot) {
+      int buildFromSlot, int buildToSlot, int probeFromSlot, int probeToSlot, long joinMinimum, int joinSlots) {
   }
 
   private @Nullable DenseExtrema denseExtrema(final MaskedColumns buildColumns, final int buildSide,
       final MaskedColumns probeColumns) {
     if (!denseExtremaShape(buildColumns, buildSide)) {
-      return null;
+      return declinePlan("shape");
     }
     int distinct = -1;
     int minimum = -1;
@@ -547,19 +561,26 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         case MIN -> minimum = aggregate;
         case MAX -> maximum = aggregate;
         default -> {
-          return null;
+          return declinePlan("aggregate kind");
         }
       }
     }
     if (distinct < 0 || minimum < 0 || maximum < 0 || aggPrograms[distinct] >= 0 || aggSlots[distinct] < 0
         || aggPrograms[minimum] != 0 || aggPrograms[maximum] != 0) {
-      return null;
+      return declinePlan("aggregate operands");
     }
     final int[] code = progCode[0];
     if (!crossSideSubtraction(code)) {
-      return null;
+      return declinePlan("program");
     }
     return bindDenseExtrema(buildColumns, buildSide, probeColumns, distinct, minimum, maximum, code);
+  }
+
+  private static @Nullable DenseExtrema declinePlan(final String why) {
+    if (DIAG) {
+      System.err.println("[join-serve] dense extrema plan declined: " + why);
+    }
+    return null;
   }
 
   private boolean denseExtremaShape(final MaskedColumns buildColumns, final int buildSide) {
@@ -578,7 +599,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       final int right = left + 1;
       if (residualOps[comparison] != 2 || !residualTemporal[left] || !residualTemporal[right]
           || residualSides[left] == residualSides[right]) {
-        return null;
+        return declinePlan("residual " + comparison);
       }
       if (residualSides[left] == buildSide) {
         buildFrom = residualSlots[left];
@@ -591,17 +612,25 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long groupCount = groupUpperBound(buildColumns, buildSide, probeColumns);
     if (buildFrom < 0 || buildTo < 0 || groupCount == 0
         || !denseNumeric(probeColumns, sideFields[1 - buildSide].length)) {
-      return null;
+      return declinePlan("bounds, groups or probe density");
+    }
+    // A bounded dense join domain is bucketed directly: at most 1 Mi slots and four per build row.
+    // Sparse or overflowing domains keep the ordinary primitive hash join.
+    final long joinMinimum = buildColumns.minimum(0);
+    final long joinSpan = buildColumns.maximum(0) - joinMinimum;
+    if (joinSpan < 0 || joinSpan >= Math.min(1L << 20, 4L * buildColumns.rows())) {
+      return declinePlan("join domain " + joinSpan + " over " + buildColumns.rows() + " rows");
     }
     final boolean buildMinusProbe = progOperandSides[0][code[0]] == buildSide;
+    final int buildMarginSlot = progSlots[0][code[buildMinusProbe
+        ? 0
+        : 1]];
+    final boolean distinctBuild = aggSides[distinct] == buildSide;
     return new DenseExtrema(distinct, minimum, maximum, keySlots[0], buildColumns.minimum(keySlots[0]),
-        (int) groupCount, aggSlots[distinct], aggSides[distinct] == buildSide, progSlots[0][code[buildMinusProbe
-            ? 0
-            : 1]],
-        progSlots[0][code[buildMinusProbe
+        (int) groupCount, aggSlots[distinct], distinctBuild, buildMarginSlot, progSlots[0][code[buildMinusProbe
             ? 1
             : 0]],
-        buildMinusProbe, buildFrom, buildTo, probeFrom, probeTo);
+        buildMinusProbe, buildFrom, buildTo, probeFrom, probeTo, joinMinimum, (int) joinSpan + 1);
   }
 
   private boolean crossSideSubtraction(final int[] code) {
@@ -610,90 +639,532 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         || progOperandSides[0][code[0]] == progOperandSides[0][code[1]]);
   }
 
-  private Sequence joinExtrema(final MaskedColumns buildColumns, final BuildRows buildRows, final int[] nextRow,
-      final int[] heads, final MaskedColumns probeColumns, final DenseExtrema plan, final boolean[] stringKeys,
-      final boolean[] timestampKeys) {
-    final Map<GroupKey, GroupState> groups = new LinkedHashMap<>();
-    final GroupState[] states = new GroupState[plan.groups()];
-    final DistinctDomain[] domains = distinctDomains(buildColumns, keySides[0], probeColumns);
-    final int width = 1 + 4 * aggKinds.length;
-    final int minBase = 1 + 4 * plan.minimum();
-    final int maxBase = 1 + 4 * plan.maximum();
-    final long[] build = buildRows.values;
-    final int fields = buildRows.fieldCount;
-    for (int leaf = 0; leaf < probeColumns.leafCount(); leaf++) {
-      final long[] mask = probeColumns.rowMask(leaf);
-      if (mask == null) {
-        continue;
-      }
-      final long[] join = probeColumns.numericLane(0, leaf);
-      final long[] from = probeColumns.numericLane(plan.probeFromSlot(), leaf);
-      final long[] to = probeColumns.numericLane(plan.probeToSlot(), leaf);
-      final long[] margin = probeColumns.numericLane(plan.probeMarginSlot(), leaf);
-      final long[] distinct = plan.distinctBuild()
+  /**
+   * The lanes one side of the dense extrema kernel reads: the row masks (copied, so a packing task
+   * may outlive the query's view) and the per-leaf numeric lanes of the join key, the two timestamps,
+   * the margin operand and, when the side carries them, the distinct operand and the group key. Lanes
+   * are immutable decoded arrays shared with the column store.
+   */
+  @SuppressWarnings("ArrayRecordComponent") // Private lane carrier; array value equality is never used.
+  private record SideLanes(long[] @Nullable [] masks, long[][] join, long[][] from, long[][] to, long[][] margin,
+      long @Nullable [][] distinct, long @Nullable [][] group) {
+
+    static SideLanes capture(final MaskedColumns columns, final int fromSlot, final int toSlot, final int marginSlot,
+        final int distinctSlot, final int groupSlot) {
+      final int leaves = columns.leafCount();
+      final long[][] masks = new long[leaves][];
+      final long[][] join = new long[leaves][];
+      final long[][] from = new long[leaves][];
+      final long[][] to = new long[leaves][];
+      final long[][] margin = new long[leaves][];
+      final long[][] distinct = distinctSlot < 0
           ? null
-          : probeColumns.numericLane(plan.distinctSlot(), leaf);
-      final boolean distinctTimestamp = !plan.distinctBuild() && probeColumns.isTimestamp(plan.distinctSlot());
-      for (int wordIndex = 0; wordIndex < mask.length; wordIndex++) {
-        long word = mask[wordIndex];
-        while (word != 0) {
-          final int row = (wordIndex << 6) + Long.numberOfTrailingZeros(word);
-          word &= word - 1;
-          final long key = join[row];
-          if (key < buildRows.minimumJoinKey || key > buildRows.maximumJoinKey) {
-            continue;
-          }
-          int at = heads[(int) (key - buildRows.minimumJoinKey)];
-          if (at < 0) {
-            continue;
-          }
-          final long probeFrom = Math.multiplyExact(from[row], 1000L);
-          final long probeTo = Math.multiplyExact(to[row], 1000L);
-          final long probeMargin = margin[row];
-          final long probeDistinct = distinct == null
-              ? 0
-              : distinctTimestamp
-                  ? Math.multiplyExact(distinct[row], 1000L)
-                  : distinct[row];
-          for (; at >= 0; at = nextRow[at]) {
-            final int base = at * fields;
-            if (probeFrom >= build[base + plan.buildToSlot()] || build[base + plan.buildFromSlot()] >= probeTo) {
-              continue;
+          : new long[leaves][];
+      final long[][] group = groupSlot < 0
+          ? null
+          : new long[leaves][];
+      for (int leaf = 0; leaf < leaves; leaf++) {
+        final long[] mask = columns.rowMask(leaf);
+        if (mask == null) {
+          continue;
+        }
+        masks[leaf] = mask.clone();
+        join[leaf] = columns.numericLane(0, leaf);
+        from[leaf] = columns.numericLane(fromSlot, leaf);
+        to[leaf] = columns.numericLane(toSlot, leaf);
+        margin[leaf] = columns.numericLane(marginSlot, leaf);
+        if (distinct != null) {
+          distinct[leaf] = columns.numericLane(distinctSlot, leaf);
+        }
+        if (group != null) {
+          group[leaf] = columns.numericLane(groupSlot, leaf);
+        }
+      }
+      return new SideLanes(masks, join, from, to, margin, distinct, group);
+    }
+  }
+
+  /**
+   * One side of the dense extrema kernel, bucketed by join key: a counting sort over the build side's
+   * dense key domain places every key's rows contiguously, so the join is a merge over keys that
+   * reads both sides sequentially. Each row is one {@value #STRIDE}-long record (from, to, margin,
+   * distinct operand or 0, group index or 0), so bucketing touches one line per row. Timestamps keep
+   * their persisted unit (epoch seconds on both sides), which orders exactly like the millisecond
+   * residuals of the generic kernel. Rows whose key lies outside the domain cannot join and are
+   * dropped while bucketing. Immutable once built, so a revision's side is reusable.
+   *
+   * <p>
+   * Packing a large side costs a first touch of its whole record array plus one scattered write per
+   * row (about 17 ms for 325k rows as a native image), which is why a process-cold query never packs
+   * its probe side on the critical path: it streams the lanes against the bucketed build side instead
+   * ({@link #foldChained}) while the packing runs in the background for the next execution.
+   */
+  private static final class BucketedSide {
+    static final int STRIDE = 5;
+    static final int FROM = 0;
+    static final int TO = 1;
+    static final int MARGIN = 2;
+    static final int DISTINCT = 3;
+    /** The group index on the side carrying the group key, zero on the other. */
+    static final int META = 4;
+
+    final int[] bucketStart;
+    final long[] rows;
+    final int count;
+
+    BucketedSide(final SideLanes lanes, final long keyMinimum, final int slots, final long groupMinimum) {
+      final int leaves = lanes.masks().length;
+      bucketStart = new int[slots + 1];
+      int total = 0;
+      for (int leaf = 0; leaf < leaves; leaf++) {
+        final long[] mask = lanes.masks()[leaf];
+        if (mask == null) {
+          continue;
+        }
+        final long[] join = lanes.join()[leaf];
+        for (int w = 0; w < mask.length; w++) {
+          long word = mask[w];
+          while (word != 0L) {
+            final int row = (w << 6) + Long.numberOfTrailingZeros(word);
+            word &= word - 1L;
+            final long slot = join[row] - keyMinimum;
+            if (slot >= 0 && slot < slots) {
+              bucketStart[(int) slot + 1]++;
+              total++;
             }
-            foldExtrema(plan, states, groups, domains, width, minBase, maxBase, build, base, probeDistinct,
-                probeMargin);
           }
         }
       }
+      for (int slot = 0; slot < slots; slot++) {
+        bucketStart[slot + 1] += bucketStart[slot];
+      }
+      count = total;
+      rows = new long[total * STRIDE];
+      final int[] fill = Arrays.copyOf(bucketStart, slots);
+      for (int leaf = 0; leaf < leaves; leaf++) {
+        final long[] mask = lanes.masks()[leaf];
+        if (mask == null) {
+          continue;
+        }
+        fillLeaf(lanes, leaf, mask, fill, keyMinimum, slots, groupMinimum);
+      }
     }
-    SirixVectorizedExecutor.noteJoinGroupServed();
-    return emit(groups, buildColumns, stringKeys, timestampKeys);
+
+    private void fillLeaf(final SideLanes lanes, final int leaf, final long[] mask, final int[] fill,
+        final long keyMinimum, final int slots, final long groupMinimum) {
+      final long[] join = lanes.join()[leaf];
+      final long[] fromLane = lanes.from()[leaf];
+      final long[] toLane = lanes.to()[leaf];
+      final long[] marginLane = lanes.margin()[leaf];
+      final long[] distinctLane = lanes.distinct() == null
+          ? null
+          : lanes.distinct()[leaf];
+      final long[] groupLane = lanes.group() == null
+          ? null
+          : lanes.group()[leaf];
+      for (int w = 0; w < mask.length; w++) {
+        long word = mask[w];
+        while (word != 0L) {
+          final int row = (w << 6) + Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final long slot = join[row] - keyMinimum;
+          if (slot < 0 || slot >= slots) {
+            continue;
+          }
+          final int at = fill[(int) slot]++ * STRIDE;
+          rows[at + FROM] = fromLane[row];
+          rows[at + TO] = toLane[row];
+          rows[at + MARGIN] = marginLane[row];
+          rows[at + DISTINCT] = distinctLane == null
+              ? 0L
+              : distinctLane[row];
+          rows[at + META] = groupLane == null
+              ? 0L
+              : groupLane[row] - groupMinimum;
+        }
+      }
+    }
+
+    long weight() {
+      return 64L + 4L * bucketStart.length + 8L * rows.length;
+    }
   }
 
-  private void foldExtrema(final DenseExtrema plan, final GroupState[] states, final Map<GroupKey, GroupState> groups,
-      final DistinctDomain[] domains, final int width, final int minBase, final int maxBase, final long[] build,
-      final int base, final long probeDistinct, final long probeMargin) {
-    final long groupKey = build[base + plan.groupSlot()];
-    final int group = (int) (groupKey - plan.groupMinimum());
-    GroupState state = states[group];
-    if (state == null) {
-      state = new GroupState(width, aggFuncs, 16, domains);
-      state.acc[minBase + 2] = Long.MAX_VALUE;
-      state.acc[maxBase + 3] = Long.MIN_VALUE;
-      states[group] = state;
-      groups.put(new GroupKey(new long[] {groupKey, 0}), state);
+  /**
+   * Bounded reuse of one immutable bucketed side per snapshot, matched on the routed keys and the
+   * operand slots, so a repeated query at an immutable revision skips the bucketing pass. A side
+   * being packed in the background is joinable, so a second execution that arrives before the packing
+   * finished waits for it instead of packing again.
+   */
+  private static final class BucketedSideCache {
+    private static final long MAX_BYTES =
+        Math.max(1L << 20, Math.min(64L << 20, Runtime.getRuntime().maxMemory() / 64));
+    private static final Cache<Object, Entry> CACHE = Caffeine.newBuilder()
+                                                              .weakKeys()
+                                                              .maximumWeight(MAX_BYTES)
+                                                              .weigher((Object snapshot, Entry entry) -> entry.weight)
+                                                              .build();
+    private static final ConcurrentHashMap<InFlightKey, CompletableFuture<BucketedSide>> IN_FLIGHT =
+        new ConcurrentHashMap<>();
+
+    @SuppressWarnings("ArrayRecordComponent") // Matched by identity and content below; record equality is unused.
+    private record Entry(long[] signature, BucketedSide side, int weight) {
     }
-    state.distinct[plan.distinct()].add(plan.distinctBuild()
-        ? build[base + plan.distinctSlot()]
-        : probeDistinct);
-    final long buildMargin = build[base + plan.buildMarginSlot()];
-    final long value = plan.buildMinusProbe()
-        ? Math.subtractExact(buildMargin, probeMargin)
-        : Math.subtractExact(probeMargin, buildMargin);
-    state.acc[minBase] = 1;
-    state.acc[maxBase] = 1;
-    state.acc[minBase + 2] = Math.min(state.acc[minBase + 2], value);
-    state.acc[maxBase + 3] = Math.max(state.acc[maxBase + 3], value);
+
+    /** Store and row identity by reference, signature by content. */
+    @SuppressWarnings("ArrayRecordComponent") // Signature equality and hashing are defined by content below.
+    private record InFlightKey(ProjectionColumnStore store, Object rows, long[] signature) {
+      @Override
+      @SuppressWarnings("ReferenceEquality") // The row token identifies one loaded snapshot, not equal row values.
+      public boolean equals(final Object other) {
+        return other instanceof InFlightKey key && key.store == store && key.rows == rows
+            && Arrays.equals(key.signature, signature);
+      }
+
+      @Override
+      public int hashCode() {
+        return 31 * (31 * System.identityHashCode(store) + System.identityHashCode(rows)) + Arrays.hashCode(signature);
+      }
+    }
+
+    private BucketedSideCache() {}
+
+    static @Nullable BucketedSide get(final MaskedColumns columns, final long[] signature) {
+      if (!columns.isImmutableRevision()) {
+        return null;
+      }
+      final Entry entry = CACHE.getIfPresent(columns.rowIdentity());
+      if (entry != null && Arrays.equals(signature, entry.signature)) {
+        return entry.side;
+      }
+      final CompletableFuture<BucketedSide> packing =
+          IN_FLIGHT.get(new InFlightKey(columns.store(), columns.rowIdentity(), signature));
+      if (packing == null) {
+        return null;
+      }
+      try {
+        return packing.join();
+      } catch (final CompletionException | CancellationException e) {
+        return null;
+      }
+    }
+
+    static void put(final MaskedColumns columns, final long[] signature, final BucketedSide side) {
+      if (!columns.isImmutableRevision()) {
+        return;
+      }
+      final long bytes = side.weight() + 8L * signature.length;
+      if (bytes <= MAX_BYTES) {
+        CACHE.put(columns.rowIdentity(), new Entry(signature, side, (int) bytes));
+      }
+    }
+
+    /**
+     * Pack {@code lanes} in the background and publish the side; a no-op unless the revision is
+     * immutable or when the same side is already being packed.
+     */
+    @SuppressWarnings("FutureReturnValueIgnored") // Failures complete the separately tracked packing future.
+    static void packAsync(final MaskedColumns columns, final long[] signature, final SideLanes lanes,
+        final long keyMinimum, final int slots, final long groupMinimum) {
+      if (!columns.isImmutableRevision()) {
+        return;
+      }
+      final InFlightKey key = new InFlightKey(columns.store(), columns.rowIdentity(), signature);
+      final CompletableFuture<BucketedSide> packing = new CompletableFuture<>();
+      if (IN_FLIGHT.putIfAbsent(key, packing) != null) {
+        return;
+      }
+      BUCKETED_SIDES_BUILT.increment();
+      CompletableFuture.runAsync(() -> {
+        try {
+          final BucketedSide side = new BucketedSide(lanes, keyMinimum, slots, groupMinimum);
+          put(columns, signature, side);
+          packing.complete(side);
+        } catch (final RuntimeException | Error e) {
+          packing.completeExceptionally(e);
+        } finally {
+          IN_FLIGHT.remove(key, packing);
+        }
+      });
+    }
+  }
+
+  private static long[] sideSignature(final long keyMinimum, final int slots, final int fromSlot, final int toSlot,
+      final int marginSlot, final int distinctSlot, final int groupSlot, final long groupMinimum) {
+    return new long[] {keyMinimum, slots, fromSlot, toSlot, marginSlot, distinctSlot, groupSlot, groupMinimum};
+  }
+
+  /**
+   * The cached side, or one packed now (the build side is small; packing it is cheaper than a chain).
+   */
+  private static BucketedSide bucketedSide(final MaskedColumns columns, final long keyMinimum, final int slots,
+      final int fromSlot, final int toSlot, final int marginSlot, final int distinctSlot, final int groupSlot,
+      final long groupMinimum) {
+    final long[] signature =
+        sideSignature(keyMinimum, slots, fromSlot, toSlot, marginSlot, distinctSlot, groupSlot, groupMinimum);
+    final BucketedSide cached = BucketedSideCache.get(columns, signature);
+    if (cached != null) {
+      return cached;
+    }
+    final BucketedSide side =
+        new BucketedSide(SideLanes.capture(columns, fromSlot, toSlot, marginSlot, distinctSlot, groupSlot), keyMinimum,
+            slots, groupMinimum);
+    BUCKETED_SIDES_BUILT.increment();
+    BucketedSideCache.put(columns, signature, side);
+    return side;
+  }
+
+  /**
+   * The flat fold state of the dense extrema kernel: per-group minimum/maximum of the residual and
+   * distinct values per group as one value-major bitmap or, when the distinct domain is unbounded,
+   * one set per group. {@link #pair} folds one probe row against the build rows of its key.
+   */
+  private static final class ExtremaFold {
+    final long[] groupMinimum;
+    final long[] groupMaximum;
+    final long[] distinctCounts;
+    final long @Nullable [] bits;
+    final LongOpenHashSet @Nullable [] sets;
+    final long[] buildRows;
+    final int groups;
+    final long domainMinimum;
+    final boolean distinctBuild;
+    final boolean buildMinusProbe;
+
+    ExtremaFold(final int groups, final @Nullable DistinctDomain domain, final long[] buildRows,
+        final boolean distinctBuild, final boolean buildMinusProbe) {
+      this.groups = groups;
+      this.buildRows = buildRows;
+      this.distinctBuild = distinctBuild;
+      this.buildMinusProbe = buildMinusProbe;
+      groupMinimum = new long[groups];
+      groupMaximum = new long[groups];
+      distinctCounts = new long[groups];
+      Arrays.fill(groupMinimum, Long.MAX_VALUE);
+      Arrays.fill(groupMaximum, Long.MIN_VALUE);
+      domainMinimum = domain == null
+          ? 0L
+          : domain.minimum();
+      // Value-major bit layout: the bits of one distinct value's groups are adjacent.
+      bits = domain == null
+          ? null
+          : new long[groups * domain.words()];
+      sets = domain == null
+          ? new LongOpenHashSet[groups]
+          : null;
+    }
+
+    void pair(final long from, final long to, final long margin, final long probeValue, final int buildBegin,
+        final int buildEnd) {
+      final long[] buildRows = this.buildRows;
+      for (int b = buildEnd - BucketedSide.STRIDE; b >= buildBegin; b -= BucketedSide.STRIDE) {
+        if (from >= buildRows[b + BucketedSide.TO] || buildRows[b + BucketedSide.FROM] >= to) {
+          continue;
+        }
+        final int group = (int) buildRows[b + BucketedSide.META];
+        final long buildMargin = buildRows[b + BucketedSide.MARGIN];
+        final long value = buildMinusProbe
+            ? Math.subtractExact(buildMargin, margin)
+            : Math.subtractExact(margin, buildMargin);
+        if (value < groupMinimum[group]) {
+          groupMinimum[group] = value;
+        }
+        if (value > groupMaximum[group]) {
+          groupMaximum[group] = value;
+        }
+        final long distinctValue = distinctBuild
+            ? buildRows[b + BucketedSide.DISTINCT]
+            : probeValue;
+        if (bits != null) {
+          final long bitIndex = (distinctValue - domainMinimum) * groups + group;
+          final int bitWord = (int) (bitIndex >>> 6);
+          final long bit = 1L << bitIndex;
+          final long prior = bits[bitWord];
+          if ((prior & bit) == 0L) {
+            bits[bitWord] = prior | bit;
+            distinctCounts[group]++;
+          }
+        } else {
+          addToSet(group, distinctValue);
+        }
+      }
+    }
+
+    /**
+     * The unbounded-domain fallback, kept out of {@link #pair} so the hot fold stays small enough to
+     * inline.
+     */
+    @SuppressWarnings("NullAway") // Called only when bits is null, which proves sets is non-null.
+    private void addToSet(final int group, final long distinctValue) {
+      LongOpenHashSet set = sets[group];
+      if (set == null) {
+        set = new LongOpenHashSet(16);
+        sets[group] = set;
+      }
+      set.add(distinctValue);
+    }
+
+    @SuppressWarnings("NullAway") // The constructor allocates sets exactly when bits is null.
+    long distinctCount(final int group) {
+      return bits != null
+          ? distinctCounts[group]
+          : sets[group] == null
+              ? 0L
+              : sets[group].size();
+    }
+  }
+
+  /** Merge two bucketed sides key by key. */
+  private static void foldMerge(final ExtremaFold fold, final BucketedSide build, final BucketedSide probe,
+      final int slots) {
+    final int[] buildStart = build.bucketStart;
+    final int[] probeStart = probe.bucketStart;
+    final long[] probeRows = probe.rows;
+    final int stride = BucketedSide.STRIDE;
+    for (int slot = 0; slot < slots; slot++) {
+      final int buildBegin = buildStart[slot] * stride;
+      final int buildEnd = buildStart[slot + 1] * stride;
+      final int probeBegin = probeStart[slot] * stride;
+      final int probeEnd = probeStart[slot + 1] * stride;
+      if (buildBegin == buildEnd || probeBegin == probeEnd) {
+        continue;
+      }
+      for (int p = probeBegin; p < probeEnd; p += stride) {
+        fold.pair(probeRows[p + BucketedSide.FROM], probeRows[p + BucketedSide.TO], probeRows[p + BucketedSide.MARGIN],
+            probeRows[p + BucketedSide.DISTINCT], buildBegin, buildEnd);
+      }
+    }
+  }
+
+  /**
+   * Stream the probe lanes in row order against the bucketed build side: no probe record is written,
+   * so a process-cold execution pays only the lane reads, with the same fold state as
+   * {@link #foldMerge}.
+   */
+  private static int foldChained(final ExtremaFold fold, final BucketedSide build, final SideLanes lanes,
+      final long keyMinimum, final int slots) {
+    final int[] buildStart = build.bucketStart;
+    final int stride = BucketedSide.STRIDE;
+    final int leaves = lanes.masks().length;
+    int admitted = 0;
+    for (int leaf = 0; leaf < leaves; leaf++) {
+      final long[] mask = lanes.masks()[leaf];
+      if (mask == null) {
+        continue;
+      }
+      final long[] join = lanes.join()[leaf];
+      final long[] fromLane = lanes.from()[leaf];
+      final long[] toLane = lanes.to()[leaf];
+      final long[] marginLane = lanes.margin()[leaf];
+      final long[] distinctLane = lanes.distinct() == null
+          ? null
+          : lanes.distinct()[leaf];
+      for (int w = 0; w < mask.length; w++) {
+        long word = mask[w];
+        while (word != 0L) {
+          final int row = (w << 6) + Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final long slot = join[row] - keyMinimum;
+          if (slot < 0 || slot >= slots) {
+            continue;
+          }
+          admitted++;
+          final int buildBegin = buildStart[(int) slot] * stride;
+          final int buildEnd = buildStart[(int) slot + 1] * stride;
+          if (buildBegin == buildEnd) {
+            continue;
+          }
+          fold.pair(fromLane[row], toLane[row], marginLane[row], distinctLane == null
+              ? 0L
+              : distinctLane[row], buildBegin, buildEnd);
+        }
+      }
+    }
+    return admitted;
+  }
+
+  /**
+   * The dense extrema kernel: both sides are bucketed by join key, the buckets are merged key by key
+   * and every strictly overlapping pair folds into flat per-group minimum/maximum lanes and one flat
+   * distinct bitmap (or a per-group set when the distinct domain is unbounded). The final sort orders
+   * groups by their keys. A probe side that is not cached yet is streamed from its lanes while it is
+   * packed in the background for the next execution.
+   */
+  private Sequence joinExtrema(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
+      final DenseExtrema plan, final boolean[] stringKeys, final boolean[] timestampKeys) throws QueryException {
+    final long started = DIAG
+        ? System.nanoTime()
+        : 0L;
+    final int slots = plan.joinSlots();
+    final BucketedSide build = bucketedSide(buildColumns, plan.joinMinimum(), slots, plan.buildFromSlot(),
+        plan.buildToSlot(), plan.buildMarginSlot(), plan.distinctBuild()
+            ? plan.distinctSlot()
+            : -1,
+        plan.groupSlot(), plan.groupMinimum());
+    final long built = DIAG
+        ? System.nanoTime()
+        : 0L;
+    final int probeDistinctSlot = plan.distinctBuild()
+        ? -1
+        : plan.distinctSlot();
+    final long[] probeSignature = sideSignature(plan.joinMinimum(), slots, plan.probeFromSlot(), plan.probeToSlot(),
+        plan.probeMarginSlot(), probeDistinctSlot, -1, 0L);
+    final BucketedSide probe = BucketedSideCache.get(probeColumns, probeSignature);
+    final long packed = DIAG
+        ? System.nanoTime()
+        : 0L;
+    final int groups = plan.groups();
+    final DistinctDomain[] domains = distinctDomains(buildColumns, buildSide, probeColumns);
+    final DistinctDomain domain = domains.length == 0
+        ? null
+        : domains[plan.distinct()];
+    final ExtremaFold fold = new ExtremaFold(groups, domain, build.rows, plan.distinctBuild(), plan.buildMinusProbe());
+    final int probeRows;
+    if (probe != null) {
+      foldMerge(fold, build, probe, slots);
+      probeRows = probe.count;
+    } else {
+      final SideLanes lanes = SideLanes.capture(probeColumns, plan.probeFromSlot(), plan.probeToSlot(),
+          plan.probeMarginSlot(), probeDistinctSlot, -1);
+      BucketedSideCache.packAsync(probeColumns, probeSignature, lanes, plan.joinMinimum(), slots, 0L);
+      probeRows = foldChained(fold, build, lanes, plan.joinMinimum(), slots);
+    }
+    final long merged = DIAG
+        ? System.nanoTime()
+        : 0L;
+    final long[] groupMinimum = fold.groupMinimum;
+    final long[] groupMaximum = fold.groupMaximum;
+    final Map<GroupKey, GroupState> result = new LinkedHashMap<>();
+    final int width = 1 + 4 * aggKinds.length;
+    final int minBase = 1 + 4 * plan.minimum();
+    final int maxBase = 1 + 4 * plan.maximum();
+    int seen = 0;
+    for (int group = 0; group < groups; group++) {
+      if (groupMaximum[group] == Long.MIN_VALUE && groupMinimum[group] == Long.MAX_VALUE) {
+        continue;
+      }
+      seen++;
+      final long[] acc = new long[width];
+      acc[minBase] = 1;
+      acc[maxBase] = 1;
+      acc[minBase + 2] = groupMinimum[group];
+      acc[maxBase + 3] = groupMaximum[group];
+      final DistinctValues[] distinctSets = new DistinctValues[aggKinds.length];
+      distinctSets[plan.distinct()] = new DistinctValues(fold.distinctCount(group));
+      result.put(new GroupKey(new long[] {plan.groupMinimum() + group, 0}), new GroupState(acc, distinctSets));
+    }
+    if (DIAG) {
+      System.err.printf(
+          "[join-serve] dense extrema (%s): build %.2f ms, lookup %.2f ms, fold %.2f ms, emit %.2f ms"
+              + " (%d build rows, %d probe rows, %d slots, %d groups)%n",
+          probe != null
+              ? "merge"
+              : "chained, packing in background",
+          (built - started) / 1e6, (packed - built) / 1e6, (merged - packed) / 1e6, (System.nanoTime() - merged) / 1e6,
+          build.count, probeRows, slots, seen);
+    }
+    SirixVectorizedExecutor.noteJoinGroupServed();
+    return emit(result, buildColumns, stringKeys, timestampKeys);
   }
 
   private static boolean denseNumeric(final MaskedColumns columns, final int fields) {
@@ -983,6 +1454,12 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
       distinct = sets;
     }
+
+    /** A finished group: its accumulator lanes and distinct counts were folded elsewhere. */
+    GroupState(final long[] acc, final DistinctValues[] distinct) {
+      this.acc = acc;
+      this.distinct = distinct;
+    }
   }
 
   private static final class DistinctValues {
@@ -990,6 +1467,14 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     private final long @Nullable [] bits;
     private final long minimum;
     private long count;
+
+    /** A finished distinct count; {@link #add} is never called on it. */
+    DistinctValues(final long count) {
+      values = null;
+      bits = null;
+      minimum = 0L;
+      this.count = count;
+    }
 
     DistinctValues(final int capacity, final @Nullable DistinctDomain domain) {
       values = domain == null

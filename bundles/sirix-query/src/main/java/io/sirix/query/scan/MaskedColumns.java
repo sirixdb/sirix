@@ -42,9 +42,24 @@ public final class MaskedColumns {
   private final Object2IntOpenHashMap<String> stringIds = new Object2IntOpenHashMap<>();
   /** Per field, per leaf: the leaf dictionary id → interned id table, built on first touch. */
   private final int[][][] dictToInterned;
+  /**
+   * Original masks of an immutable revision; derived state is reusable only while they still match.
+   */
+  private long @Nullable [][] immutableMasks;
+  private final Object rowIdentity;
+  /**
+   * Per field: 0 unknown, 1 every selected row present, 2 not; shared by the views of one snapshot.
+   */
+  private final byte[] presenceMemo;
 
   MaskedColumns(final ProjectionColumnStore store, final long[][] rowMasks, final long[][] recordKeys,
       final ColumnSlice[][] slices, final byte[] kinds, final long rows) {
+    this(store, rowMasks, recordKeys, slices, kinds, rows, new Object(), null, new byte[kinds.length]);
+  }
+
+  private MaskedColumns(final ProjectionColumnStore store, final long[][] rowMasks, final long[][] recordKeys,
+      final ColumnSlice[][] slices, final byte[] kinds, final long rows, final Object rowIdentity,
+      final long @Nullable [][] immutableMasks, final byte[] presenceMemo) {
     this.store = store;
     this.rowMasks = rowMasks;
     this.recordKeys = recordKeys;
@@ -52,6 +67,9 @@ public final class MaskedColumns {
     this.kinds = kinds;
     this.rows = rows;
     this.dictToInterned = new int[kinds.length][rowMasks.length][];
+    this.rowIdentity = rowIdentity;
+    this.immutableMasks = immutableMasks;
+    this.presenceMemo = presenceMemo;
     strings.add(null);
     stringIds.defaultReturnValue(0);
   }
@@ -59,9 +77,10 @@ public final class MaskedColumns {
   /** Numeric-only snapshots never retain a query's mutable string interner or its store key. */
   @SuppressWarnings("ArrayRecordComponent") // Cache lookup compares contents; views copy mutable masks.
   record NumericSnapshot(String[] fields, long[] keys, long[][] masks, long[][] recordKeys, ColumnSlice[][] slices,
-      byte[] kinds, long rows, int weight) {
+      byte[] kinds, long rows, int weight, Object rowIdentity, byte[] presenceMemo) {
     MaskedColumns view(final ProjectionColumnStore store) {
-      return new MaskedColumns(store, copyMasks(masks), recordKeys, slices, kinds, rows);
+      return new MaskedColumns(store, copyMasks(masks), recordKeys, slices, kinds, rows, rowIdentity, masks,
+          presenceMemo);
     }
   }
 
@@ -111,12 +130,36 @@ public final class MaskedColumns {
 
   NumericSnapshot numericSnapshot(final String[] fields, final long[] keys, final int weight) {
     return new NumericSnapshot(fields.clone(), keys.clone(), copyMasks(rowMasks), recordKeys, slices, kinds, rows,
-        weight);
+        weight, rowIdentity, isImmutableRevision()
+            ? presenceMemo
+            : new byte[kinds.length]);
   }
 
   /** How many rows the mask admits over every leaf. */
   public long rows() {
     return rows;
+  }
+
+  /** The column store these masks were read from; its identity scopes derived caches. */
+  public ProjectionColumnStore store() {
+    return store;
+  }
+
+  /**
+   * An identity shared only by one loaded snapshot and its cached views, including its field roster.
+   * Derived caches must also check {@link #isImmutableRevision()} because a view's masks may change.
+   */
+  public Object rowIdentity() {
+    return rowIdentity;
+  }
+
+  /** Mark the columns as read from an immutable revision (no write transaction). */
+  void markImmutableRevision() {
+    immutableMasks = copyMasks(rowMasks);
+  }
+
+  public boolean isImmutableRevision() {
+    return immutableMasks != null && Arrays.deepEquals(immutableMasks, rowMasks);
   }
 
   public int leafCount() {
@@ -175,6 +218,21 @@ public final class MaskedColumns {
 
   /** Whether every selected row has this field, proved by the already loaded presence words. */
   public boolean allSelectedPresent(final int field) {
+    if (!isImmutableRevision()) {
+      return scanSelectedPresent(field);
+    }
+    final byte memo = presenceMemo[field];
+    if (memo != 0) {
+      return memo == 1;
+    }
+    final boolean present = scanSelectedPresent(field);
+    presenceMemo[field] = present
+        ? (byte) 1
+        : (byte) 2;
+    return present;
+  }
+
+  private boolean scanSelectedPresent(final int field) {
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       final long[] mask = rowMasks[leaf];
       if (mask == null) {

@@ -415,10 +415,12 @@ keys still intersect persisted array membership, excluding nested and sibling ar
 Joined grouping and ordered row joins admit paired numeric comparisons and explicit
 `xs:dateTime(field)` comparisons over canonical UTC timestamp columns, gated by the persisted
 [UTC provenance contract](DISK_FORMAT.md#projection-indexes-segment--slot-layout).
-Projection epochs are seconds; joined timestamp buffers convert them exactly to milliseconds once
-per selected row. Comparisons then use primitive longs per joined pair. Mixed-side `+`, `-`, `*`
-aggregate programs and `count(distinct-values(field))` use the same matched pairs, with primitive
-sets per distinct aggregate and group. Missing values contribute no operand or distinct member.
+Projection epochs are seconds; the general joined kernel converts timestamp buffers exactly to
+milliseconds once per selected row. The dense extrema kernel described below compares interval
+endpoints in their persisted seconds. Both use primitive longs per joined pair. Mixed-side `+`,
+`-`, `*` aggregate programs and `count(distinct-values(field))` use the same matched pairs, with
+exact distinct bitmaps or primitive sets as described below. Missing values contribute no operand
+or distinct member.
 
 Range predicates over an existing bitemporal point source intersect its sorted key set with the
 range key set; they cannot replace the original point constraint. Stable transaction-time
@@ -431,8 +433,12 @@ fallback when a runtime revision, range, covering projection or provenance check
 Immutable dense numeric masks can reuse columns already requested for the same column-store
 identity, field roster and exact sorted key set. The cache has weak identity keys and a weighted
 heap bound (at most 64 MiB or 1/64 of heap, with a 1 MiB floor); it retains no query-local string
-interner. Each reader owns its mutable masks. Sparse and string sources keep their existing
-column-loading path, and reuse never fills a pruned leaf.
+interner. Multiple field rosters and selected key sets can coexist for one store within that bound.
+Each independently loaded snapshot has its own identity, shared only with its cached views; the
+store's record-key arrays do not identify a snapshot. Each reader owns its mutable masks. Presence
+proofs are shared only while those masks equal the immutable snapshot's masks; changed or mutable
+views recompute presence. Sparse and string sources keep their existing column-loading path, and
+reuse never fills a pruned leaf.
 
 Compact storage-key domains collect range matches in a bitmap capped at 2 MiB, clear strict
 ties directly, and enumerate sorted unique keys. Large or sparse domains use output-sized
@@ -449,7 +455,26 @@ by the smaller of 16 MiB and 1/64 of heap, with a 1 MiB floor.
 
 Joined kernels prove complete presence from the selected masks before choosing direct numeric
 leaf feeds. Compact integer join domains use bounded head arrays (at most 1 Mi entries and four
-per build row); other domains keep primitive hash heads. AND-only paired residuals use direct
-comparisons; mixed AND/OR predicates retain the postfix evaluator. Numeric distinct fields can
-use exact bitmaps when both value and group domains bound total bitmap storage to 2 MiB per
-query. Wide domains, strings, timestamps and computed operands retain exact primitive sets.
+per build row), except for the dense extrema kernel below; other domains keep primitive hash heads.
+AND-only paired residuals use direct comparisons; mixed AND/OR predicates retain the postfix
+evaluator. Numeric distinct fields can use exact bitmaps when both value and group domains bound
+total bitmap storage to 2 MiB per query. Wide domains, strings, timestamps and computed operands
+retain exact primitive sets.
+
+The dense extrema kernel admits one integral group key with at most 4,096 possible values on the
+smaller build side, exactly three aggregates (one field distinct count and min/max of the same
+cross-side subtraction), two ANDed strict timestamp overlap comparisons, and completely present
+numeric columns on both sides.
+Within the same compact join-domain bound, it packs rows into contiguous join-key buckets and
+folds matching buckets into flat per-group extrema and value-major distinct bits, falling back to
+per-group sets when bitmap admission declines. The required final order-by supplies group order.
+Other shapes retain the general joined kernel.
+
+At an immutable revision, packed sides reuse the loaded snapshot identity and a signature covering
+the join domain, operand slots and group offset. This cache has weak snapshot keys and its own
+weighted bound using the same heap limit as the numeric-mask cache. A changed mask prevents reuse.
+On a miss, the build side is packed immediately; the probe lanes are streamed through the same fold
+while a copied-mask background task packs that side for later executions. A subsequent lookup can
+wait for that in-flight packing rather than build it again. Eviction can require rebuilding either
+side. `IntervalRangeJoinWorkBudgetTest` checks initial builds, zero builds on repetition and reuse
+when returning to an earlier valid-time window after querying a different window.
