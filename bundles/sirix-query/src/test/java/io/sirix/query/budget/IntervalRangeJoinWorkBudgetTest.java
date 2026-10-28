@@ -55,9 +55,9 @@ final class IntervalRangeJoinWorkBudgetTest {
         and xs:dateTime($p.vf) lt xs:dateTime($c.vt)
       let $category := $p.category, $cid := $c.id, $margin := $p.retail - $c.cost
       group by $category
-      let $n := count(distinct-values($cid)), $minimum := min($margin)
+      let $n := count(distinct-values($cid)), $minimum := min($margin), $maximum := max($margin)
       order by $category
-      return {"category":$category,"n":$n,"minimum":$minimum}
+      return {"category":$category,"n":$n,"minimum":$minimum,"maximum":$maximum}
       """;
 
   @TempDir
@@ -76,7 +76,7 @@ final class IntervalRangeJoinWorkBudgetTest {
                                                              .and(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
                                                              .and(EngineWorkCounters.PROJECTION_LEAVES_PRUNED)
                                                              .call(() -> run(chain, ctx));
-      assertEquals("{\"category\":1,\"n\":1,\"minimum\":16}", routed.result());
+      assertEquals("{\"category\":1,\"n\":1,\"minimum\":16,\"maximum\":16}", routed.result());
       assertEquals(run(generic, ctx), routed.result());
       routed.work()
             .assertExactly(JOINED, 1, "overlap residuals and distinct grouping must stay on columns")
@@ -98,7 +98,13 @@ final class IntervalRangeJoinWorkBudgetTest {
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store)) {
-      assertEquals("{\"category\":1,\"n\":" + rows + ",\"minimum\":16}", run(chain, ctx));
+      final WorkCapture.Captured<String> initial =
+          WorkCapture.of(JOINED).and(BUCKETED_SIDES).call(() -> run(chain, ctx));
+      final String expected = "{\"category\":1,\"n\":" + rows + ",\"minimum\":16,\"maximum\":16}";
+      assertEquals(expected, initial.result());
+      initial.work()
+             .assertExactly(JOINED, 1, "the initial query must use the joined column kernel")
+             .assertExactly(BUCKETED_SIDES, 2, "the dense extrema kernel must build both bucketed sides");
       final WorkCapture.Captured<String> repeated = WorkCapture.of(JOINED)
                                                                .and(BUCKETED_SIDES)
                                                                .and(EngineWorkCounters.VALID_TIME_INTERVAL_REFS)
@@ -106,7 +112,7 @@ final class IntervalRangeJoinWorkBudgetTest {
                                                                .and(EngineWorkCounters.PROJECTION_DENSE_ROWS)
                                                                .and(EngineWorkCounters.PROJECTION_KEY_SET_ADVANCES)
                                                                .call(() -> run(chain, ctx));
-      assertEquals("{\"category\":1,\"n\":" + rows + ",\"minimum\":16}", repeated.result());
+      assertEquals(expected, repeated.result());
       repeated.work()
               .assertExactly(JOINED, 1, "a fresh compiled query still performs the joined column kernel")
               .assertExactly(BUCKETED_SIDES, 0, "an immutable revision reuses both bucketed join sides")
@@ -121,11 +127,55 @@ final class IntervalRangeJoinWorkBudgetTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void bucketedSidesAreScopedToTheValidTimeSnapshot(final VersioningType versioning) throws Exception {
+    build(versioning, """
+        [{"id":1,"pid":1,"cost":4,"vf":"2024-01-01T00:00:00Z","vt":"2024-07-01T00:00:00Z"},
+         {"id":2,"pid":1,"cost":3,"vf":"2024-01-01T00:00:00Z","vt":"2024-07-01T00:00:00Z"},
+         {"id":3,"pid":1,"cost":8,"vf":"2024-07-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"},
+         {"id":4,"pid":1,"cost":9,"vf":"2024-07-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+        """, """
+        [{"id":1,"category":1,"retail":20,"vf":"2024-01-01T00:00:00Z","vt":"2025-01-01T00:00:00Z"}]
+        """);
+    final String laterQuery = QUERY.replace("2024-04-01", "2024-08-01").replace("2024-07-01", "2024-10-01");
+    final String early = "{\"category\":1,\"n\":2,\"minimum\":16,\"maximum\":17}";
+    final String later = "{\"category\":1,\"n\":2,\"minimum\":11,\"maximum\":12}";
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      final WorkCapture.Captured<String> initial = WorkCapture.of(BUCKETED_SIDES).call(() -> run(chain, ctx));
+      assertEquals(early, initial.result());
+      initial.work().assertExactly(BUCKETED_SIDES, 2, "the first window must build both sides");
+      final WorkCapture.Captured<String> warm = WorkCapture.of(BUCKETED_SIDES).call(() -> run(chain, ctx));
+      assertEquals(early, warm.result());
+      warm.work().assertExactly(BUCKETED_SIDES, 0, "the first window must reuse its completed packing");
+      final WorkCapture.Captured<String> changed =
+          WorkCapture.of(JOINED).and(BUCKETED_SIDES).call(() -> run(chain, ctx, laterQuery));
+      assertEquals(later, changed.result());
+      assertEquals(run(generic, ctx, laterQuery), changed.result());
+      changed.work()
+             .assertExactly(JOINED, 1, "the second window must use the same kernel")
+             .assertExactly(BUCKETED_SIDES, 1, "only the changed contracts snapshot needs a new side");
+      final WorkCapture.Captured<String> restored = WorkCapture.of(BUCKETED_SIDES).call(() -> run(chain, ctx));
+      assertEquals(early, restored.result());
+      assertEquals(run(generic, ctx), restored.result());
+      restored.work().assertExactly(BUCKETED_SIDES, 0, "returning to the first window must reuse both of its sides");
+    }
+  }
+
   private void build(final VersioningType versioning, final boolean dense) {
     build(versioning, dense, ROWS);
   }
 
   private void build(final VersioningType versioning, final boolean dense, final int rows) {
+    build(versioning, rows("contracts", dense, rows), rows("products", dense, dense
+        ? rows / 2
+        : rows));
+  }
+
+  private void build(final VersioningType versioning, final String contracts, final String products) {
     final Path path = directory.resolve("ranges");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(path)) {
@@ -137,8 +187,9 @@ final class IntervalRangeJoinWorkBudgetTest {
                                                .storeDiffs(false)
                                                .build());
         try (var session = db.beginResourceSession(resource); var wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(rows(resource, dense, rows)),
-              JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(resource.equals("contracts")
+              ? contracts
+              : products), JsonNodeTrx.Commit.NO);
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild();
           ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, "ranges");
@@ -161,7 +212,11 @@ final class IntervalRangeJoinWorkBudgetTest {
       }
       json.append("{\"id\":").append(row + 1);
       if (contracts) {
-        json.append(",\"pid\":").append(row + 1).append(",\"cost\":4");
+        json.append(",\"pid\":")
+            .append(dense
+                ? row % (rowCount / 2) + 1
+                : row + 1)
+            .append(",\"cost\":4");
       } else {
         json.append(",\"category\":1,\"retail\":20");
       }
@@ -178,8 +233,13 @@ final class IntervalRangeJoinWorkBudgetTest {
   }
 
   private static String run(final SirixCompileChain chain, final SirixQueryContext ctx) throws Exception {
+    return run(chain, ctx, QUERY);
+  }
+
+  private static String run(final SirixCompileChain chain, final SirixQueryContext ctx, final String query)
+      throws Exception {
     try (var bytes = new ByteArrayOutputStream(); var writer = new PrintWriter(bytes, false, StandardCharsets.UTF_8)) {
-      new Query(chain, QUERY).serialize(ctx, writer);
+      new Query(chain, query).serialize(ctx, writer);
       writer.flush();
       return bytes.toString(StandardCharsets.UTF_8).trim();
     }

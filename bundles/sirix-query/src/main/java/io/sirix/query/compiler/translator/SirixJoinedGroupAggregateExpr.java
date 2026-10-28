@@ -687,10 +687,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * One side of the dense extrema kernel, bucketed by join key: a counting sort over the build side's
    * dense key domain places every key's rows contiguously, so the join is a merge over keys that
    * reads both sides sequentially. Each row is one {@value #STRIDE}-long record (from, to, margin,
-   * distinct operand or 0, group index or ordinal), so bucketing touches one line per row. Timestamps
-   * keep their persisted unit (epoch seconds on both sides), which orders exactly like the
-   * millisecond residuals of the generic kernel. Rows whose key lies outside the domain cannot join
-   * and are dropped while bucketing. Immutable once built, so a revision's side is reusable.
+   * distinct operand or 0, group index or 0), so bucketing touches one line per row. Timestamps keep
+   * their persisted unit (epoch seconds on both sides), which orders exactly like the millisecond
+   * residuals of the generic kernel. Rows whose key lies outside the domain cannot join and are
+   * dropped while bucketing. Immutable once built, so a revision's side is reusable.
    *
    * <p>
    * Packing a large side costs a first touch of its whole record array plus one scattered write per
@@ -704,7 +704,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     static final int TO = 1;
     static final int MARGIN = 2;
     static final int DISTINCT = 3;
-    /** The group index on the side carrying the group key, the admitted-row ordinal on the other. */
+    /** The group index on the side carrying the group key, zero on the other. */
     static final int META = 4;
 
     final int[] bucketStart;
@@ -740,7 +740,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       count = total;
       rows = new long[total * STRIDE];
       final int[] fill = Arrays.copyOf(bucketStart, slots);
-      int ordinal = 0;
       for (int leaf = 0; leaf < leaves; leaf++) {
         final long[] mask = lanes.masks()[leaf];
         if (mask == null) {
@@ -762,7 +761,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             final int row = (w << 6) + Long.numberOfTrailingZeros(word);
             word &= word - 1L;
             final long slot = join[row] - keyMinimum;
-            final int sequence = ordinal++;
             if (slot < 0 || slot >= slots) {
               continue;
             }
@@ -774,7 +772,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
                 ? 0L
                 : distinctLane[row];
             rows[at + META] = groupLane == null
-                ? sequence
+                ? 0L
                 : groupLane[row] - groupMinimum;
           }
         }
@@ -787,7 +785,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   }
 
   /**
-   * Bounded reuse of one immutable bucketed side per column store, matched on the routed keys and the
+   * Bounded reuse of one immutable bucketed side per snapshot, matched on the routed keys and the
    * operand slots, so a repeated query at an immutable revision skips the bucketing pass. A side
    * being packed in the background is joinable, so a second execution that arrives before the packing
    * finished waits for it instead of packing again.
@@ -795,17 +793,16 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private static final class BucketedSideCache {
     private static final long MAX_BYTES =
         Math.max(1L << 20, Math.min(64L << 20, Runtime.getRuntime().maxMemory() / 64));
-    private static final Cache<ProjectionColumnStore, Entry> CACHE =
-        Caffeine.newBuilder()
-                .weakKeys()
-                .maximumWeight(MAX_BYTES)
-                .weigher((ProjectionColumnStore store, Entry entry) -> entry.weight)
-                .build();
+    private static final Cache<Object, Entry> CACHE = Caffeine.newBuilder()
+                                                              .weakKeys()
+                                                              .maximumWeight(MAX_BYTES)
+                                                              .weigher((Object snapshot, Entry entry) -> entry.weight)
+                                                              .build();
     private static final ConcurrentHashMap<InFlightKey, CompletableFuture<BucketedSide>> IN_FLIGHT =
         new ConcurrentHashMap<>();
 
     @SuppressWarnings("ArrayRecordComponent") // Matched by identity and content below; record equality is unused.
-    private record Entry(Object rows, long[] signature, BucketedSide side, int weight) {
+    private record Entry(long[] signature, BucketedSide side, int weight) {
     }
 
     /** Store and row identity by reference, signature by content. */
@@ -828,8 +825,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       if (!columns.isImmutableRevision()) {
         return null;
       }
-      final Entry entry = CACHE.getIfPresent(columns.store());
-      if (entry != null && entry.rows == columns.rowIdentity() && Arrays.equals(signature, entry.signature)) {
+      final Entry entry = CACHE.getIfPresent(columns.rowIdentity());
+      if (entry != null && Arrays.equals(signature, entry.signature)) {
         return entry.side;
       }
       final CompletableFuture<BucketedSide> packing =
@@ -850,7 +847,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
       final long bytes = side.weight() + 8L * signature.length;
       if (bytes <= MAX_BYTES) {
-        CACHE.put(columns.store(), new Entry(columns.rowIdentity(), signature, side, (int) bytes));
+        CACHE.put(columns.rowIdentity(), new Entry(signature, side, (int) bytes));
       }
     }
 
@@ -909,16 +906,13 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   }
 
   /**
-   * The flat fold state of the dense extrema kernel: per-group minimum/maximum of the residual, the
-   * first appearance of each group (when the output order is first-appearance), and the distinct
-   * values per group as one value-major bitmap or, when the distinct domain is unbounded, one set per
-   * group. {@link #pair} folds one probe row against the build rows of its key, walking them from the
-   * last inserted one so the first-appearance order equals the chained kernel's.
+   * The flat fold state of the dense extrema kernel: per-group minimum/maximum of the residual and
+   * distinct values per group as one value-major bitmap or, when the distinct domain is unbounded,
+   * one set per group. {@link #pair} folds one probe row against the build rows of its key.
    */
   private static final class ExtremaFold {
     final long[] groupMinimum;
     final long[] groupMaximum;
-    final long[] firstSeen;
     final long[] distinctCounts;
     final long @Nullable [] bits;
     final LongOpenHashSet @Nullable [] sets;
@@ -927,22 +921,18 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long domainMinimum;
     final boolean distinctBuild;
     final boolean buildMinusProbe;
-    final boolean trackOrder;
 
     ExtremaFold(final int groups, final @Nullable DistinctDomain domain, final long[] buildRows,
-        final boolean distinctBuild, final boolean buildMinusProbe, final boolean trackOrder) {
+        final boolean distinctBuild, final boolean buildMinusProbe) {
       this.groups = groups;
       this.buildRows = buildRows;
       this.distinctBuild = distinctBuild;
       this.buildMinusProbe = buildMinusProbe;
-      this.trackOrder = trackOrder;
       groupMinimum = new long[groups];
       groupMaximum = new long[groups];
-      firstSeen = new long[groups];
       distinctCounts = new long[groups];
       Arrays.fill(groupMinimum, Long.MAX_VALUE);
       Arrays.fill(groupMaximum, Long.MIN_VALUE);
-      Arrays.fill(firstSeen, Long.MAX_VALUE);
       domainMinimum = domain == null
           ? 0L
           : domain.minimum();
@@ -955,8 +945,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           : null;
     }
 
-    void pair(final long from, final long to, final long margin, final long probeValue, final long ordinal,
-        final int buildBegin, final int buildEnd) {
+    void pair(final long from, final long to, final long margin, final long probeValue, final int buildBegin,
+        final int buildEnd) {
       final long[] buildRows = this.buildRows;
       for (int b = buildEnd - BucketedSide.STRIDE; b >= buildBegin; b -= BucketedSide.STRIDE) {
         if (from >= buildRows[b + BucketedSide.TO] || buildRows[b + BucketedSide.FROM] >= to) {
@@ -972,12 +962,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         }
         if (value > groupMaximum[group]) {
           groupMaximum[group] = value;
-        }
-        if (trackOrder) {
-          final long seen = ordinal | ((buildEnd - b) / BucketedSide.STRIDE);
-          if (seen < firstSeen[group]) {
-            firstSeen[group] = seen;
-          }
         }
         final long distinctValue = distinctBuild
             ? buildRows[b + BucketedSide.DISTINCT]
@@ -1036,22 +1020,21 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
       for (int p = probeBegin; p < probeEnd; p += stride) {
         fold.pair(probeRows[p + BucketedSide.FROM], probeRows[p + BucketedSide.TO], probeRows[p + BucketedSide.MARGIN],
-            probeRows[p + BucketedSide.DISTINCT], probeRows[p + BucketedSide.META] << 32, buildBegin, buildEnd);
+            probeRows[p + BucketedSide.DISTINCT], buildBegin, buildEnd);
       }
     }
   }
 
   /**
    * Stream the probe lanes in row order against the bucketed build side: no probe record is written,
-   * so a process-cold execution pays only the lane reads. Rows carry the same ordinals as a packed
-   * side, so the fold state is identical to {@link #foldMerge}.
+   * so a process-cold execution pays only the lane reads, with the same fold state as
+   * {@link #foldMerge}.
    */
   private static int foldChained(final ExtremaFold fold, final BucketedSide build, final SideLanes lanes,
       final long keyMinimum, final int slots) {
     final int[] buildStart = build.bucketStart;
     final int stride = BucketedSide.STRIDE;
     final int leaves = lanes.masks().length;
-    int ordinal = 0;
     int admitted = 0;
     for (int leaf = 0; leaf < leaves; leaf++) {
       final long[] mask = lanes.masks()[leaf];
@@ -1071,7 +1054,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           final int row = (w << 6) + Long.numberOfTrailingZeros(word);
           word &= word - 1L;
           final long slot = join[row] - keyMinimum;
-          final long sequence = (long) ordinal++ << 32;
           if (slot < 0 || slot >= slots) {
             continue;
           }
@@ -1083,7 +1065,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           }
           fold.pair(fromLane[row], toLane[row], marginLane[row], distinctLane == null
               ? 0L
-              : distinctLane[row], sequence, buildBegin, buildEnd);
+              : distinctLane[row], buildBegin, buildEnd);
         }
       }
     }
@@ -1093,10 +1075,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   /**
    * The dense extrema kernel: both sides are bucketed by join key, the buckets are merged key by key
    * and every strictly overlapping pair folds into flat per-group minimum/maximum lanes and one flat
-   * distinct bitmap (or a per-group set when the distinct domain is unbounded). Groups are emitted in
-   * the order the chained kernel would first meet them: by probe row, then by build row from the last
-   * inserted one. A probe side that is not cached yet is streamed from its lanes while it is packed
-   * in the background for the next execution.
+   * distinct bitmap (or a per-group set when the distinct domain is unbounded). The final sort orders
+   * groups by their keys. A probe side that is not cached yet is streamed from its lanes while it is
+   * packed in the background for the next execution.
    */
   private Sequence joinExtrema(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
       final DenseExtrema plan, final boolean[] stringKeys, final boolean[] timestampKeys) throws QueryException {
@@ -1121,15 +1102,12 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long packed = DIAG
         ? System.nanoTime()
         : 0L;
-    // Without an order clause the groups surface in first-appearance order; otherwise the sort decides.
-    final boolean trackOrder = orderIndexes.length == 0;
     final int groups = plan.groups();
     final DistinctDomain[] domains = distinctDomains(buildColumns, buildSide, probeColumns);
     final DistinctDomain domain = domains.length == 0
         ? null
         : domains[plan.distinct()];
-    final ExtremaFold fold =
-        new ExtremaFold(groups, domain, build.rows, plan.distinctBuild(), plan.buildMinusProbe(), trackOrder);
+    final ExtremaFold fold = new ExtremaFold(groups, domain, build.rows, plan.distinctBuild(), plan.buildMinusProbe());
     final int probeRows;
     if (probe != null) {
       foldMerge(fold, build, probe, slots);
@@ -1145,30 +1123,16 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         : 0L;
     final long[] groupMinimum = fold.groupMinimum;
     final long[] groupMaximum = fold.groupMaximum;
-    final long[] firstSeen = fold.firstSeen;
-    final int[] order = new int[groups];
-    int seen = 0;
-    for (int group = 0; group < groups; group++) {
-      if (groupMaximum[group] != Long.MIN_VALUE || groupMinimum[group] != Long.MAX_VALUE) {
-        order[seen++] = group;
-      }
-    }
-    // Insertion sort by first appearance: a few thousand groups at most, usually a handful.
-    for (int i = 1; i < seen; i++) {
-      final int group = order[i];
-      int j = i - 1;
-      while (j >= 0 && firstSeen[order[j]] > firstSeen[group]) {
-        order[j + 1] = order[j];
-        j--;
-      }
-      order[j + 1] = group;
-    }
     final Map<GroupKey, GroupState> result = new LinkedHashMap<>();
     final int width = 1 + 4 * aggKinds.length;
     final int minBase = 1 + 4 * plan.minimum();
     final int maxBase = 1 + 4 * plan.maximum();
-    for (int i = 0; i < seen; i++) {
-      final int group = order[i];
+    int seen = 0;
+    for (int group = 0; group < groups; group++) {
+      if (groupMaximum[group] == Long.MIN_VALUE && groupMinimum[group] == Long.MAX_VALUE) {
+        continue;
+      }
+      seen++;
       final long[] acc = new long[width];
       acc[minBase] = 1;
       acc[maxBase] = 1;
