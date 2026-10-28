@@ -22,6 +22,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -139,7 +140,8 @@ final class BitemporalStorageEpochTest {
     return method;
   }
 
-  private static Object invoke(final Method method, final Object receiver, final Object... arguments) throws Exception {
+  private static Object invoke(final Method method, final @Nullable Object receiver, final Object... arguments)
+      throws Exception {
     try {
       return method.invoke(receiver, arguments);
     } catch (final InvocationTargetException failure) {

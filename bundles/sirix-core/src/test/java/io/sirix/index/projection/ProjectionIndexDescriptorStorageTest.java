@@ -627,6 +627,7 @@ final class ProjectionIndexDescriptorStorageTest {
   }
 
   @Test
+  @SuppressWarnings("NullAway") // The pagedSegmentLeaf fixtures are valid row groups and encode to non-null results.
   void spilledReferencedSegmentsEnumerateBeforeAndAfterCommit() {
     final byte[][] expected =
         {pagedSegmentLeaf(10_000L, 0), pagedSegmentLeaf(40_000L, 1), pagedSegmentLeaf(70_000L, 2)};

@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -229,8 +230,8 @@ final class StorageEpochDifferentialTest {
     }
   }
 
-  private static Snapshot read(final JsonResourceSession session, final List<Row> expected, final String context)
-      throws IOException {
+  private static Snapshot read(final JsonResourceSession session, final @Nullable List<Row> expected,
+      final String context) throws IOException {
     try (final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
       final List<String> scan = new ArrayList<>();
       final DescendantAxis axis = new DescendantAxis(reader);
@@ -337,7 +338,7 @@ final class StorageEpochDifferentialTest {
   }
 
   private static String value(final Random random, final int ordinal) {
-    if (ordinal == 0 || ordinal >= RECORDS && ordinal % 127 == 0) {
+    if (ordinal == 0 || (ordinal >= RECORDS && ordinal % 127 == 0)) {
       final StringBuilder value = new StringBuilder(4096);
       for (int i = 0; i < 4096; i++) {
         value.append((char) ('a' + random.nextInt(26)));
@@ -372,7 +373,7 @@ final class StorageEpochDifferentialTest {
     }
   }
 
-  private record Row(long key, String code, String value, int id) {
+  private record Row(long key, String code, @Nullable String value, int id) {
   }
   private record Snapshot(long frontier, List<String> scan, List<String> points, long tableId, byte[] table,
       List<byte[]> groups, List<String> frames) {
