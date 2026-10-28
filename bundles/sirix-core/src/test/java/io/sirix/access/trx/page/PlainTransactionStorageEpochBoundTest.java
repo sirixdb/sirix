@@ -39,9 +39,10 @@ import org.junit.jupiter.api.Timeout;
  * </p>
  *
  * <p>
- * The production bound is sized from the off-heap budget (one sixteenth of it in 64 KiB frames),
- * far more pages than a fixture should touch, so the test scales the threshold down to the import
- * bound through the writer's test seam instead of scaling the data up.
+ * {@link NodeStorageEngineWriter#STORAGE_EPOCH_BUDGET_SHARE} defines the production bound's share
+ * of the off-heap budget. That bound allows far more pages than a fixture should touch, so the test
+ * scales the threshold down to the import bound through the writer's test seam instead of scaling
+ * the data up.
  * </p>
  *
  * <p>

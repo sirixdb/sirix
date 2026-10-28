@@ -1487,14 +1487,14 @@ read  node A          resolves through the TIL FIRST -> returns container_A.comp
 commit()              serialize each container.modified in PARALLEL (preservation copies materialise here),
                       append to sirix.data, link into RevisionRootPage r+1, clear the TIL, release semaphore
    -- or --
-rollback()            close each PageContainer; NO disk writes; on-reference fragment chains untouched
+rollback()            discard transaction-owned state; see docs/ARCHITECTURE.md for storage-epoch cleanup
 \end{diagramS}
 
 \noindent The \code{complete}/\allowbreak\code{modified} split is what makes both properties hold at once
 (Figure~\ref{fig:til}):
 reads during the write see \code{complete} (a full, consistent in-progress page), while only the sparse
-\code{modified} page is serialised at commit --- and because nothing reached disk until commit, rollback
-is just dropping the in-memory list.
+\code{modified} page is serialised for persistence. Pre-commit writes and rollback cleanup follow
+the storage-epoch contract in \code{docs/ARCHITECTURE.md}.
 
 \begin{figure}[t]
 \centering

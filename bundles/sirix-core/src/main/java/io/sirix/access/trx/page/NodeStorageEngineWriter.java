@@ -1700,6 +1700,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality") // Captured deletions use an identity sentinel.
   public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
     ReplayWorkDiagnostics.recordVisited();
     storageEngineReader.assertNotClosed();
@@ -1781,6 +1782,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  @SuppressWarnings("ReferenceEquality") // Captured deletions use an identity sentinel.
   public void captureRecordForDeferredRead(final long recordRootKey) {
     storageEngineReader.assertNotClosed();
     checkArgument(recordRootKey >= 0, "Negative record key is not accepted.");
@@ -2769,6 +2771,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * and give the reference (and the log's mirror of it) the data-file key. Pages the transaction
    * modified again after the spill were re-read and are rewritten by the commit instead.
    */
+  @SuppressWarnings("ReferenceEquality") // Only a distinct reference needs its mirrored key updated.
   private void materializeSpilledPage(final PageReference reference) {
     final long spillKey = reference.getKey();
     if (!IOStorage.isSpillKey(spillKey)) {
@@ -4555,7 +4558,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     for (final Map.Entry<Long, PageReference> entry : page.referenceEntrySet()) {
       final long key = entry.getKey();
       if (page.getRecord(StorageEngineReader.recordPageOffset(key)) != null
-          || carriesSymbolTable(page) && !IOStorage.isSpillKey(entry.getValue().getKey())) {
+          || (carriesSymbolTable(page) && !IOStorage.isSpillKey(entry.getValue().getKey()))) {
         continue;
       }
       final DataRecord record = storageEngineReader.readDetachedRecord(page, key);

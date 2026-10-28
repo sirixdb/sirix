@@ -1996,7 +1996,7 @@ The `PageContainer` holds two views of a page during modification:
 │   ═════════════════════════════════                                         │
 │   • Only ONE write transaction per resource at a time                       │
 │   • Creates a NEW revision on commit                                        │
-│   • Changes held in Transaction Intent Log until commit                     │
+│   • Uncommitted state follows the TIL and storage-epoch contracts below      │
 │   • Readers never blocked by writer (MVCC)                                  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
