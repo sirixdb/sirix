@@ -2,6 +2,7 @@ package io.sirix.access.trx.page;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.sirix.JsonTestHelper;
@@ -18,6 +19,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.io.StorageType;
+import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.service.json.shredder.JsonShredder;
 import java.util.ArrayList;
@@ -64,6 +66,46 @@ final class AsyncFlushCursorRebindTest {
   void tearDown() {
     FrameSlotAllocator.setPoisonOnReleaseForTesting(false);
     JsonTestHelper.deleteEverything();
+  }
+
+  @Test
+  void rotationKeepsCapturedRecordsFromTheCompleteFragment() {
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                   .storeDiffs(false)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        final long[] values = new long[RECORDS];
+        final List<Long> keys = load(session, values);
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
+          update(wtx, keys, values, STRIDE * 2);
+          final long capturedKey = keys.get(STRIDE * 2 + 10);
+          writer.captureRecordForDeferredRead(capturedKey);
+
+          // The untouched record lives only in the complete fragment. Displace that container
+          // from the tiny recent-page cache before rotation refreshes the captured records.
+          update(wtx, keys, values, STRIDE * 4);
+          update(wtx, keys, values, STRIDE * 6);
+          update(wtx, keys, values, STRIDE * 8);
+          writer.asyncFlushStorageEpoch();
+          writer.awaitPendingAsyncFlush();
+          assertNotNull(writer.getRecord(capturedKey, IndexType.DOCUMENT, -1));
+          assertTrue(wtx.moveTo(capturedKey));
+          wtx.remove();
+          wtx.commit();
+        }
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.moveToDocumentRoot() && rtx.moveToFirstChild());
+      assertEquals(RECORDS - 1, rtx.getChildCount());
+    }
   }
 
   @Test

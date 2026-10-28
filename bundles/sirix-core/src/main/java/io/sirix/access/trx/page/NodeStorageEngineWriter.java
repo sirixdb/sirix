@@ -1850,8 +1850,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final long key = keys.getLong(i);
       DataRecord node = getRecordForWriteAccess(page, key);
       if (node == null) {
-        final PageContainer container = getMostRecentPageContainer(IndexType.DOCUMENT, page.getPageKey(), -1,
+        PageContainer container = getMostRecentPageContainer(IndexType.DOCUMENT, page.getPageKey(), -1,
             newRevisionRootPage.getRevision());
+        if (container == null) {
+          // A sparse modifying page can omit live records held by its complete half even after
+          // its container has left the recent-page cache. A cache miss is not a tombstone.
+          container = resolvePageForRead(page.getPageKey(), -1, IndexType.DOCUMENT,
+              newRevisionRootPage.getRevision()).pageContainer;
+        }
         if (container != null) {
           node = getRecordForWriteAccess((KeyValueLeafPage) container.getComplete(), key);
         }
