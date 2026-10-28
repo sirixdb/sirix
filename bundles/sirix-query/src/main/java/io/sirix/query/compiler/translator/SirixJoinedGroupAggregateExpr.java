@@ -746,36 +746,41 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         if (mask == null) {
           continue;
         }
-        final long[] join = lanes.join()[leaf];
-        final long[] fromLane = lanes.from()[leaf];
-        final long[] toLane = lanes.to()[leaf];
-        final long[] marginLane = lanes.margin()[leaf];
-        final long[] distinctLane = lanes.distinct() == null
-            ? null
-            : lanes.distinct()[leaf];
-        final long[] groupLane = lanes.group() == null
-            ? null
-            : lanes.group()[leaf];
-        for (int w = 0; w < mask.length; w++) {
-          long word = mask[w];
-          while (word != 0L) {
-            final int row = (w << 6) + Long.numberOfTrailingZeros(word);
-            word &= word - 1L;
-            final long slot = join[row] - keyMinimum;
-            if (slot < 0 || slot >= slots) {
-              continue;
-            }
-            final int at = fill[(int) slot]++ * STRIDE;
-            rows[at + FROM] = fromLane[row];
-            rows[at + TO] = toLane[row];
-            rows[at + MARGIN] = marginLane[row];
-            rows[at + DISTINCT] = distinctLane == null
-                ? 0L
-                : distinctLane[row];
-            rows[at + META] = groupLane == null
-                ? 0L
-                : groupLane[row] - groupMinimum;
+        fillLeaf(lanes, leaf, mask, fill, keyMinimum, slots, groupMinimum);
+      }
+    }
+
+    private void fillLeaf(final SideLanes lanes, final int leaf, final long[] mask, final int[] fill,
+        final long keyMinimum, final int slots, final long groupMinimum) {
+      final long[] join = lanes.join()[leaf];
+      final long[] fromLane = lanes.from()[leaf];
+      final long[] toLane = lanes.to()[leaf];
+      final long[] marginLane = lanes.margin()[leaf];
+      final long[] distinctLane = lanes.distinct() == null
+          ? null
+          : lanes.distinct()[leaf];
+      final long[] groupLane = lanes.group() == null
+          ? null
+          : lanes.group()[leaf];
+      for (int w = 0; w < mask.length; w++) {
+        long word = mask[w];
+        while (word != 0L) {
+          final int row = (w << 6) + Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final long slot = join[row] - keyMinimum;
+          if (slot < 0 || slot >= slots) {
+            continue;
           }
+          final int at = fill[(int) slot]++ * STRIDE;
+          rows[at + FROM] = fromLane[row];
+          rows[at + TO] = toLane[row];
+          rows[at + MARGIN] = marginLane[row];
+          rows[at + DISTINCT] = distinctLane == null
+              ? 0L
+              : distinctLane[row];
+          rows[at + META] = groupLane == null
+              ? 0L
+              : groupLane[row] - groupMinimum;
         }
       }
     }
