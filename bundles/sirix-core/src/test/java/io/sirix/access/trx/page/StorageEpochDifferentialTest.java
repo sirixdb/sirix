@@ -84,8 +84,8 @@ final class StorageEpochDifferentialTest {
   @Test
   void randomEditsMatchAcrossStorageCompressionAndDictionaryLanes() throws IOException {
     for (final StorageType storage : new StorageType[] {StorageType.FILE_CHANNEL, StorageType.MEMORY_MAPPED}) {
-      for (final StringCompressionType compression : new StringCompressionType[] {
-          StringCompressionType.NONE, StringCompressionType.FSST}) {
+      for (final StringCompressionType compression : new StringCompressionType[] {StringCompressionType.NONE,
+          StringCompressionType.FSST}) {
         for (final boolean lane : new boolean[] {false, true}) {
           final String context = "seed=" + SEED + ", " + storage + ", " + compression + ", lane=" + lane;
           System.setProperty(SegmentDictionaryLane.ENABLED_PROPERTY, Boolean.toString(lane));
@@ -123,10 +123,16 @@ final class StorageEpochDifferentialTest {
     Files.createDirectories(path.getParent());
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER)) {
-      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").storageType(storage)
-          .stringCompressionType(compression).byteHandlerPipeline(new ByteHandlerPipeline())
-          .hashKind(HashType.NONE).versioningApproach(VersioningType.FULL).useDeweyIDs(false)
-          .storeNodeHistory(false).customCommitTimestamps(true).build()));
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                              .storageType(storage)
+                                                              .stringCompressionType(compression)
+                                                              .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                              .hashKind(HashType.NONE)
+                                                              .versioningApproach(VersioningType.FULL)
+                                                              .useDeweyIDs(false)
+                                                              .storeNodeHistory(false)
+                                                              .customCommitTimestamps(true)
+                                                              .build()));
     }
     Databases.clearGlobalCaches();
   }
@@ -138,7 +144,9 @@ final class StorageEpochDifferentialTest {
   }
 
   private static Result exercise(final Path path, final boolean rotating, final String context) throws IOException {
-    StorageEpochTestSupport.setPlainTransactionBound(rotating ? StorageEpochTestSupport.IMPORT_BOUND : Integer.MAX_VALUE);
+    StorageEpochTestSupport.setPlainTransactionBound(rotating
+        ? StorageEpochTestSupport.IMPORT_BOUND
+        : Integer.MAX_VALUE);
     final List<Snapshot> snapshots = new ArrayList<>(2);
     int rotations;
     final List<Row> rows = new ArrayList<>(RECORDS + 96);
@@ -247,21 +255,26 @@ final class StorageEpochDifferentialTest {
       }
       final List<String> points = new ArrayList<>();
       for (long key = 0; key <= reader.getMaxNodeKey(); key += 113) {
-        points.add(key + ":" + (reader.moveTo(key) ? reader.getKind() + ":" + reader.getValue() : "absent"));
+        points.add(key + ":" + (reader.moveTo(key)
+            ? reader.getKind() + ":" + reader.getValue()
+            : "absent"));
       }
       final StorageEngineReader engine = reader.getStorageEngineReader();
       final NamePage names = engine.getNamePage(engine.getActualRevisionRootPage());
       final long tableId = names.getLatestFsstSymbolTableId(DatabaseType.JSON);
-      final byte[] table = tableId > 0 ? names.getFsstSymbolTable(tableId, DatabaseType.JSON, engine) : new byte[0];
+      final byte[] table = tableId > 0
+          ? names.getFsstSymbolTable(tableId, DatabaseType.JSON, engine)
+          : new byte[0];
       final byte[] metadata = ProjectionIndexHOTStorage.readBlob(engine, 0, 0);
       assertNotNull(metadata, context);
       final ProjectionIndexMetadata projection = ProjectionIndexMetadata.parse(metadata);
-      final List<byte[]> groups = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(engine, 0,
-          projection.rowGroupCount());
-      final long root = ((NodeStorageEngineReader) engine).getReader()
-          .getRevisionFileData(reader.getRevisionNumber()).offset();
-      final Path data = session.getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-          .resolve("sirix.data");
+      final List<byte[]> groups =
+          ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(engine, 0, projection.rowGroupCount());
+      final long root =
+          ((NodeStorageEngineReader) engine).getReader().getRevisionFileData(reader.getRevisionNumber()).offset();
+      final Path data =
+          session.getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                                  .resolve("sirix.data");
       final ByteBuffer length = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
       try (final FileChannel file = FileChannel.open(data)) {
         while (length.hasRemaining()) {
@@ -279,15 +292,16 @@ final class StorageEpochDifferentialTest {
           }
           final int size = length.flip().getInt();
           final Page page = ((NodeStorageEngineReader) engine).getReader()
-              .readRecordPageLazily(new PageReference().setKey(offset), session.getResourceConfig());
+                                                              .readRecordPageLazily(new PageReference().setKey(offset),
+                                                                  session.getResourceConfig());
           try {
             if (page instanceof KeyValueLeafPage leaf && leaf.hasGlobalStringTags()
                 && !leaf.getReferencesMap().isEmpty()) {
               dictionaryCarriers++;
             }
             frames.add(page.getClass().getSimpleName() + (page instanceof KeyValueLeafPage leaf
-                ? ":" + leaf.getIndexType() + ":" + leaf.getPageKey() + ":carriers=" + leaf.getReferencesMap().size() : "")
-                + ":" + size);
+                ? ":" + leaf.getIndexType() + ":" + leaf.getPageKey() + ":carriers=" + leaf.getReferencesMap().size()
+                : "") + ":" + size);
           } finally {
             page.close();
           }
@@ -315,8 +329,11 @@ final class StorageEpochDifferentialTest {
   }
 
   private static String object(final Row row) {
-    return "{\"code\":\"" + row.code() + "\",\"v\":\"" + row.value() + "\",\"id\":" + row.id()
-        + ",\"flag\":true" + (row.id() == 1200 ? ",\"huge\":" + "1234567890".repeat(400) : "") + "}";
+    return "{\"code\":\"" + row.code() + "\",\"v\":\"" + row.value() + "\",\"id\":" + row.id() + ",\"flag\":true"
+        + (row.id() == 1200
+            ? ",\"huge\":" + "1234567890".repeat(400)
+            : "")
+        + "}";
   }
 
   private static String value(final Random random, final int ordinal) {
@@ -327,8 +344,9 @@ final class StorageEpochDifferentialTest {
       }
       return value.toString();
     }
-    return "https://sirix.io/differential/".repeat((ordinal < 64 || ordinal >= RECORDS)
-        && random.nextInt(9) == 0 ? 50 : 1) + random.nextInt(100);
+    return "https://sirix.io/differential/".repeat((ordinal < 64 || ordinal >= RECORDS) && random.nextInt(9) == 0
+        ? 50
+        : 1) + random.nextInt(100);
   }
 
   private static void copy(final Path source, final Path target) throws IOException {
@@ -354,8 +372,11 @@ final class StorageEpochDifferentialTest {
     }
   }
 
-  private record Row(long key, String code, String value, int id) {}
+  private record Row(long key, String code, String value, int id) {
+  }
   private record Snapshot(long frontier, List<String> scan, List<String> points, long tableId, byte[] table,
-                          List<byte[]> groups, List<String> frames) {}
-  private record Result(int rotations, List<Snapshot> revisions) {}
+      List<byte[]> groups, List<String> frames) {
+  }
+  private record Result(int rotations, List<Snapshot> revisions) {
+  }
 }

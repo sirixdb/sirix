@@ -61,9 +61,9 @@ final class BitemporalStorageEpochTest {
     generatorConstructor.setAccessible(true);
     invoke(method(generatorType, "generate"), generatorConstructor.newInstance(Tier.DEVELOPMENT, eventsPath));
     @SuppressWarnings("unchecked")
-    final List<Event>[] events = (List<Event>[]) invoke(
-        method(BitemporalSirixLoadMain.class, "readEvents", Path.class, Tier.class), null,
-        eventsPath, Tier.DEVELOPMENT);
+    final List<Event>[] events =
+        (List<Event>[]) invoke(method(BitemporalSirixLoadMain.class, "readEvents", Path.class, Tier.class), null,
+            eventsPath, Tier.DEVELOPMENT);
     assertEquals(4_776, List.of(events).stream().mapToInt(List::size).sum());
     return events;
   }
@@ -73,8 +73,8 @@ final class BitemporalStorageEpochTest {
     final Class<?> stateType = nestedClass(BitemporalSirixLoadMain.class, "RelationState");
     final Constructor<?> stateConstructor = stateType.getDeclaredConstructor(String.class, int.class);
     stateConstructor.setAccessible(true);
-    final Method loadInitial = method(BitemporalSirixLoadMain.class, "loadInitial",
-        Database.class, stateType, List.class);
+    final Method loadInitial =
+        method(BitemporalSirixLoadMain.class, "loadInitial", Database.class, stateType, List.class);
     final Method apply = method(stateType, "apply", JsonNodeTrx.class, Event.class);
     final int[] counts = {Tier.DEVELOPMENT.contracts(), Tier.DEVELOPMENT.products(), Tier.DEVELOPMENT.suppliers()};
     int rotations = 0;

@@ -80,8 +80,7 @@ final class HOTStructuralChildEvictionTest {
           final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ShardedPageCache<HOTLeafPage> cache =
-            (ShardedPageCache<HOTLeafPage>) wtx.getStorageEngineWriter()
-                .getBufferManager().getHOTLeafPageCache();
+            (ShardedPageCache<HOTLeafPage>) wtx.getStorageEngineWriter().getBufferManager().getHOTLeafPageCache();
         AbstractHOTIndexWriter.setMergeOverflowBeforeIntegrateTestHook(() -> {
           splits.incrementAndGet();
           cache.evictUnderPressure();
@@ -109,9 +108,11 @@ final class HOTStructuralChildEvictionTest {
           final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
         for (int revision = 1; revision <= 2; revision++) {
           try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
-            final HOTIndexReader<CASValue> reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
-                CASKeySerializer.INSTANCE, IndexType.CAS, 0);
-            final int count = revision == 1 ? BASE_KEYS : TOTAL_KEYS;
+            final HOTIndexReader<CASValue> reader =
+                HOTIndexReader.create(rtx.getStorageEngineReader(), CASKeySerializer.INSTANCE, IndexType.CAS, 0);
+            final int count = revision == 1
+                ? BASE_KEYS
+                : TOTAL_KEYS;
             for (int i = 0; i < count; i++) {
               final NodeReferences refs = reader.get(key(values[i]), SearchMode.EQUAL);
               assertNotNull(refs, "missing posting " + i + " at revision " + revision);

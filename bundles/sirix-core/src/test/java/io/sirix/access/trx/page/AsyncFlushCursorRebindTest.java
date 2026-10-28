@@ -72,10 +72,8 @@ final class AsyncFlushCursorRebindTest {
   void rotationKeepsCapturedRecordsFromTheCompleteFragment() {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-                                                   .storeDiffs(false)
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE).storeDiffs(false).storageType(StorageType.FILE_CHANNEL).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
         final long[] values = new long[RECORDS];
         final List<Long> keys = load(session, values);

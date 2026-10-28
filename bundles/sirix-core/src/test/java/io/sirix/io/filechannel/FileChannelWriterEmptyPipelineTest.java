@@ -87,8 +87,7 @@ final class FileChannelWriterEmptyPipelineTest {
       append.clear();
       writer.write(config, new PageReference(), fresh, append);
       assertBufferedFrame(append.toByteArray(), 0, expected);
-      assertThrows(IllegalStateException.class,
-          () -> writer.writeSpilled(config, new PageReference(), fresh, failing));
+      assertThrows(IllegalStateException.class, () -> writer.writeSpilled(config, new PageReference(), fresh, failing));
       append.clear();
       writer.write(config, new PageReference(), fresh, append);
       assertBufferedFrame(append.toByteArray(), 0, expected);

@@ -1700,7 +1700,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  @SuppressWarnings("ReferenceEquality") // Captured deletions use an identity sentinel.
+  // Captured deletions use an identity sentinel and return null, matching checkItemIfDeleted
+  // and the reader fallback despite getRecord's existing nonnull contract.
+  @SuppressWarnings({"ReferenceEquality", "NullAway"})
   public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
     ReplayWorkDiagnostics.recordVisited();
     storageEngineReader.assertNotClosed();
@@ -2796,7 +2798,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           restoreOverflowRecords(page);
         }
         if (bindTable) {
-          page.setFsstSymbolTable(commitFsstTable);
+          final byte[] table = requireNonNull(commitFsstTable);
+          page.setFsstSymbolTable(table);
           page.setFsstSymbolTableId(commitFsstTableId);
         }
         if (bindTable || hasSpilledCarriers(page)) {

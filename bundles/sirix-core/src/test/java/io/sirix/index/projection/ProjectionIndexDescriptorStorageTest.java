@@ -628,8 +628,8 @@ final class ProjectionIndexDescriptorStorageTest {
 
   @Test
   void spilledReferencedSegmentsEnumerateBeforeAndAfterCommit() {
-    final byte[][] expected = {pagedSegmentLeaf(10_000L, 0), pagedSegmentLeaf(40_000L, 1),
-        pagedSegmentLeaf(70_000L, 2)};
+    final byte[][] expected =
+        {pagedSegmentLeaf(10_000L, 0), pagedSegmentLeaf(40_000L, 1), pagedSegmentLeaf(70_000L, 2)};
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
         final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
       try (final JsonNodeTrx writer = session.beginNodeTrx()) {

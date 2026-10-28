@@ -124,9 +124,12 @@ final class StorageEpochStoreIdentityTest {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER)) {
       final ResourceConfiguration.Builder config = ResourceConfiguration.newBuilder("resource")
-          .storageType(storage).stringCompressionType(compression).customCommitTimestamps(true);
+                                                                        .storageType(storage)
+                                                                        .stringCompressionType(compression)
+                                                                        .customCommitTimestamps(true);
       config.byteHandlerPipeline(deflate
-          ? new ByteHandlerPipeline(new DeflateCompressor()) : new ByteHandlerPipeline());
+          ? new ByteHandlerPipeline(new DeflateCompressor())
+          : new ByteHandlerPipeline());
       assertTrue(database.createResource(config.build()));
     }
     Databases.clearGlobalCaches();
@@ -151,12 +154,14 @@ final class StorageEpochStoreIdentityTest {
       final boolean oversized, final boolean previousTable) throws IOException {
     int rotations;
     Path dataPath;
-    StorageEpochTestSupport.setPlainTransactionBound(bounded ? StorageEpochTestSupport.IMPORT_BOUND : Integer.MAX_VALUE);
+    StorageEpochTestSupport.setPlainTransactionBound(bounded
+        ? StorageEpochTestSupport.IMPORT_BOUND
+        : Integer.MAX_VALUE);
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER)) {
       try (final JsonResourceSession session = database.beginResourceSession("resource");
           final JsonNodeTrx writer = session.beginNodeTrx()) {
         dataPath = session.getResourceConfig().resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-            .resolve("sirix.data");
+                                                           .resolve("sirix.data");
         writer.insertArrayAsFirstChild();
         final long array = writer.getNodeKey();
         final List<Long> keys = new ArrayList<>(RECORDS);
@@ -204,13 +209,17 @@ final class StorageEpochStoreIdentityTest {
         values.add(reader.getValue());
         assertTrue(reader.moveTo(key));
       } while (reader.moveToRightSibling());
-      assertEquals(RECORDS - (oversized && compression == StringCompressionType.NONE ? 1 : 0), values.size());
+      assertEquals(RECORDS - (oversized && compression == StringCompressionType.NONE
+          ? 1
+          : 0), values.size());
       final StorageEngineReader engine = reader.getStorageEngineReader();
       final NamePage names = engine.getNamePage(engine.getActualRevisionRootPage());
       final long id = names.getLatestFsstSymbolTableId(DatabaseType.JSON);
-      final byte[] table = id > 0 ? names.getFsstSymbolTable(id, DatabaseType.JSON, engine) : new byte[0];
-      final long rootOffset = ((NodeStorageEngineReader) engine).getReader()
-          .getRevisionFileData(reader.getRevisionNumber()).offset();
+      final byte[] table = id > 0
+          ? names.getFsstSymbolTable(id, DatabaseType.JSON, engine)
+          : new byte[0];
+      final long rootOffset =
+          ((NodeStorageEngineReader) engine).getReader().getRevisionFileData(reader.getRevisionNumber()).offset();
       final ByteBuffer length = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
       try (final FileChannel file = FileChannel.open(dataPath)) {
         while (length.hasRemaining()) {
@@ -234,8 +243,9 @@ final class StorageEpochStoreIdentityTest {
             assertTrue(file.read(payload, offset + Integer.BYTES + payload.position()) > 0);
           }
           frames.add(payload.array());
-          final Page page = ((NodeStorageEngineReader) engine).getReader().read(new PageReference().setKey(offset),
-              session.getResourceConfig());
+          final Page page =
+              ((NodeStorageEngineReader) engine).getReader()
+                                                .read(new PageReference().setKey(offset), session.getResourceConfig());
           if (page instanceof final KeyValueLeafPage leaf && leaf.getIndexType() == IndexType.DOCUMENT) {
             documentCarriers += leaf.getReferencesMap().size();
           }
@@ -252,8 +262,12 @@ final class StorageEpochStoreIdentityTest {
   }
 
   private static String value(final int record, final int pass, final boolean oversized) {
-    return "https://sirix.io/records/common-prefix/".repeat(oversized ? 40 : 1) + record + "/publication/" + pass;
+    return "https://sirix.io/records/common-prefix/".repeat(oversized
+        ? 40
+        : 1) + record + "/publication/" + pass;
   }
 
-  private record Census(long frontier, List<String> values, long tableId, byte[] table, int rotations, List<String> pages, List<byte[]> frames, int documentCarriers) {}
+  private record Census(long frontier, List<String> values, long tableId, byte[] table, int rotations,
+      List<String> pages, List<byte[]> frames, int documentCarriers) {
+  }
 }

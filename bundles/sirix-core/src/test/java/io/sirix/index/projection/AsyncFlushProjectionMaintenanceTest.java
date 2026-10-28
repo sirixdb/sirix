@@ -154,7 +154,9 @@ final class AsyncFlushProjectionMaintenanceTest {
             writer.getStorageEngineWriter().captureRecordForDeferredRead(key);
             writer.getStorageEngineWriter().asyncFlushStorageEpoch();
             writer.getStorageEngineWriter().awaitPendingAsyncFlush();
-            extractor.useCapturedRows(record -> record == key ? row : null);
+            extractor.useCapturedRows(record -> record == key
+                ? row
+                : null);
             assertTrue(writer.moveToDocumentRoot());
             final long saved = writer.getNodeKey();
             final long reads = StorageEpochTestSupport.durableDocumentRecordReads();
@@ -191,8 +193,9 @@ final class AsyncFlushProjectionMaintenanceTest {
         final ProjectionIndexMetadata meta = ProjectionIndexMetadata.requireReady(leftStorage, INDEX);
         final ProjectionIndexMetadata twinMeta = ProjectionIndexMetadata.requireReady(rightStorage, INDEX);
         assertEquals(twinMeta.rowGroupCount(), meta.rowGroupCount());
-        assertArrayEquals(projectionRows(rightStorage,
-            ProjectionIndexFences.readPhysicalOrder(rightStorage, INDEX, twinMeta.rowGroupCount())),
+        assertArrayEquals(
+            projectionRows(rightStorage,
+                ProjectionIndexFences.readPhysicalOrder(rightStorage, INDEX, twinMeta.rowGroupCount())),
             projectionRows(leftStorage,
                 ProjectionIndexFences.readPhysicalOrder(leftStorage, INDEX, meta.rowGroupCount())));
       }
