@@ -102,6 +102,8 @@ final class TemporalAggregateIndexTest {
         TemporalAggregateDeclarations.declare(controller, writer, "/[]", List.of("zone", "tier"),
             List.of("count(*)", "sum(units)", "sum(price*units)", "min(price)", "max(price)"));
         writer.commit("initial", Instant.parse("2024-01-15T00:00:00Z"));
+        // Route assertions require a standalone derived snapshot for every source revision.
+        DerivedIndexTestSupport.await(session);
         writer.moveTo(first);
         writer.remove();
         field(writer, second, "price");
@@ -115,6 +117,7 @@ final class TemporalAggregateIndexTest {
             {"zone":"south","tier":2,"price":99,"units":1,"begin":"2024-04-01T00:00:00Z","end":"2024-08-01T00:00:00Z"}
             """), JsonNodeTrx.Commit.NO);
         writer.commit("changed", Instant.parse("2024-02-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         for (int day = 16; day <= 27; day++) {
           field(writer, second, "price");
           writer.setNumberValue(day == 27
@@ -127,6 +130,7 @@ final class TemporalAggregateIndexTest {
             writer.setNumberValue(day);
           }
           writer.commit("cross fragment window", Instant.parse("2024-02-" + day + "T00:00:00Z"));
+          DerivedIndexTestSupport.await(session);
         }
         field(writer, second, "price");
         writer.setNumberValue(-999);
@@ -135,15 +139,18 @@ final class TemporalAggregateIndexTest {
         field(writer, second, "price");
         writer.setNumberValue(1.5);
         writer.commit("row-local poison", Instant.parse("2024-02-28T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         field(writer, second, "price");
         writer.setNumberValue(2);
         writer.commit("poison recovered", Instant.parse("2024-03-01T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
         writer.revertTo(1);
         field(writer, first, "price");
         writer.setNumberValue(42);
         session.getWtxIndexController(writer.getRevisionNumber()).applyPendingIndexMaintenance();
         writer.setNumberValue(43);
         writer.commit("represented revision", Instant.parse("2024-03-15T00:00:00Z"));
+        DerivedIndexTestSupport.await(session);
       }
     }
     Databases.clearGlobalCaches();
