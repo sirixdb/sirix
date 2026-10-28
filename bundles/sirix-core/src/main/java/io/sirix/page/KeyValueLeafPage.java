@@ -7582,7 +7582,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   @Override
   public void commit(final StorageEngineWriter pageWriteTrx) {
     addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
-    for (final PageReference reference : references.values()) {
+    if (references.isEmpty()) {
+      return;
+    }
+    final long[] keys = new long[references.size()];
+    int count = 0;
+    for (final long key : references.keySet()) {
+      keys[count++] = key;
+    }
+    Arrays.sort(keys);
+    for (final long key : keys) {
+      final PageReference reference = references.get(key);
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
           && reference.getLogKey() == Constants.NULL_ID_LONG)) {
         pageWriteTrx.commit(reference);

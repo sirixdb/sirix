@@ -13,6 +13,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixIOException;
+import io.sirix.io.IOStorage;
 import io.sirix.settings.Constants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -621,6 +622,43 @@ final class ProjectionIndexDescriptorStorageTest {
             rtx.getStorageEngineReader(), INDEX_NUMBER, 2);
         assertArrayEquals(l1, all.get(0), "committed referenced leaf 1 byte-identical");
         assertArrayEquals(l2, all.get(1), "committed referenced leaf 2 byte-identical");
+      }
+    }
+  }
+
+  @Test
+  void spilledReferencedSegmentsEnumerateBeforeAndAfterCommit() {
+    final byte[][] expected = {pagedSegmentLeaf(10_000L, 0), pagedSegmentLeaf(40_000L, 1),
+        pagedSegmentLeaf(70_000L, 2)};
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
+      try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            ProjectionIndexHOTStorage.forBulkBuild(writer.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.requireVirginTreeForInitialBuild();
+        for (int i = 0; i < expected.length; i++) {
+          storage.putRowGroupAsColumnSegmentSlots(i + 1, ProjectionIndexColumnSegmentCodec.encode(expected[i]));
+        }
+        writer.getStorageEngineWriter().awaitPendingAsyncFlush();
+        final long offset = ProjectionIndexHOTStorage.segmentPageOffset(writer.getStorageEngineWriter(), INDEX_NUMBER,
+            ProjectionIndexHOTStorage.columnSegmentSlotKey(1, 0), 0);
+        assertTrue(IOStorage.isSpillKey(offset), "referenced segments must have reached the spill file");
+        final List<byte[]> spilled = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            writer.getStorageEngineWriter(), INDEX_NUMBER, expected.length);
+        assertEquals(expected.length, spilled.size());
+        for (int i = 0; i < expected.length; i++) {
+          assertArrayEquals(expected[i], spilled.get(i), "spilled row group " + i);
+        }
+        writer.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+        final List<byte[]> committed = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            reader.getStorageEngineReader(), INDEX_NUMBER, expected.length);
+        assertEquals(expected.length, committed.size());
+        for (int i = 0; i < expected.length; i++) {
+          assertArrayEquals(expected[i], committed.get(i), "committed row group " + i);
+        }
       }
     }
   }

@@ -70,8 +70,6 @@ public final class ResolvedGlobalStrings {
 
   /**
    * Per local tag index: the GLOBAL id each local dictionary slot carried, or {@code null}.
-   * Diagnostics only — an error that names the id it could not resolve is the difference between a
-   * reproducible report and a re-derivation, and the array is six ints per tag.
    */
   private final int[][] globalIds;
 
@@ -79,6 +77,72 @@ public final class ResolvedGlobalStrings {
     this.tagValues = tagValues;
     this.values = values;
     this.globalIds = globalIds;
+  }
+
+  public GlobalStringDictionaries encodingView(final StringRegion.Header header) {
+    final long[] keys = Arrays.copyOf(header.tagDictionaryKey, tagValues.length);
+    final int[] counts = Arrays.copyOf(header.tagDictionaryEntryCount, tagValues.length);
+    return new GlobalStringDictionaries() {
+      private int index(final int tag) {
+        for (int i = 0; i < tagValues.length; i++) {
+          if (tagValues[i] == tag) {
+            return i;
+          }
+        }
+        return -1;
+      }
+
+      @Override
+      public boolean hasDictionary(final int tag) {
+        return index(tag) >= 0;
+      }
+
+      @Override
+      public boolean accepts(final int tag, final long key, final int count) {
+        final int i = index(tag);
+        return i >= 0 && keys[i] == key && counts[i] >= count;
+      }
+
+      @Override
+      public int idOf(final int tag, final byte[] value, final int offset, final int length) {
+        final int i = index(tag);
+        if (i >= 0) {
+          for (int entry = 0; entry < values[i].length; entry++) {
+            final byte[] candidate = values[i][entry];
+            if (Arrays.equals(value, offset, offset + length, candidate, 0, candidate.length)) {
+              return globalIds[i][entry];
+            }
+          }
+        }
+        return ID_ABSENT;
+      }
+
+      @Override
+      public byte @Nullable [] valueOf(final int tag, final long key, final int count, final int id) {
+        if (!accepts(tag, key, count)) {
+          return null;
+        }
+        final int i = index(tag);
+        for (int entry = 0; entry < globalIds[i].length; entry++) {
+          if (globalIds[i][entry] == id) {
+            return values[i][entry];
+          }
+        }
+        return null;
+      }
+
+      @Override
+      public long dictionaryKey(final int tag) {
+        final int i = index(tag);
+        return i < 0 ? 0L : keys[i];
+      }
+
+      @Override
+      public int dictionaryEntryCount(final int tag) {
+        final int i = index(tag);
+        return i < 0 ? 0 : counts[i];
+      }
+    };
   }
 
   /**

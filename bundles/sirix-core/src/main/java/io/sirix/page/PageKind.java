@@ -38,6 +38,7 @@ import io.sirix.access.User;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.io.IOStorage;
 import io.sirix.index.IndexType;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import io.sirix.io.HashAlgorithm;
@@ -1988,7 +1989,7 @@ public enum PageKind {
       // second pass; the revision's symbol table was handed to the page before the first).
       boolean hasUnresolvedOverflowReferences = false;
       for (final PageReference overflowReference : references.values()) {
-        if (overflowReference.getKey() == Constants.NULL_ID_LONG) {
+        if (overflowReference.getKey() == Constants.NULL_ID_LONG || IOStorage.isSpillKey(overflowReference.getKey())) {
           hasUnresolvedOverflowReferences = true;
           break;
         }

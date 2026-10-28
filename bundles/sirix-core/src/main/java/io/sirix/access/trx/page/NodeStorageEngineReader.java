@@ -2990,6 +2990,35 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
   }
 
+  KeyValueLeafPage readRecordPageForRewrite(final PageReference reference) {
+    final KeyValueLeafPage page = readOwnedRecordPage(reference, true);
+    try {
+      if (page.needsGlobalStringResolution()) {
+        preserveDictionaryEncoding(page);
+      }
+      ensureFsstSymbolTable(page);
+      page.ensureAllChunks();
+      return page;
+    } catch (final RuntimeException | Error failure) {
+      page.retire();
+      throw failure;
+    }
+  }
+
+  void preserveDictionaryEncoding(final KeyValueLeafPage page) {
+    final RegionTable regions = page.getRegionTable();
+    final MemorySegment strings = regions == null ? null : regions.payload(RegionTable.KIND_STRING);
+    if (strings == null) {
+      page.setGlobalStringDictionaries(null);
+      return;
+    }
+    final StringRegion.Header header = new StringRegion.Header();
+    header.parseInto(strings);
+    final ResolvedGlobalStrings resolved = buildGlobalStringTable(page);
+    page.setResolvedGlobalStrings(resolved);
+    page.setGlobalStringDictionaries(resolved.encodingView(header));
+  }
+
   private KeyValueLeafPage readOwnedRecordPage(final PageReference sourceReference, final boolean copyHash) {
     final PageReference directReference =
         new PageReference().setKey(sourceReference.getKey()).setDatabaseId(databaseId).setResourceId(resourceId);

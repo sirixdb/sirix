@@ -75,6 +75,8 @@ import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.pax.GlobalStringDictionaries;
+import io.sirix.index.projection.SegmentScopedReadDictionaries;
+import io.sirix.node.SegmentDictionaryDirectoryNode;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageLayout;
 import io.sirix.access.DatabaseType;
@@ -119,6 +121,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.LinkedHashMap;
@@ -2777,13 +2781,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     final ResourceConfiguration config = getResourceSession().getResourceConfig();
     if (spilledLeavesToEncode != null && spilledLeavesToEncode.contains(spillKey)) {
-      final KeyValueLeafPage page = (KeyValueLeafPage) storagePageReaderWriter.read(reference, config);
+      final KeyValueLeafPage page = storageEngineReader.readRecordPageForRewrite(reference);
       try {
         final boolean bindTable = commitFsstTable != null && needsSymbolTable(page);
-        if (insertFsstEnabled && carriesSymbolTable(page)) {
-          storageEngineReader.ensureFsstSymbolTablesLoaded();
-          storageEngineReader.resolveFsstSymbolTables(List.of(page));
-        }
         if (bindTable || page.getFsstSymbolTable() != null) {
           restoreOverflowRecords(page);
         }
@@ -2815,6 +2815,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     }
     reference.refreshTransactionLogReference();
+  }
+
+  private void collectSpilledIndexSidePages(final Page page, final List<PageReference> sidePages) {
+    if (page instanceof HOTLeafPage leaf) {
+      for (final Map.Entry<Long, PageReference> entry : leaf.referenceEntrySet()) {
+        final PageReference reference = entry.getValue();
+        if (IOStorage.isSpillKey(reference.getKey())) {
+          sidePages.add(reference);
+        }
+      }
+      return;
+    }
+    for (final PageReference reference : page.getReferences()) {
+      if (reference != null) {
+        final PageContainer container = log.get(reference);
+        if (container != null && !container.getModified().isClosed()) {
+          collectSpilledIndexSidePages(container.getModified(), sidePages);
+        }
+      }
+    }
   }
 
   private void writeUncommittedPage(final ResourceConfiguration resourceConfiguration, final PageReference reference,
@@ -4294,19 +4314,38 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Must precede the serialization pass: pages need the revision's symbol-table id in hand
       // by the time their bytes are cached, and the pass below is the last point before that.
       buildRevisionFsstSymbolTable();
-      if (insertFsstEnabled) {
-        for (final PageContainer container : log.getList()) {
-          if (container.getModified() instanceof final KeyValueLeafPage page && page.getFsstSymbolTable() != null) {
-            restoreOverflowRecords(page);
+      for (final PageContainer container : log.getList()) {
+        if (container.getModified() instanceof final KeyValueLeafPage page && carriesSymbolTable(page)) {
+          if (page.getFsstSymbolTable() == null) {
+            storageEngineReader.ensureFsstSymbolTable(page);
           }
+          restoreOverflowRecords(page);
         }
       }
       parallelSerializationOfKeyValuePages();
+      for (final PageContainer container : log.getList()) {
+        if (container.getModified() instanceof final KeyValueLeafPage page
+            && page.getIndexType() == IndexType.DOCUMENT && page.globalStringDictionaries() != null
+            && page.getBytes() == null && page.getCompressedSegment() == null) {
+          storageEngineReader.preserveDictionaryEncoding(page);
+        }
+      }
       // THE SEAM. Above it every page of this revision has produced its bytes, so a dictionary those
       // pages minted into is complete; below it the page graph is being written, so a record added
       // then would not be in it. Anything that has to be true of both — a segment dictionary sealed
       // against the ids its own pages carry — is written here.
       notifyEncodePassComplete();
+      if (spillingStorageEpochs) {
+        final PageContainer projections = log.get(newRevisionRootPage.getProjectionIndexPageReference());
+        if (projections != null) {
+          final ObjectArrayList<PageReference> sidePages = new ObjectArrayList<>();
+          collectSpilledIndexSidePages(projections.getModified(), sidePages);
+          sidePages.unstableSort(Comparator.comparingLong(PageReference::getKey));
+          for (final PageReference sidePage : sidePages) {
+            materializeSpilledPage(sidePage);
+          }
+        }
+      }
 
       final long t1 = timing
           ? System.nanoTime()
@@ -4508,7 +4547,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private void restoreOverflowRecords(final KeyValueLeafPage page) {
     for (final Map.Entry<Long, PageReference> entry : page.referenceEntrySet()) {
       final long key = entry.getKey();
-      if (page.getRecord(StorageEngineReader.recordPageOffset(key)) != null) {
+      if (page.getRecord(StorageEngineReader.recordPageOffset(key)) != null
+          || carriesSymbolTable(page) && !IOStorage.isSpillKey(entry.getValue().getKey())) {
         continue;
       }
       final DataRecord record = storageEngineReader.readDetachedRecord(page, key);
@@ -4622,8 +4662,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             collectFsstSamples(page, samples, FSST_REVISION_SAMPLE_CAP);
           }
         } else if (resolution.durableReference != null) {
-          final KeyValueLeafPage page = (KeyValueLeafPage) storagePageReaderWriter.read(resolution.durableReference,
-              getResourceSession().getResourceConfig());
+          final KeyValueLeafPage page = storageEngineReader.readRecordPageForRewrite(resolution.durableReference);
           try {
             if (needsSymbolTable(page)) {
               collectFsstSamples(page, samples, FSST_REVISION_SAMPLE_CAP);
@@ -4866,6 +4905,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // table remains reachable forever.
     for (final PageContainer container : log.getList()) {
       if (container.getModified() instanceof KeyValueLeafPage kvl && needsSymbolTable(kvl)) {
+        restoreOverflowRecords(kvl);
         kvl.setFsstSymbolTable(table);
         kvl.setFsstSymbolTableId(id);
       }
@@ -4966,8 +5006,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // resolver forces the full encode here, in the pass the seal is allowed to assume has finished;
     // the bytes are cached on the page, so the recursive commit serves them rather than repeating
     // the work.
-    if ((resourceConfig.byteHandlePipeline.isEmpty() && ((KeyValueLeafPage) page).globalStringDictionaries() == null)
-        || hasSpilledCarriers((KeyValueLeafPage) page)) {
+    if (resourceConfig.byteHandlePipeline.isEmpty() && ((KeyValueLeafPage) page).globalStringDictionaries() == null) {
       final KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
       keyValueLeafPage.ensureSlottedPage();
       keyValueLeafPage.compressStringValues();
@@ -6099,6 +6138,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     if (listener != null) {
       listener.run();
+      final NamePage names = getNamePage(newRevisionRootPage);
+      final DatabaseType databaseType = databaseTypeOfSession();
+      if (names.hasProjectionValueDictionary(databaseType)) {
+        final DataRecord record = names.getProjectionValueDictionaryRecord(
+            SegmentDictionaryDirectoryNode.DIRECTORY_KEY, databaseType, this);
+        if (record instanceof SegmentDictionaryDirectoryNode directory) {
+          storageEngineReader.installLiveLaneDictionaries(new SegmentScopedReadDictionaries(this, directory));
+        }
+      }
     }
   }
 

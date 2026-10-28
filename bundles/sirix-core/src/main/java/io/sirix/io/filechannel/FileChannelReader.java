@@ -769,11 +769,13 @@ public final class FileChannelReader extends AbstractReader {
           final int hintLimit = Math.min(n, i + BATCH_READ_AHEAD);
           while (hintFrom < hintLimit) {
             final int hintTo = runEnd(references, order, hintFrom, n);
-            adviseRun(batchReadAheadFd, keyOf(references[order[hintFrom]]), keyOf(references[order[hintTo]]),
-                hintTo + 1 < n
-                    ? keyOf(references[order[hintTo + 1]])
-                    : Long.MAX_VALUE,
-                batchFileSize);
+            if (!IOStorage.isSpillKey(keyOf(references[order[hintFrom]]))) {
+              adviseRun(batchReadAheadFd, keyOf(references[order[hintFrom]]), keyOf(references[order[hintTo]]),
+                  hintTo + 1 < n
+                      ? keyOf(references[order[hintTo + 1]])
+                      : Long.MAX_VALUE,
+                  batchFileSize);
+            }
             hintFrom = hintTo + 1;
           }
         }
@@ -801,11 +803,15 @@ public final class FileChannelReader extends AbstractReader {
    */
   private static int runEnd(final PageReference[] references, final int[] order, final int from, final int n) {
     final long start = keyOf(references[order[from]]);
+    if (IOStorage.isSpillKey(start)) {
+      return from;
+    }
     long last = start;
     int j = from;
     while (j + 1 < n) {
       final long next = keyOf(references[order[j + 1]]);
-      if (next <= last || next - last > COALESCE_MAX_GAP || next - start > COALESCE_MAX_SPAN) {
+      if (IOStorage.isSpillKey(next) || next <= last || next - last > COALESCE_MAX_GAP
+          || next - start > COALESCE_MAX_SPAN) {
         break;
       }
       last = next;

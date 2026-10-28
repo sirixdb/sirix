@@ -337,6 +337,7 @@ def storageEpochStoreIdentityTest = tasks.register('storageEpochStoreIdentityTes
     useJUnitPlatform()
     filter {
         includeTestsMatching 'io.sirix.access.trx.page.StorageEpochStoreIdentityTest'
+        includeTestsMatching 'io.sirix.access.trx.page.StorageEpochDifferentialTest'
     }
 }
 
@@ -361,6 +362,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
+    exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     dependsOn validTimeDisabledLookupCacheTest
     dependsOn dictionaryReadViewAllocationTest
     dependsOn storageEpochStoreIdentityTest
