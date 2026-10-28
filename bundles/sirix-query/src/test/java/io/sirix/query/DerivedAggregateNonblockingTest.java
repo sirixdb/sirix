@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -32,6 +33,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -91,7 +93,7 @@ final class DerivedAggregateNonblockingTest {
   }
 
   @Test
-  void executionsShareTheirBudgetAcrossViewsAndRetryCachedDeclines() {
+  void executionsCombineEveryViewWithoutCumulativeBudgetDeclines() {
     final AbstractResourceSession<?, ?> session = mock(AbstractResourceSession.class);
     final DerivedIndexMaintainer.Resource resource = mock(DerivedIndexMaintainer.Resource.class);
     final StorageEngineReader index = mock(StorageEngineReader.class);
@@ -100,7 +102,6 @@ final class DerivedAggregateNonblockingTest {
     final IndexDef secondDefinition = mock(IndexDef.class);
     final IndexDef projection = mock(IndexDef.class);
     final TemporalAggregateIndexes.CatchUp tail = mock(TemporalAggregateIndexes.CatchUp.class);
-    final UberPage publication = new UberPage(516);
     final StorageEngineReader[] sources = new StorageEngineReader[514];
     doReturn(derivedSession).when(index).getResourceSession();
     when(definition.hasSameDefinition(definition)).thenReturn(true);
@@ -114,7 +115,7 @@ final class DerivedAggregateNonblockingTest {
     for (int offset = 0; offset < sources.length; offset++) {
       final StorageEngineReader source = mock(StorageEngineReader.class);
       doReturn(session).when(source).getResourceSession();
-      when(source.getUberPage()).thenReturn(publication);
+      when(source.getUberPage()).thenReturn(new UberPage(offset + 3));
       when(source.getRevisionNumber()).thenReturn(offset + 2);
       when(resource.openCatchUpSnapshot(source)).thenReturn(new DerivedIndexSnapshot(index, offset + 1));
       sources[offset] = source;
@@ -125,7 +126,9 @@ final class DerivedAggregateNonblockingTest {
     final Query query = new Query(module);
     final QueryContext context = mock(QueryContext.class);
     final QueryExecution[] firstExecution = new QueryExecution[1];
-    try (var readers = new DerivedAggregateReaders(); var aggregates = mockStatic(TemporalAggregateIndexes.class)) {
+    try (var readers = new DerivedAggregateReaders();
+        var aggregates = mockStatic(TemporalAggregateIndexes.class);
+        var prefixes = mockConstruction(DerivedAggregateCatchUp.TailCache.class)) {
       aggregates.when(() -> TemporalAggregateIndexes.catchUp(any(StorageEngineReader.class), anyInt(),
           any(IndexDef.class), any(IndexDef.class), any(TemporalAggregateCatchUpBudget.Budget.class)))
                 .thenAnswer(invocation -> {
@@ -144,9 +147,9 @@ final class DerivedAggregateNonblockingTest {
         final StorageEngineReader source = sources[512];
         final DerivedAggregateCatchUp view = readers.borrowCatchUp(source);
         assertNotNull(view);
-        assertNull(view.tail(source, definition, projection));
-        assertNull(view.tail(source, definition, projection));
-        assertNull(view.tail(source, secondDefinition, projection));
+        assertSame(tail, view.tail(source, definition, projection));
+        assertSame(tail, view.tail(source, definition, projection));
+        assertSame(tail, view.tail(source, secondDefinition, projection));
         return Int32.ONE;
       }).when(body).evaluate(any(), any());
       query.evaluate(context);
@@ -162,8 +165,12 @@ final class DerivedAggregateNonblockingTest {
         final StorageEngineReader source = sources[513];
         final DerivedAggregateCatchUp view = readers.borrowCatchUp(source);
         assertNotNull(view);
-        assertNull(view.tail(source, definition, projection));
+        assertSame(tail, view.tail(source, definition, projection));
       });
+      assertEquals(0, prefixes.constructed().size(), "Lag-one views must not allocate a historical prefix cache");
+      aggregates.verify(() -> TemporalAggregateIndexes.catchUpIncrementally(any(StorageEngineReader.class), anyInt(),
+          any(IndexDef.class), any(IndexDef.class), any(TemporalAggregateCatchUpBudget.Budget.class),
+          any(TemporalAggregateIndexes.CatchUpAccumulator.class)), never());
     }
   }
 }

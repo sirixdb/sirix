@@ -21,6 +21,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
   private final Thread owner = Thread.currentThread();
   private final Snapshot[] snapshots = new Snapshot[CAPACITY];
   private CatchUpSnapshot @Nullable [] catchups;
+  private DerivedAggregateCatchUp.@Nullable TailCache tails;
   private @Nullable Map<QueryExecution, TemporalAggregateCatchUpBudget.Budget> catchUpBudgets;
   private volatile boolean closed;
 
@@ -45,7 +46,7 @@ final class DerivedAggregateReaders implements AutoCloseable {
     }
     final TemporalAggregateCatchUpBudget.Budget catchUpBudget =
         Objects.requireNonNull(catchUpBudgets)
-               .computeIfAbsent(QueryExecution.current(), ignored -> new TemporalAggregateCatchUpBudget.Budget());
+               .computeIfAbsent(QueryExecution.current(), ignored -> TemporalAggregateCatchUpBudget.Budget.complete());
     final CatchUpSnapshot previous = catchups[slot];
     if (previous != null && !previous.view().reader().isClosed() && previous.session() == source.getResourceSession()
         && previous.publication() == source.getUberPage() && previous.revision() == source.getRevisionNumber()) {
@@ -58,6 +59,12 @@ final class DerivedAggregateReaders implements AutoCloseable {
     }
     final DerivedAggregateCatchUp opened = DerivedAggregateCatchUp.open(source, catchUpBudget);
     if (opened != null) {
+      if (opened.needsPrefix()) {
+        if (tails == null) {
+          tails = new DerivedAggregateCatchUp.TailCache();
+        }
+        opened.useTails(tails);
+      }
       catchups[slot] =
           new CatchUpSnapshot(source.getResourceSession(), source.getUberPage(), source.getRevisionNumber(), opened);
     }
@@ -107,6 +114,9 @@ final class DerivedAggregateReaders implements AutoCloseable {
   @Override
   public void close() {
     closed = true;
+    if (tails != null) {
+      tails.clear();
+    }
     if (catchUpBudgets != null) {
       catchUpBudgets.clear();
     }

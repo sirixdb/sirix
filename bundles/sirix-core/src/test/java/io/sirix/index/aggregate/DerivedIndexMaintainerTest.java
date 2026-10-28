@@ -21,6 +21,7 @@ import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.index.changelog.ChangeLogSlab;
 import io.sirix.index.changelog.TemporalAggregateCatchUpBudget;
+import io.sirix.index.changelog.TemporalAggregateSummaryFolds;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -1161,10 +1162,105 @@ final class DerivedIndexMaintainerTest {
         while (resource.maintainedRevision() < 180) {
           assertTrue(resource.maintainNextBatch());
           assertNull(resource.failure());
-          assertSum(session, resource.maintainedRevision(), resource.maintainedRevision());
+          final int maintained = resource.maintainedRevision();
+          assertSum(session, maintained, maintained == 1
+              ? 10
+              : maintained);
         }
         resource.drain();
         assertSum(session, 180, 180);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void publicationsBeforeEveryMaintenanceCallCannotStarveTheBase(final VersioningType versioning) throws Exception {
+    for (final int initialBase : new int[] {0, 65}) {
+      final var path = directory.toPath().resolve("progress-" + initialBase);
+      Databases.createJsonDatabase(new DatabaseConfiguration(path));
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+        database.createResource(ResourceConfiguration.newBuilder("records")
+                                                     .storageType(StorageType.FILE_CHANNEL)
+                                                     .versioningApproach(versioning)
+                                                     .validTimePaths("lo", "hi")
+                                                     .storeDiffs(false)
+                                                     .build());
+        try (JsonResourceSession session = database.beginResourceSession("records");
+            JsonNodeTrx writer = session.beginNodeTrx()) {
+          declareSimple(session, writer);
+          final DerivedIndexMaintainer.Resource resource = state(session);
+          resource.pause();
+          writer.commit();
+          if (initialBase != 0) {
+            resource.drain();
+          }
+          for (int revision = 2; revision <= 129; revision++) {
+            setNumber(writer, revision);
+            writer.commit();
+            if (revision <= initialBase) {
+              assertTrue(resource.maintainNextBatch());
+            }
+          }
+          while (resource.foldNextSummaryBatch()) {
+            assertEquals(initialBase, resource.maintainedRevision());
+          }
+          try (StorageEngineReader source = session.createStorageEngineReader();
+              StorageEngineReader derived = resource.openSummaryReader()) {
+            assertEquals(129, TemporalAggregateSummaryFolds.frontier(derived, source));
+          }
+          for (int revision = 130; revision <= 153; revision++) {
+            setNumber(writer, revision);
+            writer.commit();
+            final int previousBase = resource.maintainedRevision();
+            assertTrue(resource.maintainNextBatch());
+            final int expectedBase = previousBase == 0
+                ? 1
+                : Math.min(previousBase + 8, revision);
+            assertEquals(expectedBase, resource.maintainedRevision());
+            assertTrue(resource.awaitRevision(previousBase + 1, Duration.ZERO),
+                "A publication before each maintenance call must not prevent durable base progress");
+            assertSum(session, expectedBase, expectedBase == 1
+                ? 10
+                : expectedBase);
+            assertNull(resource.failure());
+          }
+          assertTrue(resource.awaitRevision(66, Duration.ZERO));
+          assertTrue(resource.awaitRevision(153, Duration.ZERO));
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void smallPublicationsAdvanceTheBaseWithoutRedundantSummaryCommits(final VersioningType versioning) {
+    final var path = directory.toPath().resolve("small-publications");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        for (int revision = 1; revision <= 16; revision++) {
+          setNumber(writer, revision);
+          writer.commit();
+          await(resource, revision);
+        }
+        resource.pause();
+        assertNull(resource.failure());
+        assertSum(session, 16, 16);
+        try (StorageEngineReader source = session.createStorageEngineReader();
+            StorageEngineReader derived = resource.openSummaryReader()) {
+          assertEquals(0, TemporalAggregateSummaryFolds.frontier(derived, source),
+              "A caught-up base needs no duplicate summary publications");
+        }
       }
     }
   }

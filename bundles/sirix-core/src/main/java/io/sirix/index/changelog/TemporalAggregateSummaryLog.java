@@ -14,7 +14,7 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 
-/** Revision-owned packed group operands, scanned as a complete tail during query catch-up. */
+/** Revision-owned packed group operands used for raw tail combining and maintainer-owned folds. */
 public final class TemporalAggregateSummaryLog {
   private static final int MAGIC = 0x54415331;
   private static final int HEADER_BYTES = 60;
@@ -179,7 +179,7 @@ public final class TemporalAggregateSummaryLog {
         final long unsupported = in.getLong();
         final int flags = in.getInt();
         validateCoverage(flags);
-        if (unsupported != 0 || flags != 0 || groups > 4096) {
+        if (unsupported != 0 || flags != 0) {
           throw new TemporalAggregateCatchUpBudget.LimitExceeded();
         }
         final byte[] identity = new byte[16];

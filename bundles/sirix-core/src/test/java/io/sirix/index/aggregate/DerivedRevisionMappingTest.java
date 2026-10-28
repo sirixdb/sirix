@@ -62,6 +62,11 @@ final class DerivedRevisionMappingTest {
           assertNull(DerivedRevisionMapping.floor(reader, 147, 16));
           assertNull(DerivedRevisionMapping.floor(reader, 65, 0));
           assertEquals(mapping(Integer.MAX_VALUE), DerivedRevisionMapping.floor(reader, Integer.MAX_VALUE, 16));
+          assertEquals(mapping(130), DerivedRevisionMapping.floor(reader, 2048));
+          assertEquals(mapping(130), DerivedRevisionMapping.floor(reader, Integer.MAX_VALUE - 2));
+          assertEquals(mapping(130), DerivedRevisionMapping.floor(reader, Integer.MAX_VALUE - 2, Integer.MAX_VALUE));
+          assertEquals(mapping(Integer.MAX_VALUE), DerivedRevisionMapping.floor(reader, Integer.MAX_VALUE));
+          assertThrows(IllegalArgumentException.class, () -> DerivedRevisionMapping.floor(reader, 0));
           assertEquals(131, DerivedRevisionMapping.readAll(reader).size());
           assertEquals(Integer.MAX_VALUE, DerivedRevisionMapping.frontier(reader));
           assertThrows(IllegalArgumentException.class, () -> DerivedRevisionMapping.readWindow(reader, 0));

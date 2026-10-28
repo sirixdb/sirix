@@ -10,6 +10,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.budget.EngineWorkCounters;
@@ -19,6 +20,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
+import io.sirix.index.changelog.TemporalAggregateSummaryFolds;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.io.StorageType;
@@ -45,6 +47,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
@@ -82,12 +85,10 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
       ProjectionIndexRegistry.clear();
       final JsonDBStore borrowed = mock(JsonDBStore.class, delegatesTo(store));
       doNothing().when(borrowed).close();
-      for (final int lag : new int[] {0, 1, 8, DerivedIndexMaintainer.MAX_QUERY_LAG,
-          DerivedIndexMaintainer.MAX_QUERY_LAG + 1}) {
+      for (final int lag : new int[] {0, 1, 8, 16, 17}) {
         try (var context = SirixQueryContext.createWithJsonStore(borrowed);
             var chain = SirixCompileChain.createWithJsonStore(borrowed)) {
           final Query query = new Query(chain, query(lag + 1));
-          final boolean admitted = lag <= DerivedIndexMaintainer.MAX_QUERY_LAG;
           for (int repeat = 0; repeat < 2; repeat++) {
             final var capture = WorkCapture.of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
                 EngineWorkCounters.TEMPORAL_PART_CHUNKS_READ, EngineWorkCounters.AGGREGATE_PROJECTION_ROW_GROUPS_READ,
@@ -95,32 +96,184 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
                                            .call(() -> run(query, context));
             assertEquals(expected(rows, lag), capture.result());
             capture.work()
-                   .assertExactly(SERVED, admitted
-                       ? 1
-                       : 0, "Bounded lag must use the aggregate route")
-                   .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, admitted
-                       ? 0
-                       : 1, "Excessive lag must retain the exact masked route")
+                   .assertExactly(SERVED, 1, "Complete tails must use the aggregate route")
+                   .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "Lag must not cause a source scan")
                    .assertExactly(EngineWorkCounters.AGGREGATE_PROJECTION_ROW_GROUPS_READ, 0,
                        "Catch-up never rebuilds aggregates from projection rows");
-            if (admitted) {
-              capture.work()
-                     .assertBetween(EngineWorkCounters.TEMPORAL_PART_CHUNKS_READ, 1, 3,
-                         "The base keeps its existing point-read budget")
-                     .assertBetween(EngineWorkCounters.CHANGE_LOG_CHUNKS_READ, repeat == 0
-                         ? lag
-                         : 0,
-                         repeat == 0
-                             ? 2L * lag
-                             : 0,
-                         "Each changed group reads at most two chunks per lagging revision")
-                     .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0,
-                         "Exact tail folds must not load source columns");
-            } else {
-              capture.work()
-                     .assertExactly(EngineWorkCounters.CHANGE_LOG_CHUNKS_READ, 0,
-                         "The lag bound declines before reading the tail");
+            capture.work()
+                   .assertBetween(EngineWorkCounters.TEMPORAL_PART_CHUNKS_READ, 1, 3,
+                       "The base keeps its existing point-read budget")
+                   .assertBetween(EngineWorkCounters.CHANGE_LOG_CHUNKS_READ, repeat == 0
+                       ? lag
+                       : 0,
+                       repeat == 0
+                           ? 2L * lag
+                           : 0,
+                       "Each changed group reads at most two chunks per lagging revision")
+                   .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0,
+                       "Exact tail folds must not load source columns");
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void foldedOutstandingSummariesBoundLagEightSixteenAndSixtyFour(final VersioningType versioning) throws Exception {
+    final var path = directory.toPath().resolve("tail");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+    }
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+        JsonResourceSession session = store.lookup("tail").getDatabase().beginResourceSession("records")) {
+      build(session, 256, 20, false, 64);
+      final DerivedIndexMaintainer.Resource resource =
+          Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
+      final JsonDBStore borrowed = mock(JsonDBStore.class, delegatesTo(store));
+      doNothing().when(borrowed).close();
+      try (var context = SirixQueryContext.createWithJsonStore(borrowed);
+          var chain = SirixCompileChain.createWithJsonStore(borrowed)) {
+        for (int pass = 0; pass < 2; pass++) {
+          final boolean reverse = pass != 0;
+          final var raw = WorkCapture.of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
+              EngineWorkCounters.PROJECTION_BODY_SEGMENTS, QueryWorkCounters.GROUP_AGGREGATES)
+                                     .call(() -> runHistoricalPoints(chain, context, reverse));
+          final StringBuilder expected = new StringBuilder();
+          for (int offset = 1; offset <= 64; offset++) {
+            expected.append(expected(256, pass == 0
+                ? offset
+                : 65 - offset));
+          }
+          assertEquals(expected.toString(), raw.result());
+          raw.work()
+             .assertExactly(SERVED, 64, "Every historical point must use the aggregate route")
+             .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "No raw-tail fallback")
+             .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "No source columns")
+             .assertBetween(EngineWorkCounters.CHANGE_LOG_CHUNKS_READ, pass == 0
+                 ? 64
+                 : 0,
+                 pass == 0
+                     ? 128
+                     : 0,
+                 "One prefix read per revision; reverse reads reuse immutable snapshots, not the last prefix state");
+        }
+      }
+      while (resource.foldNextSummaryBatch()) {
+        assertEquals(1, resource.maintainedRevision(), "Summary folds must not advance the aggregate base");
+      }
+      for (final int lag : new int[] {8, 16, 64}) {
+        Databases.clearGlobalCaches();
+        ProjectionIndexCatalog.clearCache();
+        ProjectionIndexRegistry.clear();
+        try (var context = SirixQueryContext.createWithJsonStore(borrowed);
+            var chain = SirixCompileChain.createWithJsonStore(borrowed)) {
+          final Query query = new Query(chain, query(lag + 1));
+          for (int repeat = 0; repeat < 2; repeat++) {
+            final var capture = WorkCapture.of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
+                EngineWorkCounters.PROJECTION_BODY_SEGMENTS, QueryWorkCounters.GROUP_AGGREGATES)
+                                           .call(() -> run(query, context));
+            assertEquals(expected(256, lag), capture.result());
+            capture.work()
+                   .assertExactly(SERVED, 1, "Every complete tail must serve at lag " + lag)
+                   .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "No fallback after folding")
+                   .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "No source columns")
+                   .assertBetween(EngineWorkCounters.CHANGE_LOG_CHUNKS_READ, repeat == 0
+                       ? 1
+                       : 0,
+                       repeat == 0
+                           ? 7
+                           : 0,
+                       "At most seven compact ranges cover this fixture, including lag 64");
+          }
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void automaticMaintenanceBoundsOutstandingSummariesDuringContinuingPublications(final VersioningType versioning)
+      throws Exception {
+    final var path = directory.toPath().resolve("tail");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .versioningApproach(versioning)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+    }
+    try (
+        var store =
+            BasicJsonDBStore.newBuilder().location(directory.toPath()).storageType(StorageType.FILE_CHANNEL).build();
+        JsonResourceSession session = store.lookup("tail").getDatabase().beginResourceSession("records")) {
+      build(session, 256, 20, false, 0);
+      final DerivedIndexMaintainer.Resource resource =
+          Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource());
+      final JsonDBStore borrowed = mock(JsonDBStore.class, delegatesTo(store));
+      doNothing().when(borrowed).close();
+      try (JsonNodeTrx writer = session.beginNodeTrx()) {
+        for (int publication = 1; publication <= 64; publication++) {
+          publishChanges(writer, 20, false, publication);
+          assertTrue(resource.maintainNextBatch());
+          assertEquals(publication + 1, resource.maintainedRevision());
+        }
+        try (StorageEngineReader source = session.createStorageEngineReader();
+            StorageEngineReader derived = resource.openSummaryReader()) {
+          assertEquals(0, TemporalAggregateSummaryFolds.frontier(derived, source));
+        }
+        for (int publication = 65; publication <= 128; publication++) {
+          publishChanges(writer, 20, false, publication);
+        }
+        int published = 128;
+        for (int batch = 1; batch <= 7; batch++) {
+          for (int offset = 0; offset < 8; offset++) {
+            publishChanges(writer, 20, false, ++published);
+          }
+          assertTrue(resource.maintainNextBatch());
+          assertEquals(65 + 8 * batch, resource.maintainedRevision(), "Each call must advance the base");
+          try (StorageEngineReader source = session.createStorageEngineReader();
+              StorageEngineReader derived = resource.openSummaryReader()) {
+            assertEquals(73 + 16 * batch, TemporalAggregateSummaryFolds.frontier(derived, source),
+                "Automatic folds must get ahead of the advanced base without folding old history");
+          }
+        }
+        for (int cycle = 0; cycle <= 8; cycle++) {
+          if (cycle > 0) {
+            for (int offset = 0; offset < 8; offset++) {
+              publishChanges(writer, 20, false, ++published);
             }
+            final int previousBase = resource.maintainedRevision();
+            assertTrue(resource.maintainNextBatch());
+            assertEquals(previousBase + 8, resource.maintainedRevision());
+          }
+          assertEquals(64, resource.lag());
+          Databases.clearGlobalCaches();
+          ProjectionIndexCatalog.clearCache();
+          ProjectionIndexRegistry.clear();
+          try (var context = SirixQueryContext.createWithJsonStore(borrowed);
+              var chain = SirixCompileChain.createWithJsonStore(borrowed)) {
+            final Query query = new Query(chain, query(session.getMostRecentRevisionNumber()));
+            final var capture = WorkCapture.of(SERVED, EngineWorkCounters.CHANGE_LOG_CHUNKS_READ,
+                EngineWorkCounters.PROJECTION_BODY_SEGMENTS, QueryWorkCounters.GROUP_AGGREGATES)
+                                           .call(() -> run(query, context));
+            assertEquals(expected(256, published), capture.result());
+            capture.work()
+                   .assertExactly(SERVED, 1, "Automatic maintenance must retain the aggregate route")
+                   .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 0, "No fallback during continued publication")
+                   .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "No source columns")
+                   .assertBetween(EngineWorkCounters.CHANGE_LOG_CHUNKS_READ, 1, 7,
+                       "Automatic folding must retain the seven-chunk bound as both frontiers advance");
           }
         }
       }
@@ -226,7 +379,7 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
   }
 
   private static void build(final JsonResourceSession session, final int rows) {
-    build(session, rows, 20, false, DerivedIndexMaintainer.MAX_QUERY_LAG + 1);
+    build(session, rows, 20, false, 17);
   }
 
   private static void build(final JsonResourceSession session, final int rows, final int changed,
@@ -261,27 +414,36 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
       writer.commit();
       resource.drain();
       for (int lag = 1; lag <= maximumLag; lag++) {
-        writer.moveToDocumentRoot();
-        writer.moveToFirstChild();
-        writer.moveToFirstChild();
-        for (int row = 0; row < changed; row++) {
-          final long record = writer.getNodeKey();
-          writer.moveToFirstChild();
-          writer.moveToRightSibling();
-          writer.moveToFirstChild();
-          writer.setNumberValue((repeated
-              ? 7
-              : row) + 100L * lag);
-          writer.moveTo(record);
-          writer.moveToRightSibling();
-        }
-        writer.commit();
+        publishChanges(writer, changed, repeated, lag);
       }
       assertEquals(1, resource.maintainedRevision());
     }
   }
 
+  private static void publishChanges(final JsonNodeTrx writer, final int changed, final boolean repeated,
+      final int publication) {
+    writer.moveToDocumentRoot();
+    writer.moveToFirstChild();
+    writer.moveToFirstChild();
+    for (int row = 0; row < changed; row++) {
+      final long record = writer.getNodeKey();
+      writer.moveToFirstChild();
+      writer.moveToRightSibling();
+      writer.moveToFirstChild();
+      writer.setNumberValue((repeated
+          ? 7
+          : row) + 100L * publication);
+      writer.moveTo(record);
+      writer.moveToRightSibling();
+    }
+    writer.commit();
+  }
+
   private static String query(final int revision) {
+    return query(Integer.toString(revision));
+  }
+
+  private static String query(final String revision) {
     return "for $r in jn:doc('tail','records'," + revision + ")[] "
         + "where xs:dateTime($r.lo) le xs:dateTime('1970-01-01T00:00:00.001Z') "
         + "and xs:dateTime('1970-01-01T00:00:00.001Z') lt xs:dateTime($r.hi) "
@@ -301,5 +463,19 @@ final class TemporalAggregateCatchUpWorkBudgetTest {
       query.serialize(context, printer);
     }
     return output.toString().replaceAll("\\s+", "");
+  }
+
+  private static String runHistoricalPoints(final SirixCompileChain chain, final SirixQueryContext context,
+      final boolean reverse) throws Exception {
+    // Scalar revision loops are not admitted by the grouped route, even without catch-up.
+    // Separate admitted queries share one context and exercise the same bounded prefix cache.
+    final StringBuilder result = new StringBuilder(64 * 128);
+    for (int offset = 1; offset <= 64; offset++) {
+      final int revision = reverse
+          ? 66 - offset
+          : offset + 1;
+      result.append(run(new Query(chain, query(revision)), context));
+    }
+    return result.toString();
   }
 }

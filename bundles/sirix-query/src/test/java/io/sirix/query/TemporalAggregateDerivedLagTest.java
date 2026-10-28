@@ -25,6 +25,7 @@ import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -147,7 +148,7 @@ final class TemporalAggregateDerivedLagTest {
     writer.setNumberValue(value);
   }
 
-  private static void assertEdgeQuery(final JsonDBStore store, final int revision, final Boolean admitted)
+  private static void assertEdgeQuery(final JsonDBStore store, final int revision, final @Nullable Boolean admitted)
       throws Exception {
     final String query = "for $r in jn:doc('edges','records'," + revision + ")[] "
         + "where xs:dateTime($r.lo) le xs:dateTime('2024-01-02T00:00:00Z') "
@@ -266,6 +267,11 @@ final class TemporalAggregateDerivedLagTest {
       }
       final JsonDBStore borrowedStore = mock(JsonDBStore.class, delegatesTo(store));
       doNothing().when(borrowedStore).close();
+      if (storeChildCount) {
+        while (resource.foldNextSummaryBatch()) {
+          assertEquals(0, resource.maintainedRevision());
+        }
+      }
       do {
         try (var fresh = SirixQueryContext.createWithJsonStore(borrowedStore)) {
           assertHistory(chain, fresh, session, history);
@@ -333,8 +339,7 @@ final class TemporalAggregateDerivedLagTest {
           StorageEngineReader derived = session.openDerivedIndexReader(source)) {
         final int frontier =
             Objects.requireNonNull(((AbstractResourceSession<?, ?>) session).getDerivedResource()).maintainedRevision();
-        if (derived == null
-            && (frontier == 0 || revision - frontier > DerivedIndexMaintainer.MAX_QUERY_LAG || revision == 20)) {
+        if (derived == null && (frontier == 0 || revision == 20)) {
           assertEquals(served, TemporalAggregateRoute.servedCount(), "Uncovered or discontinuous tails must decline");
         } else {
           assertEquals(served + 1, TemporalAggregateRoute.servedCount(),

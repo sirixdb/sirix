@@ -297,6 +297,18 @@ fail-fast lookups, never ordinals.
   deltas and zig-zag-varint signed row/presence counts and low/high signed-128 sum halves for SUM
   lanes. Frequency entries are `(lane, from, length)` unsigned varints and `(value, multiplicity)`
   zig-zag varints. Empty net operands are omitted, but every declared revision retains a coverage header.
+
+  The derived resource's CHANGE_LOG tree zero also holds maintainer-only binary summary folds.
+  Keys are `(8 u8, aggregate id i32, range end i32, level u8, chunk i32)`; level `k` covers
+  `[end - 2^k + 1, end]`, with `end` divisible by `2^k`. Chunk `-1` is a 24-byte header:
+  payload length i32 (`-1` means unavailable), group count i32, source-end publication identity
+  (16 bytes). Payload slots are at most 2,048 bytes. Their concatenation contains sorted groups
+  `(key length i32, operand length i32, key bytes, operand bytes)`. Operands use the same signed
+  endpoint/frequency codec as source summaries, with no single-source-operand size restriction.
+  Key `{10}` records the fold frontier `(source revision i32, identity projection i32, identity
+  16 bytes)`. Publication, historical range retention and identity validation follow
+  [the temporal aggregate contract](TEMPORAL_AGGREGATE_INDEX.md).
+
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a
   compact directory with one big-endian `u16` per populated slot: 10 high bits encode the
