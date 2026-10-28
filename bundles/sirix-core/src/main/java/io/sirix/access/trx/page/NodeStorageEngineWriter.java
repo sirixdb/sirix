@@ -194,15 +194,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Live-TIL page bound at which a plain write transaction rotates a storage-only epoch.
    *
    * <p>
-   * The rotation is pressure-driven: a transaction whose modified pages fit into the share of the
-   * off-heap budget never rotates and pays nothing (the code path is at parity with an unbounded
-   * transaction then); one that would otherwise grow with the data loaded rotates once the live log
-   * reaches that share, and pays for re-reading the pages it touches again. The share is one eighth
-   * of the budget in 64 KiB frames: with the frozen epoch of the same size in flight the log owns at
-   * most a quarter of the budget, the slice the cache sizing leaves free. A quarter (half with the
-   * frozen epoch) exhausted the allocator's small size class at t1M on a 4 GiB arena, since a log
-   * entry is a page of any size class, not a 64 KiB frame. The async-flush import bound
-   * ({@link #MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT}) is the floor; the test seam replaces the derived bound.
+   * The page-count heuristic uses one eighth of the off-heap budget in 64 KiB frames, leaving room
+   * for the frozen epoch and caches. It is not an allocator-headroom signal or a hard byte bound: log
+   * entries can own pages from different size classes, and pinned structural pages remain live.
+   * Transactions below the bound do not rotate; pages touched again after a rotation must be read
+   * back. The async-flush import bound ({@link #MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT}) is the floor; the
+   * test seam replaces the derived bound.
    * </p>
    */
   static int storageEpochLogEntryCount() {
@@ -1850,8 +1847,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final long key = keys.getLong(i);
       DataRecord node = getRecordForWriteAccess(page, key);
       if (node == null) {
-        PageContainer container = getMostRecentPageContainer(IndexType.DOCUMENT, page.getPageKey(), -1,
-            newRevisionRootPage.getRevision());
+        PageContainer container =
+            getMostRecentPageContainer(IndexType.DOCUMENT, page.getPageKey(), -1, newRevisionRootPage.getRevision());
         if (container == null) {
           // A sparse modifying page can omit live records held by its complete half even after
           // its container has left the recent-page cache. A cache miss is not a tombstone.
@@ -1862,7 +1859,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           node = getRecordForWriteAccess((KeyValueLeafPage) container.getComplete(), key);
         }
       }
-      node = node == null ? null : storageEngineReader.checkItemIfDeleted(node);
+      node = node == null
+          ? null
+          : storageEngineReader.checkItemIfDeleted(node);
       if (node instanceof final FlyweightNode flyweight) {
         node = flyweight.toSnapshot();
       }
@@ -3317,7 +3316,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                   }
                   if (spillRecordPages) {
                     storagePageReaderWriter.writeSpilled(config, shadowRef, serializationCopy, bgBuffer);
-                    if (hasSpilledCarriers(serializationCopy) || (insertFsstEnabled && needsSymbolTable(serializationCopy))) {
+                    if (hasSpilledCarriers(serializationCopy)
+                        || (insertFsstEnabled && needsSymbolTable(serializationCopy))) {
                       if (spilledLeavesToEncode == null) {
                         spilledLeavesToEncode = new LongOpenHashSet();
                       }
@@ -4330,9 +4330,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       parallelSerializationOfKeyValuePages();
       for (final PageContainer container : log.getList()) {
-        if (container.getModified() instanceof final KeyValueLeafPage page
-            && page.getIndexType() == IndexType.DOCUMENT && page.globalStringDictionaries() != null
-            && page.getBytes() == null && page.getCompressedSegment() == null) {
+        if (container.getModified() instanceof final KeyValueLeafPage page && page.getIndexType() == IndexType.DOCUMENT
+            && page.globalStringDictionaries() != null && page.getBytes() == null
+            && page.getCompressedSegment() == null) {
           storageEngineReader.preserveDictionaryEncoding(page);
         }
       }
@@ -4543,7 +4543,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private byte @Nullable [] commitFsstTable;
   private long commitFsstTableId;
 
-  private record FsstSamples(List<byte[]> values, int generation, boolean complete) {}
+  private record FsstSamples(List<byte[]> values, int generation, boolean complete) {
+  }
 
   private void collectFsstSamples(final KeyValueLeafPage page, final List<byte[]> samples, final int cap) {
     restoreOverflowRecords(page);
@@ -4653,7 +4654,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final LongIterator pages = log.documentPageKeysInPutOrder();
       while (pages.hasNext() && samples.size() < FSST_REVISION_SAMPLE_CAP) {
         final long pageKey = pages.nextLong();
-        final FsstSamples captured = epochFsstSamples == null ? null : epochFsstSamples.get(pageKey);
+        final FsstSamples captured = epochFsstSamples == null
+            ? null
+            : epochFsstSamples.get(pageKey);
         final int remaining = FSST_REVISION_SAMPLE_CAP - samples.size();
         if (captured != null && captured.generation() >= log.documentPagePutGeneration(pageKey)
             && (captured.complete() || captured.values().size() >= remaining)) {
@@ -6147,8 +6150,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final NamePage names = getNamePage(newRevisionRootPage);
       final DatabaseType databaseType = databaseTypeOfSession();
       if (names.hasProjectionValueDictionary(databaseType)) {
-        final DataRecord record = names.getProjectionValueDictionaryRecord(
-            SegmentDictionaryDirectoryNode.DIRECTORY_KEY, databaseType, this);
+        final DataRecord record =
+            names.getProjectionValueDictionaryRecord(SegmentDictionaryDirectoryNode.DIRECTORY_KEY, databaseType, this);
         if (record instanceof SegmentDictionaryDirectoryNode directory) {
           storageEngineReader.installLiveLaneDictionaries(new SegmentScopedReadDictionaries(this, directory));
         }

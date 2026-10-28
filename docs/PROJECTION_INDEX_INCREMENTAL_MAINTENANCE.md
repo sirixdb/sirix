@@ -296,12 +296,24 @@ Rebuilding a segment does not mean reading its records again. The dirty set
 names every record whose row may differ from its persisted row. It is the same
 set that decides which row groups are touched at all, so an unchanged row of a
 touched group is as trustworthy as any row of an untouched group. Maintenance
-therefore reads changed records from the document and, when the witness rules
-below permit it, carries unchanged rows over from what it has already decoded:
+therefore extracts changed records from the document or uses their storage-epoch
+captures and, when the witness rules below permit it, carries unchanged rows over from what it has already decoded:
 the prior column slices on the value-update path, the whole prior row group when membership
 changes ([§6.3](#63-local-rewrite), [§7](#7-middle-insert-why-an-exception-locator-is-needed)).
 On this path, document extraction follows the number of changed records;
 witness probes and re-extraction fallbacks are described below.
+
+For [plain-transaction storage epochs](ARCHITECTURE.md#storage-only-epochs-in-plain-transactions),
+`beforeStorageEpoch` captures each newly dirty record's projected row and detached
+root, including deletion state and immediate siblings, while its pages are still
+in the log. It does not apply incremental projection edits per epoch. Captured
+roots are checked against the page's last-put generation and refreshed when that
+page is put again; a row dirtied after the last capture is extracted live at the
+commit-time pass. This preserves one maintenance pass and its existing slot
+reuse, without rereading flushed fields for a captured row. Captures are
+transaction-owned and released at completion or abort. A load-time
+`ProjectionBulkLoad` still streams completed rows at each storage epoch;
+`KEEP_OPEN_ASYNC_FLUSH` still applies its pending maintenance before flushing.
 
 A carried row must be appended exactly as an extraction would append it, and
 extraction decides three things per cell that V0 persists only as one sticky

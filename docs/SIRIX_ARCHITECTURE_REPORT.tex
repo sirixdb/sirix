@@ -1460,7 +1460,7 @@ in-memory face of the on-disk structural sharing of \S\ref{sec:caching}.
 
 \section{The Transaction Intent Log}
 
-Uncommitted state lives in the \textbf{Transaction Intent Log (TIL)} as a list of
+Resident uncommitted pages live in the \textbf{Transaction Intent Log (TIL)} as a list of
 \code{PageContainer}s, each holding a \code{complete} reconstruction (the read view during
 modification) and a sparse \code{modified} page (what is serialised at commit); for
 \code{FULL} the two are the same instance. \code{TransactionIntentLog.put} takes \emph{exclusive}
@@ -1471,8 +1471,8 @@ container's \code{complete} page), which is why a read-during-write sees a consi
 view without exposing partial state. Commit serialises the modified pages in parallel, the point
 at which each page's deferred preservation copy (\S\ref{sec:slidealg}) is finally materialised, then writes them to
 the append-only data file and links them into the new \code{RevisionRootPage}. \textbf{Rollback} is
-simply discarding the TIL (closing each \code{PageContainer}), with no disk writes and the
-on-reference fragment chains left untouched.
+discarding the transaction-owned state without publishing its pages. Pre-commit page writes
+and their cleanup follow the storage-epoch contract in \code{docs/ARCHITECTURE.md}.
 
 A three-operation transaction shows the TIL mediating every read and write:
 
@@ -5530,7 +5530,8 @@ never touches bytes. A \code{moveTo(nodeKey)} splits the key into a page key and
 through the buffer cache, and binds a zero-copy flyweight node onto the page's \code{MemorySegment} at
 that slot. A write runs the other way: an \code{insert\ldots} call has the node factory allocate a
 record in the writer's \emph{modified} page inside the Transaction Intent Log (Ch.~\ref{ch:versioning}),
-so all uncommitted state lives in the TIL until commit. Per-resource concurrency is enforced one level
+with resident-page ownership and pre-commit rotation governed by the transaction-model contract in
+\code{docs/ARCHITECTURE.md}. Per-resource concurrency is enforced one level
 up, in the resource session, which owns the single write \code{Semaphore} and the open-transaction
 registries and builds a fresh node factory, path-summary writer, hasher and node-to-revisions index for
 each writer. The same stack serves both data models: the \code{Xml-} and \code{Json-} transaction types
@@ -5572,41 +5573,18 @@ revision.
 
 \section{Auto-commit and bulk import}
 
-A bounded transaction is the easy case; the hard cases are a never-ending stream of small edits and a
-single enormous load, and both are handled by \emph{auto-commit}. Passing a node-count or a time bound to
-\code{beginNodeTrx} makes the writer auto-committing: a count-bounded writer flushes whenever its
-modification count crosses the threshold, and a time-bounded one flushes on a background
-\code{ScheduledExecutorService}. What happens to the writer at each flush is governed by an
-\code{AfterCommitState}. \code{KEEP\_OPEN}, the default, rebuilds the page engine for the next revision so
-the same writer keeps going. \code{KEEP\_OPEN\_ASYNC} avoids even that: it rotates the Transaction Intent
-Log in $O(1)$ and flushes the old pages on a background thread, producing \emph{no} intermediate
-revisions (it is restricted to the \code{FILE\_CHANNEL} backend and count-based bounds). \code{CLOSE}
-ends the writer after the flush.
+The authoritative contracts for auto-commit modes, async pre-flush, and plain-transaction
+storage epochs are in the transaction-model section of \code{docs/ARCHITECTURE.md} and the
+\code{AfterCommitState} API documentation. They specify which operations publish revisions,
+supported backends, safe rotation boundaries, and pre-commit page ownership.
 
-Bulk loading leans on these. \code{insertSubtreeAs\ldots} runs the streaming shredder under a
+Bulk loading also uses a separate optimization. \code{insertSubtreeAs\ldots} runs the streaming shredder under a
 \textbf{bulk-insert} flag that suppresses the per-node bookkeeping that would otherwise dominate. Hash
 and descendant-count maintenance in particular has two mutually exclusive modes: inside one auto-commit
 epoch the writer adapts hashes incrementally per insert, and otherwise it performs a single post-order
 hash pass over the whole imported subtree at the end, turning an $O(\text{nodes}\times\text{depth})$
-ancestor-walk into one traversal. With the asynchronous bulk fast path layering $O(1)$ intent-log
-rotation on top, a multi-hundred-million-node import runs in bounded memory without a commit per record.
-
-\dcap{Importing $10^8$ nodes under a 4.5M-node count bound: the three \texttt{AfterCommitState}s}
-\begin{diagramS}
-AfterCommitState      at each auto-commit flush ...                         intermediate revisions
-  KEEP_OPEN (default)  rebuild the page engine; the same writer continues     ~22 (one per flush)
-  KEEP_OPEN_ASYNC      rotate the TIL in O(1); flush old pages on a bg thread  NONE (one final revision)
-                       (FILE_CHANNEL backend + count bound only)
-  CLOSE                end the writer after the flush                          one, then stop
-
-orthogonal: the bulk-insert flag suppresses per-node diff work, and hashes are either adapted
-incrementally within an epoch or computed in ONE post-order pass at the end (not the O(nodes·depth) walk).
-\end{diagramS}
-
-The decisive option for a pure load is \code{KEEP\_OPEN\_ASYNC}: because it rotates the intent log in
-constant time and never publishes an intermediate revision, a hundred-million-node import leaves the
-history with a \emph{single} new revision and the writer never blocks on a synchronous flush, the
-memory stays bounded by the rotation, not by the document.
+ancestor-walk into one traversal. The bulk-insert flag is independent of the transaction mode;
+the storage-epoch contract above owns the memory and publication behavior.
 
 \section{Navigation, mutation, and configuration}
 
@@ -8417,8 +8395,9 @@ HOT_INDIRECT_PAGE [varint pageKey][i32 revision][u8 height][u8 nodeType][u8 layo
 
 \section{The slotted leaf page (\texttt{KeyValueLeafPage})}
 
-The leaf page is the format's centrepiece, a slotted page that is \emph{in-memory == on-disk},
-column-compressed then byte-compressed. Its frame and the 160-byte header it copies raw:
+The leaf page is the format's centrepiece, a slotted page stored column-compressed then
+byte-compressed. Its frame and header layout are shown below; the canonical persisted-header
+rules are owned by \code{docs/DISK_FORMAT.md}.
 
 \begin{diagramS}
 [page envelope: see docs/DISK_FORMAT.md §2][varlong recordPageKey][i32 revision][u8 indexType]

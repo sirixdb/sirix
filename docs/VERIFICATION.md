@@ -92,6 +92,14 @@ The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest` in a 
 inline Mockito mocks in other suites cannot affect its allocation measurements. Run that suite alone
 with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
 
+The normal core task also runs `StorageEpochStoreIdentityTest` and
+`StorageEpochDifferentialTest` in a separate JVM with deterministic codec selection
+(`sirix.codecBakeoff.probeInterval=1`). Run them alone with
+`./gradlew :sirix-core:storageEpochStoreIdentityTest`. They compare rotating and
+never-rotating transactions, including persisted page bytes in the identity suite
+and seeded edits across storage, compression and dictionary lanes in the differential
+suite, with cold-reopen checks.
+
 ```bash
 # Generative + oracle + regression tests (fast, part of the normal test task)
 ./gradlew :sirix-core:test --tests 'io.sirix.property.*' \

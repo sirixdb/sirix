@@ -486,12 +486,11 @@ explicitly decided; **nothing remains open**:
   compact directory, structural encoders, codec bake-off) and a populated HOTLeafPage,
   deterministic across independent runs.
 - **KVLP header redundancy** — DECIDED: retained. The header's pageKey/revision/indexType
-  duplication and the heapEnd/heapUsed runtime fields stay on disk: the 160-byte block is
-  bulk-copied verbatim ("in-memory format = on-disk format" — stripping fields would
-  reintroduce a commit-time conversion pass), and the redundancy makes pages self-describing
+  duplication and heapEnd/heapUsed fields stay on disk. `PageKind.writeEncodedBody` copies
+  the header with persisted heapEnd normalized to heapUsed, matching the compact payload
+  rather than the runtime heap's allocation history. The redundancy makes pages self-describing
   for recovery/forensics plus cross-checkable against the parent reference. Cost: 21 bytes per
-  ~64 KiB page. The `writeEncodedBody` javadoc and the stale "verified after decompression"
-  comments are fixed.
+  ~64 KiB page.
 - **Block-aligned page records** — DECIDED: V0 commits to pread/mmap with byte-granular
   8-byte-aligned `[u32 len][payload]` records. O_DIRECT/fixed-frame buffer management is not a
   V0 target; adopting it later is a file-layout change and therefore a superblock

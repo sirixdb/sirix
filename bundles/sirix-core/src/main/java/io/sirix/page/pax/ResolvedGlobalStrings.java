@@ -134,13 +134,17 @@ public final class ResolvedGlobalStrings {
       @Override
       public long dictionaryKey(final int tag) {
         final int i = index(tag);
-        return i < 0 ? 0L : keys[i];
+        return i < 0
+            ? 0L
+            : keys[i];
       }
 
       @Override
       public int dictionaryEntryCount(final int tag) {
         final int i = index(tag);
-        return i < 0 ? 0 : counts[i];
+        return i < 0
+            ? 0
+            : counts[i];
       }
     };
   }

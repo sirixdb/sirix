@@ -353,7 +353,9 @@ public final class MMFileReader extends AbstractReader {
 
   private Page readSpilled(final PageReference reference, final @Nullable ResourceConfiguration configuration,
       final boolean lazyRecordPage) throws IOException {
-    final FileChannel channel = spillChannelHolder == null ? null : spillChannelHolder.get();
+    final FileChannel channel = spillChannelHolder == null
+        ? null
+        : spillChannelHolder.get();
     if (channel == null) {
       throw new SirixIOException("No spill file for page " + reference.getKey());
     }

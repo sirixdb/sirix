@@ -663,6 +663,8 @@ array child produced a row, then replaces the tombstone (`proj/ProjectionBulkLoa
 - **Listen**: classify each change notification by path class; attribute it to its enclosing record (raw ancestor
   walk, positive memo capped at 2^20); record the record key and dirty-column bits; an unattributable change throws
   (`:202-229`, `:794-864`, `:1243-1361`, `:1537-1558`).
+- **Storage-epoch capture and apply timing** follow the
+  [incremental maintenance contract](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#51-unchanged-rows-are-carried-over).
 - **Apply** (`beforeCommit`, `beforePageFlush`, structural hooks) classifies each dirty record
   (`applyIncremental`, `:2028-2120`):
 

@@ -167,15 +167,15 @@ public final class MMStorage implements IOStorage {
      * {@code Arena.ofShared().close()} (deterministic unmap), while in a GraalVM native image the
      * storage maps into {@code Arena.ofAuto()} (closing a shared arena would require
      * {@code -H:+SharedArenaSupport}, which GraalVM 25 cannot combine with
-     * {@code jdk.incubator.vector}) and the unmap happens once the generation becomes
-     * unreachable. {@code -Dsirix.mmstorage.skipArenaClose=true} is kept as a legacy escape
-     * hatch that skips the release entirely.
+     * {@code jdk.incubator.vector}) and the unmap happens once the generation becomes unreachable.
+     * {@code -Dsirix.mmstorage.skipArenaClose=true} is kept as a legacy escape hatch that skips the
+     * release entirely.
      */
-    private static final boolean SKIP_ARENA_CLOSE =
-        Boolean.getBoolean("sirix.mmstorage.skipArenaClose");
+    private static final boolean SKIP_ARENA_CLOSE = Boolean.getBoolean("sirix.mmstorage.skipArenaClose");
 
     private static void closeArenaOrSkip(final Arena arena) {
-      if (SKIP_ARENA_CLOSE) return;
+      if (SKIP_ARENA_CLOSE)
+        return;
       SharedArenas.close(arena);
     }
 
@@ -220,8 +220,12 @@ public final class MMStorage implements IOStorage {
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
-    resourceUuidMsb = resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getMostSignificantBits() : 0L;
-    resourceUuidLsb = resourceConfig.resourceUuid != null ? resourceConfig.resourceUuid.getLeastSignificantBits() : 0L;
+    resourceUuidMsb = resourceConfig.resourceUuid != null
+        ? resourceConfig.resourceUuid.getMostSignificantBits()
+        : 0L;
+    resourceUuidLsb = resourceConfig.resourceUuid != null
+        ? resourceConfig.resourceUuid.getLeastSignificantBits()
+        : 0L;
   }
 
   /**
@@ -244,8 +248,8 @@ public final class MMStorage implements IOStorage {
    * actually avoids the two extra file opens + header reads per request.
    */
   private void validateSuperblocksOnce() {
-    io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA,
-        resourceUuidMsb, resourceUuidLsb);
+    io.sirix.io.SuperblockValidator.validateOnce(getDataFilePath(), io.sirix.io.Superblock.ROLE_DATA, resourceUuidMsb,
+        resourceUuidLsb);
     io.sirix.io.SuperblockValidator.validateOnce(getRevisionFilePath(), io.sirix.io.Superblock.ROLE_REVISIONS,
         resourceUuidMsb, resourceUuidLsb);
   }
@@ -374,9 +378,8 @@ public final class MMStorage implements IOStorage {
       final var dataFileChannel = createDataFileChannel(dataFilePath);
       // Write-through channels — see FileChannelStorage.createWriter for the rationale (the MM
       // backend shares FileChannelWriter for all writes).
-      final var revisionsOffsetFileChannel =
-          FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE,
-                           StandardOpenOption.SYNC);
+      final var revisionsOffsetFileChannel = FileChannel.open(revisionsOffsetFilePath, StandardOpenOption.READ,
+          StandardOpenOption.WRITE, StandardOpenOption.SYNC);
       final var beaconDurableChannel =
           FileChannel.open(dataFilePath, StandardOpenOption.WRITE, StandardOpenOption.DSYNC);
 
@@ -388,10 +391,10 @@ public final class MMStorage implements IOStorage {
 
       // MM readers remap only when the physical file size grew; preallocated in-place commits
       // would leave fresh readers on a stale mapping, so this backend pins the legacy grow path.
-      final FileChannelWriter writer = new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
-          serializationType, pagePersister, cache, revisionIndexHolder, reader,
-          /* preallocatedCommit */ false, /* lazyRevisionRecords */ false, revisionsOffsetFilePath,
-          resourceUuidMsb, resourceUuidLsb);
+      final FileChannelWriter writer =
+          new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel, serializationType,
+              pagePersister, cache, revisionIndexHolder, reader, /* preallocatedCommit */ false,
+              /* lazyRevisionRecords */ false, revisionsOffsetFilePath, resourceUuidMsb, resourceUuidLsb);
       writer.setSpillChannelHolder(spillChannelHolder);
       return writer;
     } catch (final IOException | InterruptedException e) {

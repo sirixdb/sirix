@@ -1218,8 +1218,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /** Optionally retain cache-backed leaves through a structural operation. */
-  private @Nullable Page resolveHOTPageForTraversal(final PageReference ref,
-      final @Nullable ChildPageGuards guards) {
+  private @Nullable Page resolveHOTPageForTraversal(final PageReference ref, final @Nullable ChildPageGuards guards) {
     PageReference current = ref;
     for (int hop = 0; hop < MAX_RELEASED_LEAF_FORWARDS; hop++) {
       forwardedReplacementRef = null;
@@ -1248,8 +1247,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * either {@link #forwardedReplacementRef} set to the reference the descent must continue at or
    * {@link #releasedLeafRefused} set because there is none.
    */
-  private @Nullable Page resolveOneHopForTraversal(final PageReference ref,
-      final @Nullable ChildPageGuards guards) {
+  private @Nullable Page resolveOneHopForTraversal(final PageReference ref, final @Nullable ChildPageGuards guards) {
     final TransactionIntentLog log = storageEngineWriter.getLog();
     // Capture the identity BEFORE resolving: get() rewrites a reference whose shared handle has
     // published a durable offset into a pure disk reference, so asking it afterwards which entry it
@@ -5774,8 +5772,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         final HOTIncrementalInsert.BiNode refreshedSplit =
             HOTIncrementalInsert.splitIndirect(originalNode, revision, indexType, pageKeyAllocator);
         final HOTIncrementalInsert.IntegrationResult result =
-            HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
-                insertDepth, refreshedSplit, revision, indexType, pageKeyAllocator);
+            HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
+                navResult.pathChildIndices(), insertDepth, refreshedSplit, revision, indexType, pageKeyAllocator);
         lastDispatchHandler = "h:combo-site2-d1";
         registerFreshSubtree(result.touchedRef());
         DIRECTION_ONE_SUBINSERT.incrementAndGet();
@@ -8394,8 +8392,8 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   private void requireNodeChildren(final HOTIndirectPage node, final ChildPageGuards guards) {
     if (!loadNodeChildren(node, guards)) {
-      throw new IllegalStateException("HOT cannot resolve direct children of page " + node.getPageKey()
-          + " for exact height");
+      throw new IllegalStateException(
+          "HOT cannot resolve direct children of page " + node.getPageKey() + " for exact height");
     }
   }
 
@@ -8410,8 +8408,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       Page child = childRef.getPage();
       if (child == null) {
         child = resolveHOTPageForTraversal(childRef, guards);
-      } else if (child instanceof HOTLeafPage
-          && servingPageOf(storageEngineWriter.getLog().get(childRef)) != child && !guards.retain(child)) {
+      } else if (child instanceof HOTLeafPage && servingPageOf(storageEngineWriter.getLog().get(childRef)) != child
+          && !guards.retain(child)) {
         child = resolveHOTPageForTraversal(childRef, guards);
       }
       if (child == null) {

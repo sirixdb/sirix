@@ -3038,8 +3038,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
                 return false;
               }
               if (changeCapture != null) {
-                changeCapture.after(key, extractor,
-                    extractor.recordKind() == NodeKind.OBJECT, null);
+                changeCapture.after(key, extractor, extractor.recordKind() == NodeKind.OBJECT, null);
               }
               appended = extractor.appendTo(page, key, orderException, orderLabel);
               locality.rowsExtracted++;
@@ -4003,8 +4002,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         return false;
       }
       if (changeCapture != null) {
-        changeCapture.after(recordKey, extractor,
-            extractor.recordKind() == NodeKind.OBJECT, changedColumnWords);
+        changeCapture.after(recordKey, extractor, extractor.recordKind() == NodeKind.OBJECT, changedColumnWords);
       }
       for (int column = 0; column < persistedKinds.length; column++) {
         final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];

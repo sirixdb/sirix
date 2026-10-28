@@ -3007,7 +3007,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   void preserveDictionaryEncoding(final KeyValueLeafPage page) {
     final RegionTable regions = page.getRegionTable();
-    final MemorySegment strings = regions == null ? null : regions.payload(RegionTable.KIND_STRING);
+    final MemorySegment strings = regions == null
+        ? null
+        : regions.payload(RegionTable.KIND_STRING);
     if (strings == null) {
       page.setGlobalStringDictionaries(null);
       return;

@@ -59,7 +59,9 @@ final class WriterRecordSnapshot {
    */
   @Nullable
   Object lookup(final long recordKey, final int pagePutGeneration) {
-    final Object entry = pagePutGeneration <= generations.get(recordKey) ? records.get(recordKey) : null;
+    final Object entry = pagePutGeneration <= generations.get(recordKey)
+        ? records.get(recordKey)
+        : null;
     if (entry == null) {
       ABSENT.increment();
       return null;
