@@ -126,15 +126,16 @@ final class DerivedAggregateNonblockingTest {
     final Query query = new Query(module);
     final QueryContext context = mock(QueryContext.class);
     final QueryExecution[] firstExecution = new QueryExecution[1];
-    try (var readers = new DerivedAggregateReaders(); var aggregates = mockStatic(TemporalAggregateIndexes.class);
+    try (var readers = new DerivedAggregateReaders();
+        var aggregates = mockStatic(TemporalAggregateIndexes.class);
         var prefixes = mockConstruction(DerivedAggregateCatchUp.TailCache.class)) {
       aggregates.when(() -> TemporalAggregateIndexes.catchUp(any(StorageEngineReader.class), anyInt(),
           any(IndexDef.class), any(IndexDef.class), any(TemporalAggregateCatchUpBudget.Budget.class)))
                 .thenAnswer(invocation -> {
-            final TemporalAggregateCatchUpBudget.Budget budget = invocation.getArgument(4);
-            budget.chunk();
-            return tail;
-          });
+                  final TemporalAggregateCatchUpBudget.Budget budget = invocation.getArgument(4);
+                  budget.chunk();
+                  return tail;
+                });
       doAnswer(invocation -> {
         firstExecution[0] = QueryExecution.current();
         for (int offset = 0; offset < 512; offset++) {
