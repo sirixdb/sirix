@@ -12,12 +12,12 @@ import org.jspecify.annotations.Nullable;
  * the transaction that spilled it is still open. One writer at a time owns a resource; it sets the
  * channel when it first spills and clears it when it closes.
  */
-final class SpillChannelHolder {
+public final class SpillChannelHolder {
 
   private volatile @Nullable FileChannel channel;
 
   @Nullable
-  FileChannel get() {
+  public FileChannel get() {
     return channel;
   }
 

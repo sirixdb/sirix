@@ -316,7 +316,7 @@ public final class ProjectionIndexRowExtractor {
       final CapturedRow row = captured.apply(recordKey);
       if (row != null) {
         loadRow(row, selectedColumns);
-        return true;
+        return rtx.moveTo(recordKey);
       }
     }
     if (!rtx.moveTo(recordKey)) {

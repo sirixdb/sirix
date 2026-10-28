@@ -1186,10 +1186,12 @@ public enum VersioningType {
       // Nothing committed to combine: the page was created in this transaction, or the owned fragment
       // is self-contained (every slot populated) and the reader skipped the chain. The fragment list
       // stays as the first copy-on-write left it.
-      final T completePage = owned.newInstance(recordPageKey, owned.getIndexType(), storageEngineReader);
-      final T modifyingPage = owned.newInstance(recordPageKey, owned.getIndexType(), storageEngineReader);
-      ((KeyValueLeafPage) completePage).ensureSlottedPage();
-      ((KeyValueLeafPage) modifyingPage).ensureSlottedPage();
+      final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, owned.getIndexType(),
+          storageEngineReader.getResourceSession().getResourceConfig(), owned.getRevision(), null, null, false);
+      final KeyValueLeafPage modifyingPage = new KeyValueLeafPage(recordPageKey, owned.getIndexType(),
+          storageEngineReader.getResourceSession().getResourceConfig(), owned.getRevision(), null, null, false);
+      completePage.ensureSlottedPage();
+      modifyingPage.ensureSlottedPage();
       container = PageContainer.getInstance(completePage, modifyingPage);
       log.put(reference, container);
     } else {

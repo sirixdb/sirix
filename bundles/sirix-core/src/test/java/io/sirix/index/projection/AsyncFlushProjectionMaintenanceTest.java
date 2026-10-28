@@ -18,6 +18,9 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
+import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.node.NodeKind;
 import io.sirix.access.trx.page.StorageEpochTestSupport;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
@@ -124,6 +127,73 @@ final class AsyncFlushProjectionMaintenanceTest {
   @Timeout(value = 5, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   void plainTransactionEpochsPersistTheSameProjectionAsAnUnboundedTransaction() {
     twinRun(AfterCommitState.KEEP_OPEN, StorageEpochTestSupport.IMPORT_BOUND);
+  }
+
+  @Test
+  void capturedRowsPositionTheCursorAndMutatedRootsMatchTheirTwin() {
+    final var boundedPath = directory.resolve("capture-bounded");
+    final var plainPath = directory.resolve("capture-plain");
+    create(boundedPath);
+    create(plainPath);
+    try (final Database<JsonResourceSession> boundedDatabase = Databases.openJsonDatabase(boundedPath);
+        final Database<JsonResourceSession> plainDatabase = Databases.openJsonDatabase(plainPath);
+        final JsonResourceSession bounded = boundedDatabase.beginResourceSession("resource");
+        final JsonResourceSession plain = plainDatabase.beginResourceSession("resource")) {
+      final List<Long> keys = load(bounded);
+      assertEquals(keys, load(plain));
+      for (final JsonResourceSession session : List.of(bounded, plain)) {
+        try (final JsonNodeTrx writer = session.beginNodeTrx();
+            final PathSummaryReader paths = session.openPathSummary()) {
+          final long key = keys.get(0);
+          assertTrue(writer.moveTo(key) && writer.moveToFirstChild());
+          writer.setNumberValue(123456);
+          final ProjectionIndexRowExtractor extractor = new ProjectionIndexRowExtractor(definition(), paths);
+          assertTrue(extractor.extractInto(writer, key));
+          final ProjectionIndexRowExtractor.CapturedRow row = extractor.captureRow();
+          if (session == bounded) {
+            writer.getStorageEngineWriter().captureRecordForDeferredRead(key);
+            writer.getStorageEngineWriter().asyncFlushStorageEpoch();
+            writer.getStorageEngineWriter().awaitPendingAsyncFlush();
+            extractor.useCapturedRows(record -> record == key ? row : null);
+            assertTrue(writer.moveToDocumentRoot());
+            assertTrue(extractor.extractInto(writer, key));
+            assertEquals(key, writer.getNodeKey());
+            assertEquals(NodeKind.OBJECT, writer.getKind());
+            assertTrue(writer.moveToDocumentRoot());
+            assertTrue(extractor.extractInto(writer, key, new long[] {1L}));
+            assertEquals(key, writer.getNodeKey());
+          }
+          assertTrue(writer.moveTo(key));
+          writer.insertObjectRecordAsFirstChild("extra", new StringValue("unindexed"));
+          assertTrue(writer.moveTo(key));
+          final long firstChild = writer.getFirstChildKey();
+          final long children = writer.getChildCount();
+          if (session == bounded) {
+            writer.getStorageEngineWriter().asyncFlushStorageEpoch();
+            writer.getStorageEngineWriter().awaitPendingAsyncFlush();
+          }
+          assertTrue(writer.moveToDocumentRoot() && writer.moveTo(key));
+          assertEquals(children, writer.getChildCount());
+          assertEquals(firstChild, writer.getFirstChildKey());
+          writer.commit();
+        }
+      }
+      try (final JsonNodeReadOnlyTrx left = bounded.beginNodeReadOnlyTrx();
+          final JsonNodeReadOnlyTrx right = plain.beginNodeReadOnlyTrx()) {
+        assertTrue(left.moveTo(keys.get(0)) && right.moveTo(keys.get(0)));
+        assertEquals(right.getChildCount(), left.getChildCount());
+        assertEquals(right.getFirstChildKey(), left.getFirstChildKey());
+        final StorageEngineReader leftStorage = left.getStorageEngineReader();
+        final StorageEngineReader rightStorage = right.getStorageEngineReader();
+        final ProjectionIndexMetadata meta = ProjectionIndexMetadata.requireReady(leftStorage, INDEX);
+        final ProjectionIndexMetadata twinMeta = ProjectionIndexMetadata.requireReady(rightStorage, INDEX);
+        assertEquals(twinMeta.rowGroupCount(), meta.rowGroupCount());
+        assertArrayEquals(projectionRows(rightStorage,
+            ProjectionIndexFences.readPhysicalOrder(rightStorage, INDEX, twinMeta.rowGroupCount())),
+            projectionRows(leftStorage,
+                ProjectionIndexFences.readPhysicalOrder(leftStorage, INDEX, meta.rowGroupCount())));
+      }
+    }
   }
 
   /**

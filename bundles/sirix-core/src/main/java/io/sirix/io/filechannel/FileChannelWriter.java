@@ -560,7 +560,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /**
    * The file-channel storage shares its spill holder with every reader; only such a writer spills.
    */
-  void setSpillChannelHolder(final SpillChannelHolder holder) {
+  public void setSpillChannelHolder(final SpillChannelHolder holder) {
     spillChannelHolder = holder;
     reader.setSpillChannelHolder(holder);
   }
@@ -614,6 +614,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       return this;
     } catch (final IOException e) {
       throw new SirixIOException(e);
+    } finally {
+      byteBufferBytes.clear();
     }
   }
 

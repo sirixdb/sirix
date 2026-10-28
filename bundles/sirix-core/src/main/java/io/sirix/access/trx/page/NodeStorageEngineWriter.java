@@ -64,6 +64,7 @@ import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.ValueDictionaryEntryNode;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
 import io.sirix.page.CASPage;
@@ -179,34 +180,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   static final long RECORD_PAGE_FRAME_BYTES = 1L << 16;
 
-  /**
-   * Explicit live-TIL page bound for the storage epochs of a plain (non-async-flush) write
-   * transaction; {@code 0} sizes it from the off-heap budget, see
-   * {@link #storageEpochLogEntryCount()}.
-   */
-  private static final int CONFIGURED_STORAGE_EPOCH_LOG_ENTRY_COUNT =
-      Integer.getInteger("sirix.storageEpoch.maxLogEntries", 0);
-
   /** Test seam: a positive value replaces the budget-derived plain-transaction bound. */
   private static volatile int storageEpochLogEntryCountForTesting;
 
-  /**
-   * Share of the off-heap budget the live intent log of a plain write transaction may hold before it
-   * rotates a storage-only epoch ({@code -Dsirix.storageEpoch.budgetShare}, default one eighth).
-   */
-  private static final double STORAGE_EPOCH_BUDGET_SHARE = storageEpochBudgetShare();
-
-  private static double storageEpochBudgetShare() {
-    final String configured = System.getProperty("sirix.storageEpoch.budgetShare");
-    if (configured == null) {
-      return 0.125d;
-    }
-    final double share = Double.parseDouble(configured);
-    if (!(share > 0d && share <= 1d)) {
-      throw new IllegalArgumentException("sirix.storageEpoch.budgetShare must be in (0, 1]: " + configured);
-    }
-    return share;
-  }
+  private static final double STORAGE_EPOCH_BUDGET_SHARE = 0.125d;
 
   /**
    * Live-TIL page bound at which a plain write transaction rotates a storage-only epoch.
@@ -220,17 +197,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * most a quarter of the budget, the slice the cache sizing leaves free. A quarter (half with the
    * frozen epoch) exhausted the allocator's small size class at t1M on a 4 GiB arena, since a log
    * entry is a page of any size class, not a 64 KiB frame. The async-flush import bound
-   * ({@link #MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT}) is the floor, and an explicit page count
-   * ({@code -Dsirix.storageEpoch.maxLogEntries}) or the test seam replaces the derived bound.
+   * ({@link #MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT}) is the floor; the test seam replaces the derived bound.
    * </p>
    */
   static int storageEpochLogEntryCount() {
     final int forTesting = storageEpochLogEntryCountForTesting;
     if (forTesting > 0) {
       return forTesting;
-    }
-    if (CONFIGURED_STORAGE_EPOCH_LOG_ENTRY_COUNT > 0) {
-      return Math.max(MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT, CONFIGURED_STORAGE_EPOCH_LOG_ENTRY_COUNT);
     }
     final long budgetBytes = FrameSlotAllocator.getInstance().getMaxBufferSize();
     final long epochBytes = (long) (budgetBytes * STORAGE_EPOCH_BUDGET_SHARE);
@@ -1738,12 +1711,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     final int revision = newRevisionRootPage.getRevision();
     if (indexType == IndexType.DOCUMENT && recordSnapshot != null) {
-      // A page a storage epoch wrote out is not in the current log generation. A record captured from
-      // it is answered from its copy without resolving the page at all (the commit-time maintenance's
-      // read path): every change to a record root re-queues it, so the copy is as current as the page.
       final int pagePutGeneration = log.documentPagePutGeneration(recordPageKey);
       if (pagePutGeneration >= 0 && pagePutGeneration != log.getCurrentGeneration()) {
-        final Object captured = recordSnapshot.lookup(recordKey);
+        final Object captured = recordSnapshot.lookup(recordKey, pagePutGeneration);
         if (captured != null) {
           return captured == WriterRecordSnapshot.deleted()
               ? null
@@ -1781,9 +1751,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     if (indexType == IndexType.DOCUMENT && recordSnapshot != null) {
-      // The page was written out by a storage epoch. A record captured before that, whose page was
-      // not put into the log again afterwards, is served from its copy instead of the durable route.
-      final Object captured = recordSnapshot.lookup(recordKey);
+      final Object captured = recordSnapshot.lookup(recordKey, log.documentPagePutGeneration(recordPageKey));
       if (captured != null) {
         return captured == WriterRecordSnapshot.deleted()
             ? null
@@ -1821,14 +1789,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     final int revision = newRevisionRootPage.getRevision();
     final long nullKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-    // The record's root and its immediate siblings, shallowly: maintenance reads the root for
-    // membership
-    // (kind, parent, path class) and the siblings' pointers, which this record's insertion or removal
-    // changed; its field values travel as a captured row. Only nodes whose page is live in the log are
-    // copied: a node whose page is not live is either from a committed revision, which the commit-time
-    // read gets from the shared cache anyway, or was flushed by an earlier epoch and copied then. Every
-    // change to a root re-queues it (its own record dirtied, or a neighbour inserted or removed), so a
-    // copy is replaced whenever the node changed and the page was live again.
     final LongArrayList pending = new LongArrayList();
     pending.push(recordRootKey);
     while (!pending.isEmpty()) {
@@ -1853,9 +1813,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         node = live instanceof final FlyweightNode flyweight
             ? flyweight.toSnapshot()
             : live;
-        snapshot.capture(nodeKey, node);
+        snapshot.capture(nodeKey, node, log.getCurrentGeneration(), recordPageKey);
       } else {
-        final Object existing = snapshot.lookup(nodeKey);
+        final Object existing = snapshot.lookup(nodeKey, log.documentPagePutGeneration(recordPageKey));
         if (existing == null || existing == WriterRecordSnapshot.deleted()) {
           continue;
         }
@@ -1872,7 +1832,38 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
+  private void refreshCapturedRecords(final KeyValueLeafPage page) {
+    final WriterRecordSnapshot snapshot = recordSnapshot;
+    if (snapshot == null || page.getIndexType() != IndexType.DOCUMENT) {
+      return;
+    }
+    final LongArrayList keys = snapshot.keysOnPage(page.getPageKey());
+    if (keys == null) {
+      return;
+    }
+    for (int i = 0; i < keys.size(); i++) {
+      final long key = keys.getLong(i);
+      DataRecord node = getRecordForWriteAccess(page, key);
+      if (node == null) {
+        final PageContainer container = getMostRecentPageContainer(IndexType.DOCUMENT, page.getPageKey(), -1,
+            newRevisionRootPage.getRevision());
+        if (container != null) {
+          node = getRecordForWriteAccess((KeyValueLeafPage) container.getComplete(), key);
+        }
+      }
+      node = node == null ? null : storageEngineReader.checkItemIfDeleted(node);
+      if (node instanceof final FlyweightNode flyweight) {
+        node = flyweight.toSnapshot();
+      }
+      snapshot.capture(key, node, log.getCurrentGeneration(), page.getPageKey());
+    }
+  }
+
   private void clearRecordSnapshot() {
+    epochFsstSamples = null;
+    epochFsstSampleCount = 0;
+    commitFsstTable = null;
+    commitFsstTableId = 0;
     final WriterRecordSnapshot snapshot = recordSnapshot;
     if (snapshot != null) {
       snapshot.clear();
@@ -2428,6 +2419,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           ? Math.max(0L, System.nanoTime() - admissionWaitStart)
           : 0L;
 
+      if (includeTransactionLog && recordSnapshot != null) {
+        log.forEachActiveRecordPage(this::refreshCapturedRecords);
+      }
+      if (includeTransactionLog && spillingStorageEpochs && insertFsstEnabled) {
+        captureEpochFsstSamples();
+      }
+
       // O(1) snapshots — array swaps only. A side-only epoch MUST NOT rotate the TIL: it can run
       // in the middle of projection maintenance while that maintenance is still reading records.
       final int snapshotSize = includeTransactionLog
@@ -2775,15 +2773,36 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             "Spill key " + fragments.get(i).key() + " leaked into the fragment chain of spilled page " + reference);
       }
     }
-    storagePageReaderWriter.copySpilledPage(getResourceSession().getResourceConfig(), reference, bufferBytes);
+    if (commitFsstTable != null) {
+      final KeyValueLeafPage page = (KeyValueLeafPage) storagePageReaderWriter.read(reference,
+          getResourceSession().getResourceConfig());
+      try {
+        if (needsSymbolTable(page)) {
+          page.setFsstSymbolTable(commitFsstTable);
+          page.setFsstSymbolTableId(commitFsstTableId);
+          prepareFinalCommitKeyValuePage(getResourceSession().getResourceConfig(), page);
+          page.commit(this);
+          requireNoSpillKeys(reference, page);
+          writeUncommittedPage(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
+        } else {
+          storagePageReaderWriter.copySpilledPage(getResourceSession().getResourceConfig(), reference, bufferBytes);
+        }
+      } finally {
+        page.retire();
+      }
+    } else {
+      storagePageReaderWriter.copySpilledPage(getResourceSession().getResourceConfig(), reference, bufferBytes);
+    }
     firstUncommittedPageOffset = Math.min(firstUncommittedPageOffset, reference.getKey());
     final int logKey = reference.getLogKey();
     if (logKey >= 0) {
       final PageReference originalRef = log.getOriginalRef(reference);
       if (originalRef != null && originalRef != reference && originalRef.getKey() == spillKey) {
         originalRef.setKey(reference.getKey());
+        originalRef.copyHashFrom(reference);
       }
     }
+    reference.refreshTransactionLogReference();
   }
 
   private void writeUncommittedPage(final ResourceConfiguration resourceConfiguration, final PageReference reference,
@@ -4071,18 +4090,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * prepareIndirectPage() if needed.
    */
   private void reAddStructuralPagesToTil() {
-    // Re-add structural pages referenced by RevisionRootPage.
-    // These are the top-level index root pages that get modified during insertion
-    // (e.g., NamePage for name keys, PathSummaryPage for path summaries).
-    reAddPageIfFrozen(newRevisionRootPage.getPathSummaryPageReference());
-    reAddPageIfFrozen(newRevisionRootPage.getNamePageReference());
-    reAddPageIfFrozen(newRevisionRootPage.getCASPageReference());
-    reAddPageIfFrozen(newRevisionRootPage.getPathPageReference());
-    reAddPageIfFrozen(newRevisionRootPage.getDeweyIdPageReference());
-    reAddPageIfFrozen(newRevisionRootPage.getProjectionIndexPageReference());
-    reAddPageIfFrozen(newRevisionRootPage.getValidTimeIndexPageReference());
-    reAddPageIfFrozen(newRevisionRootPage.getTemporalAggregateIndexPageReference());
-    reAddPageIfFrozen(newRevisionRootPage.getChangeLogIndexPageReference());
+    for (final PageReference reference : newRevisionRootPage.getReferences()) {
+      reAddPageIfFrozen(reference);
+    }
   }
 
   /**
@@ -4092,7 +4102,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private void reAddPageIfFrozen(final PageReference ref) {
     if (ref != null && log.isFrozen(ref)) {
       final PageContainer container = log.get(ref);
-      if (container != null) {
+      if (container != null && !(container.getModified() instanceof KeyValueLeafPage)
+          && !(container.getModified() instanceof IndirectPage)) {
         log.put(ref, container);
       }
     }
@@ -4460,6 +4471,43 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private static final int FSST_REVISION_SAMPLE_CAP = 1024;
 
+  private @Nullable Long2ObjectOpenHashMap<FsstSamples> epochFsstSamples;
+  private int epochFsstSampleCount;
+  private byte @Nullable [] commitFsstTable;
+  private long commitFsstTableId;
+
+  private record FsstSamples(List<byte[]> values, int generation, boolean complete) {}
+
+  private void captureEpochFsstSamples() {
+    if (epochFsstSamples == null) {
+      epochFsstSamples = new Long2ObjectOpenHashMap<>();
+    }
+    for (final PageContainer container : log.getList()) {
+      if (!(container.getModified() instanceof final KeyValueLeafPage page)
+          || page.getIndexType() != IndexType.DOCUMENT) {
+        continue;
+      }
+      final FsstSamples previous = epochFsstSamples.remove(page.getPageKey());
+      if (previous != null) {
+        epochFsstSampleCount -= previous.values().size();
+      }
+      final int remaining = FSST_REVISION_SAMPLE_CAP - epochFsstSampleCount;
+      if (remaining == 0 || !needsSymbolTable(page)) {
+        continue;
+      }
+      final List<byte[]> values = new ArrayList<>(remaining + 1);
+      page.collectFsstStringSamples(values, remaining + 1);
+      final boolean complete = values.size() <= remaining;
+      if (!complete) {
+        values.removeLast();
+      }
+      if (!values.isEmpty()) {
+        epochFsstSamples.put(page.getPageKey(), new FsstSamples(values, log.getCurrentGeneration(), complete));
+        epochFsstSampleCount += values.size();
+      }
+    }
+  }
+
   /**
    * The database type of this writer's resource; delegated so reader and writer share one derivation.
    */
@@ -4506,18 +4554,45 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // conservative error (worst case one unnecessary rebuild), and measured on real ingest the
     // trial still reuses on the overwhelming majority of commits.
     final List<byte[]> samples = new ArrayList<>(FSST_REVISION_SAMPLE_CAP);
-    int documentPages = 0;
-    for (final PageContainer container : log.getList()) {
-      if (container.getModified() instanceof KeyValueLeafPage kvl && needsSymbolTable(kvl)) {
-        documentPages++;
-        kvl.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
-        if (samples.size() >= FSST_REVISION_SAMPLE_CAP) {
-          break;
+    if (spillingStorageEpochs) {
+      final LongIterator pages = log.documentPageKeysInPutOrder();
+      while (pages.hasNext() && samples.size() < FSST_REVISION_SAMPLE_CAP) {
+        final long pageKey = pages.nextLong();
+        final FsstSamples captured = epochFsstSamples == null ? null : epochFsstSamples.get(pageKey);
+        final int remaining = FSST_REVISION_SAMPLE_CAP - samples.size();
+        if (captured != null && captured.generation() >= log.documentPagePutGeneration(pageKey)
+            && (captured.complete() || captured.values().size() >= remaining)) {
+          samples.addAll(captured.values().subList(0, Math.min(remaining, captured.values().size())));
+          continue;
+        }
+        final ReadPageResolution resolution =
+            resolvePageForRead(pageKey, -1, IndexType.DOCUMENT, newRevisionRootPage.getRevision());
+        if (resolution.pageContainer != null) {
+          final KeyValueLeafPage page = (KeyValueLeafPage) resolution.pageContainer.getModified();
+          if (needsSymbolTable(page)) {
+            page.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
+          }
+        } else if (resolution.durableReference != null) {
+          final KeyValueLeafPage page = (KeyValueLeafPage) storagePageReaderWriter.read(resolution.durableReference,
+              getResourceSession().getResourceConfig());
+          try {
+            if (needsSymbolTable(page)) {
+              page.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
+            }
+          } finally {
+            page.retire();
+          }
         }
       }
-    }
-    if (LOGGER.isDebugEnabled()) {
-      LOGGER.debug("FSST commit sweep: docPages={} samples={}", documentPages, samples.size());
+    } else {
+      for (final PageContainer container : log.getList()) {
+        if (container.getModified() instanceof KeyValueLeafPage kvl && needsSymbolTable(kvl)) {
+          kvl.collectFsstStringSamples(samples, FSST_REVISION_SAMPLE_CAP);
+          if (samples.size() >= FSST_REVISION_SAMPLE_CAP) {
+            break;
+          }
+        }
+      }
     }
     if (samples.size() < FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
       return;
@@ -4725,6 +4800,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Hand every eligible document page in the log the revision's table and its id.
    */
   private void distributeFsstSymbolTable(final byte[] table, final long id) {
+    commitFsstTable = table;
+    commitFsstTableId = id;
     // Second sweep, after the record creation above has finished mutating the log. Document pages
     // only — dictionary and index pages hold no STRING_VALUE records, so a table would be dead
     // weight in their bytes.

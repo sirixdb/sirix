@@ -1840,7 +1840,10 @@ public enum PageKind {
       PageLayout.setFlags(slottedPage, references.isEmpty()
           ? (byte) (pageFlags | PageLayout.FLAG_COMPLETE_COLUMN_COVERAGE)
           : (byte) (pageFlags & ~PageLayout.FLAG_COMPLETE_COLUMN_COVERAGE));
-      sink.writeSegment(slottedPage, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
+      sink.writeSegment(slottedPage, 0, PageLayout.OFF_HEAP_END);
+      sink.writeInt(PageLayout.getHeapUsed(slottedPage));
+      sink.writeSegment(slottedPage, PageLayout.OFF_HEAP_USED,
+          PageLayout.DISK_HEADER_BITMAP_SIZE - PageLayout.OFF_HEAP_USED);
 
       final long afterHeaderBitmap = sectionDiag
           ? sink.writePosition()

@@ -13,6 +13,8 @@ import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2IntLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2IntMap;
@@ -1453,12 +1455,16 @@ public final class TransactionIntentLog implements AutoCloseable {
    * was not put again after the capture; the map is never trimmed before {@link #clear()} because a
    * flushed page's reference leaves every generation layer.
    */
-  private final Long2IntOpenHashMap documentPagePutGeneration = newDocumentPagePutGenerationMap();
+  private final Long2IntLinkedOpenHashMap documentPagePutGeneration = newDocumentPagePutGenerationMap();
 
-  private static Long2IntOpenHashMap newDocumentPagePutGenerationMap() {
-    final Long2IntOpenHashMap map = new Long2IntOpenHashMap();
+  private static Long2IntLinkedOpenHashMap newDocumentPagePutGenerationMap() {
+    final Long2IntLinkedOpenHashMap map = new Long2IntLinkedOpenHashMap();
     map.defaultReturnValue(-1);
     return map;
+  }
+
+  public LongIterator documentPageKeysInPutOrder() {
+    return documentPagePutGeneration.keySet().iterator();
   }
 
   private void noteDocumentPagePut(final PageContainer value) {

@@ -24,6 +24,7 @@ package io.sirix.io.memorymapped;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.io.filechannel.FileChannelWriter;
+import io.sirix.io.filechannel.SpillChannelHolder;
 import io.sirix.page.PagePersister;
 import io.sirix.page.SerializationType;
 import io.sirix.exception.SirixIOException;
@@ -90,6 +91,8 @@ public final class MMStorage implements IOStorage {
   private final Path revisionsFilePath;
 
   private final Path dataFilePath;
+
+  private final SpillChannelHolder spillChannelHolder = new SpillChannelHolder();
 
   /**
    * Current arena generation for new readers.
@@ -305,9 +308,11 @@ public final class MMStorage implements IOStorage {
       }
 
       // Create reader with reference-counted generation
-      return new MMFileReader(generation.getDataSegment(), generation.getRevisionsSegment(),
+      final MMFileReader reader = new MMFileReader(generation.getDataSegment(), generation.getRevisionsSegment(),
           new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
           cache.synchronous(), generation, this);
+      reader.setSpillChannelHolder(spillChannelHolder);
+      return reader;
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {
@@ -383,10 +388,12 @@ public final class MMStorage implements IOStorage {
 
       // MM readers remap only when the physical file size grew; preallocated in-place commits
       // would leave fresh readers on a stale mapping, so this backend pins the legacy grow path.
-      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
+      final FileChannelWriter writer = new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
           serializationType, pagePersister, cache, revisionIndexHolder, reader,
           /* preallocatedCommit */ false, /* lazyRevisionRecords */ false, revisionsOffsetFilePath,
           resourceUuidMsb, resourceUuidLsb);
+      writer.setSpillChannelHolder(spillChannelHolder);
+      return writer;
     } catch (final IOException | InterruptedException e) {
       throw new SirixIOException(e);
     } finally {

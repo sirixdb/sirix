@@ -11,6 +11,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.same;
@@ -60,6 +61,41 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedStatic;
 
 final class FileChannelWriterEmptyPipelineTest {
+
+  @Test
+  void spilledScratchNeverPrefixesTheNextFrame(@TempDir final Path tempDir) {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    final byte[] cachedBytes = patternedBytes(193, 41);
+    final KeyValueLeafPage cached = mock(KeyValueLeafPage.class);
+    when(cached.getIndexType()).thenReturn(IndexType.DOCUMENT);
+    doReturn(Bytes.wrapForWrite(cachedBytes)).when(cached).getBytes();
+    final OverflowPage fresh = new OverflowPage(patternedBytes(251, 19));
+    final byte[] expected = serialize(config, fresh);
+    final FileChannelStorage storage = createStorage(config);
+    try (final Writer writer = storage.createWriter();
+        final BytesOut<?> spill = Bytes.elasticOffHeapByteBuffer();
+        final BytesOut<?> append = Bytes.elasticOffHeapByteBuffer()) {
+      writer.writeSpilled(config, new PageReference(), cached, spill);
+      writer.writeSpilled(config, new PageReference(), cached, spill);
+      writer.writeSpilled(config, new PageReference(), fresh, spill);
+      writer.write(config, new PageReference(), fresh, append);
+      assertBufferedFrame(append.toByteArray(), 0, expected);
+      final BytesOut<?> failing = mock(BytesOut.class);
+      when(failing.writeInt(anyInt())).thenThrow(new IllegalStateException("injected append failure"));
+      assertThrows(IllegalStateException.class,
+          () -> writer.writeSpilled(config, new PageReference(), cached, failing));
+      append.clear();
+      writer.write(config, new PageReference(), fresh, append);
+      assertBufferedFrame(append.toByteArray(), 0, expected);
+      assertThrows(IllegalStateException.class,
+          () -> writer.writeSpilled(config, new PageReference(), fresh, failing));
+      append.clear();
+      writer.write(config, new PageReference(), fresh, append);
+      assertBufferedFrame(append.toByteArray(), 0, expected);
+    } finally {
+      storage.close();
+    }
+  }
 
   @Test
   void identityWireBytesAndHashesSurviveAColdReaderReopen(@TempDir final Path tempDir) throws IOException {
