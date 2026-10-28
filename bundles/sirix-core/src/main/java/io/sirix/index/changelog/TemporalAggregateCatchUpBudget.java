@@ -1,13 +1,13 @@
 package io.sirix.index.changelog;
 
 /**
- * Bounded work for one query execution, shared across temporal aggregate revisions and
- * declarations.
+ * Optional decode limits shared across temporal aggregate revisions and declarations. Complete
+ * combining retains input validation without imposing cumulative work limits.
  */
 public final class TemporalAggregateCatchUpBudget {
   private TemporalAggregateCatchUpBudget() {}
 
-  /** Execution-owned budget, replenished for each execution even when its context is reused. */
+  /** Execution-owned decode policy; the default constructor enables bounded work. */
   public static final class Budget {
     private final boolean complete;
     private int chunks = 512;

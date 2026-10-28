@@ -110,7 +110,7 @@ a catalogue file. Batches process at most eight revisions, stopping between revi
 reach 100,000 entries; an individual slab is not split. Each batch has one derived commit and exact
 mapping at its end. The batch reads a fixed published high watermark; catalogue changes end a
 batch so declaring revisions have a snapshot.
-Intermediate revisions use bounded exact query-time tail catch-up, or the exact fallback when its budget is exceeded.
+Intermediate revisions use the query-time tail combining described below.
 
 Maintainer catch-up appends immutable signed delta parts. Group heads also record checkpoint and
 delta byte counts. Groups with more than sixteen parts or delta bytes above half the checkpoint
@@ -152,12 +152,10 @@ an extremum still exposes the next surviving value. Equal changes cancel. This d
 fold a time-cover tree on the commit path. The asynchronous maintainer continues consuming the raw
 slabs.
 
-For a requested declaration, query catch-up reads every group operand in each tail revision, then
-caches the completed tail for reuse across point instants. Oversized operands decline the entire route.
-Coverage headers detect unsupported rows and arithmetic overflow and bind operands to the raw slab's
-publication identity. That generation prevents stale blocks from a previous maintenance barrier
-in the same transaction being read after the operands are replaced. Empty revisions retain coverage
-headers. Historical raw slabs without summary coverage decline safely.
+Source summary coverage headers detect unsupported rows and arithmetic overflow and bind operands
+to the raw slab's publication identity. That generation prevents stale blocks from a previous
+maintenance barrier in the same transaction being read after the operands are replaced. Empty
+revisions retain coverage headers. Historical raw slabs without summary coverage decline safely.
 The packed operand layout is specified in [DISK_FORMAT.md](DISK_FORMAT.md#2-pages).
 
 Each maintenance call advances the aggregate base by at most eight source publications. If the
@@ -167,13 +165,14 @@ base and the validated fold frontier. Folding can therefore get ahead of base ad
 both make bounded progress under continuing publications. Smaller backlogs advance the base
 directly; an up-to-date base does not trigger redundant summary publications.
 Two adjacent, equally sized ranges combine into a binary range;
-children remain available for historical queries. Fold data, the fold frontier and the unchanged
+children remain available for historical queries. Fold data, the fold frontier and any existing
 aggregate-base mapping publish in one derived commit. Every range carries its source publication
 identity, so a truncate/reissue cannot reuse another history's fold. This adds no source-commit work.
 
-A completely folded interval uses at most two ranges per revision bit (60 ranges for positive Java
-revision integers). The query reads any newer, not-yet-folded suffix from the original per-commit
-summaries. It always finishes combining valid summaries; the former execution-wide decode limits
+A completely folded interval uses at most two binary ranges per revision bit (60 ranges for positive
+Java revision integers), plus single-revision operands at unpaired boundaries. The query reads any
+uncovered revisions from the original per-commit summaries. It always finishes combining valid
+summaries; the former execution-wide decode limits
 must not turn a later historical point into a source scan. A paused or slower maintainer can leave
 an arbitrarily long raw suffix: correctness is retained, but a constant latency bound cannot be
 promised while all maintenance is stopped. `foldNextSummaryBatch()` lets paused embedded operators
@@ -196,8 +195,8 @@ frontier to reach or exceed a committed revision. The default timeout is 30,000 
 zero polls without waiting. It returns `true` when reached and `false` on timeout or when no
 maintainer exists. Negative timeouts, unpublished revisions, interruption, shutdown and failed
 maintenance raise a query error. Interruption preserves the Java thread's interrupt flag.
-The function does not request an exact mapping for a historical batch interior: a later query
-still uses the greatest preceding mapping and bounded catch-up, or the exact fallback.
+The function does not request an exact mapping for a historical batch interior; queries use the
+mapping selection, tail combining and fallback rules above.
 
 A revert uses the slab's represented base revision, reverts the derived writer to that source
 mapping (replaying slabs from the preceding mapped revision for a batch interior), then applies

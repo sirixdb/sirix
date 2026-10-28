@@ -425,20 +425,19 @@ use `sirix.changelog.workDiag`. Source work is captured with the maintainer paus
 maintenance cannot contaminate the process-global counts.
 
 `TemporalAggregateCatchUpWorkBudgetTest` checks lag 0, 1, 8, 16 and 17 against an exact arithmetic
-oracle, requires the aggregate route, and keeps the fixture's two-summary-chunks-per-revision bound;
-repeated points read no tail chunks. Lag 17 now must serve: the former zero-tail-read decline check
-is replaced by zero fallback and zero source-column reads, as required by complete tail combining.
-The previously admitted cases retain their bounds. Standalone queries over a 64-publication ascending
-history share one context and read at most two chunks per distinct revision; reverse queries reuse
-immutable answers with zero tail reads. Scalar revision loops are outside the route's admission.
+oracle, requires the aggregate route with zero fallback and zero source-column reads, and bounds
+the fixture to two summary chunks per revision; repeated points read no tail chunks.
+Standalone queries over a 64-publication ascending history share one context and read at most two
+chunks per distinct revision; reverse queries reuse immutable answers with zero tail reads.
+Scalar revision loops are outside the route's admission.
 The raw history is a positive control (at least 64 chunks); after independently folding summaries,
 lag 8/16/64 queries need at most seven chunks while the aggregate base remains at revision 1. This
 fixture runs for all four versioning types and clears caches before each folded lag.
 Automatic batch maintenance also starts from a caught-up revision 65 with no prior summary folds
-and a 64-publication backlog. Eight publications precede every subsequent call; each call advances
-the base and performs up to two eight-publication fold batches. The fold frontier catches the
-continuing source in seven calls, then cold queries retain the same seven-chunk bound and exact
-arithmetic results as both frontiers advance in all four versioning types, without explicit folding.
+and a 64-publication backlog. Eight publications precede every subsequent call; each call must
+advance the base. The fold frontier catches the continuing source in seven calls, then cold queries
+retain the same seven-chunk bound and exact arithmetic results as both frontiers advance in all four
+versioning types, without explicit folding.
 Mutation evidence (2026-10-15): disabling catch-up preserved both fixture answers but failed the
 served-route requirement at lag 1 for 256 and 4,096 source rows. The fallback read two/eight
 projection BODY segments instead of zero. The source was restored before full validation.

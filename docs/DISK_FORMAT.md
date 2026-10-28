@@ -298,9 +298,8 @@ fail-fast lookups, never ordinals.
   `(key length i32, operand length i32, key bytes, operand bytes)`. Operands use the same signed
   endpoint/frequency codec as source summaries, with no single-source-operand size restriction.
   Key `{10}` records the fold frontier `(source revision i32, identity projection i32, identity
-  16 bytes)`. The ordinary derived beacon atomically publishes these records and the unchanged
-  aggregate-base mapping. Children are retained for historical interval decomposition; range
-  identities are checked against the caller's pinned source publication before decoding data.
+  16 bytes)`. Publication, historical range retention and identity validation follow
+  [the temporal aggregate contract](TEMPORAL_AGGREGATE_INDEX.md).
 
 - **KeyValueLeafPage** (the data page): 1024 implicit-keyed slots
   (`nodeKey = recordPageKey << 10 | slot`), 160-byte header+slot-bitmap, then a

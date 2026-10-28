@@ -442,7 +442,9 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       }
     }
 
-    /** Executes one bounded catch-up batch, or one idle fold, while the daemon is paused. */
+    /**
+     * While paused, advances a bounded base batch with eligible summary folding, or folds idle parts.
+     */
     public boolean maintainNextBatch() {
       if (!paused) {
         throw new IllegalStateException("Pause the maintainer before explicit maintenance");
@@ -450,7 +452,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
       return maintainNextBatch(8);
     }
 
-    /** Drain at most the requested number of source revisions while paused. */
+    /** Advances at most the requested number of base revisions, with eligible folding, while paused. */
     public boolean maintainNextBatch(final int maxRevisions) {
       if (!paused || maxRevisions < 1 || maxRevisions > 8) {
         throw new IllegalArgumentException("Paused maintenance requires a batch size from 1 through 8");

@@ -14,7 +14,7 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 
-/** Revision-owned packed group operands, scanned as a complete tail during query catch-up. */
+/** Revision-owned packed group operands used for raw tail combining and maintainer-owned folds. */
 public final class TemporalAggregateSummaryLog {
   private static final int MAGIC = 0x54415331;
   private static final int HEADER_BYTES = 60;
