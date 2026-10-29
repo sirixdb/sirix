@@ -1385,36 +1385,8 @@ When a page is modified, SirixDB creates a new version rather than modifying in 
 
 ### Transaction Intent Log (TIL)
 
-During a write transaction, modified pages are held in memory in the **Transaction Intent Log**:
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        Transaction Intent Log                           │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Write Transaction                                                      │
-│  ─────────────────                                                      │
-│                                                                         │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │  TransactionIntentLog                                             │  │
-│  │  ┌─────────────────────────────────────────────────────────────┐  │  │
-│  │  │ PageContainer[0]: complete=Page₁, modified=Page₁'           │  │  │
-│  │  │ PageContainer[1]: complete=Page₂, modified=Page₂'           │  │  │
-│  │  │ PageContainer[2]: complete=Page₃, modified=Page₃'           │  │  │
-│  │  │ ...                                                         │  │  │
-│  │  └─────────────────────────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-│  On COMMIT:                          On ROLLBACK:                       │
-│  ───────────                         ────────────                       │
-│  1. Write all modified pages         1. TIL.clear()                     │
-│  2. Write new RevisionRootPage       2. Close all pages                 │
-│  3. Update UberPage pointer          3. Release memory                  │
-│  4. fsync() for durability                                              │
-│  5. TIL.clear()                                                         │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+See the [transaction-model TIL contract](#transaction-intent-log-til-1) for page ownership,
+commit/rollback handling, and the storage epochs used by long write transactions.
 
 ### Versioning Strategies
 
@@ -2024,7 +1996,7 @@ The `PageContainer` holds two views of a page during modification:
 │   ═════════════════════════════════                                         │
 │   • Only ONE write transaction per resource at a time                       │
 │   • Creates a NEW revision on commit                                        │
-│   • Changes held in Transaction Intent Log until commit                     │
+│   • Uncommitted state follows the TIL and storage-epoch contracts below      │
 │   • Readers never blocked by writer (MVCC)                                  │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -2112,14 +2084,14 @@ The TIL holds uncommitted modifications during a write transaction:
 
 ### Auto-Commit and the Async Pre-Flush (`KEEP_OPEN_ASYNC_FLUSH`)
 
-Long-running write transactions (bulk loads, streaming ingest) can bound their
-memory and commit latency with two distinct mechanisms — one of which is a
-real commit, and one of which deliberately is **not**:
+Long-running write transactions use revision-publishing commits or storage-only
+epochs. Storage epochs release flushed record pages without publishing a revision:
 
 | Mechanism | Creates a revision? | Writes a commit record? | What it does |
 |---|---|---|---|
 | Explicit `commit()` | yes | yes | full commit protocol |
 | Sync auto-commit (`maxNodeCount`/timer, `KEEP_OPEN`) | yes | yes | full commit protocol, transaction stays open |
+| [Plain-transaction storage epoch](#storage-only-epochs-in-plain-transactions) | **no** | **no** | spills record pages while deferring incremental projection maintenance |
 | Async pre-flush (`KEEP_OPEN_ASYNC_FLUSH`) | **no** | **no** | shadow-writes leaf pages ahead of the next real commit |
 | Async durable commit (`KEEP_OPEN_ASYNC_COMMIT`) | yes | yes | page writes on the writer thread, durability barriers in the background (`docs/ASYNC_COMMIT_DESIGN.md`) |
 
@@ -2179,6 +2151,39 @@ Two invariants follow that other subsystems rely on:
 2. **Only reachable bytes carry authority.** Superseded flushes are never
    referenced by any revision; page hashes embedded in parent pages cover
    exactly the pages a revision can read, never dead space.
+
+### Storage-only epochs in plain transactions
+
+On `FILE_CHANNEL` and `MEMORY_MAPPED`, a plain node write transaction rotates
+its live TIL at a safe mutation boundary when it reaches the budget-derived
+page bound, including inside a publication scope. Compound structural operations
+finish before rotation. Count-based auto-commit keeps its modification count
+and still publishes at its configured threshold; `KEEP_OPEN_ASYNC_COMMIT` uses
+its own revision pipeline instead.
+
+`NodeStorageEngineWriter.storageEpochLogEntryCount()` owns the bound: one eighth
+of the allocator budget expressed in 64 KiB frames, floored at the async import
+entry bound. This is a page-count heuristic, not an allocator-headroom signal
+or a hard limit on total transaction memory: page size classes differ, and
+structural state and deferred maintenance inputs can remain live.
+
+The frozen record pages and their overflow carriers go to the resource's
+`sirix.spill` file; projection side pages flushed during the epoch use it too.
+Spill keys address that file only within the open transaction. A later mutation
+can read an owned page back without treating it as another committed revision
+in a fragment chain. At commit, only reachable spilled pages are materialized
+into the data file, references receive final data-file offsets, and pages that
+need final FSST encoding are re-encoded with the revision's table. Superseded
+spill frames never enter the committed store, and spill keys must never appear
+in committed pages. The spill file is discarded on commit or abort and deleted
+on writer close. Storage rotation preserves the committed layout of a transaction
+that never rotated; see [verification](VERIFICATION.md#running-the-layers) for
+the deterministic store-identity suites.
+
+Incremental projection maintenance remains deferred across these epochs;
+[its capture contract](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md#51-unchanged-rows-are-carried-over)
+specifies which inputs survive rotation. The async import mode described above
+continues to maintain projections per epoch and write directly to the data file.
 
 ## Memory Management
 

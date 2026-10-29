@@ -565,6 +565,30 @@ public interface StorageEngineWriter extends StorageEngineReader {
    */
   default void asyncFlush() {}
 
+  default void setStorageEpochSpilling(final boolean enabled) {}
+
+  /**
+   * {@link #asyncFlush()} for a storage-only epoch of a plain transaction: the flushed record pages
+   * go to the writer's spill file where the backend supports it, so the data file receives only
+   * committed pages (the commit copies the ones still referenced). The async-flush import mode keeps
+   * writing its epochs to the data file directly. Defaults to {@link #asyncFlush()}.
+   */
+  default void asyncFlushStorageEpoch() {
+    asyncFlush();
+  }
+
+  /**
+   * Keep detached copies of the document record {@code recordRootKey}'s root node and of its
+   * immediate siblings, as they are now, for reads after a storage-only epoch has written their pages
+   * out. Commit-time index maintenance that re-reads a changed record's root is served from the copy
+   * as long as the record's page was not modified again after the capture; otherwise the read goes
+   * through the live log or the durable route as before. A record already deleted is remembered as
+   * deleted. No-op for writers without storage epochs.
+   *
+   * @param recordRootKey the record's root node key
+   */
+  default void captureRecordForDeferredRead(final long recordRootKey) {}
+
   /**
    * Whether the live transaction-intent-log generation has reached the bounded amount of work for one
    * async-flush epoch.
@@ -578,6 +602,17 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @return {@code true} when the foreground should rotate the current async-flush epoch
    */
   default boolean isAsyncFlushLogBoundaryReached() {
+    return false;
+  }
+
+  /**
+   * Whether the live transaction-intent-log generation has reached the page bound at which a plain
+   * (non-async-flush) write transaction rotates a storage-only epoch. Larger than the async-flush
+   * import bound because an updating transaction rewrites a page once per epoch it touches it in.
+   *
+   * @return {@code true} when the foreground should rotate a storage epoch
+   */
+  default boolean isStorageEpochLogBoundaryReached() {
     return false;
   }
 

@@ -1722,6 +1722,14 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
    writes the page, propagates the disk key to copies sharing the log key, and closes both pages of the
    container (`trx/NodeStorageEngineWriter.java:3797-3885`).
 
+Before a structural split, integration or recompression reads child heights, the writer resolves
+every required direct child and retains guards on cache-backed leaves through the operation,
+releasing them on success or failure. A swizzled leaf alone has no lifetime guarantee: even the
+allocating writer thread can synchronously evict it under allocator pressure. TIL-owned pages
+already have transaction lifetime. `ensurePathChildrenLoaded`, `ensureNodeChildrenLoaded` and
+`ChildPageGuards` implement this boundary; `HOTStructuralChildEvictionTest` exercises it under
+a cache smaller than one leaf.
+
 Readers inside a write transaction resolve TIL modified → TIL complete → swizzle → leaf cache → disk
 (`trx/NodeStorageEngineReader.java:4364-4434`; `trx/NodeStorageEngineWriter.java:5393-5423`), and three
 memos are disabled for them: the lookup cache, the root memo and the first-key memo

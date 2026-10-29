@@ -28,6 +28,11 @@ import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.io.filechannel.SpillChannelHolder;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
+import java.io.EOFException;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.RegionsOnlyPage;
@@ -55,6 +60,12 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger
  */
 public final class MMFileReader extends AbstractReader {
+
+  private @Nullable SpillChannelHolder spillChannelHolder;
+
+  void setSpillChannelHolder(final SpillChannelHolder holder) {
+    spillChannelHolder = holder;
+  }
 
   static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
   /** Record length prefixes are pinned little-endian like every other on-disk scalar. */
@@ -311,6 +322,9 @@ public final class MMFileReader extends AbstractReader {
   private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
       final boolean lazyRecordPage) {
     try {
+      if (IOStorage.isSpillKey(reference.getKey())) {
+        return readSpilled(reference, resourceConfiguration, lazyRecordPage);
+      }
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
       final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
       checkDataLength(dataLength);
@@ -337,11 +351,41 @@ public final class MMFileReader extends AbstractReader {
     }
   }
 
+  private Page readSpilled(final PageReference reference, final @Nullable ResourceConfiguration configuration,
+      final boolean lazyRecordPage) throws IOException {
+    final FileChannel channel = spillChannelHolder == null
+        ? null
+        : spillChannelHolder.get();
+    if (channel == null) {
+      throw new SirixIOException("No spill file for page " + reference.getKey());
+    }
+    final long offset = IOStorage.spillOffset(reference.getKey());
+    final ByteBuffer header = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+    readFully(channel, header, offset);
+    final int length = header.flip().getInt();
+    if (length < 0 || length > channel.size() - offset - Integer.BYTES) {
+      throw new SirixIOException("Corrupt spilled page length " + length);
+    }
+    final byte[] payload = new byte[length];
+    readFully(channel, ByteBuffer.wrap(payload), offset + Integer.BYTES);
+    verifyChecksumIfNeeded(payload, reference, configuration);
+    return deserialize(configuration, payload, reference, lazyRecordPage);
+  }
+
+  private static void readFully(final FileChannel channel, final ByteBuffer target, final long offset)
+      throws IOException {
+    while (target.hasRemaining()) {
+      if (channel.read(target, offset + target.position()) < 0) {
+        throw new EOFException("Truncated spilled page");
+      }
+    }
+  }
+
   @Override
   public RegionsOnlyPage readRegionsOnly(final PageReference reference,
       final ResourceConfiguration resourceConfiguration, final int regionKindMask, final int regionDeferMask) {
     try {
-      if (!byteHandler.supportsMemorySegments()) {
+      if (IOStorage.isSpillKey(reference.getKey()) || !byteHandler.supportsMemorySegments()) {
         return null; // caller falls back to the full read path
       }
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();

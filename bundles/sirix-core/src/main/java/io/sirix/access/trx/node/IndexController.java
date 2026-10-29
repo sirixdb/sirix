@@ -312,6 +312,13 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   default void notifyBeforePageFlush() {}
 
   /**
+   * A plain write transaction is about to rotate a storage-only epoch (its live intent log reached
+   * its page bound). Index maintenance stays deferred to the commit; listeners capture the records
+   * they will have to re-read there while those records are still in the transaction's log.
+   */
+  default void notifyBeforeStorageEpoch() {}
+
+  /**
    * Abort listener-owned maintenance state whose validity depends on the current write-transaction
    * lineage. Called before rollback/revert replaces the page writer and before a clean close releases
    * the transaction. It is deliberately not part of {@link #clearChangeListeners()}: successful

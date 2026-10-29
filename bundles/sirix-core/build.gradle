@@ -329,6 +329,18 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
     }
 }
 
+def storageEpochStoreIdentityTest = tasks.register('storageEpochStoreIdentityTest', Test) {
+    group = 'verification'
+    description = 'Checks rotating and plain stores byte-for-byte with deterministic codec selection.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'io.sirix.access.trx.page.StorageEpochStoreIdentityTest'
+        includeTestsMatching 'io.sirix.access.trx.page.StorageEpochDifferentialTest'
+    }
+}
+
 // Copy the complete fork options after all test conventions are configured, before Gradle
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
@@ -340,13 +352,20 @@ gradle.projectsEvaluated {
     dictionaryReadViewAllocationTest.configure { isolatedTest ->
         standardTest.copyTo(isolatedTest)
     }
+    storageEpochStoreIdentityTest.configure { isolatedTest ->
+        standardTest.copyTo(isolatedTest)
+        systemProperty 'sirix.codecBakeoff.probeInterval', '1'
+    }
 }
 
 tasks.named('test', Test).configure {
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
+    exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
+    exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     dependsOn validTimeDisabledLookupCacheTest
     dependsOn dictionaryReadViewAllocationTest
+    dependsOn storageEpochStoreIdentityTest
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

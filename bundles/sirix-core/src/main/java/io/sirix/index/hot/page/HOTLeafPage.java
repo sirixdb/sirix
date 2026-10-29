@@ -481,16 +481,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       trim();
     }
 
-    /** Allocation-free commit descent over fastutil's backing table. */
     void commitReferences(final StorageEngineWriter pageWriteTrx) {
-      final Object[] values = value;
-      if (containsNullKey) {
-        commitReference(pageWriteTrx, (PageReference) values[n]);
+      if (isEmpty()) {
+        return;
       }
-      for (int position = n; position-- != 0;) {
-        if (key[position] != 0L) {
-          commitReference(pageWriteTrx, (PageReference) values[position]);
-        }
+      final long[] keys = keySet().toLongArray();
+      Arrays.sort(keys);
+      for (final long referenceKey : keys) {
+        commitReference(pageWriteTrx, get(referenceKey));
       }
     }
 
@@ -5088,9 +5086,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   public void commit(final StorageEngineWriter pageWriteTrx) {
     beginSideReferenceRead();
     try {
-      // Commit runs only on writer/TIL-private leaves that have already been removed from the
-      // shared cache. Direct backing-table descent is therefore safe from cache reclamation and
-      // avoids allocating a PageReference[] on this high-frequency path.
       pageReferences.commitReferences(pageWriteTrx);
     } finally {
       endSideReferenceRead();

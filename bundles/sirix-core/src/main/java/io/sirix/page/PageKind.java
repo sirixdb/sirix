@@ -38,6 +38,7 @@ import io.sirix.access.User;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.io.IOStorage;
 import io.sirix.index.IndexType;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import io.sirix.io.HashAlgorithm;
@@ -1840,7 +1841,10 @@ public enum PageKind {
       PageLayout.setFlags(slottedPage, references.isEmpty()
           ? (byte) (pageFlags | PageLayout.FLAG_COMPLETE_COLUMN_COVERAGE)
           : (byte) (pageFlags & ~PageLayout.FLAG_COMPLETE_COLUMN_COVERAGE));
-      sink.writeSegment(slottedPage, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
+      sink.writeSegment(slottedPage, 0, PageLayout.OFF_HEAP_END);
+      sink.writeInt(PageLayout.getHeapUsed(slottedPage));
+      sink.writeSegment(slottedPage, PageLayout.OFF_HEAP_USED,
+          PageLayout.DISK_HEADER_BITMAP_SIZE - PageLayout.OFF_HEAP_USED);
 
       final long afterHeaderBitmap = sectionDiag
           ? sink.writePosition()
@@ -1985,7 +1989,7 @@ public enum PageKind {
       // second pass; the revision's symbol table was handed to the page before the first).
       boolean hasUnresolvedOverflowReferences = false;
       for (final PageReference overflowReference : references.values()) {
-        if (overflowReference.getKey() == Constants.NULL_ID_LONG) {
+        if (overflowReference.getKey() == Constants.NULL_ID_LONG || IOStorage.isSpillKey(overflowReference.getKey())) {
           hasUnresolvedOverflowReferences = true;
           break;
         }

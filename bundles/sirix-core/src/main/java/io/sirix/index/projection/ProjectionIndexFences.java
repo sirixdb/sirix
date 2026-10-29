@@ -1267,11 +1267,18 @@ public final class ProjectionIndexFences {
         chunksRead++;
         bytesRead += stored.length;
       }
+      // Always work on a private copy. {@code reader.read} hands back the stored bytes without copying
+      // them: for a chunk this transaction already rewrote as a referenced blob in an earlier
+      // maintenance pass, that is the attached in-memory side page itself, recorded under its hash.
+      // Patching it in place rewrote that page under its recorded hash, and the next pass failed the
+      // prior-blob verification before it could replace it.
       final byte[] loaded = allowAppend
           ? Arrays.copyOf(stored == null
               ? new byte[0]
               : stored, neededEntries * ENTRY_BYTES)
-          : stored;
+          : stored == null
+              ? null
+              : stored.clone();
       chunks.put(chunkId, loaded);
       return loaded;
     }

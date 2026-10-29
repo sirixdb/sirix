@@ -21,6 +21,7 @@
 package io.sirix.page.interfaces;
 
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.io.IOStorage;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
@@ -88,7 +89,9 @@ public interface Page extends AutoCloseable {
     // CompletableFuture.allOf(futures.toArray(new CompletableFuture[futures.size()])).join();
 
     for (final PageReference reference : references) {
-      if (reference.getLogKey() != Constants.NULL_ID_INT) {
+      // A child that left the log has nothing to serialize, unless a storage epoch spilled it: the
+      // commit then copies its frame into the data file and finalizes its key.
+      if (reference.getLogKey() != Constants.NULL_ID_INT || IOStorage.isSpillKey(reference.getKey())) {
         storageEngineWriter.commit(reference);
       }
     }

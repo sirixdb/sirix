@@ -35,6 +35,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class FileChannelStorage implements IOStorage {
 
+  /** The current writer's spill file, readable by every reader of this resource while it is open. */
+  private final SpillChannelHolder spillChannelHolder = new SpillChannelHolder();
+
   private static final Logger LOGGER = LoggerFactory.getLogger(FileChannelStorage.class);
 
   /**
@@ -271,9 +274,11 @@ public final class FileChannelStorage implements IOStorage {
         borrowingReaders++;
       }
 
-      return new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel,
+      final FileChannelReader reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel,
           new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
           cache.synchronous(), () -> releaseReaderChannels(borrowedStripe));
+      reader.setSpillChannelHolder(spillChannelHolder);
+      return reader;
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -481,10 +486,12 @@ public final class FileChannelStorage implements IOStorage {
           serializationType, pagePersister, cache.synchronous(), () -> {
           });
 
-      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel, serializationType,
-          pagePersister, cache, revisionIndexHolder, reader, preallocatedCommit, lazyRevisionRecords,
-          revisionsOffsetFilePath, resourceUuidMsb, resourceUuidLsb, sharedWriterDataAllocationDurability,
-          this::releaseWriterChannels);
+      final FileChannelWriter writer = new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel,
+          beaconDurableChannel, serializationType, pagePersister, cache, revisionIndexHolder, reader,
+          preallocatedCommit, lazyRevisionRecords, revisionsOffsetFilePath, resourceUuidMsb, resourceUuidLsb,
+          sharedWriterDataAllocationDurability, this::releaseWriterChannels);
+      writer.setSpillChannelHolder(spillChannelHolder);
+      return writer;
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }

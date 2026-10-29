@@ -50,6 +50,15 @@ public interface ChangeListener {
   default void beforePageFlush() {}
 
   /**
+   * A plain write transaction is about to rotate a storage-only epoch: the pages it modified since
+   * the previous epoch are written out in the background and leave the transaction's log, while the
+   * transaction and its pending index maintenance continue to the commit. Listeners whose commit-time
+   * maintenance re-reads changed records capture what they will need here, while those records are
+   * still in memory; nothing is applied to the index yet.
+   */
+  default void beforeStorageEpoch() {}
+
+  /**
    * The private importer replaced path records; discard resolved path sets, retaining pending edits.
    */
   default void pathSummaryImported() {}
