@@ -19,7 +19,7 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/*WorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
 | JUnit framework consistency | Query test classes do not mix standard JUnit 4 and Jupiter annotation markers, including inherited fixtures | `sirix-query/src/test/java/io/sirix/query/JUnitFrameworkConsistencyTest.java` (owns the guard's scope) |
-| Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns; warnings for nullness-contract violations | Every CI workflow; local `-PerrorProne` |
+| Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns; warnings for nullness-contract violations | Main CI compile/package job; local `-PerrorProne` |
 | SonarCloud / Checkstyle | Static analysis and style rules | [SonarCloud analysis](#sonarcloud-analysis), `checkstyle.xml` |
 
 ## Why these layers, specifically
@@ -78,11 +78,12 @@ coverage.
 
 **Error Prone** rejects bug patterns at compile time (bad equals/format strings/self-assignment
 and ~500 more); **NullAway** checks nullness contracts against the JSpecify annotations already
-used in the codebase. Local builds opt in with `-PerrorProne`. Every CI workflow sets the Gradle
-project property through `ORG_GRADLE_PROJECT_errorProne=true`, so every Java compile (including
-test and benchmark source sets) rejects Error Prone errors. The normal CI compile job includes
-JMH benchmark classes.
-Warnings, including NullAway findings, remain warnings.
+used in the codebase. Local builds opt in with `-PerrorProne`. The main PR/push CI workflow sets
+`ORG_GRADLE_PROJECT_errorProne=true` only on its `Compile and package` job, which compiles all
+main, test and JMH benchmark source sets. Error Prone errors fail that job; warnings, including
+NullAway findings, remain warnings. The deterministic checks run once in this job rather than
+repeating in every test, platform, release, stress or Sonar job. The dedicated weekly/on-demand
+core verification job still opts in explicitly with `-PerrorProne`.
 `StringConcatToTextBlock` alone is disabled because its generated-literal crash persists through
 Error Prone 2.51.0 ([upstream bug](https://github.com/google/error-prone/issues/6208)).
 

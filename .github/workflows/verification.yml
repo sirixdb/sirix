@@ -6,7 +6,7 @@
 #     in bundles/sirix-core/build.gradle (pitest block).
 #
 #   * error-prone — repeats the Error Prone + NullAway core compile gate in isolation.
-#     Every CI workflow also enables this gate for every Java source set it compiles.
+#     The main CI compile/package job runs the same gate on all main, test and JMH sources.
 #     ERROR-severity Error Prone checks (almost-always-real bug patterns) fail the build;
 #     NullAway nullness findings are reported as warnings in the log.
 #
@@ -17,10 +17,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 4 * * 1'
-
-# Apply the static bug gate to every Java compile, including dependent tasks.
-env:
-  ORG_GRADLE_PROJECT_errorProne: 'true'
 
 jobs:
   mutation-testing:

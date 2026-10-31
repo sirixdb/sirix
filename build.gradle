@@ -191,7 +191,7 @@ subprojects {
     // Error Prone + NullAway — CI static bug gate (local opt-in):
     //   ./gradlew compileJava -PerrorProne          (all modules)
     //   ./gradlew :sirix-core:compileJava -PerrorProne
-    // Local builds opt in; every CI workflow sets ORG_GRADLE_PROJECT_errorProne.
+    // Local builds opt in; the main CI compile/package job sets ORG_GRADLE_PROJECT_errorProne.
     // ERROR-severity checks (bad equals/hashCode, format strings, self-assignment, ...)
     // fail compilation; NullAway reports nullness-contract violations as warnings.
     // ═══════════════════════════════════════════════════════════════════════

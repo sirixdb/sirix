@@ -33,10 +33,6 @@ on:
   schedule:
     - cron: '0 3 * * 0'
 
-# Apply the static bug gate to every Java compile, including dependent tasks.
-env:
-  ORG_GRADLE_PROJECT_errorProne: 'true'
-
 jobs:
   soak:
     name: Run soak (${{ github.event.inputs.duration_seconds || '3600' }}s)
