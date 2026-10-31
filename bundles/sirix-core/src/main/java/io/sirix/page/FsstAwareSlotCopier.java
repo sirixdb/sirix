@@ -11,6 +11,8 @@ package io.sirix.page;
 
 import io.sirix.utils.FSSTCompressor;
 
+import org.jspecify.annotations.Nullable;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
@@ -71,29 +73,23 @@ public final class FsstAwareSlotCopier {
   private static final int STRING_VALUE_STRUCTURAL_VARINTS = 3;
 
   /** Parsed symbol table — {@code null} when the source fragment has no FSST table. */
-  private final byte[][] parsedSymbols;
-
-  /** True iff {@link #parsedSymbols} is non-null and non-empty. */
-  private final boolean active;
+  private final byte @Nullable [][] parsedSymbols;
 
   /**
    * Build a copier for a source fragment's FSST symbol table. A {@code null} or empty
    * {@code fsstSymbolTable} yields an inactive copier whose {@link #active()} returns {@code false} —
    * callers can fast-path to a raw byte copy in that case.
    */
-  public FsstAwareSlotCopier(final byte[] fsstSymbolTable) {
+  public FsstAwareSlotCopier(final byte @Nullable [] fsstSymbolTable) {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
       this.parsedSymbols = null;
-      this.active = false;
       return;
     }
     final byte[][] parsed = FSSTCompressor.parsedFor(fsstSymbolTable);
     if (parsed.length == 0) {
       this.parsedSymbols = null;
-      this.active = false;
     } else {
       this.parsedSymbols = parsed;
-      this.active = true;
     }
   }
 
@@ -102,7 +98,7 @@ public final class FsstAwareSlotCopier {
    *         {@link #decompressSlot} entirely when {@code false}.
    */
   public boolean active() {
-    return active;
+    return parsedSymbols != null;
   }
 
   /**
@@ -123,28 +119,29 @@ public final class FsstAwareSlotCopier {
    * @param dirNodeKindId directory {@code nodeKindId} — distinguishes flyweight from legacy
    * @return rewritten slot bytes, or {@code null} when no rewrite is needed
    */
-  public byte[] decompressSlot(final MemorySegment slot, final int dirNodeKindId) {
-    if (!active || slot == null) {
+  public byte @Nullable [] decompressSlot(final @Nullable MemorySegment slot, final int dirNodeKindId) {
+    if (parsedSymbols == null || slot == null) {
       return null;
     }
     final int slotLen = (int) slot.byteSize();
     if (dirNodeKindId == STRING_VALUE_KIND_ID) {
-      return decompressFlyweight(slot, slotLen, STRING_VALUE_FIELD_COUNT, STRING_VALUE_PAYLOAD_FIELD);
+      return decompressFlyweight(slot, slotLen, STRING_VALUE_FIELD_COUNT, STRING_VALUE_PAYLOAD_FIELD, parsedSymbols);
     }
     if (dirNodeKindId == OBJECT_NAMED_STRING_KIND_ID) {
-      return decompressFlyweight(slot, slotLen, OBJECT_NAMED_STRING_FIELD_COUNT, OBJECT_NAMED_STRING_PAYLOAD_FIELD);
+      return decompressFlyweight(slot, slotLen, OBJECT_NAMED_STRING_FIELD_COUNT, OBJECT_NAMED_STRING_PAYLOAD_FIELD,
+          parsedSymbols);
     }
     if (dirNodeKindId == 0 && slotLen > 0) {
       final int kindByte = slot.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
       if (kindByte == STRING_VALUE_KIND_ID) {
-        return decompressLegacy(slot, slotLen, STRING_VALUE_STRUCTURAL_VARINTS);
+        return decompressLegacy(slot, slotLen, STRING_VALUE_STRUCTURAL_VARINTS, parsedSymbols);
       }
     }
     return null;
   }
 
-  private byte[] decompressFlyweight(final MemorySegment slot, final int slotLen, final int fieldCount,
-      final int payloadField) {
+  private static byte @Nullable [] decompressFlyweight(final MemorySegment slot, final int slotLen,
+      final int fieldCount, final int payloadField, final byte[][] symbols) {
     final int dataStart = 1 + fieldCount;
     if (dataStart > slotLen) {
       throw malformedStringSlot("truncated offset table");
@@ -154,10 +151,11 @@ public final class FsstAwareSlotCopier {
     if (payloadAbs >= slotLen) {
       throw malformedStringSlot("payload offset exceeds slot length");
     }
-    return rewriteFromCompressedFlag(slot, slotLen, payloadAbs);
+    return rewriteFromCompressedFlag(slot, slotLen, payloadAbs, symbols);
   }
 
-  private byte[] decompressLegacy(final MemorySegment slot, final int slotLen, final int structuralVarints) {
+  private static byte @Nullable [] decompressLegacy(final MemorySegment slot, final int slotLen,
+      final int structuralVarints, final byte[][] symbols) {
     int pos = 1; // skip kind byte
     for (int i = 0; i < structuralVarints; i++) {
       pos = skipVarint(slot, pos, slotLen);
@@ -167,7 +165,7 @@ public final class FsstAwareSlotCopier {
     if (pos >= slotLen) {
       throw malformedStringSlot("truncated legacy string header");
     }
-    return rewriteFromCompressedFlag(slot, slotLen, pos);
+    return rewriteFromCompressedFlag(slot, slotLen, pos, symbols);
   }
 
   /**
@@ -175,7 +173,8 @@ public final class FsstAwareSlotCopier {
    * FSST-compressed payload and return a rewritten slot. Returns {@code null} only when the flag is
    * explicitly zero; malformed flags and lengths fail closed.
    */
-  private byte[] rewriteFromCompressedFlag(final MemorySegment slot, final int slotLen, final int flagPos) {
+  private static byte @Nullable [] rewriteFromCompressedFlag(final MemorySegment slot, final int slotLen,
+      final int flagPos, final byte[][] symbols) {
     final byte isCompressed = slot.get(ValueLayout.JAVA_BYTE, flagPos);
     if (isCompressed == 0) {
       return null;
@@ -199,7 +198,7 @@ public final class FsstAwareSlotCopier {
     if (compressedLen > 0) {
       MemorySegment.copy(slot, ValueLayout.JAVA_BYTE, lenVarEnd, compressed, 0, compressedLen);
     }
-    final byte[] decompressed = FSSTCompressor.decode(compressed, parsedSymbols);
+    final byte[] decompressed = FSSTCompressor.decode(compressed, symbols);
 
     // Preserve any trailing bytes after the compressed payload. For well-formed
     // STRING_VALUE / OBJECT_STRING_VALUE slots the payload is the last field, so

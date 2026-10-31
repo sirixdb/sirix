@@ -2,6 +2,8 @@ package io.sirix.io;
 
 import net.openhft.hashing.LongHashFunction;
 
+import org.jspecify.annotations.Nullable;
+
 import java.lang.ref.Reference;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
@@ -261,7 +263,7 @@ public enum HashAlgorithm {
    * @param hashLength the hash length in bytes
    * @return the algorithm, or null if unknown
    */
-  public static HashAlgorithm fromHashLength(int hashLength) {
+  public static @Nullable HashAlgorithm fromHashLength(int hashLength) {
     // Fast path for common case
     if (hashLength == 8)
       return XXH3;
