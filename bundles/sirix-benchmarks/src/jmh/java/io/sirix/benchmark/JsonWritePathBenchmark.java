@@ -430,6 +430,7 @@ public class JsonWritePathBenchmark {
     private int randomState;
 
     @Setup(Level.Trial)
+    @SuppressWarnings("IdentityBinaryExpression") // Each call advances the cursor to the next level.
     public void setupTrial() throws Exception {
       clampLoggingForBenchmarks();
 

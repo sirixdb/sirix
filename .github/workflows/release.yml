@@ -19,6 +19,10 @@ on:
         required: true
         type: string
 
+# Apply the static bug gate to every Java compile, including dependent tasks.
+env:
+  ORG_GRADLE_PROJECT_errorProne: 'true'
+
 jobs:
   release:
     name: Publish to Maven Central

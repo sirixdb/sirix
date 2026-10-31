@@ -182,6 +182,7 @@ public class HotPathBaselineBenchmark {
   }
 
   @Benchmark
+  @SuppressWarnings("IdentityBinaryExpression") // Each call advances the cursor to the next level.
   public void jsonTraverse(final JsonState state, final Blackhole blackhole) {
     long checksum = 0L;
     int traversed = 0;
@@ -230,6 +231,7 @@ public class HotPathBaselineBenchmark {
   }
 
   @Benchmark
+  @SuppressWarnings("IdentityBinaryExpression") // Each call advances the cursor to the next level.
   public void xmlTraverse(final XmlState state, final Blackhole blackhole) {
     long checksum = 0L;
     int traversed = 0;

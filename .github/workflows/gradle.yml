@@ -13,6 +13,10 @@ on:
       - '[0-9]+.[0-9]+'
   schedule:
     - cron: '0 4 * * *'
+# Apply the static bug gate to every Java compile, including dependent tasks.
+env:
+  ORG_GRADLE_PROJECT_errorProne: 'true'
+
 jobs:
   Build:
     name: Compile and package
@@ -32,7 +36,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Compile and package
-        run: ./gradlew classes testClasses :sirix-rest-api:shadowJar spotlessCheck --parallel --refresh-dependencies
+        run: ./gradlew classes testClasses :sirix-benchmarks:jmhClasses :sirix-rest-api:shadowJar spotlessCheck --parallel --refresh-dependencies
       - name: Cache build output
         uses: actions/cache/save@v4
         with:

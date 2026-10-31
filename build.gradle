@@ -188,13 +188,12 @@ subprojects {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Error Prone + NullAway — opt-in static bug detection:
+    // Error Prone + NullAway — CI static bug gate (local opt-in):
     //   ./gradlew compileJava -PerrorProne          (all modules)
     //   ./gradlew :sirix-core:compileJava -PerrorProne
-    // Off by default so the everyday build is unchanged; the verification CI
-    // workflow runs it. ERROR-severity Error Prone checks (almost-always-real
-    // bugs: bad equals/hashCode, format strings, self-assignment, ...) fail the
-    // compile; NullAway reports nullness-contract violations as warnings.
+    // Local builds opt in; every CI workflow sets ORG_GRADLE_PROJECT_errorProne.
+    // ERROR-severity checks (bad equals/hashCode, format strings, self-assignment, ...)
+    // fail compilation; NullAway reports nullness-contract violations as warnings.
     // ═══════════════════════════════════════════════════════════════════════
     if (project.hasProperty('errorProne')) {
         apply plugin: 'net.ltgt.errorprone'
@@ -210,6 +209,8 @@ subprojects {
                 excludedPaths = '.*/build/generated/.*'
                 option('NullAway:AnnotatedPackages', 'io.sirix')
                 check('NullAway', CheckSeverity.WARN)
+                // Upstream crash on generated literals (still in 2.51.0): https://github.com/google/error-prone/issues/6208
+                disable('StringConcatToTextBlock')
                 // Nodes/pages deliberately compare MemorySegments by reference: the question is
                 // "is this node backed by exactly this segment instance", not value equality —
                 // and identity is the cheap check on the hot path. Keep as a warning.
