@@ -13,6 +13,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
+import io.sirix.page.DeweyIDPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -25,8 +26,10 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.mock;
@@ -45,6 +48,46 @@ final class WriterReinstantiationTest {
   @AfterEach
   void clearCaches() {
     Databases.clearGlobalCaches();
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void writerReadsDeweyContainerForCurrentAndHistoricalRoots(final VersioningType versioning) {
+    for (final boolean storeDeweyIDs : new boolean[] {false, true}) {
+      final Path databasePath = directory.resolve("writer-dewey-" + storeDeweyIDs);
+      Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+      try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+        database.createResource(ResourceConfiguration.newBuilder("data")
+                                                     .storageType(StorageType.FILE_CHANNEL)
+                                                     .useDeweyIDs(storeDeweyIDs)
+                                                     .versioningApproach(versioning)
+                                                     .build());
+        try (final JsonResourceSession session = database.beginResourceSession("data");
+            final JsonNodeTrx trx = session.beginNodeTrx()) {
+          final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) trx.getStorageEngineWriter();
+          final RevisionRootPage bootstrapRoot = writer.getActualRevisionRootPage();
+          final DeweyIDPage bootstrapPage = writer.getDeweyIDPage(bootstrapRoot);
+          assertNotNull(bootstrapPage, "the writer must expose its Dewey-ID container");
+          assertSame(writer.getStorageEngineReader().getDeweyIDPage(bootstrapRoot), bootstrapPage);
+
+          trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1]"), JsonNodeTrx.Commit.NO);
+          trx.commit();
+
+          final NodeStorageEngineWriter successor = (NodeStorageEngineWriter) trx.getStorageEngineWriter();
+          final RevisionRootPage currentRoot = successor.getActualRevisionRootPage();
+          final DeweyIDPage currentPage = successor.getDeweyIDPage(currentRoot);
+          assertNotNull(currentPage);
+          assertSame(successor.getStorageEngineReader().getDeweyIDPage(currentRoot), currentPage);
+          try (final JsonNodeReadOnlyTrx historical = session.beginNodeReadOnlyTrx(1)) {
+            final var reader = historical.getStorageEngineReader();
+            final RevisionRootPage historicalRoot = reader.getActualRevisionRootPage();
+            final DeweyIDPage historicalPage = successor.getDeweyIDPage(historicalRoot);
+            assertNotNull(historicalPage);
+            assertEquals(reader.getDeweyIDPage(historicalRoot).getMaxNodeKey(), historicalPage.getMaxNodeKey());
+          }
+        }
+      }
+    }
   }
 
   @ParameterizedTest
