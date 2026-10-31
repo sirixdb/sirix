@@ -25,7 +25,7 @@ import static java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED;
 
 /**
  * FFI-based LZ4 compression/decompression using Foreign Function API. Provides zero-copy
- * compression with MemorySegments. Falls back to lz4-java if native library is unavailable.
+ * compression with MemorySegments.
  */
 public final class FFILz4Compressor implements ByteHandler {
 
