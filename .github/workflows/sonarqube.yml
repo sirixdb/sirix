@@ -3,16 +3,37 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: sonar-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   Build:
     name: Run Sonarqube
+    # Fork PRs and Dependabot do not receive SONAR_TOKEN. Never build untrusted code
+    # with secrets through pull_request_target; normal CI still tests those PRs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Coverage instruments the full suite, including both core CI lanes.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - name: Install JDK
         uses: actions/setup-java@v4
         with:
@@ -24,14 +45,32 @@ jobs:
           path: ~/.sonar/cache
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.gradle/caches
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
-          restore-keys: ${{ runner.os }}-gradle
-      - name: Build and analyze
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Build and generate coverage
+        # Keep the daemon bounded alongside the standard 5g/12g test fork. Serial
+        # project execution avoids concurrent forks exhausting the 16 GB runner.
+        run: >-
+          ./gradlew build jacocoTestReport --info --stacktrace --no-parallel --max-workers=2
+          -x :sirix-rest-api:test -x :sirix-rest-api:jacocoTestReport
+          '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=1g'
+      - name: Analyze and check quality gate
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: ./gradlew build sonarqube --info --stacktrace -x :sirix-rest-api:test -Dorg.gradle.jvmargs=-XX:MaxMetaspaceSize=1g
+        # Tests and XML coverage reports already exist; the scanner only analyzes.
+        # GitHub Actions supplies PR parameters automatically for PR decoration.
+        run: >-
+          ./gradlew sonar --info --stacktrace --max-workers=2
+          -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=600
+          '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=1g'
+      - name: Upload test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-reports
+          path: |
+            **/build/reports/tests/
+            **/build/reports/jacoco/
+            **/build/test-results/
+          retention-days: 7

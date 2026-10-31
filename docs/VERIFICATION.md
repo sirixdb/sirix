@@ -81,6 +81,25 @@ and ~500 more); **NullAway** checks nullness contracts against the JSpecify anno
 used in the codebase. Both are opt-in (`-PerrorProne`) so the everyday build is unchanged, and run
 in CI via the `Deep verification` workflow.
 
+## SonarCloud analysis
+
+`sonarqube.yml` builds and tests with JaCoCo XML reports before running `sonar` separately.
+It waits for the quality gate, so a successful upload alone cannot make the check green.
+PR analysis uses GitHub Actions' automatic PR parameters and the source commit with full history.
+Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
+The REST integration suite remains outside this job, as before.
+
+The isolated core test forks must keep their own JaCoCo argument providers. Gradle's
+`JavaForkOptions.copyTo` materializes the source task's providers into explicit JVM arguments;
+copying those alongside the target's provider loads two agents and aborts before any test runs
+(`LinkageError: duplicate class definition for java.lang.$JaCoCo`, exit 134).
+Copy explicit JVM arguments back after copying fork options, retaining properties such as
+`java.io.tmpdir`, and include the isolated forks' execution data in the core XML report.
+
+Review issues against the low-latency requirements in `AGENTS.md`. Prefer clean code when it
+costs no hot-path performance. Any rule exception must name the specific rule and scope, with
+a short reason explaining the performance cost; do not weaken allocation or work-budget tests.
+
 ## Running the layers
 
 The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a separate JVM with
