@@ -8,6 +8,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import io.sirix.access.DatabaseConfiguration;
 
 /** Enforces the actual query targets, including direct transaction functions and temporal axes. */
 final class QueryAccessPolicy implements ResourceAccessScope.Policy {
@@ -52,29 +53,29 @@ final class QueryAccessPolicy implements ResourceAccessScope.Policy {
 
   @Override
   public void checkDatabase(final Path databasePath, final boolean write) {
-    checkDatabaseTarget(canonicalPath(databasePath), write);
+    databaseTarget(databasePath, write);
   }
 
-  private void checkDatabaseTarget(final Path target, final boolean write) {
-    if (!root.equals(target.getParent())) {
+  private Path databaseTarget(final Path databasePath, final boolean write) {
+    final Path parent = canonicalPath(databasePath.toAbsolutePath().getParent());
+    if (!root.equals(parent))
       throw new AccessControl.AccessDeniedException("Query database is outside the configured data directory");
-    }
-    final String databaseName = target.getFileName().toString();
-    access.checkDatabaseAccess(databaseName);
-    if (revision > 0 && !database.equals(databaseName)) {
+    final Path target = access.databasePath(databasePath.getFileName().toString());
+    if (revision > 0 && !database.equals(target.getFileName().toString()))
       throw new AccessControl.AccessDeniedException("Historical queries are scoped to the selected database/resource");
-    }
     if (write)
       checkWrite();
+    return target;
   }
 
   @Override
   public void checkResource(final Path databasePath, final String resourceName, final boolean write) {
-    final Path target = canonicalPath(databasePath);
-    checkDatabaseTarget(target, write);
+    final Path target = databaseTarget(databasePath, write);
     final String logicalResource = DerivedIndexMaintainer.isDerivedResourceName(resourceName)
         ? resourceName.substring(0, resourceName.length() - DerivedIndexMaintainer.SUFFIX.length())
         : resourceName;
+    AccessControl.namedPath(target.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()), resourceName,
+        "resource");
     access.checkAccess(target.getFileName().toString(), logicalResource);
     if (revision > 0 && !resource.equals(logicalResource)) {
       throw new AccessControl.AccessDeniedException("Historical queries are scoped to the selected database/resource");

@@ -10,6 +10,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import io.sirix.access.DatabaseConfiguration;
 import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.Set;
@@ -62,11 +63,18 @@ public final class SnapshotRegistry {
       try {
         var data = MAPPER.readValue(Files.readString(file), new TypeReference<Map<String, Map<String, Integer>>>() {});
 
-        var dbMap = registry.computeIfAbsent(database, k -> new ConcurrentHashMap<>());
+        final var dbMap = new ConcurrentHashMap<String, ConcurrentHashMap<String, Integer>>();
         data.forEach((resource, snapshots) -> {
-          var resMap = dbMap.computeIfAbsent(resource, k -> new ConcurrentHashMap<>());
-          resMap.putAll(snapshots);
+          validateName(resource);
+          try {
+            AccessControl.namedPath(database.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()), resource,
+                "resource");
+            dbMap.put(resource, new ConcurrentHashMap<>(snapshots));
+          } catch (final AccessControl.AliasedNameException ignored) {
+            return;
+          }
         });
+        registry.put(database, dbMap);
 
         LOG.info("Loaded {} snapshot(s) for database '{}'", data.values().stream().mapToInt(Map::size).sum(), database);
       } catch (IOException e) {

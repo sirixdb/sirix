@@ -10,6 +10,7 @@ import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.ResourceAccessScope;
 import io.sirix.access.Databases;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
@@ -1061,6 +1062,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   private Path databasePath(final Path dbPath) {
     requireNonNull(dbPath);
+    ResourceAccessScope.checkDatabase(dbPath, false);
     try {
       return Files.exists(dbPath)
           ? dbPath.toRealPath()

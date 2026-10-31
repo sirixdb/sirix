@@ -6,6 +6,7 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 
 import io.sirix.access.DatabaseType;
+import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.Databases;
@@ -92,11 +93,14 @@ public final class ToolHandlers {
       if (Files.isDirectory(databasePath)) {
         try (final DirectoryStream<Path> stream = Files.newDirectoryStream(databasePath)) {
           for (final Path entry : stream) {
-            if (Databases.existsDatabase(entry) && Databases.getDatabaseType(entry) == DatabaseType.JSON) {
+            try {
               final String name = entry.getFileName().toString();
-              if (config.isDatabaseAllowed(name)) {
+              final Path target = accessControl.databasePath(name);
+              if (Databases.existsDatabase(target) && Databases.getDatabaseType(target) == DatabaseType.JSON)
                 dbNames.add(name);
-              }
+            } catch (final AccessControl.AliasedNameException | AccessControl.AccessDeniedException
+                | IllegalArgumentException ignored) {
+              continue;
             }
           }
         }
@@ -117,12 +121,20 @@ public final class ToolHandlers {
       final var resourceNames = new ArrayList<String>();
       final Path dbPath = safeDatabasePath(database);
 
-      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
-        final List<Path> resources = db.listResources();
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+          final DirectoryStream<Path> resources = Files.newDirectoryStream(
+              db.getDatabaseConfig().getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
         for (final Path resourcePath : resources) {
           final String name = resourcePath.getFileName().toString();
-          if (config.isResourceAllowed(database, name))
+          if (DerivedIndexMaintainer.isDerivedResourceName(name))
+            continue;
+          try {
+            accessControl.resourcePath(database, name, dbPath);
             resourceNames.add(name);
+          } catch (final AccessControl.AliasedNameException | AccessControl.AccessDeniedException
+              | IllegalArgumentException ignored) {
+            continue;
+          }
         }
       }
 
@@ -184,18 +196,12 @@ public final class ToolHandlers {
         accessControl.checkDatabaseAccess(database);
       }
 
-      final Path targetDatabase = safeDatabasePath(database);
-      final String canonicalResource;
-      if (resource != null) {
+      safeDatabasePath(database);
+      if (resource != null)
         validateResourceName(resource);
-        canonicalResource = accessControl.resourcePath(database, resource, targetDatabase).getFileName().toString();
-      } else {
-        canonicalResource = null;
-      }
       final Integer revision = queryRevision(args, database, resource);
       final int offset = nonNegativeOffset(args);
-      final var policy = new QueryAccessPolicy(databasePath, accessControl, targetDatabase.getFileName().toString(),
-          canonicalResource, revision);
+      final var policy = new QueryAccessPolicy(databasePath, accessControl, database, resource, revision);
       return ResourceAccessScope.where(policy).call(() -> {
         final var store = BasicJsonDBStore.newBuilder().location(databasePath).build();
         try (store; final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
@@ -745,6 +751,15 @@ public final class ToolHandlers {
 
   private CallToolResult withAudit(String toolName, Map<String, Object> params, ToolAction action) {
     try {
+      final String database = optionalString(params, "database");
+      final String resource = optionalString(params, "resource");
+      if (database != null) {
+        final Path target = accessControl.databasePath(database);
+        if (resource != null)
+          accessControl.resourcePath(database, resource, target);
+      } else if (resource != null) {
+        throw new IllegalArgumentException("A database is required with a resource");
+      }
       final var result = action.execute();
       auditLog.log(toolName, params, Boolean.TRUE.equals(result.isError())
           ? "error"
@@ -754,6 +769,9 @@ public final class ToolHandlers {
       auditLog.log(toolName, params, "error", e.getMessage());
       return structuredResult(Map.of("code", "revision_pruned", "revision", e.getRevision(), "timestamp",
           e.getTimestamp().toString(), "message", e.getMessage()), true);
+    } catch (AccessControl.AliasedNameException e) {
+      auditLog.log(toolName, params, "denied", e.getMessage());
+      return structuredResult(Map.of("code", "aliased_name", "message", e.getMessage()), true);
     } catch (AccessControl.AccessDeniedException e) {
       auditLog.log(toolName, params, "denied", e.getMessage());
       return errorResult(e.getMessage());

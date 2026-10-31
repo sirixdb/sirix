@@ -3,6 +3,7 @@ package io.sirix.mcp;
 import io.sirix.access.ResourceAccessScope;
 import io.sirix.access.DatabaseConfiguration;
 import java.nio.file.Path;
+import java.nio.file.Files;
 
 /**
  * Enforces database/resource access control based on {@link McpServerConfig}.
@@ -48,28 +49,30 @@ public final class AccessControl {
   }
 
   Path databasePath(final String database) {
-    checkDatabaseAccess(database);
+    if (!validDatabaseName(database))
+      throw new IllegalArgumentException("Invalid database name");
     final Path root = QueryAccessPolicy.canonicalPath(Path.of(config.databasePath()));
-    final Path target = QueryAccessPolicy.canonicalPath(root.resolve(database));
-    if (!root.equals(target.getParent()))
-      throw new AccessDeniedException("Database is outside the configured data directory");
-    checkDatabaseAccess(target.getFileName().toString());
+    final Path target = namedPath(root, database, "database");
+    checkDatabaseAccess(database);
     return target;
   }
 
   Path resourcePath(final String database, final String resource, final Path databasePath) {
-    checkAccess(database, resource);
     if (!validDatabaseName(resource))
       throw new IllegalArgumentException("Invalid resource name");
-    final Path resources = databasePath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
-    final Path target = QueryAccessPolicy.canonicalPath(resources.resolve(resource));
-    if (!resources.equals(target.getParent()))
-      throw new AccessDeniedException("Resource is outside the database resource directory");
-    final String canonicalDatabase = databasePath.getFileName().toString();
-    final String canonicalResource = target.getFileName().toString();
-    checkAccess(database, canonicalResource);
-    checkAccess(canonicalDatabase, resource);
-    checkAccess(canonicalDatabase, canonicalResource);
+    final Path target =
+        namedPath(databasePath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()), resource, "resource");
+    checkAccess(database, resource);
+    return target;
+  }
+
+  static Path namedPath(final Path parent, final String name, final String kind) {
+    final Path requested = parent.resolve(name);
+    if (Files.isSymbolicLink(requested))
+      throw new AliasedNameException(kind);
+    final Path target = QueryAccessPolicy.canonicalPath(requested);
+    if (!requested.equals(target))
+      throw new AliasedNameException(kind);
     return target;
   }
 
@@ -93,6 +96,12 @@ public final class AccessControl {
       }
     }
     return true;
+  }
+
+  public static final class AliasedNameException extends RuntimeException {
+    AliasedNameException(final String kind) {
+      super("Aliased " + kind + " names are not supported; use the real name");
+    }
   }
 
   public static final class AccessDeniedException extends RuntimeException {

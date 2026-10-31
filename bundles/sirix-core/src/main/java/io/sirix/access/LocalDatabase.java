@@ -126,6 +126,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   String canonicalResourceName(final String name) {
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), name, false);
     final String canonicalName = ResourceConfiguration.canonicalResourceName(name);
     final Path path =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
@@ -143,7 +144,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   public synchronized T beginResourceSession(final String resourceName) {
     assertNotClosed();
     final String canonicalName = canonicalResourceName(resourceName);
-    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), canonicalName, false);
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
     final Path resourcePath = dataDir.resolve(canonicalName);
 
@@ -560,7 +560,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   public synchronized boolean existsResource(final String resourceName) {
     assertNotClosed();
     final String canonicalName = canonicalResourceName(resourceName);
-    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), canonicalName, false);
     final Path resourceFile =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
     return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;

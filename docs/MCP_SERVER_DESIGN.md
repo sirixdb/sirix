@@ -57,7 +57,12 @@ read-write and database-path overrides do not apply to that file):
 
 The configuration is a flat object, without a `server` wrapper. Only stdio is
 implemented; `transport` is currently descriptive. Result limits must be positive.
-The configured database path contains database directories.
+The configured database path contains database directories. The configured root
+may itself use a symlink, but database and resource names must be real names.
+Every tool rejects symlinked database names and resource aliases before storage
+access, returning a structured error with `code: "aliased_name"`. The same rule
+applies to names used inside queries. Database and resource listings omit aliases;
+allowlists and denylists apply to the real names.
 
 ## Tools
 
@@ -204,6 +209,8 @@ or merge data. Labels persist per database in `.sirix-mcp-snapshots.json`:
 }
 ```
 
+Labels are keyed only by real database and resource names. Persisted entries for
+resource aliases are ignored, without migration or merging into real-name labels.
 The registry loads a database's persisted labels lazily before its first lookup,
 list, creation, or deletion after startup. Creating a label validates the actual
 revision first. Reloading and then creating a label preserves the older labels.
