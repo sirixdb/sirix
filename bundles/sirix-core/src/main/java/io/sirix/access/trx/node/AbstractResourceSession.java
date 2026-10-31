@@ -1175,7 +1175,6 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public R beginNodeReadOnlyTrx(final int revision) {
-    ResourceAccessScope.checkRead(this, revision);
     // Read-only opens have no shared-state concurrency concerns:
     // * assertAccess() reads a volatile and a volatile-published epoch — thread-safe.
     // * createStorageEngineReader() uses AtomicInteger for IDs and ConcurrentMap for the
@@ -1684,12 +1683,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public int getMostRecentRevisionNumber() {
     assertNotClosed();
 
-    return ResourceAccessScope.headRevision(this, lastCommittedUberPage.get().getRevisionNumber());
+    return lastCommittedUberPage.get().getRevisionNumber();
   }
 
   @Override
   public synchronized PathSummaryReader openPathSummary(final int revision) {
-    ResourceAccessScope.checkRead(this, revision);
     assertAccess(revision);
 
     StorageEngineReader storageEngineReader;
@@ -1714,7 +1712,6 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public StorageEngineReader createStorageEngineReader(final int revision) {
-    ResourceAccessScope.checkRead(this, revision);
     assertAccess(revision);
 
     final int currentStorageEngineID = trxIDCounter.incrementAndGet();

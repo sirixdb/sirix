@@ -116,11 +116,12 @@ public final class SirixMcpServer {
     // sirix_query
     builder.toolCall(tool("sirix_query",
         "Execute a read-only JSONiq query. Updating expressions are rejected; use the explicit write tools. "
-            + "Supports time-travel via revision, snapshot, or timestamp parameters.",
+            + "Revision, snapshot, or timestamp binds the historical context item $$; named reads keep their own revision semantics.",
         schema(Map.of("query", stringProp("JSONiq or XQuery expression"), "database", stringProp("Database name"),
-            "resource", stringProp("Resource name (optional)"), "revision", intProp("Query at this revision number"),
-            "snapshot", stringProp("Query at named snapshot"), "timestamp",
-            stringProp("Query at ISO-8601 timestamp (exclusive with revision/snapshot; requires resource)"), "offset",
+            "resource", stringProp("Resource name (optional)"), "revision",
+            intProp("Bind $$ to this revision number (requires resource)"), "snapshot",
+            stringProp("Bind $$ to this named snapshot (requires resource)"), "timestamp",
+            stringProp("Bind $$ at ISO-8601 timestamp (exclusive with revision/snapshot; requires resource)"), "offset",
             intProp("Result item offset for continuation (default: 0)")), List.of("query", "database")),
         readOnlyAnnotations()), handlers::query);
 

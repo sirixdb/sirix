@@ -46,7 +46,8 @@ class McpStdioContractTest {
         if (tool.get("name").asText().equals("sirix_query"))
           assertThat(tool.get("annotations").get("readOnlyHint").asBoolean()).isTrue();
         if (tool.get("name").asText().equals("sirix_create_resource")) {
-          assertThat(tool.get("inputSchema").get("properties").get("overwrite").get("type").asText()).isEqualTo("boolean");
+          assertThat(tool.get("inputSchema").get("properties").get("overwrite").get("type").asText()).isEqualTo(
+              "boolean");
           assertThat(tool.get("inputSchema").get("required").toString()).contains("database", "resource", "data");
         }
       }
@@ -64,8 +65,7 @@ class McpStdioContractTest {
           server.call("sirix_create_snapshot", Map.of("name", "baseline")).path("isError").asBoolean()).isFalse();
       assertThat(
           server.call("sirix_update", Map.of("nodeKey", 2, "value", "Bob")).path("isError").asBoolean()).isFalse();
-      final JsonNode historical =
-          server.call("sirix_query", Map.of("query", "jn:doc('db','res').name", "snapshot", "baseline"));
+      final JsonNode historical = server.call("sirix_query", Map.of("query", "$$.name", "snapshot", "baseline"));
       assertThat(historical.get("structuredContent").get("items").toString()).contains("Alice").doesNotContain("Bob");
       final JsonNode diff = server.call("sirix_diff", Map.of("from_revision", 1, "to_revision", 2));
       assertThat(diff.get("structuredContent").get("diffs").size()).isEqualTo(1);
@@ -83,7 +83,7 @@ class McpStdioContractTest {
                      .get("structuredContent")
                      .get("items")
                      .toString()).contains("Alice");
-      assertThat(cold.call("sirix_query", Map.of("query", "jn:doc('db','res').name", "revision", 2))
+      assertThat(cold.call("sirix_query", Map.of("query", "$$.name", "revision", 2))
                      .get("structuredContent")
                      .get("items")
                      .toString()).contains("Bob");

@@ -91,6 +91,31 @@ class SnapshotAliasAuthorizationTest {
   }
 
   @Test
+  void everyToolAndCrossResourceQueryStillEnforceResourceDenial() throws Exception {
+    final var before = contents(root);
+    for (final boolean readOnly : new boolean[] {false, true}) {
+      final var handlers = handlers(config(root, readOnly, Map.of("private", List.of("visible"))));
+      for (final var tool : tools(handlers).entrySet()) {
+        final var result = tool.getValue().apply(request("private", "orders", Map.of()));
+        assertThat(result.isError()).as(tool.getKey() + ": " + text(result)).isTrue();
+        assertThat(((Map<?, ?>) result.structuredContent()).get("code")).isEqualTo("access_denied");
+        assertThat(text(result)).doesNotContain(LABEL, "classified-value", "classified-commit-message",
+            "latestRevision");
+      }
+      assertContents(before, root);
+      for (final String query : List.of("jn:doc('private','orders').value", "jn:doc('private','orders',1).value",
+          "jn:diff('private','orders',1,2)", "jn:exists-resource('private','orders')",
+          "count(jn:all-times(jn:doc('private','orders')))")) {
+        final var result = handlers.query(null, request("private", "visible", Map.of("query", query, "revision", 1)));
+        assertThat(result.isError()).as(query + ": " + text(result)).isTrue();
+        assertThat(((Map<?, ?>) result.structuredContent()).get("code")).isEqualTo("access_denied");
+        assertThat(text(result)).doesNotContain(LABEL, "classified-value", "classified-commit-message",
+            "latestRevision");
+      }
+    }
+  }
+
+  @Test
   void listingsOmitAliasesAndRespectRealNameResourceRestrictions() throws Exception {
     for (final Map<String, List<String>> allowed : List.<Map<String, List<String>>>of(Map.of(),
         Map.of("private", List.of("visible")))) {

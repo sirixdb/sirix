@@ -201,7 +201,7 @@ public final class ToolHandlers {
         validateResourceName(resource);
       final Integer revision = queryRevision(args, database, resource);
       final int offset = nonNegativeOffset(args);
-      final var policy = new QueryAccessPolicy(databasePath, accessControl, database, resource, revision);
+      final var policy = new QueryAccessPolicy(databasePath, accessControl);
       return ResourceAccessScope.where(policy).call(() -> {
         final var store = BasicJsonDBStore.newBuilder().location(databasePath).build();
         try (store; final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {

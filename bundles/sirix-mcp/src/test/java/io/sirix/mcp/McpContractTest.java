@@ -130,16 +130,17 @@ class McpContractTest {
     for (final Map<String, Object> selector : List.<Map<String, Object>>of(Map.of("revision", 1),
         Map.of("snapshot", "baseline"), Map.of("timestamp", FIRST.plusSeconds(1).toString()))) {
       final var args = new LinkedHashMap<>(selector);
-      args.put("query", DOC + ".name");
+      args.put("query", "$$.name");
       final var historical = h.query(null, request(args));
       assertThat(historical.isError()).as(text(historical)).isFalse();
       assertThat(text(historical)).contains("Alice").doesNotContain("Bob");
       assertThat(structured(historical)).containsEntry("revision", 1);
-      args.put("query", "$$.name");
+      args.put("query", "jn:doc('db','public',1).name");
       assertThat(text(h.query(null, request(args)))).contains("Alice");
     }
-    assertThat(
-        h.query(null, request(Map.of("query", "jn:doc('db','public',2).name", "revision", 1))).isError()).isTrue();
+    final var otherRevision = h.query(null, request(Map.of("query", "jn:doc('db','public',2).name", "revision", 1)));
+    assertThat(otherRevision.isError()).as(text(otherRevision)).isFalse();
+    assertThat(structured(otherRevision)).containsEntry("items", List.of("\"Bob\"")).containsEntry("revision", 1);
     assertThat(text(h.query(null, request(Map.of("query", DOC + ".name"))))).contains("Bob").doesNotContain("Alice");
     final var diff = h.diff(null, request(Map.of("from_revision", 1, "to_revision", 2)));
     assertThat(diff.isError()).as(text(diff)).isFalse();
@@ -155,14 +156,45 @@ class McpContractTest {
     final var cold = handlers(false, false, 100, 4096);
     assertThat(text(cold.listSnapshots(null, request(Map.of())))).contains("baseline");
     assertThat(text(cold.query(null, request(Map.of("query", DOC + ".name"))))).contains("Alice");
-    assertThat(text(cold.query(null, request(Map.of("query", DOC + ".name", "revision", 2))))).contains("Bob");
+    assertThat(text(cold.query(null, request(Map.of("query", "$$.name", "revision", 2))))).contains("Bob");
     assertThat(cold.createSnapshot(null, request(Map.of("name", "after"))).isError()).isFalse();
     assertThat(text(handlers(true, false, 100, 4096).listSnapshots(null, request(Map.of())))).contains("baseline")
                                                                                              .contains("after");
   }
 
   @Test
-  void historicalTemporalAccessDenialsAreErrorsInsteadOfEmptyCounts() throws Exception {
+  void selectorsBindOnlyContextWhileOtherAuthorizedReadsKeepTheirRevisionSemantics() throws Exception {
+    modify();
+    final var setup = handlers(false, false, 100, 4096);
+    assertThat(setup.createSnapshot(null, request(Map.of("name", "first", "revision", 1))).isError()).isFalse();
+    final var created = setup.createResource(null,
+        request(Map.of("database", "other", "resource", "data", "data", "{\"name\":\"Other\"}")));
+    assertThat(created.isError()).as(text(created)).isFalse();
+    for (final boolean readOnly : new boolean[] {true, false}) {
+      final var h = handlers(readOnly, false, 100, 4096);
+      for (final Map<String, Object> selector : List.<Map<String, Object>>of(Map.of("revision", 1),
+          Map.of("snapshot", "first"), Map.of("timestamp", FIRST.plusSeconds(1).toString()))) {
+        final var args = new LinkedHashMap<>(selector);
+        args.put("query", "[$$.name, jn:doc('db','public').name, jn:doc('db','public',2).name, "
+            + "jn:doc('db','secret').name, jn:doc('other','data').name]");
+        final var result = h.query(null, request(args));
+        assertThat(result.isError()).as(text(result)).isFalse();
+        assertThat(structured(result)).containsEntry("revision", 1);
+        final var items = (List<?>) structured(result).get("items");
+        assertThat(items).hasSize(1);
+        assertThat(MAPPER.readTree(items.getFirst().toString())).isEqualTo(
+            MAPPER.readTree("[\"Alice\",\"Bob\",\"Bob\",\"Alice\",\"Other\"]"));
+      }
+      final var past =
+          h.query(null, request(Map.of("revision", 2, "query", "[$$.name, jn:doc('db','public',1).name]")));
+      assertThat(past.isError()).as(text(past)).isFalse();
+      final var values = (List<?>) structured(past).get("items");
+      assertThat(MAPPER.readTree(values.getFirst().toString())).isEqualTo(MAPPER.readTree("[\"Bob\",\"Alice\"]"));
+    }
+  }
+
+  @Test
+  void historicalContextAllowsTemporalReadsOfOtherRevisions() throws Exception {
     modify();
     final var setup = handlers(false, false, 100, 4096);
     assertThat(setup.createSnapshot(null, request(Map.of("name", "second", "revision", 2))).isError()).isFalse();
@@ -173,21 +205,26 @@ class McpContractTest {
         for (final String function : List.of("all-times", "past")) {
           final var args = new LinkedHashMap<>(selector);
           args.put("query", "count(jn:" + function + "($$))");
-          final var denied = h.query(null, request(args));
-          assertThat(denied.isError()).as(function + ": " + text(denied)).isTrue();
-          assertThat(text(h.query(null, request(Map.of("query", DOC + ".name", "revision", 2))))).contains("Bob");
+          final var result = h.query(null, request(args));
+          assertThat(result.isError()).as(text(result)).isFalse();
+          assertThat(structured(result)).containsEntry("items", List.of(function.equals("past")
+              ? "1"
+              : "2"));
         }
       }
-      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:all-times($$))"))))).containsEntry("items",
-          List.of("2"));
-      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:past($$))"))))).containsEntry("items",
-          List.of("1"));
       assertThat(
           structured(h.query(null, request(Map.of("query", "count(jn:all-times($$))", "revision", 1))))).containsEntry(
-              "items", List.of("1"));
+              "items", List.of("2"));
       assertThat(
           structured(h.query(null, request(Map.of("query", "count(jn:past($$))", "revision", 1))))).containsEntry(
               "items", List.of("0"));
+      assertThat(
+          structured(h.query(null, request(Map.of("query", "count(jn:future($$))", "revision", 1))))).containsEntry(
+              "items", List.of("1"));
+      final var denied =
+          h.query(null, request(Map.of("query", "count(jn:all-times(jn:doc('db','secret')))", "revision", 1)));
+      assertThat(denied.isError()).as(text(denied)).isTrue();
+      assertThat(structured(denied)).containsEntry("code", "access_denied");
     }
     assertThat(head()).isEqualTo(2);
   }
@@ -205,7 +242,7 @@ class McpContractTest {
     }
     modify();
     final var h = handlers(true, true, 100, 4096);
-    final String query = "for $doc in " + DOC + " where $doc.age = 1 return $doc.name";
+    final String query = "for $doc in $$ where $doc.age = 1 return $doc.name";
     final var historical = h.query(null, request(Map.of("query", query, "revision", 2)));
     assertThat(historical.isError()).as(text(historical)).isFalse();
     assertThat(text(historical)).contains("Alice");
@@ -405,7 +442,7 @@ class McpContractTest {
     assertStoredResource("public", 2, "{\"name\":\"Changed\"}");
     assertStoredResource("secret", 1, "{\"name\":\"Alice\",\"age\":1}");
     assertStoredResource("fresh", 1, "[1,2]");
-    assertThat(text(h.query(null, request(Map.of("query", DOC + ".name", "revision", 1))))).contains("Alice");
+    assertThat(text(h.query(null, request(Map.of("query", "$$.name", "revision", 1))))).contains("Alice");
     for (final var result : List.of(h.insert(null, request(Map.of("resource", "secret", "data", "{}"))),
         h.update(null, request(Map.of("resource", "secret", "nodeKey", 2, "value", "Denied"))),
         h.delete(null, request(Map.of("resource", "secret", "nodeKey", 2))),
@@ -497,7 +534,7 @@ class McpContractTest {
 
   private static void assertScalarHistoricalQueries(final ToolHandlers handlers, final String resource,
       final String root, final int revision) {
-    for (final String query : List.of("jn:doc('db','" + resource + "')", "$$")) {
+    for (final String query : List.of("jn:doc('db','" + resource + "'," + revision + ")", "$$")) {
       final var result =
           handlers.query(null, request(Map.of("resource", resource, "query", query, "revision", revision)));
       assertThat(result.isError()).as(text(result)).isFalse();
@@ -647,7 +684,7 @@ class McpContractTest {
     assertThat(current.isError()).as(text(current)).isFalse();
     assertThat(text(current)).contains("Alice");
     assertThat(h.query(null, request(Map.of("query", "sdb:commit(" + DOC + ")"))).isError()).isTrue();
-    final var historical = h.query(null, request(Map.of("query", DOC + ".name", "revision", 1)));
+    final var historical = h.query(null, request(Map.of("query", "$$.name", "revision", 1)));
     assertThat(historical.isError()).as(text(historical)).isFalse();
     assertThat(text(historical)).contains("Alice");
     assertThat(h.query(null, request(Map.of("query", "jn:doc('db','secret')"))).isError()).isTrue();

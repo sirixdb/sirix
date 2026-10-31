@@ -116,27 +116,30 @@ revisions, timestamps before the first commit, unknown labels, and pruned
 revisions return errors. A pruned selector returns structured `code:
 "revision_pruned"`; it never falls back to a retained revision.
 
-The selected revision binds the query's historical context, including `$$`,
-ordinary `jn:doc` calls, and optimized reads. Reads are pinned to that revision; explicit requests for another revision fail rather than overriding the selector;
-historical queries cannot mutate data or open another database/resource. For
-example:
+The selector binds the context item `$$` to the selected resource and revision.
+It is not an access restriction: `jn:doc` without a revision reads the current
+head, and explicit revision arguments, temporal axes and diffs may read other
+revisions. Queries may also name other authorized resources and databases.
+Read-only enforcement, resource allow/deny checks and alias refusal apply to all
+of these reads. The response's `revision` field identifies the context binding,
+not the provenance of every returned value. For example:
 
 ```json
 {
   "database": "products",
   "resource": "catalog",
-  "query": "jn:doc('products','catalog').name",
+  "query": "$$.name",
   "snapshot": "before-change"
 }
 ```
 
 Database and resource restrictions apply to the actual resources opened during
-execution, including resources named inside query text. A read-only request policy
-also enforces resource and revision restrictions at reader acquisition and is
-carried into temporal reader tasks. Temporal walks that attempt to leave a selected
-revision return an error rather than a successful empty result; failed prefetches
-drain and close their unconsumed readers. Ordinary embedded callers have no bound
-MCP policy.
+execution, including resources named inside query text. The request policy checks
+database/resource opens and forbids writes; it is carried into temporal reader
+tasks. Temporal axes may visit other readable revisions of an authorized resource.
+Prefetch failures propagate rather than becoming successful empty results, and
+failed prefetches drain and close their unconsumed readers. Ordinary embedded
+callers have no bound MCP policy.
 
 Data changes use `sirix_create_resource`, `sirix_insert`, `sirix_update`,
 `sirix_delete`, or `sirix_revert`. Each checks write access and the exact resource

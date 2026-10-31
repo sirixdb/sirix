@@ -26,7 +26,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @Isolated
 class ProjectionAccessPolicyTest {
@@ -70,9 +69,9 @@ class ProjectionAccessPolicyTest {
   }
 
   @Test
-  void coldAndWarmProjectionsCannotEscapeTheSelectedRevisionInEitherMode() throws Exception {
+  void selectorsBindContextWithoutRestrictingColdOrWarmNamedProjectionReads() throws Exception {
     for (final boolean readOnly : new boolean[] {false, true}) {
-      final var h = handlers(config(readOnly));
+      final var h = handlers(config(readOnly, Map.of()));
       for (final boolean warm : new boolean[] {false, true}) {
         clearProjectionCaches();
         if (warm) {
@@ -82,36 +81,38 @@ class ProjectionAccessPolicyTest {
           assertThat(SirixVectorizedExecutor.projectionAggregatesServed()).isGreaterThan(served);
           assertThat(ProjectionIndexCatalog.dataCacheSize()).isPositive();
         }
-        assertDeniedWithoutServing(h, REVISION_TWO, 3);
+        assertAnswer(h, REVISION_TWO, 3, "6");
         assertAnswer(h, REVISION_TWO, 2, "6");
-        assertDeniedWithoutServing(h, REVISION_TWO, 3);
-        assertDeniedWithoutServing(h, REVISION_THREE, 2);
+        assertAnswer(h, REVISION_TWO, 3, "6");
+        assertAnswer(h, REVISION_THREE, 2, "15");
         assertAnswer(h, REVISION_THREE, 3, "15");
-        assertAnswer(h, LATEST, 2, "6");
+        assertAnswer(h, LATEST, 2, "15");
+        assertAnswer(h, "sum(for $r in $$[] return $r.n)", 2, "6");
+        assertAnswer(h, "sum(for $r in $$[] return $r.n)", 3, "15");
         assertAnswer(h, LATEST, 3, "15");
         assertAnswer(h, LATEST, null, "15");
         assertAnswer(h, REVISION_TWO, null, "6");
         assertAnswer(h, REVISION_THREE, null, "15");
+        final var restricted = handlers(config(readOnly, Map.of("db", List.of("visible"))));
+        final long served = SirixVectorizedExecutor.projectionAggregatesServed();
+        final var denied = restricted.query(null, request(REVISION_TWO, null));
+        assertThat(denied.isError()).as(text(denied)).isTrue();
+        assertThat(((Map<?, ?>) denied.structuredContent()).get("code")).isEqualTo("access_denied");
+        assertThat(SirixVectorizedExecutor.projectionAggregatesServed()).isEqualTo(served);
       }
     }
   }
 
   @Test
-  void sessionBoundFixedAndLatestExecutorsReauthorizeBeforeCacheReuse() throws Exception {
-    final var access = new AccessControl(config(true));
+  void resourcePolicyLeavesSessionBoundFixedAndLatestRevisionsUnchanged() throws Exception {
+    final var policy = new QueryAccessPolicy(directory, new AccessControl(config(true, Map.of())));
     try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
         final var ctx = SirixQueryContext.createWithJsonStore(store)) {
       final var session = store.lookup("db").getDatabase().beginResourceSession("data");
       try (final var fixed = SirixCompileChain.createWithNodeAndJsonStore(null, store, session, 2)) {
         assertThat(answer(new Query(fixed, REVISION_TWO), ctx)).isEqualTo("6");
-        final var selectedThree = new QueryAccessPolicy(directory, access, "db", "data", 3);
-        assertThatThrownBy(() -> ResourceAccessScope.where(
-            selectedThree).call(() -> answer(new Query(fixed, REVISION_TWO), ctx))).isInstanceOf(
-                AccessControl.AccessDeniedException.class);
-        final var selectedTwo = new QueryAccessPolicy(directory, access, "db", "data", 2);
-        assertThat(
-            ResourceAccessScope.where(selectedTwo).call(() -> answer(new Query(fixed, REVISION_TWO), ctx))).isEqualTo(
-                "6");
+        assertThat(ResourceAccessScope.where(policy).call(() -> answer(new Query(fixed, REVISION_TWO), ctx))).isEqualTo(
+            "6");
       }
     }
     try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
@@ -119,58 +120,29 @@ class ProjectionAccessPolicyTest {
       final var session = store.lookup("db").getDatabase().beginResourceSession("data");
       try (final var latest = SirixCompileChain.createWithJsonStore(store, session)) {
         assertThat(answer(new Query(latest, LATEST), ctx)).isEqualTo("15");
-        for (final int revision : new int[] {2, 3, 2, 3}) {
-          final var selected = new QueryAccessPolicy(directory, access, "db", "data", revision);
-          assertThat(ResourceAccessScope.where(selected).call(() -> answer(new Query(latest, LATEST), ctx))).isEqualTo(
-              revision == 2
-                  ? "6"
-                  : "15");
-        }
-        assertThat(answer(new Query(latest, LATEST), ctx)).isEqualTo("15");
+        assertThat(ResourceAccessScope.where(policy).call(() -> answer(new Query(latest, LATEST), ctx))).isEqualTo(
+            "15");
       }
     }
   }
 
   @Test
-  void reusedStoreExecutorsReauthorizePrimarySecondaryAndBoundDocumentSources() {
-    final var access = new AccessControl(config(true));
-    final var selectedThree = new QueryAccessPolicy(directory, access, "db", "data", 3);
-    final var selectedTwo = new QueryAccessPolicy(directory, access, "db", "data", 2);
+  void resourcePolicyAllowsPreparedPrimarySecondaryAndBoundDocumentSources() {
+    final var policy = new QueryAccessPolicy(directory, new AccessControl(config(true, Map.of())));
     try (final var store = BasicJsonDBStore.newBuilder().location(directory).build();
         final var chain = SirixCompileChain.createWithJsonStore(store);
         final var ctx = SirixQueryContext.createWithJsonStore(store)) {
       final Query primary = new Query(chain, REVISION_TWO);
       assertThat(answer(primary, ctx)).isEqualTo("6");
-      assertThatThrownBy(() -> ResourceAccessScope.where(selectedThree).call(() -> answer(primary, ctx))).isInstanceOf(
-          AccessControl.AccessDeniedException.class);
-      assertThat(ResourceAccessScope.where(selectedTwo).call(() -> answer(primary, ctx))).isEqualTo("6");
+      assertThat(ResourceAccessScope.where(policy).call(() -> answer(primary, ctx))).isEqualTo("6");
       final Query secondary = new Query(chain, "(" + REVISION_THREE + "," + REVISION_TWO + ")");
       assertThat(answer(secondary, ctx)).isEqualTo("15 6");
-      assertThatThrownBy(
-          () -> ResourceAccessScope.where(selectedThree).call(() -> answer(secondary, ctx))).isInstanceOf(
-              AccessControl.AccessDeniedException.class);
+      assertThat(ResourceAccessScope.where(policy).call(() -> answer(secondary, ctx))).isEqualTo("15 6");
       ctx.bind(new QNm("doc"), store.lookup("db").getDocument("data", 2));
       final Query bound = new Query(chain, "declare variable $doc external; sum(for $r in $doc[] return $r.n)");
       assertThat(answer(bound, ctx)).isEqualTo("6");
-      assertThatThrownBy(() -> ResourceAccessScope.where(selectedThree).call(() -> answer(bound, ctx))).isInstanceOf(
-          AccessControl.AccessDeniedException.class);
-      assertThat(ResourceAccessScope.where(selectedTwo).call(() -> answer(bound, ctx))).isEqualTo("6");
+      assertThat(ResourceAccessScope.where(policy).call(() -> answer(bound, ctx))).isEqualTo("6");
     }
-  }
-
-  private static void assertDeniedWithoutServing(final ToolHandlers h, final String query, final int revision) {
-    final long served = SirixVectorizedExecutor.projectionAggregatesServed();
-    final long cached = ProjectionIndexCatalog.dataCacheSize();
-    final var result = h.query(null, request(query, revision));
-    assertThat(result.isError()).as(text(result)).isTrue();
-    final var content = (Map<?, ?>) result.structuredContent();
-    assertThat(content).isNotNull();
-    assertThat(content.get("code")).isEqualTo("access_denied");
-    assertThat(content.get("message").toString()).contains("outside its historical context");
-    assertThat(content.containsKey("items")).isFalse();
-    assertThat(content.containsKey("revision")).isFalse();
-    assertThat(SirixVectorizedExecutor.projectionAggregatesServed()).isEqualTo(served);
-    assertThat(ProjectionIndexCatalog.dataCacheSize()).isEqualTo(cached);
   }
 
   private static void assertAnswer(final ToolHandlers h, final String query, final Integer revision,
@@ -185,8 +157,8 @@ class ProjectionAccessPolicyTest {
       assertThat(content.get("revision")).isEqualTo(revision);
   }
 
-  private McpServerConfig config(final boolean readOnly) {
-    return new McpServerConfig("test", "1", "stdio", directory.toString(), readOnly, List.of(), List.of(), Map.of(),
+  private McpServerConfig config(final boolean readOnly, final Map<String, List<String>> resources) {
+    return new McpServerConfig("test", "1", "stdio", directory.toString(), readOnly, List.of(), List.of(), resources,
         100, 4096, false, false, false, null);
   }
 

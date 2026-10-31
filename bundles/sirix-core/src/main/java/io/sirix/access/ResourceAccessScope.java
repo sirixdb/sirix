@@ -16,10 +16,6 @@ public final class ResourceAccessScope {
     void checkResource(Path database, String resource, boolean write);
 
     void checkWrite();
-
-    void checkRead(ResourceSession<?, ?> session, int requestedRevision);
-
-    int headRevision(ResourceSession<?, ?> session, int actualHead);
   }
 
   public static ScopedValue.Carrier where(final Policy policy) {
@@ -58,14 +54,4 @@ public final class ResourceAccessScope {
     }
   }
 
-  public static int headRevision(final ResourceSession<?, ?> session, final int actualHead) {
-    return POLICY.isBound()
-        ? POLICY.get().headRevision(session, actualHead)
-        : actualHead;
-  }
-
-  public static void checkRead(final ResourceSession<?, ?> session, final int revision) {
-    if (POLICY.isBound())
-      POLICY.get().checkRead(session, revision);
-  }
 }

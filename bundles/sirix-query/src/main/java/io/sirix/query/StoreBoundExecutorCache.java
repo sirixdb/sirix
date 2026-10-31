@@ -14,7 +14,6 @@ import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.Sequence;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
-import io.sirix.access.ResourceAccessScope;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
@@ -197,7 +196,6 @@ final class StoreBoundExecutorCache implements AutoCloseable {
     final int revision = source.revision() == LATEST_REVISION
         ? mostRecent
         : source.revision();
-    ResourceAccessScope.checkRead(session, revision);
     if (revision < 0 || revision > mostRecent) {
       return null;
     }
