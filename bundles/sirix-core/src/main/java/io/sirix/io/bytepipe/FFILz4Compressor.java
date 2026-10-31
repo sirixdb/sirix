@@ -564,7 +564,8 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
 
       final MemorySegment backingBuffer = buffer;
-      return new DecompressionResult(buffer, backingBuffer,
+      // Exclude allocator padding so a subsequent handler receives only its encoded frame.
+      return new DecompressionResult(buffer.asSlice(0, uncompressedSize), backingBuffer,
           () -> ALLOCATOR.release(backingBuffer),
           new java.util.concurrent.atomic.AtomicBoolean(false));
     }
