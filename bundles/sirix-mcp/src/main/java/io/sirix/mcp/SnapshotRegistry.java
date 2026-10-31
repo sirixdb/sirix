@@ -85,8 +85,9 @@ public final class SnapshotRegistry {
     if (revision < 1)
       throw new IllegalArgumentException("Revision must be positive");
     final String label = validateName(name);
-    final var labels = registry.computeIfAbsent(path, k -> new ConcurrentHashMap<>())
-                               .computeIfAbsent(resource, k -> new ConcurrentHashMap<>());
+    final var labels =
+        registry.computeIfAbsent(path, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(requireNonNull(target.getFileName()).toString(), k -> new ConcurrentHashMap<>());
     final Integer previous = labels.put(label, revision);
     try {
       persist(path);
@@ -107,7 +108,7 @@ public final class SnapshotRegistry {
     var dbMap = registry.get(path);
     if (dbMap == null)
       return false;
-    var resMap = dbMap.get(resource);
+    var resMap = dbMap.get(requireNonNull(target.getFileName()).toString());
     if (resMap == null)
       return false;
     final Integer removed = resMap.remove(name);
@@ -130,7 +131,7 @@ public final class SnapshotRegistry {
     var dbMap = registry.get(path);
     if (dbMap == null)
       return null;
-    var resMap = dbMap.get(resource);
+    var resMap = dbMap.get(requireNonNull(target.getFileName()).toString());
     if (resMap == null)
       return null;
     return resMap.get(name);
@@ -144,7 +145,7 @@ public final class SnapshotRegistry {
     var dbMap = registry.get(path);
     if (dbMap == null)
       return Map.of();
-    var resMap = dbMap.get(resource);
+    var resMap = dbMap.get(requireNonNull(target.getFileName()).toString());
     if (resMap == null)
       return Map.of();
     return Map.copyOf(resMap);
