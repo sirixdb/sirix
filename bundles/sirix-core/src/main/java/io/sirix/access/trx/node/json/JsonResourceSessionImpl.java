@@ -21,6 +21,8 @@
 
 package io.sirix.access.trx.node.json;
 
+import io.sirix.access.ResourceAccessScope;
+
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
@@ -158,6 +160,7 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   @SuppressWarnings("unchecked")
   @Override
   public JsonIndexController getRtxIndexController(final int revision) {
+    ResourceAccessScope.checkRead(this, revision);
     return rtxIndexControllers.computeIfAbsent(revision, _ -> {
       final JsonIndexController controller = createIndexController(revision);
       for (final IndexDef definition : controller.getIndexes().getIndexDefs()) {
@@ -173,6 +176,7 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   @SuppressWarnings("unchecked")
   @Override
   public JsonIndexController getWtxIndexController(final int revision) {
+    ResourceAccessScope.checkWrite(this);
     return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
   }
 

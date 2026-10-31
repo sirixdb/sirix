@@ -5,6 +5,7 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.Object;
 import io.sirix.api.Database;
+import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
@@ -30,12 +31,18 @@ public final class GuardedJsonDBStore implements JsonDBStore {
     this.accessControl = accessControl;
   }
 
+  private JsonDBCollection guard(final JsonDBCollection collection) {
+    return collection == null
+        ? null
+        : collection.setJsonDBStore(this);
+  }
+
   // --- Lookup: check database access ---
 
   @Override
   public JsonDBCollection lookup(String name) {
     accessControl.checkDatabaseAccess(name);
-    return delegate.lookup(name);
+    return guard(delegate.lookup(name));
   }
 
   // --- Create overloads: check write + database access ---
@@ -44,112 +51,112 @@ public final class GuardedJsonDBStore implements JsonDBStore {
   public JsonDBCollection create(String name) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(name);
-    return delegate.create(name);
+    return guard(delegate.create(name));
   }
 
   @Override
   public JsonDBCollection create(String collName, Path path) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, path);
+    return guard(delegate.create(collName, path));
   }
 
   @Override
   public JsonDBCollection create(String collName, Path path, Object options) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, path, options);
+    return guard(delegate.create(collName, path, options));
   }
 
   @Override
   public JsonDBCollection createFromPaths(String collName, Stream<Path> paths) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.createFromPaths(collName, paths);
+    return guard(delegate.createFromPaths(collName, paths));
   }
 
   @Override
   public JsonDBCollection create(String collName, String optResName, Path path) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, optResName, path);
+    return guard(delegate.create(collName, optResName, path));
   }
 
   @Override
   public JsonDBCollection create(String collName, String optResName, Path path, Object options) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, optResName, path, options);
+    return guard(delegate.create(collName, optResName, path, options));
   }
 
   @Override
   public JsonDBCollection create(String collName, String path) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, path);
+    return guard(delegate.create(collName, path));
   }
 
   @Override
   public JsonDBCollection create(String collName, String path, Object options) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, path, options);
+    return guard(delegate.create(collName, path, options));
   }
 
   @Override
   public JsonDBCollection create(String collName, String optResName, String json) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, optResName, json);
+    return guard(delegate.create(collName, optResName, json));
   }
 
   @Override
   public JsonDBCollection create(String collName, String optResName, String json, Object options) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, optResName, json, options);
+    return guard(delegate.create(collName, optResName, json, options));
   }
 
   @Override
   public JsonDBCollection create(String collName, String optResName, JsonReader json) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, optResName, json);
+    return guard(delegate.create(collName, optResName, json));
   }
 
   @Override
   public JsonDBCollection create(String collName, String optResName, JsonReader json, Object options) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, optResName, json, options);
+    return guard(delegate.create(collName, optResName, json, options));
   }
 
   @Override
   public JsonDBCollection create(String collName, Set<JsonReader> json) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, json);
+    return guard(delegate.create(collName, json));
   }
 
   @Override
   public JsonDBCollection create(String collName, Set<JsonReader> json, Object options) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.create(collName, json, options);
+    return guard(delegate.create(collName, json, options));
   }
 
   @Override
   public JsonDBCollection createFromJsonStrings(String collName, Stream<Str> jsons) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.createFromJsonStrings(collName, jsons);
+    return guard(delegate.createFromJsonStrings(collName, jsons));
   }
 
   @Override
   public JsonDBCollection createFromJsonStrings(String collName, Stream<Str> jsons, Object options) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(collName);
-    return delegate.createFromJsonStrings(collName, jsons, options);
+    return guard(delegate.createFromJsonStrings(collName, jsons, options));
   }
 
   // --- Drop: check write + database access ---
@@ -158,6 +165,7 @@ public final class GuardedJsonDBStore implements JsonDBStore {
   public void drop(String name) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(name);
+    checkAllResources(name);
     delegate.drop(name);
   }
 
@@ -165,7 +173,21 @@ public final class GuardedJsonDBStore implements JsonDBStore {
   public void drop(String name, Path databasePath) {
     accessControl.checkWriteAccess();
     accessControl.checkDatabaseAccess(name);
+    try (final var database = Databases.openJsonDatabase(databasePath)) {
+      for (final Path resource : database.listResources()) {
+        accessControl.checkAccess(name, resource.getFileName().toString());
+      }
+    }
     delegate.drop(name, databasePath);
+  }
+
+  private void checkAllResources(final String name) {
+    final JsonDBCollection collection = delegate.lookup(name);
+    if (collection != null) {
+      for (final Path resource : collection.getDatabase().listResources()) {
+        accessControl.checkAccess(name, resource.getFileName().toString());
+      }
+    }
   }
 
   // --- MakeDir: check write access ---

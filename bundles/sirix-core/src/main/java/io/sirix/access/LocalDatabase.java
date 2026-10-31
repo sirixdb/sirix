@@ -143,6 +143,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   public synchronized T beginResourceSession(final String resourceName) {
     assertNotClosed();
     final String canonicalName = canonicalResourceName(resourceName);
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), canonicalName, false);
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
     final Path resourcePath = dataDir.resolve(canonicalName);
 
@@ -294,6 +295,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public synchronized boolean createResource(final ResourceConfiguration resourceConfig) {
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), requireNonNull(resourceConfig).getName(), true);
     if (DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(requireNonNull(resourceConfig).getName()))) {
       throw new SirixUsageException("Derived resource names are reserved");
     }
@@ -421,6 +423,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public synchronized Database<T> removeResource(final String name) {
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), canonicalResourceName(name), true);
     assertNotClosed();
     final String canonicalName = canonicalResourceName(name);
     final Path resourceFile =
@@ -557,9 +560,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized boolean existsResource(final String resourceName) {
     assertNotClosed();
-    final Path resourceFile = dbConfig.getDatabaseFile()
-                                      .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-                                      .resolve(canonicalResourceName(resourceName));
+    final String canonicalName = canonicalResourceName(resourceName);
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), canonicalName, false);
+    final Path resourceFile =
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
     return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;
   }
 

@@ -11,10 +11,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class OutputSanitizerTest {
 
   private static McpServerConfig config(boolean sanitize, int maxLen) {
-    return new McpServerConfig(
-        "test", "1.0.0", "stdio", "/tmp/test",
-        true, List.of(), List.of(), Map.of(),
-        100, maxLen, sanitize, true, false, null);
+    return new McpServerConfig("test", "1.0.0", "stdio", "/tmp/test", true, List.of(), List.of(), Map.of(), 100, maxLen,
+        sanitize, true, false, null);
   }
 
   @Test
@@ -33,11 +31,11 @@ class OutputSanitizerTest {
   }
 
   @Test
-  void sanitizeTruncatesLongContent() {
+  void sanitizePreservesWholeValuesForStructuredBounding() {
     var s = new OutputSanitizer(config(true, 10));
     var result = s.sanitize("a".repeat(100));
-    assertThat(result).contains("truncated");
-    assertThat(result).contains("100 total chars");
+    assertThat(result).contains("a".repeat(100));
+    assertThat(result).doesNotContain("truncated");
   }
 
   @Test

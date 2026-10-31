@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
+import java.io.IOException;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -97,37 +98,32 @@ class SnapshotRegistryTest {
 
   @Test
   void rejectsNullName() {
-    assertThatThrownBy(() -> registry.create("db", "res", null, 1))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("Invalid snapshot name");
+    assertThatThrownBy(() -> registry.create("db", "res", null, 1)).isInstanceOf(IllegalArgumentException.class)
+                                                                   .hasMessageContaining("Invalid snapshot name");
   }
 
   @Test
   void rejectsEmptyName() {
-    assertThatThrownBy(() -> registry.create("db", "res", "", 1))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> registry.create("db", "res", "", 1)).isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void rejectsPathTraversalNames() {
-    assertThatThrownBy(() -> registry.create("db", "res", "../etc/passwd", 1))
-        .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> registry.create("db", "res", "../../root", 1))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> registry.create("db", "res", "../etc/passwd", 1)).isInstanceOf(
+        IllegalArgumentException.class);
+    assertThatThrownBy(() -> registry.create("db", "res", "../../root", 1)).isInstanceOf(
+        IllegalArgumentException.class);
   }
 
   @Test
   void rejectsNamesStartingWithDot() {
-    assertThatThrownBy(() -> registry.create("db", "res", ".hidden", 1))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> registry.create("db", "res", ".hidden", 1)).isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
   void rejectsNamesWithSlashes() {
-    assertThatThrownBy(() -> registry.create("db", "res", "a/b", 1))
-        .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> registry.create("db", "res", "a\\b", 1))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> registry.create("db", "res", "a/b", 1)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> registry.create("db", "res", "a\\b", 1)).isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -142,7 +138,32 @@ class SnapshotRegistryTest {
   @Test
   void rejectsTooLongName() {
     var longName = "a".repeat(129);
-    assertThatThrownBy(() -> registry.create("db", "res", longName, 1))
-        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> registry.create("db", "res", longName, 1)).isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void malformedPersistedLabelsAreNotOverwrittenByASecondAttempt() throws IOException {
+    final Path db = tempDir.resolve("broken");
+    Files.createDirectories(db);
+    final Path file = db.resolve(".sirix-mcp-snapshots.json");
+    final String corrupt = "{broken";
+    Files.writeString(file, corrupt);
+    final var registry = new SnapshotRegistry(tempDir);
+    assertThatThrownBy(() -> registry.create("broken", "res", "first", 1)).isInstanceOf(RuntimeException.class);
+    assertThatThrownBy(() -> registry.create("broken", "res", "second", 2)).isInstanceOf(RuntimeException.class);
+    assertThat(Files.readString(file)).isEqualTo(corrupt);
+  }
+
+  @Test
+  void persistenceFailuresRestoreThePreviousLabels() throws IOException {
+    registry.create("db", "res", "baseline", 1);
+    Files.createDirectory(tempDir.resolve("db/.sirix-mcp-snapshots.json.tmp"));
+    assertThatThrownBy(() -> registry.create("db", "res", "new", 2)).isInstanceOf(RuntimeException.class);
+    assertThat(registry.resolve("db", "res", "new")).isNull();
+    assertThatThrownBy(() -> registry.create("db", "res", "baseline", 2)).isInstanceOf(RuntimeException.class);
+    assertThat(registry.resolve("db", "res", "baseline")).isEqualTo(1);
+    assertThatThrownBy(() -> registry.delete("db", "res", "baseline")).isInstanceOf(RuntimeException.class);
+    assertThat(registry.resolve("db", "res", "baseline")).isEqualTo(1);
+    assertThat(new SnapshotRegistry(tempDir).resolve("db", "res", "baseline")).isEqualTo(1);
   }
 }

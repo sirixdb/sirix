@@ -1,0 +1,76 @@
+package io.sirix.mcp;
+
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Sequence;
+import io.sirix.query.SirixStringSerializer;
+import io.sirix.mcp.LimitedStringWriter.LimitExceededException;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/** Serializes at most one page, discarding an oversized value atomically. */
+final class BoundedQueryResult {
+  private BoundedQueryResult() {}
+
+  static Map<String, Object> serialize(final Sequence sequence, final int offset, final McpServerConfig config,
+      final OutputSanitizer sanitizer) {
+    return serialize(sequence, offset, config, sanitizer, !config.readOnly());
+  }
+
+  static Map<String, Object> serialize(final Sequence sequence, final int offset, final McpServerConfig config,
+      final OutputSanitizer sanitizer, final boolean completeEvaluation) {
+    final var values = new ArrayList<String>(Math.min(config.maxResultSize(), 128));
+    boolean truncated = false;
+    boolean oversized = false;
+    int position = 0;
+    String warning = null;
+    if (sequence != null) {
+      try (final var iterator = sequence.iterate()) {
+        Item item;
+        while ((item = iterator.next()) != null) {
+          if (position++ < offset)
+            continue;
+          if (oversized || values.size() == config.maxResultSize()) {
+            truncated = true;
+            if (completeEvaluation)
+              continue;
+            break;
+          }
+          final var buffer = new LimitedStringWriter(config.maxStringValueLength());
+          try (final var writer = new PrintWriter(buffer)) {
+            new SirixStringSerializer(writer).serialize(item);
+            writer.flush();
+            final String value = buffer.toString();
+            final String detected = sanitizer.detectInjection(value);
+            if (detected != null)
+              warning = detected;
+            values.add(sanitizer.sanitize(value));
+          } catch (final LimitExceededException exception) {
+            oversized = true;
+            truncated = true;
+            if (!completeEvaluation)
+              break;
+          }
+        }
+      }
+    }
+    final var result = new LinkedHashMap<String, Object>();
+    result.put("items", values);
+    result.put("truncated", truncated);
+    if (warning != null)
+      result.put("warning", warning);
+    if (truncated) {
+      result.put("continuation", completeEvaluation
+          ? Map.of("hint",
+              "Evaluation completed; this query may have mutated data. Read the affected resource separately instead of repeating the query")
+          : oversized
+              ? Map.of("offset", offset + values.size(), "hint",
+                  "Project a smaller value or split the document into items; this value exceeds maxStringValueLength")
+              : Map.of("offset", offset + values.size(), "hint",
+                  "Repeat the same query and selector with this offset"));
+    }
+    return result;
+  }
+
+}

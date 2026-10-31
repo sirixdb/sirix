@@ -7,6 +7,8 @@ import io.modelcontextprotocol.server.McpSyncServerExchange;
 
 import io.sirix.access.DatabaseType;
 import io.sirix.access.Databases;
+import io.sirix.access.ResourceAccessScope;
+import io.sirix.exception.SirixRevisionPrunedException;
 import io.sirix.api.Database;
 import io.sirix.api.RevisionInfo;
 import io.sirix.api.json.JsonNodeTrx;
@@ -14,7 +16,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
-import io.sirix.service.json.BasicJsonDiff;
 import io.sirix.service.json.shredder.JsonShredder;
 
 import io.brackit.query.Query;
@@ -24,11 +25,10 @@ import tools.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
-import java.io.PrintWriter;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,14 +38,15 @@ import java.util.regex.Pattern;
 /**
  * MCP tool handler implementations for SirixDB operations.
  *
- * <p>Every handler follows the same pattern:
+ * <p>
+ * Every handler follows the same pattern:
  * <ol>
- *   <li>Extract parameters from the request</li>
- *   <li>Check access control (throws {@link AccessControl.AccessDeniedException} if denied)</li>
- *   <li>Execute the SirixDB operation</li>
- *   <li>Sanitize output</li>
- *   <li>Log to audit trail</li>
- *   <li>Return result</li>
+ * <li>Extract parameters from the request</li>
+ * <li>Check access control (throws {@link AccessControl.AccessDeniedException} if denied)</li>
+ * <li>Execute the SirixDB operation</li>
+ * <li>Sanitize output</li>
+ * <li>Log to audit trail</li>
+ * <li>Return result</li>
  * </ol>
  */
 public final class ToolHandlers {
@@ -63,14 +64,14 @@ public final class ToolHandlers {
   private final AuditLog auditLog;
   private final Path databasePath;
 
-  public ToolHandlers(McpServerConfig config, AccessControl accessControl,
-      OutputSanitizer sanitizer, SnapshotRegistry snapshots, AuditLog auditLog) {
+  public ToolHandlers(McpServerConfig config, AccessControl accessControl, OutputSanitizer sanitizer,
+      SnapshotRegistry snapshots, AuditLog auditLog) {
     this.config = config;
     this.accessControl = accessControl;
     this.sanitizer = sanitizer;
     this.snapshots = snapshots;
     this.auditLog = auditLog;
-    this.databasePath = Path.of(config.databasePath());
+    this.databasePath = Path.of(config.databasePath()).toAbsolutePath().normalize();
   }
 
   // --- Read tools ---
@@ -97,10 +98,11 @@ public final class ToolHandlers {
   }
 
   public CallToolResult listResources(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
+    final var args = request.arguments();
 
     return withAudit("sirix_list_resources", args, () -> {
+      final var database = requireString(args, "database");
+
       accessControl.checkDatabaseAccess(database);
 
       final var resourceNames = new ArrayList<String>();
@@ -109,7 +111,9 @@ public final class ToolHandlers {
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
         final List<Path> resources = db.listResources();
         for (final Path resourcePath : resources) {
-          resourceNames.add(resourcePath.getFileName().toString());
+          final String name = resourcePath.getFileName().toString();
+          if (config.isResourceAllowed(database, name))
+            resourceNames.add(name);
         }
       }
 
@@ -118,18 +122,19 @@ public final class ToolHandlers {
   }
 
   public CallToolResult resourceInfo(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
+    final var args = request.arguments();
 
     return withAudit("sirix_resource_info", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+
       accessControl.checkAccess(database, resource);
       validateResourceName(resource);
 
       final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-           final JsonResourceSession session = db.beginResourceSession(resource)) {
+          final JsonResourceSession session = db.beginResourceSession(resource)) {
 
         final int latestRevision = session.getMostRecentRevisionNumber();
         final var info = new LinkedHashMap<String, Object>();
@@ -157,60 +162,71 @@ public final class ToolHandlers {
   }
 
   public CallToolResult query(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var queryStr = requireString(args, "query");
-    var database = requireString(args, "database");
-    var resource = optionalString(args, "resource");
+    final var args = request.arguments();
 
     return withAudit("sirix_query", args, () -> {
+      final var queryStr = requireString(args, "query");
+      final var database = requireString(args, "database");
+      final var resource = optionalString(args, "resource");
+
       if (resource != null) {
         accessControl.checkAccess(database, resource);
       } else {
         accessControl.checkDatabaseAccess(database);
       }
 
-      final String result;
-
-      final BasicJsonDBStore baseStore = BasicJsonDBStore.newBuilder()
-          .location(databasePath).build();
-      final var store = new GuardedJsonDBStore(baseStore, accessControl);
-
-      try (final SirixQueryContext ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
-              store, SirixQueryContext.CommitStrategy.EXPLICIT);
-           final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
-           final ByteArrayOutputStream out = new ByteArrayOutputStream();
-           final PrintWriter writer = new PrintWriter(out)) {
-        new Query(chain, queryStr).serialize(ctx, writer);
-        writer.flush();
-        result = out.toString();
+      safeDatabasePath(database);
+      if (resource != null)
+        validateResourceName(resource);
+      final Integer revision = queryRevision(args, database, resource);
+      final int offset = nonNegativeOffset(args);
+      final boolean completeEvaluation = !config.readOnly() && revision == null;
+      if (completeEvaluation && offset != 0) {
+        throw new IllegalArgumentException("Continuation requires a historical selector or a read-only server");
       }
-
-      // Check for prompt injection in results
-      var warning = sanitizer.detectInjection(result);
-      var sanitized = sanitizer.sanitize(result);
-
-      if (warning != null) {
-        return textResult(warning + "\n\n" + sanitized);
-      }
-      return textResult(sanitized);
+      final var policy =
+          new QueryAccessPolicy(databasePath, accessControl, database, resource, revision, config.readOnly());
+      return ResourceAccessScope.where(policy).call(() -> {
+        final BasicJsonDBStore baseStore = BasicJsonDBStore.newBuilder().location(databasePath).build();
+        final var store = new GuardedJsonDBStore(baseStore, accessControl);
+        try (
+            final SirixQueryContext ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(store,
+                SirixQueryContext.CommitStrategy.EXPLICIT);
+            final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+          if (resource != null) {
+            ctx.setContextItem(store.lookup(database)
+                                    .getDocument(resource, revision == null
+                                        ? -1
+                                        : revision));
+          }
+          final var sequence = new Query(chain, queryStr).execute(ctx);
+          final var result = BoundedQueryResult.serialize(sequence, offset, config, sanitizer, completeEvaluation);
+          if (revision != null)
+            result.put("revision", revision);
+          return structuredResult(result, false);
+        }
+      });
     });
   }
 
   public CallToolResult history(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
+    final var args = request.arguments();
 
     return withAudit("sirix_history", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+
       accessControl.checkAccess(database, resource);
       validateResourceName(resource);
 
       final Integer count = optionalInt(args, "count");
-      final int limit = count != null ? count : DEFAULT_HISTORY_COUNT;
+      final int limit = count != null
+          ? count
+          : DEFAULT_HISTORY_COUNT;
       final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-           final JsonResourceSession session = db.beginResourceSession(resource)) {
+          final JsonResourceSession session = db.beginResourceSession(resource)) {
 
         final List<RevisionInfo> revisions = session.getHistory(limit);
         final var entries = new ArrayList<Map<String, Object>>(revisions.size());
@@ -230,76 +246,79 @@ public final class ToolHandlers {
   }
 
   public CallToolResult diff(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
+    final var args = request.arguments();
 
     return withAudit("sirix_diff", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+
       accessControl.checkAccess(database, resource);
       validateResourceName(resource);
 
       final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-           final JsonResourceSession session = db.beginResourceSession(resource)) {
+          final JsonResourceSession session = db.beginResourceSession(resource)) {
 
         final int latest = session.getMostRecentRevisionNumber();
-        if (latest < 2) {
-          return textResult("No diff available: only 1 revision exists");
+        if (latest < 2 && !args.containsKey("from_revision") && !args.containsKey("to_revision")
+            && !args.containsKey("from_snapshot") && !args.containsKey("to_snapshot")) {
+          return textResult("No diff available: only " + latest + (latest == 1
+              ? " revision exists"
+              : " revisions exist"));
         }
 
-        final int fromRev = resolveRevision(args, "from_revision", "from_snapshot",
-            database, resource, latest - 1);
-        final int toRev = resolveRevision(args, "to_revision", "to_snapshot",
-            database, resource, latest);
+        final int fromRev = resolveRevision(args, "from_revision", "from_snapshot", database, resource, latest - 1);
+        final int toRev = resolveRevision(args, "to_revision", "to_snapshot", database, resource, latest);
 
-        if (fromRev < 1 || toRev < 1 || fromRev > latest || toRev > latest) {
-          throw new IllegalArgumentException(
-              "Invalid revision range: " + fromRev + ".." + toRev
-                  + " (latest: " + latest + ")");
+        if (fromRev >= toRev) {
+          throw new IllegalArgumentException("from_revision must be less than to_revision");
         }
-
-        final var jsonDiff = new BasicJsonDiff(database);
-        final String diffResult = jsonDiff.generateDiff(session, fromRev, toRev);
-
-        var sanitized = sanitizer.sanitize(diffResult);
-        return textResult(sanitized);
+        validateRevision(session, fromRev);
+        validateRevision(session, toRev);
+        final var result = BoundedDiff.generate(database, session, fromRev, toRev, nonNegativeOffset(args), config);
+        final String warning = sanitizer.detectInjection(MAPPER.writeValueAsString(result));
+        if (warning != null)
+          result.put("warning", warning);
+        return new CallToolResult(List.of(new TextContent(sanitizer.sanitize(MAPPER.writeValueAsString(result)))),
+            false, result, null);
       }
     });
   }
 
   public CallToolResult listSnapshots(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
+    final var args = request.arguments();
 
     return withAudit("sirix_list_snapshots", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+
       accessControl.checkAccess(database, resource);
-      var snapshotMap = snapshots.list(database, resource);
+      final var snapshotMap = snapshots.list(database, resource);
       return textResult(MAPPER.writeValueAsString(snapshotMap));
     });
   }
 
   public CallToolResult createSnapshot(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
-    var name = requireString(args, "name");
-    var revision = optionalInt(args, "revision");
+    final var args = request.arguments();
 
     return withAudit("sirix_create_snapshot", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+      final var name = requireString(args, "name");
+      final var revision = optionalInt(args, "revision");
+
       accessControl.checkAccess(database, resource);
       validateResourceName(resource);
 
       final int rev;
-      if (revision != null) {
-        rev = revision;
-      } else {
-        final Path dbPath = safeDatabasePath(database);
-        try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-             final JsonResourceSession session = db.beginResourceSession(resource)) {
-          rev = session.getMostRecentRevisionNumber();
-        }
+      final Path dbPath = safeDatabasePath(database);
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+          final JsonResourceSession session = db.beginResourceSession(resource)) {
+        rev = revision != null
+            ? revision
+            : session.getMostRecentRevisionNumber();
+        validateRevision(session, rev);
       }
 
       snapshots.create(database, resource, name, rev);
@@ -310,13 +329,14 @@ public final class ToolHandlers {
   // --- Write tools ---
 
   public CallToolResult insert(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
-    var data = requireString(args, "data");
-    var message = optionalString(args, "message");
+    final var args = request.arguments();
 
     return withAudit("sirix_insert", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+      final var data = requireString(args, "data");
+      final var message = optionalString(args, "message");
+
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
       validateResourceName(resource);
@@ -324,16 +344,14 @@ public final class ToolHandlers {
       final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-           final JsonResourceSession session = db.beginResourceSession(resource);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonResourceSession session = db.beginResourceSession(resource);
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
         wtx.moveToDocumentRoot();
         if (wtx.moveToFirstChild()) {
-          wtx.insertSubtreeAsRightSibling(
-              JsonShredder.createStringReader(data), JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(data), JsonNodeTrx.Commit.NO);
         } else {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader(data), JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(data), JsonNodeTrx.Commit.NO);
         }
 
         wtx.commit(message);
@@ -344,14 +362,15 @@ public final class ToolHandlers {
   }
 
   public CallToolResult update(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
-    var nodeKey = requireLong(args, "nodeKey");
-    var value = requireString(args, "value");
-    var message = optionalString(args, "message");
+    final var args = request.arguments();
 
     return withAudit("sirix_update", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+      final var nodeKey = requireLong(args, "nodeKey");
+      final var value = requireString(args, "value");
+      final var message = optionalString(args, "message");
+
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
       validateResourceName(resource);
@@ -359,8 +378,8 @@ public final class ToolHandlers {
       final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-           final JsonResourceSession session = db.beginResourceSession(resource);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonResourceSession session = db.beginResourceSession(resource);
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
         if (!wtx.moveTo(nodeKey)) {
           throw new IllegalArgumentException("Node not found: " + nodeKey);
@@ -375,8 +394,7 @@ public final class ToolHandlers {
         } else if (wtx.isObjectKey()) {
           wtx.setObjectKeyName(value);
         } else {
-          throw new IllegalArgumentException(
-              "Node " + nodeKey + " is not a value or object key node");
+          throw new IllegalArgumentException("Node " + nodeKey + " is not a value or object key node");
         }
 
         wtx.commit(message);
@@ -387,13 +405,14 @@ public final class ToolHandlers {
   }
 
   public CallToolResult delete(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
-    var nodeKey = requireLong(args, "nodeKey");
-    var message = optionalString(args, "message");
+    final var args = request.arguments();
 
     return withAudit("sirix_delete", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+      final var nodeKey = requireLong(args, "nodeKey");
+      final var message = optionalString(args, "message");
+
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
       validateResourceName(resource);
@@ -401,8 +420,8 @@ public final class ToolHandlers {
       final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-           final JsonResourceSession session = db.beginResourceSession(resource);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonResourceSession session = db.beginResourceSession(resource);
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
         if (!wtx.moveTo(nodeKey)) {
           throw new IllegalArgumentException("Node not found: " + nodeKey);
@@ -417,12 +436,13 @@ public final class ToolHandlers {
   }
 
   public CallToolResult revert(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
-    var message = optionalString(args, "message");
+    final var args = request.arguments();
 
     return withAudit("sirix_revert", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+      final var message = optionalString(args, "message");
+
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
       validateResourceName(resource);
@@ -430,21 +450,21 @@ public final class ToolHandlers {
       final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
-           final JsonResourceSession session = db.beginResourceSession(resource);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonResourceSession session = db.beginResourceSession(resource);
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
         final int latest = session.getMostRecentRevisionNumber();
-        final int targetRevision = resolveRevision(args, "revision", "snapshot",
-            database, resource, -1);
+        final int targetRevision = resolveRevision(args, "revision", "snapshot", database, resource, -1);
 
-        if (targetRevision < 1 || targetRevision > latest) {
-          throw new IllegalArgumentException(
-              "Invalid revision: " + targetRevision
-                  + " (latest: " + latest + ")");
+        final Integer expectedHead = optionalInt(args, "expected_head");
+        if (expectedHead != null && expectedHead != latest) {
+          return structuredResult(Map.of("code", "stale_head", "expectedHead", expectedHead, "previousHead", latest,
+              "message", "Resource head changed; inspect it before retrying"), true);
         }
-
+        validateRevision(session, targetRevision);
         if (targetRevision == latest) {
-          return textResult("Already at revision " + latest + ", nothing to revert");
+          return structuredResult(Map.of("revision", latest, "previousHead", latest, "message",
+              "Already at revision " + latest + ", nothing to revert"), false);
         }
 
         wtx.revertTo(targetRevision);
@@ -455,19 +475,20 @@ public final class ToolHandlers {
           wtx.commit("Reverted to revision " + targetRevision);
         }
 
-        return textResult("Reverted to revision " + targetRevision
-            + " (new revision " + session.getMostRecentRevisionNumber() + ")");
+        return structuredResult(Map.of("revision", session.getMostRecentRevisionNumber(), "previousHead", latest,
+            "targetRevision", targetRevision, "message", "Reverted to revision " + targetRevision), false);
       }
     });
   }
 
   public CallToolResult deleteSnapshot(McpSyncServerExchange exchange, CallToolRequest request) {
-    var args = request.arguments();
-    var database = requireString(args, "database");
-    var resource = requireString(args, "resource");
-    var name = requireString(args, "name");
+    final var args = request.arguments();
 
     return withAudit("sirix_delete_snapshot", args, () -> {
+      final var database = requireString(args, "database");
+      final var resource = requireString(args, "resource");
+      final var name = requireString(args, "name");
+
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
       boolean existed = snapshots.delete(database, resource, name);
@@ -513,14 +534,16 @@ public final class ToolHandlers {
    * @param defaultRevision fallback if neither is specified (-1 means required)
    * @return the resolved revision number
    */
-  private int resolveRevision(Map<String, Object> args, String revisionKey, String snapshotKey,
-      String database, String resource, int defaultRevision) {
+  private int resolveRevision(Map<String, Object> args, String revisionKey, String snapshotKey, String database,
+      String resource, int defaultRevision) {
     final var revisionArg = optionalInt(args, revisionKey);
-    if (revisionArg != null) {
-      return revisionArg;
-    }
-
     final var snapshotName = optionalString(args, snapshotKey);
+    if (revisionArg != null && snapshotName != null) {
+      throw new IllegalArgumentException("Specify exactly one of '" + revisionKey + "' and '" + snapshotKey + "'");
+    }
+    if (revisionArg != null)
+      return revisionArg;
+
     if (snapshotName != null) {
       final var rev = snapshots.resolve(database, resource, snapshotName);
       if (rev == null) {
@@ -530,10 +553,62 @@ public final class ToolHandlers {
     }
 
     if (defaultRevision < 0) {
-      throw new IllegalArgumentException(
-          "Either '" + revisionKey + "' or '" + snapshotKey + "' must be specified");
+      throw new IllegalArgumentException("Either '" + revisionKey + "' or '" + snapshotKey + "' must be specified");
     }
     return defaultRevision;
+  }
+
+  private Integer queryRevision(final Map<String, Object> args, final String database, final String resource) {
+    final int selectors = (args.containsKey("revision")
+        ? 1
+        : 0)
+        + (args.containsKey("snapshot")
+            ? 1
+            : 0)
+        + (args.containsKey("timestamp")
+            ? 1
+            : 0);
+    if (selectors > 1)
+      throw new IllegalArgumentException("Specify exactly one of revision, timestamp, snapshot");
+    if (selectors == 0)
+      return null;
+    if (resource == null)
+      throw new IllegalArgumentException("A resource is required for a historical selector");
+    try (final var db = Databases.openJsonDatabase(safeDatabasePath(database));
+        final var session = db.beginResourceSession(resource)) {
+      final int revision;
+      if (args.containsKey("timestamp")) {
+        final Instant timestamp = Instant.parse(requireString(args, "timestamp"));
+        revision = session.getRevisionNumber(timestamp);
+      } else {
+        revision = resolveRevision(args, "revision", "snapshot", database, resource, -1);
+      }
+      validateRevision(session, revision);
+      return revision;
+    }
+  }
+
+  private static void validateRevision(final JsonResourceSession session, final int revision) {
+    if (revision < 1 || revision > session.getMostRecentRevisionNumber()) {
+      throw new IllegalArgumentException("Invalid revision: " + revision);
+    }
+    // The public reader API validates retention and the selected revision root.
+    try (final var reader = session.beginNodeReadOnlyTrx(revision)) {
+      reader.getRevisionNumber();
+    }
+  }
+
+  private static int nonNegativeOffset(final Map<String, Object> args) {
+    final Integer offset = optionalInt(args, "offset");
+    if (offset != null && offset < 0)
+      throw new IllegalArgumentException("offset must not be negative");
+    return offset == null
+        ? 0
+        : offset;
+  }
+
+  private static CallToolResult structuredResult(final Map<String, Object> result, final boolean error) {
+    return new CallToolResult(List.of(new TextContent(MAPPER.writeValueAsString(result))), error, result, null);
   }
 
   @FunctionalInterface
@@ -543,9 +618,15 @@ public final class ToolHandlers {
 
   private CallToolResult withAudit(String toolName, Map<String, Object> params, ToolAction action) {
     try {
-      var result = action.execute();
-      auditLog.log(toolName, params, "success", null);
+      final var result = action.execute();
+      auditLog.log(toolName, params, Boolean.TRUE.equals(result.isError())
+          ? "error"
+          : "success", null);
       return result;
+    } catch (SirixRevisionPrunedException e) {
+      auditLog.log(toolName, params, "error", e.getMessage());
+      return structuredResult(Map.of("code", "revision_pruned", "revision", e.getRevision(), "timestamp",
+          e.getTimestamp().toString(), "message", e.getMessage()), true);
     } catch (AccessControl.AccessDeniedException e) {
       auditLog.log(toolName, params, "denied", e.getMessage());
       return errorResult(e.getMessage());
@@ -571,31 +652,44 @@ public final class ToolHandlers {
   }
 
   private static String requireString(Map<String, Object> args, String key) {
-    var value = args.get(key);
+    final var value = args.get(key);
     if (value == null) {
       throw new IllegalArgumentException("Missing required parameter: " + key);
     }
-    return value.toString();
+    if (!(value instanceof String text))
+      throw new IllegalArgumentException("Parameter '" + key + "' must be a string");
+    return text;
   }
 
   private static String optionalString(Map<String, Object> args, String key) {
-    var value = args.get(key);
-    return value != null ? value.toString() : null;
+    final var value = args.get(key);
+    if (value == null)
+      return null;
+    if (!(value instanceof String text))
+      throw new IllegalArgumentException("Parameter '" + key + "' must be a string");
+    return text;
   }
 
   private static Integer optionalInt(Map<String, Object> args, String key) {
-    var value = args.get(key);
-    if (value == null) return null;
-    if (value instanceof Number n) return n.intValue();
-    return Integer.parseInt(value.toString());
+    final var value = args.get(key);
+    if (value == null)
+      return null;
+    try {
+      return Integer.valueOf(value.toString());
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException("Parameter '" + key + "' must be a 32-bit integer", e);
+    }
   }
 
   private static long requireLong(Map<String, Object> args, String key) {
-    var value = args.get(key);
+    final var value = args.get(key);
     if (value == null) {
       throw new IllegalArgumentException("Missing required parameter: " + key);
     }
-    if (value instanceof Number n) return n.longValue();
-    return Long.parseLong(value.toString());
+    try {
+      return Long.parseLong(value.toString());
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException("Parameter '" + key + "' must be a 64-bit integer", e);
+    }
   }
 }

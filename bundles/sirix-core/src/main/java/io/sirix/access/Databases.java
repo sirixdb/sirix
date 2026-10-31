@@ -242,6 +242,7 @@ public final class Databases {
 
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     requireNonNull(dbConfig);
+    ResourceAccessScope.checkDatabase(dbConfig.getDatabaseFile(), true);
     initAllocator(dbConfig.getMaxSegmentAllocationSize());
 
     final Path databaseFile = dbConfig.getDatabaseFile();
@@ -316,6 +317,7 @@ public final class Databases {
   @SuppressWarnings("ReferenceEquality")
   public static void removeDatabase(final Path dbFile) {
     requireNonNull(dbFile);
+    ResourceAccessScope.checkDatabase(dbFile, true);
     final Path path;
     final @Nullable OpenDatabase<?> owner;
     final Set<Database<?>> handles;
@@ -580,6 +582,7 @@ public final class Databases {
   private static <M extends ResourceSession<R, W>, R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor> Database<M> openDatabase(
       final Path file, final User user, final DatabaseType databaseType) {
     requireNonNull(file);
+    ResourceAccessScope.checkDatabase(file, false);
     requireNonNull(user);
     if (!Files.exists(file)) {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());

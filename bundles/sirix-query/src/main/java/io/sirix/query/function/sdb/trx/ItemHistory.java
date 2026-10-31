@@ -1,5 +1,7 @@
 package io.sirix.query.function.sdb.trx;
 
+import io.sirix.access.ResourceAccessScope;
+
 import io.brackit.query.QueryContext;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.function.AbstractFunction;
@@ -101,7 +103,9 @@ public final class ItemHistory extends AbstractFunction {
       final int[] revisions = indexedRevisions;
       final long nodeKey = item.getNodeKey();
       final boolean isJson = item instanceof JsonDBItem;
-      final JsonItemFactory jsonItemFactory = isJson ? new JsonItemFactory() : null;
+      final JsonItemFactory jsonItemFactory = isJson
+          ? new JsonItemFactory()
+          : null;
 
       // Open transactions and resolve nodes in parallel using virtual threads
       final Item[] results = new Item[revisions.length];
@@ -110,20 +114,19 @@ public final class ItemHistory extends AbstractFunction {
         for (int i = 0; i < revisions.length; i++) {
           final int idx = i;
           final int revision = revisions[i];
-          futures.add(executor.submit(() -> {
+          futures.add(executor.submit(ResourceAccessScope.capture(() -> {
             final NodeReadOnlyTrx rtxInRevision = resourceSession.beginNodeReadOnlyTrx(revision);
             if (rtxInRevision.moveTo(nodeKey)) {
               if (isJson) {
-                results[idx] = jsonItemFactory.getSequence(
-                    (JsonNodeReadOnlyTrx) rtxInRevision, ((JsonDBItem) item).getCollection());
+                results[idx] = jsonItemFactory.getSequence((JsonNodeReadOnlyTrx) rtxInRevision,
+                    ((JsonDBItem) item).getCollection());
               } else {
-                results[idx] = new XmlDBNode(
-                    (XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection());
+                results[idx] = new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection());
               }
             } else {
               rtxInRevision.close();
             }
-          }));
+          })));
         }
         for (final Future<?> future : futures) {
           future.get();

@@ -1,5 +1,7 @@
 package io.sirix.axis.temporal;
 
+import io.sirix.access.ResourceAccessScope;
+
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -22,46 +24,45 @@ import org.slf4j.LoggerFactory;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Look-ahead prefetcher for the multi-revision temporal axes
- * ({@link PrefetchedAllTimeAxis}, {@link PrefetchedPastAxis}, {@link PrefetchedFutureAxis}).
+ * Look-ahead prefetcher for the multi-revision temporal axes ({@link PrefetchedAllTimeAxis},
+ * {@link PrefetchedPastAxis}, {@link PrefetchedFutureAxis}).
  *
- * <p>Each yielded revision costs a {@link ResourceSession#beginNodeReadOnlyTrx(int)} plus
- * a {@link io.sirix.api.NodeCursor#moveTo(long)}. The prefetcher overlaps those steps
- * with consumer-side work using a fixed-depth queue of {@link CompletableFuture}s, each
- * spawning a {@link Thread#startVirtualThread virtual thread} that opens the trx and
- * walks to the target node.
+ * <p>
+ * Each yielded revision costs a {@link ResourceSession#beginNodeReadOnlyTrx(int)} plus a
+ * {@link io.sirix.api.NodeCursor#moveTo(long)}. The prefetcher overlaps those steps with
+ * consumer-side work using a fixed-depth queue of {@link CompletableFuture}s, each spawning a
+ * {@link Thread#startVirtualThread virtual thread} that opens the trx and walks to the target node.
  *
  * <h2>What runs in parallel</h2>
  * <ul>
- *   <li>{@code beginNodeReadOnlyTrx} is not synchronized on the resource session, so its body
- *       (RevisionRoot load, document-node fetch, trx-map registration) runs concurrently across
- *       in-flight tasks. After a warm cache this is a small fraction of the per-yield cost.</li>
- *   <li>The subsequent {@code rtx.moveTo(nodeKey)} runs on per-trx state with the shared
- *       page cache and traverses the indirect-page index for the target node. Multiple
- *       in-flight tasks walk different revisions of that index in parallel — that is
- *       where the depth-{@code N} pipeline pays off, especially for deep histories.</li>
+ * <li>{@code beginNodeReadOnlyTrx} is not synchronized on the resource session, so its body
+ * (RevisionRoot load, document-node fetch, trx-map registration) runs concurrently across in-flight
+ * tasks. After a warm cache this is a small fraction of the per-yield cost.</li>
+ * <li>The subsequent {@code rtx.moveTo(nodeKey)} runs on per-trx state with the shared page cache
+ * and traverses the indirect-page index for the target node. Multiple in-flight tasks walk
+ * different revisions of that index in parallel — that is where the depth-{@code N} pipeline pays
+ * off, especially for deep histories.</li>
  * </ul>
  *
  * <h2>Lifecycle</h2>
  * <ul>
- *   <li>Lazy: the constructor submits nothing. The first call to {@link #poll()} fills
- *       the pipeline up to {@code depth}. A consumer that constructs the axis but never
- *       iterates pays no I/O cost.</li>
- *   <li>Bounded: at most {@code depth} rtx in flight + the one being yielded.</li>
- *   <li>{@link #close()} flips a flag observed by every supplier — pending tasks short-circuit
- *       before opening a trx, in-flight tasks close their rtx inline once the open returns, and
- *       futures already completed have their rtx closed via a {@code whenComplete} callback — and
- *       then WAITS for those tasks, so every rtx it owns is released by the time it returns.
- *       Idempotent.</li>
+ * <li>Lazy: the constructor submits nothing. The first call to {@link #poll()} fills the pipeline
+ * up to {@code depth}. A consumer that constructs the axis but never iterates pays no I/O
+ * cost.</li>
+ * <li>Bounded: at most {@code depth} rtx in flight + the one being yielded.</li>
+ * <li>{@link #close()} flips a flag observed by every supplier — pending tasks short-circuit before
+ * opening a trx, in-flight tasks close their rtx inline once the open returns, and futures already
+ * completed have their rtx closed via a {@code whenComplete} callback — and then WAITS for those
+ * tasks, so every rtx it owns is released by the time it returns. Idempotent.</li>
  * </ul>
  *
- * <p>Single-consumer by contract: {@link #poll()} and {@link #close()} must be called by
- * the same thread (typically the axis's iterator thread). The supplier bodies run on
- * their own virtual threads and read the {@link #closed} flag through a {@code volatile}
- * publish.
+ * <p>
+ * Single-consumer by contract: {@link #poll()} and {@link #close()} must be called by the same
+ * thread (typically the axis's iterator thread). The supplier bodies run on their own virtual
+ * threads and read the {@link #closed} flag through a {@code volatile} publish.
  */
-final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
-    W extends NodeTrx & NodeCursor> implements AutoCloseable {
+final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
+    implements AutoCloseable {
 
   /** Default look-ahead depth. */
   static final int DEFAULT_DEPTH = 4;
@@ -77,24 +78,24 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
     }
   }
 
-  private static final Executor VIRTUAL_THREAD_EXECUTOR = Thread::startVirtualThread;
+  private static final Executor VIRTUAL_THREAD_EXECUTOR =
+      action -> Thread.startVirtualThread(ResourceAccessScope.capture(action));
 
-  private static final LogWrapper LOGGER =
-      new LogWrapper(LoggerFactory.getLogger(RevisionPrefetcher.class));
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(RevisionPrefetcher.class));
 
   /**
    * Upper bound on how long {@link #close()} waits for in-flight tasks. A task that has observed
    * {@link #closed} does at most one trx-open plus a {@code moveTo} before finishing, so this is a
-   * safety net against a pathological stall, not a tuning knob — hitting it means something else
-   * is badly wrong.
+   * safety net against a pathological stall, not a tuning knob — hitting it means something else is
+   * badly wrong.
    */
   private static final long CLOSE_DRAIN_TIMEOUT_SECONDS = 30L;
 
   /**
-   * Hoisted, capture-free close-on-complete callback. Used by {@link #close()} for every
-   * pending future so that an rtx already opened by a finished supplier is still
-   * released even though the consumer abandoned the axis. Static + capture-free →
-   * single instance for the JVM lifetime → zero allocation per close().
+   * Hoisted, capture-free close-on-complete callback. Used by {@link #close()} for every pending
+   * future so that an rtx already opened by a finished supplier is still released even though the
+   * consumer abandoned the axis. Static + capture-free → single instance for the JVM lifetime → zero
+   * allocation per close().
    */
   @SuppressWarnings({"rawtypes", "unchecked"})
   private static final BiConsumer<RtxResult, Throwable> CLOSE_RESULT_RTX = (result, ex) -> {
@@ -114,13 +115,13 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
 
   /**
    * @param resourceSession the session each prefetch task opens an rtx on
-   * @param nodeKey         the record to {@code moveTo} after each open
-   * @param nextRevision    yields the next revision number to fetch, or a negative value
-   *                        once the iteration is exhausted
-   * @param depth           look-ahead window, must be {@code > 0}
+   * @param nodeKey the record to {@code moveTo} after each open
+   * @param nextRevision yields the next revision number to fetch, or a negative value once the
+   *        iteration is exhausted
+   * @param depth look-ahead window, must be {@code > 0}
    */
-  RevisionPrefetcher(final ResourceSession<R, W> resourceSession, final long nodeKey,
-      final IntSupplier nextRevision, final int depth) {
+  RevisionPrefetcher(final ResourceSession<R, W> resourceSession, final long nodeKey, final IntSupplier nextRevision,
+      final int depth) {
     this.resourceSession = requireNonNull(resourceSession, "resourceSession");
     this.nextRevision = requireNonNull(nextRevision, "nextRevision");
     if (depth <= 0) {
@@ -132,8 +133,8 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
   }
 
   /**
-   * Top up the in-flight queue to {@link #depth}. No-op once {@link #closed} is set or
-   * the revision iterator is exhausted.
+   * Top up the in-flight queue to {@link #depth}. No-op once {@link #closed} is set or the revision
+   * iterator is exhausted.
    */
   private void fillToDepth() {
     if (closed) {
@@ -154,7 +155,7 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
       // Cooperative cancellation point #1: skip the trx-open entirely if close() has
       // already been called. No rtx allocated → nothing to leak.
       // (CompletableFuture.cancel(true) does NOT interrupt this body — Java contract
-      //  explicitly. So we don't bother reading the thread interrupt flag.)
+      // explicitly. So we don't bother reading the thread interrupt flag.)
       if (closed) {
         return null;
       }
@@ -173,8 +174,8 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
   }
 
   /**
-   * Block on the head future and return its result; returns {@code null} when no more
-   * results will be produced (iterator exhausted or {@link #close()} called).
+   * Block on the head future and return its result; returns {@code null} when no more results will be
+   * produced (iterator exhausted or {@link #close()} called).
    */
   RtxResult<R> poll() {
     if (closed) {
@@ -202,22 +203,25 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor,
    * prefetcher owns — <b>synchronously</b>: when this returns, no in-flight task is still holding
    * one. Idempotent.
    *
-   * <p><b>Why it waits, and why it must not cancel.</b> {@code cancel(true)} completes the future
-   * at once but does NOT interrupt the {@code supplyAsync} body (Java's documented contract), so
-   * the body runs on, opens its rtx, and only then observes {@link #closed} and closes it. The
+   * <p>
+   * <b>Why it waits, and why it must not cancel.</b> {@code cancel(true)} completes the future at
+   * once but does NOT interrupt the {@code supplyAsync} body (Java's documented contract), so the
+   * body runs on, opens its rtx, and only then observes {@link #closed} and closes it. The
    * {@code whenComplete} callback meanwhile fires immediately with a {@link CancellationException}
    * and no result, releasing nothing. Release was therefore asynchronous and unobservable to the
-   * caller: {@code close()} returned while rtxs it owned were still open, which is why callers
-   * had to poll {@code activeTrxCount()} and why doing so flaked under load. Not cancelling lets
-   * each future complete naturally — the bodies short-circuit on the flag we just published — and
-   * joining them makes the release part of {@code close()}'s contract.
+   * caller: {@code close()} returned while rtxs it owned were still open, which is why callers had to
+   * poll {@code activeTrxCount()} and why doing so flaked under load. Not cancelling lets each future
+   * complete naturally — the bodies short-circuit on the flag we just published — and joining them
+   * makes the release part of {@code close()}'s contract.
    *
-   * <p>Blocking the consumer thread on these tasks is not a new hazard: {@link #poll()} already
-   * does exactly that via {@code head.join()}.
+   * <p>
+   * Blocking the consumer thread on these tasks is not a new hazard: {@link #poll()} already does
+   * exactly that via {@code head.join()}.
    *
-   * <p>The wait is bounded by {@link #CLOSE_DRAIN_TIMEOUT_SECONDS} so a pathologically stalled
-   * task degrades to the previous behaviour — the flag is set, so the body still closes its own
-   * rtx — rather than hanging the consumer forever.
+   * <p>
+   * The wait is bounded by {@link #CLOSE_DRAIN_TIMEOUT_SECONDS} so a pathologically stalled task
+   * degrades to the previous behaviour — the flag is set, so the body still closes its own rtx —
+   * rather than hanging the consumer forever.
    */
   @SuppressWarnings({"rawtypes", "unchecked"})
   @Override

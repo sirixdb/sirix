@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Path;
+import java.io.PrintStream;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -22,25 +23,34 @@ import java.util.concurrent.CountDownLatch;
 /**
  * SirixDB MCP server entry point.
  *
- * <p>Exposes SirixDB's temporal versioning capabilities to AI agents via MCP.
- * Security-first: read-only by default, database/resource allowlists,
- * output sanitization, and audit logging.
+ * <p>
+ * Exposes SirixDB's temporal versioning capabilities to AI agents via MCP. Security-first:
+ * read-only by default, database/resource allowlists, output sanitization, and audit logging.
  *
- * <p>Usage: {@code java -jar sirix-mcp.jar --database-path /path/to/data}
+ * <p>
+ * Usage: {@code sirix-mcp --database-path /path/to/data}
  */
 public final class SirixMcpServer {
+
+  // A unique resource avoids Logback's duplicate-logback.xml startup diagnostics on protocol stdout.
+  static {
+    if (System.getProperty("logback.configurationFile") == null) {
+      System.setProperty("logback.configurationFile", "sirix-mcp-logback.xml");
+    }
+  }
 
   private static final Logger LOG = LoggerFactory.getLogger(SirixMcpServer.class);
 
   public static void main(String[] args) throws Exception {
+    // Reserve stdout for the transport, including during core shutdown diagnostics.
+    final PrintStream protocolOutput = System.out;
+    System.setOut(System.err);
     var config = parseArgs(args);
 
-    LOG.info("Starting SirixDB MCP server (readOnly={}, transport={})",
-        config.readOnly(), config.transport());
+    LOG.info("Starting SirixDB MCP server (readOnly={}, transport={})", config.readOnly(), config.transport());
 
     if (!config.readOnly()) {
-      LOG.warn("MCP server running in READ-WRITE mode. "
-          + "Write tools are enabled. Ensure this is intentional.");
+      LOG.warn("MCP server running in READ-WRITE mode. " + "Write tools are enabled. Ensure this is intentional.");
     }
 
     var accessControl = new AccessControl(config);
@@ -50,21 +60,17 @@ public final class SirixMcpServer {
     var toolHandlers = new ToolHandlers(config, accessControl, sanitizer, snapshotRegistry, auditLog);
 
     var jsonMapper = new JacksonMcpJsonMapper(JsonMapper.builder().build());
-    var transport = new StdioServerTransportProvider(jsonMapper);
+    var transport = new StdioServerTransportProvider(jsonMapper, System.in, protocolOutput);
 
-    var capabilities = ServerCapabilities.builder()
-        .tools(true)
-        .prompts(true)
-        .logging()
-        .build();
+    var capabilities = ServerCapabilities.builder().tools(true).logging().build();
 
     var serverBuilder = McpServer.sync(transport)
-        .serverInfo("sirixdb-mcp", config.version())
-        .capabilities(capabilities)
-        .instructions(SYSTEM_INSTRUCTIONS);
+                                 .serverInfo("sirixdb-mcp", config.version())
+                                 .capabilities(capabilities)
+                                 .instructions(SYSTEM_INSTRUCTIONS);
 
     // Phase 1: Read-only tools (always registered)
-    registerReadTools(serverBuilder, toolHandlers);
+    registerReadTools(serverBuilder, toolHandlers, config.readOnly());
 
     // Write tools only registered when explicitly enabled
     if (!config.readOnly()) {
@@ -90,183 +96,123 @@ public final class SirixMcpServer {
     shutdownLatch.await();
   }
 
-  private static void registerReadTools(SyncSpecification<?> builder, ToolHandlers handlers) {
+  private static void registerReadTools(SyncSpecification<?> builder, ToolHandlers handlers, boolean readOnly) {
     // sirix_list_databases
-    builder.toolCall(
-        tool("sirix_list_databases", "List all accessible SirixDB databases",
-            schema(Map.of(), List.of()),
-            readOnlyAnnotations()),
-        handlers::listDatabases);
+    builder.toolCall(tool("sirix_list_databases", "List all accessible SirixDB databases", schema(Map.of(), List.of()),
+        readOnlyAnnotations()), handlers::listDatabases);
 
     // sirix_list_resources
     builder.toolCall(
         tool("sirix_list_resources", "List resources in a SirixDB database",
-            schema(Map.of("database", stringProp("Database name")),
-                List.of("database")),
-            readOnlyAnnotations()),
+            schema(Map.of("database", stringProp("Database name")), List.of("database")), readOnlyAnnotations()),
         handlers::listResources);
 
     // sirix_resource_info
-    builder.toolCall(
-        tool("sirix_resource_info", "Get resource metadata: revision count, timestamps",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name")),
-                List.of("database", "resource")),
-            readOnlyAnnotations()),
-        handlers::resourceInfo);
+    builder.toolCall(tool("sirix_resource_info", "Get resource metadata: revision count, timestamps",
+        schema(Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name")),
+            List.of("database", "resource")),
+        readOnlyAnnotations()), handlers::resourceInfo);
 
     // sirix_query
-    builder.toolCall(
-        tool("sirix_query",
-            "Execute a read-only JSONiq query against SirixDB. "
-                + "Supports time-travel via revision, snapshot, or timestamp parameters.",
-            schema(Map.of(
-                    "query", stringProp("JSONiq or XQuery expression"),
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name (optional)"),
-                    "revision", intProp("Query at this revision number"),
-                    "snapshot", stringProp("Query at named snapshot"),
-                    "timestamp", stringProp("Query at ISO-8601 timestamp")),
-                List.of("query", "database")),
-            readOnlyAnnotations()),
+    builder.toolCall(tool("sirix_query",
+        "Execute a JSONiq query against SirixDB (writes require read-write mode). "
+            + "Supports time-travel via revision, snapshot, or timestamp parameters.",
+        schema(Map.of("query", stringProp("JSONiq or XQuery expression"), "database", stringProp("Database name"),
+            "resource", stringProp("Resource name (optional)"), "revision", intProp("Query at this revision number"),
+            "snapshot", stringProp("Query at named snapshot"), "timestamp",
+            stringProp("Query at ISO-8601 timestamp (exclusive with revision/snapshot; requires resource)"), "offset",
+            intProp("Result item offset for continuation (default: 0)")), List.of("query", "database")),
+        readOnly
+            ? readOnlyAnnotations()
+            : destructiveAnnotations()),
         handlers::query);
 
     // sirix_history
-    builder.toolCall(
-        tool("sirix_history", "Get revision history for a resource",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name"),
-                    "count", intProp("Number of recent revisions (default: 20)")),
-                List.of("database", "resource")),
-            readOnlyAnnotations()),
-        handlers::history);
+    builder.toolCall(tool("sirix_history", "Get revision history for a resource",
+        schema(Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "count",
+            intProp("Number of recent revisions (default: 20)")), List.of("database", "resource")),
+        readOnlyAnnotations()), handlers::history);
 
     // sirix_diff
-    builder.toolCall(
-        tool("sirix_diff", "Structural diff between two revisions. Shows inserts, deletes, updates.",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name"),
-                    "from_revision", intProp("Start revision"),
-                    "to_revision", intProp("End revision"),
-                    "from_snapshot", stringProp("Start snapshot name (alternative)"),
-                    "to_snapshot", stringProp("End snapshot name (alternative)")),
-                List.of("database", "resource")),
-            readOnlyAnnotations()),
-        handlers::diff);
+    builder.toolCall(tool("sirix_diff", "Structural diff between two revisions. Shows inserts, deletes, updates.",
+        schema(Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "from_revision",
+            intProp("Start revision"), "to_revision", intProp("End revision"), "from_snapshot",
+            stringProp("Start snapshot name (alternative)"), "to_snapshot",
+            stringProp("End snapshot name (alternative)"), "offset",
+            intProp("Change offset for continuation (default: 0)")), List.of("database", "resource")),
+        readOnlyAnnotations()), handlers::diff);
 
     // sirix_list_snapshots
-    builder.toolCall(
-        tool("sirix_list_snapshots", "List all named snapshots for a resource",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name")),
-                List.of("database", "resource")),
-            readOnlyAnnotations()),
-        handlers::listSnapshots);
+    builder.toolCall(tool("sirix_list_snapshots", "List all named snapshots for a resource",
+        schema(Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name")),
+            List.of("database", "resource")),
+        readOnlyAnnotations()), handlers::listSnapshots);
 
     // sirix_create_snapshot (read-only: just labels a revision, no data mutation)
-    builder.toolCall(
-        tool("sirix_create_snapshot",
-            "Label a revision with a name. Use before making changes so you can revert if needed.",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name"),
-                    "name", stringProp("Snapshot label"),
-                    "revision", intProp("Revision to label (default: latest)")),
-                List.of("database", "resource", "name")),
-            idempotentAnnotations()),
-        handlers::createSnapshot);
+    builder.toolCall(tool("sirix_create_snapshot",
+        "Label a revision with a name. Use before making changes so you can revert if needed.",
+        schema(
+            Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "name",
+                stringProp("Snapshot label"), "revision", intProp("Revision to label (default: latest)")),
+            List.of("database", "resource", "name")),
+        idempotentAnnotations()), handlers::createSnapshot);
 
     LOG.info("Registered 8 read-only tools");
   }
 
   private static void registerWriteTools(SyncSpecification<?> builder, ToolHandlers handlers) {
     // sirix_insert
-    builder.toolCall(
-        tool("sirix_insert", "Insert JSON data into a resource. Creates a new revision.",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name"),
-                    "data", stringProp("JSON data to insert"),
-                    "message", stringProp("Commit message")),
-                List.of("database", "resource", "data")),
-            destructiveAnnotations()),
-        handlers::insert);
+    builder.toolCall(tool("sirix_insert", "Insert JSON data into a resource. Creates a new revision.",
+        schema(
+            Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "data",
+                stringProp("JSON data to insert"), "message", stringProp("Commit message")),
+            List.of("database", "resource", "data")),
+        destructiveAnnotations()), handlers::insert);
 
     // sirix_update
-    builder.toolCall(
-        tool("sirix_update", "Update an existing node's value. Creates a new revision.",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name"),
-                    "nodeKey", intProp("Node key to update"),
-                    "value", stringProp("New value"),
-                    "message", stringProp("Commit message")),
-                List.of("database", "resource", "nodeKey", "value")),
-            destructiveAnnotations()),
-        handlers::update);
+    builder.toolCall(tool("sirix_update", "Update an existing node's value. Creates a new revision.",
+        schema(Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "nodeKey",
+            intProp("Node key to update"), "value", stringProp("New value"), "message", stringProp("Commit message")),
+            List.of("database", "resource", "nodeKey", "value")),
+        destructiveAnnotations()), handlers::update);
 
     // sirix_delete
-    builder.toolCall(
-        tool("sirix_delete",
-            "Delete a node and its subtree. Creates a new revision. DESTRUCTIVE — requires confirmation.",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name"),
-                    "nodeKey", intProp("Node key to delete"),
-                    "message", stringProp("Commit message")),
-                List.of("database", "resource", "nodeKey")),
-            destructiveAnnotations()),
-        handlers::delete);
+    builder.toolCall(tool("sirix_delete",
+        "Delete a node and its subtree. Creates a new revision. DESTRUCTIVE — requires confirmation.",
+        schema(
+            Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "nodeKey",
+                intProp("Node key to delete"), "message", stringProp("Commit message")),
+            List.of("database", "resource", "nodeKey")),
+        destructiveAnnotations()), handlers::delete);
 
     // sirix_revert
-    builder.toolCall(
-        tool("sirix_revert",
-            "Revert resource to a previous revision. Creates a new forward revision. DESTRUCTIVE — requires confirmation.",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name"),
-                    "revision", intProp("Revision to revert to"),
-                    "snapshot", stringProp("Snapshot name to revert to (alternative)"),
-                    "message", stringProp("Commit message")),
-                List.of("database", "resource")),
-            destructiveAnnotations()),
-        handlers::revert);
+    builder.toolCall(tool("sirix_revert",
+        "Revert resource to a previous revision. Creates a new forward revision. DESTRUCTIVE — requires confirmation.",
+        schema(Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "revision",
+            intProp("Revision to revert to"), "snapshot", stringProp("Snapshot name to revert to (alternative)"),
+            "expected_head", intProp("Only revert if the current head equals this revision"), "message",
+            stringProp("Commit message")), List.of("database", "resource")),
+        destructiveAnnotations()), handlers::revert);
 
     // sirix_delete_snapshot
-    builder.toolCall(
-        tool("sirix_delete_snapshot", "Remove a named snapshot label. Revision data is preserved.",
-            schema(Map.of(
-                    "database", stringProp("Database name"),
-                    "resource", stringProp("Resource name"),
-                    "name", stringProp("Snapshot label to remove")),
-                List.of("database", "resource", "name")),
-            idempotentAnnotations()),
-        handlers::deleteSnapshot);
+    builder.toolCall(tool("sirix_delete_snapshot", "Remove a named snapshot label. Revision data is preserved.",
+        schema(Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "name",
+            stringProp("Snapshot label to remove")), List.of("database", "resource", "name")),
+        idempotentAnnotations()), handlers::deleteSnapshot);
 
     LOG.info("Registered 5 write tools (read-write mode)");
   }
 
   // --- Schema helpers ---
 
-  private static Tool tool(String name, String description, JsonSchema inputSchema,
-      ToolAnnotations annotations) {
+  private static Tool tool(String name, String description, JsonSchema inputSchema, ToolAnnotations annotations) {
     // Built via the builder rather than the canonical record constructor: the Tool record's
     // component list is not part of the SDK's stable surface (2.0.0 changed inputSchema from
     // JsonSchema to Map and appended an icons component), whereas the builder is.
-    return Tool.builder()
-        .name(name)
-        .description(description)
-        .inputSchema(inputSchema)
-        .annotations(annotations)
-        .build();
+    return Tool.builder().name(name).description(description).inputSchema(inputSchema).annotations(annotations).build();
   }
 
-  private static JsonSchema schema(Map<String, Map<String, Object>> properties,
-      List<String> required) {
+  private static JsonSchema schema(Map<String, Map<String, Object>> properties, List<String> required) {
     @SuppressWarnings("unchecked")
     var props = (Map<String, Object>) (Map<?, ?>) properties;
     return new JsonSchema("object", props, required, null, null, null);
