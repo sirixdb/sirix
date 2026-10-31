@@ -3,8 +3,9 @@
 Start here. This index groups the docs by audience so you don't have to read a flat
 list of files.
 
-> Looking for the quickstart, install instructions, and query examples? Those live in the
-> [project README](../README.md). The hosted docs site is at <https://sirix.io/docs/index.html>.
+> Start with the [project README](../README.md) for installation and common usage,
+> or the [REST quickstart](QUICKSTART.md) for a server walkthrough.
+> The hosted docs site is at <https://sirix.io/docs/index.html>.
 
 ## For users & operators
 

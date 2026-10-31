@@ -44,19 +44,11 @@ curl --fail-with-body -s 'http://localhost:9443/mydb/products?revision=2'
 ```
 
 The same revert endpoint works for XML databases and returns JSON metadata.
-`targetRevision` and `expectedHead` are positive 32-bit integers. The target must
-exist, be retained, and not exceed the current head. `message` is optional.
-Omitting `expectedHead` accepts whichever head holds the writer lock; agents
-should supply it. Even reverting to the current head appends a new revision.
-
-| Response | Meaning and next action |
-|---|---|
-| 201 | Committed; save `revision` and `previousHead`. |
-| 400 | Malformed body, unsupported fields/query parameters, or invalid revision. |
-| 401 / 403 | Authenticate or obtain the modify role. |
-| 404 | Database or resource does not exist. |
-| 409 | Head changed; nothing committed. Re-read history and diff before replanning. |
-| 410 | Target was pruned; nothing committed. Select an available target explicitly. |
+The [OpenAPI specification](../bundles/sirix-rest-api/src/main/resources/openapi.yaml),
+served at `GET /openapi.yaml`, owns the request schema and response codes.
+Agents should supply `expectedHead` and save `revision` and `previousHead` from
+the response. If the head changed, re-read history and diff before replanning.
+If the target was pruned, select an available target explicitly.
 
 A timeout does not prove the commit failed. Inspect history before retrying;
 revert is not idempotent. Retry with the original `expectedHead` to avoid
@@ -66,9 +58,6 @@ For a cold reopen, close the server normally and start it again with the same
 configuration and persistent data directory. Repeat the explicit revision 2 and
 3 reads above. With Docker, retain the data volume. Restarting with a different
 home/data directory opens different storage.
-
-The [OpenAPI specification](../bundles/sirix-rest-api/src/main/resources/openapi.yaml)
-contains the complete wire contract and is served at `GET /openapi.yaml`.
 
 ## JVM: explicit transaction ownership
 
