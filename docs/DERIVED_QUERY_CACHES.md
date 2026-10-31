@@ -90,7 +90,9 @@ partition caps, retained bytes, in-flight bytes and cumulative rejected bytes. R
 counters saturate at `Long.MAX_VALUE`. These are cold-path observations, not per-row counters.
 
 Regression fixtures are `DerivedCacheBudgetTest`, `NumericMaskedColumnCacheTest` and
-`IntervalRangeJoinWorkBudgetTest`. Run the full **Work budgets** block in
+`IntervalRangeJoinWorkBudgetTest`. `HOTGatherPublicationTest` also races first readers of
+shared HOT pages: lazy SIMD routing state must be fully constructed before publication.
+Run the full **Work budgets** block in
 [VERIFICATION.md](VERIFICATION.md) after changing admission or read paths. Timing and memory
 acceptance additionally require paired native+PGO runs; unit tests assert work and exact
 answers, never elapsed time.

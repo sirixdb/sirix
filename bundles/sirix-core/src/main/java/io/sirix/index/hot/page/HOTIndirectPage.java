@@ -272,7 +272,8 @@ public final class HOTIndirectPage implements Page {
   private transient VectorShuffle<Byte> gatherShuffle;
   private transient int gatherLoadOffset; // min extraction position (start of load window)
   private transient boolean gatherFitsInVector; // true if span ≤ 32 bytes
-  private transient boolean gatherInitialized;
+  // Publish the complete immutable gather state to concurrent readers without a hot-path lock.
+  private transient volatile boolean gatherInitialized;
 
   /**
    * Determine the partial key width (in bytes) from the number of discriminative bits. Matches C++
@@ -644,9 +645,9 @@ public final class HOTIndirectPage implements Page {
    * </p>
    */
   private void initGatherShuffle() {
-    gatherInitialized = true;
     if (extractionPositions == null || numExtractionBytes == 0) {
       gatherFitsInVector = false;
+      gatherInitialized = true;
       return;
     }
 
@@ -665,11 +666,11 @@ public final class HOTIndirectPage implements Page {
     if (span > BYTE_SPECIES.length()) {
       // Span exceeds vector width (>32 bytes for AVX2) — use scalar fallback
       gatherFitsInVector = false;
+      gatherInitialized = true;
       return;
     }
 
     gatherLoadOffset = minPos;
-    gatherFitsInVector = true;
 
     // Build shuffle indices: lane i → offset of extractionPositions[i] within load window
     // Unused lanes (>= numExtractionBytes) get index 0 (harmless — gathered value is don't-care)
@@ -684,6 +685,9 @@ public final class HOTIndirectPage implements Page {
     }
 
     gatherShuffle = VectorShuffle.fromValues(BYTE_SPECIES, shuffleIndices);
+    gatherFitsInVector = true;
+    // Racing first readers may construct equivalent shuffles, but cannot observe a partial one.
+    gatherInitialized = true;
   }
 
   /**
