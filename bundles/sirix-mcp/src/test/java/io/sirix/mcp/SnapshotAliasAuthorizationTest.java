@@ -92,8 +92,8 @@ class SnapshotAliasAuthorizationTest {
 
   @Test
   void everyToolAndCrossResourceQueryStillEnforceResourceDenial() throws Exception {
-    final var before = contents(root);
     for (final boolean readOnly : new boolean[] {false, true}) {
+      final var before = contents(root);
       final var handlers = handlers(config(root, readOnly, Map.of("private", List.of("visible"))));
       for (final var tool : tools(handlers).entrySet()) {
         final var result = tool.getValue().apply(request("private", "orders", Map.of()));

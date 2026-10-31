@@ -135,8 +135,8 @@ not the provenance of every returned value. For example:
 
 Database and resource restrictions apply to the actual resources opened during
 execution, including resources named inside query text. The request policy checks
-database/resource opens and forbids writes; it is carried into temporal reader
-tasks. Temporal axes may visit other readable revisions of an authorized resource.
+database/resource opens and forbids writes. Temporal reader tasks reuse an already
+authorized session and may visit its other readable revisions.
 Prefetch failures propagate rather than becoming successful empty results, and
 failed prefetches drain and close their unconsumed readers. Ordinary embedded
 callers have no bound MCP policy.

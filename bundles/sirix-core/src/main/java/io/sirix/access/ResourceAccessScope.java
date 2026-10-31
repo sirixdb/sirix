@@ -22,15 +22,6 @@ public final class ResourceAccessScope {
     return ScopedValue.where(POLICY, Objects.requireNonNull(policy));
   }
 
-  /** Preserve a bound request policy when submitting work to an unstructured executor. */
-  public static Runnable capture(final Runnable action) {
-    Objects.requireNonNull(action);
-    if (!POLICY.isBound())
-      return action;
-    final ScopedValue.Carrier carrier = where(POLICY.get());
-    return () -> carrier.run(action);
-  }
-
   public static void checkDatabase(final Path database, final boolean write) {
     if (POLICY.isBound())
       POLICY.get().checkDatabase(database, write);

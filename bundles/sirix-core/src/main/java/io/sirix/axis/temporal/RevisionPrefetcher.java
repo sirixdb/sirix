@@ -1,7 +1,5 @@
 package io.sirix.axis.temporal;
 
-import io.sirix.access.ResourceAccessScope;
-
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -78,8 +76,7 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor, W extends
     }
   }
 
-  private static final Executor VIRTUAL_THREAD_EXECUTOR =
-      action -> Thread.startVirtualThread(ResourceAccessScope.capture(action));
+  private static final Executor VIRTUAL_THREAD_EXECUTOR = Thread::startVirtualThread;
 
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(RevisionPrefetcher.class));
 

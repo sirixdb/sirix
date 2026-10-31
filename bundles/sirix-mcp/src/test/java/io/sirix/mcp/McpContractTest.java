@@ -181,15 +181,13 @@ class McpContractTest {
         assertThat(result.isError()).as(text(result)).isFalse();
         assertThat(structured(result)).containsEntry("revision", 1);
         final var items = (List<?>) structured(result).get("items");
-        assertThat(items).hasSize(1);
-        assertThat(MAPPER.readTree(items.getFirst().toString())).isEqualTo(
-            MAPPER.readTree("[\"Alice\",\"Bob\",\"Bob\",\"Alice\",\"Other\"]"));
+        assertThat(items).isEqualTo(List.of("\"Alice\"", "\"Bob\"", "\"Bob\"", "\"Alice\"", "\"Other\""));
       }
       final var past =
           h.query(null, request(Map.of("revision", 2, "query", "[$$.name, jn:doc('db','public',1).name]")));
       assertThat(past.isError()).as(text(past)).isFalse();
       final var values = (List<?>) structured(past).get("items");
-      assertThat(MAPPER.readTree(values.getFirst().toString())).isEqualTo(MAPPER.readTree("[\"Bob\",\"Alice\"]"));
+      assertThat(values).isEqualTo(List.of("\"Bob\"", "\"Alice\""));
     }
   }
 

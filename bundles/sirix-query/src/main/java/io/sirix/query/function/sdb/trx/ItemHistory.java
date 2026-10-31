@@ -1,7 +1,5 @@
 package io.sirix.query.function.sdb.trx;
 
-import io.sirix.access.ResourceAccessScope;
-
 import io.brackit.query.QueryContext;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.function.AbstractFunction;
@@ -114,7 +112,7 @@ public final class ItemHistory extends AbstractFunction {
         for (int i = 0; i < revisions.length; i++) {
           final int idx = i;
           final int revision = revisions[i];
-          futures.add(executor.submit(ResourceAccessScope.capture(() -> {
+          futures.add(executor.submit(() -> {
             final NodeReadOnlyTrx rtxInRevision = resourceSession.beginNodeReadOnlyTrx(revision);
             if (rtxInRevision.moveTo(nodeKey)) {
               if (isJson) {
@@ -126,7 +124,7 @@ public final class ItemHistory extends AbstractFunction {
             } else {
               rtxInRevision.close();
             }
-          })));
+          }));
         }
         for (final Future<?> future : futures) {
           future.get();
