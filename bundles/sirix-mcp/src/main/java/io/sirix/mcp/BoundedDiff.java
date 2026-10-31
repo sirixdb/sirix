@@ -2,7 +2,7 @@ package io.sirix.mcp;
 
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import com.google.gson.JsonElement;
 import io.sirix.diff.DiffDepth;
 import io.sirix.diff.DiffFactory;
 import io.sirix.diff.DiffObserver;
@@ -52,24 +52,15 @@ final class BoundedDiff implements DiffObserver {
     int consumed = 0;
     int characters = 0;
     boolean oversized = false;
-    try (final var oldReader = session.beginNodeReadOnlyTrx(from);
-        final var newReader = session.beginNodeReadOnlyTrx(to);
-        final var serializer = new JsonDiffSerializer(database, session, from, to, observer.tuples).operations()) {
+    try (final var serializer = new JsonDiffSerializer(database, session, from, to, observer.tuples).operations()) {
       for (final DiffTuple tuple : observer.tuples) {
-        final boolean deletion = tuple.getDiff() == DiffFactory.DiffType.DELETED;
-        final JsonNodeReadOnlyTrx reader = deletion
-            ? oldReader
-            : newReader;
-        final long key = deletion
-            ? tuple.getOldNodeKey()
-            : tuple.getNewNodeKey();
-        if (exceedsValueBudget(reader, key, config.maxStringValueLength() - characters, !deletion)) {
+        final var serialized = serializer.serialize(tuple);
+        if (remainingBudget(serialized, config.maxStringValueLength() - characters) < 0) {
           oversized = true;
           truncated = true;
           break;
         }
-        final List<?> operations =
-            MAPPER.readValue(serializer.serialize(tuple).toString(), new TypeReference<List<?>>() {});
+        final List<?> operations = MAPPER.readValue(serialized.toString(), new TypeReference<List<?>>() {});
         if (!hydrateFragments(operations, session, to, tuple.getNewNodeKey(),
             config.maxStringValueLength() - characters)) {
           oversized = true;
@@ -122,25 +113,28 @@ final class BoundedDiff implements DiffObserver {
     return true;
   }
 
-  private static boolean exceedsValueBudget(final JsonNodeReadOnlyTrx reader, final long key, final int budget,
-      final boolean includeValue) {
-    if (!reader.moveTo(key))
-      return false;
-    int remaining = budget;
-    if (includeValue) {
-      remaining -= reader.getValue().length();
-      if (remaining < 0)
-        return true;
-    }
-    do {
-      final var name = reader.getName();
-      if (name != null) {
-        remaining -= name.toString().length();
+  private static int remainingBudget(final JsonElement value, int remaining) {
+    if (value.isJsonNull())
+      return remaining - 4;
+    if (value.isJsonPrimitive())
+      return remaining - value.getAsString().length();
+    if (value.isJsonObject()) {
+      for (final var field : value.getAsJsonObject().entrySet()) {
+        remaining -= field.getKey().length();
         if (remaining < 0)
-          return true;
+          return remaining;
+        remaining = remainingBudget(field.getValue(), remaining);
+        if (remaining < 0)
+          return remaining;
       }
-    } while (reader.moveToParent());
-    return false;
+    } else {
+      for (final var item : value.getAsJsonArray()) {
+        remaining = remainingBudget(item, remaining);
+        if (remaining < 0)
+          return remaining;
+      }
+    }
+    return remaining;
   }
 
   @Override

@@ -38,10 +38,8 @@ class BoundedDiffWorkBudgetTest {
     final Path path = directory.resolve("db");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (final var database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder("array")
-                                                   .storageType(StorageType.FILE_CHANNEL)
-                                                   .storeDiffs(false)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder("array").storageType(StorageType.FILE_CHANNEL).storeDiffs(false).build());
       try (final var session = database.beginResourceSession("array")) {
         final StringBuilder array = new StringBuilder(LENGTH * 5).append('[');
         for (int index = 0; index < LENGTH; index++) {
@@ -86,8 +84,8 @@ class BoundedDiffWorkBudgetTest {
           page.work()
               .assertBetween(work.siblings, LENGTH - CHANGES, 3L * LENGTH + 4L * CHANGES,
                   "each operation rewalking the same array prefix")
-              .assertExactly(work.readers, 6, "opening revision readers per operation rather than per page")
-              .assertExactly(work.closedReaders, 6, "leaking a page's revision readers")
+              .assertExactly(work.readers, 4, "opening revision readers per operation rather than per page")
+              .assertExactly(work.closedReaders, 4, "leaking a page's revision readers")
               .assertExactly(work.summaries, 1, "reopening the new revision path summary for every operation");
         }
       }
