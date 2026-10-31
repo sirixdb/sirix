@@ -345,17 +345,26 @@ def storageEpochStoreIdentityTest = tasks.register('storageEpochStoreIdentityTes
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    validTimeDisabledLookupCacheTest.configure { isolatedTest ->
-        standardTest.copyTo(isolatedTest)
+    [validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest].each { testTask ->
+        testTask.configure { isolatedTest ->
+            standardTest.copyTo(isolatedTest)
+            // copyTo flattens argument providers (including JaCoCo) into jvmArgs. Keep only
+            // explicit arguments here: this fork already has its own task-specific agent provider.
+            isolatedTest.jvmArgs = standardTest.jvmArgs
+        }
+    }
+    validTimeDisabledLookupCacheTest.configure {
         systemProperty 'sirix.hotLookupCache.maxEntries', '0'
     }
-    dictionaryReadViewAllocationTest.configure { isolatedTest ->
-        standardTest.copyTo(isolatedTest)
-    }
-    storageEpochStoreIdentityTest.configure { isolatedTest ->
-        standardTest.copyTo(isolatedTest)
+    storageEpochStoreIdentityTest.configure {
         systemProperty 'sirix.codecBakeoff.probeInterval', '1'
     }
+}
+
+// The standard test excludes these suites, so its execution data alone omits their coverage.
+tasks.named('jacocoTestReport') {
+    executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(),
+            storageEpochStoreIdentityTest.get()
 }
 
 tasks.named('test', Test).configure {
