@@ -20,6 +20,8 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
+import static java.util.Objects.requireNonNull;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class BoundedDiffNumericTest {
@@ -91,18 +93,18 @@ class BoundedDiffNumericTest {
             ((TextContent) response.content().getFirst()).text(), new TypeReference<Map<String, Object>>() {}))) {
           assertThat(page.get("truncated")).isEqualTo(offset == 0);
           if (offset == 0)
-            assertThat(((Map<?, ?>) page.get("continuation")).get("offset")).isEqualTo(2);
-          final var operations = (List<?>) page.get("diffs");
+            assertThat(((Map<?, ?>) requireNonNull(page.get("continuation"))).get("offset")).isEqualTo(2);
+          final var operations = (List<?>) requireNonNull(page.get("diffs"));
           assertThat(operations).hasSize(2);
           for (int index = 0; index < operations.size(); index++) {
-            final var wrapper = (Map<?, ?>) operations.get(index);
+            final var wrapper = (Map<?, ?>) requireNonNull(operations.get(index));
             assertThat(wrapper).hasSize(1);
             assertThat(wrapper.containsKey(operation)).isTrue();
-            final var payload = (Map<?, ?>) wrapper.get(operation);
+            final var payload = (Map<?, ?>) requireNonNull(wrapper.get(operation));
             final Object value = payload.get(operation.equals("update")
                 ? "value"
                 : "data");
-            assertThat(value).isInstanceOf(Number.class);
+            assertThat(value).isNotNull().isInstanceOf(Number.class);
             assertThat(new BigDecimal(value.toString())).isEqualByComparingTo(VALUES.get(offset + index).toString());
           }
         }

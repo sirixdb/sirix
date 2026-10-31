@@ -35,6 +35,7 @@ import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.PageFragmentKey;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -947,14 +948,6 @@ public enum VersioningType {
   }
 
   /**
-   * Method to reconstruct a complete {@link KeyValuePage} with the help of partly filled pages plus a
-   * revision-delta which determines the necessary steps back.
-   *
-   * @param pages the base of the complete {@link KeyValuePage}
-   * @param revsToRestore the number of revisions needed to build the complete record page
-   * @return the complete {@link KeyValuePage}
-   */
-  /**
    * Split of a versioned page reconstruction into its two halves — the per-slot copy loop and the PAX
    * region rebuild — off unless {@code -Dsirix.versioning.diag=true}. Reconstruction is the one part
    * of a cold analytical scan that still works on the row representation, so knowing which half costs
@@ -1009,6 +1002,14 @@ public enum VersioningType {
     return true;
   }
 
+  /**
+   * Method to reconstruct a complete {@link KeyValuePage} with the help of partly filled pages plus a
+   * revision-delta which determines the necessary steps back.
+   *
+   * @param pages the base of the complete {@link KeyValuePage}
+   * @param revsToRestore the number of revisions needed to build the complete record page
+   * @return the complete {@link KeyValuePage}
+   */
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
       final int revsToRestore, final StorageEngineReader storageEngineReader);
 
@@ -1113,7 +1114,7 @@ public enum VersioningType {
    *        the whole fragment loop to amortize the symbol-table parse
    */
   protected static void copySlotPreservingMetadata(final KeyValueLeafPage src, final KeyValueLeafPage dst,
-      final int offset, final int nodeKindId, final FsstAwareSlotCopier copier) {
+      final int offset, final int nodeKindId, final @Nullable FsstAwareSlotCopier copier) {
     // The fused overflow descriptor carries no FSST payload even when its source page has a table.
     // Raw-copy it together with its companion reference; sending marker 2 through the ordinary
     // "could not decompress" branch can falsely reject a safe cross-table fragment merge.
@@ -1657,8 +1658,8 @@ public enum VersioningType {
   }
 
   /** Retire a locally owned CoW result without replacing the failure that prevented its return. */
-  private static void retireModifiedHOTLeafAfterFailure(final HOTLeafPage sourceLeaf, final HOTLeafPage modifiedLeaf,
-      final Throwable primaryFailure) {
+  private static void retireModifiedHOTLeafAfterFailure(final HOTLeafPage sourceLeaf,
+      final @Nullable HOTLeafPage modifiedLeaf, final Throwable primaryFailure) {
     if (modifiedLeaf == null || modifiedLeaf == sourceLeaf) {
       return;
     }

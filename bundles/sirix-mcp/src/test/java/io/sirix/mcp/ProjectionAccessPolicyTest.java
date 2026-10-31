@@ -1,5 +1,7 @@
 package io.sirix.mcp;
 
+import org.jspecify.annotations.Nullable;
+
 import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
@@ -145,7 +147,7 @@ class ProjectionAccessPolicyTest {
     }
   }
 
-  private static void assertAnswer(final ToolHandlers h, final String query, final Integer revision,
+  private static void assertAnswer(final ToolHandlers h, final String query, final @Nullable Integer revision,
       final String expected) {
     final var result = h.query(null, request(query, revision));
     assertThat(result.isError()).as(text(result)).isFalse();
@@ -168,7 +170,7 @@ class ProjectionAccessPolicyTest {
         AuditLog.create(config));
   }
 
-  private static CallToolRequest request(final String query, final Integer revision) {
+  private static CallToolRequest request(final String query, final @Nullable Integer revision) {
     final var args = new LinkedHashMap<String, Object>();
     args.put("database", "db");
     args.put("query", query);

@@ -1,5 +1,6 @@
 package io.sirix.mcp;
 
+import org.jspecify.annotations.Nullable;
 import java.util.regex.Pattern;
 
 /**
@@ -38,7 +39,7 @@ public final class OutputSanitizer {
    * Checks if content contains patterns that look like prompt injection attempts. Returns a warning
    * string if suspicious, null otherwise.
    */
-  public String detectInjection(String content) {
+  public @Nullable String detectInjection(@Nullable String content) {
     if (content == null) {
       return null;
     }

@@ -6,6 +6,7 @@ import io.sirix.cache.MemorySegmentAllocator;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -153,7 +154,7 @@ public final class ByteHandlerPipeline implements ByteHandler {
       } else {
         // Fallback: use heap-backed segment (for tests or when allocator not initialized)
         byte[] data = new byte[size];
-        MemorySegment.copy(compressed, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, data, 0, size);
+        MemorySegment.copy(compressed, ValueLayout.JAVA_BYTE, 0, data, 0, size);
         MemorySegment heapSegment = MemorySegment.ofArray(data);
 
         // No-op releaser since heap memory is GC'd
@@ -174,11 +175,12 @@ public final class ByteHandlerPipeline implements ByteHandler {
     // Multi-handler chaining: decode the OUTERMOST layer first — handler[0], matching the
     // (now-aligned) compress order and the stream pair's layering. We only return the final
     // buffer; intermediates are released immediately.
-    MemorySegment current = compressed;
-    MemorySegment backingBuffer = null;
-    Runnable releaser = null;
+    final DecompressionResult firstResult = byteHandlers.getFirst().decompressScoped(compressed);
+    MemorySegment current = firstResult.segment();
+    MemorySegment backingBuffer = firstResult.backingBuffer();
+    Runnable releaser = firstResult.releaser();
 
-    for (int i = 0; i < byteHandlers.size(); i++) {
+    for (int i = 1; i < byteHandlers.size(); i++) {
       ByteHandler handler = byteHandlers.get(i);
       final DecompressionResult result;
       try {

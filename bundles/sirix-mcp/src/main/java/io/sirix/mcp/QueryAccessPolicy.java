@@ -1,6 +1,8 @@
 package io.sirix.mcp;
 
 import io.sirix.access.ResourceAccessScope;
+
+import static java.util.Objects.requireNonNull;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -47,7 +49,7 @@ final class QueryAccessPolicy implements ResourceAccessScope.Policy {
   }
 
   private Path databaseTarget(final Path databasePath, final boolean write) {
-    final Path parent = canonicalPath(databasePath.toAbsolutePath().getParent());
+    final Path parent = canonicalPath(requireNonNull(databasePath.toAbsolutePath().getParent()));
     if (!root.equals(parent))
       throw new AccessControl.AccessDeniedException("Query database is outside the configured data directory");
     final Path target = access.databasePath(databasePath.getFileName().toString());

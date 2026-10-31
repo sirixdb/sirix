@@ -25,7 +25,11 @@ import it.unimi.dsi.fastutil.ints.IntArrayList;
 import io.sirix.exception.SirixException;
 import io.sirix.node.interfaces.SimpleDeweyID;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.Arrays;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * @author Michael Haustein
@@ -232,7 +236,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
 
   }
 
-  private byte[] bytes;
+  private byte @Nullable [] bytes;
 
   /**
    * This will take in a deweyID represented as a String, and output an array of integers representing
@@ -291,7 +295,8 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     final int end = 8 * length;
 
     // Walk the encoded bytes bit-by-bit: descend the prefix decode-tree to a division's tier, then
-    // read that tier's fixed-width suffix. The bit mask for bit i within its byte is 0x80 >>> (i mod 8).
+    // read that tier's fixed-width suffix. The bit mask for bit i within its byte is 0x80 >>> (i mod
+    // 8).
     for (int bitIndex = 0; bitIndex < end; bitIndex++) {
       final int helpFindingBit = 0x80 >>> (bitIndex & 7);
 
@@ -458,7 +463,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   @Override
-  public boolean equals(Object object) {
+  public boolean equals(@Nullable Object object) {
     return ((object instanceof SirixDeweyID) && (compareTo((SirixDeweyID) object) == 0));
   }
 
@@ -671,7 +676,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
   }
 
   // ancestor or self semantics
-  public SirixDeweyID getAncestor(int level) {
+  public @Nullable SirixDeweyID getAncestor(int level) {
     if (this.level == level) {
       return this;
     }
@@ -699,7 +704,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
    * @param requiredPrefix the prefix of the ancestor to be returned
    * @return the ancestor Dewey-ID
    */
-  public SirixDeweyID getAncestor(int level, SirixDeweyID requiredPrefix) {
+  public @Nullable SirixDeweyID getAncestor(int level, SirixDeweyID requiredPrefix) {
     if (this.level < level) {
       return null;
     }
@@ -728,7 +733,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     }
   }
 
-  public SirixDeweyID[] getAncestors() {
+  public SirixDeweyID @Nullable [] getAncestors() {
     if (level == 0) {
       return null;
     }
@@ -737,14 +742,14 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     SirixDeweyID[] ancestors = new SirixDeweyID[level];
 
     for (int i = level; i > 0; i--) {
-      assert id != null;
-      ancestors[i - 1] = id.getParent();
-      id = id.getParent();
+      final SirixDeweyID parent = id.calculateParent();
+      ancestors[i - 1] = parent;
+      id = parent;
     }
     return ancestors;
   }
 
-  public SirixDeweyID[] getAncestors(SirixDeweyID lca) {
+  public SirixDeweyID @Nullable [] getAncestors(SirixDeweyID lca) {
     if (!lca.isAncestorOf(this)) {
       return null;
     }
@@ -753,9 +758,9 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     SirixDeweyID[] ancestors = new SirixDeweyID[this.level - lca.getLevel() - 1];
 
     for (int i = ancestors.length; i > 0; i--) {
-      assert id != null;
-      ancestors[i - 1] = id.getParent();
-      id = id.getParent();
+      final SirixDeweyID parent = id.calculateParent();
+      ancestors[i - 1] = parent;
+      id = parent;
     }
     return ancestors;
   }
@@ -797,11 +802,15 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     return lcaLevel;
   }
 
-  public SirixDeweyID getParent() {
+  public @Nullable SirixDeweyID getParent() {
     if (level == 0) {
       return null;
     }
 
+    return calculateParent();
+  }
+
+  private SirixDeweyID calculateParent() {
     int i = divisionValues.length - 2;
     while ((i >= 0) && (divisionValues[i] % 2 == 0))
       i--;
@@ -814,10 +823,11 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     return Arrays.hashCode(divisionValues);
   }
 
-  public static SirixDeweyID newBetween(SirixDeweyID deweyID1, SirixDeweyID deweyID2) {
+  public static SirixDeweyID newBetween(@Nullable SirixDeweyID deweyID1, @Nullable SirixDeweyID deweyID2) {
     // newBetween always returns ID of new node in same level!
 
-    if ((deweyID1 == null) && (deweyID2 != null)) {
+    if (deweyID1 == null) {
+      requireNonNull(deweyID2);
       // return previous sibling ID of deweyID2 if deweyID2 is first child
       int i = deweyID2.divisionValues.length - 2; // start at penultimate
       // position
@@ -861,16 +871,17 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
       }
 
       return new SirixDeweyID(Arrays.copyOf(divisionValues, divisions), deweyID2.level);
-    } else if ((deweyID1 != null) && (deweyID2 == null)) {
+    } else if (deweyID2 == null) {
       int[] tmp = Arrays.copyOf(deweyID1.divisionValues, deweyID1.divisionValues.length);
       tmp[tmp.length - 1] += distanceToSibling;
       return new SirixDeweyID(tmp, deweyID1.level);
     } else // two IDs given
     {
-      assert deweyID1 != null;
       if (deweyID1.compareTo(deweyID2) >= 0)
         throw new SirixException("DeweyID [newBetween]: deweyID1 is greater or equal to deweyID2");
-      if (deweyID1.getParent().compareTo(deweyID2.getParent()) != 0)
+      final SirixDeweyID leftParent = requireNonNull(deweyID1.getParent());
+      final SirixDeweyID rightParent = requireNonNull(deweyID2.getParent());
+      if (leftParent.compareTo(rightParent) != 0)
         throw new SirixException("DeweyID [newBetween]: deweyID1 and deweyID2 are no siblings");
       // return new deweyID between deweyID1 and deweyID2
 

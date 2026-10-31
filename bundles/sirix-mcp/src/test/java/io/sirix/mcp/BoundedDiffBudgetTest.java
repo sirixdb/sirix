@@ -19,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
 
+import static java.util.Objects.requireNonNull;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class BoundedDiffBudgetTest {
@@ -95,7 +97,7 @@ class BoundedDiffBudgetTest {
       assertContinuation(page, offset, kinds.size());
     }
     final var end = page("operations", kinds.size());
-    assertThat((List<?>) end.get("diffs")).isEmpty();
+    assertThat((List<?>) requireNonNull(end.get("diffs"))).isEmpty();
     assertThat(end.get("truncated")).isEqualTo(false);
     assertThat(end.containsKey("continuation")).isFalse();
   }
@@ -151,7 +153,7 @@ class BoundedDiffBudgetTest {
         final var session = database.beginResourceSession("fragments")) {
       final var full = BoundedDiff.generate("db", session, 1, 2, 0, config(LIMIT));
       assertThat(full.get("truncated")).isEqualTo(false);
-      final var changes = (List<?>) full.get("diffs");
+      final var changes = (List<?>) requireNonNull(full.get("diffs"));
       assertThat(changes).hasSize(2);
       final var document = MAPPER.valueToTree(changes);
       assertThat(document.get(0).get("insert").get("data").asText()).isEqualTo("{\"longer\":\"abcdef\"}");
@@ -160,7 +162,7 @@ class BoundedDiffBudgetTest {
       final var small = config(firstSize + 5);
       final var first = BoundedDiff.generate("db", session, 1, 2, 0, small);
       assertThat(first).containsEntry("diffs", List.of(changes.getFirst())).containsEntry("truncated", true);
-      assertThat(((Map<?, ?>) first.get("continuation")).get("offset")).isEqualTo(1);
+      assertThat(((Map<?, ?>) requireNonNull(first.get("continuation"))).get("offset")).isEqualTo(1);
       final var second = BoundedDiff.generate("db", session, 1, 2, 1, small);
       assertThat(second).containsEntry("diffs", List.of(changes.get(1))).containsEntry("truncated", false);
     }
@@ -215,12 +217,12 @@ class BoundedDiffBudgetTest {
   }
 
   private static Map<?, ?> payload(final Map<String, Object> page, final String kind) {
-    final var operations = (List<?>) page.get("diffs");
+    final var operations = (List<?>) requireNonNull(page.get("diffs"));
     assertThat(operations).hasSize(1);
     final var wrapper = (Map<?, ?>) operations.getFirst();
     assertThat(wrapper).hasSize(1);
     assertThat(wrapper.containsKey(kind)).isTrue();
-    return (Map<?, ?>) wrapper.get(kind);
+    return (Map<?, ?>) requireNonNull(wrapper.get(kind));
   }
 
   private static void assertContinuation(final Map<String, Object> page, final int offset, final int total) {
@@ -228,15 +230,16 @@ class BoundedDiffBudgetTest {
     assertThat(page.get("truncated")).isEqualTo(truncated);
     assertThat(page.containsKey("continuation")).isEqualTo(truncated);
     if (truncated)
-      assertThat(((Map<?, ?>) page.get("continuation")).get("offset")).isEqualTo(offset + 1);
+      assertThat(((Map<?, ?>) requireNonNull(page.get("continuation"))).get("offset")).isEqualTo(offset + 1);
   }
 
   private static void assertOversized(final Map<String, Object> page, final int offset) {
-    assertThat((List<?>) page.get("diffs")).isEmpty();
+    assertThat((List<?>) requireNonNull(page.get("diffs"))).isEmpty();
     assertThat(page.get("truncated")).isEqualTo(true);
-    final var continuation = (Map<?, ?>) page.get("continuation");
+    final var continuation = (Map<?, ?>) requireNonNull(page.get("continuation"));
     assertThat(continuation.get("offset")).isEqualTo(offset);
-    assertThat(continuation.get("hint").toString()).contains("maxStringValueLength", "smaller projection");
+    assertThat(requireNonNull(continuation.get("hint")).toString()).contains("maxStringValueLength",
+        "smaller projection");
   }
 
   private static String wrapped(final String array) {

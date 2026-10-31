@@ -38,6 +38,8 @@ import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
 
+import static java.util.Objects.requireNonNull;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static io.brackit.query.util.path.Path.parse;
 import static io.brackit.query.util.path.PathParser.Type.JSON;
@@ -180,7 +182,7 @@ class McpContractTest {
         final var result = h.query(null, request(args));
         assertThat(result.isError()).as(text(result)).isFalse();
         assertThat(structured(result)).containsEntry("revision", 1);
-        final var items = (List<?>) structured(result).get("items");
+        final var items = (List<?>) requireNonNull(structured(result).get("items"));
         assertThat(items).hasSize(1);
         assertThat(MAPPER.readTree(items.getFirst().toString())).isEqualTo(
             MAPPER.readTree("[\"Alice\",\"Bob\",\"Bob\",\"Alice\",\"Other\"]"));
@@ -188,7 +190,7 @@ class McpContractTest {
       final var past =
           h.query(null, request(Map.of("revision", 2, "query", "[$$.name, jn:doc('db','public',1).name]")));
       assertThat(past.isError()).as(text(past)).isFalse();
-      final var values = (List<?>) structured(past).get("items");
+      final var values = (List<?>) requireNonNull(structured(past).get("items"));
       assertThat(values).hasSize(1);
       assertThat(MAPPER.readTree(values.getFirst().toString())).isEqualTo(MAPPER.readTree("[\"Bob\",\"Alice\"]"));
     }
@@ -529,7 +531,7 @@ class McpContractTest {
     final var collection = handlers.query(null,
         new CallToolRequest("sirix_query", Map.of("database", "db", "query", "jn:collection('db')")));
     assertThat(collection.isError()).as(text(collection)).isFalse();
-    assertThat(((List<?>) structured(collection).get("items")).containsAll(expected)).isTrue();
+    assertThat(((List<?>) requireNonNull(structured(collection).get("items"))).containsAll(expected)).isTrue();
     assertScalarHistoricalQueries(handlers, resource, root, revision);
   }
 
@@ -726,7 +728,7 @@ class McpContractTest {
           final String query = "(0," + source + ",[],[[3]])";
           final var first = h.query(null, request(Map.of("resource", resource, "query", query)));
           assertJsonItems(first, List.of("0", json), true);
-          assertThat(((Map<?, ?>) structured(first).get("continuation")).get("offset")).isEqualTo(2);
+          assertThat(((Map<?, ?>) requireNonNull(structured(first).get("continuation"))).get("offset")).isEqualTo(2);
           assertJsonItems(h.query(null, request(Map.of("resource", resource, "query", query, "offset", 2))),
               List.of("[]", "[[3]]"), false);
           assertJsonItems(h.query(null, request(Map.of("resource", resource, "query", query, "offset", 4))), List.of(),
@@ -747,13 +749,13 @@ class McpContractTest {
       for (final String source : List.of(json, "$$", "jn:doc('db','large-array')")) {
         final var single = h.query(null, request(Map.of("resource", "large-array", "query", source)));
         assertJsonItems(single, List.of(), true);
-        final var continuation = (Map<?, ?>) structured(single).get("continuation");
+        final var continuation = (Map<?, ?>) requireNonNull(structured(single).get("continuation"));
         assertThat(continuation.get("offset")).isEqualTo(0);
-        assertThat(continuation.get("hint").toString()).contains("Project a smaller value");
+        assertThat(requireNonNull(continuation.get("hint")).toString()).contains("Project a smaller value");
         final String query = "(0," + source + ",[])";
         final var first = h.query(null, request(Map.of("resource", "large-array", "query", query)));
         assertJsonItems(first, List.of("0"), true);
-        assertThat(((Map<?, ?>) structured(first).get("continuation")).get("offset")).isEqualTo(1);
+        assertThat(((Map<?, ?>) requireNonNull(structured(first).get("continuation"))).get("offset")).isEqualTo(1);
         assertJsonItems(h.query(null, request(Map.of("resource", "large-array", "query", query, "offset", 1))),
             List.of(), true);
         assertJsonItems(h.query(null, request(Map.of("resource", "large-array", "query", query, "offset", 2))),
@@ -766,7 +768,7 @@ class McpContractTest {
       throws IOException {
     assertThat(result.isError()).as(text(result)).isFalse();
     assertThat(structured(result)).containsEntry("truncated", truncated);
-    final var items = (List<?>) structured(result).get("items");
+    final var items = (List<?>) requireNonNull(structured(result).get("items"));
     assertThat(items).hasSize(expected.size());
     for (int index = 0; index < expected.size(); index++)
       assertThat(MAPPER.readTree(items.get(index).toString())).isEqualTo(MAPPER.readTree(expected.get(index)));

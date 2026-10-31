@@ -38,6 +38,7 @@ sonarqube {
 }
 
 apply from: "${rootDir}/libraries.gradle"
+apply from: "${rootDir}/gradle/nullness-policy.gradle"
 
 apply plugin: 'net.researchgate.release'
 
@@ -109,6 +110,14 @@ subprojects {
     // Shadow plugin applied selectively in subprojects that need it
     apply plugin: "com.diffplug.spotless"
     apply plugin: 'jacoco'
+
+    sourceSets.configureEach {
+        dependencies.add(compileOnlyConfigurationName, implLibraries.jspecify)
+    }
+
+    tasks.named('check') {
+        dependsOn rootProject.tasks.named('verifyNullMarkedPackages')
+    }
 
     jacoco {
         // Official Java 25 support; keep the agent and report reader on the same version.
@@ -188,13 +197,9 @@ subprojects {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Error Prone + NullAway — opt-in static bug detection:
-    //   ./gradlew compileJava -PerrorProne          (all modules)
-    //   ./gradlew :sirix-core:compileJava -PerrorProne
-    // Off by default so the everyday build is unchanged; the verification CI
-    // workflow runs it. ERROR-severity Error Prone checks (almost-always-real
-    // bugs: bad equals/hashCode, format strings, self-assignment, ...) fail the
-    // compile; NullAway reports nullness-contract violations as warnings.
+    // Error Prone + NullAway — CI static bug gate (local opt-in):
+    // NullAway rejects violations only in @NullMarked code; legacy packages remain unchecked.
+    // Workflow coverage, local commands and package migration: docs/VERIFICATION.md.
     // ═══════════════════════════════════════════════════════════════════════
     if (project.hasProperty('errorProne')) {
         apply plugin: 'net.ltgt.errorprone'
@@ -205,11 +210,17 @@ subprojects {
         }
 
         tasks.withType(JavaCompile).configureEach {
+            dependsOn rootProject.tasks.named('verifyNullMarkedPackages')
+            if (name == 'compileTestJava') {
+                options.errorprone.option('NullAway:HandleTestAssertionLibraries', true)
+            }
             options.errorprone {
                 disableWarningsInGeneratedCode = true
                 excludedPaths = '.*/build/generated/.*'
-                option('NullAway:AnnotatedPackages', 'io.sirix')
-                check('NullAway', CheckSeverity.WARN)
+                option('NullAway:OnlyNullMarked', true)
+                check('NullAway', CheckSeverity.ERROR)
+                // Upstream crash on generated literals (still in 2.51.0): https://github.com/google/error-prone/issues/6208
+                disable('StringConcatToTextBlock')
                 // Nodes/pages deliberately compare MemorySegments by reference: the question is
                 // "is this node backed by exactly this segment instance", not value equality —
                 // and identity is the cheap check on the hot path. Keep as a warning.

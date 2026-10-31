@@ -1,5 +1,6 @@
 package io.sirix.mcp;
 
+import org.jspecify.annotations.Nullable;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
@@ -86,7 +87,7 @@ public final class ToolHandlers {
 
   // --- Read tools ---
 
-  public CallToolResult listDatabases(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult listDatabases(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     return withAudit("sirix_list_databases", request.arguments(), () -> {
       final var dbNames = new ArrayList<String>();
 
@@ -100,7 +101,7 @@ public final class ToolHandlers {
                 dbNames.add(name);
             } catch (final AccessControl.AliasedNameException | AccessControl.AccessDeniedException
                 | IllegalArgumentException ignored) {
-              continue;
+              // Aliases and inaccessible entries are intentionally omitted from the listing.
             }
           }
         }
@@ -110,7 +111,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult listResources(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult listResources(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_list_resources", args, () -> {
@@ -133,7 +134,7 @@ public final class ToolHandlers {
             resourceNames.add(name);
           } catch (final AccessControl.AliasedNameException | AccessControl.AccessDeniedException
               | IllegalArgumentException ignored) {
-            continue;
+            // Aliases and inaccessible entries are intentionally omitted from the listing.
           }
         }
       }
@@ -142,7 +143,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult resourceInfo(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult resourceInfo(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_resource_info", args, () -> {
@@ -182,7 +183,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult query(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult query(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_query", args, () -> {
@@ -231,7 +232,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult history(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult history(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_history", args, () -> {
@@ -267,7 +268,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult diff(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult diff(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_diff", args, () -> {
@@ -309,7 +310,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult listSnapshots(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult listSnapshots(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_list_snapshots", args, () -> {
@@ -322,7 +323,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult createSnapshot(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult createSnapshot(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_create_snapshot", args, () -> {
@@ -352,7 +353,7 @@ public final class ToolHandlers {
 
   // --- Write tools ---
 
-  public CallToolResult createResource(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult createResource(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
     return withAudit("sirix_create_resource", args, () -> {
       final String database = requireString(args, "database");
@@ -408,7 +409,7 @@ public final class ToolHandlers {
         else
           Databases.createXmlDatabase(new DatabaseConfiguration(path));
       }
-      if (type == DatabaseType.JSON) {
+      if (document != null) {
         try (final var db = Databases.openJsonDatabase(path)) {
           if (!db.createResource(ResourceConfiguration.newBuilder(resource).build()) && !overwrite)
             return resourceExists(database, resource);
@@ -424,7 +425,7 @@ public final class ToolHandlers {
               writer.insertStringValueAsFirstChild(document.asText());
             } else if (document.isBoolean()) {
               writer.insertBooleanValueAsFirstChild(document.asBoolean());
-            } else if (document.isNumber()) {
+            } else if (number != null) {
               writer.insertNumberValueAsFirstChild(number);
             } else {
               writer.insertNullValueAsFirstChild();
@@ -465,7 +466,7 @@ public final class ToolHandlers {
         "Resource already exists; set overwrite to true to replace its content"), true);
   }
 
-  public CallToolResult insert(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult insert(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_insert", args, () -> {
@@ -499,7 +500,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult update(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult update(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_update", args, () -> {
@@ -543,7 +544,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult delete(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult delete(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_delete", args, () -> {
@@ -575,7 +576,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult revert(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult revert(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_revert", args, () -> {
@@ -622,7 +623,7 @@ public final class ToolHandlers {
     });
   }
 
-  public CallToolResult deleteSnapshot(McpSyncServerExchange exchange, CallToolRequest request) {
+  public CallToolResult deleteSnapshot(@Nullable McpSyncServerExchange exchange, CallToolRequest request) {
     final var args = request.arguments();
 
     return withAudit("sirix_delete_snapshot", args, () -> {
@@ -667,7 +668,7 @@ public final class ToolHandlers {
    * @param defaultRevision fallback if neither is specified (-1 means required)
    * @return the resolved revision number
    */
-  private int resolveRevision(Map<String, Object> args, String revisionKey, String snapshotKey, String database,
+  private int resolveRevision(Map<String, ?> args, String revisionKey, String snapshotKey, String database,
       String resource, int defaultRevision) {
     final var revisionArg = optionalInt(args, revisionKey);
     final var snapshotName = optionalString(args, snapshotKey);
@@ -691,7 +692,8 @@ public final class ToolHandlers {
     return defaultRevision;
   }
 
-  private Integer queryRevision(final Map<String, Object> args, final String database, final String resource) {
+  private @Nullable Integer queryRevision(final Map<String, ?> args, final String database,
+      final @Nullable String resource) {
     final int selectors = (args.containsKey("revision")
         ? 1
         : 0)
@@ -731,7 +733,7 @@ public final class ToolHandlers {
     }
   }
 
-  private static int nonNegativeOffset(final Map<String, Object> args) {
+  private static int nonNegativeOffset(final Map<String, ?> args) {
     final Integer offset = optionalInt(args, "offset");
     if (offset != null && offset < 0)
       throw new IllegalArgumentException("offset must not be negative");
@@ -749,7 +751,7 @@ public final class ToolHandlers {
     CallToolResult execute() throws Exception;
   }
 
-  private CallToolResult withAudit(String toolName, Map<String, Object> params, ToolAction action) {
+  private CallToolResult withAudit(String toolName, Map<String, ?> params, ToolAction action) {
     try {
       final String database = optionalString(params, "database");
       final String resource = optionalString(params, "resource");
@@ -792,11 +794,11 @@ public final class ToolHandlers {
     return new CallToolResult(List.of(new TextContent(text)), false, null, null);
   }
 
-  private static CallToolResult errorResult(String message) {
+  private static CallToolResult errorResult(@Nullable String message) {
     return new CallToolResult(List.of(new TextContent("ERROR: " + message)), true, null, null);
   }
 
-  private static String requireString(Map<String, Object> args, String key) {
+  private static String requireString(Map<String, ?> args, String key) {
     final var value = args.get(key);
     if (value == null) {
       throw new IllegalArgumentException("Missing required parameter: " + key);
@@ -806,7 +808,7 @@ public final class ToolHandlers {
     return text;
   }
 
-  private static String optionalString(Map<String, Object> args, String key) {
+  private static @Nullable String optionalString(Map<String, ?> args, String key) {
     final var value = args.get(key);
     if (value == null)
       return null;
@@ -815,7 +817,7 @@ public final class ToolHandlers {
     return text;
   }
 
-  private static boolean optionalBoolean(final Map<String, Object> args, final String key, final boolean defaultValue) {
+  private static boolean optionalBoolean(final Map<String, ?> args, final String key, final boolean defaultValue) {
     final Object value = args.get(key);
     if (value == null && !args.containsKey(key))
       return defaultValue;
@@ -824,7 +826,7 @@ public final class ToolHandlers {
     return flag;
   }
 
-  private static Integer optionalInt(Map<String, Object> args, String key) {
+  private static @Nullable Integer optionalInt(Map<String, ?> args, String key) {
     final var value = args.get(key);
     if (value == null)
       return null;
@@ -835,7 +837,7 @@ public final class ToolHandlers {
     }
   }
 
-  private static long requireLong(Map<String, Object> args, String key) {
+  private static long requireLong(Map<String, ?> args, String key) {
     final var value = args.get(key);
     if (value == null) {
       throw new IllegalArgumentException("Missing required parameter: " + key);

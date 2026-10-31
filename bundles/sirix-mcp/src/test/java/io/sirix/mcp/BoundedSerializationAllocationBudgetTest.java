@@ -1,5 +1,7 @@
 package io.sirix.mcp;
 
+import org.jspecify.annotations.Nullable;
+
 import com.sun.management.ThreadMXBean;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Item;
@@ -19,7 +21,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class BoundedSerializationAllocationBudgetTest {
   private static final int LIMIT = 4096;
-  private static volatile Object sink;
+  private static volatile @Nullable Object sink;
 
   @Test
   void queryPagesAllocateReturnedStringsWithoutReallocatingScratchPerItem() {

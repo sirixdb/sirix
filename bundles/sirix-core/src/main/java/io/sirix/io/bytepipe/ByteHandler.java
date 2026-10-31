@@ -1,5 +1,7 @@
 package io.sirix.io.bytepipe;
 
+import org.jspecify.annotations.Nullable;
+
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.foreign.MemorySegment;
@@ -77,7 +79,7 @@ public interface ByteHandler {
      * 
      * @return the releaser to call when done, or null if already transferred
      */
-    public Runnable transferOwnership() {
+    public @Nullable Runnable transferOwnership() {
       if (ownershipTransferred.compareAndSet(false, true)) {
         return releaser;
       }
@@ -131,10 +133,10 @@ public interface ByteHandler {
    * Decompress data using a pooled buffer with explicit lifecycle (Loom-friendly).
    *
    * <p>
-   * Returns a {@link DecompressionResult} backed by a bounded pool — memory is bounded by pool
-   * size, not virtual-thread count. The legacy {@code decompress(MemorySegment)} variant that
-   * returned a freshly-allocated segment was removed; it had ThreadLocal-based pooling that
-   * pinned a buffer per virtual thread (incompatible with millions of VTs).
+   * Returns a {@link DecompressionResult} backed by a bounded pool — memory is bounded by pool size,
+   * not virtual-thread count. The legacy {@code decompress(MemorySegment)} variant that returned a
+   * freshly-allocated segment was removed; it had ThreadLocal-based pooling that pinned a buffer per
+   * virtual thread (incompatible with millions of VTs).
    * 
    * <p>
    * The returned result MUST be closed after use to return the buffer to the pool:

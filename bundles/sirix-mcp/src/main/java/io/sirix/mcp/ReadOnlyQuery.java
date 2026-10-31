@@ -1,5 +1,6 @@
 package io.sirix.mcp;
 
+import org.jspecify.annotations.Nullable;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.BaseResolver;
@@ -31,7 +32,7 @@ final class ReadOnlyQuery {
     return updating(analyzer.getAST(), analyzer.getModules().getFirst().getStaticContext());
   }
 
-  private static boolean updating(final AST node, final StaticContext context) {
+  private static boolean updating(final AST node, final @Nullable StaticContext context) {
     switch (node.getType()) {
       case XQ.InsertExpr, XQ.DeleteExpr, XQ.ReplaceValueExpr, XQ.ReplaceNodeExpr, XQ.RenameExpr, XQ.TransformExpr,
           XQ.InsertJsonExpr, XQ.DeleteJsonExpr, XQ.RenameJsonExpr, XQ.ReplaceJsonExpr, XQ.AppendJsonExpr,

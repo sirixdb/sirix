@@ -11,6 +11,8 @@ dependencies {
 
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
+    testImplementation 'com.google.jimfs:jimfs:1.3.2'
+    testImplementation testLibraries.mockitoCore
     testImplementation testLibraries.assertjCore
     testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
 }

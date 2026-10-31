@@ -19,7 +19,7 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/*WorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
 | JUnit framework consistency | Query test classes do not mix standard JUnit 4 and Jupiter annotation markers, including inherited fixtures | `sirix-query/src/test/java/io/sirix/query/JUnitFrameworkConsistencyTest.java` (owns the guard's scope) |
-| Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns; warnings for nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
+| Error Prone + NullAway | Compile-time rejection of bug patterns and nullness-contract violations in `@NullMarked` code | Main CI, release, stress and deep verification; local `-PerrorProne` |
 | SonarCloud / Checkstyle | Static analysis and style rules | [SonarCloud analysis](#sonarcloud-analysis), `checkstyle.xml` |
 
 ## Why these layers, specifically
@@ -78,8 +78,30 @@ coverage.
 
 **Error Prone** rejects bug patterns at compile time (bad equals/format strings/self-assignment
 and ~500 more); **NullAway** checks nullness contracts against the JSpecify annotations already
-used in the codebase. Both are opt-in (`-PerrorProne`) so the everyday build is unchanged, and run
-in CI via the `Deep verification` workflow.
+used in the codebase. Local builds opt in with `-PerrorProne`. The main PR/push CI workflow sets
+`ORG_GRADLE_PROJECT_errorProne=true` only on its `Compile and package` job, which compiles all
+main, test and JMH benchmark source sets. The release workflow runs the same gated compile
+before importing signing credentials or publishing, covering tag pushes, release branches and
+manually selected refs. The stress workflow enables the gate on its core test compile, including
+manual runs against refs outside main CI's branch filters. Deep verification gates its dedicated
+core and MCP compile with `-PerrorProne`. Each of these four workflows runs one gated compile;
+other jobs and the Sonar workflow avoid repeating static analysis. Error Prone errors fail compilation;
+NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
+has a JSpecify `@NullMarked` package default. Legacy unmarked code, including core and query,
+is outside NullAway checking, even where individual nullable contracts are annotated.
+Test compilation models AssertJ/JUnit assertion checks without adding runtime guards.
+
+`verifyNullMarkedPackages` checks package defaults for every Gradle Java compilation, including
+main, test and JMH, using the JDK parser. It runs before gated Java compilation and from `check`.
+A new `io.sirix` package must have its own `@NullMarked` `package-info.java` in each compilation
+source group.
+The checked-in baseline is `gradle/nullaway-unmarked-packages.txt`; entries may only be removed,
+never added. The task rejects obsolete entries and any growth along the first-parent Git history,
+including uncommitted additions (the first committed list establishes the baseline). Migrating a
+legacy package requires marking all its compilation source groups and removing its entry.
+Generated build sources are excluded. Run the gate with JDK 25 and a full-history checkout containing `origin/main`.
+`StringConcatToTextBlock` alone is disabled because its generated-literal crash persists through
+Error Prone 2.51.0 ([upstream bug](https://github.com/google/error-prone/issues/6208)).
 
 ## SonarCloud analysis
 
@@ -187,8 +209,9 @@ suite, with cold-reopen checks.
 ./gradlew :sirix-core:test --tests 'io.sirix.index.aggregate.DerivedIndexCrashRecoveryTest' \
                            -Dsirix.crash.run=true
 
-# Static bug detection
-./gradlew :sirix-core:compileJava :sirix-core:compileTestJava -PerrorProne
+# Static bug detection (same source sets as deep verification)
+./gradlew :sirix-core:compileJava :sirix-core:compileTestJava \
+          :sirix-mcp:compileJava :sirix-mcp:compileTestJava -PerrorProne
 ```
 
 CI: the `Deep verification` workflow (`.github/workflows/verification.yml`) runs PIT and Error

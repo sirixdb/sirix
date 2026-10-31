@@ -1,5 +1,6 @@
 package io.sirix.mcp;
 
+import org.jspecify.annotations.Nullable;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.sequence.ItemSequence;
@@ -14,8 +15,8 @@ import java.util.Map;
 final class BoundedQueryResult {
   private BoundedQueryResult() {}
 
-  static Map<String, Object> serialize(final Sequence sequence, final int offset, final McpServerConfig config,
-      final OutputSanitizer sanitizer) {
+  static Map<String, Object> serialize(final @Nullable Sequence sequence, final int offset,
+      final McpServerConfig config, final OutputSanitizer sanitizer) {
     final var values = new ArrayList<String>(Math.min(config.maxResultSize(), 128));
     boolean truncated = false;
     boolean oversized = false;

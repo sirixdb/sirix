@@ -1,5 +1,6 @@
 package io.sirix.mcp;
 
+import org.jspecify.annotations.Nullable;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
@@ -77,23 +78,24 @@ public final class SnapshotRegistry {
   }
 
   /** Create a named snapshot pointing to a revision. */
-  public synchronized void create(String database, String resource, String name, int revision) {
+  public synchronized void create(String database, String resource, @Nullable String name, int revision) {
     final Path target = resourcePath(database, resource);
-    final Path path = target.getParent().getParent();
+    final Path path = requireNonNull(requireNonNull(target.getParent()).getParent());
     loadForDatabase(path);
     if (revision < 1)
       throw new IllegalArgumentException("Revision must be positive");
-    validateName(name);
-    final var labels = registry.computeIfAbsent(path, k -> new ConcurrentHashMap<>())
-                               .computeIfAbsent(target.getFileName().toString(), k -> new ConcurrentHashMap<>());
-    final Integer previous = labels.put(name, revision);
+    final String label = validateName(name);
+    final var labels =
+        registry.computeIfAbsent(path, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(requireNonNull(target.getFileName()).toString(), k -> new ConcurrentHashMap<>());
+    final Integer previous = labels.put(label, revision);
     try {
       persist(path);
     } catch (final RuntimeException exception) {
       if (previous == null)
-        labels.remove(name);
+        labels.remove(label);
       else
-        labels.put(name, previous);
+        labels.put(label, previous);
       throw exception;
     }
   }
@@ -101,12 +103,12 @@ public final class SnapshotRegistry {
   /** Delete a named snapshot. Returns true if it existed. */
   public synchronized boolean delete(String database, String resource, String name) {
     final Path target = resourcePath(database, resource);
-    final Path path = target.getParent().getParent();
+    final Path path = requireNonNull(requireNonNull(target.getParent()).getParent());
     loadForDatabase(path);
     var dbMap = registry.get(path);
     if (dbMap == null)
       return false;
-    var resMap = dbMap.get(target.getFileName().toString());
+    var resMap = dbMap.get(requireNonNull(target.getFileName()).toString());
     if (resMap == null)
       return false;
     final Integer removed = resMap.remove(name);
@@ -122,14 +124,14 @@ public final class SnapshotRegistry {
   }
 
   /** Resolve a snapshot name to a revision number. Returns null if not found. */
-  public synchronized Integer resolve(String database, String resource, String name) {
+  public synchronized @Nullable Integer resolve(String database, String resource, String name) {
     final Path target = resourcePath(database, resource);
-    final Path path = target.getParent().getParent();
+    final Path path = requireNonNull(requireNonNull(target.getParent()).getParent());
     loadForDatabase(path);
     var dbMap = registry.get(path);
     if (dbMap == null)
       return null;
-    var resMap = dbMap.get(target.getFileName().toString());
+    var resMap = dbMap.get(requireNonNull(target.getFileName()).toString());
     if (resMap == null)
       return null;
     return resMap.get(name);
@@ -138,23 +140,24 @@ public final class SnapshotRegistry {
   /** List all snapshots for a resource. */
   public synchronized Map<String, Integer> list(String database, String resource) {
     final Path target = resourcePath(database, resource);
-    final Path path = target.getParent().getParent();
+    final Path path = requireNonNull(requireNonNull(target.getParent()).getParent());
     loadForDatabase(path);
     var dbMap = registry.get(path);
     if (dbMap == null)
       return Map.of();
-    var resMap = dbMap.get(target.getFileName().toString());
+    var resMap = dbMap.get(requireNonNull(target.getFileName()).toString());
     if (resMap == null)
       return Map.of();
     return Map.copyOf(resMap);
   }
 
-  static void validateName(String name) {
+  static String validateName(@Nullable String name) {
     if (name == null || !VALID_NAME.matcher(name).matches()) {
       throw new IllegalArgumentException(
           "Invalid snapshot name: must be 1-128 chars, alphanumeric/dash/underscore/dot, "
               + "starting with alphanumeric");
     }
+    return name;
   }
 
   private void persist(Path database) {
@@ -164,7 +167,7 @@ public final class SnapshotRegistry {
 
     var file = database.resolve(SNAPSHOT_FILE);
     try {
-      Files.createDirectories(file.getParent());
+      Files.createDirectories(database);
       var tmp = file.resolveSibling(SNAPSHOT_FILE + ".tmp");
       MAPPER.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), dbMap);
       try {

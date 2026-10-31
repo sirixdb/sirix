@@ -188,9 +188,8 @@ modern Linux distros this is in `apt install liblz4-1` / `dnf install lz4` and
 present by default. macOS: `brew install lz4`. Windows: build / install
 `liblz4.dll`.
 
-If `liblz4` is unavailable the constructor throws at first compress/decompress.
-Page writes succeed only when the compressor is functional; there is no
-runtime fallback for LZ4 (unlike LZ77).
+For read compatibility and write fallback when `liblz4` is unavailable, see
+[the disk-format portability contract](DISK_FORMAT.md#5-pre-freeze-checklist-ranked-decide-before-first-user-data).
 
 ---
 

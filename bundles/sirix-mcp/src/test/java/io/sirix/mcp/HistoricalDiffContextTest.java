@@ -18,6 +18,8 @@ import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import static java.util.Objects.requireNonNull;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class HistoricalDiffContextTest {
@@ -67,7 +69,7 @@ class HistoricalDiffContextTest {
           assertThat(response.isError()).as(text(response)).isFalse();
           final var result = (Map<?, ?>) response.structuredContent();
           assertThat(result.get("revision")).isEqualTo(revision);
-          final var items = (List<?>) result.get("items");
+          final var items = (List<?>) requireNonNull(result.get("items"));
           assertThat(items).hasSize(1);
           final var diff = MAPPER.readTree(items.getFirst().toString());
           assertThat(diff.get("old-revision").asInt()).isEqualTo(1);
