@@ -102,7 +102,7 @@ public class HotPathBaselineBenchmark {
     }
 
     private Integer nextValue() {
-      return cachedValues[(valueIndex++) & (UPDATE_VALUE_VARIANTS - 1)];
+      return cachedValues[valueIndex++ & (UPDATE_VALUE_VARIANTS - 1)];
     }
   }
 
@@ -149,7 +149,7 @@ public class HotPathBaselineBenchmark {
     }
 
     private QNm nextName() {
-      return cachedNames[(nameIndex++) & (UPDATE_NAME_VARIANTS - 1)];
+      return cachedNames[nameIndex++ & (UPDATE_NAME_VARIANTS - 1)];
     }
   }
 

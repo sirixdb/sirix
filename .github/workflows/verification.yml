@@ -5,10 +5,8 @@
 #     execute it: a surviving mutant is a code change no test noticed. Scope is configured
 #     in bundles/sirix-core/build.gradle (pitest block).
 #
-#   * error-prone — repeats the Error Prone core/MCP and marked-package NullAway gates.
-#     Main CI and release runs gate all main, test and JMH sources; stress runs gate core.
-#     Error Prone errors and NullAway violations in @NullMarked code fail compilation.
-#     MCP main/test packages are marked; legacy unmarked packages remain unchecked by NullAway.
+#   * error-prone — compiles core and MCP with the shared static-analysis gate.
+#     Gate policy and coverage across workflows: docs/VERIFICATION.md.
 #
 # Trigger paths: manual workflow_dispatch, or the weekly Monday 04:00 UTC cron.
 name: Deep verification

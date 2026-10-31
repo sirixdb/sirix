@@ -198,11 +198,8 @@ subprojects {
 
     // ═══════════════════════════════════════════════════════════════════════
     // Error Prone + NullAway — CI static bug gate (local opt-in):
-    //   ./gradlew compileJava -PerrorProne          (all modules)
-    //   ./gradlew :sirix-core:compileJava -PerrorProne
-    // Local builds opt in; CI gates one compile per main, release, stress or verification run.
-    // ERROR-severity checks (bad equals/hashCode, format strings, self-assignment, ...)
-    // fail compilation; NullAway rejects violations in @NullMarked code (MCP and new packages).
+    // NullAway rejects violations only in @NullMarked code; legacy packages remain unchecked.
+    // Workflow coverage, local commands and package migration: docs/VERIFICATION.md.
     // ═══════════════════════════════════════════════════════════════════════
     if (project.hasProperty('errorProne')) {
         apply plugin: 'net.ltgt.errorprone'

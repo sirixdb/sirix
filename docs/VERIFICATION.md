@@ -88,7 +88,7 @@ core and MCP compile with `-PerrorProne`. Each of these four workflows runs one 
 other jobs and the main-only Sonar workflow avoid repeating static analysis. Error Prone errors fail compilation;
 NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
 has a JSpecify `@NullMarked` package default. Legacy unmarked code, including core and query,
-is outside NullAway checking in this change; earlier correct nullable contracts are retained.
+is outside NullAway checking, even where individual nullable contracts are annotated.
 Test compilation models AssertJ/JUnit assertion checks without adding runtime guards.
 
 `verifyNullMarkedPackages` checks package defaults for every Gradle Java compilation, including
@@ -209,8 +209,9 @@ suite, with cold-reopen checks.
 ./gradlew :sirix-core:test --tests 'io.sirix.index.aggregate.DerivedIndexCrashRecoveryTest' \
                            -Dsirix.crash.run=true
 
-# Static bug detection
-./gradlew :sirix-core:compileJava :sirix-core:compileTestJava -PerrorProne
+# Static bug detection (same source sets as deep verification)
+./gradlew :sirix-core:compileJava :sirix-core:compileTestJava \
+          :sirix-mcp:compileJava :sirix-mcp:compileTestJava -PerrorProne
 ```
 
 CI: the `Deep verification` workflow (`.github/workflows/verification.yml`) runs PIT and Error

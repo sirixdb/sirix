@@ -6,6 +6,7 @@ import io.sirix.cache.MemorySegmentAllocator;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -153,7 +154,7 @@ public final class ByteHandlerPipeline implements ByteHandler {
       } else {
         // Fallback: use heap-backed segment (for tests or when allocator not initialized)
         byte[] data = new byte[size];
-        MemorySegment.copy(compressed, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, data, 0, size);
+        MemorySegment.copy(compressed, ValueLayout.JAVA_BYTE, 0, data, 0, size);
         MemorySegment heapSegment = MemorySegment.ofArray(data);
 
         // No-op releaser since heap memory is GC'd

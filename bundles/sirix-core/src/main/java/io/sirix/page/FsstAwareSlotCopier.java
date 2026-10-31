@@ -94,8 +94,8 @@ public final class FsstAwareSlotCopier {
   }
 
   /**
-   * @return {@code true} iff this copier can actually decompress. Callers may skip invoking
-   *         {@link #decompressSlot} entirely when {@code false}.
+   * Returns whether this copier can decompress. Callers may skip invoking {@link #decompressSlot}
+   * entirely when {@code false}.
    */
   public boolean active() {
     return parsedSymbols != null;

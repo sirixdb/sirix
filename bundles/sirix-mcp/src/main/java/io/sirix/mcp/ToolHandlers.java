@@ -101,7 +101,7 @@ public final class ToolHandlers {
                 dbNames.add(name);
             } catch (final AccessControl.AliasedNameException | AccessControl.AccessDeniedException
                 | IllegalArgumentException ignored) {
-              continue;
+              // Aliases and inaccessible entries are intentionally omitted from the listing.
             }
           }
         }
@@ -134,7 +134,7 @@ public final class ToolHandlers {
             resourceNames.add(name);
           } catch (final AccessControl.AliasedNameException | AccessControl.AccessDeniedException
               | IllegalArgumentException ignored) {
-            continue;
+            // Aliases and inaccessible entries are intentionally omitted from the listing.
           }
         }
       }

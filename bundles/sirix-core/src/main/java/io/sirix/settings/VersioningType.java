@@ -948,14 +948,6 @@ public enum VersioningType {
   }
 
   /**
-   * Method to reconstruct a complete {@link KeyValuePage} with the help of partly filled pages plus a
-   * revision-delta which determines the necessary steps back.
-   *
-   * @param pages the base of the complete {@link KeyValuePage}
-   * @param revsToRestore the number of revisions needed to build the complete record page
-   * @return the complete {@link KeyValuePage}
-   */
-  /**
    * Split of a versioned page reconstruction into its two halves — the per-slot copy loop and the PAX
    * region rebuild — off unless {@code -Dsirix.versioning.diag=true}. Reconstruction is the one part
    * of a cold analytical scan that still works on the row representation, so knowing which half costs
@@ -1010,6 +1002,14 @@ public enum VersioningType {
     return true;
   }
 
+  /**
+   * Method to reconstruct a complete {@link KeyValuePage} with the help of partly filled pages plus a
+   * revision-delta which determines the necessary steps back.
+   *
+   * @param pages the base of the complete {@link KeyValuePage}
+   * @param revsToRestore the number of revisions needed to build the complete record page
+   * @return the complete {@link KeyValuePage}
+   */
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
       final int revsToRestore, final StorageEngineReader storageEngineReader);
 

@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.Writer;
 import java.io.OutputStreamWriter;
+import java.nio.charset.Charset;
 
 import static java.util.Objects.requireNonNull;
 import java.nio.file.Files;
@@ -53,7 +54,7 @@ public final class AuditLog implements AutoCloseable {
       writer = Files.newBufferedWriter(path, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     } else {
       // Default: log to stderr so it doesn't interfere with stdio MCP transport on stdout
-      writer = new OutputStreamWriter(System.err);
+      writer = new OutputStreamWriter(System.err, Charset.defaultCharset());
     }
 
     return new AuditLog(writer);
