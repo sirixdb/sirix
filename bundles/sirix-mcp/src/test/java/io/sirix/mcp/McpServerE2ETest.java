@@ -2,8 +2,10 @@ package io.sirix.mcp;
 
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
+import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
+import tools.jackson.databind.json.JsonMapper;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
-import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 
@@ -19,7 +21,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -53,12 +54,12 @@ class McpServerE2ETest {
   private McpSyncServer buildServer(boolean readWrite) throws IOException {
     final var config = McpServerConfig.defaults(tempDir).withReadOnly(!readWrite);
     final var toolHandlers = buildHandlers(readWrite);
-    final var transport = new io.modelcontextprotocol.server.transport.StdioServerTransportProvider(
-        new io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper(
-            tools.jackson.databind.json.JsonMapper.builder().build()));
+    final var transport = new StdioServerTransportProvider(
+        new JacksonMcpJsonMapper(
+            JsonMapper.builder().build()));
     final var builder = McpServer.sync(transport).serverInfo("sirixdb-mcp-test", "1.0.0");
-    registerReadTools(builder, toolHandlers);
-    if (readWrite) registerWriteTools(builder, toolHandlers);
+    SirixMcpServer.registerReadTools(builder, toolHandlers);
+    if (readWrite) SirixMcpServer.registerWriteTools(builder, toolHandlers);
     return builder.build();
   }
 
@@ -66,16 +67,20 @@ class McpServerE2ETest {
     assertThat(buildServer(false).listTools()).hasSize(8);
   }
 
-  @Test void readWriteServerRegisters13Tools() throws IOException {
+  @Test void readWriteServerRegisters14Tools() throws IOException {
     final var names = buildServer(true).listTools().stream().map(Tool::name).toList();
-    assertThat(names).hasSize(13).contains("sirix_insert", "sirix_update", "sirix_delete",
+    assertThat(names).hasSize(14).contains("sirix_create_resource", "sirix_insert", "sirix_update", "sirix_delete",
         "sirix_revert", "sirix_delete_snapshot");
   }
 
   @Test void toolsHaveDescriptionsAndSchemas() throws IOException {
-    for (final Tool tool : buildServer(false).listTools()) {
-      assertThat(tool.description()).as("Tool %s", tool.name()).isNotBlank();
-      assertThat(tool.inputSchema()).as("Tool %s", tool.name()).isNotNull();
+    for (final boolean readWrite : new boolean[] {false, true}) {
+      for (final Tool tool : buildServer(readWrite).listTools()) {
+        assertThat(tool.description()).as("Tool %s", tool.name()).isNotBlank();
+        assertThat(tool.inputSchema()).as("Tool %s", tool.name()).isNotNull();
+        if (tool.name().equals("sirix_query"))
+          assertThat(tool.annotations().readOnlyHint()).isTrue();
+      }
     }
   }
 
@@ -121,36 +126,4 @@ class McpServerE2ETest {
     assertThat(((TextContent) history.content().getFirst()).text()).contains("\"revision\":3");
   }
 
-  @SuppressWarnings("unchecked")
-  private static void registerReadTools(McpServer.SyncSpecification<?> b, ToolHandlers h) {
-    b.toolCall(tool("sirix_list_databases", "List databases", schema(Map.of(), List.of())), h::listDatabases);
-    b.toolCall(tool("sirix_list_resources", "List resources", schema(Map.of("database", sp("db")), List.of("database"))), h::listResources);
-    b.toolCall(tool("sirix_resource_info", "Resource info", schema(Map.of("database", sp("db"), "resource", sp("res")), List.of("database", "resource"))), h::resourceInfo);
-    b.toolCall(tool("sirix_query", "Query", schema(Map.of("query", sp("q"), "database", sp("db")), List.of("query", "database"))), h::query);
-    b.toolCall(tool("sirix_history", "History", schema(Map.of("database", sp("db"), "resource", sp("res"), "count", ip("n")), List.of("database", "resource"))), h::history);
-    b.toolCall(tool("sirix_diff", "Diff", schema(Map.of("database", sp("db"), "resource", sp("res"), "from_revision", ip("f"), "to_revision", ip("t")), List.of("database", "resource"))), h::diff);
-    b.toolCall(tool("sirix_list_snapshots", "Snapshots", schema(Map.of("database", sp("db"), "resource", sp("res")), List.of("database", "resource"))), h::listSnapshots);
-    b.toolCall(tool("sirix_create_snapshot", "Create snapshot", schema(Map.of("database", sp("db"), "resource", sp("res"), "name", sp("n"), "revision", ip("r")), List.of("database", "resource", "name"))), h::createSnapshot);
-  }
-
-  @SuppressWarnings("unchecked")
-  private static void registerWriteTools(McpServer.SyncSpecification<?> b, ToolHandlers h) {
-    b.toolCall(tool("sirix_insert", "Insert", schema(Map.of("database", sp("db"), "resource", sp("res"), "data", sp("d"), "message", sp("m")), List.of("database", "resource", "data"))), h::insert);
-    b.toolCall(tool("sirix_update", "Update", schema(Map.of("database", sp("db"), "resource", sp("res"), "nodeKey", ip("k"), "value", sp("v"), "message", sp("m")), List.of("database", "resource", "nodeKey", "value"))), h::update);
-    b.toolCall(tool("sirix_delete", "Delete", schema(Map.of("database", sp("db"), "resource", sp("res"), "nodeKey", ip("k"), "message", sp("m")), List.of("database", "resource", "nodeKey"))), h::delete);
-    b.toolCall(tool("sirix_revert", "Revert", schema(Map.of("database", sp("db"), "resource", sp("res"), "revision", ip("r"), "snapshot", sp("s"), "message", sp("m")), List.of("database", "resource"))), h::revert);
-    b.toolCall(tool("sirix_delete_snapshot", "Delete snapshot", schema(Map.of("database", sp("db"), "resource", sp("res"), "name", sp("n")), List.of("database", "resource", "name"))), h::deleteSnapshot);
-  }
-
-  private static Tool tool(String n, String d, JsonSchema s) {
-    return Tool.builder().name(n).description(d).inputSchema(s).build();
-  }
-
-  @SuppressWarnings("unchecked")
-  private static JsonSchema schema(Map<String, Map<String, Object>> p, List<String> r) {
-    return new JsonSchema("object", (Map<String, Object>) (Map<?, ?>) p, r, null, null, null);
-  }
-
-  private static Map<String, Object> sp(String d) { return Map.of("type", "string", "description", d); }
-  private static Map<String, Object> ip(String d) { return Map.of("type", "integer", "description", d); }
 }

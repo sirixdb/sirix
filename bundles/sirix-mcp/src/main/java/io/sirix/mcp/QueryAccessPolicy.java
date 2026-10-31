@@ -6,6 +6,7 @@ import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 
 /** Enforces the actual query targets, including direct transaction functions and temporal axes. */
@@ -15,10 +16,9 @@ final class QueryAccessPolicy implements ResourceAccessScope.Policy {
   private final String database;
   private final String resource;
   private final int revision;
-  private final boolean readOnly;
 
   QueryAccessPolicy(final Path root, final AccessControl access, final String database, final String resource,
-      final Integer revision, final boolean readOnly) {
+      final Integer revision) {
     this.root = canonicalPath(root);
     this.access = access;
     this.database = database;
@@ -26,12 +26,18 @@ final class QueryAccessPolicy implements ResourceAccessScope.Policy {
     this.revision = revision == null
         ? -1
         : revision;
-    this.readOnly = readOnly;
   }
 
-  private static Path canonicalPath(final Path path) {
+  static Path canonicalPath(final Path path) {
     final Path absolute = path.toAbsolutePath();
     try {
+      if (Files.isSymbolicLink(absolute)) {
+        try {
+          return absolute.toRealPath();
+        } catch (final NoSuchFileException missing) {
+          return canonicalPath(absolute.resolveSibling(Files.readSymbolicLink(absolute)));
+        }
+      }
       if (Files.exists(absolute)) {
         return absolute.toRealPath();
       }
@@ -77,13 +83,7 @@ final class QueryAccessPolicy implements ResourceAccessScope.Policy {
 
   @Override
   public void checkWrite() {
-    if (readOnly) {
-      throw new AccessControl.AccessDeniedException(
-          "Write operations are disabled. Server is running in read-only mode.");
-    }
-    if (revision > 0) {
-      throw new AccessControl.AccessDeniedException("Historical queries are read-only");
-    }
+    throw new AccessControl.AccessDeniedException("sirix_query is read-only; use the explicit write tools");
   }
 
   @Override

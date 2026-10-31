@@ -15,11 +15,6 @@ final class BoundedQueryResult {
 
   static Map<String, Object> serialize(final Sequence sequence, final int offset, final McpServerConfig config,
       final OutputSanitizer sanitizer) {
-    return serialize(sequence, offset, config, sanitizer, !config.readOnly());
-  }
-
-  static Map<String, Object> serialize(final Sequence sequence, final int offset, final McpServerConfig config,
-      final OutputSanitizer sanitizer, final boolean completeEvaluation) {
     final var values = new ArrayList<String>(Math.min(config.maxResultSize(), 128));
     boolean truncated = false;
     boolean oversized = false;
@@ -31,10 +26,8 @@ final class BoundedQueryResult {
         while ((item = iterator.next()) != null) {
           if (position++ < offset)
             continue;
-          if (oversized || values.size() == config.maxResultSize()) {
+          if (values.size() == config.maxResultSize()) {
             truncated = true;
-            if (completeEvaluation)
-              continue;
             break;
           }
           final var buffer = new LimitedStringWriter(config.maxStringValueLength());
@@ -49,8 +42,7 @@ final class BoundedQueryResult {
           } catch (final LimitExceededException exception) {
             oversized = true;
             truncated = true;
-            if (!completeEvaluation)
-              break;
+            break;
           }
         }
       }
@@ -61,10 +53,7 @@ final class BoundedQueryResult {
     if (warning != null)
       result.put("warning", warning);
     if (truncated) {
-      result.put("continuation", completeEvaluation
-          ? Map.of("hint",
-              "Evaluation completed; this query may have mutated data. Read the affected resource separately instead of repeating the query")
-          : oversized
+      result.put("continuation", oversized
               ? Map.of("offset", offset + values.size(), "hint",
                   "Project a smaller value or split the document into items; this value exceeds maxStringValueLength")
               : Map.of("offset", offset + values.size(), "hint",

@@ -402,7 +402,10 @@ public final class JsonDBObject extends AbstractItem
     final JsonResourceSession resourceSession = rtx.getResourceSession();
     final var trx = resourceSession.getNodeTrx().orElseGet(resourceSession::beginNodeTrx);
 
-    collection.getJsonDBStore().registerWriteSession(resourceSession);
+    final var store = collection.getJsonDBStore();
+    if (store != null) {
+      store.registerWriteSession(resourceSession);
+    }
 
     // If the read transaction is from an older revision than the write transaction,
     // revert the write transaction to match the source revision.

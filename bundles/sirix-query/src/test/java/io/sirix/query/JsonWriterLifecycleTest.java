@@ -4,6 +4,8 @@ import io.brackit.query.Query;
 import io.sirix.access.Databases;
 import io.sirix.query.SirixQueryContext.CommitStrategy;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.JsonDBCollectionImpl;
+import org.junit.jupiter.api.Test;
 import io.sirix.service.json.serialize.JsonSerializer;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -15,6 +17,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class JsonWriterLifecycleTest {
@@ -78,6 +81,28 @@ final class JsonWriterLifecycleTest {
         assertTrue(session.getNodeTrx().isEmpty());
       }
       assertStored(mutation.name(), commit ? 2 : 1, commit ? mutation.expected() : mutation.original());
+    }
+  }
+
+  @Test
+  void storelessCollectionsSupportObjectArrayAndPrimitiveUpdates() throws Exception {
+    for (final Mutation mutation : MUTATIONS) {
+      try (final var store = BasicJsonDBStore.newBuilder().location(directory).build()) {
+        store.create(mutation.name(), "data", mutation.original());
+      }
+      try (final var database = Databases.openJsonDatabase(directory.resolve(mutation.name()));
+          final var store = BasicJsonDBStore.newBuilder().location(directory).build();
+          final var context = SirixQueryContext.createWithJsonStore(store);
+          final var chain = SirixCompileChain.createWithJsonStore(store)) {
+        final var collection = new JsonDBCollectionImpl(mutation.name(), database);
+        assertNull(collection.getJsonDBStore());
+        final var document = collection.getDocument("data");
+        context.setContextItem(document);
+        new Query(chain, mutation.expression()).execute(context);
+        assertEquals(2, document.getResourceSession().getMostRecentRevisionNumber());
+        assertTrue(document.getResourceSession().getNodeTrx().isEmpty());
+      }
+      assertStored(mutation.name(), 2, mutation.expected());
     }
   }
 

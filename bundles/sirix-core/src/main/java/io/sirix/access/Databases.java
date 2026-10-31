@@ -327,15 +327,6 @@ public final class Databases {
         return;
       }
       path = canonicalDatabasePath(dbFile);
-      final Path resourceDirectory = path.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
-      if (Files.isDirectory(resourceDirectory)) {
-        try (final Stream<Path> resources = Files.list(resourceDirectory)) {
-          resources.forEach(
-              resource -> ResourceAccessScope.checkResource(path, resource.getFileName().toString(), true));
-        } catch (final IOException e) {
-          throw new SirixIOException(e);
-        }
-      }
       owner = awaitDatabaseClose(path);
       if (owner == null) {
         handles = Set.of();

@@ -41,7 +41,21 @@ class McpStdioContractTest {
     }
     try (final var server = new Server(directory)) {
       final JsonNode tools = server.rpc("tools/list", Map.of());
-      assertThat(tools.get("tools").size()).isEqualTo(13);
+      assertThat(tools.get("tools").size()).isEqualTo(14);
+      for (final JsonNode tool : tools.get("tools")) {
+        if (tool.get("name").asText().equals("sirix_query"))
+          assertThat(tool.get("annotations").get("readOnlyHint").asBoolean()).isTrue();
+        if (tool.get("name").asText().equals("sirix_create_resource")) {
+          assertThat(tool.get("inputSchema").get("properties").get("overwrite").get("type").asText()).isEqualTo("boolean");
+          assertThat(tool.get("inputSchema").get("required").toString()).contains("database", "resource", "data");
+        }
+      }
+      final var deniedQuery = server.call("sirix_query", Map.of("query", "jn:store('db','secret','{}')"));
+      assertThat(deniedQuery.path("isError").asBoolean()).isTrue();
+      assertThat(deniedQuery.get("structuredContent").get("code").asText()).isEqualTo("updating_query");
+      final var created = server.call("sirix_create_resource", Map.of("resource", "created", "data", "{\"new\":true}"));
+      assertThat(created.path("isError").asBoolean()).isFalse();
+      assertThat(created.get("structuredContent").get("revision").asInt()).isEqualTo(1);
       assertThat(server.call("sirix_query", Map.of("query", "jn:doc('db','res').name"))
                        .get("structuredContent")
                        .get("items")

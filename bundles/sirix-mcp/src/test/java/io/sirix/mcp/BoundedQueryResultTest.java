@@ -45,17 +45,17 @@ class BoundedQueryResultTest {
   }
 
   @Test
-  void completesEvaluationWithoutSerializingTheRestWhenMutationsArePermitted() {
+  void readWriteServersAlsoStopAfterOnePage() {
     final var consumed = new AtomicInteger();
     final var closed = new AtomicInteger();
-    final var config = config();
+    final var config = config().withReadOnly(false);
     final var result = BoundedQueryResult.serialize(sequence("small", consumed, closed, 5), 0, config,
-        new OutputSanitizer(config), true);
+        new OutputSanitizer(config));
     assertThat(result).containsEntry("truncated", true);
     assertThat((List<?>) result.get("items")).hasSize(2);
-    assertThat(consumed).hasValue(5);
+    assertThat(consumed).hasValue(3);
     assertThat(closed).hasValue(1);
-    assertThat(((Map<?, ?>) result.get("continuation")).containsKey("offset")).isFalse();
+    assertThat(((Map<?, ?>) result.get("continuation")).containsKey("offset")).isTrue();
   }
 
   private static AbstractSequence sequence(final String text, final AtomicInteger consumed,

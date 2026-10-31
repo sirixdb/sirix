@@ -28,7 +28,10 @@ public interface JsonDBItem extends UpdatableJsonItem {
     final JsonResourceSession resourceSession = getResourceSession();
     final JsonNodeTrx wtx = resourceSession.getNodeTrx().orElseGet(resourceSession::beginNodeTrx);
 
-    getCollection().getJsonDBStore().registerWriteSession(resourceSession);
+    final var store = getCollection().getJsonDBStore();
+    if (store != null) {
+      store.registerWriteSession(resourceSession);
+    }
 
     // If the read transaction is from an older revision than the write transaction,
     // revert the write transaction to match the source revision.

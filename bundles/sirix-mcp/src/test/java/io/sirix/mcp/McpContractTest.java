@@ -2,9 +2,7 @@ package io.sirix.mcp;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.brackit.query.jdm.Type;
-import io.brackit.query.node.parser.DocumentParser;
-import io.sirix.access.ResourceAccessScope;
-import io.sirix.query.node.BasicXmlDBStore;
+import io.brackit.query.function.json.JSONFun;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexDef.DbType;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -17,14 +15,11 @@ import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.json.serialize.JsonSerializer;
-import io.sirix.query.json.BasicJsonDBStore;
-import io.sirix.query.json.JsonDBItem;
-import io.sirix.query.json.JsonDBArray;
-import io.sirix.query.json.JsonDBObject;
-import io.brackit.query.atomic.QNm;
-import io.brackit.query.atomic.Str;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import io.sirix.service.xml.serialize.XmlSerializer;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
@@ -43,7 +38,6 @@ import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static io.brackit.query.util.path.Path.parse;
 import static io.brackit.query.util.path.PathParser.Type.JSON;
 
@@ -273,8 +267,8 @@ class McpContractTest {
     assertThat(unrestricted.query(null, request(Map.of("query", "jn:store('newdb','res','{}')", "revision", 1)))
                            .isError()).isTrue();
     assertThat(Databases.existsDatabase(directory.resolve("newdb"))).isFalse();
-    assertThat(restricted.query(null, request(Map.of("query", "sdb:commit(" + DOC + ")"))).isError()).isFalse();
-    assertThat(head()).isEqualTo(2);
+    assertThat(restricted.query(null, request(Map.of("query", "sdb:commit(" + DOC + ")"))).isError()).isTrue();
+    assertThat(head()).isEqualTo(1);
   }
 
   @Test
@@ -310,92 +304,137 @@ class McpContractTest {
     }
   }
 
+
+
+
   @Test
-  void ordinaryUpdatesPersistAfterHandlerClosureAndColdReopen() throws Exception {
-    try (final var database = Databases.openJsonDatabase(directory.resolve("db"))) {
-      database.createResource(ResourceConfiguration.newBuilder("array").storageType(StorageType.FILE_CHANNEL).build());
-      try (final var session = database.beginResourceSession("array"); final var writer = session.beginNodeTrx()) {
-        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"first\",\"second\",\"third\"]"));
-      }
+  void updatingQueriesAreRejectedBeforeExecutionInBothModes() throws Exception {
+    try (final var db = Databases.openJsonDatabase(directory.resolve("db"))) {
+      db.removeResource("secret");
     }
-    final var resources = Map.of("db", List.of("public", "array"));
-    final String objectUpdate = "replace json value of " + DOC + ".name with 'Changed'";
-    final String arrayUpdate = "replace json value of jn:doc('db','array')[0] with 'Changed'";
-    final String primitiveUpdate = "delete json sdb:select-item(jn:doc('db','array'),3)";
-    final var readOnly = handlers(directory, true, resources, 100, 4096);
     final var before = resourceFiles(directory.resolve("db"));
-    for (final String query : List.of(objectUpdate, arrayUpdate, primitiveUpdate)) {
-      final var denied = readOnly.query(null, request(Map.of("query", query)));
-      assertThat(denied.isError()).as(query + ": " + text(denied)).isTrue();
+    for (final boolean readOnly : new boolean[] {false, true}) {
+      final var h = handlers(readOnly, true, 2, 128);
+      for (final String query : List.of("jn:store('db','secret','{}')", "jn:store('db','public','{}')",
+          "jn:store('newdb','res','{}')", "jn:store('db','public',('{}','{}'))", "jn:drop-database('db')",
+          "sdb:commit(" + DOC + ")", "for $i in 1 to 5 return sdb:commit(" + DOC + ")",
+          "replace json value of " + DOC + ".name with 'Changed'",
+          "delete json sdb:select-item(" + DOC + ",2)",
+          "replace json value of jn:doc('db','array')[0] with 99",
+          "xn:store('" + directory.resolve("xml") + "','public',(<a/>,<b/>))",
+          "jn:load('db','public','file:///missing-mcp-document.json')",
+          "declare namespace j='" + JSONFun.JSON_NSURI + "'; j:store('db','secret','{}')",
+          "declare function local:change() { jn:store('db','secret','{}') }; local:change()",
+          "if (false()) then jn:store('db','secret','{}') else ()",
+          "xn:serialize(<a/>,false(),'" + directory.resolve("unexpected.xml") + "')")) {
+        final var result = h.query(null, request(Map.of("query", query)));
+        assertThat(result.isError()).as(query + ": " + text(result)).isTrue();
+        assertThat(structured(result)).as(query).containsEntry("code", "updating_query");
+        assertThat(text(result)).contains("sirix_create_resource", "sirix_update");
+        assertResourceFiles(directory.resolve("db"), before);
+        assertThat(Files.exists(directory.resolve("newdb"))).isFalse();
+        assertThat(Files.exists(directory.resolve("xml"))).isFalse();
+        assertThat(Files.exists(directory.resolve("unexpected.xml"))).isFalse();
+      }
+      final var missing = h.query(null, request(Map.of("database", "missing", "resource", "absent", "query",
+          "jn:store('db','secret','{}')")));
+      assertThat(structured(missing)).containsEntry("code", "updating_query");
+      assertThat(structured(h.query(null, request(Map.of("query", "(1,2,3,4)")))))
+          .containsEntry("items", List.of("1", "2")).containsEntry("truncated", true);
+      assertThat(structured(h.query(null, request(Map.of("query", "(1,2,3,4)", "offset", 2)))))
+          .containsEntry("items", List.of("3", "4")).containsEntry("truncated", false);
+    }
+    assertThat(head()).isEqualTo(1);
+  }
+
+  @Test
+  void creationAuthorizesBeforeChangesAndOverwritesOnlyTheRequestedResource() throws Exception {
+    final var h = handlers(directory, false, Map.of("db", List.of("public", "fresh")), 100, 4096);
+    final var before = resourceFiles(directory.resolve("db"));
+    for (final String denied : List.of("secret", "denied-new")) {
+      assertThat(h.createResource(null, request(Map.of("resource", denied, "data", "{}", "overwrite", true)))
+          .isError()).isTrue();
       assertResourceFiles(directory.resolve("db"), before);
     }
-    final var writable = handlers(directory, false, resources, 100, 4096);
-    final var objectResult = writable.query(null, request(Map.of("query", objectUpdate)));
-    assertThat(objectResult.isError()).as(text(objectResult)).isFalse();
-    assertStoredResource("db", "public", 2, "{\"name\":\"Changed\",\"age\":1}");
-    final var arrayResult = writable.query(null, request(Map.of("query", arrayUpdate)));
-    assertThat(arrayResult.isError()).as(text(arrayResult)).isFalse();
-    assertStoredResource("db", "array", 2, "[\"Changed\",\"second\",\"third\"]");
-    final var primitiveResult = writable.query(null, request(Map.of("query", primitiveUpdate)));
-    assertThat(primitiveResult.isError()).as(text(primitiveResult)).isFalse();
-    assertStoredResource("db", "array", 3, "[\"Changed\",\"third\"]");
+    assertThat(handlers(true, false, 100, 4096)
+        .createResource(null, request(Map.of("data", "{}", "overwrite", true))).isError()).isTrue();
+    assertThat(structured(h.createResource(null, request(Map.of("data", "{}")))))
+        .containsEntry("code", "resource_exists");
+    for (final String malformed : List.of("", "{} {}", "{bad")) {
+      assertThat(h.createResource(null, request(Map.of("data", malformed, "overwrite", true))).isError()).isTrue();
+      assertResourceFiles(directory.resolve("db"), before);
+    }
+    final var created = h.createResource(null, request(Map.of("resource", "fresh", "data", "[1,2]")));
+    assertThat(created.isError()).as(text(created)).isFalse();
+    assertThat(structured(created)).containsEntry("revision", 1);
+    final var replaced = h.createResource(null, request(Map.of("data", "{\"name\":\"Changed\"}", "overwrite", true)));
+    assertThat(replaced.isError()).as(text(replaced)).isFalse();
+    assertThat(structured(replaced)).containsEntry("revision", 2);
+    assertStoredResource("public", 2, "{\"name\":\"Changed\"}");
+    assertStoredResource("secret", 1, "{\"name\":\"Alice\",\"age\":1}");
+    assertStoredResource("fresh", 1, "[1,2]");
+    assertThat(text(h.query(null, request(Map.of("query", DOC + ".name", "revision", 1))))).contains("Alice");
+    for (final var result : List.of(h.insert(null, request(Map.of("resource", "secret", "data", "{}"))),
+        h.update(null, request(Map.of("resource", "secret", "nodeKey", 2, "value", "Denied"))),
+        h.delete(null, request(Map.of("resource", "secret", "nodeKey", 2))),
+        h.revert(null, request(Map.of("resource", "secret", "revision", 1))))) {
+      assertThat(result.isError()).isTrue();
+    }
+    assertStoredResource("secret", 1, "{\"name\":\"Alice\",\"age\":1}");
     Databases.clearGlobalCaches();
-    assertStoredResource("db", "public", 2, "{\"name\":\"Changed\",\"age\":1}");
-    assertStoredResource("db", "array", 3, "[\"Changed\",\"third\"]");
-    final var cold = handlers(directory, true, resources, 100, 4096);
-    assertThat(text(cold.query(null, request(Map.of("query", DOC + ".name"))))).contains("Changed");
-    final var coldArray = cold.query(null, request(Map.of("query", "jn:doc('db','array')")));
-    assertThat(coldArray.isError()).as(text(coldArray)).isFalse();
-    assertThat(structured(coldArray)).containsEntry("items", List.of("\"Changed\"", "\"third\""));
+    assertStoredResource("public", 2, "{\"name\":\"Changed\"}");
   }
 
   @Test
-  void guardedCreationReturnsTrackObjectArrayAndPrimitiveWriters() throws Exception {
-    final var config = McpServerConfig.defaults(directory).withReadOnly(false);
-    for (final String kind : List.of("object", "array", "primitive")) {
-      final String database = "created-" + kind;
-      try (final var store = new GuardedJsonDBStore(BasicJsonDBStore.newBuilder().location(directory).build(),
-          new AccessControl(config))) {
-        final var collection = store.create(database, "data", kind.equals("object")
-            ? "{\"name\":\"original\"}"
-            : "[\"original\"]");
-        assertThat(collection.getJsonDBStore()).isSameAs(store);
-        final JsonDBItem document = collection.getDocument("data");
-        switch (kind) {
-          case "object" -> ((JsonDBObject) document).replace(new QNm("name"), new Str("Changed"));
-          case "array" -> ((JsonDBArray) document).replaceAt(0, new Str("Changed"));
-          case "primitive" -> ((JsonDBItem) ((JsonDBArray) document).at(0)).replaceValue(new Str("Changed"));
-          default -> throw new AssertionError(kind);
-        }
-      }
-      assertStoredResource(database, "data", 2, kind.equals("object")
-          ? "{\"name\":\"Changed\"}"
-          : "[\"Changed\"]");
+  void xmlCreationAndOverwritePreserveSiblingsAndHistory() throws Exception {
+    final var h = handlers(false, false, 100, 4096);
+    for (final var parameters : List.of(Map.of("resource", "public", "data", "<!--before--><a>one</a><!--after-->"),
+        Map.of("resource", "sibling", "data", "<keep/>"))) {
+      final var args = new LinkedHashMap<String, Object>(parameters);
+      args.put("database", "xml");
+      args.put("format", "xml");
+      final var result = h.createResource(null, request(args));
+      assertThat(result.isError()).as(text(result)).isFalse();
+      assertThat(structured(result)).containsEntry("revision", 1);
+    }
+    final var restricted = handlers(directory, false, Map.of("xml", List.of("public")), 100, 4096);
+    final var before = resourceFiles(directory.resolve("xml"));
+    assertThat(restricted.createResource(null, request(Map.of("database", "xml", "resource", "sibling", "format",
+        "xml", "data", "<denied/>", "overwrite", true))).isError()).isTrue();
+    assertThat(structured(restricted.createResource(null, request(Map.of("database", "xml", "format", "xml", "data", "<b/>")))))
+        .containsEntry("code", "resource_exists");
+    assertResourceFiles(directory.resolve("xml"), before);
+    final var replaced = restricted.createResource(null, request(Map.of("database", "xml", "format", "xml", "data",
+        "<b>two</b>", "overwrite", true)));
+    assertThat(replaced.isError()).as(text(replaced)).isFalse();
+    assertThat(structured(replaced)).containsEntry("revision", 2);
+    assertThat(xmlDocument("public", 2)).isEqualTo("<b>two</b>");
+    assertThat(xmlDocument("public", 1)).contains("<a>one</a>");
+    assertThat(xmlDocument("sibling", 1)).isEqualTo("<keep/>");
+    for (final String invalid : List.of("<a>", "<!DOCTYPE a [<!ENTITY x SYSTEM 'file:///missing'>]><a>&x;</a>")) {
+      assertThat(h.createResource(null, request(Map.of("database", "invalid-xml", "format", "xml", "data", invalid)))
+          .isError()).isTrue();
+      assertThat(Files.exists(directory.resolve("invalid-xml"))).isFalse();
     }
   }
 
-  private void assertStoredResource(final String database, final String resource, final int revision,
-      final String expected) throws Exception {
-    try (final var db = Databases.openJsonDatabase(directory.resolve(database));
+  private String xmlDocument(final String resource, final int revision) throws Exception {
+    try (final var db = Databases.openXmlDatabase(directory.resolve("xml"));
+        final var session = db.beginResourceSession(resource);
+        final var output = new ByteArrayOutputStream()) {
+      XmlSerializer.newBuilder(session, output, revision).build().call();
+      return output.toString(StandardCharsets.UTF_8);
+    }
+  }
+
+  private void assertStoredResource(final String resource, final int revision, final String expected) throws Exception {
+    try (final var db = Databases.openJsonDatabase(directory.resolve("db"));
         final var session = db.beginResourceSession(resource);
         final var output = new StringWriter()) {
       assertThat(session.getMostRecentRevisionNumber()).isEqualTo(revision);
       JsonSerializer.newBuilder(session, output).build().call();
       assertThat(MAPPER.readTree(output.toString())).isEqualTo(MAPPER.readTree(expected));
     }
-  }
-
-  @Test
-  void boundedWriteQueriesCompleteEveryMutationAndCannotBePagedByReexecution() throws Exception {
-    final var h = handlers(false, false, 2, 4096);
-    final String query = "for $i in 1 to 5 return sdb:commit(" + DOC + ")";
-    final var result = h.query(null, request(Map.of("query", query)));
-    assertThat(result.isError()).as(text(result)).isFalse();
-    assertThat(structured(result)).containsEntry("truncated", true);
-    assertThat((List<?>) structured(result).get("items")).hasSize(2);
-    assertThat(head()).isEqualTo(6);
-    assertThat(h.query(null, request(Map.of("query", query, "offset", 2))).isError()).isTrue();
-    assertThat(head()).isEqualTo(6);
   }
 
   @Test
@@ -421,53 +460,7 @@ class McpContractTest {
     assertThat(MAPPER.readTree(text(next)).get("diffs").size()).isEqualTo(1);
   }
 
-  @Test
-  void xmlImportWorkersRetainResourceRestrictions() throws Exception {
-    final Path xml = directory.resolve("xml");
-    final String query = "xn:store('" + xml + "','public',(<a/>,<b/>))";
-    final var restricted = handlers(directory, false, Map.of("xml", List.of("public")), 100, 4096);
-    final var denied = restricted.query(null, request(Map.of("query", query)));
-    assertThat(denied.isError()).as(text(denied)).isTrue();
-    try (final var database = Databases.openXmlDatabase(xml)) {
-      assertThat(database.listResources()).isEmpty();
-    }
-    final var allowed = handlers(false, false, 100, 4096).query(null, request(Map.of("query", query)));
-    assertThat(allowed.isError()).as(text(allowed)).isFalse();
-    try (final var database = Databases.openXmlDatabase(xml)) {
-      assertThat(database.listResources()).hasSize(2);
-      for (int index = 1; index <= 2; index++) {
-        try (final var session = database.beginResourceSession("resource" + index);
-            final var reader = session.beginNodeReadOnlyTrx()) {
-          assertThat(session.getMostRecentRevisionNumber()).isEqualTo(1);
-          assertThat(reader.moveToFirstChild()).isTrue();
-          assertThat(reader.getName().toString()).isEqualTo(index == 1 ? "a" : "b");
-        }
-      }
-    }
-  }
 
-  @Test
-  void databaseHandlesAuthorizeCreationBeforeWritingResourceFiles() {
-    final Path jsonPath = directory.resolve("empty");
-    final Path xmlPath = directory.resolve("xml");
-    Databases.createJsonDatabase(new DatabaseConfiguration(jsonPath));
-    Databases.createXmlDatabase(new DatabaseConfiguration(xmlPath));
-    final var config = new McpServerConfig("test", "1", "stdio", directory.toString(), false, List.of(), List.of(),
-        Map.of("empty", List.of("public"), "xml", List.of("public")), 100, 4096, false, false, false, null);
-    final var policy = new QueryAccessPolicy(directory, new AccessControl(config), null, null, null, false);
-    try (final var json = Databases.openJsonDatabase(jsonPath); final var xml = Databases.openXmlDatabase(xmlPath)) {
-      ResourceAccessScope.where(policy).run(() -> {
-        assertThatThrownBy(() -> json.createResource(ResourceConfiguration.newBuilder("secret").build()))
-            .isInstanceOf(AccessControl.AccessDeniedException.class);
-        assertThatThrownBy(() -> xml.createResource(ResourceConfiguration.newBuilder("secret").build()))
-            .isInstanceOf(AccessControl.AccessDeniedException.class);
-        assertThat(json.createResource(ResourceConfiguration.newBuilder("public").build())).isTrue();
-        assertThat(xml.createResource(ResourceConfiguration.newBuilder("public").build())).isTrue();
-      });
-      assertThat(json.listResources()).containsExactly(jsonPath.resolve("resources/public"));
-      assertThat(xml.listResources()).containsExactly(xmlPath.resolve("resources/public"));
-    }
-  }
 
   @Test
   void deniedJsonReplacementAndDropLeaveEveryResourceUnchanged() throws Exception {
@@ -488,34 +481,6 @@ class McpContractTest {
     }
   }
 
-  @Test
-  void deniedXmlReplacementsAndDropPreserveResourcesAndOpenHandles() throws Exception {
-    final Path xml = directory.resolve("xml");
-    try (final var store = BasicXmlDBStore.newBuilder().location(directory).build()) {
-      final var collection = store.create("xml", "public", new DocumentParser("<public/>"));
-      collection.add("secret", new DocumentParser("<secret/>"));
-      final String permitted = collection.getDatabase().listResources().getFirst().getFileName().toString();
-      final var config = new McpServerConfig("test", "1", "stdio", directory.toString(), false, List.of(), List.of(),
-          Map.of("xml", List.of(permitted)), 100, 4096, false, false, false, null);
-      final var policy = new QueryAccessPolicy(directory, new AccessControl(config), null, null, null, false);
-      final var before = resourceFiles(xml);
-      final var h = handlers(directory, false, config.allowResources(), 100, 4096);
-      for (final String query : List.of("xn:store('" + xml + "','" + permitted + "',<replacement/>)",
-          "xn:store('" + xml + "','" + permitted + "',(<a/>,<b/>))")) {
-        final var result = h.query(null, request(Map.of("query", query)));
-        assertThat(result.isError()).as(query + ": " + text(result)).isTrue();
-        assertThat(collection.getDatabase().isOpen()).isTrue();
-        assertResourceFiles(xml, before);
-      }
-      ResourceAccessScope.where(policy).run(() -> {
-        assertThatThrownBy(() -> store.drop("xml")).isInstanceOf(AccessControl.AccessDeniedException.class);
-        assertThatThrownBy(() -> Databases.removeDatabase(xml)).isInstanceOf(AccessControl.AccessDeniedException.class);
-      });
-      assertThat(store.lookup("xml")).isSameAs(collection);
-      assertThat(collection.getDatabase().isOpen()).isTrue();
-      assertResourceFiles(xml, before);
-    }
-  }
 
   @Test
   @EnabledOnOs({OS.LINUX, OS.MAC})
@@ -529,21 +494,27 @@ class McpContractTest {
     final var current = h.query(null, request(Map.of("query", DOC + ".name")));
     assertThat(current.isError()).as(text(current)).isFalse();
     assertThat(text(current)).contains("Alice");
-    assertThat(h.query(null, request(Map.of("query", "sdb:commit(" + DOC + ")"))).isError()).isFalse();
+    assertThat(h.query(null, request(Map.of("query", "sdb:commit(" + DOC + ")"))).isError()).isTrue();
     final var historical = h.query(null, request(Map.of("query", DOC + ".name", "revision", 1)));
     assertThat(historical.isError()).as(text(historical)).isFalse();
     assertThat(text(historical)).contains("Alice");
     assertThat(h.query(null, request(Map.of("query", "jn:doc('db','secret')"))).isError()).isTrue();
-    final var json = h.query(null, request(Map.of("query", "jn:store('newdb','res','{}')")));
+    final var json = h.createResource(null, request(Map.of("database", "newdb", "resource", "res", "data", "{}")));
     assertThat(json.isError()).as(text(json)).isFalse();
     assertThat(Databases.existsDatabase(real.resolve("newdb"))).isTrue();
-    final var xml = h.query(null, request(Map.of("query", "xn:store('" + root.resolve("xml") + "','res',<a/>)")));
+    final var xml = h.createResource(null, request(Map.of("database", "xml", "resource", "res", "format", "xml", "data", "<a/>")));
     assertThat(xml.isError()).as(text(xml)).isFalse();
     assertThat(Databases.existsDatabase(real.resolve("xml"))).isTrue();
     Files.createSymbolicLink(real.resolve("escape"), directory.resolve("db"));
-    final var outside = h.query(null, request(Map.of("query", "jn:store('escape','res','{}')")));
+    final var outside = h.createResource(null, request(Map.of("database", "escape", "resource", "res", "data", "{}")));
     assertThat(outside.isError()).isTrue();
     assertThat(Files.exists(directory.resolve("db"))).isFalse();
+    Files.createSymbolicLink(real.resolve("loop-a"), Path.of("loop-b"));
+    Files.createSymbolicLink(real.resolve("loop-b"), Path.of("loop-a"));
+    final var loop = h.createResource(null, request(Map.of("database", "loop-a", "resource", "res", "data", "{}")));
+    assertThat(loop.isError()).isTrue();
+    assertThat(Files.isSymbolicLink(real.resolve("loop-a"))).isTrue();
+    assertThat(Files.isSymbolicLink(real.resolve("loop-b"))).isTrue();
   }
 
   private static Map<Path, byte[]> resourceFiles(final Path database) throws IOException {

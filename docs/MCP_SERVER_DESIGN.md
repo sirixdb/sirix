@@ -74,19 +74,28 @@ Eight tools are always registered:
 | `sirix_list_snapshots` | `database`, `resource`; label-to-revision map. |
 | `sirix_create_snapshot` | `database`, `resource`, `name`, optional `revision` (default head). |
 
-Five tools are registered only in read-write mode:
+Six tools are registered only in read-write mode:
 
 | Tool | Parameters and behavior |
 | --- | --- |
+| `sirix_create_resource` | `database`, `resource`, content `data`, optional `format` (`json` default or `xml`), `overwrite` (default false), `message`. |
 | `sirix_insert` | `database`, `resource`, JSON text `data`, optional `message`. |
 | `sirix_update` | `database`, `resource`, `nodeKey`, string `value`, optional `message`. |
 | `sirix_delete` | `database`, `resource`, `nodeKey`, optional `message`. |
 | `sirix_revert` | `database`, `resource`, exactly one of `revision`/`snapshot`, optional `expected_head`, `message`. |
 | `sirix_delete_snapshot` | `database`, `resource`, `name`; removes the label only. |
 
-There is no `sirix_read_node` or `sirix_execute_update_query` tool. Queries can
-project a node or execute updates when the server is in read-write mode. MCP tool
-annotations are host hints; the server does not implement an interactive
+`sirix_query` is strictly read-only in both server modes. Parsed update syntax and resolved function calls are checked during compilation,
+before optimization, evaluation or context-item lookup. The check covers legacy
+write functions whose library metadata does not mark them as updating. Updating
+expressions, including `jn:store`, `xn:store`, database drops and `sdb:commit`,
+return an error with structured `code: "updating_query"` and the explicit write
+tool names. No query writer is acquired. `sirix_query` always advertises the
+read-only annotation. Dynamic evaluation, function lookup and external module imports
+are rejected at the same boundary; they cannot establish a statically read-only
+query. Calls through inline and locally declared functions are checked
+through their definitions; read-only functions and JSON field access remain supported. There is no `sirix_read_node` or `sirix_execute_update_query`
+tool. MCP tool annotations are host hints; the server does not implement an interactive
 confirmation exchange, even when `confirmDestructive` is configured.
 
 ## Historical queries
@@ -117,11 +126,20 @@ example:
 ```
 
 Database and resource restrictions apply to the actual resources opened during
-execution, including resources named inside query text. Read-only enforcement
-covers transaction functions such as `sdb:commit`, collection writes, resource
-creation/removal, and database drops. Request policy is scoped to query execution
-and carried into temporal reader tasks. Ordinary embedded callers have no bound
-MCP policy.
+execution, including resources named inside query text. A read-only request policy
+also enforces resource and revision restrictions at reader acquisition and is
+carried into temporal reader tasks. Ordinary embedded callers have no bound MCP
+policy.
+
+Data changes use `sirix_create_resource`, `sirix_insert`, `sirix_update`,
+`sirix_delete`, or `sirix_revert`. Each checks write access and the exact resource
+before acquiring a writer. Resource creation validates the content and database
+format before creating storage. It creates the database if absent, and JSON/XML
+formats must match an existing database's type. A denied name leaves existing
+resources intact. Existing resources return structured `code: "resource_exists"`
+unless authorized `overwrite: true` is supplied. Overwrite replaces only that
+resource's content in a new revision, preserving its history, labels and sibling
+resources. XML document types and external entities are not supported.
 
 ## Bounded results
 
@@ -139,15 +157,11 @@ Query results are an envelope in MCP `structuredContent`, mirrored as JSON text:
 `revision`. `maxResultSize` bounds the number of items in a page;
 `maxStringValueLength` bounds each serialized item. Serialization stops at the
 limit and discards an oversized value in full, preserving valid JSON. These
-bounds apply with output sanitization disabled too. A truncated read-only response includes
+bounds apply with output sanitization disabled too. A truncated response includes
 `continuation.offset` and a hint: repeat the same query and selector at that offset,
-or project/split an oversized value. Pin a revision when paging across concurrent
-writes. In read-write mode without a historical selector, queries can have side effects.
-The server completes evaluation while bounding serialization, and returns a hint
-to read the affected resource separately. It rejects nonzero offsets in this mode
-so continuation cannot silently repeat mutations. Use read-only mode or a pinned
-historical selector for offset paging. Query operators may themselves need to
-materialize input (for example, sorting); output bounding does not change those
+or project/split an oversized value. This applies in both server modes. Pin a
+revision when paging across concurrent writes. Query operators may themselves need
+to materialize input (for example, sorting); output bounding does not change those
 execution semantics.
 
 Sanitization wraps complete query values in data delimiters. Suspected prompt
@@ -209,7 +223,11 @@ general multi-operation transaction API.
 
 `McpContractTest` exercises query → mutation → diff → guarded revert → cold reopen,
 all selector forms, conflicting/invalid/pruned revisions, same/reversed diff
-pairs, execution-time access restrictions, and structured output bounds.
+pairs, compile-time rejection of updating queries in both server modes,
+execution-time read restrictions, JSON/XML resource creation and overwrite,
+authorization before storage changes, and structured output bounds.
+`JsonWriterLifecycleTest` covers embedded storeless object, array and primitive
+updates as well as existing AUTO/EXPLICIT writer cleanup.
 `McpServerE2ETest` covers SDK registration and the existing basic workflows.
 
 ```sh
