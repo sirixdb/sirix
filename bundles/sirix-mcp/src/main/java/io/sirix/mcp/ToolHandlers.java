@@ -19,11 +19,13 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.service.json.JsonNumber;
 import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.api.xml.XmlNodeTrx;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamConstants;
 import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
 
 import io.brackit.query.Query;
 
@@ -350,11 +352,16 @@ public final class ToolHandlers {
         throw new IllegalArgumentException("format must be json or xml");
       final boolean overwrite = optionalBoolean(args, "overwrite", false);
       final String message = optionalString(args, "message");
+      final JsonNode document;
+      final Number number;
       if (type == DatabaseType.JSON) {
-        final var document = MAPPER.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(data);
+        document = MAPPER.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(data);
         if (document == null || document.isMissingNode())
           throw new IllegalArgumentException("data must contain a JSON value");
+        number = document.isNumber() ? JsonNumber.stringToNumber(data.strip()) : null;
       } else {
+        document = null;
+        number = null;
         final var reader = XmlShredder.createStringReader(data);
         try {
           while (reader.hasNext()) {
@@ -388,7 +395,17 @@ public final class ToolHandlers {
               writer.remove();
               writer.moveToDocumentRoot();
             }
-            writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(data), JsonNodeTrx.Commit.NO);
+            if (document.isObject() || document.isArray()) {
+              writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader(data), JsonNodeTrx.Commit.NO);
+            } else if (document.isString()) {
+              writer.insertStringValueAsFirstChild(document.asText());
+            } else if (document.isBoolean()) {
+              writer.insertBooleanValueAsFirstChild(document.asBoolean());
+            } else if (document.isNumber()) {
+              writer.insertNumberValueAsFirstChild(number);
+            } else {
+              writer.insertNullValueAsFirstChild();
+            }
             writer.commit(message);
             return structuredResult(Map.of("database", database, "resource", resource, "revision",
                 session.getMostRecentRevisionNumber()), false);

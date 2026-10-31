@@ -160,15 +160,19 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor, W extends
         return null;
       }
       final R rtx = resourceSession.beginNodeReadOnlyTrx(rev);
-      // Cooperative cancellation point #2: close() ran while we held the session monitor
-      // or did the trx-open. The rtx is solely ours — close it inline rather than handing
-      // a phantom to a consumer that has already abandoned the axis.
-      if (closed) {
-        rtx.close();
-        return null;
+      boolean transferred = false;
+      try {
+        if (closed) {
+          return null;
+        }
+        final RtxResult<R> result = new RtxResult<>(rtx, rtx.moveTo(nodeKey));
+        transferred = true;
+        return result;
+      } finally {
+        if (!transferred) {
+          rtx.close();
+        }
       }
-      final boolean ok = rtx.moveTo(nodeKey);
-      return new RtxResult<>(rtx, ok);
     }, VIRTUAL_THREAD_EXECUTOR));
     return true;
   }
@@ -189,10 +193,19 @@ final class RevisionPrefetcher<R extends NodeReadOnlyTrx & NodeCursor, W extends
     final RtxResult<R> result;
     try {
       result = head.join();
-    } catch (final CancellationException | CompletionException ex) {
-      // Either close() raced us (cancelled) or the supplier threw — the supplier's own
-      // close-inline path released any rtx it managed to open.
+    } catch (final CancellationException cancelled) {
+      close();
       return null;
+    } catch (final CompletionException failure) {
+      close();
+      final Throwable cause = failure.getCause();
+      if (cause instanceof CancellationException)
+        return null;
+      if (cause instanceof RuntimeException exception)
+        throw exception;
+      if (cause instanceof Error error)
+        throw error;
+      throw failure;
     }
     fillToDepth();
     return result;

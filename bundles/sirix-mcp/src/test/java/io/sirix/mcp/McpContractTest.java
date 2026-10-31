@@ -17,6 +17,7 @@ import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.json.serialize.JsonSerializer;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.math.BigDecimal;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import io.sirix.service.xml.serialize.XmlSerializer;
@@ -158,6 +159,35 @@ class McpContractTest {
     assertThat(cold.createSnapshot(null, request(Map.of("name", "after"))).isError()).isFalse();
     assertThat(text(handlers(true, false, 100, 4096).listSnapshots(null, request(Map.of())))).contains("baseline")
                                                                                              .contains("after");
+  }
+
+  @Test
+  void historicalTemporalAccessDenialsAreErrorsInsteadOfEmptyCounts() throws Exception {
+    modify();
+    final var setup = handlers(false, false, 100, 4096);
+    assertThat(setup.createSnapshot(null, request(Map.of("name", "second", "revision", 2))).isError()).isFalse();
+    for (final boolean readOnly : new boolean[] {false, true}) {
+      final var h = handlers(readOnly, true, 100, 4096);
+      for (final Map<String, Object> selector : List.<Map<String, Object>>of(Map.of("revision", 2),
+          Map.of("snapshot", "second"), Map.of("timestamp", FIRST.plusSeconds(10).toString()))) {
+        for (final String function : List.of("all-times", "past")) {
+          final var args = new LinkedHashMap<>(selector);
+          args.put("query", "count(jn:" + function + "($$))");
+          final var denied = h.query(null, request(args));
+          assertThat(denied.isError()).as(function + ": " + text(denied)).isTrue();
+          assertThat(text(h.query(null, request(Map.of("query", DOC + ".name", "revision", 2))))).contains("Bob");
+        }
+      }
+      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:all-times($$))")))))
+          .containsEntry("items", List.of("2"));
+      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:past($$))")))))
+          .containsEntry("items", List.of("1"));
+      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:all-times($$))", "revision", 1)))))
+          .containsEntry("items", List.of("1"));
+      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:past($$))", "revision", 1)))))
+          .containsEntry("items", List.of("0"));
+    }
+    assertThat(head()).isEqualTo(2);
   }
 
   @Test
@@ -386,6 +416,52 @@ class McpContractTest {
   }
 
   @Test
+  void scalarJsonRootsCreateAndOverwriteWithoutEmptyResourcesOrUnrelatedChanges() throws Exception {
+    final var writable = handlers(false, false, 100, 4096);
+    final var restricted = handlers(false, true, 100, 4096);
+    final var readOnly = handlers(true, false, 100, 4096);
+    final List<String> roots = List.of("\"text with \\\"quotes\\\" and \\n\"", "42", "123456789012345678901234567890",
+        "0.12345678901234567890123456789", "true", "false", "null");
+    int revision = 1;
+    String current = "{\"name\":\"Alice\",\"age\":1}";
+    for (int index = 0; index < roots.size(); index++) {
+      final String root = roots.get(index);
+      final String resource = "scalar-" + index;
+      final var before = resourceFiles(directory.resolve("db"));
+      assertThat(restricted.createResource(null, request(Map.of("resource", resource, "data", root))).isError()).isTrue();
+      assertThat(readOnly.createResource(null, request(Map.of("resource", resource, "data", root))).isError()).isTrue();
+      assertResourceFiles(directory.resolve("db"), before);
+      assertThat(Files.exists(directory.resolve("db/resources").resolve(resource))).isFalse();
+      final var created = writable.createResource(null, request(Map.of("resource", resource, "data", root)));
+      assertThat(created.isError()).as(root + ": " + text(created)).isFalse();
+      assertThat(structured(created)).containsEntry("revision", 1);
+      assertStoredResource(resource, 1, root);
+      final var afterCreation = resourceFiles(directory.resolve("db"));
+      assertThat(structured(writable.createResource(null, request(Map.of("resource", resource, "data", root)))))
+          .containsEntry("code", "resource_exists");
+      assertThat(structured(writable.createResource(null, request(Map.of("data", root)))))
+          .containsEntry("code", "resource_exists");
+      assertThat(readOnly.createResource(null, request(Map.of("data", root, "overwrite", true))).isError()).isTrue();
+      assertResourceFiles(directory.resolve("db"), afterCreation);
+      assertStoredResource("public", revision, current);
+      final var replaced = writable.createResource(null, request(Map.of("data", root, "overwrite", true)));
+      assertThat(replaced.isError()).as(root + ": " + text(replaced)).isFalse();
+      assertThat(structured(replaced)).containsEntry("revision", ++revision);
+      assertStoredResource("public", revision, root);
+      current = root;
+      assertStoredResource("secret", 1, "{\"name\":\"Alice\",\"age\":1}");
+    }
+    Databases.clearGlobalCaches();
+    assertStoredResource("public", revision, "null");
+    try (final var db = Databases.openJsonDatabase(directory.resolve("db"));
+        final var session = db.beginResourceSession("public");
+        final var output = new StringWriter()) {
+      JsonSerializer.newBuilder(session, output, 1).build().call();
+      assertThat(MAPPER.readTree(output.toString())).isEqualTo(MAPPER.readTree("{\"name\":\"Alice\",\"age\":1}"));
+    }
+  }
+
+  @Test
   void xmlCreationAndOverwritePreserveSiblingsAndHistory() throws Exception {
     final var h = handlers(false, false, 100, 4096);
     for (final var parameters : List.of(Map.of("resource", "public", "data", "<!--before--><a>one</a><!--after-->"),
@@ -434,6 +510,8 @@ class McpContractTest {
       assertThat(session.getMostRecentRevisionNumber()).isEqualTo(revision);
       JsonSerializer.newBuilder(session, output).build().call();
       assertThat(MAPPER.readTree(output.toString())).isEqualTo(MAPPER.readTree(expected));
+      if (MAPPER.readTree(expected).isNumber())
+        assertThat(new BigDecimal(output.toString())).isEqualByComparingTo(new BigDecimal(expected));
     }
   }
 

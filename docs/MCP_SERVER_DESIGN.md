@@ -128,13 +128,17 @@ example:
 Database and resource restrictions apply to the actual resources opened during
 execution, including resources named inside query text. A read-only request policy
 also enforces resource and revision restrictions at reader acquisition and is
-carried into temporal reader tasks. Ordinary embedded callers have no bound MCP
-policy.
+carried into temporal reader tasks. Temporal walks that attempt to leave a selected
+revision return an error rather than a successful empty result; failed prefetches
+drain and close their unconsumed readers. Ordinary embedded callers have no bound
+MCP policy.
 
 Data changes use `sirix_create_resource`, `sirix_insert`, `sirix_update`,
 `sirix_delete`, or `sirix_revert`. Each checks write access and the exact resource
 before acquiring a writer. Resource creation validates the content and database
-format before creating storage. It creates the database if absent, and JSON/XML
+format before creating storage. JSON accepts object, array, string, number,
+boolean and null roots; scalar roots use the engine's primitive insertion methods.
+It creates the database if absent, and JSON/XML
 formats must match an existing database's type. A denied name leaves existing
 resources intact. Existing resources return structured `code: "resource_exists"`
 unless authorized `overwrite: true` is supplied. Overwrite replaces only that

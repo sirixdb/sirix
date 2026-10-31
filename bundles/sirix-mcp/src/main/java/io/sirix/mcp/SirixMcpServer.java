@@ -162,7 +162,7 @@ public final class SirixMcpServer {
     builder.toolCall(tool("sirix_create_resource",
         "Create a JSON or XML resource. Authorizes the exact name; overwrite creates a new revision of an existing resource.",
         schema(Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "data",
-            stringProp("JSON or XML content"), "format", Map.of("type", "string", "enum", List.of("json", "xml"),
+            stringProp("JSON value (object, array or scalar) or XML content"), "format", Map.of("type", "string", "enum", List.of("json", "xml"),
                 "default", "json", "description", "Database format (default: json)"), "overwrite",
             Map.of("type", "boolean", "default", false, "description", "Replace existing resource content when authorized"),
             "message", stringProp("Commit message")), List.of("database", "resource", "data")),

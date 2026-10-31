@@ -13,6 +13,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.Proxy;
+import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +26,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -281,6 +286,74 @@ public final class RevisionPrefetcherLifecycleTest {
     try (final var p = newPrefetcher(exhausted, 4)) {
       assertNull("exhausted iterator yields null", p.poll());
       assertNull(p.poll()); // and again
+    }
+  }
+
+  @Test
+  public void failedOpenPropagatesAndDrainsQueuedReaders() {
+    assertFailureCleanup(new SecurityException("revision denied"), false, false);
+  }
+
+  @Test
+  public void failedPositioningClosesItsReaderAndDrainsQueuedReaders() {
+    assertFailureCleanup(new IllegalStateException("positioning failed"), true, false);
+  }
+
+  @Test
+  public void cancelledOpenRemainsEndOfStreamAndDrainsQueuedReaders() {
+    assertFailureCleanup(new CancellationException("cancelled"), false, true);
+  }
+
+  private void assertFailureCleanup(final RuntimeException failure, final boolean failDuringPositioning,
+      final boolean cancelled) {
+    final XmlResourceSession real = holder.getResourceSession();
+    final int baseline = real.activeTrxCount();
+    final CountDownLatch queuedReadersOpened = new CountDownLatch(2);
+    @SuppressWarnings("unchecked")
+    final ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> failing =
+        (ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx>) Proxy.newProxyInstance(
+            getClass().getClassLoader(), new Class<?>[] {ResourceSession.class}, (proxy, method, args) -> {
+              if (method.getName().equals("beginNodeReadOnlyTrx") && args != null && args.length == 1
+                  && args[0] instanceof Integer revision) {
+                if (revision == 1 && !failDuringPositioning) {
+                  queuedReadersOpened.await();
+                  throw failure;
+                }
+                final XmlNodeReadOnlyTrx reader = real.beginNodeReadOnlyTrx(revision);
+                if (revision != 1) {
+                  queuedReadersOpened.countDown();
+                  return reader;
+                }
+                return Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[] {XmlNodeReadOnlyTrx.class},
+                    (readerProxy, readerMethod, readerArgs) -> {
+                      if (readerMethod.getName().equals("moveTo")) {
+                        queuedReadersOpened.await();
+                        throw failure;
+                      }
+                      return invoke(reader, readerMethod, readerArgs);
+                    });
+              }
+              return invoke(real, method, args);
+            });
+    try (final var prefetcher = new RevisionPrefetcher<>(failing, 0L, ascendingRevisions(new AtomicInteger()), 3)) {
+      if (cancelled) {
+        assertNull(prefetcher.poll());
+      } else {
+        assertSame(failure, assertThrows(RuntimeException.class, prefetcher::poll));
+      }
+      assertTrue(prefetcher.isClosed());
+      assertEquals(0, prefetcher.inFlight());
+      assertEquals(baseline, real.activeTrxCount());
+      assertNull(prefetcher.poll());
+    }
+    assertEquals(baseline, real.activeTrxCount());
+  }
+
+  private static Object invoke(final Object delegate, final Method method, final Object[] arguments) throws Throwable {
+    try {
+      return method.invoke(delegate, arguments);
+    } catch (final InvocationTargetException exception) {
+      throw exception.getCause();
     }
   }
 
