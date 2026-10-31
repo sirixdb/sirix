@@ -1,14 +1,14 @@
-# Scheduled deep verification and a standalone core static-analysis run:
+# Scheduled deep verification and a standalone core/MCP static-analysis run:
 #
 #   * mutation-testing — PIT over a curated set of correctness-critical sirix-core classes.
 #     The mutation score measures whether the tests ASSERT on behavior rather than merely
 #     execute it: a surviving mutant is a code change no test noticed. Scope is configured
 #     in bundles/sirix-core/build.gradle (pitest block).
 #
-#   * error-prone — repeats the Error Prone + NullAway core compile gate in isolation.
+#   * error-prone — repeats the Error Prone core/MCP and marked-package NullAway gates.
 #     Main CI and release runs gate all main, test and JMH sources; stress runs gate core.
-#     ERROR-severity Error Prone checks (almost-always-real bug patterns) fail the build;
-#     NullAway nullness findings are reported as warnings in the log.
+#     Error Prone errors and NullAway violations in @NullMarked code fail compilation.
+#     MCP main/test packages are marked; legacy unmarked packages remain unchecked by NullAway.
 #
 # Trigger paths: manual workflow_dispatch, or the weekly Monday 04:00 UTC cron.
 name: Deep verification
@@ -55,7 +55,7 @@ jobs:
           if-no-files-found: ignore
 
   error-prone:
-    name: Error Prone + NullAway (sirix-core)
+    name: Error Prone + NullAway (core and MCP)
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -72,4 +72,4 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Compile with Error Prone
-        run: ./gradlew :sirix-core:compileJava :sirix-core:compileTestJava -PerrorProne --no-daemon
+        run: ./gradlew :sirix-core:compileJava :sirix-core:compileTestJava :sirix-mcp:compileJava :sirix-mcp:compileTestJava -PerrorProne --no-daemon

@@ -15,6 +15,8 @@ import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Path;
+
+import static java.util.Objects.requireNonNull;
 import java.io.PrintStream;
 import java.util.List;
 import java.util.Map;
@@ -288,7 +290,7 @@ public final class SirixMcpServer {
       System.exit(1);
     }
 
-    var config = McpServerConfig.defaults(databasePath);
+    var config = McpServerConfig.defaults(requireNonNull(databasePath));
     if (!readOnly) {
       config = config.withReadOnly(false);
     }

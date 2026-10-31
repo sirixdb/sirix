@@ -17,6 +17,7 @@ final class SirixDeweyIDRelationsTest {
     final SirixDeweyID parent = new SirixDeweyID("1.3");
     final SirixDeweyID child = new SirixDeweyID("1.3.5");
 
+    assertEquals(0, root.getLevel());
     assertArrayEquals(new SirixDeweyID[] {empty, root, parent}, child.getAncestors());
     assertArrayEquals(new SirixDeweyID[] {root, parent}, child.getAncestors(root));
     assertEquals(parent, child.getParent());

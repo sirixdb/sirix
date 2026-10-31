@@ -1,5 +1,6 @@
 package io.sirix.mcp;
 
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
@@ -7,6 +8,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Writer;
+import java.io.OutputStreamWriter;
+
+import static java.util.Objects.requireNonNull;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -17,54 +21,54 @@ import java.util.stream.Collectors;
 /**
  * Append-only audit log for MCP tool invocations.
  *
- * <p>Every tool call is recorded with timestamp, tool name, parameters (with values
- * redacted for write operations), and result status. This enables post-incident
- * investigation when prompt injection is suspected.
+ * <p>
+ * Every tool call is recorded with timestamp, tool name, parameters (with values redacted for write
+ * operations), and result status. This enables post-incident investigation when prompt injection is
+ * suspected.
  *
- * <p>Format: one JSON object per line (JSONL).
+ * <p>
+ * Format: one JSON object per line (JSONL).
  */
 public final class AuditLog implements AutoCloseable {
 
   private static final Logger LOG = LoggerFactory.getLogger(AuditLog.class);
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
-  private final Writer writer;
-  private final boolean enabled;
+  private final @Nullable Writer writer;
 
-  private AuditLog(Writer writer, boolean enabled) {
+  private AuditLog(@Nullable Writer writer) {
     this.writer = writer;
-    this.enabled = enabled;
   }
 
   public static AuditLog create(McpServerConfig config) throws IOException {
     if (!config.auditLog()) {
-      return new AuditLog(null, false);
+      return new AuditLog(null);
     }
 
     Writer writer;
-    if (config.auditLogPath() != null) {
-      var path = Path.of(config.auditLogPath());
-      Files.createDirectories(path.getParent());
-      writer = Files.newBufferedWriter(path,
-          StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    final String auditLogPath = config.auditLogPath();
+    if (auditLogPath != null) {
+      var path = Path.of(auditLogPath);
+      Files.createDirectories(requireNonNull(path.getParent()));
+      writer = Files.newBufferedWriter(path, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     } else {
       // Default: log to stderr so it doesn't interfere with stdio MCP transport on stdout
-      writer = new java.io.OutputStreamWriter(System.err);
+      writer = new OutputStreamWriter(System.err);
     }
 
-    return new AuditLog(writer, true);
+    return new AuditLog(writer);
   }
 
   /**
    * Log a tool invocation.
    *
-   * @param toolName  the MCP tool name
-   * @param params    tool parameters (values may be redacted)
-   * @param status    "success", "error", or "denied"
-   * @param detail    additional detail (error message, result count, etc.)
+   * @param toolName the MCP tool name
+   * @param params tool parameters (values may be redacted)
+   * @param status "success", "error", or "denied"
+   * @param detail additional detail (error message, result count, etc.)
    */
-  public void log(String toolName, Map<String, Object> params, String status, String detail) {
-    if (!enabled) {
+  public void log(String toolName, @Nullable Map<String, ?> params, String status, @Nullable String detail) {
+    if (writer == null) {
       return;
     }
 
@@ -89,19 +93,16 @@ public final class AuditLog implements AutoCloseable {
   }
 
   /** Redact actual data values from write operations to avoid logging sensitive content. */
-  private Map<String, Object> redactSensitiveValues(Map<String, Object> params) {
+  private Map<String, Object> redactSensitiveValues(@Nullable Map<String, ?> params) {
     if (params == null) {
       return Map.of();
     }
-    return params.entrySet().stream().collect(
-        Collectors.toMap(
-            Map.Entry::getKey,
-            e -> switch (e.getKey()) {
-              case "data", "value", "query", "message" -> "[REDACTED]";
-              default -> e.getValue() != null ? e.getValue() : "null";
-            }
-        )
-    );
+    return params.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, e -> switch (e.getKey()) {
+      case "data", "value", "query", "message" -> "[REDACTED]";
+      default -> e.getValue() != null
+          ? e.getValue()
+          : "null";
+    }));
   }
 
   @Override

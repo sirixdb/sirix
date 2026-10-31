@@ -24,6 +24,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
+import static java.util.Objects.requireNonNull;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @Isolated
@@ -72,11 +74,11 @@ class BoundedQueryResultWorkBudgetTest {
               assertThat(page.result()).containsEntry("items", multiple
                   ? List.of("7")
                   : List.of()).containsEntry("truncated", true);
-              final var continuation = (Map<?, ?>) page.result().get("continuation");
+              final var continuation = (Map<?, ?>) requireNonNull(page.result().get("continuation"));
               assertThat(continuation.get("offset")).isEqualTo(multiple
                   ? 1
                   : 0);
-              assertThat(continuation.get("hint").toString()).contains("Project a smaller value");
+              assertThat(requireNonNull(continuation.get("hint")).toString()).contains("Project a smaller value");
               page.work()
                   .assertBetween(work.values, 1, CHARACTER_LIMIT + 1,
                       "reading array members beyond the bounded serialization prefix")

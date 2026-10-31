@@ -38,6 +38,7 @@ sonarqube {
 }
 
 apply from: "${rootDir}/libraries.gradle"
+apply from: "${rootDir}/gradle/nullness-policy.gradle"
 
 apply plugin: 'net.researchgate.release'
 
@@ -109,6 +110,14 @@ subprojects {
     // Shadow plugin applied selectively in subprojects that need it
     apply plugin: "com.diffplug.spotless"
     apply plugin: 'jacoco'
+
+    sourceSets.configureEach {
+        dependencies.add(compileOnlyConfigurationName, implLibraries.jspecify)
+    }
+
+    tasks.named('check') {
+        dependsOn rootProject.tasks.named('verifyNullMarkedPackages')
+    }
 
     jacoco {
         // Official Java 25 support; keep the agent and report reader on the same version.
@@ -193,7 +202,7 @@ subprojects {
     //   ./gradlew :sirix-core:compileJava -PerrorProne
     // Local builds opt in; CI gates one compile per main, release, stress or verification run.
     // ERROR-severity checks (bad equals/hashCode, format strings, self-assignment, ...)
-    // fail compilation; NullAway reports nullness-contract violations as warnings.
+    // fail compilation; NullAway rejects violations in @NullMarked code (MCP and new packages).
     // ═══════════════════════════════════════════════════════════════════════
     if (project.hasProperty('errorProne')) {
         apply plugin: 'net.ltgt.errorprone'
@@ -204,11 +213,15 @@ subprojects {
         }
 
         tasks.withType(JavaCompile).configureEach {
+            dependsOn rootProject.tasks.named('verifyNullMarkedPackages')
+            if (name == 'compileTestJava') {
+                options.errorprone.option('NullAway:HandleTestAssertionLibraries', true)
+            }
             options.errorprone {
                 disableWarningsInGeneratedCode = true
                 excludedPaths = '.*/build/generated/.*'
-                option('NullAway:AnnotatedPackages', 'io.sirix')
-                check('NullAway', CheckSeverity.WARN)
+                option('NullAway:OnlyNullMarked', true)
+                check('NullAway', CheckSeverity.ERROR)
                 // Upstream crash on generated literals (still in 2.51.0): https://github.com/google/error-prone/issues/6208
                 disable('StringConcatToTextBlock')
                 // Nodes/pages deliberately compare MemorySegments by reference: the question is
