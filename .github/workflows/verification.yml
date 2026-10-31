@@ -6,7 +6,7 @@
 #     in bundles/sirix-core/build.gradle (pitest block).
 #
 #   * error-prone — repeats the Error Prone + NullAway core compile gate in isolation.
-#     The main CI compile/package job runs the same gate on all main, test and JMH sources.
+#     Main CI and release runs gate all main, test and JMH sources; stress runs gate core.
 #     ERROR-severity Error Prone checks (almost-always-real bug patterns) fail the build;
 #     NullAway nullness findings are reported as warnings in the log.
 #
