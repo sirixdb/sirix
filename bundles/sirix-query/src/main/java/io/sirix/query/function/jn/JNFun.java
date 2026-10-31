@@ -270,12 +270,13 @@ public final class JNFun {
     Functions.predefine(new ScanValidTimeIndex());
 
     // diff
-    Functions.predefine(new Diff(Diff.DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
-        SequenceType.INTEGER, SequenceType.INTEGER)));
-    Functions.predefine(new Diff(Diff.DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
-        SequenceType.INTEGER, SequenceType.INTEGER, SequenceType.INTEGER)));
-    Functions.predefine(new Diff(Diff.DIFF, new Signature(SequenceType.STRING, SequenceType.STRING, SequenceType.STRING,
-        SequenceType.INTEGER, SequenceType.INTEGER, SequenceType.INTEGER, SequenceType.INTEGER)));
+    Functions.predefine(new Diff(Diff.DIFF, new Signature(new SequenceType(ObjectType.OBJECT, Cardinality.One),
+        SequenceType.STRING, SequenceType.STRING, SequenceType.INTEGER, SequenceType.INTEGER)));
+    Functions.predefine(new Diff(Diff.DIFF, new Signature(new SequenceType(ObjectType.OBJECT, Cardinality.One),
+        SequenceType.STRING, SequenceType.STRING, SequenceType.INTEGER, SequenceType.INTEGER, SequenceType.INTEGER)));
+    Functions.predefine(new Diff(Diff.DIFF,
+        new Signature(new SequenceType(ObjectType.OBJECT, Cardinality.One), SequenceType.STRING, SequenceType.STRING,
+            SequenceType.INTEGER, SequenceType.INTEGER, SequenceType.INTEGER, SequenceType.INTEGER)));
 
     Functions.predefine(
         new DropDatabase(DropDatabase.DROP_DATABASE, new Signature(SequenceType.EMPTY_SEQUENCE, SequenceType.STRING)));

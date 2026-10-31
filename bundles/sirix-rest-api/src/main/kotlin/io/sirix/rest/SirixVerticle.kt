@@ -33,6 +33,7 @@ import java.net.HttpURLConnection
 import io.sirix.access.DatabasesInternals
 import io.sirix.rest.crud.CreateMultipleResources
 import io.sirix.rest.crud.DeleteHandler
+import io.sirix.rest.crud.RevertHandler
 import io.sirix.rest.crud.DiffHandler
 import io.sirix.rest.crud.GetHandler
 import io.sirix.rest.crud.HistoryHandler
@@ -505,6 +506,16 @@ class SirixVerticle : CoroutineVerticle() {
         }
 
         // "/:database/:resource/subroutes"
+        post("/:database/:resource/revert")
+            .consumes("application/json")
+            .handler(BodyHandler.create())
+            .coroutineHandler {
+                Auth(keycloak, authz, AuthRole.MODIFY).handle(it)
+                it.next()
+            }.coroutineHandler {
+                RevertHandler(location, authz).handle(it)
+            }
+
         get("/:database/:resource/history").produces("application/json").coroutineHandler {
             Auth(keycloak, authz, AuthRole.VIEW).handle(it)
             it.next()

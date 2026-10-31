@@ -3,13 +3,16 @@
 Start here. This index groups the docs by audience so you don't have to read a flat
 list of files.
 
-> Looking for the quickstart, install instructions, and query examples? Those live in the
-> [project README](../README.md). The hosted docs site is at <https://sirix.io/docs/index.html>.
+> Start with the [project README](../README.md) for installation and common usage,
+> or the [REST quickstart](QUICKSTART.md) for a server walkthrough.
+> The hosted docs site is at <https://sirix.io/docs/index.html>.
 
 ## For users & operators
 
 | Doc | What it covers |
 |-----|----------------|
+| [QUICKSTART.md](QUICKSTART.md) | Start the REST server, query versioned data, diff and revert an edit. |
+| [AGENT_QUICKSTART.md](AGENT_QUICKSTART.md) | Reversible JVM, REST and JSONiq workflows, timestamp selection and retention. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How SirixDB works: the node-tree encoding, copy-on-write page layout, sliding-snapshot versioning, indexes, and the bitemporal model. The best single doc for understanding the system. |
 | [operations.md](operations.md) | Running SirixDB in production: configuration, memory/JVM tuning, supported environments, and deployment guidance. |
 | [BULK_IMPORT.md](BULK_IMPORT.md) | The sequential and parallel bulk JSON loaders: API, the configurations they refuse, which index families they maintain in the load's single pass, verification guarantees, tuning knobs, and measured numbers. |

@@ -252,9 +252,10 @@ curl http://localhost:9443/mydb/myresource -H "Authorization: Bearer $TOKEN"
 
 For local development, `auth.mode=none` (`docker run -e SIRIX_AUTH_MODE=none ...`) skips
 Keycloak entirely (loud warning, admin-for-all). **[→ docs/QUICKSTART.md](docs/QUICKSTART.md)**
-walks the whole loop — create, query, commit, time-travel read, diff — with verified commands;
-the [REST API documentation](https://sirix.io/docs/rest-api.html) has the full endpoint
-reference.
+walks the whole loop — create, query, commit, time-travel read, diff and revert.
+The [agent quickstart](docs/AGENT_QUICKSTART.md) covers reversible JVM, REST and JSONiq
+edits; the [OpenAPI specification](bundles/sirix-rest-api/src/main/resources/openapi.yaml)
+owns the endpoint contract.
 
 > **Security note:** the bundled Keycloak realm, demo users, client secret, and self-signed TLS
 > certificate are for local development only — see [`docs/operations.md`](docs/operations.md)

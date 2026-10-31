@@ -75,7 +75,7 @@ import java.util.ArrayList;
  * </p>
  *
  * <pre>
- * <code>sdb:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int, $startNodeKey as xs:int?, $maxLevel as xs:int?) as xs:string</code>
+ * <code>jn:diff($coll as xs:string, $res as xs:string, $rev1 as xs:int, $rev2 as xs:int, $startNodeKey as xs:int?, $maxLevel as xs:int?) as object()</code>
  * </pre>
  *
  * @author Johannes Lichtenberger
