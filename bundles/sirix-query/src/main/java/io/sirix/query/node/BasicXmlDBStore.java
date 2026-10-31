@@ -5,6 +5,7 @@ import io.brackit.query.jdm.Stream;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.ResourceAccessScope;
 import io.sirix.access.Databases;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
@@ -448,6 +449,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   private Path databasePath(final String name) {
     final Path dbPath = location.resolve(name);
+    ResourceAccessScope.checkDatabase(dbPath, false);
     try {
       return Files.exists(dbPath)
           ? dbPath.toRealPath()

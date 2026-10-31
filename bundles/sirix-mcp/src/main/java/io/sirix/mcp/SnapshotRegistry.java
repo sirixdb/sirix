@@ -6,25 +6,24 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import io.sirix.access.DatabaseConfiguration;
 import java.nio.file.StandardCopyOption;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Maps human-readable snapshot labels to SirixDB revision numbers.
  *
- * <p>SirixDB has no native named-snapshot concept — revisions are just integers.
- * This registry provides the named labels that agents need for the
- * snapshot/experiment/discard workflow.
- *
- * <p>Labels are just pointers — zero storage cost. Deleting a label does not
- * delete the revision (CoW pages are shared).
- *
- * <p>Persisted as JSON per database to {@code <db-path>/.sirix-mcp-snapshots.json}.
+ * <p>
+ * Persisted as JSON per database to {@code <db-path>/.sirix-mcp-snapshots.json}.
  */
 public final class SnapshotRegistry {
 
@@ -34,76 +33,119 @@ public final class SnapshotRegistry {
   private static final Pattern VALID_NAME = Pattern.compile("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$");
 
   // database -> resource -> (label -> revision)
-  private final ConcurrentHashMap<String, ConcurrentHashMap<String, ConcurrentHashMap<String, Integer>>> registry =
+  private final ConcurrentHashMap<Path, ConcurrentHashMap<String, ConcurrentHashMap<String, Integer>>> registry =
       new ConcurrentHashMap<>();
 
-  private final Path basePath;
+  private final AccessControl accessControl;
+  private final Set<Path> loaded = ConcurrentHashMap.newKeySet();
 
-  public SnapshotRegistry(Path basePath) {
-    this.basePath = basePath;
+  public SnapshotRegistry(AccessControl accessControl) {
+    this.accessControl = requireNonNull(accessControl);
   }
 
-  /** Load snapshots for a database from disk. */
-  public void loadForDatabase(String database) {
-    var file = basePath.resolve(database).resolve(SNAPSHOT_FILE);
+  private Path resourcePath(final String database, final String resource) {
+    return accessControl.resourcePath(database, resource, accessControl.databasePath(database));
+  }
+
+  private void loadForDatabase(final Path database) {
+    if (loaded.contains(database))
+      return;
+    var file = database.resolve(SNAPSHOT_FILE);
     if (Files.exists(file)) {
       try {
-        var data = MAPPER.readValue(
-            Files.readString(file),
-            new TypeReference<Map<String, Map<String, Integer>>>() {});
+        var data = MAPPER.readValue(Files.readString(file), new TypeReference<Map<String, Map<String, Integer>>>() {});
 
-        var dbMap = registry.computeIfAbsent(database, k -> new ConcurrentHashMap<>());
+        final var dbMap = new ConcurrentHashMap<String, ConcurrentHashMap<String, Integer>>();
         data.forEach((resource, snapshots) -> {
-          var resMap = dbMap.computeIfAbsent(resource, k -> new ConcurrentHashMap<>());
-          resMap.putAll(snapshots);
+          validateName(resource);
+          try {
+            AccessControl.namedPath(database.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()), resource,
+                "resource");
+            dbMap.put(resource, new ConcurrentHashMap<>(snapshots));
+          } catch (final AccessControl.AliasedNameException ignored) {
+            return;
+          }
         });
+        registry.put(database, dbMap);
 
-        LOG.info("Loaded {} snapshot(s) for database '{}'",
-            data.values().stream().mapToInt(Map::size).sum(), database);
+        LOG.info("Loaded {} snapshot(s) for database '{}'", data.values().stream().mapToInt(Map::size).sum(), database);
       } catch (IOException e) {
-        LOG.warn("Failed to load snapshots for database '{}': {}", database, e.getMessage());
+        throw new UncheckedIOException("Failed to load snapshots for database '" + database + "'", e);
       }
     }
+    loaded.add(database);
   }
 
   /** Create a named snapshot pointing to a revision. */
-  public void create(String database, String resource, String name, int revision) {
+  public synchronized void create(String database, String resource, String name, int revision) {
+    final Path target = resourcePath(database, resource);
+    final Path path = target.getParent().getParent();
+    loadForDatabase(path);
+    if (revision < 1)
+      throw new IllegalArgumentException("Revision must be positive");
     validateName(name);
-    registry
-        .computeIfAbsent(database, k -> new ConcurrentHashMap<>())
-        .computeIfAbsent(resource, k -> new ConcurrentHashMap<>())
-        .put(name, revision);
-    persist(database);
+    final var labels = registry.computeIfAbsent(path, k -> new ConcurrentHashMap<>())
+                               .computeIfAbsent(target.getFileName().toString(), k -> new ConcurrentHashMap<>());
+    final Integer previous = labels.put(name, revision);
+    try {
+      persist(path);
+    } catch (final RuntimeException exception) {
+      if (previous == null)
+        labels.remove(name);
+      else
+        labels.put(name, previous);
+      throw exception;
+    }
   }
 
   /** Delete a named snapshot. Returns true if it existed. */
-  public boolean delete(String database, String resource, String name) {
-    var dbMap = registry.get(database);
-    if (dbMap == null) return false;
-    var resMap = dbMap.get(resource);
-    if (resMap == null) return false;
-    boolean removed = resMap.remove(name) != null;
-    if (removed) {
-      persist(database);
+  public synchronized boolean delete(String database, String resource, String name) {
+    final Path target = resourcePath(database, resource);
+    final Path path = target.getParent().getParent();
+    loadForDatabase(path);
+    var dbMap = registry.get(path);
+    if (dbMap == null)
+      return false;
+    var resMap = dbMap.get(target.getFileName().toString());
+    if (resMap == null)
+      return false;
+    final Integer removed = resMap.remove(name);
+    if (removed == null)
+      return false;
+    try {
+      persist(path);
+    } catch (final RuntimeException exception) {
+      resMap.put(name, removed);
+      throw exception;
     }
-    return removed;
+    return true;
   }
 
   /** Resolve a snapshot name to a revision number. Returns null if not found. */
-  public Integer resolve(String database, String resource, String name) {
-    var dbMap = registry.get(database);
-    if (dbMap == null) return null;
-    var resMap = dbMap.get(resource);
-    if (resMap == null) return null;
+  public synchronized Integer resolve(String database, String resource, String name) {
+    final Path target = resourcePath(database, resource);
+    final Path path = target.getParent().getParent();
+    loadForDatabase(path);
+    var dbMap = registry.get(path);
+    if (dbMap == null)
+      return null;
+    var resMap = dbMap.get(target.getFileName().toString());
+    if (resMap == null)
+      return null;
     return resMap.get(name);
   }
 
   /** List all snapshots for a resource. */
-  public Map<String, Integer> list(String database, String resource) {
-    var dbMap = registry.get(database);
-    if (dbMap == null) return Map.of();
-    var resMap = dbMap.get(resource);
-    if (resMap == null) return Map.of();
+  public synchronized Map<String, Integer> list(String database, String resource) {
+    final Path target = resourcePath(database, resource);
+    final Path path = target.getParent().getParent();
+    loadForDatabase(path);
+    var dbMap = registry.get(path);
+    if (dbMap == null)
+      return Map.of();
+    var resMap = dbMap.get(target.getFileName().toString());
+    if (resMap == null)
+      return Map.of();
     return Map.copyOf(resMap);
   }
 
@@ -115,11 +157,12 @@ public final class SnapshotRegistry {
     }
   }
 
-  private void persist(String database) {
+  private void persist(Path database) {
     var dbMap = registry.get(database);
-    if (dbMap == null) return;
+    if (dbMap == null)
+      return;
 
-    var file = basePath.resolve(database).resolve(SNAPSHOT_FILE);
+    var file = database.resolve(SNAPSHOT_FILE);
     try {
       Files.createDirectories(file.getParent());
       var tmp = file.resolveSibling(SNAPSHOT_FILE + ".tmp");
@@ -130,7 +173,7 @@ public final class SnapshotRegistry {
         Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
       }
     } catch (IOException e) {
-      LOG.warn("Failed to persist snapshots for database '{}': {}", database, e.getMessage());
+      throw new UncheckedIOException("Failed to persist snapshots for database '" + database + "'", e);
     }
   }
 }

@@ -155,6 +155,8 @@ suite, with cold-reopen checks.
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \
                            --tests 'io.sirix.index.projection.*WorkBudgetTest' \
                            --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest'
+./gradlew :sirix-mcp:test --tests 'io.sirix.mcp.*WorkBudgetTest' \
+                          --tests 'io.sirix.mcp.BoundedSerializationAllocationBudgetTest'
 
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest

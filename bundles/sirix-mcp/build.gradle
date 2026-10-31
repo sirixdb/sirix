@@ -50,6 +50,7 @@ jar {
 }
 
 test {
+    systemProperty 'sirix.mcp.runtimeClasspath', sourceSets.main.runtimeClasspath.asPath
     useJUnitPlatform()
     jvmArgs = [
         '--enable-native-access=ALL-UNNAMED',

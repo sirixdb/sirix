@@ -23,6 +23,12 @@ public record McpServerConfig(String name, String version, String transport, Str
     int maxResultSize, int maxStringValueLength, boolean sanitizeOutput, boolean confirmDestructive, boolean auditLog,
     @Nullable String auditLogPath) {
 
+  public McpServerConfig {
+    if (maxResultSize < 1 || maxStringValueLength < 1) {
+      throw new IllegalArgumentException("Result limits must be positive");
+    }
+  }
+
   private static final JsonMapper MAPPER =
       JsonMapper.builder().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
 

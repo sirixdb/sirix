@@ -122,8 +122,8 @@ final class StoreBoundExecutorCache implements AutoCloseable {
 
   /**
    * The executor for the document this query reads, or {@code null} when the query names none, the
-   * resource cannot be opened, or the cache is closed. Never throws: a chain that cannot resolve an
-   * executor simply compiles the generic pipeline, which is what it did before auto-wiring existed.
+   * resource cannot be opened, or the cache is closed. A chain that cannot resolve an executor
+   * compiles the generic pipeline, which is what it did before auto-wiring existed.
    *
    * @param parsedAST the AST as produced by the parser, before analysis and optimization
    */
@@ -138,8 +138,7 @@ final class StoreBoundExecutorCache implements AutoCloseable {
    * The executor for {@code source} at its CURRENT revision. Called once per compile to bind a query,
    * and again on every execution of that query through
    * {@link io.sirix.query.scan.RevisionTrackingExecutor} — which is what makes a bare {@code jn:doc}
-   * mean "most recent when the query runs", the same thing it means to the generic pipeline. Never
-   * throws.
+   * mean "most recent when the query runs", the same thing it means to the generic pipeline.
    */
   SirixVectorizedExecutor resolve(final DocumentSource source) {
     if (source == null) {
@@ -156,6 +155,8 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       } finally {
         executorLifecycle.leave();
       }
+    } catch (final SecurityException e) {
+      throw e;
     } catch (final RuntimeException e) {
       // A missing database, a resource that does not exist yet, a store already closed: the query
       // itself will fail (or not) on its own terms. Auto-wiring never turns a resolution problem

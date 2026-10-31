@@ -137,145 +137,8 @@ public final class JsonDiffSerializer {
           ? Objects.requireNonNull(ownedNewRtx)
           : frozen;
 
-      for (final var diffTuple : diffs) {
-        final var diffType = diffTuple.getDiff();
-
-        // A tuple whose node key does not resolve in its revision is stale (e.g. recorded for a
-        // node that was later removed, or inserted and removed within the same transaction).
-        // Serializing it would read from an unpositioned cursor — skip it instead.
-        if (diffType == DiffFactory.DiffType.INSERTED) {
-          if (!newRtx.moveTo(diffTuple.getNewNodeKey())) {
-            continue;
-          }
-        } else if (diffType == DiffFactory.DiffType.DELETED) {
-          if (!oldRtx.moveTo(diffTuple.getOldNodeKey())) {
-            continue;
-          }
-        } else {
-          if (!newRtx.moveTo(diffTuple.getNewNodeKey()) || !oldRtx.moveTo(diffTuple.getOldNodeKey())) {
-            continue;
-          }
-        }
-
-        switch (diffType) {
-          case INSERTED:
-            final var insertedJson = new JsonObject();
-            final var jsonInsertDiff = new JsonObject();
-
-            insertBasedOnNewRtx(newRtx, jsonInsertDiff);
-
-            // Add path using PathSummary (always available by default)
-            // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
-            addPathIfAvailable(jsonInsertDiff, newRtx, newRevisionNumber, true, newArrayPositions);
-
-            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
-              final var deweyId = newRtx.getDeweyID();
-              jsonInsertDiff.addProperty("deweyID", deweyId.toString());
-              jsonInsertDiff.addProperty("depth", deweyId.getLevel());
-            }
-
-            addTypeAndDataProperties(newRtx, jsonInsertDiff, newRevisionNumber, emitFromDiffAlgorithm);
-
-            insertedJson.add("insert", jsonInsertDiff);
-            jsonDiffs.add(insertedJson);
-
-            break;
-          case DELETED:
-            final var deletedJson = new JsonObject();
-            final var jsonDeletedDiff = new JsonObject();
-
-            jsonDeletedDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
-
-            // Add path using PathSummary (always available by default)
-            // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
-            addPathIfAvailable(jsonDeletedDiff, oldRtx, oldRevisionNumber, true, oldArrayPositions);
-
-            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
-              final var deweyId = oldRtx.getDeweyID();
-              jsonDeletedDiff.addProperty("deweyID", deweyId.toString());
-              jsonDeletedDiff.addProperty("depth", deweyId.getLevel());
-            }
-
-            deletedJson.add("delete", jsonDeletedDiff);
-            jsonDiffs.add(deletedJson);
-            break;
-          case REPLACEDNEW:
-            final var replaceJson = new JsonObject();
-            final var jsonReplaceDiff = new JsonObject();
-
-            replaceJson.add("replace", jsonReplaceDiff);
-
-            jsonReplaceDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
-            jsonReplaceDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
-
-            // Add path using PathSummary (always available by default)
-            // For REPLACE, include parent path for values under OBJECT_KEY
-            addPathIfAvailable(jsonReplaceDiff, newRtx, newRevisionNumber, true, newArrayPositions);
-
-            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
-              final var deweyId = newRtx.getDeweyID();
-              jsonReplaceDiff.addProperty("deweyID", deweyId.toString());
-              jsonReplaceDiff.addProperty("depth", deweyId.getLevel());
-            }
-
-            addTypeAndDataProperties(newRtx, jsonReplaceDiff, newRevisionNumber, emitFromDiffAlgorithm);
-
-            jsonDiffs.add(replaceJson);
-            break;
-          case UPDATED:
-            final var updateJson = new JsonObject();
-            final var jsonUpdateDiff = new JsonObject();
-
-            jsonUpdateDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
-
-            // Add path using PathSummary (always available by default)
-            // Include parent path for value nodes under OBJECT_KEY
-            addPathIfAvailable(jsonUpdateDiff, newRtx, newRevisionNumber, true, newArrayPositions);
-
-            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
-              final var deweyId = newRtx.getDeweyID();
-              jsonUpdateDiff.addProperty("deweyID", deweyId.toString());
-              jsonUpdateDiff.addProperty("depth", deweyId.getLevel());
-            }
-
-            final QNm oldName = oldRtx.getName();
-            final QNm newName = newRtx.getName();
-            if (!Objects.equals(oldName, newName) && newName != null) {
-              jsonUpdateDiff.addProperty("name", newName.toString());
-            }
-            if (!Objects.equals(oldRtx.getValue(), newRtx.getValue())) {
-              if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_BOOLEAN) {
-                jsonUpdateDiff.addProperty("type", "boolean");
-                jsonUpdateDiff.addProperty("value", newRtx.getBooleanValue());
-              } else if (newRtx.getKind() == NodeKind.STRING_VALUE
-                  || newRtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
-                jsonUpdateDiff.addProperty("type", "string");
-                jsonUpdateDiff.addProperty("value", newRtx.getValue());
-              } else if (newRtx.getKind() == NodeKind.NULL_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_NULL) {
-                jsonUpdateDiff.addProperty("type", "null");
-                jsonUpdateDiff.add("value", null);
-              } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE
-                  || newRtx.getKind() == NodeKind.OBJECT_NAMED_NUMBER) {
-                jsonUpdateDiff.addProperty("type", "number");
-                jsonUpdateDiff.addProperty("value", newRtx.getNumberValue());
-              }
-            }
-
-            // Setters may be called with the value they already hold. Such a tuple carries only
-            // routing metadata and is not an operation a reader can replay. Conversely a fused
-            // named primitive may change BOTH its field name and inline value in one transaction;
-            // the independent tests above deliberately retain both changes in one update payload.
-            if (jsonUpdateDiff.has("name") || jsonUpdateDiff.has("type")) {
-              updateJson.add("update", jsonUpdateDiff);
-              jsonDiffs.add(updateJson);
-            }
-            break;
-
-          // $CASES-OMITTED$
-          default:
-            // Do nothing.
-        }
-      }
+      jsonDiffs.addAll(
+          serializeDiffs(diffs, emitFromDiffAlgorithm, oldRtx, newRtx, oldArrayPositions, newArrayPositions));
 
       json.add("diffs", JsonDiffSidecar.coalesceDeletes(jsonDiffs, oldRtx, newRtx));
       final var observer = arrayPositionCacheObserver;
@@ -286,6 +149,182 @@ public final class JsonDiffSerializer {
     }
 
     return finish(json, includeIntegrityMetadata);
+  }
+
+  public OperationSerializer operations() {
+    return new OperationSerializer();
+  }
+
+  public final class OperationSerializer implements AutoCloseable {
+    private final JsonNodeReadOnlyTrx oldRtx;
+    private final JsonNodeReadOnlyTrx newRtx;
+    private final ArrayPositionCache oldArrayPositions = new ArrayPositionCache(null);
+    private final ArrayPositionCache newArrayPositions = new ArrayPositionCache(null);
+
+    private OperationSerializer() {
+      oldRtx = resourceSession.beginNodeReadOnlyTrx(oldRevisionNumber);
+      try {
+        newRtx = resourceSession.beginNodeReadOnlyTrx(newRevisionNumber);
+      } catch (final RuntimeException | Error exception) {
+        oldRtx.close();
+        throw exception;
+      }
+    }
+
+    public JsonArray serialize(final DiffTuple tuple) {
+      return serializeDiffs(List.of(Objects.requireNonNull(tuple)), false, oldRtx, newRtx, oldArrayPositions,
+          newArrayPositions);
+    }
+
+    @Override
+    public void close() {
+      try (oldRtx; newRtx; oldArrayPositions; newArrayPositions) {
+      }
+    }
+  }
+
+  private JsonArray serializeDiffs(final Collection<DiffTuple> tuples, final boolean emitFromDiffAlgorithm,
+      final JsonNodeReadOnlyTrx oldRtx, final JsonNodeReadOnlyTrx newRtx, final ArrayPositionCache oldArrayPositions,
+      final ArrayPositionCache newArrayPositions) {
+    final var jsonDiffs = new JsonArray();
+    for (final var diffTuple : tuples) {
+      final var diffType = diffTuple.getDiff();
+
+      // A tuple whose node key does not resolve in its revision is stale (e.g. recorded for a
+      // node that was later removed, or inserted and removed within the same transaction).
+      // Serializing it would read from an unpositioned cursor — skip it instead.
+      if (diffType == DiffFactory.DiffType.INSERTED) {
+        if (!newRtx.moveTo(diffTuple.getNewNodeKey())) {
+          continue;
+        }
+      } else if (diffType == DiffFactory.DiffType.DELETED) {
+        if (!oldRtx.moveTo(diffTuple.getOldNodeKey())) {
+          continue;
+        }
+      } else {
+        if (!newRtx.moveTo(diffTuple.getNewNodeKey()) || !oldRtx.moveTo(diffTuple.getOldNodeKey())) {
+          continue;
+        }
+      }
+
+      switch (diffType) {
+        case INSERTED:
+          final var insertedJson = new JsonObject();
+          final var jsonInsertDiff = new JsonObject();
+
+          insertBasedOnNewRtx(newRtx, jsonInsertDiff);
+
+          // Add path using PathSummary (always available by default)
+          // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
+          addPathIfAvailable(jsonInsertDiff, newRtx, newRevisionNumber, true, newArrayPositions);
+
+          if (resourceSession.getResourceConfig().areDeweyIDsStored) {
+            final var deweyId = newRtx.getDeweyID();
+            jsonInsertDiff.addProperty("deweyID", deweyId.toString());
+            jsonInsertDiff.addProperty("depth", deweyId.getLevel());
+          }
+
+          addTypeAndDataProperties(newRtx, jsonInsertDiff, newRevisionNumber, emitFromDiffAlgorithm);
+
+          insertedJson.add("insert", jsonInsertDiff);
+          jsonDiffs.add(insertedJson);
+
+          break;
+        case DELETED:
+          final var deletedJson = new JsonObject();
+          final var jsonDeletedDiff = new JsonObject();
+
+          jsonDeletedDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
+
+          // Add path using PathSummary (always available by default)
+          // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
+          addPathIfAvailable(jsonDeletedDiff, oldRtx, oldRevisionNumber, true, oldArrayPositions);
+
+          if (resourceSession.getResourceConfig().areDeweyIDsStored) {
+            final var deweyId = oldRtx.getDeweyID();
+            jsonDeletedDiff.addProperty("deweyID", deweyId.toString());
+            jsonDeletedDiff.addProperty("depth", deweyId.getLevel());
+          }
+
+          deletedJson.add("delete", jsonDeletedDiff);
+          jsonDiffs.add(deletedJson);
+          break;
+        case REPLACEDNEW:
+          final var replaceJson = new JsonObject();
+          final var jsonReplaceDiff = new JsonObject();
+
+          replaceJson.add("replace", jsonReplaceDiff);
+
+          jsonReplaceDiff.addProperty("oldNodeKey", diffTuple.getOldNodeKey());
+          jsonReplaceDiff.addProperty("newNodeKey", diffTuple.getNewNodeKey());
+
+          // Add path using PathSummary (always available by default)
+          // For REPLACE, include parent path for values under OBJECT_KEY
+          addPathIfAvailable(jsonReplaceDiff, newRtx, newRevisionNumber, true, newArrayPositions);
+
+          if (resourceSession.getResourceConfig().areDeweyIDsStored) {
+            final var deweyId = newRtx.getDeweyID();
+            jsonReplaceDiff.addProperty("deweyID", deweyId.toString());
+            jsonReplaceDiff.addProperty("depth", deweyId.getLevel());
+          }
+
+          addTypeAndDataProperties(newRtx, jsonReplaceDiff, newRevisionNumber, emitFromDiffAlgorithm);
+
+          jsonDiffs.add(replaceJson);
+          break;
+        case UPDATED:
+          final var updateJson = new JsonObject();
+          final var jsonUpdateDiff = new JsonObject();
+
+          jsonUpdateDiff.addProperty("nodeKey", diffTuple.getOldNodeKey());
+
+          // Add path using PathSummary (always available by default)
+          // Include parent path for value nodes under OBJECT_KEY
+          addPathIfAvailable(jsonUpdateDiff, newRtx, newRevisionNumber, true, newArrayPositions);
+
+          if (resourceSession.getResourceConfig().areDeweyIDsStored) {
+            final var deweyId = newRtx.getDeweyID();
+            jsonUpdateDiff.addProperty("deweyID", deweyId.toString());
+            jsonUpdateDiff.addProperty("depth", deweyId.getLevel());
+          }
+
+          final QNm oldName = oldRtx.getName();
+          final QNm newName = newRtx.getName();
+          if (!Objects.equals(oldName, newName) && newName != null) {
+            jsonUpdateDiff.addProperty("name", newName.toString());
+          }
+          if (!Objects.equals(oldRtx.getValue(), newRtx.getValue())) {
+            if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_BOOLEAN) {
+              jsonUpdateDiff.addProperty("type", "boolean");
+              jsonUpdateDiff.addProperty("value", newRtx.getBooleanValue());
+            } else if (newRtx.getKind() == NodeKind.STRING_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
+              jsonUpdateDiff.addProperty("type", "string");
+              jsonUpdateDiff.addProperty("value", newRtx.getValue());
+            } else if (newRtx.getKind() == NodeKind.NULL_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_NULL) {
+              jsonUpdateDiff.addProperty("type", "null");
+              jsonUpdateDiff.add("value", null);
+            } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_NUMBER) {
+              jsonUpdateDiff.addProperty("type", "number");
+              jsonUpdateDiff.addProperty("value", newRtx.getNumberValue());
+            }
+          }
+
+          // Setters may be called with the value they already hold. Such a tuple carries only
+          // routing metadata and is not an operation a reader can replay. Conversely a fused
+          // named primitive may change BOTH its field name and inline value in one transaction;
+          // the independent tests above deliberately retain both changes in one update payload.
+          if (jsonUpdateDiff.has("name") || jsonUpdateDiff.has("type")) {
+            updateJson.add("update", jsonUpdateDiff);
+            jsonDiffs.add(updateJson);
+          }
+          break;
+
+        // $CASES-OMITTED$
+        default:
+          // Do nothing.
+      }
+    }
+    return jsonDiffs;
   }
 
   public static void orderMoves(final List<JsonObject> operations, final JsonNodeReadOnlyTrx newRevision) {
@@ -622,9 +661,10 @@ public final class JsonDiffSerializer {
    * rather than the array's length.
    *
    * <p>
-   * Node keys are unique within a revision, so one key has one ordinal; the two fallback caches are
-   * method-local and become unreachable when {@code serialize} returns. The new revision may also
-   * borrow valid ingest positions for this call, avoiding the walk and fallback allocation entirely.
+   * Node keys are unique within a revision, so one key has one ordinal; each fallback cache belongs
+   * to one serialization call or {@link OperationSerializer} and is shared across its tuples. The new
+   * revision may also borrow valid ingest positions for a sidecar call, avoiding the walk and
+   * fallback allocation entirely.
    */
   private static final class ArrayPositionCache implements AutoCloseable {
 
