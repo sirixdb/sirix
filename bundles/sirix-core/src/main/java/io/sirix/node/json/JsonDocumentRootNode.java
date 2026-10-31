@@ -21,7 +21,7 @@
 
 package io.sirix.node.json;
 
-import io.sirix.node.AbstractFlyweightNode;
+import io.sirix.node.AbstractDocumentRootNode;
 import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
@@ -37,7 +37,6 @@ import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
-import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Fixed;
 import java.lang.foreign.MemorySegment;
@@ -58,7 +57,7 @@ import org.jspecify.annotations.Nullable;
  * Supports flyweight binding to a page MemorySegment for zero-copy field access.
  * </p>
  */
-public final class JsonDocumentRootNode extends AbstractFlyweightNode
+public final class JsonDocumentRootNode extends AbstractDocumentRootNode
     implements StructNode, ImmutableJsonNode, FlyweightNode {
 
   // === STRUCTURAL FIELDS (immediate) ===
@@ -83,17 +82,6 @@ public final class JsonDocumentRootNode extends AbstractFlyweightNode
   /** The hash code of the node. */
   private long hash;
 
-  // === NON-SERIALIZED FIELDS ===
-
-  /** Hash function for computing node hashes. */
-  private @Nullable LongHashFunction hashFunction;
-
-  /** DeweyID support (always root ID for document root). */
-  private @Nullable SirixDeweyID sirixDeweyID;
-
-  /** DeweyID as bytes. */
-  private byte @Nullable [] deweyIDBytes;
-
   // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
 
   /** Page MemorySegment when bound (null = primitive mode). */
@@ -107,12 +95,6 @@ public final class JsonDocumentRootNode extends AbstractFlyweightNode
 
   /** Slot index in the page directory (for re-serialization). */
   private int slotIndex;
-
-  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
-  private boolean writeSingleton;
-
-  /** Owning page for resize-in-place operations. */
-  private KeyValueLeafPage ownerPage;
 
   private static final int FIELD_COUNT = NodeFieldLayout.JSON_DOCUMENT_ROOT_FIELD_COUNT;
 
@@ -273,54 +255,8 @@ public final class JsonDocumentRootNode extends AbstractFlyweightNode
   public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
       final long nodeKey, final long firstChildKey, final long lastChildKey, final long childCount,
       final long descendantCount, final long hash) {
-    long pos = offset;
-
-    // Write nodeKind byte
-    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.JSON_DOCUMENT.getId());
-    pos++;
-
-    // Reserve space for offset table
-    final long offsetTableStart = pos;
-    pos += FIELD_COUNT;
-
-    // Data region start
-    final long dataStart = pos;
-
-    // Field 0: firstChildKey (delta-varint from nodeKey)
-    heapOffsets[NodeFieldLayout.JDOCROOT_FIRST_CHILD_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, firstChildKey, nodeKey);
-
-    // Field 1: lastChildKey (delta-varint from nodeKey)
-    heapOffsets[NodeFieldLayout.JDOCROOT_LAST_CHILD_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, lastChildKey, nodeKey);
-
-    // Field 2: childCount (signed long varint)
-    heapOffsets[NodeFieldLayout.JDOCROOT_CHILD_COUNT] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, childCount);
-
-    // Field 3: descendantCount (signed long varint)
-    heapOffsets[NodeFieldLayout.JDOCROOT_DESCENDANT_COUNT] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
-
-    // Field 4: previousRevision (signed varint) -- always 0 for document root
-    heapOffsets[NodeFieldLayout.JDOCROOT_PREV_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, 0);
-
-    // Field 5: lastModifiedRevision (signed varint) -- always 0 for document root
-    heapOffsets[NodeFieldLayout.JDOCROOT_LAST_MOD_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, 0);
-
-    // Field 6: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.JDOCROOT_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Write offset table
-    for (int i = 0; i < FIELD_COUNT; i++) {
-      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
-    }
-
-    return (int) (pos - offset);
+    return writeDocumentRootRecord(target, offset, heapOffsets, nodeKey, firstChildKey, lastChildKey, childCount,
+        descendantCount, hash, NodeKind.JSON_DOCUMENT);
   }
 
   /**
@@ -334,15 +270,6 @@ public final class JsonDocumentRootNode extends AbstractFlyweightNode
   @Override
   protected int heapOffsetFieldCount() {
     return FIELD_COUNT;
-  }
-
-  /**
-   * Set DeweyID fields directly after creation, bypassing write-through. The DeweyID is already in
-   * the page trailer -- this just sets the Java cache fields.
-   */
-  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
-    this.sirixDeweyID = id;
-    this.deweyIDBytes = bytes;
   }
 
   @Override
@@ -669,79 +596,6 @@ public final class JsonDocumentRootNode extends AbstractFlyweightNode
   @Override
   public void setTypeKey(int typeKey) {
     // Not supported for JSON nodes
-  }
-
-  @Override
-  public boolean isWriteSingleton() {
-    return writeSingleton;
-  }
-
-  @Override
-  public void setWriteSingleton(final boolean writeSingleton) {
-    this.writeSingleton = writeSingleton;
-  }
-
-  @Override
-  public KeyValueLeafPage getOwnerPage() {
-    return ownerPage;
-  }
-
-  @Override
-  public void setOwnerPage(final KeyValueLeafPage p) {
-    this.ownerPage = p;
-  }
-
-  @Override
-  public SirixDeweyID getDeweyID() {
-    if (sirixDeweyID == null && deweyIDBytes != null) {
-      sirixDeweyID = new SirixDeweyID(deweyIDBytes);
-    }
-    if (sirixDeweyID == null) {
-      sirixDeweyID = SirixDeweyID.newRootID();
-    }
-    return sirixDeweyID;
-  }
-
-  @Override
-  public byte[] getDeweyIDAsBytes() {
-    if (deweyIDBytes == null && sirixDeweyID != null) {
-      deweyIDBytes = sirixDeweyID.toBytes();
-    }
-    if (deweyIDBytes == null) {
-      deweyIDBytes = SirixDeweyID.newRootID().toBytes();
-    }
-    return deweyIDBytes;
-  }
-
-  @Override
-  public void setDeweyID(@Nullable SirixDeweyID id) {
-    final var owner = this.ownerPage;
-    if (owner != null) {
-      final long nk = this.nodeKey;
-      final int slot = this.slotIndex;
-      unbind();
-      this.sirixDeweyID = id;
-      this.deweyIDBytes = null;
-      owner.resizeRecord(this, nk, slot);
-      return;
-    }
-    this.sirixDeweyID = id;
-    this.deweyIDBytes = null;
-  }
-
-  @Override
-  public void setDeweyIDBytes(final byte @Nullable [] bytes) {
-    this.deweyIDBytes = bytes;
-    this.sirixDeweyID = null;
-  }
-
-  /**
-   * Get the hash function.
-   *
-   * @return the hash function
-   */
-  public @Nullable LongHashFunction getHashFunction() {
-    return hashFunction;
   }
 
   /**
