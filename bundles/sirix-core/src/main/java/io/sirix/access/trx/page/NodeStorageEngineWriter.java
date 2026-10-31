@@ -69,7 +69,6 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
 import io.sirix.page.CASPage;
-import io.sirix.page.DeweyIDPage;
 import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
@@ -5494,12 +5493,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         hotLeaf.retire();
       }
     }
-  }
-
-  @Override
-  public DeweyIDPage getDeweyIDPage(RevisionRootPage revisionRoot) {
-    // TODO
-    return null;
   }
 
   /**
