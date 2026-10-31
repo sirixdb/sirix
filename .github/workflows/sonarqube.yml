@@ -64,13 +64,3 @@ jobs:
           ./gradlew sonar --info --stacktrace --max-workers=2
           -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=600
           '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=1g'
-      - name: Upload test and coverage reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sonar-reports
-          path: |
-            **/build/reports/tests/
-            **/build/reports/jacoco/
-            **/build/test-results/
-          retention-days: 7
