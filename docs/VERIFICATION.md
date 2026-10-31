@@ -85,7 +85,7 @@ before importing signing credentials or publishing, covering tag pushes, release
 manually selected refs. The stress workflow enables the gate on its core test compile, including
 manual runs against refs outside main CI's branch filters. Deep verification gates its dedicated
 core and MCP compile with `-PerrorProne`. Each of these four workflows runs one gated compile;
-other jobs and the main-only Sonar workflow avoid repeating static analysis. Error Prone errors fail compilation;
+other jobs and the Sonar workflow avoid repeating static analysis. Error Prone errors fail compilation;
 NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
 has a JSpecify `@NullMarked` package default. Legacy unmarked code, including core and query,
 is outside NullAway checking, even where individual nullable contracts are annotated.
