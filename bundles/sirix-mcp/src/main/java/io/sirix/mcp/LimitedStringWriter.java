@@ -7,13 +7,24 @@ import java.io.Writer;
  */
 final class LimitedStringWriter extends Writer {
   private final StringBuilder buffer;
-  private final int limit;
+  private int limit;
 
   LimitedStringWriter(final int limit) {
     if (limit < 0)
       throw new IllegalArgumentException("limit must not be negative");
     this.limit = limit;
     buffer = new StringBuilder(Math.min(limit, 4096));
+  }
+
+  void reset(final int limit) {
+    if (limit < 0)
+      throw new IllegalArgumentException("limit must not be negative");
+    this.limit = limit;
+    buffer.setLength(0);
+  }
+
+  int length() {
+    return buffer.length();
   }
 
   @Override

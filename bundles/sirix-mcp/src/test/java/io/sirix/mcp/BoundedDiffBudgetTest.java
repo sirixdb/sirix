@@ -137,6 +137,40 @@ class BoundedDiffBudgetTest {
     assertContinuation(fitting, 0, 1);
   }
 
+  @Test
+  void multipleFragmentsShareScratchWithoutSharingContentOrRemainingBudgets() {
+    create("fragments", "[]", false, writer -> {
+      assertThat(writer.moveToFirstChild()).isTrue();
+      writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"longer\":\"abcdef\"}"),
+          JsonNodeTrx.Commit.NO);
+      assertThat(writer.moveTo(1)).isTrue();
+      assertThat(writer.moveToFirstChild()).isTrue();
+      writer.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"a\":1}"), JsonNodeTrx.Commit.NO);
+    });
+    try (final var database = Databases.openJsonDatabase(directory.resolve("db"));
+        final var session = database.beginResourceSession("fragments")) {
+      final var full = BoundedDiff.generate("db", session, 1, 2, 0, config(LIMIT));
+      assertThat(full.get("truncated")).isEqualTo(false);
+      final var changes = (List<?>) full.get("diffs");
+      assertThat(changes).hasSize(2);
+      final var document = MAPPER.valueToTree(changes);
+      assertThat(document.get(0).get("insert").get("data").asText()).isEqualTo("{\"longer\":\"abcdef\"}");
+      assertThat(document.get(1).get("insert").get("data").asText()).isEqualTo("{\"a\":1}");
+      final int firstSize = MAPPER.writeValueAsString(List.of(changes.getFirst())).length();
+      final var small = config(firstSize + 5);
+      final var first = BoundedDiff.generate("db", session, 1, 2, 0, small);
+      assertThat(first).containsEntry("diffs", List.of(changes.getFirst())).containsEntry("truncated", true);
+      assertThat(((Map<?, ?>) first.get("continuation")).get("offset")).isEqualTo(1);
+      final var second = BoundedDiff.generate("db", session, 1, 2, 1, small);
+      assertThat(second).containsEntry("diffs", List.of(changes.get(1))).containsEntry("truncated", false);
+    }
+  }
+
+  private McpServerConfig config(final int limit) {
+    return new McpServerConfig("test", "1", "stdio", directory.toString(), true, List.of(), List.of(), Map.of(), 10,
+        limit, false, false, false, null);
+  }
+
   private void create(final String resource, final String initial, final boolean paths,
       final Consumer<JsonNodeTrx> changes) {
     try (final var database = Databases.openJsonDatabase(directory.resolve("db"))) {

@@ -17,14 +17,18 @@ import java.util.List;
 import java.util.Set;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Retains one page of tuples and bounds serialized payloads before exposing complete operations.
  */
 final class BoundedDiff implements DiffObserver {
-  private static final JsonMapper MAPPER =
-      JsonMapper.builder().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).build();
+  private static final JsonMapper MAPPER = JsonMapper.builder()
+                                                     .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                                                     .disable(SerializationFeature.WRAP_EXCEPTIONS)
+                                                     .build();
+  private static final TypeReference<List<?>> OPERATIONS_TYPE = new TypeReference<>() {};
   private final ArrayList<DiffTuple> tuples;
   private final int offset;
   private final int limit;
@@ -52,7 +56,8 @@ final class BoundedDiff implements DiffObserver {
     int consumed = 0;
     int characters = 0;
     boolean oversized = false;
-    try (final var serializer = new JsonDiffSerializer(database, session, from, to, observer.tuples).operations()) {
+    try (final var serializer = new JsonDiffSerializer(database, session, from, to, observer.tuples).operations();
+        final var writer = new LimitedStringWriter(config.maxStringValueLength())) {
       for (final DiffTuple tuple : observer.tuples) {
         final var serialized = serializer.serialize(tuple);
         if (remainingBudget(serialized, config.maxStringValueLength() - characters) < 0) {
@@ -60,20 +65,22 @@ final class BoundedDiff implements DiffObserver {
           truncated = true;
           break;
         }
-        final List<?> operations = MAPPER.readValue(serialized.toString(), new TypeReference<List<?>>() {});
+        final List<?> operations = MAPPER.readValue(serialized.toString(), OPERATIONS_TYPE);
         if (!hydrateFragments(operations, session, to, tuple.getNewNodeKey(),
-            config.maxStringValueLength() - characters)) {
+            config.maxStringValueLength() - characters, writer)) {
           oversized = true;
           truncated = true;
           break;
         }
-        final int size = MAPPER.writeValueAsString(operations).length();
-        if (size > config.maxStringValueLength() - characters) {
+        writer.reset(config.maxStringValueLength() - characters);
+        try {
+          MAPPER.writeValue(writer, operations);
+        } catch (final LimitExceededException exception) {
           oversized = true;
           truncated = true;
           break;
         }
-        characters += size;
+        characters += writer.length();
         changes.addAll(operations);
         consumed++;
       }
@@ -95,7 +102,7 @@ final class BoundedDiff implements DiffObserver {
 
   @SuppressWarnings("unchecked")
   private static boolean hydrateFragments(final List<?> operations, final JsonResourceSession session,
-      final int revision, final long nodeKey, final int budget) {
+      final int revision, final long nodeKey, final int budget, final LimitedStringWriter writer) {
     for (final Object operation : operations) {
       final Map<String, Object> wrapper = (Map<String, Object>) operation;
       final Object payload = wrapper.containsKey("insert")
@@ -103,7 +110,8 @@ final class BoundedDiff implements DiffObserver {
           : wrapper.get("replace");
       if (!(payload instanceof Map<?, ?> fragment) || !"jsonFragment".equals(fragment.get("type")))
         continue;
-      try (final var writer = new LimitedStringWriter(budget)) {
+      writer.reset(budget);
+      try {
         JsonSerializer.newBuilder(session, writer, revision).startNodeKey(nodeKey).build().call();
         ((Map<String, Object>) fragment).put("data", writer.toString());
       } catch (final LimitExceededException exception) {

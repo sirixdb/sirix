@@ -22,9 +22,12 @@ final class BoundedQueryResult {
     int position = 0;
     String warning = null;
     if (sequence != null) {
-      try (final var iterator = sequence instanceof Item single
-          ? new ItemSequence(single).iterate()
-          : sequence.iterate()) {
+      final var buffer = new LimitedStringWriter(config.maxStringValueLength());
+      try (final var writer = new PrintWriter(buffer);
+          final var iterator = sequence instanceof Item single
+              ? new ItemSequence(single).iterate()
+              : sequence.iterate()) {
+        final var serializer = new SirixStringSerializer(writer);
         Item item;
         while ((item = iterator.next()) != null) {
           if (position++ < offset)
@@ -33,9 +36,9 @@ final class BoundedQueryResult {
             truncated = true;
             break;
           }
-          final var buffer = new LimitedStringWriter(config.maxStringValueLength());
-          try (final var writer = new PrintWriter(buffer)) {
-            new SirixStringSerializer(writer).serialize(item);
+          buffer.reset(config.maxStringValueLength());
+          try {
+            serializer.serialize(item);
             writer.flush();
             final String value = buffer.toString();
             final String detected = sanitizer.detectInjection(value);
