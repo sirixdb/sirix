@@ -46,7 +46,7 @@ jobs:
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
       - name: Build and generate coverage
         # Keep the daemon bounded alongside the standard 5g/12g test fork. Serial
         # project execution avoids concurrent forks exhausting the 16 GB runner.
