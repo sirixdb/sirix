@@ -98,13 +98,13 @@ public final class AccessControl {
     return true;
   }
 
-  public static final class AliasedNameException extends RuntimeException {
+  public static final class AliasedNameException extends SecurityException {
     AliasedNameException(final String kind) {
       super("Aliased " + kind + " names are not supported; use the real name");
     }
   }
 
-  public static final class AccessDeniedException extends RuntimeException {
+  public static final class AccessDeniedException extends SecurityException {
     public AccessDeniedException(String message) {
       super(message);
     }

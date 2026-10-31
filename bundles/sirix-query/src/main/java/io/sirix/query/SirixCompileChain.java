@@ -3,6 +3,7 @@ package io.sirix.query;
 import java.util.Map;
 
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.access.ResourceAccessScope;
 import io.sirix.query.compiler.optimizer.SirixOptimizer;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.translator.SirixPipelineStrategy;
@@ -380,6 +381,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     // A chain pinned to an explicit revision keeps one executor for its whole life; that revision
     // is immutable, so its caches can never go stale.
     if (autoExecutorRevision != MOST_RECENT_REVISION) {
+      ResourceAccessScope.checkRead(autoExecutorSession, autoExecutorRevision);
       if (exec != null)
         return exec;
       synchronized (this) {
@@ -400,6 +402,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     // chain answer from the pre-commit state. It reads as a stale cache long after the write that
     // invalidated it, and only for callers that used the auto-wiring.
     int mostRecent = autoExecutorSession.getMostRecentRevisionNumber();
+    ResourceAccessScope.checkRead(autoExecutorSession, mostRecent);
     if (exec != null && exec.getRevision() == mostRecent)
       return exec;
     SirixVectorizedExecutor superseded = null;
@@ -411,6 +414,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
       // acquiring the monitor so the delayed compile cannot replace that executor with the stale
       // "latest" revision it observed before waiting.
       mostRecent = autoExecutorSession.getMostRecentRevisionNumber();
+      ResourceAccessScope.checkRead(autoExecutorSession, mostRecent);
       exec = autoExecutor;
       if (exec == null || exec.getRevision() != mostRecent) {
         superseded = exec;

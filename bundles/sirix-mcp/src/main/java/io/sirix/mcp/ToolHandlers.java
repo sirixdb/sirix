@@ -774,7 +774,7 @@ public final class ToolHandlers {
       return structuredResult(Map.of("code", "aliased_name", "message", e.getMessage()), true);
     } catch (AccessControl.AccessDeniedException e) {
       auditLog.log(toolName, params, "denied", e.getMessage());
-      return errorResult(e.getMessage());
+      return structuredResult(Map.of("code", "access_denied", "message", e.getMessage()), true);
     } catch (IllegalArgumentException e) {
       auditLog.log(toolName, params, "error", e.getMessage());
       return errorResult(e.getMessage());
