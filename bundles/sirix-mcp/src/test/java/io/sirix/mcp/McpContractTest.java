@@ -2,6 +2,9 @@ package io.sirix.mcp;
 
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.brackit.query.jdm.Type;
+import io.brackit.query.node.parser.DocumentParser;
+import io.sirix.access.ResourceAccessScope;
+import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexDef.DbType;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
@@ -26,10 +29,13 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static io.brackit.query.util.path.Path.parse;
 import static io.brackit.query.util.path.PathParser.Type.JSON;
 
@@ -60,13 +66,17 @@ class McpContractTest {
 
   private ToolHandlers handlers(final boolean readOnly, final boolean restricted, final int count, final int size)
       throws IOException {
-    final var config = new McpServerConfig("test", "1", "stdio", directory.toString(), readOnly, List.of(), List.of(),
-        restricted
-            ? Map.of("db", List.of("public"))
-            : Map.of(),
-        count, size, false, false, false, null);
+    return handlers(directory, readOnly, restricted
+        ? Map.of("db", List.of("public"))
+        : Map.of(), count, size);
+  }
+
+  private ToolHandlers handlers(final Path root, final boolean readOnly,
+      final Map<String, List<String>> resources, final int count, final int size) throws IOException {
+    final var config = new McpServerConfig("test", "1", "stdio", root.toString(), readOnly, List.of(), List.of(),
+        resources, count, size, false, false, false, null);
     return new ToolHandlers(config, new AccessControl(config), new OutputSanitizer(config),
-        new SnapshotRegistry(directory), AuditLog.create(config));
+        new SnapshotRegistry(root), AuditLog.create(config));
   }
 
   private static CallToolRequest request(final Map<String, Object> parameters) {
@@ -326,5 +336,149 @@ class McpContractTest {
     final var next = small.diff(null, request(Map.of("from_revision", 1, "to_revision", 2, "offset", 1)));
     assertThat(structured(next)).containsEntry("truncated", false);
     assertThat(MAPPER.readTree(text(next)).get("diffs").size()).isEqualTo(1);
+  }
+
+  @Test
+  void xmlImportWorkersRetainResourceRestrictions() throws Exception {
+    final Path xml = directory.resolve("xml");
+    final String query = "xn:store('" + xml + "','public',(<a/>,<b/>))";
+    final var restricted = handlers(directory, false, Map.of("xml", List.of("public")), 100, 4096);
+    final var denied = restricted.query(null, request(Map.of("query", query)));
+    assertThat(denied.isError()).as(text(denied)).isTrue();
+    try (final var database = Databases.openXmlDatabase(xml)) {
+      assertThat(database.listResources()).isEmpty();
+    }
+    final var allowed = handlers(false, false, 100, 4096).query(null, request(Map.of("query", query)));
+    assertThat(allowed.isError()).as(text(allowed)).isFalse();
+    try (final var database = Databases.openXmlDatabase(xml)) {
+      assertThat(database.listResources()).hasSize(2);
+      for (int index = 1; index <= 2; index++) {
+        try (final var session = database.beginResourceSession("resource" + index);
+            final var reader = session.beginNodeReadOnlyTrx()) {
+          assertThat(session.getMostRecentRevisionNumber()).isEqualTo(1);
+          assertThat(reader.moveToFirstChild()).isTrue();
+          assertThat(reader.getName().toString()).isEqualTo(index == 1 ? "a" : "b");
+        }
+      }
+    }
+  }
+
+  @Test
+  void databaseHandlesAuthorizeCreationBeforeWritingResourceFiles() {
+    final Path jsonPath = directory.resolve("empty");
+    final Path xmlPath = directory.resolve("xml");
+    Databases.createJsonDatabase(new DatabaseConfiguration(jsonPath));
+    Databases.createXmlDatabase(new DatabaseConfiguration(xmlPath));
+    final var config = new McpServerConfig("test", "1", "stdio", directory.toString(), false, List.of(), List.of(),
+        Map.of("empty", List.of("public"), "xml", List.of("public")), 100, 4096, false, false, false, null);
+    final var policy = new QueryAccessPolicy(directory, new AccessControl(config), null, null, null, false);
+    try (final var json = Databases.openJsonDatabase(jsonPath); final var xml = Databases.openXmlDatabase(xmlPath)) {
+      ResourceAccessScope.where(policy).run(() -> {
+        assertThatThrownBy(() -> json.createResource(ResourceConfiguration.newBuilder("secret").build()))
+            .isInstanceOf(AccessControl.AccessDeniedException.class);
+        assertThatThrownBy(() -> xml.createResource(ResourceConfiguration.newBuilder("secret").build()))
+            .isInstanceOf(AccessControl.AccessDeniedException.class);
+        assertThat(json.createResource(ResourceConfiguration.newBuilder("public").build())).isTrue();
+        assertThat(xml.createResource(ResourceConfiguration.newBuilder("public").build())).isTrue();
+      });
+      assertThat(json.listResources()).containsExactly(jsonPath.resolve("resources/public"));
+      assertThat(xml.listResources()).containsExactly(xmlPath.resolve("resources/public"));
+    }
+  }
+
+  @Test
+  void deniedJsonReplacementAndDropLeaveEveryResourceUnchanged() throws Exception {
+    final Path path = directory.resolve("db");
+    final String permitted;
+    try (final var database = Databases.openJsonDatabase(path)) {
+      permitted = database.listResources().getFirst().getFileName().toString();
+    }
+    final var h = handlers(directory, false, Map.of("db", List.of(permitted)), 100, 4096);
+    final var before = resourceFiles(path);
+    for (final String query : List.of("jn:store('db','" + permitted + "','{}')",
+        "jn:store('db','" + permitted + "',('{}','{}'))", "jn:drop-database('db')")) {
+      final var result = h.query(null, request(Map.of("resource", permitted, "query", query)));
+      assertThat(result.isError()).as(query + ": " + text(result)).isTrue();
+      assertResourceFiles(path, before);
+      assertThat(text(handlers(true, false, 100, 4096)
+          .query(null, request(Map.of("query", "jn:doc('db','secret').name"))))).contains("Alice");
+    }
+  }
+
+  @Test
+  void deniedXmlReplacementsAndDropPreserveResourcesAndOpenHandles() throws Exception {
+    final Path xml = directory.resolve("xml");
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).build()) {
+      final var collection = store.create("xml", "public", new DocumentParser("<public/>"));
+      collection.add("secret", new DocumentParser("<secret/>"));
+      final String permitted = collection.getDatabase().listResources().getFirst().getFileName().toString();
+      final var config = new McpServerConfig("test", "1", "stdio", directory.toString(), false, List.of(), List.of(),
+          Map.of("xml", List.of(permitted)), 100, 4096, false, false, false, null);
+      final var policy = new QueryAccessPolicy(directory, new AccessControl(config), null, null, null, false);
+      final var before = resourceFiles(xml);
+      final var h = handlers(directory, false, config.allowResources(), 100, 4096);
+      for (final String query : List.of("xn:store('" + xml + "','" + permitted + "',<replacement/>)",
+          "xn:store('" + xml + "','" + permitted + "',(<a/>,<b/>))")) {
+        final var result = h.query(null, request(Map.of("query", query)));
+        assertThat(result.isError()).as(query + ": " + text(result)).isTrue();
+        assertThat(collection.getDatabase().isOpen()).isTrue();
+        assertResourceFiles(xml, before);
+      }
+      ResourceAccessScope.where(policy).run(() -> {
+        assertThatThrownBy(() -> store.drop("xml")).isInstanceOf(AccessControl.AccessDeniedException.class);
+        assertThatThrownBy(() -> Databases.removeDatabase(xml)).isInstanceOf(AccessControl.AccessDeniedException.class);
+      });
+      assertThat(store.lookup("xml")).isSameAs(collection);
+      assertThat(collection.getDatabase().isOpen()).isTrue();
+      assertResourceFiles(xml, before);
+    }
+  }
+
+  @Test
+  @EnabledOnOs({OS.LINUX, OS.MAC})
+  void queriesUseCanonicalIdentityUnderASymlinkedDataDirectory() throws Exception {
+    final Path real = Files.createDirectory(directory.resolve("real"));
+    Files.move(directory.resolve("db"), real.resolve("db"));
+    final Path link = directory.resolve("link");
+    Files.createSymbolicLink(link, real);
+    final Path root = link.resolve(".");
+    final var h = handlers(root, false, Map.of("db", List.of("public")), 100, 4096);
+    final var current = h.query(null, request(Map.of("query", DOC + ".name")));
+    assertThat(current.isError()).as(text(current)).isFalse();
+    assertThat(text(current)).contains("Alice");
+    assertThat(h.query(null, request(Map.of("query", "sdb:commit(" + DOC + ")"))).isError()).isFalse();
+    final var historical = h.query(null, request(Map.of("query", DOC + ".name", "revision", 1)));
+    assertThat(historical.isError()).as(text(historical)).isFalse();
+    assertThat(text(historical)).contains("Alice");
+    assertThat(h.query(null, request(Map.of("query", "jn:doc('db','secret')"))).isError()).isTrue();
+    final var json = h.query(null, request(Map.of("query", "jn:store('newdb','res','{}')")));
+    assertThat(json.isError()).as(text(json)).isFalse();
+    assertThat(Databases.existsDatabase(real.resolve("newdb"))).isTrue();
+    final var xml = h.query(null, request(Map.of("query", "xn:store('" + root.resolve("xml") + "','res',<a/>)")));
+    assertThat(xml.isError()).as(text(xml)).isFalse();
+    assertThat(Databases.existsDatabase(real.resolve("xml"))).isTrue();
+    Files.createSymbolicLink(real.resolve("escape"), directory.resolve("db"));
+    final var outside = h.query(null, request(Map.of("query", "jn:store('escape','res','{}')")));
+    assertThat(outside.isError()).isTrue();
+    assertThat(Files.exists(directory.resolve("db"))).isFalse();
+  }
+
+  private static Map<Path, byte[]> resourceFiles(final Path database) throws IOException {
+    final var contents = new LinkedHashMap<Path, byte[]>();
+    final Path resources = database.resolve("resources");
+    try (final var paths = Files.walk(resources)) {
+      for (final Path path : paths.filter(Files::isRegularFile).toList()) {
+        contents.put(resources.relativize(path), Files.readAllBytes(path));
+      }
+    }
+    return contents;
+  }
+
+  private static void assertResourceFiles(final Path database, final Map<Path, byte[]> expected) throws IOException {
+    final var actual = resourceFiles(database);
+    assertThat(actual.keySet()).containsExactlyInAnyOrderElementsOf(expected.keySet());
+    for (final var file : expected.entrySet()) {
+      assertThat(actual.get(file.getKey())).as(file.getKey().toString()).isEqualTo(file.getValue());
+    }
   }
 }

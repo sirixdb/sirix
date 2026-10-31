@@ -6,6 +6,7 @@ import io.brackit.query.node.parser.NodeSubtreeParser;
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
+import io.sirix.access.ResourceAccessScope;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -416,7 +417,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
         while ((parser = parsers.next()) != null) {
           final NodeSubtreeParser nextParser = parser;
           final String resourceName = "resource" + i++;
-          imports.add(importPool.submit(() -> {
+          imports.add(importPool.submit(ResourceAccessScope.capture(() -> {
             database.createResource(resourceOptions.create(resourceName, null));
             try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
                 final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
@@ -424,8 +425,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                   new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
               wtx.commit();
             }
-            return null;
-          }));
+          })));
         }
         try {
           for (final Future<?> imported : imports) {
@@ -469,12 +469,12 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private boolean removeIfExisting(final DatabaseConfiguration dbConfig) {
     if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
       try {
+        Databases.removeDatabase(dbConfig.getDatabaseFile());
         final Predicate<Database<XmlResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
             || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
         databases.removeIf(databasePredicate);
         collections.keySet().removeIf(databasePredicate);
-        Databases.removeDatabase(dbConfig.getDatabaseFile());
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }

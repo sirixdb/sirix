@@ -1088,6 +1088,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
     if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
       try {
+        Databases.removeDatabase(dbConfig.getDatabaseFile());
         final var statisticsCatalog = StatisticsCatalog.getInstance();
         statisticsCatalog.invalidateDatabase(name);
         collectionPaths.removeIf(collectionPath -> {
@@ -1103,7 +1104,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
         databases.removeIf(databasePredicate);
         removeCollections(databasePredicate);
-        Databases.removeDatabase(dbConfig.getDatabaseFile());
       } catch (final SirixRuntimeException e) {
         throw new DocumentException(e);
       }

@@ -295,7 +295,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public synchronized boolean createResource(final ResourceConfiguration resourceConfig) {
-    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), requireNonNull(resourceConfig).getName(), true);
     if (DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(requireNonNull(resourceConfig).getName()))) {
       throw new SirixUsageException("Derived resource names are reserved");
     }
@@ -305,7 +304,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   synchronized boolean createResource(final ResourceConfiguration resourceConfig,
       final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
     assertNotClosed();
-    requireNonNull(resourceConfig);
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), requireNonNull(resourceConfig).getName(), true);
 
     boolean returnVal = true;
     resourceConfig.setDatabaseConfiguration(dbConfig);

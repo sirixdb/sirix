@@ -3,6 +3,9 @@ package io.sirix.mcp;
 import io.sirix.access.ResourceAccessScope;
 import io.sirix.api.ResourceSession;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /** Enforces the actual query targets, including direct transaction functions and temporal axes. */
@@ -16,7 +19,7 @@ final class QueryAccessPolicy implements ResourceAccessScope.Policy {
 
   QueryAccessPolicy(final Path root, final AccessControl access, final String database, final String resource,
       final Integer revision, final boolean readOnly) {
-    this.root = root.toAbsolutePath().normalize();
+    this.root = canonicalPath(root);
     this.access = access;
     this.database = database;
     this.resource = resource;
@@ -26,9 +29,27 @@ final class QueryAccessPolicy implements ResourceAccessScope.Policy {
     this.readOnly = readOnly;
   }
 
+  private static Path canonicalPath(final Path path) {
+    final Path absolute = path.toAbsolutePath();
+    try {
+      if (Files.exists(absolute)) {
+        return absolute.toRealPath();
+      }
+      final Path parent = absolute.getParent();
+      return parent == null
+          ? absolute
+          : canonicalPath(parent).resolve(absolute.getFileName());
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
   @Override
   public void checkDatabase(final Path databasePath, final boolean write) {
-    final Path target = databasePath.toAbsolutePath().normalize();
+    checkDatabaseTarget(canonicalPath(databasePath), write);
+  }
+
+  private void checkDatabaseTarget(final Path target, final boolean write) {
     if (!root.equals(target.getParent())) {
       throw new AccessControl.AccessDeniedException("Query database is outside the configured data directory");
     }
@@ -43,11 +64,12 @@ final class QueryAccessPolicy implements ResourceAccessScope.Policy {
 
   @Override
   public void checkResource(final Path databasePath, final String resourceName, final boolean write) {
-    checkDatabase(databasePath, write);
+    final Path target = canonicalPath(databasePath);
+    checkDatabaseTarget(target, write);
     final String logicalResource = DerivedIndexMaintainer.isDerivedResourceName(resourceName)
         ? resourceName.substring(0, resourceName.length() - DerivedIndexMaintainer.SUFFIX.length())
         : resourceName;
-    access.checkAccess(databasePath.getFileName().toString(), logicalResource);
+    access.checkAccess(target.getFileName().toString(), logicalResource);
     if (revision > 0 && !resource.equals(logicalResource)) {
       throw new AccessControl.AccessDeniedException("Historical queries are scoped to the selected database/resource");
     }

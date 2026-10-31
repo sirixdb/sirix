@@ -51,7 +51,8 @@ final class BoundedDiff implements DiffObserver {
     int characters = 0;
     boolean oversized = false;
     try (final var oldReader = session.beginNodeReadOnlyTrx(from);
-        final var newReader = session.beginNodeReadOnlyTrx(to)) {
+        final var newReader = session.beginNodeReadOnlyTrx(to);
+        final var serializer = new JsonDiffSerializer(database, session, from, to, observer.tuples).operations()) {
       for (final DiffTuple tuple : observer.tuples) {
         final boolean deletion = tuple.getDiff() == DiffFactory.DiffType.DELETED;
         final JsonNodeReadOnlyTrx reader = deletion
@@ -65,10 +66,8 @@ final class BoundedDiff implements DiffObserver {
           truncated = true;
           break;
         }
-        // Serialize one operation at a time, then stream fragment data through a bounded buffer.
-        final String serialized = new JsonDiffSerializer(database, session, from, to, List.of(tuple)).serialize(false);
-        final Map<String, Object> document = MAPPER.readValue(serialized, new TypeReference<Map<String, Object>>() {});
-        final List<?> operations = (List<?>) document.get("diffs");
+        final List<?> operations =
+            MAPPER.readValue(serializer.serialize(tuple).toString(), new TypeReference<List<?>>() {});
         if (!hydrateFragments(operations, session, to, tuple.getNewNodeKey(),
             config.maxStringValueLength() - characters)) {
           oversized = true;
