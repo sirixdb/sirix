@@ -86,6 +86,35 @@ public final class DiffTest {
   }
 
   @Test
+  public void diffCanBeUsedAsAnObjectAtEveryRegisteredArity() {
+    JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
+    try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
+        final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild();
+      wtx.insertObjectRecordAsFirstChild("agent", new StringValue("edit"));
+      wtx.commit();
+    }
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).storeDeweyIds(true).build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final String databaseName = PATHS.PATH1.getFile().getFileName().toString();
+      for (final String optionalArgs : List.of("", ",0", ",0,0")) {
+        final String query = "let $diff as object() := jn:diff('" + databaseName + "','" + JsonTestHelper.RESOURCE
+            + "',1,2" + optionalArgs + ") return $diff.\"new-revision\"";
+        final var out = new ByteArrayOutputStream();
+        try (final var stream = new PrintStream(out, false, StandardCharsets.UTF_8)) {
+          new Query(chain, query).serialize(ctx, stream);
+        }
+        assertEquals("2", out.toString(StandardCharsets.UTF_8));
+      }
+    }
+  }
+
+  @Test
   public void test_whenMultipleRevisionsExist_thenDiff() throws IOException {
     JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 

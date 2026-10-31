@@ -44,7 +44,7 @@ info:
     with `Content-Type: application/json`. Malformed parameters, invalid query
     expressions (`err:` codes) and stale `If-Match` preconditions map to 400;
     missing/invalid tokens to 401; missing roles to 403; unknown
-    databases/resources/nodes to 404; everything unexpected to 500.
+    databases/resources/nodes to 404; stale revert heads to 409 and pruned revert targets to 410; everything unexpected to 500.
   license:
     name: BSD 3-Clause
     url: https://github.com/sirixdb/sirix/blob/main/LICENSE
@@ -674,6 +674,75 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /{database}/{resource}/revert:
+    parameters:
+      - $ref: '#/components/parameters/database'
+      - $ref: '#/components/parameters/resource'
+    post:
+      tags: [versioning]
+      summary: Append a revision restoring a whole resource
+      operationId: revertResource
+      description: |
+        Requires modify or {database}-modify. Restores the entire JSON or XML
+        resource from targetRevision using revertTo + commit. Existing revisions
+        remain unchanged; even reverting to the current head appends a revision.
+        The optional expectedHead is checked while holding the resource writer
+        lock, before any restoration. A mismatch returns 409 without a commit.
+        Omit expectedHead only when intentionally accepting the current head.
+        No subtree/nodeId or query parameters are supported. A pruned target
+        returns 410 without substituting another revision. On an ambiguous network
+        failure, inspect history before retrying: this operation is not idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [targetRevision]
+              properties:
+                targetRevision:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Existing, retained revision to restore (at most the current head).
+                expectedHead:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Expected latest committed revision, checked under the writer lock.
+                message:
+                  type: [string, 'null']
+                  description: Optional commit message recorded with the authenticated author.
+            example: { targetRevision: 1, expectedHead: 2, message: Undo agent edit }
+      responses:
+        '201':
+          description: Restoration committed as a new revision.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revision, previousHead]
+                properties:
+                  revision: { type: integer, format: int32, minimum: 1 }
+                  previousHead: { type: integer, format: int32, minimum: 1 }
+              example: { revision: 3, previousHead: 2 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: expectedHead differs from the head observed under the writer lock; no revision appended.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '410':
+          description: Target revision was pruned by retention; no revision appended.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '500': { $ref: '#/components/responses/ServerError' }
 
   /{database}/{resource}/history:

@@ -2,8 +2,8 @@
 
 This walkthrough takes you from nothing to a running SirixDB REST server with a
 versioned resource, a JSONiq query, and a time-travel read + diff. Every command
-below was executed verbatim against the fat jar built from this tree; the output
-snippets are real.
+in steps 1–6 below was executed against the fat jar; those output
+snippets are real. The revert example describes the named revert API.
 
 There are three ways to run the server, fastest first:
 
@@ -144,7 +144,27 @@ curl -s "http://localhost:9443/mydb/products/diff?first-revision=1&second-revisi
            "insertPosition":"asRightSibling","path":"/[2]","type":"jsonFragment"}}]}
 ```
 
-That's the whole loop: create → query → commit → time travel → diff.
+### 7. Revert the agent edit (revision 3)
+
+```bash
+curl --fail-with-body -s -X POST http://localhost:9443/mydb/products/revert \
+  -H "Content-Type: application/json" \
+  -d '{"targetRevision":1,"expectedHead":2,"message":"Undo agent product edit"}'
+# -> {"revision":3,"previousHead":2}
+
+curl -s http://localhost:9443/mydb/products
+# -> the two original products; revision 2 still contains the monitor
+curl -s "http://localhost:9443/mydb/products?revision=2"
+```
+
+This restores the **whole resource**, appending revision 3. A changed head
+returns **409** and appends nothing. Inspect history and diff again before
+choosing a new expected head. After a network timeout, read history before
+retrying. Close and restart the server with the same data directory, then repeat
+these reads to verify persistence across a cold reopen.
+
+For the complete JVM, REST and query workflow, as-of timestamps, ties and
+retention behavior, see the [agent quickstart](AGENT_QUICKSTART.md).
 
 ---
 
