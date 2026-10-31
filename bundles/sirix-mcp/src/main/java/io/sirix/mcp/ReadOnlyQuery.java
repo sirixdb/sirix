@@ -60,8 +60,7 @@ final class ReadOnlyQuery {
     final String local = name.getLocalName();
     if (namespace.equals(XMLFun.XML_NSURI) && local.equals("serialize"))
       return true;
-    if (namespace.equals(JSONFun.JSON_NSURI) || namespace.equals(XMLFun.XML_NSURI)
-        || namespace.equals(Bits.BIT_NSURI))
+    if (namespace.equals(JSONFun.JSON_NSURI) || namespace.equals(XMLFun.XML_NSURI) || namespace.equals(Bits.BIT_NSURI))
       return STORAGE_WRITES.contains(local) || local.equals("eval");
     if (namespace.equals(SDBFun.SDB_NSURI))
       return local.equals("commit") || local.equals("rollback");

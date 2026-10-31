@@ -137,8 +137,8 @@ public final class JsonDiffSerializer {
           ? Objects.requireNonNull(ownedNewRtx)
           : frozen;
 
-      jsonDiffs.addAll(serializeDiffs(diffs, emitFromDiffAlgorithm, oldRtx, newRtx, oldArrayPositions,
-          newArrayPositions));
+      jsonDiffs.addAll(
+          serializeDiffs(diffs, emitFromDiffAlgorithm, oldRtx, newRtx, oldArrayPositions, newArrayPositions));
 
       json.add("diffs", JsonDiffSidecar.coalesceDeletes(jsonDiffs, oldRtx, newRtx));
       final var observer = arrayPositionCacheObserver;
@@ -297,15 +297,13 @@ public final class JsonDiffSerializer {
             if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_BOOLEAN) {
               jsonUpdateDiff.addProperty("type", "boolean");
               jsonUpdateDiff.addProperty("value", newRtx.getBooleanValue());
-            } else if (newRtx.getKind() == NodeKind.STRING_VALUE
-                || newRtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
+            } else if (newRtx.getKind() == NodeKind.STRING_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
               jsonUpdateDiff.addProperty("type", "string");
               jsonUpdateDiff.addProperty("value", newRtx.getValue());
             } else if (newRtx.getKind() == NodeKind.NULL_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_NULL) {
               jsonUpdateDiff.addProperty("type", "null");
               jsonUpdateDiff.add("value", null);
-            } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE
-                || newRtx.getKind() == NodeKind.OBJECT_NAMED_NUMBER) {
+            } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE || newRtx.getKind() == NodeKind.OBJECT_NAMED_NUMBER) {
               jsonUpdateDiff.addProperty("type", "number");
               jsonUpdateDiff.addProperty("value", newRtx.getNumberValue());
             }
@@ -663,9 +661,10 @@ public final class JsonDiffSerializer {
    * rather than the array's length.
    *
    * <p>
-   * Node keys are unique within a revision, so one key has one ordinal; the two fallback caches are
-   * method-local and become unreachable when {@code serialize} returns. The new revision may also
-   * borrow valid ingest positions for this call, avoiding the walk and fallback allocation entirely.
+   * Node keys are unique within a revision, so one key has one ordinal; each fallback cache belongs
+   * to one serialization call or {@link OperationSerializer} and is shared across its tuples. The new
+   * revision may also borrow valid ingest positions for a sidecar call, avoiding the walk and
+   * fallback allocation entirely.
    */
   private static final class ArrayPositionCache implements AutoCloseable {
 

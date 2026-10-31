@@ -69,6 +69,9 @@ failure table and tells the reader where the work went.
 
 | Test | Path | Fails when |
 |---|---|---|
+| `sirix-mcp` `BoundedQueryResultWorkBudgetTest` | oversized stored arrays, singly and within sequences | output bounding materializes all array members or reads beyond a bounded prefix; item offsets must skip arrays without traversing them |
+| `sirix-mcp` `BoundedDiffWorkBudgetTest` | initial and continuation diff pages over array updates | revision readers or path summaries are reopened per operation, readers leak, or array positions repeatedly walk the same prefix |
+| `sirix-mcp` `BoundedSerializationAllocationBudgetTest` | bounded query pages | per-item serialization scratch is reallocated; the allocation allowance includes returned strings and has a per-row scratch positive control |
 | `sirix-query` `ColumnarSerializationWorkBudgetTest` | columnar, computed primitive and mixed record output | execution-scoped rows or grouped records stop batching writer calls, or an unsupported suffix allocates and flushes per item; output parity and unbatched/per-item positive controls prevent vacuous bounds |
 | `sirix-query` `ProjectionQueryWorkBudgetTest` | count-only group-by | it is no longer answered from the value-count summary the build maintained (three build paths), or the summary answers wrongly |
 | | filtered group-by | it leaves the sliced route: whole-projection materialization (`eagerFallbacks`) or the generic pipeline |

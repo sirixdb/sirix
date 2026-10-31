@@ -23,14 +23,6 @@ import static java.util.Objects.requireNonNull;
  * Maps human-readable snapshot labels to SirixDB revision numbers.
  *
  * <p>
- * SirixDB has no native named-snapshot concept — revisions are just integers. This registry
- * provides the named labels that agents need for the snapshot/experiment/discard workflow.
- *
- * <p>
- * Labels are just pointers — zero storage cost. Deleting a label does not delete the revision (CoW
- * pages are shared).
- *
- * <p>
  * Persisted as JSON per database to {@code <db-path>/.sirix-mcp-snapshots.json}.
  */
 public final class SnapshotRegistry {

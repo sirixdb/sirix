@@ -264,10 +264,9 @@ reference.
 
 SirixDB ships a native [Model Context Protocol](https://modelcontextprotocol.io) server, so AI
 agents (Claude, Cursor, Windsurf, or any MCP client) can talk to it directly. Because every
-revision is copy-on-write, agents get **O(1) disposable snapshots**, **time-travel reads**, and
-**structural diffs** for free — branch, experiment, then discard or promote, with a
-human-reviewable diff. Read-only by default, with access control, output sanitization, and an
-audit log.
+revision is copy-on-write, agents can label revisions, make **time-travel reads**, and inspect
+**structural diffs** before optionally reverting a change. Read-only by default, with access
+control, output sanitization, and an audit log.
 
 ```bash
 ./gradlew :sirix-mcp:installDist   # creates build/install/sirix-mcp/bin/sirix-mcp
