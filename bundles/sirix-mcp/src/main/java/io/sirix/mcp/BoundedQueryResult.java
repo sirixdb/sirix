@@ -2,6 +2,7 @@ package io.sirix.mcp;
 
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.sequence.ItemSequence;
 import io.sirix.query.SirixStringSerializer;
 import io.sirix.mcp.LimitedStringWriter.LimitExceededException;
 import java.io.PrintWriter;
@@ -21,7 +22,9 @@ final class BoundedQueryResult {
     int position = 0;
     String warning = null;
     if (sequence != null) {
-      try (final var iterator = sequence.iterate()) {
+      try (final var iterator = sequence instanceof Item single
+          ? new ItemSequence(single).iterate()
+          : sequence.iterate()) {
         Item item;
         while ((item = iterator.next()) != null) {
           if (position++ < offset)
@@ -54,10 +57,9 @@ final class BoundedQueryResult {
       result.put("warning", warning);
     if (truncated) {
       result.put("continuation", oversized
-              ? Map.of("offset", offset + values.size(), "hint",
-                  "Project a smaller value or split the document into items; this value exceeds maxStringValueLength")
-              : Map.of("offset", offset + values.size(), "hint",
-                  "Repeat the same query and selector with this offset"));
+          ? Map.of("offset", offset + values.size(), "hint",
+              "Project a smaller value or split the document into items; this value exceeds maxStringValueLength")
+          : Map.of("offset", offset + values.size(), "hint", "Repeat the same query and selector with this offset"));
     }
     return result;
   }

@@ -181,13 +181,16 @@ class McpContractTest {
         assertThat(result.isError()).as(text(result)).isFalse();
         assertThat(structured(result)).containsEntry("revision", 1);
         final var items = (List<?>) structured(result).get("items");
-        assertThat(items).isEqualTo(List.of("\"Alice\"", "\"Bob\"", "\"Bob\"", "\"Alice\"", "\"Other\""));
+        assertThat(items).hasSize(1);
+        assertThat(MAPPER.readTree(items.getFirst().toString())).isEqualTo(
+            MAPPER.readTree("[\"Alice\",\"Bob\",\"Bob\",\"Alice\",\"Other\"]"));
       }
       final var past =
           h.query(null, request(Map.of("revision", 2, "query", "[$$.name, jn:doc('db','public',1).name]")));
       assertThat(past.isError()).as(text(past)).isFalse();
       final var values = (List<?>) structured(past).get("items");
-      assertThat(values).isEqualTo(List.of("\"Bob\"", "\"Alice\""));
+      assertThat(values).hasSize(1);
+      assertThat(MAPPER.readTree(values.getFirst().toString())).isEqualTo(MAPPER.readTree("[\"Bob\",\"Alice\"]"));
     }
   }
 
@@ -703,6 +706,70 @@ class McpContractTest {
     assertThat(loop.isError()).isTrue();
     assertThat(Files.isSymbolicLink(real.resolve("loop-a"))).isTrue();
     assertThat(Files.isSymbolicLink(real.resolve("loop-b"))).isTrue();
+  }
+
+  @Test
+  void preservesLiteralAndStoredArraysAsWholeValuesWhilePaging() throws Exception {
+    final var setup = handlers(false, false, 100, 4096);
+    final List<String> arrays = List.of("[]", "[1,2]", "[[],[1,[2]],{\"empty\":[]}]");
+    for (int index = 0; index < arrays.size(); index++) {
+      final String json = arrays.get(index);
+      final String resource = "array" + index;
+      final var created = setup.createResource(null, request(Map.of("resource", resource, "data", json)));
+      assertThat(created.isError()).as(text(created)).isFalse();
+      for (final boolean readOnly : new boolean[] {false, true}) {
+        final var h = handlers(readOnly, false, 2, 4096);
+        for (final String source : List.of(json, "$$", "jn:doc('db','" + resource + "')")) {
+          assertJsonItems(h.query(null, request(Map.of("resource", resource, "query", source))), List.of(json), false);
+          assertJsonItems(h.query(null, request(Map.of("resource", resource, "query", source, "offset", 1))), List.of(),
+              false);
+          final String query = "(0," + source + ",[],[[3]])";
+          final var first = h.query(null, request(Map.of("resource", resource, "query", query)));
+          assertJsonItems(first, List.of("0", json), true);
+          assertThat(((Map<?, ?>) structured(first).get("continuation")).get("offset")).isEqualTo(2);
+          assertJsonItems(h.query(null, request(Map.of("resource", resource, "query", query, "offset", 2))),
+              List.of("[]", "[[3]]"), false);
+          assertJsonItems(h.query(null, request(Map.of("resource", resource, "query", query, "offset", 4))), List.of(),
+              false);
+        }
+      }
+    }
+  }
+
+  @Test
+  void discardsOversizedArraysWithoutFlatteningThemOrReturningPartialValues() throws Exception {
+    final String json = "[\"" + "x".repeat(512) + "\",[],[1,2]]";
+    final var created = handlers(false, false, 100, 4096).createResource(null,
+        request(Map.of("resource", "large-array", "data", json)));
+    assertThat(created.isError()).as(text(created)).isFalse();
+    for (final boolean readOnly : new boolean[] {false, true}) {
+      final var h = handlers(readOnly, false, 2, 128);
+      for (final String source : List.of(json, "$$", "jn:doc('db','large-array')")) {
+        final var single = h.query(null, request(Map.of("resource", "large-array", "query", source)));
+        assertJsonItems(single, List.of(), true);
+        final var continuation = (Map<?, ?>) structured(single).get("continuation");
+        assertThat(continuation.get("offset")).isEqualTo(0);
+        assertThat(continuation.get("hint").toString()).contains("Project a smaller value");
+        final String query = "(0," + source + ",[])";
+        final var first = h.query(null, request(Map.of("resource", "large-array", "query", query)));
+        assertJsonItems(first, List.of("0"), true);
+        assertThat(((Map<?, ?>) structured(first).get("continuation")).get("offset")).isEqualTo(1);
+        assertJsonItems(h.query(null, request(Map.of("resource", "large-array", "query", query, "offset", 1))),
+            List.of(), true);
+        assertJsonItems(h.query(null, request(Map.of("resource", "large-array", "query", query, "offset", 2))),
+            List.of("[]"), false);
+      }
+    }
+  }
+
+  private static void assertJsonItems(final CallToolResult result, final List<String> expected, final boolean truncated)
+      throws IOException {
+    assertThat(result.isError()).as(text(result)).isFalse();
+    assertThat(structured(result)).containsEntry("truncated", truncated);
+    final var items = (List<?>) structured(result).get("items");
+    assertThat(items).hasSize(expected.size());
+    for (int index = 0; index < expected.size(); index++)
+      assertThat(MAPPER.readTree(items.get(index).toString())).isEqualTo(MAPPER.readTree(expected.get(index)));
   }
 
   private static Map<Path, byte[]> resourceFiles(final Path database) throws IOException {

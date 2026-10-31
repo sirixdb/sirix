@@ -165,8 +165,9 @@ Query results are an envelope in MCP `structuredContent`, mirrored as JSON text:
 }
 ```
 
-`items` contains serialized query values as strings. Historical responses include
-`revision`. `maxResultSize` bounds the number of items in a page;
+`items` contains serialized query values as strings. Each array is one value,
+including an empty array; nested arrays retain their structure. Historical responses
+include `revision`. `maxResultSize` bounds the number of items in a page;
 `maxStringValueLength` bounds each serialized item. Serialization stops at the
 limit and discards an oversized value in full, preserving valid JSON. These
 bounds apply with output sanitization disabled too. A truncated response includes
