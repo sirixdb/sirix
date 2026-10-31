@@ -171,11 +171,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
         }
       }
 
-      final JsonDBItem item = getItem(trx);
-      if (item == null) {
-        trx.close();
-      }
-      return item;
+      return getItem(trx);
     } catch (final Exception e) {
       if (trx != null && !trx.isClosed()) {
         trx.close();
@@ -240,16 +236,18 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   }
 
   private JsonDBItem getItem(final JsonNodeReadOnlyTrx rtx) {
-    final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
-    if (proxy.hasFirstChild()) {
-      proxy.moveToFirstChild();
-      if (proxy.isObject())
-        return new JsonDBObject(proxy, this);
-      else if (proxy.isArray())
-        return new JsonDBArray(proxy, this);
+    boolean transferred = false;
+    try {
+      final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
+      if (!proxy.moveToFirstChild())
+        return null;
+      final JsonDBItem item = (JsonDBItem) JsonItemFactory.INSTANCE.getSequence(proxy, this);
+      transferred = true;
+      return item;
+    } finally {
+      if (!transferred)
+        rtx.close();
     }
-
-    return null;
   }
 
   public JsonDBItem add(final String resourceName, final JsonReader reader, final Object options) {
@@ -330,15 +328,9 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       final String resourceName = resourcePath.getFileName().toString();
       final JsonResourceSession resource = database.beginResourceSession(resourceName);
       try {
-        final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
-        final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
-
-        if (proxy.moveToFirstChild()) {
-          if (proxy.isObject())
-            documents.add(new JsonDBObject(proxy, this));
-          else if (proxy.isArray())
-            documents.add(new JsonDBArray(proxy, this));
-        }
+        final JsonDBItem item = getItem(resource.beginNodeReadOnlyTrx());
+        if (item != null)
+          documents.add(item);
       } catch (final SirixException e) {
         resource.close();
         throw new DocumentException(e.getCause());

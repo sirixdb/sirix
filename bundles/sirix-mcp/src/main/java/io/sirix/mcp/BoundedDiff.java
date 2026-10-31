@@ -16,13 +16,15 @@ import java.util.Map;
 import java.util.List;
 import java.util.Set;
 import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Retains one page of tuples and bounds serialized payloads before exposing complete operations.
  */
 final class BoundedDiff implements DiffObserver {
-  private static final JsonMapper MAPPER = JsonMapper.builder().build();
+  private static final JsonMapper MAPPER =
+      JsonMapper.builder().enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS).build();
   private final ArrayList<DiffTuple> tuples;
   private final int offset;
   private final int limit;

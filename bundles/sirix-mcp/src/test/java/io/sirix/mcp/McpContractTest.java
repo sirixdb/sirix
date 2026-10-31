@@ -74,12 +74,12 @@ class McpContractTest {
         : Map.of(), count, size);
   }
 
-  private ToolHandlers handlers(final Path root, final boolean readOnly,
-      final Map<String, List<String>> resources, final int count, final int size) throws IOException {
+  private ToolHandlers handlers(final Path root, final boolean readOnly, final Map<String, List<String>> resources,
+      final int count, final int size) throws IOException {
     final var config = new McpServerConfig("test", "1", "stdio", root.toString(), readOnly, List.of(), List.of(),
         resources, count, size, false, false, false, null);
-    return new ToolHandlers(config, new AccessControl(config), new OutputSanitizer(config),
-        new SnapshotRegistry(root), AuditLog.create(config));
+    return new ToolHandlers(config, new AccessControl(config), new OutputSanitizer(config), new SnapshotRegistry(root),
+        AuditLog.create(config));
   }
 
   private static CallToolRequest request(final Map<String, Object> parameters) {
@@ -178,14 +178,16 @@ class McpContractTest {
           assertThat(text(h.query(null, request(Map.of("query", DOC + ".name", "revision", 2))))).contains("Bob");
         }
       }
-      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:all-times($$))")))))
-          .containsEntry("items", List.of("2"));
-      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:past($$))")))))
-          .containsEntry("items", List.of("1"));
-      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:all-times($$))", "revision", 1)))))
-          .containsEntry("items", List.of("1"));
-      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:past($$))", "revision", 1)))))
-          .containsEntry("items", List.of("0"));
+      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:all-times($$))"))))).containsEntry("items",
+          List.of("2"));
+      assertThat(structured(h.query(null, request(Map.of("query", "count(jn:past($$))"))))).containsEntry("items",
+          List.of("1"));
+      assertThat(
+          structured(h.query(null, request(Map.of("query", "count(jn:all-times($$))", "revision", 1))))).containsEntry(
+              "items", List.of("1"));
+      assertThat(
+          structured(h.query(null, request(Map.of("query", "count(jn:past($$))", "revision", 1))))).containsEntry(
+              "items", List.of("0"));
     }
     assertThat(head()).isEqualTo(2);
   }
@@ -336,7 +338,6 @@ class McpContractTest {
 
 
 
-
   @Test
   void updatingQueriesAreRejectedBeforeExecutionInBothModes() throws Exception {
     try (final var db = Databases.openJsonDatabase(directory.resolve("db"))) {
@@ -348,8 +349,7 @@ class McpContractTest {
       for (final String query : List.of("jn:store('db','secret','{}')", "jn:store('db','public','{}')",
           "jn:store('newdb','res','{}')", "jn:store('db','public',('{}','{}'))", "jn:drop-database('db')",
           "sdb:commit(" + DOC + ")", "for $i in 1 to 5 return sdb:commit(" + DOC + ")",
-          "replace json value of " + DOC + ".name with 'Changed'",
-          "delete json sdb:select-item(" + DOC + ",2)",
+          "replace json value of " + DOC + ".name with 'Changed'", "delete json sdb:select-item(" + DOC + ",2)",
           "replace json value of jn:doc('db','array')[0] with 99",
           "xn:store('" + directory.resolve("xml") + "','public',(<a/>,<b/>))",
           "jn:load('db','public','file:///missing-mcp-document.json')",
@@ -366,13 +366,15 @@ class McpContractTest {
         assertThat(Files.exists(directory.resolve("xml"))).isFalse();
         assertThat(Files.exists(directory.resolve("unexpected.xml"))).isFalse();
       }
-      final var missing = h.query(null, request(Map.of("database", "missing", "resource", "absent", "query",
-          "jn:store('db','secret','{}')")));
+      final var missing = h.query(null,
+          request(Map.of("database", "missing", "resource", "absent", "query", "jn:store('db','secret','{}')")));
       assertThat(structured(missing)).containsEntry("code", "updating_query");
       assertThat(structured(h.query(null, request(Map.of("query", "(1,2,3,4)")))))
-          .containsEntry("items", List.of("1", "2")).containsEntry("truncated", true);
-      assertThat(structured(h.query(null, request(Map.of("query", "(1,2,3,4)", "offset", 2)))))
-          .containsEntry("items", List.of("3", "4")).containsEntry("truncated", false);
+                                                                                  .containsEntry("items",
+                                                                                      List.of("1", "2"))
+                                                                                  .containsEntry("truncated", true);
+      assertThat(structured(h.query(null, request(Map.of("query", "(1,2,3,4)", "offset", 2))))).containsEntry("items",
+          List.of("3", "4")).containsEntry("truncated", false);
     }
     assertThat(head()).isEqualTo(1);
   }
@@ -383,13 +385,13 @@ class McpContractTest {
     final var before = resourceFiles(directory.resolve("db"));
     for (final String denied : List.of("secret", "denied-new")) {
       assertThat(h.createResource(null, request(Map.of("resource", denied, "data", "{}", "overwrite", true)))
-          .isError()).isTrue();
+                  .isError()).isTrue();
       assertResourceFiles(directory.resolve("db"), before);
     }
-    assertThat(handlers(true, false, 100, 4096)
-        .createResource(null, request(Map.of("data", "{}", "overwrite", true))).isError()).isTrue();
-    assertThat(structured(h.createResource(null, request(Map.of("data", "{}")))))
-        .containsEntry("code", "resource_exists");
+    assertThat(handlers(true, false, 100, 4096).createResource(null, request(Map.of("data", "{}", "overwrite", true)))
+                                               .isError()).isTrue();
+    assertThat(structured(h.createResource(null, request(Map.of("data", "{}"))))).containsEntry("code",
+        "resource_exists");
     for (final String malformed : List.of("", "{} {}", "{bad")) {
       assertThat(h.createResource(null, request(Map.of("data", malformed, "overwrite", true))).isError()).isTrue();
       assertResourceFiles(directory.resolve("db"), before);
@@ -428,7 +430,8 @@ class McpContractTest {
       final String root = roots.get(index);
       final String resource = "scalar-" + index;
       final var before = resourceFiles(directory.resolve("db"));
-      assertThat(restricted.createResource(null, request(Map.of("resource", resource, "data", root))).isError()).isTrue();
+      assertThat(
+          restricted.createResource(null, request(Map.of("resource", resource, "data", root))).isError()).isTrue();
       assertThat(readOnly.createResource(null, request(Map.of("resource", resource, "data", root))).isError()).isTrue();
       assertResourceFiles(directory.resolve("db"), before);
       assertThat(Files.exists(directory.resolve("db/resources").resolve(resource))).isFalse();
@@ -436,11 +439,13 @@ class McpContractTest {
       assertThat(created.isError()).as(root + ": " + text(created)).isFalse();
       assertThat(structured(created)).containsEntry("revision", 1);
       assertStoredResource(resource, 1, root);
+      assertScalarQueries(writable, resource, root, 1);
       final var afterCreation = resourceFiles(directory.resolve("db"));
-      assertThat(structured(writable.createResource(null, request(Map.of("resource", resource, "data", root)))))
-          .containsEntry("code", "resource_exists");
-      assertThat(structured(writable.createResource(null, request(Map.of("data", root)))))
-          .containsEntry("code", "resource_exists");
+      assertThat(
+          structured(writable.createResource(null, request(Map.of("resource", resource, "data", root))))).containsEntry(
+              "code", "resource_exists");
+      assertThat(structured(writable.createResource(null, request(Map.of("data", root))))).containsEntry("code",
+          "resource_exists");
       assertThat(readOnly.createResource(null, request(Map.of("data", root, "overwrite", true))).isError()).isTrue();
       assertResourceFiles(directory.resolve("db"), afterCreation);
       assertStoredResource("public", revision, current);
@@ -448,17 +453,83 @@ class McpContractTest {
       assertThat(replaced.isError()).as(root + ": " + text(replaced)).isFalse();
       assertThat(structured(replaced)).containsEntry("revision", ++revision);
       assertStoredResource("public", revision, root);
+      assertScalarQueries(writable, "public", root, revision);
       current = root;
       assertStoredResource("secret", 1, "{\"name\":\"Alice\",\"age\":1}");
     }
     Databases.clearGlobalCaches();
     assertStoredResource("public", revision, "null");
+    final var cold = handlers(true, false, 100, 4096);
+    for (int index = 0; index < roots.size(); index++) {
+      assertScalarQueries(cold, "scalar-" + index, roots.get(index), 1);
+      assertScalarHistoricalQueries(cold, "public", roots.get(index), index + 2);
+    }
     try (final var db = Databases.openJsonDatabase(directory.resolve("db"));
         final var session = db.beginResourceSession("public");
         final var output = new StringWriter()) {
       JsonSerializer.newBuilder(session, output, 1).build().call();
       assertThat(MAPPER.readTree(output.toString())).isEqualTo(MAPPER.readTree("{\"name\":\"Alice\",\"age\":1}"));
     }
+  }
+
+  private static void assertScalarQueries(final ToolHandlers handlers, final String resource, final String root,
+      final int revision) {
+    final List<String> expected = List.of(root);
+    for (final String query : List.of("jn:doc('db','" + resource + "')", "$$")) {
+      final var result = handlers.query(null, request(Map.of("resource", resource, "query", query)));
+      assertThat(result.isError()).as(text(result)).isFalse();
+      assertThat(structured(result).get("items")).isEqualTo(expected);
+    }
+    final var document = handlers.query(null,
+        new CallToolRequest("sirix_query", Map.of("database", "db", "query", "jn:doc('db','" + resource + "')")));
+    assertThat(document.isError()).as(text(document)).isFalse();
+    assertThat(structured(document).get("items")).isEqualTo(expected);
+    final var unbound = handlers.query(null, new CallToolRequest("sirix_query",
+        Map.of("database", "db", "query", "count(jn:doc('db','" + resource + "'))")));
+    assertThat(unbound.isError()).as(text(unbound)).isFalse();
+    assertThat(structured(unbound).get("items")).isEqualTo(List.of("1"));
+    final var collection = handlers.query(null,
+        new CallToolRequest("sirix_query", Map.of("database", "db", "query", "jn:collection('db')")));
+    assertThat(collection.isError()).as(text(collection)).isFalse();
+    assertThat(((List<?>) structured(collection).get("items")).containsAll(expected)).isTrue();
+    assertScalarHistoricalQueries(handlers, resource, root, revision);
+  }
+
+  private static void assertScalarHistoricalQueries(final ToolHandlers handlers, final String resource,
+      final String root, final int revision) {
+    for (final String query : List.of("jn:doc('db','" + resource + "')", "$$")) {
+      final var result =
+          handlers.query(null, request(Map.of("resource", resource, "query", query, "revision", revision)));
+      assertThat(result.isError()).as(text(result)).isFalse();
+      assertThat(structured(result)).containsEntry("revision", revision);
+      assertThat(structured(result).get("items")).isEqualTo(List.of(root));
+    }
+  }
+
+  @Test
+  void scalarQueryMutationDiffRevertSurvivesColdReopen() throws Exception {
+    final var writable = handlers(false, false, 100, 4096);
+    final var created = writable.createResource(null, request(Map.of("resource", "scalar", "data", "\"before\"")));
+    assertThat(created.isError()).as(text(created)).isFalse();
+    assertScalarQueries(writable, "scalar", "\"before\"", 1);
+    final var updated = writable.update(null, request(Map.of("resource", "scalar", "nodeKey", 1, "value", "after")));
+    assertThat(updated.isError()).as(text(updated)).isFalse();
+    assertStoredResource("scalar", 2, "\"after\"");
+    assertScalarQueries(writable, "scalar", "\"after\"", 2);
+    assertScalarHistoricalQueries(writable, "scalar", "\"before\"", 1);
+    final var diff = writable.diff(null, request(Map.of("resource", "scalar", "from_revision", 1, "to_revision", 2)));
+    assertThat(diff.isError()).as(text(diff)).isFalse();
+    assertThat(MAPPER.readTree(text(diff)).get("diffs").get(0).get("update").get("value").asText()).isEqualTo("after");
+    final var reverted =
+        writable.revert(null, request(Map.of("resource", "scalar", "revision", 1, "expected_head", 2)));
+    assertThat(reverted.isError()).as(text(reverted)).isFalse();
+    assertThat(structured(reverted)).containsEntry("revision", 3).containsEntry("previousHead", 2);
+    Databases.clearGlobalCaches();
+    final var cold = handlers(true, false, 100, 4096);
+    assertStoredResource("scalar", 3, "\"before\"");
+    assertScalarQueries(cold, "scalar", "\"before\"", 3);
+    assertScalarHistoricalQueries(cold, "scalar", "\"after\"", 2);
+    assertStoredResource("secret", 1, "{\"name\":\"Alice\",\"age\":1}");
   }
 
   @Test
@@ -475,13 +546,16 @@ class McpContractTest {
     }
     final var restricted = handlers(directory, false, Map.of("xml", List.of("public")), 100, 4096);
     final var before = resourceFiles(directory.resolve("xml"));
-    assertThat(restricted.createResource(null, request(Map.of("database", "xml", "resource", "sibling", "format",
-        "xml", "data", "<denied/>", "overwrite", true))).isError()).isTrue();
-    assertThat(structured(restricted.createResource(null, request(Map.of("database", "xml", "format", "xml", "data", "<b/>")))))
-        .containsEntry("code", "resource_exists");
+    assertThat(restricted
+                         .createResource(null,
+                             request(Map.of("database", "xml", "resource", "sibling", "format", "xml", "data",
+                                 "<denied/>", "overwrite", true)))
+                         .isError()).isTrue();
+    assertThat(structured(restricted.createResource(null,
+        request(Map.of("database", "xml", "format", "xml", "data", "<b/>"))))).containsEntry("code", "resource_exists");
     assertResourceFiles(directory.resolve("xml"), before);
-    final var replaced = restricted.createResource(null, request(Map.of("database", "xml", "format", "xml", "data",
-        "<b>two</b>", "overwrite", true)));
+    final var replaced = restricted.createResource(null,
+        request(Map.of("database", "xml", "format", "xml", "data", "<b>two</b>", "overwrite", true)));
     assertThat(replaced.isError()).as(text(replaced)).isFalse();
     assertThat(structured(replaced)).containsEntry("revision", 2);
     assertThat(xmlDocument("public", 2)).isEqualTo("<b>two</b>");
@@ -489,7 +563,7 @@ class McpContractTest {
     assertThat(xmlDocument("sibling", 1)).isEqualTo("<keep/>");
     for (final String invalid : List.of("<a>", "<!DOCTYPE a [<!ENTITY x SYSTEM 'file:///missing'>]><a>&x;</a>")) {
       assertThat(h.createResource(null, request(Map.of("database", "invalid-xml", "format", "xml", "data", invalid)))
-          .isError()).isTrue();
+                  .isError()).isTrue();
       assertThat(Files.exists(directory.resolve("invalid-xml"))).isFalse();
     }
   }
@@ -554,8 +628,8 @@ class McpContractTest {
       final var result = h.query(null, request(Map.of("resource", permitted, "query", query)));
       assertThat(result.isError()).as(query + ": " + text(result)).isTrue();
       assertResourceFiles(path, before);
-      assertThat(text(handlers(true, false, 100, 4096)
-          .query(null, request(Map.of("query", "jn:doc('db','secret').name"))))).contains("Alice");
+      assertThat(text(handlers(true, false, 100, 4096).query(null,
+          request(Map.of("query", "jn:doc('db','secret').name"))))).contains("Alice");
     }
   }
 
@@ -580,7 +654,8 @@ class McpContractTest {
     final var json = h.createResource(null, request(Map.of("database", "newdb", "resource", "res", "data", "{}")));
     assertThat(json.isError()).as(text(json)).isFalse();
     assertThat(Databases.existsDatabase(real.resolve("newdb"))).isTrue();
-    final var xml = h.createResource(null, request(Map.of("database", "xml", "resource", "res", "format", "xml", "data", "<a/>")));
+    final var xml =
+        h.createResource(null, request(Map.of("database", "xml", "resource", "res", "format", "xml", "data", "<a/>")));
     assertThat(xml.isError()).as(text(xml)).isFalse();
     assertThat(Databases.existsDatabase(real.resolve("xml"))).isTrue();
     Files.createSymbolicLink(real.resolve("escape"), directory.resolve("db"));
