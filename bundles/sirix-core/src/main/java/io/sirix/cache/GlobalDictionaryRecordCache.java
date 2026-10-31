@@ -1,7 +1,14 @@
 package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.sirix.node.ValueDictionaryBlockIndexNode;
+import io.sirix.node.ValueDictionaryDirectoryNode;
+import io.sirix.node.ValueDictionaryEntryNode;
+import io.sirix.node.ValueDictionaryHashBucketNode;
+import io.sirix.node.ValueDictionaryRadixNode;
+import io.sirix.node.ValueDictionaryRankTableNode;
 import io.sirix.node.ValueDictionaryValueBlockNode;
+import io.sirix.node.ValueDictionaryValueBucketNode;
 import io.sirix.node.interfaces.DataRecord;
 
 import java.util.Map;
@@ -37,17 +44,32 @@ public final class GlobalDictionaryRecordCache implements Cache<GlobalDictionary
    * @param maxWeightBytes decoded dictionary bytes retained across transactions
    */
   public GlobalDictionaryRecordCache(final long maxWeightBytes) {
-    if (maxWeightBytes <= 0L) {
-      throw new IllegalArgumentException("dictionary record cache budget must be positive, got " + maxWeightBytes);
+    if (maxWeightBytes < 0L) {
+      throw new IllegalArgumentException("dictionary record cache budget must be non-negative, got " + maxWeightBytes);
     }
+    final long unit = HeapCacheBudget.weightUnit(maxWeightBytes);
     cache = Caffeine.newBuilder()
-                    .maximumWeight(maxWeightBytes)
+                    .maximumWeight(maxWeightBytes / unit).executor(Runnable::run)
                     .weigher((GlobalDictionaryRecordCacheKey key,
-                        DataRecord record) -> record instanceof final ValueDictionaryValueBlockNode block
-                            ? Math.max(DEFAULT_RECORD_WEIGHT, block.rawBytes().length)
-                            : DEFAULT_RECORD_WEIGHT)
+                        DataRecord record) -> HeapCacheBudget.weight(retainedBytes(record), unit))
                     .scheduler(scheduler)
                     .build();
+  }
+
+  /** Price every dictionary array without copying it or decoding its values. */
+  private static long retainedBytes(final DataRecord record) {
+    final long payload = switch (record) {
+      case ValueDictionaryValueBlockNode block -> block.rawBytes().length + 4L * (block.size() + 1L);
+      case ValueDictionaryValueBucketNode bucket -> 16L * bucket.blockCount() + 12L * bucket.spillCount();
+      case ValueDictionaryRadixNode radix -> 9L * radix.childCount();
+      case ValueDictionaryHashBucketNode bucket -> 12L * bucket.size();
+      case ValueDictionaryDirectoryNode directory -> 12L * directory.size();
+      case ValueDictionaryEntryNode entry -> entry.getValueLength();
+      case ValueDictionaryRankTableNode ranks -> 8L * ranks.words().length;
+      case ValueDictionaryBlockIndexNode blocks -> blocks.separatorBytes().length + 8L * blocks.size() + 4L;
+      default -> 0L; // Header, collision and segment records contain only scalar fields.
+    };
+    return DEFAULT_RECORD_WEIGHT + payload;
   }
 
   @Override

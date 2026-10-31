@@ -112,9 +112,8 @@ public final class ProjectionWindowedRowGroupPayloads {
     final int windowCount = rowGroupCount == 0
         ? 0
         : 1 + (rowGroupCount - 1) / windowLeaves;
-    // At least two windows resident, or a kernel touching a window boundary would thrash on the
-    // spot; never more than exist.
-    this.residentCap = Math.max(2, Math.min(residentCap, Math.max(1, windowCount)));
+    // No floor may silently exceed the declared byte allowance. Zero streams without retention.
+    this.residentCap = Math.max(0, Math.min(residentCap, windowCount));
     this.fetcher = fetcher;
     this.windows = new AtomicReferenceArray<>(windowCount);
     this.touched = new AtomicIntegerArray(windowCount);
@@ -215,6 +214,10 @@ public final class ProjectionWindowedRowGroupPayloads {
       throw new IllegalStateException("window fetcher returned " + (fetched == null
           ? "null"
           : fetched.length + " payloads") + " for logical range [" + from + ", " + toExclusive + ")");
+    }
+    if (residentCap == 0) {
+      ChunkedBodyConfig.recordColumnWindowMaterialization();
+      return fetched;
     }
     if (windows.compareAndSet(window, null, fetched)) {
       ChunkedBodyConfig.recordColumnWindowMaterialization();

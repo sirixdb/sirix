@@ -1,5 +1,6 @@
 package io.sirix.cache;
 
+import io.sirix.cache.HeapCacheBudget.Pool;
 import io.sirix.index.hot.cache.HOTFragmentCache;
 import io.sirix.index.hot.cache.HOTLookupCache;
 import io.sirix.index.hot.cache.HOTMiniPageCache;
@@ -71,40 +72,8 @@ public final class BufferManagerImpl implements BufferManager {
    */
   private static final long MIN_HOT_FRAGMENT_BUDGET_BYTES = 32L * HOTLeafPage.DEFAULT_SIZE;
 
-  /** Heap-derived divisor for the compact-fragment and mini-page cache ceilings. */
-  private static final long HOT_HEAP_CACHE_BUDGET_DIVISOR = 16L;
-
-  /**
-   * Byte ceiling for the compact-fragment and resolved-slot mini caches. The historical property name
-   * is retained even though compact fragments now own native storage. The operator contract and
-   * accounting rules are in {@code docs/PROJECTION_READ_PERFORMANCE.md}, under Versioned HOT
-   * projection slot reads.
-   */
+  /** Legacy property for compact HOT images; bounded by their share of the heap envelope. */
   public static final String HOT_HEAP_CACHE_BYTES_PROPERTY = "sirix.hotHeapCache.maxBytes";
-
-  /** The heap-derived ceiling applied to each cache without allocator-frame ownership. */
-  private static long hotHeapCacheBudgetBytes() {
-    final long fallback =
-        Math.max(MIN_HOT_FRAGMENT_BUDGET_BYTES, Runtime.getRuntime().maxMemory() / HOT_HEAP_CACHE_BUDGET_DIVISOR);
-    final String configured = System.getProperty(HOT_HEAP_CACHE_BYTES_PROPERTY);
-    if (configured == null) {
-      return fallback;
-    }
-    long parsed;
-    try {
-      parsed = Long.parseLong(configured.trim());
-    } catch (final NumberFormatException malformed) {
-      parsed = -1L;
-    }
-    // No "disable" sentinel: ShardedPageCache reads a non-positive maximum as UNBOUNDED, so honouring
-    // a zero or negative value here would remove the very ceiling this property exists to impose.
-    if (parsed <= 0) {
-      LOGGER.warn("Ignoring invalid {}={} (expected a positive byte count), using the default of {} bytes",
-          HOT_HEAP_CACHE_BYTES_PROPERTY, configured, fallback);
-      return fallback;
-    }
-    return parsed;
-  }
 
   /**
    * Memoized HOT point lookups to retain.
@@ -267,30 +236,6 @@ public final class BufferManagerImpl implements BufferManager {
   private final RevisionRootPageCache revisionRootPageCache;
   // Memoized HOT point-lookup answers. Sized independently of the page caches: entries are a key
   // plus a bounded long[], so this is kilobytes where the page caches are megabytes.
-  /**
-   * Verdict-cache budget. A verdict is one bit per dictionary id, so this is tens of kilobytes at a
-   * million distinct values and a few megabytes at a hundred million; the bound is in BYTES so the
-   * second scale cannot quietly cost hundreds of megabytes the way a count bound would.
-   */
-  private static final long GLOBAL_VERDICT_CACHE_BYTES =
-      Long.getLong("sirix.projection.globalDict.verdictCacheBytes", 64L << 20);
-
-  /**
-   * Segment verdict-table budget. A table is one BYTE per id of one segment dictionary, one table per
-   * {@code (op, literal)}: ~18 MB for an 18M-value column at 100M rows, so the default holds the
-   * handful of distinct string predicates a workload repeats and evicts the rest by weight.
-   */
-  private static final long SEGMENT_VERDICT_CACHE_BYTES =
-      Long.getLong("sirix.projection.segmentDict.verdictCacheBytes", 128L << 20);
-
-  /**
-   * Decoded dictionary bytes retained across transactions. Sized to hold a mid-cardinality column's
-   * blocks outright; above that it degrades to the hit rate its weight supports, which is the point
-   * of metering it rather than sizing it from the dictionary.
-   */
-  private static final long GLOBAL_DICTIONARY_RECORD_CACHE_BYTES =
-      Long.getLong("sirix.projection.globalDict.recordCacheBytes", 256L << 20);
-
   private final HOTLookupCache hotLookupCache;
   private final NamesCache namesCache;
   private final PathSummaryCache pathSummaryCache;
@@ -321,6 +266,14 @@ public final class BufferManagerImpl implements BufferManager {
   public BufferManagerImpl(long maxPageCacheWeight, long maxRecordPageCacheWeight,
       long maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxNamesCacheSize,
       int maxPathSummaryCacheSize) {
+    this(maxPageCacheWeight, maxRecordPageCacheWeight, maxRecordPageFragmentCacheWeight,
+        maxRevisionRootPageCache, maxNamesCacheSize, maxPathSummaryCacheSize, HeapCacheBudget.global());
+  }
+
+  /** Explicit policy seam for deterministic memory-budget tests. */
+  public BufferManagerImpl(final long maxPageCacheWeight, final long maxRecordPageCacheWeight,
+      final long maxRecordPageFragmentCacheWeight, final int maxRevisionRootPageCache, final int maxNamesCacheSize,
+      final int maxPathSummaryCacheSize, final HeapCacheBudget heapBudget) {
     // Use simplified ShardedPageCache (single HashMap) for KeyValueLeafPage caches
     // ShardedPageCache uses long for maxWeightBytes - supports > 2GB caches
     recordPageCache = new ShardedPageCache<>(maxRecordPageCacheWeight);
@@ -351,31 +304,27 @@ public final class BufferManagerImpl implements BufferManager {
     // is skipped entirely when the record-page cache is disabled (budget 0), where ShardedPageCache
     // reads a non-positive maximum as "unbounded" and a floor would create an uncapped cache.
     final long hotLeafBudget = maxRecordPageCacheWeight / 4;
-    final long hotHeapBudget = hotHeapCacheBudgetBytes();
+    final long hotHeapBudget = heapBudget.bytes(Pool.HOT_IMAGES);
     final long hotFragmentBudget = hotLeafBudget <= 0
         ? hotLeafBudget
         : Math.min(hotLeafBudget / 2, Math.max(hotLeafBudget / 4, MIN_HOT_FRAGMENT_BUDGET_BYTES));
-    // Reserve 1/16 of the existing complete-leaf share (at most 64 MiB) for resolved slots.
+    // Reserve 1/16 of the existing complete-leaf share, capped by its heap share, for resolved slots.
     // The total HOT allowance and raw-fragment allowance do not increase.
     final long combinedBudget = hotLeafBudget - hotFragmentBudget;
-    final long miniBudget = combinedBudget <= 0
-        ? 0
-        : Math.min(Math.min(combinedBudget / 16, 64L << 20), hotHeapBudget);
+    final long miniAllowance = Math.min(hotHeapBudget, heapBudget.bytes(Pool.HOT_MINI_PAGES));
+    final long miniBudget = combinedBudget <= 0 ? 0 : Math.min(combinedBudget / 16, miniAllowance);
     hotMiniPageCache = miniBudget == 0
         ? HOTMiniPageCache.disabled()
         : new HOTMiniPageCache(miniBudget);
     // Verified referenced payloads keep their own accounted copies; never swizzle side arrays
     // into native leaves. Reserve this share from the existing HOT allowance too.
-    final long blobBudget = miniBudget < 2048
-        ? 0
-        : miniBudget / 2;
+    final long blobAllowance = Math.min(miniBudget / 2, heapBudget.bytes(Pool.PROJECTION_BLOBS));
+    final long blobBudget = blobAllowance < 1024 ? 0 : blobAllowance;
     projectionBlobCache = blobBudget == 0
         ? ProjectionBlobCache.disabled()
         : new ProjectionBlobCache(blobBudget);
     hotLeafPageCache = new ShardedPageCache<>(combinedBudget - miniBudget - blobBudget);
-    hotLeafFragmentCache = new HOTFragmentCache(hotFragmentBudget, hotFragmentBudget <= 0
-        ? hotFragmentBudget
-        : hotHeapBudget);
+    hotLeafFragmentCache = new HOTFragmentCache(hotFragmentBudget, hotHeapBudget);
 
     // PageCache uses Caffeine which internally uses long for weights
     pageCache = new PageCache(maxPageCacheWeight);
@@ -409,22 +358,29 @@ public final class BufferManagerImpl implements BufferManager {
 
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     final String configuredHotLookupEntries = System.getProperty(HOT_LOOKUP_CACHE_ENTRIES_PROPERTY);
-    final HotLookupSize hotLookupSize = hotLookupCacheEntries(maxRecordPageCacheWeight, configuredHotLookupEntries);
-    final int hotLookupEntries = hotLookupSize.entries();
+    final HotLookupSize requestedHotLookup = hotLookupCacheEntries(maxRecordPageCacheWeight, configuredHotLookupEntries);
+    final long affordableHotLookups = heapBudget.bytes(Pool.HOT_LOOKUPS)
+        / HOT_LOOKUP_WORST_CASE_ENTRY_BYTES;
+    final int boundedHotLookups = (int) Math.min(requestedHotLookup.entries(), affordableHotLookups);
+    // HOTLookupCache rounds a positive capacity below its eight-way associativity UP to eight.
+    final int hotLookupEntries = boundedHotLookups < 8 ? 0 : boundedHotLookups;
+    final HotLookupSize hotLookupSize = new HotLookupSize(hotLookupEntries,
+        requestedHotLookup.fromProperty() && hotLookupEntries == requestedHotLookup.entries());
     hotLookupCache = hotLookupEntries == 0
         ? HOTLookupCache.disabled()
         : new HOTLookupCache(hotLookupEntries);
     namesCache = new NamesCache(maxNamesCacheSize);
     pathSummaryCache = new PathSummaryCache(maxPathSummaryCacheSize);
-    globalVerdictCache = new GlobalVerdictCache(GLOBAL_VERDICT_CACHE_BYTES);
-    segmentVerdictCache = new SegmentVerdictCache(SEGMENT_VERDICT_CACHE_BYTES);
-    globalDictionaryRecordCache = new GlobalDictionaryRecordCache(GLOBAL_DICTIONARY_RECORD_CACHE_BYTES);
+    globalVerdictCache = new GlobalVerdictCache(heapBudget.bytes(Pool.GLOBAL_VERDICTS));
+    segmentVerdictCache = new SegmentVerdictCache(heapBudget.bytes(Pool.SEGMENT_VERDICTS));
+    globalDictionaryRecordCache = new GlobalDictionaryRecordCache(heapBudget.bytes(Pool.DICTIONARY_RECORDS));
     globalDictionaryWarmMarkers = new GlobalDictionaryWarmMarkerCache();
 
     // Initialize ClockSweeper threads (GLOBAL, like PostgreSQL bgwriter)
     this.clockSweeperThreads = new ArrayList<>();
     this.clockSweepers = new ArrayList<>();
 
+    LOGGER.info("Heap cache allocation: {}", heapBudget.metrics());
     LOGGER.info("BufferManagerImpl initialized with large cache support:");
     LOGGER.info("  - RecordPageCache: {} MB", maxRecordPageCacheWeight / (1024 * 1024));
     LOGGER.info("  - RecordPageFragmentCache: {} MB", maxRecordPageFragmentCacheWeight / (1024 * 1024));
@@ -441,7 +397,7 @@ public final class BufferManagerImpl implements BufferManager {
     LOGGER.info("  - HOTLookupCache: {} entries, up to ~{} MB retained{}", hotLookupSlots,
         hotLookupSlots * HOT_LOOKUP_WORST_CASE_ENTRY_BYTES / (1024 * 1024), hotLookupSize.fromProperty()
             ? " (set by " + HOT_LOOKUP_CACHE_ENTRIES_PROPERTY + "=" + configuredHotLookupEntries + ')'
-            : " (derived from the record-page budget)");
+            : " (bounded by record-page and heap-envelope shares)");
   }
 
   @Override

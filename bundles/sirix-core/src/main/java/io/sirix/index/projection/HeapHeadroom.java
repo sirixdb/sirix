@@ -1,5 +1,7 @@
 package io.sirix.index.projection;
 
+import io.sirix.cache.HeapCacheBudget;
+
 import com.sun.management.GarbageCollectorMXBean;
 import com.sun.management.GcInfo;
 
@@ -206,32 +208,18 @@ public final class HeapHeadroom {
   }
 
   /**
-   * The ONE heap share every projection-side budget plans against: the smaller of an eighth of the
-   * maximum heap and a quarter of the current headroom.
+   * Per-consumer execution share, bounded by the declared workspace reserve and a quarter of
+   * current headroom. Group tables and distinct sets plan against this figure. Retained column
+   * fills have a separate ceiling inside the projection cache share; when residency headroom is
+   * enabled, this figure can further reduce that ceiling without enlarging it.
    *
-   * <p>
-   * Three consumers size themselves from it and must not disagree about it — the per-pass group table
-   * ({@link GroupTableSpill#groupBudgetFor}), the grouped {@code COUNT(DISTINCT)} ceiling
-   * ({@link GroupDistinctAccumulator#defaultMaxValuesFor}) and, since R1, the column store's RETAINED
-   * fill total ({@code ProjectionColumnStore}'s residency budget). They fight for one heap: while a
-   * store retained every fill of every earlier query for its whole lifetime and the group tables
-   * planned against the headroom that was left, the group side paid for the residency side's memory
-   * in extra hash-range passes. One figure, three consumers, so raising the share raises all three
-   * together and releasing residency raises what the group side may plan.
-   * </p>
-   *
-   * <p>
-   * The one planned exception is the BOUNDED top-k aggregate, whose completed partitions are selected
-   * and released one at a time: its per-pass table plans against
-   * {@link GroupTableSpill#boundedGroupBudgetFor} — up to three quarters of the headroom, charged at
-   * the dense layout — instead of this share. The distinct ceiling and the residency budget stay on
-   * this figure; raising it here would hand the same bytes to all three at once.
-   * </p>
+   * <p>The bounded top-k aggregate releases completed partitions one at a time and may use
+   * {@link GroupTableSpill#boundedGroupBudgetFor}, up to three quarters of observed headroom.
    *
    * @return the planned per-consumer share of the heap, in bytes
    */
   public static long plannedShareBytes() {
-    return plannedShareBytes(Runtime.getRuntime().maxMemory(), headroomBytes());
+    return Math.max(0L, Math.min(HeapCacheBudget.global().queryWorkspaceBytes(), headroomBytes() / 4));
   }
 
   /**

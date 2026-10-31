@@ -77,7 +77,7 @@ public final class MaskedColumns {
   /** Numeric-only snapshots never retain a query's mutable string interner or its store key. */
   @SuppressWarnings("ArrayRecordComponent") // Cache lookup compares contents; views copy mutable masks.
   record NumericSnapshot(String[] fields, long[] keys, long[][] masks, long[][] recordKeys, ColumnSlice[][] slices,
-      byte[] kinds, long rows, int weight, Object rowIdentity, byte[] presenceMemo) {
+      byte[] kinds, long rows, long weight, Object rowIdentity, byte[] presenceMemo) {
     MaskedColumns view(final ProjectionColumnStore store) {
       return new MaskedColumns(store, copyMasks(masks), recordKeys, slices, kinds, rows, rowIdentity, masks,
           presenceMemo);
@@ -97,7 +97,11 @@ public final class MaskedColumns {
   long numericSnapshotWeight(final int keyCount) {
     int kept = 0;
     long totalRows = 0;
-    long bytes = 512L + 8L * keyCount + 64L * kinds.length + 8L * rowMasks.length * (3L + kinds.length);
+    if (keyCount < 0) {
+      throw new IllegalArgumentException("Negative key count");
+    }
+    long bytes = DerivedCacheBudget.saturatedAdd(1024L + 8L * keyCount + 64L * kinds.length,
+        DerivedCacheBudget.saturatedMultiply(8L * rowMasks.length, 3L + kinds.length));
     for (int field = 0; field < kinds.length; field++) {
       if (!isLong(field) && !isTimestamp(field)) {
         return -1;
@@ -109,26 +113,27 @@ public final class MaskedColumns {
         continue;
       }
       kept++;
-      bytes += 32L + 8L * (rowMasks[leaf].length + recordKeys[leaf].length);
+      bytes = DerivedCacheBudget.saturatedAdd(bytes,
+          32L + 8L * rowMasks[leaf].length + 8L * recordKeys[leaf].length);
       for (int field = 0; field < kinds.length; field++) {
         final ColumnSlice slice = slices[field][leaf];
         final long[] values = slice.numericValues();
         final long[] presence = slice.presenceWords();
-        bytes += 96L + 8L * (values == null
+        bytes = DerivedCacheBudget.saturatedAdd(bytes, 96L + 8L * (values == null
             ? 0
             : values.length) + 8L * (presence == null
                 ? 0
-                : presence.length);
+                : presence.length));
       }
     }
     // Sparse sources retain their locality path and its work budgets. Dense reuse retains only
     // columns already requested, never fills a pruned leaf, and prices all retained arrays.
-    return rows * 4L >= totalRows && kept * 4L >= rowMasks.length * 3L
+    return rows >= totalRows / 4 + (totalRows % 4 == 0 ? 0 : 1) && kept * 4L >= rowMasks.length * 3L
         ? bytes
         : -1;
   }
 
-  NumericSnapshot numericSnapshot(final String[] fields, final long[] keys, final int weight) {
+  NumericSnapshot numericSnapshot(final String[] fields, final long[] keys, final long weight) {
     return new NumericSnapshot(fields.clone(), keys.clone(), copyMasks(rowMasks), recordKeys, slices, kinds, rows,
         weight, rowIdentity, isImmutableRevision()
             ? presenceMemo

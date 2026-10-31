@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.cache.HeapCacheBudget;
+
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -1248,12 +1250,12 @@ public final class ProjectionIndexRegistry {
       final String configured = System.getProperty("sirix.projection.promoteMaxBytes");
       if (configured != null && !configured.isEmpty()) {
         try {
-          return Long.parseLong(configured.trim());
+          return Math.max(0L, Math.min(Long.parseLong(configured.trim()), HeapCacheBudget.global().projectionFillBytes()));
         } catch (final NumberFormatException ignored) {
           // fall through to the derived default
         }
       }
-      return Math.min(DEFAULT_PROMOTE_MAX_BYTES, Runtime.getRuntime().maxMemory() / 4);
+      return Math.min(DEFAULT_PROMOTE_MAX_BYTES, HeapCacheBudget.global().projectionFillBytes());
     }
 
     /** Ceiling on the derived promotion budget — see {@link #promoteMaxBytes()}. */

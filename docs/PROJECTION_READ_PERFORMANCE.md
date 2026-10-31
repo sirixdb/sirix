@@ -99,8 +99,8 @@ of 1,024 stripes, hashed from the resource and the durable key, so promoting one
 image normally neither serialises nor rejects a concurrent resolution of an unrelated leaf. A hash
 collision does reject one, which costs nothing but a correct answer left uncached. A bulk clear
 fences every stripe.
-Their budget is one sixteenth of the existing complete-HOT allowance, capped at 64 MiB and the
-heap ceiling below, taken from that complete allowance. Complete adoption discards the corresponding
+Their budget is one sixteenth of the existing complete-HOT allowance, capped by the mini-page
+share of the shared heap envelope and the compact-image ceiling, taken from that complete allowance. Complete adoption discards the corresponding
 mini page.
 
 Committed sorted slots also have a byte-bounded `ProjectionBlobCache`. It retains private copies of
@@ -156,10 +156,11 @@ unchanged. For a positive HOT allowance `q = maxRecordPageCacheWeight / 4`, the 
 share is `min(q/2, max(q/4, 32 × 64 KiB))`; the remainder is the complete-leaf allowance before
 reserving mini pages and sorted payloads. The compact half retains GC-owned native bytes plus heap
 metadata; the mini cache retains heap bytes. Each is charged its packed bytes plus the page's
-conservative fixed per-page heap estimate and bounded by `sirix.hotHeapCache.maxBytes` — one
-sixteenth of `Runtime.maxMemory()` by default, floored at
-32 × 64 KiB. The property accepts positive byte counts; malformed or non-positive values use the
-default. The compact half spends no native fragment allowance; the mini reservation comes from the
+conservative fixed per-page heap estimate. Compact images and mini pages have disjoint shares
+of the shared heap envelope; `sirix.hotHeapCache.maxBytes` bounds compact images and also caps
+the mini share. Overrides accept non-negative decimal byte counts, are capped by their shares,
+and zero disables retention. Malformed values fail configuration. See
+[Derived query-cache memory](DERIVED_QUERY_CACHES.md) for the allocation table. The compact half spends no native fragment allowance; the mini reservation comes from the
 complete-leaf share described above. Compact allocations have independent lifetimes, so retaining
 one image cannot pin unrelated images' storage. Neither compact fragments nor mini pages hold an
 allocator frame, so these caches have their own clock sweepers rather than relying on allocator

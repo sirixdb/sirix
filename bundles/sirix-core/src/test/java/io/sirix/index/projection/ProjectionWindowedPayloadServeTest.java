@@ -214,6 +214,27 @@ final class ProjectionWindowedPayloadServeTest {
   }
 
   @Test
+  void zeroWindowAllowanceStreamsExactPayloadsWithoutRetention() {
+    final AtomicInteger fetches = new AtomicInteger();
+    final ProjectionWindowedRowGroupPayloads cache =
+        new ProjectionWindowedRowGroupPayloads(4, 2, 0, (source, from, toExclusive) -> {
+          fetches.incrementAndGet();
+          final byte[][] payloads = new byte[toExclusive - from][];
+          for (int i = from; i < toExclusive; i++) {
+            payloads[i - from] = new byte[] {(byte) i};
+          }
+          return payloads;
+        });
+    for (int round = 0; round < 2; round++) {
+      for (int row = 0; row < 4; row++) {
+        assertArrayEquals(new byte[] {(byte) row}, cache.payload(row, null));
+        assertEquals(0, cache.residentWindows());
+      }
+    }
+    assertEquals(8, fetches.get());
+  }
+
+  @Test
   void theWindowedViewBoundsResidencyAndSurvivesEviction() {
     // Direct unit coverage of the view: a synthetic fetcher, a tiny resident cap, and an access
     // pattern that forces eviction and re-materialization. Content must stay stable and the

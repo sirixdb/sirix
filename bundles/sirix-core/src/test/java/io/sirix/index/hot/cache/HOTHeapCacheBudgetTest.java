@@ -6,6 +6,7 @@ package io.sirix.index.hot.cache;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.BufferManagerImpl;
 import io.sirix.cache.Cache;
+import io.sirix.cache.HeapCacheBudget;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -30,6 +31,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Each HOT fragment residency must be bounded by the pool it actually consumes: allocator frames by
@@ -47,25 +50,20 @@ final class HOTHeapCacheBudgetTest {
 
   private static final long CEILING = 8L << 20;
 
-  private static BufferManagerImpl manager() {
-    return new BufferManagerImpl(1L << 20, RECORD_PAGE_BUDGET, 1L << 20, 4, 4, 4);
+  private HeapCacheBudget allocation = new HeapCacheBudget(Runtime.getRuntime().maxMemory(), ignored -> null);
+
+  private BufferManagerImpl manager() {
+    return new BufferManagerImpl(1L << 20, RECORD_PAGE_BUDGET, 1L << 20, 4, 4, 4, allocation);
   }
 
   private void withCeiling(final String value, final Runnable body) {
-    final String previous = System.getProperty(BufferManagerImpl.HOT_HEAP_CACHE_BYTES_PROPERTY);
-    if (value == null) {
-      System.clearProperty(BufferManagerImpl.HOT_HEAP_CACHE_BYTES_PROPERTY);
-    } else {
-      System.setProperty(BufferManagerImpl.HOT_HEAP_CACHE_BYTES_PROPERTY, value);
-    }
+    final HeapCacheBudget previous = allocation;
+    allocation = new HeapCacheBudget(Runtime.getRuntime().maxMemory(),
+        name -> name.equals(BufferManagerImpl.HOT_HEAP_CACHE_BYTES_PROPERTY) ? value : null);
     try {
       body.run();
     } finally {
-      if (previous == null) {
-        System.clearProperty(BufferManagerImpl.HOT_HEAP_CACHE_BYTES_PROPERTY);
-      } else {
-        System.setProperty(BufferManagerImpl.HOT_HEAP_CACHE_BYTES_PROPERTY, previous);
-      }
+      allocation = previous;
     }
   }
 
@@ -105,17 +103,26 @@ final class HOTHeapCacheBudgetTest {
   }
 
   @Test
-  void anInvalidCeilingFallsBackToTheDefaultInsteadOfUnboundingTheCompactHalf() {
-    for (final String invalid : new String[] {"0", "-1", "not-a-number"}) {
-      withCeiling(invalid, () -> {
-        try (BufferManagerImpl manager = manager()) {
-          final long heap = manager.getHeapHOTLeafFragmentCacheMaxWeightBytes();
-          assertTrue(heap > 0, "a rejected ceiling must not read as unbounded");
-          assertTrue(heap < OFF_HEAP_FRAGMENT_SHARE,
-              "a rejected ceiling must land where no ceiling was configured: " + heap);
-        }
-      });
+  void malformedCeilingsFailConfigurationAndZeroDisablesRetention() {
+    for (final String invalid : new String[] {"-1", "not-a-number"}) {
+      assertThrows(IllegalArgumentException.class, () -> withCeiling(invalid, () -> {}));
     }
+    withCeiling("0", () -> {
+      try (BufferManagerImpl manager = manager()) {
+        assertEquals(0, manager.getHeapHOTLeafFragmentCacheMaxWeightBytes());
+        assertEquals(0, manager.getHOTMiniPageCacheMaxWeightBytes());
+      }
+    });
+    final HOTFragmentCache disabled = new HOTFragmentCache(1L << 20, 0);
+    final PageReference key = new PageReference().setKey(1).setDatabaseId(1).setResourceId(1);
+    final HOTLeafPage image = sparseDeltaFragment(0);
+    final HOTLeafPage loaded = disabled.getOrLoadAndGuard(key, ignored -> image);
+    assertEquals(image, loaded);
+    assertNull(disabled.get(key));
+    assertEquals(0, disabled.getCurrentWeightBytes());
+    loaded.releaseGuard();
+    assertTrue(image.isClosed(), "the final reader releases the uncached image");
+    disabled.clear();
   }
 
   /**
@@ -129,7 +136,7 @@ final class HOTHeapCacheBudgetTest {
     final long bound = 512L * 1024L;
     withCeiling(Long.toString(bound), () -> {
       final RevisionEpochTracker tracker = new RevisionEpochTracker(RevisionEpochTracker.defaultSlotCount());
-      try (BufferManagerImpl manager = new BufferManagerImpl(1L << 20, 1L << 30, 1L << 20, 4, 4, 4)) {
+      try (BufferManagerImpl manager = new BufferManagerImpl(1L << 20, 1L << 30, 1L << 20, 4, 4, 4, allocation)) {
         assertEquals(bound, manager.getHeapHOTLeafFragmentCacheMaxWeightBytes());
         manager.startClockSweepers(tracker);
         final Cache<PageReference, HOTLeafPage> fragments = manager.getHOTLeafFragmentCache();

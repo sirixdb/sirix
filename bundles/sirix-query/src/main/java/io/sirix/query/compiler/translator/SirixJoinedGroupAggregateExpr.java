@@ -17,13 +17,14 @@ import io.brackit.query.operator.TupleImpl;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.util.sort.Ordering;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionComputedColumn;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionTemporalCodec;
 import io.sirix.query.ColumnarRecordSequence;
+import io.sirix.query.scan.DerivedCacheBudget;
+import io.sirix.query.scan.DerivedCacheBudget.Partition;
+import io.sirix.query.scan.DerivedCacheBudget.Reservation;
 import io.sirix.query.scan.MaskedColumns;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
@@ -32,6 +33,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -42,6 +44,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -66,6 +69,14 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
   /** Work counter: bucketed sides built for the dense extrema kernel (a cache hit builds none). */
   private static final LongAdder BUCKETED_SIDES_BUILT = new LongAdder();
+  private static volatile @Nullable Executor packingExecutorForTesting;
+
+  /** Test seam for isolated fixtures that hold an optional packing task before execution. */
+  public static @Nullable Executor setPackingExecutorForTesting(final @Nullable Executor executor) {
+    final Executor previous = packingExecutorForTesting;
+    packingExecutorForTesting = executor;
+    return previous;
+  }
 
   public static long bucketedSidesBuiltCount() {
     return BUCKETED_SIDES_BUILT.sum();
@@ -682,6 +693,31 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
       return new SideLanes(masks, join, from, to, margin, distinct, group);
     }
+
+    // Charge all pinned lanes conservatively, including aliases already priced by a numeric
+    // snapshot. Numeric eviction must not make a background task's shared arrays unaccounted.
+    long weight() {
+      long bytes = 256L + 56L * masks.length;
+      bytes = DerivedCacheBudget.saturatedAdd(bytes, laneWeight(masks));
+      bytes = DerivedCacheBudget.saturatedAdd(bytes, laneWeight(join));
+      bytes = DerivedCacheBudget.saturatedAdd(bytes, laneWeight(from));
+      bytes = DerivedCacheBudget.saturatedAdd(bytes, laneWeight(to));
+      bytes = DerivedCacheBudget.saturatedAdd(bytes, laneWeight(margin));
+      bytes = DerivedCacheBudget.saturatedAdd(bytes, laneWeight(distinct));
+      return DerivedCacheBudget.saturatedAdd(bytes, laneWeight(group));
+    }
+
+    private static long laneWeight(final long @Nullable [][] lanes) {
+      long bytes = 0;
+      if (lanes != null) {
+        for (final long[] lane : lanes) {
+          if (lane != null) {
+            bytes = DerivedCacheBudget.saturatedAdd(bytes, 16L + 8L * lane.length);
+          }
+        }
+      }
+      return bytes;
+    }
   }
 
   /**
@@ -797,33 +833,29 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * finished waits for it instead of packing again.
    */
   private static final class BucketedSideCache {
-    private static final long MAX_BYTES =
-        Math.max(1L << 20, Math.min(64L << 20, Runtime.getRuntime().maxMemory() / 64));
-    private static final Cache<Object, Entry> CACHE = Caffeine.newBuilder()
-                                                              .weakKeys()
-                                                              .maximumWeight(MAX_BYTES)
-                                                              .weigher((Object snapshot, Entry entry) -> entry.weight)
-                                                              .build();
     private static final ConcurrentHashMap<InFlightKey, CompletableFuture<BucketedSide>> IN_FLIGHT =
         new ConcurrentHashMap<>();
 
     @SuppressWarnings("ArrayRecordComponent") // Matched by identity and content below; record equality is unused.
-    private record Entry(long[] signature, BucketedSide side, int weight) {
+    private record Entry(long[] signature, BucketedSide side) {
     }
 
     /** Store and row identity by reference, signature by content. */
     @SuppressWarnings("ArrayRecordComponent") // Signature equality and hashing are defined by content below.
-    private record InFlightKey(ProjectionColumnStore store, Object rows, long[] signature) {
+    private record InFlightKey(WeakReference<ProjectionColumnStore> store, Object rows, long[] signature) {
       @Override
       @SuppressWarnings("ReferenceEquality") // The row token identifies one loaded snapshot, not equal row values.
       public boolean equals(final Object other) {
-        return other instanceof InFlightKey key && key.store == store && key.rows == rows
-            && Arrays.equals(key.signature, signature);
+        if (other == this) {
+          return true;
+        }
+        return other instanceof InFlightKey key && store.get() != null && key.store.get() == store.get()
+            && key.rows == rows && Arrays.equals(key.signature, signature);
       }
 
       @Override
       public int hashCode() {
-        return 31 * (31 * System.identityHashCode(store) + System.identityHashCode(rows)) + Arrays.hashCode(signature);
+        return 31 * System.identityHashCode(rows) + Arrays.hashCode(signature);
       }
     }
 
@@ -833,12 +865,12 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       if (!columns.isImmutableRevision()) {
         return null;
       }
-      final Entry entry = CACHE.getIfPresent(columns.rowIdentity());
+      final Entry entry = (Entry) DerivedCacheBudget.global().packed().get(columns.rowIdentity());
       if (entry != null && Arrays.equals(signature, entry.signature)) {
         return entry.side;
       }
       final CompletableFuture<BucketedSide> packing =
-          IN_FLIGHT.get(new InFlightKey(columns.store(), columns.rowIdentity(), signature));
+          IN_FLIGHT.get(new InFlightKey(new WeakReference<>(columns.store()), columns.rowIdentity(), signature));
       if (packing == null) {
         return null;
       }
@@ -849,43 +881,72 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
     }
 
-    static void put(final MaskedColumns columns, final long[] signature, final BucketedSide side) {
-      if (!columns.isImmutableRevision()) {
-        return;
-      }
-      final long bytes = side.weight() + 8L * signature.length;
-      if (bytes <= MAX_BYTES) {
-        CACHE.put(columns.rowIdentity(), new Entry(signature, side, (int) bytes));
-      }
+    private static long retainedWeight(final BucketedSide side, final long[] signature) {
+      return side.weight() + 256L + 8L * signature.length;
     }
 
-    /**
-     * Pack {@code lanes} in the background and publish the side; a no-op unless the revision is
-     * immutable or when the same side is already being packed.
-     */
+    private static @Nullable Reservation reserve(final MaskedColumns columns, final long[] signature,
+        final SideLanes lanes, final int slots, final Partition partition) {
+      if (!columns.isImmutableRevision()) {
+        return null;
+      }
+      final long rows = columns.rows();
+      final long rowBytes = rows > Long.MAX_VALUE / (8L * BucketedSide.STRIDE)
+          ? Long.MAX_VALUE : rows * (8L * BucketedSide.STRIDE);
+      final long packedAndFill = DerivedCacheBudget.saturatedAdd(rowBytes, 640L + 8L * slots + 8L * signature.length);
+      return partition.reserve(DerivedCacheBudget.saturatedAdd(packedAndFill, lanes.weight()));
+    }
+
+    /** Pack only after reserving the result, scratch and lanes pinned beyond this query's lifetime. */
     @SuppressWarnings("FutureReturnValueIgnored") // Failures complete the separately tracked packing future.
     static void packAsync(final MaskedColumns columns, final long[] signature, final SideLanes lanes,
         final long keyMinimum, final int slots, final long groupMinimum) {
       if (!columns.isImmutableRevision()) {
         return;
       }
-      final InFlightKey key = new InFlightKey(columns.store(), columns.rowIdentity(), signature);
+      final InFlightKey key = new InFlightKey(new WeakReference<>(columns.store()), columns.rowIdentity(), signature);
       final CompletableFuture<BucketedSide> packing = new CompletableFuture<>();
       if (IN_FLIGHT.putIfAbsent(key, packing) != null) {
         return;
       }
+      final Reservation reservation;
+      try {
+        reservation = reserve(columns, signature, lanes, slots, DerivedCacheBudget.global().packed());
+      } catch (final RuntimeException | Error e) {
+        packing.completeExceptionally(e);
+        IN_FLIGHT.remove(key, packing);
+        throw e;
+      }
+      if (reservation == null) {
+        packing.complete(null);
+        IN_FLIGHT.remove(key, packing);
+        return;
+      }
       BUCKETED_SIDES_BUILT.increment();
-      CompletableFuture.runAsync(() -> {
-        try {
-          final BucketedSide side = new BucketedSide(lanes, keyMinimum, slots, groupMinimum);
-          put(columns, signature, side);
-          packing.complete(side);
-        } catch (final RuntimeException | Error e) {
-          packing.completeExceptionally(e);
-        } finally {
-          IN_FLIGHT.remove(key, packing);
+      try {
+        final Runnable task = () -> {
+          try (reservation) {
+            final BucketedSide side = new BucketedSide(lanes, keyMinimum, slots, groupMinimum);
+            reservation.publish(key.rows(), new Entry(signature, side), retainedWeight(side, signature));
+            packing.complete(side);
+          } catch (final RuntimeException | Error e) {
+            packing.completeExceptionally(e);
+          } finally {
+            IN_FLIGHT.remove(key, packing);
+          }
+        };
+        final Executor executor = packingExecutorForTesting;
+        if (executor == null) {
+          CompletableFuture.runAsync(task);
+        } else {
+          CompletableFuture.runAsync(task, executor);
         }
-      });
+      } catch (final RuntimeException | Error e) {
+        reservation.close();
+        packing.completeExceptionally(e);
+        IN_FLIGHT.remove(key, packing);
+        throw e;
+      }
     }
   }
 
@@ -906,12 +967,18 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     if (cached != null) {
       return cached;
     }
-    final BucketedSide side =
-        new BucketedSide(SideLanes.capture(columns, fromSlot, toSlot, marginSlot, distinctSlot, groupSlot), keyMinimum,
-            slots, groupMinimum);
-    BUCKETED_SIDES_BUILT.increment();
-    BucketedSideCache.put(columns, signature, side);
-    return side;
+    final SideLanes lanes = SideLanes.capture(columns, fromSlot, toSlot, marginSlot, distinctSlot, groupSlot);
+    try (final Reservation reservation = BucketedSideCache.reserve(columns, signature, lanes, slots,
+        DerivedCacheBudget.global().packed())) {
+      // The synchronous build side is required query workspace even when cache admission is refused.
+      final BucketedSide side = new BucketedSide(lanes, keyMinimum, slots, groupMinimum);
+      BUCKETED_SIDES_BUILT.increment();
+      if (reservation != null) {
+        reservation.publish(columns.rowIdentity(), new BucketedSideCache.Entry(signature, side),
+            BucketedSideCache.retainedWeight(side, signature));
+      }
+      return side;
+    }
   }
 
   /**

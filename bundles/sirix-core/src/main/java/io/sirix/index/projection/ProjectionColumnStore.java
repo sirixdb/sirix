@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.cache.HeapCacheBudget;
+
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.NumericBucketDecoder;
 import io.sirix.api.StorageEngineReader;
@@ -1991,12 +1993,10 @@ public final class ProjectionColumnStore {
    * Byte budget above which {@link #column(int, ColumnSegmentFetcher)} declines a whole-column slice
    * fill. Same property and derivation as the catalog's whole-leaf eager budget
    * ({@code sirix.projection.eagerMaterializeBytes}): a fill's raw bytes live on the heap beside the
-   * decoded slice arrays and the off-heap arena, so half the projection cache budget and a quarter of
-   * the heap bound it from both sides.
+   * decoded slice arrays. The shared heap envelope assigns the projection ceiling and bounds this
+   * per-store fill allowance within it.
    */
-  private static final long COLUMN_FILL_BUDGET_DEFAULT = Long.getLong("sirix.projection.eagerMaterializeBytes",
-      Math.min(Long.parseLong(System.getProperty("sirix.projection.cacheBytes", String.valueOf(8L << 30))) / 2,
-          Runtime.getRuntime().maxMemory() / 4));
+  private static final long COLUMN_FILL_BUDGET_DEFAULT = HeapCacheBudget.global().projectionFillBytes();
 
   private static volatile long columnFillBudgetBytes = COLUMN_FILL_BUDGET_DEFAULT;
 
