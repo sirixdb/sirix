@@ -25,7 +25,7 @@ jobs:
       (github.event.pull_request.head.repo.full_name == github.repository &&
        github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
-    # Coverage instruments the full suite, including both core CI lanes.
+    # Coverage includes both core CI lanes.
     timeout-minutes: 90
     steps:
       - name: Checkout

@@ -83,18 +83,16 @@ in CI via the `Deep verification` workflow.
 
 ## SonarCloud analysis
 
-`sonarqube.yml` builds and tests with JaCoCo XML reports before running `sonar` separately.
+[`sonarqube.yml`](../.github/workflows/sonarqube.yml) runs on pushes to `main` and eligible
+pull requests targeting `main`. It builds and tests with JaCoCo XML reports before running `sonar` separately.
 It waits for the quality gate, so a successful upload alone cannot make the check green.
 PR analysis uses GitHub Actions' automatic PR parameters and the source commit with full history.
 Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
 The REST integration suite remains outside this job, as before.
 
-The isolated core test forks must keep their own JaCoCo argument providers. Gradle's
-`JavaForkOptions.copyTo` materializes the source task's providers into explicit JVM arguments;
-copying those alongside the target's provider loads two agents and aborts before any test runs
-(`LinkageError: duplicate class definition for java.lang.$JaCoCo`, exit 134).
-Copy explicit JVM arguments back after copying fork options, retaining properties such as
-`java.io.tmpdir`, and include the isolated forks' execution data in the core XML report.
+The core XML report includes the isolated test forks' execution data. Their agent-handling
+safety invariant is documented beside the fork-option copy in
+[`bundles/sirix-core/build.gradle`](../bundles/sirix-core/build.gradle).
 
 Review issues against the low-latency requirements in `AGENTS.md`. Prefer clean code when it
 costs no hot-path performance. Any rule exception must name the specific rule and scope, with
