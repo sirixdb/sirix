@@ -19,6 +19,8 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
 
   JsonDBStore removeDatabase(Database<JsonResourceSession> database);
 
+  void registerWriteSession(JsonResourceSession session);
+
   @Override
   JsonDBCollection lookup(String name);
 

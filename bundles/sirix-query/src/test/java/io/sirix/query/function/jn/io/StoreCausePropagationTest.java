@@ -133,6 +133,11 @@ final class StoreCausePropagationTest {
     }
 
     @Override
+    public void registerWriteSession(final JsonResourceSession session) {
+      throw unsupported();
+    }
+
+    @Override
     public JsonDBCollection lookup(final String name) {
       throw unsupported();
     }

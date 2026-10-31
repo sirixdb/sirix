@@ -1128,8 +1128,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
    *
    * @param session the resource session with an open write transaction
    */
+  @Override
   public void registerWriteSession(final JsonResourceSession session) {
-    sessionsWithWriteTrx.add(session);
+    sessionsWithWriteTrx.add(requireNonNull(session));
   }
 
   @Override

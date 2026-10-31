@@ -16,7 +16,15 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.service.json.serialize.JsonSerializer;
+import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.JsonDBArray;
+import io.sirix.query.json.JsonDBObject;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
@@ -299,6 +307,81 @@ class McpContractTest {
         assertThat(document.get("diffs").isEmpty()).isTrue();
         assertThat(document.get("continuation")).isNotNull();
       }
+    }
+  }
+
+  @Test
+  void ordinaryUpdatesPersistAfterHandlerClosureAndColdReopen() throws Exception {
+    try (final var database = Databases.openJsonDatabase(directory.resolve("db"))) {
+      database.createResource(ResourceConfiguration.newBuilder("array").storageType(StorageType.FILE_CHANNEL).build());
+      try (final var session = database.beginResourceSession("array"); final var writer = session.beginNodeTrx()) {
+        writer.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"first\",\"second\",\"third\"]"));
+      }
+    }
+    final var resources = Map.of("db", List.of("public", "array"));
+    final String objectUpdate = "replace json value of " + DOC + ".name with 'Changed'";
+    final String arrayUpdate = "replace json value of jn:doc('db','array')[0] with 'Changed'";
+    final String primitiveUpdate = "delete json sdb:select-item(jn:doc('db','array'),3)";
+    final var readOnly = handlers(directory, true, resources, 100, 4096);
+    final var before = resourceFiles(directory.resolve("db"));
+    for (final String query : List.of(objectUpdate, arrayUpdate, primitiveUpdate)) {
+      final var denied = readOnly.query(null, request(Map.of("query", query)));
+      assertThat(denied.isError()).as(query + ": " + text(denied)).isTrue();
+      assertResourceFiles(directory.resolve("db"), before);
+    }
+    final var writable = handlers(directory, false, resources, 100, 4096);
+    final var objectResult = writable.query(null, request(Map.of("query", objectUpdate)));
+    assertThat(objectResult.isError()).as(text(objectResult)).isFalse();
+    assertStoredResource("db", "public", 2, "{\"name\":\"Changed\",\"age\":1}");
+    final var arrayResult = writable.query(null, request(Map.of("query", arrayUpdate)));
+    assertThat(arrayResult.isError()).as(text(arrayResult)).isFalse();
+    assertStoredResource("db", "array", 2, "[\"Changed\",\"second\",\"third\"]");
+    final var primitiveResult = writable.query(null, request(Map.of("query", primitiveUpdate)));
+    assertThat(primitiveResult.isError()).as(text(primitiveResult)).isFalse();
+    assertStoredResource("db", "array", 3, "[\"Changed\",\"third\"]");
+    Databases.clearGlobalCaches();
+    assertStoredResource("db", "public", 2, "{\"name\":\"Changed\",\"age\":1}");
+    assertStoredResource("db", "array", 3, "[\"Changed\",\"third\"]");
+    final var cold = handlers(directory, true, resources, 100, 4096);
+    assertThat(text(cold.query(null, request(Map.of("query", DOC + ".name"))))).contains("Changed");
+    final var coldArray = cold.query(null, request(Map.of("query", "jn:doc('db','array')")));
+    assertThat(coldArray.isError()).as(text(coldArray)).isFalse();
+    assertThat(structured(coldArray)).containsEntry("items", List.of("\"Changed\"", "\"third\""));
+  }
+
+  @Test
+  void guardedCreationReturnsTrackObjectArrayAndPrimitiveWriters() throws Exception {
+    final var config = McpServerConfig.defaults(directory).withReadOnly(false);
+    for (final String kind : List.of("object", "array", "primitive")) {
+      final String database = "created-" + kind;
+      try (final var store = new GuardedJsonDBStore(BasicJsonDBStore.newBuilder().location(directory).build(),
+          new AccessControl(config))) {
+        final var collection = store.create(database, "data", kind.equals("object")
+            ? "{\"name\":\"original\"}"
+            : "[\"original\"]");
+        assertThat(collection.getJsonDBStore()).isSameAs(store);
+        final JsonDBItem document = collection.getDocument("data");
+        switch (kind) {
+          case "object" -> ((JsonDBObject) document).replace(new QNm("name"), new Str("Changed"));
+          case "array" -> ((JsonDBArray) document).replaceAt(0, new Str("Changed"));
+          case "primitive" -> ((JsonDBItem) ((JsonDBArray) document).at(0)).replaceValue(new Str("Changed"));
+          default -> throw new AssertionError(kind);
+        }
+      }
+      assertStoredResource(database, "data", 2, kind.equals("object")
+          ? "{\"name\":\"Changed\"}"
+          : "[\"Changed\"]");
+    }
+  }
+
+  private void assertStoredResource(final String database, final String resource, final int revision,
+      final String expected) throws Exception {
+    try (final var db = Databases.openJsonDatabase(directory.resolve(database));
+        final var session = db.beginResourceSession(resource);
+        final var output = new StringWriter()) {
+      assertThat(session.getMostRecentRevisionNumber()).isEqualTo(revision);
+      JsonSerializer.newBuilder(session, output).build().call();
+      assertThat(MAPPER.readTree(output.toString())).isEqualTo(MAPPER.readTree(expected));
     }
   }
 

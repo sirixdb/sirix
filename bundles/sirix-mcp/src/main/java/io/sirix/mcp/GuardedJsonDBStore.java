@@ -211,6 +211,11 @@ public final class GuardedJsonDBStore implements JsonDBStore {
   }
 
   @Override
+  public void registerWriteSession(final JsonResourceSession session) {
+    delegate.registerWriteSession(session);
+  }
+
+  @Override
   public Options options() {
     return delegate.options();
   }

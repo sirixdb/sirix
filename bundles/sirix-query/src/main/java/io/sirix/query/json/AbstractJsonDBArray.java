@@ -346,11 +346,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     final JsonResourceSession resourceSession = rtx.getResourceSession();
     final var trx = resourceSession.getNodeTrx().orElseGet(resourceSession::beginNodeTrx);
 
-    // Register the session with the store so it can be cleaned up on close
-    final var store = collection.getJsonDBStore();
-    if (store instanceof BasicJsonDBStore basicStore) {
-      basicStore.registerWriteSession(resourceSession);
-    }
+    collection.getJsonDBStore().registerWriteSession(resourceSession);
 
     // If the read transaction is from an older revision than the write transaction,
     // revert the write transaction to match the source revision.
