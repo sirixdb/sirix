@@ -44,7 +44,9 @@ public abstract class AbstractDocumentRootNode extends AbstractFlyweightNode imp
   protected @Nullable LongHashFunction hashFunction;
   protected @Nullable SirixDeweyID sirixDeweyID;
   protected byte @Nullable [] deweyIDBytes;
+  /** @see #getOwnerPage() */
   protected @Nullable KeyValueLeafPage ownerPage;
+  /** @see #isWriteSingleton() */
   private boolean writeSingleton;
 
   @Override

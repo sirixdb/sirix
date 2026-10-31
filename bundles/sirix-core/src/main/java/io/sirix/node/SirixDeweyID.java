@@ -823,8 +823,21 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     return Arrays.hashCode(divisionValues);
   }
 
+  /**
+   * Create an ID between sibling bounds at their level without changing existing IDs. Each non-null
+   * bound must contain at least one division and end in an odd node division; a trailing even
+   * structural marker is not a node bound. Structural prefixes for attributes, namespaces and records
+   * are retained.
+   *
+   * @param deweyID1 lower bound, or {@code null} to insert before the upper bound
+   * @param deweyID2 upper bound, or {@code null} to insert after the lower bound
+   * @return the new sibling ID
+   * @throws NullPointerException if both bounds are {@code null}, or two bounds are supplied and
+   *         either has no parent
+   * @throws SirixException if a bound is empty or ends in an even division, or two supplied bounds
+   *         are in non-increasing order or have different parents
+   */
   public static SirixDeweyID newBetween(@Nullable SirixDeweyID deweyID1, @Nullable SirixDeweyID deweyID2) {
-    // newBetween always returns ID of new node in same level!
     requireSiblingDivision(deweyID1);
     requireSiblingDivision(deweyID2);
 
