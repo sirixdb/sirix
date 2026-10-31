@@ -20,7 +20,7 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
 | JUnit framework consistency | Query test classes do not mix standard JUnit 4 and Jupiter annotation markers, including inherited fixtures | `sirix-query/src/test/java/io/sirix/query/JUnitFrameworkConsistencyTest.java` (owns the guard's scope) |
 | Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns; warnings for nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
-| SonarQube / Checkstyle | Style and maintainability smells | `sonarqube.yml`, `checkstyle.xml` |
+| SonarCloud / Checkstyle | Static analysis and style rules | [SonarCloud analysis](#sonarcloud-analysis), `checkstyle.xml` |
 
 ## Why these layers, specifically
 
@@ -80,6 +80,25 @@ coverage.
 and ~500 more); **NullAway** checks nullness contracts against the JSpecify annotations already
 used in the codebase. Both are opt-in (`-PerrorProne`) so the everyday build is unchanged, and run
 in CI via the `Deep verification` workflow.
+
+## SonarCloud analysis
+
+[`sonarqube.yml`](../.github/workflows/sonarqube.yml) runs on pushes to `main` and eligible
+pull requests targeting `main`. It builds and tests with JaCoCo XML reports before running `sonar` separately.
+It waits for the quality gate, so a successful upload alone cannot make the check green.
+The required quality-gate policy is **no new bugs or vulnerabilities on new code**;
+configure its conditions in SonarCloud.
+PR analysis uses GitHub Actions' automatic PR parameters and the source commit with full history.
+Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
+The REST integration suite remains outside this job, as before.
+
+The core XML report includes the isolated test forks' execution data. Their agent-handling
+safety invariant is documented beside the fork-option copy in
+[`bundles/sirix-core/build.gradle`](../bundles/sirix-core/build.gradle).
+
+Review issues against the low-latency requirements in `AGENTS.md`. Prefer clean code when it
+costs no hot-path performance. Any rule exception must name the specific rule and scope, with
+a short reason explaining the performance cost; do not weaken allocation or work-budget tests.
 
 ## Running the layers
 

@@ -111,18 +111,16 @@ subprojects {
     apply plugin: 'jacoco'
 
     jacoco {
-        // Needs to understand Java 25 class files; the plugin's bundled default lags the toolchain.
-        toolVersion = '0.8.13'
+        // Official Java 25 support; keep the agent and report reader on the same version.
+        toolVersion = '0.8.14'
     }
 
     // Instrument only when coverage is actually going to be consumed. The agent rewrites every
     // loaded class and adds a probe write per branch, which taxes every `gradlew test` run.
     //
-    // The trigger is the TASK GRAPH, not just -Pcoverage: sonarqube.yml runs `gradlew build
-    // sonarqube` without any flag, and gating on the flag alone would have left Sonar silently
-    // reporting 0% coverage with no failing task to notice it. Enabling whenever a Jacoco report
-    // (or Sonar) is in the graph keeps CI honest and still leaves a bare `gradlew test`
-    // uninstrumented.
+    // The task graph also enables coverage when a JaCoCo report or Sonar is requested, so
+    // `build jacocoTestReport` in sonarqube.yml produces coverage without a separate flag.
+    // A bare `gradlew test` stays uninstrumented.
     gradle.taskGraph.whenReady { graph ->
         final boolean coverageWanted = project.hasProperty('coverage') || graph.allTasks.any {
             it instanceof JacocoReport || it.name.toLowerCase().startsWith('sonar')
