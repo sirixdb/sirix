@@ -1,6 +1,7 @@
 package io.sirix.query.scan;
 
 import io.sirix.query.scan.DerivedCacheBudget.Reservation;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -13,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Tag("native-image")
 final class DerivedCacheBudgetTest {
   @Test
   void defaultsRespectAllThreeInputsAndExplicitCapsRespectTheReserve() {

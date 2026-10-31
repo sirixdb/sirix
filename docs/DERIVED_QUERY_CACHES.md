@@ -94,3 +94,14 @@ Regression fixtures are `DerivedCacheBudgetTest`, `NumericMaskedColumnCacheTest`
 [VERIFICATION.md](VERIFICATION.md) after changing admission or read paths. Timing and memory
 acceptance additionally require paired native+PGO runs; unit tests assert work and exact
 answers, never elapsed time.
+
+The two cache fixtures also carry the `native-image` tag and run in
+`:sirix-query:nativeSmokeTest`. This guards Caffeine's weak-key index and both weighted
+partitions, including disabled and long-weight configurations. Native Caffeine registrations
+in `META-INF/native-image/io.sirix/derived-cache/reachability-metadata.json` were generated
+from GraalVM's tracing agent over these fixtures, the interval-join work-budget fixture,
+changed core-cache fixtures and Q4/Q9/Q10. Only Caffeine entries missing from the existing
+core/query metadata are included. When changing cache builders, run with
+`-agentlib:native-image-agent=config-merge-dir=<output-directory>`, merge the recorded
+Caffeine reflection entries, and run the native smoke suite before performance acceptance.
+Do not infer generated cache/node class names from a single failing configuration.

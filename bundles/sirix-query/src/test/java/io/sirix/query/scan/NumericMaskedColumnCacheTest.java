@@ -9,6 +9,7 @@ import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Tag("native-image")
 final class NumericMaskedColumnCacheTest {
   private final DerivedCacheBudget budget = new DerivedCacheBudget(1L << 20, 1L << 20, 1L << 20, -1);
   private final NumericMaskedColumnCache cache = new NumericMaskedColumnCache(budget.numeric());
