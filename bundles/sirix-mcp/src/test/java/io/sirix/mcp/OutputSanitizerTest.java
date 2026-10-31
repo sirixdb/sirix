@@ -2,7 +2,6 @@ package io.sirix.mcp;
 
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 

@@ -80,7 +80,12 @@ final class JsonWriterLifecycleTest {
         writer.close();
         assertTrue(session.getNodeTrx().isEmpty());
       }
-      assertStored(mutation.name(), commit ? 2 : 1, commit ? mutation.expected() : mutation.original());
+      assertStored(mutation.name(), commit
+          ? 2
+          : 1,
+          commit
+              ? mutation.expected()
+              : mutation.original());
     }
   }
 
