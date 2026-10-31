@@ -81,7 +81,7 @@ class BoundedDiffNumericTest {
     final var config = new McpServerConfig("test", "1", "stdio", directory.toString(), true, List.of(), List.of(),
         Map.of(), 2, 4096, false, false, false, null);
     final var handlers = new ToolHandlers(config, new AccessControl(config), new OutputSanitizer(config),
-        new SnapshotRegistry(directory), AuditLog.create(config));
+        new SnapshotRegistry(new AccessControl(config)), AuditLog.create(config));
     for (final String operation : List.of("insert", "replace", "update")) {
       for (final int offset : new int[] {0, 2}) {
         final var response = handlers.diff(null, new CallToolRequest("sirix_diff",

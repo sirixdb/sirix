@@ -78,8 +78,8 @@ class McpContractTest {
       final int count, final int size) throws IOException {
     final var config = new McpServerConfig("test", "1", "stdio", root.toString(), readOnly, List.of(), List.of(),
         resources, count, size, false, false, false, null);
-    return new ToolHandlers(config, new AccessControl(config), new OutputSanitizer(config), new SnapshotRegistry(root),
-        AuditLog.create(config));
+    return new ToolHandlers(config, new AccessControl(config), new OutputSanitizer(config),
+        new SnapshotRegistry(new AccessControl(config)), AuditLog.create(config));
   }
 
   private static CallToolRequest request(final Map<String, Object> parameters) {

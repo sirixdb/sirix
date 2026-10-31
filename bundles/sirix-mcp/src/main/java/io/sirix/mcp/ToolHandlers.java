@@ -184,25 +184,35 @@ public final class ToolHandlers {
         accessControl.checkDatabaseAccess(database);
       }
 
-      safeDatabasePath(database);
-      if (resource != null)
+      final Path targetDatabase = safeDatabasePath(database);
+      final String canonicalResource;
+      if (resource != null) {
         validateResourceName(resource);
+        canonicalResource = accessControl.resourcePath(database, resource, targetDatabase).getFileName().toString();
+      } else {
+        canonicalResource = null;
+      }
       final Integer revision = queryRevision(args, database, resource);
       final int offset = nonNegativeOffset(args);
-      final var policy = new QueryAccessPolicy(databasePath, accessControl, database, resource, revision);
+      final var policy = new QueryAccessPolicy(databasePath, accessControl, targetDatabase.getFileName().toString(),
+          canonicalResource, revision);
       return ResourceAccessScope.where(policy).call(() -> {
         final var store = BasicJsonDBStore.newBuilder().location(databasePath).build();
         try (store; final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
           if (ReadOnlyQuery.updating(queryStr)) {
-            return structuredResult(Map.of("code", "updating_query", "message",
-                "sirix_query is read-only. Use an explicit write tool in read-write mode.", "tools",
-                List.of("sirix_create_resource", "sirix_insert", "sirix_update", "sirix_delete", "sirix_revert")), true);
+            return structuredResult(
+                Map.of("code", "updating_query", "message",
+                    "sirix_query is read-only. Use an explicit write tool in read-write mode.", "tools",
+                    List.of("sirix_create_resource", "sirix_insert", "sirix_update", "sirix_delete", "sirix_revert")),
+                true);
           }
           final var query = new Query(chain, queryStr);
           try (final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store)) {
             if (resource != null) {
               ctx.setContextItem(store.lookup(database)
-                                      .getDocument(resource, revision == null ? -1 : revision));
+                                      .getDocument(resource, revision == null
+                                          ? -1
+                                          : revision));
             }
             final var sequence = query.execute(ctx);
             final var result = BoundedQueryResult.serialize(sequence, offset, config, sanitizer);
@@ -262,6 +272,7 @@ public final class ToolHandlers {
       validateResourceName(resource);
 
       final Path dbPath = safeDatabasePath(database);
+      checkResourceTarget(database, resource, dbPath);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
           final JsonResourceSession session = db.beginResourceSession(resource)) {
@@ -319,6 +330,7 @@ public final class ToolHandlers {
 
       final int rev;
       final Path dbPath = safeDatabasePath(database);
+      checkResourceTarget(database, resource, dbPath);
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
           final JsonResourceSession session = db.beginResourceSession(resource)) {
         rev = revision != null
@@ -346,8 +358,11 @@ public final class ToolHandlers {
       checkResourceTarget(database, resource, path);
       final String data = requireString(args, "data");
       final String format = optionalString(args, "format");
-      final DatabaseType type = format == null || format.equals("json") ? DatabaseType.JSON
-          : format.equals("xml") ? DatabaseType.XML : null;
+      final DatabaseType type = format == null || format.equals("json")
+          ? DatabaseType.JSON
+          : format.equals("xml")
+              ? DatabaseType.XML
+              : null;
       if (type == null)
         throw new IllegalArgumentException("format must be json or xml");
       final boolean overwrite = optionalBoolean(args, "overwrite", false);
@@ -358,7 +373,9 @@ public final class ToolHandlers {
         document = MAPPER.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(data);
         if (document == null || document.isMissingNode())
           throw new IllegalArgumentException("data must contain a JSON value");
-        number = document.isNumber() ? JsonNumber.stringToNumber(data.strip()) : null;
+        number = document.isNumber()
+            ? JsonNumber.stringToNumber(data.strip())
+            : null;
       } else {
         document = null;
         number = null;
@@ -407,8 +424,9 @@ public final class ToolHandlers {
               writer.insertNullValueAsFirstChild();
             }
             writer.commit(message);
-            return structuredResult(Map.of("database", database, "resource", resource, "revision",
-                session.getMostRecentRevisionNumber()), false);
+            return structuredResult(
+                Map.of("database", database, "resource", resource, "revision", session.getMostRecentRevisionNumber()),
+                false);
           }
         }
       }
@@ -428,16 +446,17 @@ public final class ToolHandlers {
             reader.close();
           }
           writer.commit(message);
-          return structuredResult(Map.of("database", database, "resource", resource, "revision",
-              session.getMostRecentRevisionNumber()), false);
+          return structuredResult(
+              Map.of("database", database, "resource", resource, "revision", session.getMostRecentRevisionNumber()),
+              false);
         }
       }
     });
   }
 
   private static CallToolResult resourceExists(final String database, final String resource) {
-    return structuredResult(Map.of("code", "resource_exists", "database", database, "resource", resource,
-        "message", "Resource already exists; set overwrite to true to replace its content"), true);
+    return structuredResult(Map.of("code", "resource_exists", "database", database, "resource", resource, "message",
+        "Resource already exists; set overwrite to true to replace its content"), true);
   }
 
   public CallToolResult insert(McpSyncServerExchange exchange, CallToolRequest request) {
@@ -615,32 +634,11 @@ public final class ToolHandlers {
   }
 
   private Path safeDatabasePath(String database) {
-    validateDatabaseName(database);
-    final Path resolved = databasePath.resolve(database).normalize();
-    if (!resolved.startsWith(databasePath)) {
-      throw new IllegalArgumentException("Invalid database name");
-    }
-    final Path canonical = QueryAccessPolicy.canonicalPath(resolved);
-    if (!QueryAccessPolicy.canonicalPath(databasePath).equals(canonical.getParent()))
-      throw new AccessControl.AccessDeniedException("Database is outside the configured data directory");
-    accessControl.checkDatabaseAccess(canonical.getFileName().toString());
-    return canonical;
+    return accessControl.databasePath(database);
   }
 
   private void checkResourceTarget(final String database, final String resource, final Path path) {
-    final Path resources = path.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
-    final Path target = QueryAccessPolicy.canonicalPath(resources.resolve(resource));
-    if (!resources.equals(target.getParent()))
-      throw new AccessControl.AccessDeniedException("Resource is outside the database resource directory");
-    accessControl.checkAccess(database, target.getFileName().toString());
-    accessControl.checkAccess(path.getFileName().toString(), target.getFileName().toString());
-  }
-
-  private static void validateDatabaseName(String name) {
-    if (!VALID_NAME.matcher(name).matches()) {
-      throw new IllegalArgumentException(
-          "Invalid database name: must be 1-128 alphanumeric characters, hyphens, underscores, or dots");
-    }
+    accessControl.resourcePath(database, resource, path);
   }
 
   private static void validateResourceName(String name) {

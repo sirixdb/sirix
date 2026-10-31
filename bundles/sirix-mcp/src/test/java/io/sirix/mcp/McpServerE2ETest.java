@@ -30,7 +30,8 @@ class McpServerE2ETest {
   private static final String DB_NAME = "e2e-db";
   private static final String RESOURCE_NAME = "e2e-res";
 
-  @TempDir Path tempDir;
+  @TempDir
+  Path tempDir;
 
   @BeforeEach
   void setUp() {
@@ -38,8 +39,7 @@ class McpServerE2ETest {
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
     try (final var db = Databases.openJsonDatabase(dbPath)) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME).build());
-      try (final var session = db.beginResourceSession(RESOURCE_NAME);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      try (final var session = db.beginResourceSession(RESOURCE_NAME); final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"key\":\"value\",\"num\":42}"));
       }
     }
@@ -48,32 +48,35 @@ class McpServerE2ETest {
   private ToolHandlers buildHandlers(boolean readWrite) throws IOException {
     final var config = McpServerConfig.defaults(tempDir).withReadOnly(!readWrite);
     return new ToolHandlers(config, new AccessControl(config), new OutputSanitizer(config),
-        new SnapshotRegistry(tempDir), AuditLog.create(config));
+        new SnapshotRegistry(new AccessControl(config)), AuditLog.create(config));
   }
 
   private McpSyncServer buildServer(boolean readWrite) throws IOException {
     final var config = McpServerConfig.defaults(tempDir).withReadOnly(!readWrite);
     final var toolHandlers = buildHandlers(readWrite);
-    final var transport = new StdioServerTransportProvider(
-        new JacksonMcpJsonMapper(
-            JsonMapper.builder().build()));
+    final var transport = new StdioServerTransportProvider(new JacksonMcpJsonMapper(JsonMapper.builder().build()));
     final var builder = McpServer.sync(transport).serverInfo("sirixdb-mcp-test", "1.0.0");
     SirixMcpServer.registerReadTools(builder, toolHandlers);
-    if (readWrite) SirixMcpServer.registerWriteTools(builder, toolHandlers);
+    if (readWrite)
+      SirixMcpServer.registerWriteTools(builder, toolHandlers);
     return builder.build();
   }
 
-  @Test void readOnlyServerRegisters8Tools() throws IOException {
+  @Test
+  void readOnlyServerRegisters8Tools() throws IOException {
     assertThat(buildServer(false).listTools()).hasSize(8);
   }
 
-  @Test void readWriteServerRegisters14Tools() throws IOException {
+  @Test
+  void readWriteServerRegisters14Tools() throws IOException {
     final var names = buildServer(true).listTools().stream().map(Tool::name).toList();
-    assertThat(names).hasSize(14).contains("sirix_create_resource", "sirix_insert", "sirix_update", "sirix_delete",
-        "sirix_revert", "sirix_delete_snapshot");
+    assertThat(names).hasSize(14)
+                     .contains("sirix_create_resource", "sirix_insert", "sirix_update", "sirix_delete", "sirix_revert",
+                         "sirix_delete_snapshot");
   }
 
-  @Test void toolsHaveDescriptionsAndSchemas() throws IOException {
+  @Test
+  void toolsHaveDescriptionsAndSchemas() throws IOException {
     for (final boolean readWrite : new boolean[] {false, true}) {
       for (final Tool tool : buildServer(readWrite).listTools()) {
         assertThat(tool.description()).as("Tool %s", tool.name()).isNotBlank();
@@ -84,7 +87,8 @@ class McpServerE2ETest {
     }
   }
 
-  @Test void fullPipelineListAndQuery() throws IOException {
+  @Test
+  void fullPipelineListAndQuery() throws IOException {
     final var h = buildHandlers(false);
     final var listDb = h.listDatabases(null, new CallToolRequest("sirix_list_databases", Map.of()));
     assertThat(listDb.isError()).isFalse();
@@ -93,8 +97,8 @@ class McpServerE2ETest {
     final var listRes = h.listResources(null, new CallToolRequest("sirix_list_resources", Map.of("database", DB_NAME)));
     assertThat(((TextContent) listRes.content().getFirst()).text()).contains(RESOURCE_NAME);
 
-    final var info = h.resourceInfo(null, new CallToolRequest("sirix_resource_info",
-        Map.of("database", DB_NAME, "resource", RESOURCE_NAME)));
+    final var info = h.resourceInfo(null,
+        new CallToolRequest("sirix_resource_info", Map.of("database", DB_NAME, "resource", RESOURCE_NAME)));
     assertThat(((TextContent) info.content().getFirst()).text()).contains("\"latestRevision\":1");
 
     final var query = h.query(null, new CallToolRequest("sirix_query",
@@ -103,14 +107,15 @@ class McpServerE2ETest {
     assertThat(((TextContent) query.content().getFirst()).text()).contains("value");
   }
 
-  @Test void fullPipelineWriteAndVerify() throws IOException {
+  @Test
+  void fullPipelineWriteAndVerify() throws IOException {
     final var h = buildHandlers(true);
     h.createSnapshot(null, new CallToolRequest("sirix_create_snapshot",
         Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "name", "baseline")));
     // Cat-1: post-fusion (iter#32) the OBJECT_KEY+STRING_VALUE pair "key":"value" collapses
     // into one OBJECT_NAMED_STRING at nodeKey=2 (was nodeKey=3 pre-fusion).
-    final var update = h.update(null, new CallToolRequest("sirix_update",
-        Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 2, "value", "modified", "message", "change")));
+    final var update = h.update(null, new CallToolRequest("sirix_update", Map.of("database", DB_NAME, "resource",
+        RESOURCE_NAME, "nodeKey", 2, "value", "modified", "message", "change")));
     assertThat(((TextContent) update.content().getFirst()).text()).contains("revision 2");
 
     final var diff = h.diff(null, new CallToolRequest("sirix_diff",
@@ -121,8 +126,8 @@ class McpServerE2ETest {
         Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "snapshot", "baseline", "message", "rollback")));
     assertThat(((TextContent) revert.content().getFirst()).text()).contains("Reverted to revision 1");
 
-    final var history = h.history(null, new CallToolRequest("sirix_history",
-        Map.of("database", DB_NAME, "resource", RESOURCE_NAME)));
+    final var history =
+        h.history(null, new CallToolRequest("sirix_history", Map.of("database", DB_NAME, "resource", RESOURCE_NAME)));
     assertThat(((TextContent) history.content().getFirst()).text()).contains("\"revision\":3");
   }
 

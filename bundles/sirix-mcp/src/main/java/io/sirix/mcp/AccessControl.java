@@ -1,6 +1,8 @@
 package io.sirix.mcp;
 
 import io.sirix.access.ResourceAccessScope;
+import io.sirix.access.DatabaseConfiguration;
+import java.nio.file.Path;
 
 /**
  * Enforces database/resource access control based on {@link McpServerConfig}.
@@ -43,6 +45,32 @@ public final class AccessControl {
     if (!config.isResourceAllowed(database, resource)) {
       throw new AccessDeniedException("Access denied to resource: " + database + "/" + resource);
     }
+  }
+
+  Path databasePath(final String database) {
+    checkDatabaseAccess(database);
+    final Path root = QueryAccessPolicy.canonicalPath(Path.of(config.databasePath()));
+    final Path target = QueryAccessPolicy.canonicalPath(root.resolve(database));
+    if (!root.equals(target.getParent()))
+      throw new AccessDeniedException("Database is outside the configured data directory");
+    checkDatabaseAccess(target.getFileName().toString());
+    return target;
+  }
+
+  Path resourcePath(final String database, final String resource, final Path databasePath) {
+    checkAccess(database, resource);
+    if (!validDatabaseName(resource))
+      throw new IllegalArgumentException("Invalid resource name");
+    final Path resources = databasePath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Path target = QueryAccessPolicy.canonicalPath(resources.resolve(resource));
+    if (!resources.equals(target.getParent()))
+      throw new AccessDeniedException("Resource is outside the database resource directory");
+    final String canonicalDatabase = databasePath.getFileName().toString();
+    final String canonicalResource = target.getFileName().toString();
+    checkAccess(database, canonicalResource);
+    checkAccess(canonicalDatabase, resource);
+    checkAccess(canonicalDatabase, canonicalResource);
+    return target;
   }
 
   /** Check whether write operations are permitted. */

@@ -20,7 +20,7 @@ class SnapshotRegistryTest {
 
   @BeforeEach
   void setUp() {
-    registry = new SnapshotRegistry(tempDir);
+    registry = new SnapshotRegistry(new AccessControl(McpServerConfig.defaults(tempDir)));
   }
 
   @Test
@@ -73,8 +73,7 @@ class SnapshotRegistryTest {
     registry.create("mydb", "res1", "v2", 20);
 
     // Create a new registry and load from disk
-    var registry2 = new SnapshotRegistry(tempDir);
-    registry2.loadForDatabase("mydb");
+    var registry2 = new SnapshotRegistry(new AccessControl(McpServerConfig.defaults(tempDir)));
 
     assertThat(registry2.resolve("mydb", "res1", "v1")).isEqualTo(10);
     assertThat(registry2.resolve("mydb", "res1", "v2")).isEqualTo(20);
@@ -148,7 +147,7 @@ class SnapshotRegistryTest {
     final Path file = db.resolve(".sirix-mcp-snapshots.json");
     final String corrupt = "{broken";
     Files.writeString(file, corrupt);
-    final var registry = new SnapshotRegistry(tempDir);
+    final var registry = new SnapshotRegistry(new AccessControl(McpServerConfig.defaults(tempDir)));
     assertThatThrownBy(() -> registry.create("broken", "res", "first", 1)).isInstanceOf(RuntimeException.class);
     assertThatThrownBy(() -> registry.create("broken", "res", "second", 2)).isInstanceOf(RuntimeException.class);
     assertThat(Files.readString(file)).isEqualTo(corrupt);
@@ -164,6 +163,7 @@ class SnapshotRegistryTest {
     assertThat(registry.resolve("db", "res", "baseline")).isEqualTo(1);
     assertThatThrownBy(() -> registry.delete("db", "res", "baseline")).isInstanceOf(RuntimeException.class);
     assertThat(registry.resolve("db", "res", "baseline")).isEqualTo(1);
-    assertThat(new SnapshotRegistry(tempDir).resolve("db", "res", "baseline")).isEqualTo(1);
+    assertThat(new SnapshotRegistry(new AccessControl(McpServerConfig.defaults(tempDir))).resolve("db", "res",
+        "baseline")).isEqualTo(1);
   }
 }

@@ -55,7 +55,7 @@ public final class SirixMcpServer {
 
     var accessControl = new AccessControl(config);
     var sanitizer = new OutputSanitizer(config);
-    var snapshotRegistry = new SnapshotRegistry(Path.of(config.databasePath()));
+    var snapshotRegistry = new SnapshotRegistry(accessControl);
     var auditLog = AuditLog.create(config);
     var toolHandlers = new ToolHandlers(config, accessControl, sanitizer, snapshotRegistry, auditLog);
 
@@ -122,8 +122,7 @@ public final class SirixMcpServer {
             "snapshot", stringProp("Query at named snapshot"), "timestamp",
             stringProp("Query at ISO-8601 timestamp (exclusive with revision/snapshot; requires resource)"), "offset",
             intProp("Result item offset for continuation (default: 0)")), List.of("query", "database")),
-        readOnlyAnnotations()),
-        handlers::query);
+        readOnlyAnnotations()), handlers::query);
 
     // sirix_history
     builder.toolCall(tool("sirix_history", "Get revision history for a resource",
@@ -162,9 +161,11 @@ public final class SirixMcpServer {
     builder.toolCall(tool("sirix_create_resource",
         "Create a JSON or XML resource. Authorizes the exact name; overwrite creates a new revision of an existing resource.",
         schema(Map.of("database", stringProp("Database name"), "resource", stringProp("Resource name"), "data",
-            stringProp("JSON value (object, array or scalar) or XML content"), "format", Map.of("type", "string", "enum", List.of("json", "xml"),
-                "default", "json", "description", "Database format (default: json)"), "overwrite",
-            Map.of("type", "boolean", "default", false, "description", "Replace existing resource content when authorized"),
+            stringProp("JSON value (object, array or scalar) or XML content"), "format", Map.of("type", "string",
+                "enum", List.of("json", "xml"), "default", "json", "description", "Database format (default: json)"),
+            "overwrite",
+            Map.of("type", "boolean", "default", false, "description",
+                "Replace existing resource content when authorized"),
             "message", stringProp("Commit message")), List.of("database", "resource", "data")),
         destructiveAnnotations()), handlers::createResource);
 
