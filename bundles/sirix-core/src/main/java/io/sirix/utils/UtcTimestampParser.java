@@ -143,14 +143,14 @@ public final class UtcTimestampParser {
 
   /** Epoch day using Hinnant's days_from_civil; callers validate civil fields before use. */
   public static long daysFromCivil(final int year, final int month, final int day) {
-    final long y = year - (month <= 2
+    final long y = (long) year - (month <= 2
         ? 1
         : 0);
     final long era = (y >= 0
         ? y
         : y - 399) / 400;
     final long yearOfEra = y - era * 400; // [0, 399]
-    final long dayOfYear = (153 * (month + (month > 2
+    final long dayOfYear = (153L * (month + (month > 2
         ? -3
         : 9)) + 2) / 5 + day - 1; // [0, 365]
     final long dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;

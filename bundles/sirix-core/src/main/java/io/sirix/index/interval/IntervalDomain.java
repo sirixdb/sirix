@@ -126,7 +126,7 @@ public final class IntervalDomain {
 
   private static long epochMillis(final long epochSecond, final int nano) {
     if (epochSecond < 0 && nano > 0) {
-      return Math.addExact(Math.multiplyExact(epochSecond + 1, 1_000), nano / 1_000_000 - 1_000);
+      return Math.addExact(Math.multiplyExact(epochSecond + 1, 1_000), nano / 1_000_000 - 1_000L);
     }
     return Math.addExact(Math.multiplyExact(epochSecond, 1_000), nano / 1_000_000);
   }
