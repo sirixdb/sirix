@@ -307,6 +307,13 @@ path, and leave it unconditional, as `AbstractReader.regionChunkHits()` argues, 
 event already costs a system call. Then list it in the catalog and in the diagnostics appendix of
 `docs/SEGMENT_PROJECTION_INDEXES.md`.
 
+`InlineSlotCopyAllocationBudgetTest` measures 16,384 inline slot copies and empty overflow-reference
+lookups with key 1,031, beyond the `Long` cache. It warms the exact loop and grows the owned frame
+before measuring; frame recycling stays outside the byte window. An actual overflow carrier is
+replaced by inline bytes in the correctness control, while an unrelated reference survives.
+Mutation evidence (2026-11-01): restoring the unconditional `copySlotFromPage` removal failed at
+393,216 bytes (24 bytes per copy), against zero with the guard. The source was restored afterwards.
+
 ## Adding a budget test
 
 1. **Name the regression** in a sentence. If you cannot, there is nothing to budget.

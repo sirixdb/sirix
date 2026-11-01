@@ -1851,7 +1851,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Copying just the metadata half makes the field discoverable but unreadable; copying an
     // ordinary inline record must retire any stale overflow half already present on the target.
     removeSideSlot(slotIndex);
-    if (sourceCompanion == null) {
+    if (sourceCompanion == null && !references.isEmpty()) {
       references.remove(recordKey);
     }
   }
@@ -2518,7 +2518,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return true;
     }
     final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
-    if (references.get(nodeKey) == null) {
+    if (references.isEmpty() || references.get(nodeKey) == null) {
       return false;
     }
     // A reference alone is not the complete logical carrier when the authoritative page has a
@@ -7622,7 +7622,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   @Override
   public PageReference getPageReference(final long key) {
-    return references.get(key);
+    return references.isEmpty() ? null : references.get(key);
   }
 
   @Override
@@ -7921,7 +7921,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             final long nodeKey = record.getNodeKey();
             final int offset = StorageEngineReader.recordPageOffset(nodeKey);
             if (serializeToHeap(fn, nodeKey, offset)) {
-              references.remove(nodeKey);
+              if (!references.isEmpty()) {
+                references.remove(nodeKey);
+              }
               records[i] = null;
               continue;
             }
@@ -7996,7 +7998,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           }
           // A previous oversized version of this record may have left an overflow reference —
           // the slot now carries the current version, so drop the stale reference.
-          references.remove(recordID);
+          if (!references.isEmpty()) {
+            references.remove(recordID);
+          }
         }
         // Clear record reference after serialization — snapshot isolation.
         // Data is now in slotMemory/slottedPage; prevents cross-transaction aliasing.
