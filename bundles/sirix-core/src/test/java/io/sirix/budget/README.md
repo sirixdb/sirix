@@ -312,6 +312,8 @@ event already costs a system call. Then list it in the catalog and in the diagno
 lookups with key 1,031, beyond the `Long` cache. It warms the exact loop and grows the owned frame
 before measuring; frame recycling stays outside the byte window. An actual overflow carrier is
 replaced by inline bytes in the correctness control, while an unrelated reference survives.
+It runs in the existing `dictionaryReadViewAllocationTest` fork, invoked by the standard core test
+task and included in coverage, so sibling Mockito mocks cannot contaminate the measured classes.
 Mutation evidence (2026-11-01): restoring the unconditional `copySlotFromPage` removal failed at
 393,216 bytes (24 bytes per copy), against zero with the guard. The source was restored afterwards.
 
