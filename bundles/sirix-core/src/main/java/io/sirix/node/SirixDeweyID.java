@@ -823,8 +823,23 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
     return Arrays.hashCode(divisionValues);
   }
 
+  /**
+   * Create an ID between sibling bounds at their level without changing existing IDs. Each non-null
+   * bound must contain at least one division and end in an odd node division; a trailing even
+   * structural marker is not a node bound. Structural prefixes for attributes, namespaces and records
+   * are retained.
+   *
+   * @param deweyID1 lower bound, or {@code null} to insert before the upper bound
+   * @param deweyID2 upper bound, or {@code null} to insert after the lower bound
+   * @return the new sibling ID
+   * @throws NullPointerException if both bounds are {@code null}, or two bounds are supplied and
+   *         either has no parent
+   * @throws SirixException if a bound is empty or ends in an even division, or two supplied bounds
+   *         are in non-increasing order or have different parents
+   */
   public static SirixDeweyID newBetween(@Nullable SirixDeweyID deweyID1, @Nullable SirixDeweyID deweyID2) {
-    // newBetween always returns ID of new node in same level!
+    requireSiblingDivision(deweyID1);
+    requireSiblingDivision(deweyID2);
 
     if (deweyID1 == null) {
       requireNonNull(deweyID2);
@@ -836,7 +851,8 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
 
       i++;
       // skip the 2s
-      while (deweyID2.divisionValues[i] == 2 || deweyID2.divisionValues[i] == recordValueRootDivisionValue)
+      while (i < deweyID2.divisionValues.length - 1
+          && (deweyID2.divisionValues[i] == 2 || deweyID2.divisionValues[i] == recordValueRootDivisionValue))
         i++;
 
       int divisions;
@@ -929,7 +945,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
         if (deweyID1.divisionValues[i] % 2 == 1) { // deweyID1 complete
           i++;
           // overparse the 2
-          while (deweyID2.divisionValues[i] == 2)
+          while (i < deweyID2.divisionValues.length - 1 && deweyID2.divisionValues[i] == 2)
             i++;
           if (deweyID2.divisionValues[i] == 3) { // last division is 3
             // add 2.distanceToSibling+1
@@ -964,6 +980,12 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
       }
 
       return new SirixDeweyID(divisionValues, deweyID1.level);
+    }
+  }
+
+  private static void requireSiblingDivision(@Nullable SirixDeweyID id) {
+    if (id != null && (id.divisionValues.length == 0 || (id.divisionValues[id.divisionValues.length - 1] & 1) == 0)) {
+      throw new SirixException("DeweyID [newBetween]: a sibling bound must end in a node division");
     }
   }
 

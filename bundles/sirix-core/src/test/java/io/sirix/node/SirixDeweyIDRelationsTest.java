@@ -48,10 +48,42 @@ final class SirixDeweyIDRelationsTest {
   }
 
   @Test
+  void siblingInsertionRejectsEmptyAndStructuralMarkerBounds() {
+    final SirixDeweyID sibling = new SirixDeweyID("1.7");
+    final SirixDeweyID[] invalidBounds =
+        {new SirixDeweyID(new int[0]), new SirixDeweyID("1.3.0"), new SirixDeweyID("1.3.2")};
+    for (final SirixDeweyID invalid : invalidBounds) {
+      assertThrows(SirixException.class, () -> SirixDeweyID.newBetween(null, invalid));
+      assertThrows(SirixException.class, () -> SirixDeweyID.newBetween(invalid, null));
+      assertThrows(SirixException.class, () -> SirixDeweyID.newBetween(sibling, invalid));
+      assertThrows(SirixException.class, () -> SirixDeweyID.newBetween(invalid, sibling));
+    }
+  }
+
+  @Test
+  void siblingInsertionPreservesAttributeNamespaceAndRecordPrefixes() {
+    final SirixDeweyID root = SirixDeweyID.newRootID();
+    final SirixDeweyID[] children = {root.getNewChildID(), root.getNewAttributeID(), root.getNewNamespaceID(),
+        root.getNewRecordID(), new SirixDeweyID("1.2.2.3")};
+    for (final SirixDeweyID child : children) {
+      final SirixDeweyID before = SirixDeweyID.newBetween(null, child);
+      final SirixDeweyID after = SirixDeweyID.newBetween(child, null);
+      final SirixDeweyID between = SirixDeweyID.newBetween(before, child);
+      assertTrue(before.compareTo(between) < 0);
+      assertTrue(between.compareTo(child) < 0);
+      assertTrue(child.compareTo(after) < 0);
+      assertEquals(child.getParent(), before.getParent());
+      assertEquals(child.getParent(), between.getParent());
+      assertEquals(child.getParent(), after.getParent());
+    }
+  }
+
+  @Test
   void boundedInsertionRejectsUnorderedOrUnrelatedNodes() {
     final SirixDeweyID left = new SirixDeweyID("1.3");
     final SirixDeweyID right = new SirixDeweyID("1.7");
     assertThrows(SirixException.class, () -> SirixDeweyID.newBetween(right, left));
-    assertThrows(SirixException.class, () -> SirixDeweyID.newBetween(left, new SirixDeweyID("1.7.3")));
+    final SirixDeweyID unrelated = new SirixDeweyID("1.7.3");
+    assertThrows(SirixException.class, () -> SirixDeweyID.newBetween(left, unrelated));
   }
 }
