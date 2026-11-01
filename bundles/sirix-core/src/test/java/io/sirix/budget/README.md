@@ -95,6 +95,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `SparseRevisionIndexWorkBudgetTest` | cold and warm dense revision-index loading with 16/4096 mostly pruned slots | the production FILE_CHANNEL decoder issues more than one metadata read or reads more than one history pass; warm index loading rereads any records |
 | `sirix-core` `ChangeLogWorkBudgetTest` | 20 projected row changes beside 256/4096 rows, all versioning types | slab bytes or slots grow with untouched rows; first old cells or represented base revisions disappear across page flushes, explicit barriers, cold reopening or revert; unchanged writer reads rebuild, encode or replay an already-applied batch |
 | `sirix-core` `RefusedOverflowLeafTableTest` | eight unused writer tables, then an actual overflow refusal | unused tables allocate 8 KiB or more; the positive witness fails to allocate the real 1 MiB backing array; concurrent first refusals lose an identity |
+| `sirix-core` `InlineSlotCopyAllocationBudgetTest` | inline slot reconstruction and empty overflow-reference lookups | empty-map operations allocate boxed keys, or copying an inline slot fails to retire its stale overflow reference while preserving unrelated references |
 | `sirix-core` `DerivedMaintainerWorkBudgetTest` | 20-row publication beside 256/4096 rows with the daemon deterministically paused | source writes any aggregate slots; derived replay rereads slab chunks or untouched groups, opens projection row groups, folds old parts during catch-up, or writes document pages/catalogue files |
 | `sirix-core` `TemporalAggregateMaintenanceWorkBudgetTest` | explicit internal aggregate-kernel mode: 20-row publication, 528 one-row publications/barriers beside 256/4096 rows, and 4096 publications through the large fixture's checkpoint cascade | first-delta chunk/page work exceeds changed-record bounds or opens a reader; cumulative tier-fold chunk/endpoint/node work exceeds changed-record bounds; tiers carry or checkpoints cascade more than once per boundary; historical summaries change |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
@@ -306,6 +307,15 @@ path: gate it as `VersioningType` gates its merge counters if it sits on a per-r
 path, and leave it unconditional, as `AbstractReader.regionChunkHits()` argues, only where each
 event already costs a system call. Then list it in the catalog and in the diagnostics appendix of
 `docs/SEGMENT_PROJECTION_INDEXES.md`.
+
+`InlineSlotCopyAllocationBudgetTest` measures 16,384 inline slot copies and empty overflow-reference
+lookups with key 1,031, beyond the `Long` cache. It warms the exact loop and grows the owned frame
+before measuring; frame recycling stays outside the byte window. An actual overflow carrier is
+replaced by inline bytes in the correctness control, while an unrelated reference survives.
+It runs in the existing `dictionaryReadViewAllocationTest` fork, invoked by the standard core test
+task and included in coverage, so sibling Mockito mocks cannot contaminate the measured classes.
+Mutation evidence (2026-11-01): restoring the unconditional `copySlotFromPage` removal failed at
+393,216 bytes (24 bytes per copy), against zero with the guard. The source was restored afterwards.
 
 ## Adding a budget test
 

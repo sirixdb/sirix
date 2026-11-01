@@ -317,15 +317,16 @@ def validTimeDisabledLookupCacheTest = tasks.register('validTimeDisabledLookupCa
 }
 
 // Inline Mockito mocks in sibling suites retransform real storage classes and allocate in their
-// interception prologues. Measure production dictionary allocations in an uncontaminated JVM.
+// interception prologues. Measure production dictionary and inline-slot allocations in a clean JVM.
 def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocationTest', Test) {
     group = 'verification'
-    description = 'Checks dictionary read-view behavior and allocation bounds in a separate JVM.'
+    description = 'Checks dictionary read-view and inline-slot allocation bounds in a separate JVM.'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
     filter {
         includeTestsMatching 'io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest'
+        includeTestsMatching 'io.sirix.budget.InlineSlotCopyAllocationBudgetTest'
     }
 }
 
@@ -370,6 +371,7 @@ tasks.named('jacocoTestReport') {
 tasks.named('test', Test).configure {
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
+    exclude 'io/sirix/budget/InlineSlotCopyAllocationBudgetTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     dependsOn validTimeDisabledLookupCacheTest
