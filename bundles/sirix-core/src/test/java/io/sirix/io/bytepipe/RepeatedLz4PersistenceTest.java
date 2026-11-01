@@ -26,8 +26,8 @@ final class RepeatedLz4PersistenceTest {
   void rejectsTruncatedSizeHeaders(final int frameSize) {
     final MemorySegment frame = MemorySegment.ofArray(new byte[frameSize]);
 
-    final SirixIOException failure = assertThrows(SirixIOException.class,
-        () -> new FFILz4Compressor().decompressScoped(frame));
+    final SirixIOException failure =
+        assertThrows(SirixIOException.class, () -> new FFILz4Compressor().decompressScoped(frame));
     assertEquals("Corrupt compressed page: payload shorter than its size header (" + frameSize + " bytes)",
         failure.getMessage());
   }
@@ -38,8 +38,8 @@ final class RepeatedLz4PersistenceTest {
     final MemorySegment frame = MemorySegment.ofArray(new byte[Integer.BYTES]);
     frame.set(JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), 0, sizeHeader);
 
-    final SirixIOException failure = assertThrows(SirixIOException.class,
-        () -> new FFILz4Compressor().decompressScoped(frame));
+    final SirixIOException failure =
+        assertThrows(SirixIOException.class, () -> new FFILz4Compressor().decompressScoped(frame));
     assertEquals("Corrupt compressed page: implausible decompressed size " + sizeHeader, failure.getMessage());
   }
 
@@ -49,10 +49,10 @@ final class RepeatedLz4PersistenceTest {
     final MemorySegment frame = MemorySegment.ofArray(new byte[Integer.BYTES + payloadSize]);
     frame.set(JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), 0, -(payloadSize + 1));
 
-    final SirixIOException failure = assertThrows(SirixIOException.class,
-        () -> new FFILz4Compressor().decompressScoped(frame));
-    assertEquals("Corrupt stored-uncompressed page: declared size " + (payloadSize + 1)
-        + " exceeds the payload (" + payloadSize + " bytes)", failure.getMessage());
+    final SirixIOException failure =
+        assertThrows(SirixIOException.class, () -> new FFILz4Compressor().decompressScoped(frame));
+    assertEquals("Corrupt stored-uncompressed page: declared size " + (payloadSize + 1) + " exceeds the payload ("
+        + payloadSize + " bytes)", failure.getMessage());
   }
 
   @ParameterizedTest
