@@ -54,8 +54,8 @@ public interface ByteHandler {
    * }
    * }</pre>
    * 
-   * @param segment Decompressed data (may be a slice of backingBuffer)
-   * @param backingBuffer Full allocated buffer (for zero-copy ownership transfer)
+   * @param segment Decompressed payload limited to its logical length, excluding allocator padding
+   * @param backingBuffer Full allocated buffer retained for release and zero-copy ownership transfer
    * @param releaser Returns buffer to allocator when called
    * @param ownershipTransferred Tracks whether ownership was transferred to prevent double-release
    */
