@@ -135,7 +135,10 @@ final class BitemporalLoaderBudgetTest {
       // Keep the measured kernel separate from assertions: entering the assertion branch in the
       // warmup loop can deoptimize its compiled frame and charge runtime setup to the next pass.
       for (int pass = 0; pass < 4; pass++) {
-        replaceRepeatedly(relation, old, next, event, 20_000);
+        // Warm the allocation-counter call path too; its first use can allocate runtime state.
+        bean.getThreadAllocatedBytes(thread);
+        replaceRepeatedly(relation, old, next, event, 40_000);
+        bean.getThreadAllocatedBytes(thread);
       }
       final long before = bean.getThreadAllocatedBytes(thread);
       final long inserted = replaceRepeatedly(relation, old, next, event, 40_000);
