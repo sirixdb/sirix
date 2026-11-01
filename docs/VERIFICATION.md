@@ -192,7 +192,8 @@ suite, with cold-reopen checks.
 # Work budgets (includes TemporalAggregateCatchUpWorkBudgetTest for lag 0, 1, 8, 16, 17 and folded lag 64)
 # Add -Dsirix.workBudget.print=true -i to print every captured counter table
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*' \
-                            --tests 'io.sirix.query.json.IndexedArrayPositionTest'
+                            --tests 'io.sirix.query.json.IndexedArrayPositionTest' \
+                            --tests 'io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \
                            --tests 'io.sirix.index.projection.*WorkBudgetTest' \
                            --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest'

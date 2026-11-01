@@ -1,6 +1,6 @@
 package io.sirix.query.bench.bitemporal;
 
-import com.google.gson.JsonParser;
+import com.google.gson.stream.JsonReader;
 import io.brackit.query.jdm.Type;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
@@ -13,7 +13,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.query.bench.bitemporal.BitemporalSchema.Event;
+import io.sirix.query.bench.bitemporal.BitemporalIntervalStore.Intervals;
 import io.sirix.query.bench.bitemporal.BitemporalSchema.Tier;
 import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -21,14 +21,13 @@ import io.sirix.settings.VersioningType;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
+import java.util.Objects;
 
 /** Loads an SH1 stream with sparse interval edits into five revisioned Sirix resources. */
 public final class BitemporalSirixLoadMain {
@@ -61,35 +60,44 @@ public final class BitemporalSirixLoadMain {
     Files.createDirectories(databaseRoot);
     requireCapacity(databaseRoot);
 
-    final List<Event>[] epochs = readEvents(eventsPath, tier);
     final long started = System.nanoTime();
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+    long parseNanos;
+    try (BitemporalEventReader events = new BitemporalEventReader(eventsPath, tier);
+        BitemporalIntervalStore intervals = new BitemporalIntervalStore(512L << 20);
+        Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      events.advance();
       createResources(database);
-      final RelationState contracts = new RelationState(BitemporalSchema.CONTRACTS, tier.contracts());
-      final RelationState products = new RelationState(BitemporalSchema.PRODUCTS, tier.products());
-      final RelationState suppliers = new RelationState(BitemporalSchema.SUPPLIERS, tier.suppliers());
+      final RelationState contracts = new RelationState(BitemporalSchema.CONTRACTS, tier.contracts(), intervals);
+      final RelationState products = new RelationState(BitemporalSchema.PRODUCTS, tier.products(), intervals);
+      final RelationState suppliers = new RelationState(BitemporalSchema.SUPPLIERS, tier.suppliers(), intervals);
 
-      loadInitial(database, contracts, filter(epochs[0], BitemporalSchema.CONTRACTS));
-      loadInitial(database, products, filter(epochs[0], BitemporalSchema.PRODUCTS));
-      loadInitial(database, suppliers, filter(epochs[0], BitemporalSchema.SUPPLIERS));
+      loadInitial(database, contracts, events);
+      loadInitial(database, products, events);
+      loadInitial(database, suppliers, events);
       loadMetadata(database, BitemporalSchema.EPOCHS, epochJson());
       loadMetadata(database, BitemporalSchema.DAYS, dayJson());
       reportPublication(databaseRoot, 0);
 
       for (int epoch = 1; epoch < BitemporalSchema.PUBLICATIONS; epoch++) {
-        applyPublication(database, contracts, filter(epochs[epoch], BitemporalSchema.CONTRACTS), epoch);
-        applyPublication(database, products, filter(epochs[epoch], BitemporalSchema.PRODUCTS), epoch);
-        applyPublication(database, suppliers, filter(epochs[epoch], BitemporalSchema.SUPPLIERS), epoch);
+        applyPublication(database, contracts, events, epoch);
+        applyPublication(database, products, events, epoch);
+        applyPublication(database, suppliers, events, epoch);
         reportPublication(databaseRoot, epoch);
       }
+      events.requireEnd();
+      parseNanos = events.parseNanos();
+      System.out.printf("SIRIX_INPUT events=%d parse_io_seconds=%.6f native_state_bytes=%d%n", events.count(),
+          parseNanos / 1e9, intervals.reservedBytes());
     }
 
     sync();
     final Footprint footprint = footprint(databaseRoot);
     final double seconds = (System.nanoTime() - started) / 1e9;
-    System.out.printf("SIRIX_LOAD tier=%s seconds=%.3f logical_bytes=%d allocated_bytes=%d db=%s%n", tier.label(),
-        seconds, footprint.logicalBytes(), footprint.allocatedBytes(), databaseRoot);
+    System.out.printf(
+        "SIRIX_LOAD tier=%s seconds=%.3f parse_io_seconds=%.6f load_excluding_parse_seconds=%.6f logical_bytes=%d allocated_bytes=%d db=%s%n",
+        tier.label(), seconds, parseNanos / 1e9, seconds - parseNanos / 1e9, footprint.logicalBytes(),
+        footprint.allocatedBytes(), databaseRoot);
   }
 
   private static Path requireCampaignPath(final Path path, final String label) throws IOException {
@@ -98,53 +106,6 @@ public final class BitemporalSirixLoadMain {
       throw new IllegalArgumentException(label + " must be under " + REQUIRED_ROOT + ": " + normalized);
     }
     return normalized;
-  }
-
-  @SuppressWarnings("unchecked")
-  private static List<Event>[] readEvents(final Path path, final Tier tier) throws IOException {
-    final List<Event>[] epochs = new List[BitemporalSchema.PUBLICATIONS];
-    final int perEpoch = Math.max(16, tier.contracts() / 18);
-    for (int epoch = 0; epoch < epochs.length; epoch++) {
-      epochs[epoch] = new ArrayList<>(epoch == 0
-          ? tier.contracts() + tier.products() + tier.suppliers()
-          : perEpoch);
-    }
-    int priorEpoch = -1;
-    String priorTable = "";
-    int priorId = 0;
-    long count = 0;
-    try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
-      String line;
-      while ((line = reader.readLine()) != null) {
-        final Event event = Event.fromJson(JsonParser.parseString(line).getAsJsonObject());
-        if (event.epoch() < priorEpoch || event.epoch() == priorEpoch && event.table().compareTo(priorTable) < 0
-            || event.epoch() == priorEpoch && event.table().equals(priorTable) && event.id() <= priorId) {
-          throw new IllegalArgumentException("event stream is not strictly ordered at line " + (count + 1));
-        }
-        epochs[event.epoch()].add(event);
-        priorEpoch = event.epoch();
-        priorTable = event.table();
-        priorId = event.id();
-        count++;
-      }
-    }
-    final long expected =
-        (long) tier.contracts() + tier.products() + tier.suppliers() + 24L * ((tier.contracts() + 19L) / 20L)
-            + 24L * ((tier.products() + 99L) / 100L) + 24L * ((tier.suppliers() + 99L) / 100L) + 4L;
-    if (count != expected) {
-      throw new IllegalArgumentException("event count " + count + " != tier expectation " + expected);
-    }
-    return epochs;
-  }
-
-  private static List<Event> filter(final List<Event> events, final String table) {
-    final List<Event> filtered = new ArrayList<>();
-    for (final Event event : events) {
-      if (event.table().equals(table)) {
-        filtered.add(event);
-      }
-    }
-    return filtered;
   }
 
   private static void createResources(final Database<JsonResourceSession> database) {
@@ -192,28 +153,12 @@ public final class BitemporalSirixLoadMain {
   }
 
   private static void loadInitial(final Database<JsonResourceSession> database, final RelationState state,
-      final List<Event> events) {
-    if (events.size() != state.identityCount) {
-      throw new IllegalArgumentException(state.name + " E0 count " + events.size() + " != " + state.identityCount);
-    }
-    final StringBuilder json = new StringBuilder(Math.max(32, events.size() * 96));
-    json.append('[');
-    for (int i = 0; i < events.size(); i++) {
-      final Event event = events.get(i);
-      if (!event.put() || event.id() != i + 1 || event.fromDay() != 0
-          || event.toDay() != BitemporalSchema.HORIZON_DAYS) {
-        throw new IllegalArgumentException("invalid " + state.name + " base event for id " + event.id());
-      }
-      if (i > 0) {
-        json.append(',');
-      }
-      json.append(segmentJson(Segment.from(event)));
-    }
-    json.append(']');
-
+      final BitemporalEventReader events) throws IOException {
     try (JsonResourceSession session = database.beginResourceSession(state.name);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
-      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+      try (JsonReader input = new JsonReader(new InitialReader(events, state))) {
+        wtx.insertSubtreeAsFirstChild(input, JsonNodeTrx.Commit.NO);
+      }
       wtx.moveToDocumentRoot();
       if (!wtx.moveToFirstChild()) {
         throw new IllegalStateException("inserted " + state.name + " resource has no array root");
@@ -232,20 +177,18 @@ public final class BitemporalSirixLoadMain {
       if (!wtx.moveTo(state.arrayNodeKey) || !wtx.moveToFirstChild()) {
         throw new IllegalStateException("cannot traverse inserted " + state.name + " array");
       }
-      for (int i = 0; i < events.size(); i++) {
-        final Segment segment = Segment.from(events.get(i));
-        segment.nodeKey = wtx.getNodeKey();
-        final ArrayList<Segment> identity = new ArrayList<>(2);
-        identity.add(segment);
-        state.segments[segment.id] = identity;
-        if (i + 1 < events.size() && !wtx.moveToRightSibling()) {
-          throw new IllegalStateException("short " + state.name + " array at id " + segment.id);
+      for (int id = 1; id <= state.identityCount; id++) {
+        state.segments.read(id, state.old);
+        state.old.keys[0] = wtx.getNodeKey();
+        state.segments.write(id, state.old);
+        if (id < state.identityCount && !wtx.moveToRightSibling()) {
+          throw new IllegalStateException("short " + state.name + " array at id " + id);
         }
       }
       final long commitStart = System.nanoTime();
       wtx.commit("SH1 E0", BitemporalSchema.systemTime(0));
       System.out.printf("SIRIX_COMMIT epoch=0 resource=%s events=%d apply_ms=0.0 commit_ms=%.1f%n", state.name,
-          events.size(), (System.nanoTime() - commitStart) / 1e6);
+          state.identityCount, (System.nanoTime() - commitStart) / 1e6);
       assertRevision(wtx, 0, state.name);
     }
   }
@@ -261,18 +204,24 @@ public final class BitemporalSirixLoadMain {
   }
 
   private static void applyPublication(final Database<JsonResourceSession> database, final RelationState state,
-      final List<Event> events, final int epoch) {
+      final BitemporalEventReader events, final int epoch) throws IOException {
     try (JsonResourceSession session = database.beginResourceSession(state.name);
         JsonNodeTrx wtx = session.beginNodeTrx()) {
       final long applyStart = System.nanoTime();
-      for (final Event event : events) {
-        state.apply(wtx, event);
+      int count = 0;
+      final long parseStart = events.parseNanos();
+      while (events.matches(epoch, state.name)) {
+        state.apply(wtx, events);
+        events.advance();
+        count++;
       }
+      final long parseElapsed = events.parseNanos() - parseStart;
       final long commitStart = System.nanoTime();
       wtx.commit("SH1 E" + epoch, BitemporalSchema.systemTime(epoch));
       final long commitEnd = System.nanoTime();
-      System.out.printf("SIRIX_COMMIT epoch=%d resource=%s events=%d apply_ms=%.1f commit_ms=%.1f%n", epoch, state.name,
-          events.size(), (commitStart - applyStart) / 1e6, (commitEnd - commitStart) / 1e6);
+      System.out.printf("SIRIX_COMMIT epoch=%d resource=%s events=%d apply_ms=%.1f commit_ms=%.1f parse_io_ms=%.3f%n",
+          epoch, state.name, count, (commitStart - applyStart - parseElapsed) / 1e6, (commitEnd - commitStart) / 1e6,
+          parseElapsed / 1e6);
       assertRevision(wtx, epoch, state.name);
     }
   }
@@ -416,133 +365,131 @@ public final class BitemporalSirixLoadMain {
   private static final class RelationState {
     private final String name;
     private final int identityCount;
-    private final ArrayList<Segment>[] segments;
+    private final BitemporalIntervalStore.Relation segments;
+    private final Intervals old = new Intervals();
+    private final Intervals next = new Intervals();
+    private final StringBuilder json = new StringBuilder(256);
     private long arrayNodeKey;
 
-    @SuppressWarnings("unchecked")
-    RelationState(final String name, final int identityCount) {
+    RelationState(final String name, final int identityCount, final BitemporalIntervalStore owner) {
       this.name = name;
       this.identityCount = identityCount;
-      segments = new ArrayList[identityCount + 1];
+      segments = owner.relation(identityCount);
     }
 
-    void apply(final JsonNodeTrx wtx, final Event event) {
-      if (!name.equals(event.table()) || event.id() > identityCount) {
-        throw new IllegalArgumentException("event does not belong to " + name + ": " + event);
+    void apply(final JsonNodeTrx wtx, final BitemporalEventReader event) {
+      if (!name.equals(event.table)) {
+        throw new IllegalArgumentException("event does not belong to " + name);
       }
-      final ArrayList<Segment> old = segments[event.id()];
-      if (old == null) {
-        throw new IllegalStateException("missing identity state: " + name + '/' + event.id());
-      }
-      final ArrayList<Segment> next = new ArrayList<>(old.size() + 2);
-      for (final Segment segment : old) {
-        if (segment.toDay <= event.fromDay() || event.toDay() <= segment.fromDay) {
-          next.add(segment.copy());
-          continue;
-        }
-        if (segment.fromDay < event.fromDay()) {
-          next.add(segment.withBounds(segment.fromDay, event.fromDay()));
-        }
-        if (event.toDay() < segment.toDay) {
-          next.add(segment.withBounds(event.toDay(), segment.toDay));
+      segments.read(event.id, old);
+      old.replace(event, next);
+      for (int target = 0; target < next.size; target++) {
+        final int prior = old.find(next.get(target, 0));
+        if (prior >= 0) {
+          next.keys[target] = old.keys[prior];
+          updateChangedFields(wtx, prior, target);
         }
       }
-      if (event.put()) {
-        next.add(Segment.from(event));
-      }
-      next.sort(Comparator.comparingInt(segment -> segment.fromDay));
-      coalesce(next);
-      validate(next, event.id());
-      reconcile(wtx, old, next);
-      segments[event.id()] = next;
-    }
-
-    private void reconcile(final JsonNodeTrx wtx, final ArrayList<Segment> old, final ArrayList<Segment> next) {
-      for (final Segment target : next) {
-        final Segment reusable = findByStart(old, target.fromDay);
-        if (reusable != null) {
-          target.nodeKey = reusable.nodeKey;
-          updateChangedFields(wtx, reusable, target);
-        }
-      }
-      for (final Segment prior : old) {
-        if (findByStart(next, prior.fromDay) == null) {
-          if (!wtx.moveTo(prior.nodeKey)) {
-            throw new IllegalStateException("cannot remove missing node " + prior.nodeKey);
+      for (int prior = 0; prior < old.size; prior++) {
+        if (next.find(old.get(prior, 0)) < 0) {
+          if (!wtx.moveTo(old.keys[prior])) {
+            throw new IllegalStateException("cannot remove missing node " + old.keys[prior]);
           }
           wtx.remove();
         }
       }
-      for (final Segment target : next) {
-        if (target.nodeKey < 0) {
+      for (int target = 0; target < next.size; target++) {
+        if (next.keys[target] < 0) {
           if (!wtx.moveTo(arrayNodeKey)) {
             throw new IllegalStateException("cannot move to " + name + " array " + arrayNodeKey);
           }
-          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(segmentJson(target)), JsonNodeTrx.Commit.NO);
-          target.nodeKey = wtx.getNodeKey();
+          json.setLength(0);
+          appendSegment(json, name, event.id, next, target);
+          wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          next.keys[target] = wtx.getNodeKey();
+        }
+      }
+      segments.write(event.id, next);
+    }
+
+    private void updateChangedFields(final JsonNodeTrx wtx, final int prior, final int target) {
+      final long key = next.keys[target];
+      if (old.get(prior, 1) != next.get(target, 1)) {
+        setStringField(wtx, key, "vt", DAYS[next.get(target, 1)]);
+      }
+      for (int column = 2; column < Intervals.COLUMNS; column++) {
+        if (old.get(prior, column) != next.get(target, column)) {
+          final String field = switch (column) {
+            case 2 -> firstPayloadField(name);
+            case 3 -> secondPayloadField(name);
+            case 4 -> "cost";
+            case 5 -> "qty";
+            case 6 -> "grade";
+            default -> throw new AssertionError(column);
+          };
+          setNumberField(wtx, key, field, next.get(target, column));
         }
       }
     }
+  }
 
-    private static void coalesce(final ArrayList<Segment> values) {
-      int write = 0;
-      for (int read = 0; read < values.size(); read++) {
-        final Segment current = values.get(read);
-        if (write > 0) {
-          final Segment previous = values.get(write - 1);
-          if (previous.toDay == current.fromDay && previous.samePayload(current)) {
-            values.set(write - 1, previous.withBounds(previous.fromDay, current.toDay));
-            continue;
+  /** Supplies the original single E0 subtree insertion without materializing its JSON or events. */
+  private static final class InitialReader extends Reader {
+    private final BitemporalEventReader events;
+    private final RelationState state;
+    private final StringBuilder buffer = new StringBuilder(256);
+    private int position;
+    private int count;
+    private boolean ended;
+
+    InitialReader(final BitemporalEventReader events, final RelationState state) {
+      this.events = events;
+      this.state = state;
+      buffer.append('[');
+    }
+
+    @Override
+    public int read(final char[] destination, final int offset, final int length) throws IOException {
+      Objects.checkFromIndexSize(offset, length, destination.length);
+      if (length == 0) {
+        return 0;
+      }
+      if (position == buffer.length()) {
+        if (ended) {
+          return -1;
+        }
+        buffer.setLength(0);
+        position = 0;
+        if (events.matches(0, state.name)) {
+          if (!events.put || events.id != count + 1 || events.from != 0 || events.to != BitemporalSchema.HORIZON_DAYS) {
+            throw new IllegalArgumentException("invalid " + state.name + " base event for id " + events.id);
           }
+          if (count != 0) {
+            buffer.append(',');
+          }
+          state.old.size = 0;
+          state.old.append(events);
+          state.segments.write(events.id, state.old);
+          appendSegment(buffer, state.name, events.id, state.old, 0);
+          count++;
+          events.advance();
+        } else {
+          if (count != state.identityCount) {
+            throw new IllegalArgumentException(state.name + " E0 count " + count + " != " + state.identityCount);
+          }
+          buffer.append(']');
+          ended = true;
         }
-        values.set(write++, current);
       }
-      while (values.size() > write) {
-        values.remove(values.size() - 1);
-      }
+      final int copied = Math.min(length, buffer.length() - position);
+      buffer.getChars(position, position + copied, destination, offset);
+      position += copied;
+      return copied;
     }
 
-    private static void validate(final ArrayList<Segment> values, final int id) {
-      int priorEnd = -1;
-      for (final Segment value : values) {
-        if (value.id != id || value.fromDay < 0 || value.fromDay >= value.toDay
-            || value.toDay > BitemporalSchema.HORIZON_DAYS || value.fromDay < priorEnd) {
-          throw new IllegalStateException("invalid logical segments for id " + id);
-        }
-        priorEnd = value.toDay;
-      }
-    }
-  }
-
-  private static Segment findByStart(final List<Segment> segments, final int fromDay) {
-    for (final Segment segment : segments) {
-      if (segment.fromDay == fromDay) {
-        return segment;
-      }
-    }
-    return null;
-  }
-
-  private static void updateChangedFields(final JsonNodeTrx wtx, final Segment old, final Segment replacement) {
-    if (old.toDay != replacement.toDay) {
-      setStringField(wtx, replacement.nodeKey, "vt", BitemporalSchema.day(replacement.toDay).toString());
-    }
-    if (old.value1 != replacement.value1) {
-      setNumberField(wtx, replacement.nodeKey, firstPayloadField(replacement.table), replacement.value1);
-    }
-    if (old.value2 != replacement.value2) {
-      setNumberField(wtx, replacement.nodeKey, secondPayloadField(replacement.table), replacement.value2);
-    }
-    if (BitemporalSchema.CONTRACTS.equals(replacement.table)) {
-      if (old.value3 != replacement.value3) {
-        setNumberField(wtx, replacement.nodeKey, "cost", replacement.value3);
-      }
-      if (old.value4 != replacement.value4) {
-        setNumberField(wtx, replacement.nodeKey, "qty", replacement.value4);
-      }
-      if (old.value5 != replacement.value5) {
-        setNumberField(wtx, replacement.nodeKey, "grade", replacement.value5);
-      }
+    @Override
+    public void close() {
+      // The load owns the event stream; the resource reader must not close the next window.
     }
   }
 
@@ -592,64 +539,40 @@ public final class BitemporalSirixLoadMain {
     throw new IllegalStateException("field not found: " + field + " on node " + objectKey);
   }
 
-  private static String segmentJson(final Segment segment) {
-    final String common = "{\"id\":" + segment.id;
-    final String payload = switch (segment.table) {
-      case BitemporalSchema.CONTRACTS -> ",\"pid\":" + segment.value1 + ",\"sid\":" + segment.value2 + ",\"cost\":"
-          + segment.value3 + ",\"qty\":" + segment.value4 + ",\"grade\":" + segment.value5;
-      case BitemporalSchema.PRODUCTS -> ",\"category\":" + segment.value1 + ",\"retail\":" + segment.value2;
-      case BitemporalSchema.SUPPLIERS -> ",\"region\":" + segment.value1 + ",\"tier\":" + segment.value2;
-      default -> throw new AssertionError("validated table: " + segment.table);
-    };
-    return common + payload + ",\"vf\":\"" + BitemporalSchema.day(segment.fromDay) + "\",\"vt\":\""
-        + BitemporalSchema.day(segment.toDay) + "\"}";
+  private static final String[] DAYS = dayStrings();
+
+  private static String[] dayStrings() {
+    final String[] days = new String[BitemporalSchema.HORIZON_DAYS + 1];
+    for (int day = 0; day < days.length; day++) {
+      days[day] = BitemporalSchema.day(day).toString();
+    }
+    return days;
   }
 
-  private static final class Segment {
-    private final String table;
-    private final int id;
-    private final int fromDay;
-    private final int toDay;
-    private final int value1;
-    private final int value2;
-    private final int value3;
-    private final int value4;
-    private final int value5;
-    private long nodeKey = -1;
-
-    Segment(final String table, final int id, final int fromDay, final int toDay, final int value1, final int value2,
-        final int value3, final int value4, final int value5) {
-      this.table = table;
-      this.id = id;
-      this.fromDay = fromDay;
-      this.toDay = toDay;
-      this.value1 = value1;
-      this.value2 = value2;
-      this.value3 = value3;
-      this.value4 = value4;
-      this.value5 = value5;
+  private static void appendSegment(final StringBuilder json, final String table, final int id, final Intervals values,
+      final int row) {
+    json.append("{\"id\":")
+        .append(id)
+        .append(",\"")
+        .append(firstPayloadField(table))
+        .append("\":")
+        .append(values.get(row, 2))
+        .append(",\"")
+        .append(secondPayloadField(table))
+        .append("\":")
+        .append(values.get(row, 3));
+    if (BitemporalSchema.CONTRACTS.equals(table)) {
+      json.append(",\"cost\":")
+          .append(values.get(row, 4))
+          .append(",\"qty\":")
+          .append(values.get(row, 5))
+          .append(",\"grade\":")
+          .append(values.get(row, 6));
     }
-
-    static Segment from(final Event event) {
-      return new Segment(event.table(), event.id(), event.fromDay(), event.toDay(), event.value1(), event.value2(),
-          event.value3(), event.value4(), event.value5());
-    }
-
-    Segment copy() {
-      return withBounds(fromDay, toDay);
-    }
-
-    Segment withBounds(final int from, final int to) {
-      final Segment copy = new Segment(table, id, from, to, value1, value2, value3, value4, value5);
-      if (from == fromDay) {
-        copy.nodeKey = nodeKey;
-      }
-      return copy;
-    }
-
-    boolean samePayload(final Segment other) {
-      return value1 == other.value1 && value2 == other.value2 && value3 == other.value3 && value4 == other.value4
-          && value5 == other.value5;
-    }
+    json.append(",\"vf\":\"")
+        .append(DAYS[values.get(row, 0)])
+        .append("\",\"vt\":\"")
+        .append(DAYS[values.get(row, 1)])
+        .append("\"}");
   }
 }
