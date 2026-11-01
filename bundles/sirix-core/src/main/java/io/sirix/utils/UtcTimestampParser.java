@@ -45,9 +45,9 @@ public final class UtcTimestampParser {
 
   /**
    * Parse exactly as {@link Instant#parse}, into caller-owned storage. The canonical four-digit UTC
-   * form, with zero to nine fractional digits, creates no temporary objects. Other spellings,
-   * including leap seconds, end-of-day and extended years, retain the JDK parser and its errors. A
-   * failed parse clears the result.
+   * form, with no fraction or one to nine fractional digits, creates no temporary objects. Other
+   * spellings, including leap seconds, end-of-day and extended years, retain the JDK parser and its
+   * errors. A failed parse clears the result.
    */
   public static void parse(final String text, final ParsedInstant result) {
     Objects.requireNonNull(result).clear();

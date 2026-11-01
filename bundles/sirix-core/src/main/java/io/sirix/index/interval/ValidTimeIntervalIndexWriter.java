@@ -145,9 +145,9 @@ public final class ValidTimeIntervalIndexWriter {
   }
 
   /**
-   * Map a {@code (validFrom, validTo)} instant pair into the integer domain. Mirrors
-   * {@link #readIntervalAtCursor} so the listener (which already holds the parsed instants from the
-   * change event) and the builder agree on registrability.
+   * Map a {@code (validFrom, validTo)} instant pair into the integer domain. Uses the same
+   * registrability rules as {@link #toPrimitiveInterval}, which the builder and listener use for
+   * reusable parsed bounds.
    */
   public Interval toInterval(final @Nullable Instant from, final @Nullable Instant to) {
     return toInterval(from, to, 1, 1);
