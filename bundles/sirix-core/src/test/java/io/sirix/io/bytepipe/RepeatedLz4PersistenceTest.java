@@ -3,6 +3,7 @@ package io.sirix.io.bytepipe;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.exception.SirixIOException;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -16,9 +17,44 @@ import java.nio.file.Path;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class RepeatedLz4PersistenceTest {
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 2, 3})
+  void rejectsTruncatedSizeHeaders(final int frameSize) {
+    final MemorySegment frame = MemorySegment.ofArray(new byte[frameSize]);
+
+    final SirixIOException failure = assertThrows(SirixIOException.class,
+        () -> new FFILz4Compressor().decompressScoped(frame));
+    assertEquals("Corrupt compressed page: payload shorter than its size header (" + frameSize + " bytes)",
+        failure.getMessage());
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {Integer.MIN_VALUE, Integer.MAX_VALUE, 268435457, -268435457})
+  void rejectsOversizedDeclaredPayloads(final int sizeHeader) {
+    final MemorySegment frame = MemorySegment.ofArray(new byte[Integer.BYTES]);
+    frame.set(JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), 0, sizeHeader);
+
+    final SirixIOException failure = assertThrows(SirixIOException.class,
+        () -> new FFILz4Compressor().decompressScoped(frame));
+    assertEquals("Corrupt compressed page: implausible decompressed size " + sizeHeader, failure.getMessage());
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1, 63, 64, 4096})
+  void rejectsTruncatedStoredPayloads(final int payloadSize) {
+    final MemorySegment frame = MemorySegment.ofArray(new byte[Integer.BYTES + payloadSize]);
+    frame.set(JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN), 0, -(payloadSize + 1));
+
+    final SirixIOException failure = assertThrows(SirixIOException.class,
+        () -> new FFILz4Compressor().decompressScoped(frame));
+    assertEquals("Corrupt stored-uncompressed page: declared size " + (payloadSize + 1)
+        + " exceeds the payload (" + payloadSize + " bytes)", failure.getMessage());
+  }
+
   @ParameterizedTest
   @ValueSource(ints = {1, 63, 65, 4095, 4097})
   void storedFramesExposeOnlyTheirPayload(final int payloadSize) {
