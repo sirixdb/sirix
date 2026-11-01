@@ -40,8 +40,11 @@ final class InlineSlotCopyAllocationBudgetTest {
     }
     final ResourceConfiguration config =
         ResourceConfiguration.newBuilder("inline-copy-budget").useDeweyIDs(false).build();
-    try (final KeyValueLeafPage source = new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false);
-        final KeyValueLeafPage target = new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false)) {
+    try (
+        final KeyValueLeafPage source =
+            new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false);
+        final KeyValueLeafPage target =
+            new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false)) {
       source.setSlot(SLOT_BYTES, SLOT);
       assertTrue(RECORD_KEY > 127, "exercise keys beyond the Long cache");
       // Warm the exact loop and grow owned page storage before counting temporary work.
@@ -67,8 +70,11 @@ final class InlineSlotCopyAllocationBudgetTest {
   void inlineCopyRemovesStaleOverflowReferenceAndKeepsOtherReferences() {
     final ResourceConfiguration config =
         ResourceConfiguration.newBuilder("inline-copy-overflow-control").useDeweyIDs(false).build();
-    try (final KeyValueLeafPage source = new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false);
-        final KeyValueLeafPage target = new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false)) {
+    try (
+        final KeyValueLeafPage source =
+            new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false);
+        final KeyValueLeafPage target =
+            new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false)) {
       source.setSlot(SLOT_BYTES, SLOT);
       final PageReference stale = new PageReference();
       stale.setPage(new OverflowPage(new byte[] {9, 8, 7}));

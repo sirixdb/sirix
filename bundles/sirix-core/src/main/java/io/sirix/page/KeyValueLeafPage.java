@@ -1851,6 +1851,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Copying just the metadata half makes the field discoverable but unreadable; copying an
     // ordinary inline record must retire any stale overflow half already present on the target.
     removeSideSlot(slotIndex);
+    // The empty-map guard avoids boxing recordKey on the common inline-only path.
     if (sourceCompanion == null && !references.isEmpty()) {
       references.remove(recordKey);
     }
@@ -7622,7 +7623,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   @Override
   public PageReference getPageReference(final long key) {
-    return references.isEmpty() ? null : references.get(key);
+    return references.isEmpty()
+        ? null
+        : references.get(key);
   }
 
   @Override
