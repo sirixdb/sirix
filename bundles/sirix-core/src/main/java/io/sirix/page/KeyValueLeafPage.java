@@ -1851,8 +1851,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Copying just the metadata half makes the field discoverable but unreadable; copying an
     // ordinary inline record must retire any stale overflow half already present on the target.
     removeSideSlot(slotIndex);
-    // The empty-map guard avoids boxing recordKey on the common inline-only path.
-    if (sourceCompanion == null && !references.isEmpty()) {
+    if (sourceCompanion == null) {
+      removeOverflowReference(recordKey);
+    }
+  }
+
+  private void removeOverflowReference(final long recordKey) {
+    // Avoid boxing keys on the common inline-only path.
+    if (!references.isEmpty()) {
       references.remove(recordKey);
     }
   }
@@ -7924,9 +7930,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             final long nodeKey = record.getNodeKey();
             final int offset = StorageEngineReader.recordPageOffset(nodeKey);
             if (serializeToHeap(fn, nodeKey, offset)) {
-              if (!references.isEmpty()) {
-                references.remove(nodeKey);
-              }
               records[i] = null;
               continue;
             }
@@ -7998,11 +8001,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           setSlotDirect(base, 0L, (int) usedSize, offset);
           if (deweyIdLen > 0) {
             setDeweyId(deweyIdBytes, offset);
-          }
-          // A previous oversized version of this record may have left an overflow reference —
-          // the slot now carries the current version, so drop the stale reference.
-          if (!references.isEmpty()) {
-            references.remove(recordID);
           }
         }
         // Clear record reference after serialization — snapshot isolation.
