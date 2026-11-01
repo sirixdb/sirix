@@ -23,10 +23,11 @@ import io.sirix.settings.Fixed;
 import io.sirix.service.json.replay.JsonIdentityDelta;
 import io.sirix.service.json.replay.JsonReplayRecord;
 import io.sirix.utils.ReplayWorkDiagnostics;
+import io.sirix.utils.UtcTimestampParser;
+import io.sirix.utils.UtcTimestampParser.ParsedInstant;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.jspecify.annotations.Nullable;
 
-import java.time.Instant;
 import java.util.Objects;
 
 /**
@@ -70,10 +71,8 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   /** One contiguous record mutation's original registration and transaction-current bounds. */
   private static final class State {
-    @Nullable
-    Instant from;
-    @Nullable
-    Instant to;
+    final ParsedInstant from = new ParsedInstant();
+    final ParsedInstant to = new ParsedInstant();
     long fromNodeKey = NO_OBJECT;
     long toNodeKey = NO_OBJECT;
     boolean fromLexical;
@@ -208,7 +207,8 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
       readBounds(key, NO_OBJECT, NO_OBJECT, activeState);
     }
     intervals.put(key,
-        indexWriter.toInterval(activeState.from, activeState.to, activeState.fromFieldCount, activeState.toFieldCount)
+        indexWriter.toPrimitiveInterval(activeState.from, activeState.to, activeState.fromFieldCount,
+            activeState.toFieldCount)
                    .withExactLexicalBounds(activeState.fromLexical && activeState.toLexical)
                    .atParent(activeState.parentKey));
   }
@@ -342,20 +342,21 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     final String raw = value == null
         ? null
         : value.stringValue();
-    final Instant instant = ValidTimeIntervalIndexWriter.parseInstant(raw);
+    final ParsedInstant instant = isFrom
+        ? state.from
+        : state.to;
+    UtcTimestampParser.parseNullable(raw, instant);
     final boolean lexical = ValidTimeIntervalIndexWriter.isExactLexicalBound(raw);
     if (isFrom) {
       state.fromFieldCount = 1;
-      state.from = instant;
       state.fromLexical = lexical;
-      state.fromNodeKey = instant == null
+      state.fromNodeKey = !instant.isPresent()
           ? NO_OBJECT
           : nodeKey;
     } else {
       state.toFieldCount = 1;
-      state.to = instant;
       state.toLexical = lexical;
-      state.toNodeKey = instant == null
+      state.toNodeKey = !instant.isPresent()
           ? NO_OBJECT
           : nodeKey;
     }
@@ -375,11 +376,11 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     }
 
     if (selectedFrom && state.fromFieldCount == 0) {
-      state.from = null;
+      state.from.clear();
       state.fromNodeKey = NO_OBJECT;
     }
     if (selectedTo && state.toFieldCount == 0) {
-      state.to = null;
+      state.to.clear();
       state.toNodeKey = NO_OBJECT;
     }
 
@@ -400,7 +401,7 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
   private void seedState(final long objectKey, final long excludedNodeKey, final long fallbackChildKey,
       final State state) {
     readBounds(objectKey, excludedNodeKey, fallbackChildKey, state);
-    state.registered = indexWriter.toInterval(state.from, state.to, state.fromFieldCount, state.toFieldCount)
+    state.registered = indexWriter.toPrimitiveInterval(state.from, state.to, state.fromFieldCount, state.toFieldCount)
                                   .withExactLexicalBounds(state.fromLexical && state.toLexical)
                                   .atParent(state.parentKey);
   }
@@ -428,8 +429,9 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
 
   /** Reconcile one reusable record snapshot without retaining any per-record collection. */
   private void reconcileState(final long objectKey, final State state) {
-    final Interval mapped = indexWriter.toInterval(state.from, state.to, state.fromFieldCount, state.toFieldCount)
-                                       .withExactLexicalBounds(state.fromLexical && state.toLexical);
+    final Interval mapped =
+        indexWriter.toPrimitiveInterval(state.from, state.to, state.fromFieldCount, state.toFieldCount)
+                   .withExactLexicalBounds(state.fromLexical && state.toLexical);
     final ImmutableNode object = mapped.present()
         ? loadNode(objectKey)
         : null;
@@ -500,8 +502,8 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
   }
 
   private static void clearState(final State state) {
-    state.from = null;
-    state.to = null;
+    state.from.clear();
+    state.to.clear();
     state.fromNodeKey = NO_OBJECT;
     state.toNodeKey = NO_OBJECT;
     state.fromLexical = false;
@@ -665,8 +667,10 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
       throw new IllegalStateException("Valid-time record " + objectKey + " is no longer readable as an object");
     }
 
-    Instant from = null;
-    Instant to = null;
+    final ParsedInstant from = state.from;
+    final ParsedInstant to = state.to;
+    from.clear();
+    to.clear();
     boolean fromLexical = false;
     boolean toLexical = false;
     long fromNodeKey = NO_OBJECT;
@@ -694,18 +698,18 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
         final String fieldName = storageEngineWriter.getName(nameNode.getLocalNameKey(), NodeKind.OBJECT_NAMED_OBJECT);
         if (validFromField.equals(fieldName)) {
           fromFieldCount++;
-          if (from == null) {
-            from = parseBound(child);
-            if (from != null) {
+          if (!from.isPresent()) {
+            parseBound(child, from);
+            if (from.isPresent()) {
               fromNodeKey = childKey;
               fromLexical = ValidTimeIntervalIndexWriter.isExactLexicalBound(((ValueNode) child).getValue());
             }
           }
         } else if (validToField.equals(fieldName)) {
           toFieldCount++;
-          if (to == null) {
-            to = parseBound(child);
-            if (to != null) {
+          if (!to.isPresent()) {
+            parseBound(child, to);
+            if (to.isPresent()) {
               toNodeKey = childKey;
               toLexical = ValidTimeIntervalIndexWriter.isExactLexicalBound(((ValueNode) child).getValue());
             }
@@ -719,18 +723,18 @@ public final class JsonValidTimeIndexListener implements PathNodeKeyChangeListen
     state.fromLexical = fromLexical;
     state.toLexical = toLexical;
     state.parentKey = object.getParentKey();
-    state.from = from;
-    state.to = to;
     state.fromNodeKey = fromNodeKey;
     state.toNodeKey = toNodeKey;
     state.fromFieldCount = fromFieldCount;
     state.toFieldCount = toFieldCount;
   }
 
-  private static @Nullable Instant parseBound(final ImmutableNode child) {
-    return child.getKind() == NodeKind.OBJECT_NAMED_STRING && child instanceof ValueNode valueNode
-        ? ValidTimeIntervalIndexWriter.parseInstant(valueNode.getValue())
-        : null;
+  private static void parseBound(final ImmutableNode child, final ParsedInstant result) {
+    UtcTimestampParser.parseNullable(
+        child.getKind() == NodeKind.OBJECT_NAMED_STRING && child instanceof ValueNode valueNode
+            ? valueNode.getValue()
+            : null,
+        result);
   }
 
   private @Nullable ImmutableNode loadNode(final long key) {
