@@ -309,12 +309,14 @@ path, and leave it unconditional, as `AbstractReader.regionChunkHits()` argues, 
 event already costs a system call. Then list it in the catalog and in the diagnostics appendix of
 `docs/SEGMENT_PROJECTION_INDEXES.md`.
 
-`InlineSlotCopyAllocationBudgetTest` measures 16,384 inline slot copies and empty overflow-reference
-lookups with key 1,031, beyond the `Long` cache. One counter window wraps each individual copy and
-the windows are summed; warmup drives the same measured method, so its invocations are compiled
-before the first counted window rather than only the warmup loop's backedges. Page recycling and
-page growth stay outside the windows. An actual overflow carrier is replaced by inline bytes in the
-correctness control, while an unrelated reference survives.
+`InlineSlotCopyAllocationBudgetTest` measures 16,384 inline slot copies and
+empty overflow-reference lookups with key 1,031, beyond the `Long` cache. One
+counter window wraps each individual copy and the windows are summed; warmup
+drives the same measured method, so its invocations are compiled before the
+first counted window rather than only the warmup loop's backedges. Page
+recycling and page growth stay outside the windows. An actual overflow carrier
+is replaced by inline bytes in the correctness control, while an unrelated
+reference survives.
 It runs in the existing `dictionaryReadViewAllocationTest` fork, invoked by the standard core test
 task and included in coverage, so sibling Mockito mocks cannot contaminate the measured classes.
 Mutation evidence (2026-11-01): restoring the unconditional `copySlotFromPage` removal failed at

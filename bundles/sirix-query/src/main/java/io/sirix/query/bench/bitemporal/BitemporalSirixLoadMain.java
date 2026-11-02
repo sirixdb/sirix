@@ -141,7 +141,7 @@ public final class BitemporalSirixLoadMain {
 
   static void createBusinessKeyIndex(final JsonResourceSession session, final JsonNodeTrx writer,
       final String resource) {
-    if (!BitemporalSchema.CONTRACTS.equals(resource) && !BitemporalSchema.PRODUCTS.equals(resource)
+    if ((!BitemporalSchema.CONTRACTS.equals(resource) && !BitemporalSchema.PRODUCTS.equals(resource))
         || Boolean.getBoolean("sirix.bitemporal.disableBusinessKeyIndex")) {
       return;
     }

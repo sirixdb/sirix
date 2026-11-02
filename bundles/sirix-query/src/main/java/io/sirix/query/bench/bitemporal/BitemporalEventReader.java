@@ -16,6 +16,7 @@ final class BitemporalEventReader implements AutoCloseable {
   private int previousEpoch = -1;
   private int previousTable = -1;
   private int previousId;
+  private int tableCode;
   private boolean available;
   private long parseNanos;
   int epoch;
@@ -59,17 +60,33 @@ final class BitemporalEventReader implements AutoCloseable {
   private boolean read() throws IOException {
     available = false;
     if (reader.peek() < 0) {
-      final long expected =
-          (long) tier.contracts() + tier.products() + tier.suppliers() + 24L * ((tier.contracts() + 19L) / 20L)
-              + 24L * ((tier.products() + 99L) / 100L) + 24L * ((tier.suppliers() + 99L) / 100L) + 4L;
-      if (count != expected) {
-        throw new IllegalArgumentException("event count " + count + " != tier expectation " + expected);
-      }
+      requireExpectedCount();
       return false;
     }
     Arrays.fill(payload, 0);
+    tableCode = -1;
+    final int fields = readFields();
+    validateEvent(fields);
+    validateOrder();
+    previousEpoch = epoch;
+    previousTable = tableCode;
+    previousId = id;
+    count++;
+    available = true;
+    return true;
+  }
+
+  private void requireExpectedCount() {
+    final long expected =
+        (long) tier.contracts() + tier.products() + tier.suppliers() + 24L * ((tier.contracts() + 19L) / 20L)
+            + 24L * ((tier.products() + 99L) / 100L) + 24L * ((tier.suppliers() + 99L) / 100L) + 4L;
+    if (count != expected) {
+      throw new IllegalArgumentException("event count " + count + " != tier expectation " + expected);
+    }
+  }
+
+  private int readFields() throws IOException {
     int fields = 0;
-    int tableCode = -1;
     reader.expect('{');
     while (reader.peek() != '}') {
       if (fields != 0) {
@@ -77,76 +94,68 @@ final class BitemporalEventReader implements AutoCloseable {
       }
       final int field = reader.field();
       reader.expect(':');
-      final int bit;
-      switch (field) {
-        case 0 -> {
-          epoch = reader.nextInt();
-          bit = 1;
-        }
-        case 1 -> {
-          reader.string();
-          if (reader.matches(BitemporalSchema.CONTRACTS)) {
-            table = BitemporalSchema.CONTRACTS;
-            tableCode = 0;
-          } else if (reader.matches(BitemporalSchema.PRODUCTS)) {
-            table = BitemporalSchema.PRODUCTS;
-            tableCode = 1;
-          } else if (reader.matches(BitemporalSchema.SUPPLIERS)) {
-            table = BitemporalSchema.SUPPLIERS;
-            tableCode = 2;
-          } else {
-            throw new IllegalArgumentException("unknown event table");
-          }
-          bit = 2;
-        }
-        case 2 -> {
-          reader.string();
-          put = reader.matches("put");
-          if (!put && !reader.matches("delete")) {
-            throw new IllegalArgumentException("unknown event operation");
-          }
-          bit = 4;
-        }
-        case 3 -> {
-          id = reader.nextInt();
-          bit = 8;
-        }
-        case 4 -> {
-          from = reader.nextInt();
-          bit = 16;
-        }
-        case 5 -> {
-          to = reader.nextInt();
-          bit = 32;
-        }
-        case 6, 11, 13 -> {
-          payload[0] = reader.nextInt();
-          bit = 1 << field;
-        }
-        case 7, 12, 14 -> {
-          payload[1] = reader.nextInt();
-          bit = 1 << field;
-        }
-        case 8 -> {
-          payload[2] = reader.nextInt();
-          bit = 256;
-        }
-        case 9 -> {
-          payload[3] = reader.nextInt();
-          bit = 512;
-        }
-        case 10 -> {
-          payload[4] = reader.nextInt();
-          bit = 1024;
-        }
-        default -> throw new IllegalArgumentException("unknown event field");
-      }
+      final int bit = readField(field);
       if ((fields & bit) != 0) {
         throw new IllegalArgumentException("duplicate event field: " + field);
       }
       fields |= bit;
     }
     reader.expect('}');
+    return fields;
+  }
+
+  private int readField(final int field) throws IOException {
+    switch (field) {
+      case 0 -> epoch = reader.nextInt();
+      case 1 -> readTable();
+      case 2 -> readOperation();
+      case 3 -> id = reader.nextInt();
+      case 4 -> from = reader.nextInt();
+      case 5 -> to = reader.nextInt();
+      default -> {
+        return readPayload(field);
+      }
+    }
+    return 1 << field;
+  }
+
+  private void readTable() throws IOException {
+    reader.string();
+    if (reader.matches(BitemporalSchema.CONTRACTS)) {
+      table = BitemporalSchema.CONTRACTS;
+      tableCode = 0;
+    } else if (reader.matches(BitemporalSchema.PRODUCTS)) {
+      table = BitemporalSchema.PRODUCTS;
+      tableCode = 1;
+    } else if (reader.matches(BitemporalSchema.SUPPLIERS)) {
+      table = BitemporalSchema.SUPPLIERS;
+      tableCode = 2;
+    } else {
+      throw new IllegalArgumentException("unknown event table");
+    }
+  }
+
+  private void readOperation() throws IOException {
+    reader.string();
+    put = reader.matches("put");
+    if (!put && !reader.matches("delete")) {
+      throw new IllegalArgumentException("unknown event operation");
+    }
+  }
+
+  private int readPayload(final int field) throws IOException {
+    switch (field) {
+      case 6, 11, 13 -> payload[0] = reader.nextInt();
+      case 7, 12, 14 -> payload[1] = reader.nextInt();
+      case 8 -> payload[2] = reader.nextInt();
+      case 9 -> payload[3] = reader.nextInt();
+      case 10 -> payload[4] = reader.nextInt();
+      default -> throw new IllegalArgumentException("unknown event field");
+    }
+    return 1 << field;
+  }
+
+  private void validateEvent(final int fields) {
     final int required = 63 | (!put
         ? 0
         : switch (tableCode) {
@@ -159,22 +168,19 @@ final class BitemporalEventReader implements AutoCloseable {
         || to > BitemporalSchema.HORIZON_DAYS) {
       throw new IllegalArgumentException("invalid event at record " + (count + 1));
     }
+  }
+
+  private void validateOrder() {
     final int identities = switch (tableCode) {
       case 0 -> tier.contracts();
       case 1 -> tier.products();
       case 2 -> tier.suppliers();
       default -> throw new IllegalArgumentException("missing event table");
     };
-    if (id > identities || epoch < previousEpoch
-        || epoch == previousEpoch && (tableCode < previousTable || tableCode == previousTable && id <= previousId)) {
+    if (id > identities || epoch < previousEpoch || (epoch == previousEpoch
+        && (tableCode < previousTable || (tableCode == previousTable && id <= previousId)))) {
       throw new IllegalArgumentException("event stream is not strictly ordered/in range at record " + (count + 1));
     }
-    previousEpoch = epoch;
-    previousTable = tableCode;
-    previousId = id;
-    count++;
-    available = true;
-    return true;
   }
 
   void requireEnd() {
@@ -300,7 +306,7 @@ final class BitemporalEventReader implements AutoCloseable {
         result = result * 10 + value - '0';
         if (++digits > 10 || result > (negative
             ? 2147483648L
-            : Integer.MAX_VALUE) || zero && digits > 1) {
+            : Integer.MAX_VALUE) || (zero && digits > 1)) {
           throw new IllegalArgumentException("invalid event integer");
         }
         position++;
