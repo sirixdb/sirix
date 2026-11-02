@@ -191,7 +191,8 @@ final class BitemporalLoaderBudgetTest {
   }
 
   private static long replaceRepeatedly(final BitemporalIntervalStore.Relation relation, final Intervals old,
-      final Intervals next, final BitemporalEventReader event, final int operations, final boolean allocatePerOperation) {
+      final Intervals next, final BitemporalEventReader event, final int operations,
+      final boolean allocatePerOperation) {
     long inserted = 0;
     for (int operation = 0; operation < operations; operation++) {
       event.put = (operation & 1) == 0;
