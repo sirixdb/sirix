@@ -108,8 +108,23 @@ Contracts additionally declare temporal aggregates at E0 (`BitemporalTemporalAgg
 maintenance and admission; [loader comparison controls](#loader-comparison-controls)
 own declaration overrides. The grouped queries retain the
 VALIDTIME row-mask and projection-group route when aggregate admission declines.
+
+The loader consumes generated events through a reusable one-record window and streams E0 JSON
+into the original single subtree insertion. Retained interval state uses reusable native slabs
+owned by the load, with a shared 512-MiB reservation limit across the three business relations;
+closing the load releases them, including on failure. This is benchmark-harness state, separate
+from the engine's retained state.
+
 The loader emits `SIRIX_COMMIT` lines with epoch, resource, event count and separate apply/commit
-milliseconds. E0 reports `apply_ms=0.0` as a placeholder; its construction work is not timed there.
+milliseconds. For E1–E24, `apply_ms` excludes time spent advancing the input reader, reported as
+`parse_io_ms`. E0 reports `apply_ms=0.0` as a placeholder; its construction work is not timed there.
+`SIRIX_INPUT` reports the consumed event count, cumulative `parse_io_seconds` and
+`native_state_bytes` (reserved interval slabs and identity heads, including reusable free slots,
+not engine memory). `SIRIX_LOAD seconds` now includes streaming input, database creation and
+loading, close, sync and footprint collection; previously input parsing preceded this timer.
+`load_excluding_parse_seconds` subtracts the measured input-reader advances from that total,
+not all harness work. Report harness gains separately from engine gains when comparing loads.
+
 Q1-Q3, Q5 and Q10 use explicit half-open or strict-overlap predicates. The Sirix runner refuses
 to run when the persisted VALIDTIME definitions are absent and records the route and residual flag
 in its manifest. The manifest's route labels describe declared query routes; they do not prove
