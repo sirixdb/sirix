@@ -110,10 +110,13 @@ own declaration overrides. The grouped queries retain the
 VALIDTIME row-mask and projection-group route when aggregate admission declines.
 
 The loader consumes generated events through a reusable one-record window and streams E0 JSON
-into the original single subtree insertion. Retained interval state uses reusable native slabs
-owned by the load, with a shared 512-MiB reservation limit across the three business relations;
-closing the load releases them, including on failure. This is benchmark-harness state, separate
-from the engine's retained state.
+into the original single subtree insertion. It makes a single forward pass and refuses a stream
+that departs from the generator's strict `(epoch, table, id)` order or from the tier's exact event
+count above, so a hand-edited or reordered `events.jsonl` fails the load rather than producing a
+quietly different database. Retained interval state uses reusable native slabs owned by the load,
+with a shared 512-MiB reservation limit across the three business relations; closing the load
+releases them, including on failure. This is benchmark-harness state, separate from the engine's
+retained state.
 
 The loader emits `SIRIX_COMMIT` lines with epoch, resource, event count and separate apply/commit
 milliseconds. For E1–E24, `apply_ms` excludes time spent advancing the input reader, reported as

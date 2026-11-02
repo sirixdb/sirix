@@ -91,6 +91,7 @@ failure table and tells the reader where the work went.
 | `sirix-query` `TemporalAggregateSourceWorkBudgetTest` | ordinary and correlated indexed scans with absent, uncovered, covering and oversized aggregate dictionaries | admission and masked fallback evaluate or open a document reader twice per binding, node work grows with source population, or any empty-array comparison mode evaluates an invalid point; covering aggregates remain served |
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
+| `sirix-query` `BitemporalLoaderBudgetTest` | SH1 benchmark-harness loader: the streaming one-record input window and the load-owned native interval slabs (harness state, not engine work; the [kit README](../../../../../../../../bundles/sirix-query/bench/bitemporal/README.md) owns the loader contract) | warmed canonical parsing allocates per event, the warmed interval read/replace/write cycle allocates anything, native state stops being proportional to live intervals, slab-backed intervals diverge from an independent per-day model across a slab boundary, or missing/duplicate/out-of-order/truncated input is accepted; a closed or budget-exhausted store must refuse its relations |
 | `sirix-core` `TemporalAggregateCatalogueWorkBudgetTest` | load, copy and publish an unused aggregate catalogue | aggregate lane decoding happens before a consumer requests it, or concurrent first use decodes more than once; snapshot isolation and semantic validation are checked separately |
 | `sirix-core` `SparseRevisionIndexWorkBudgetTest` | cold and warm dense revision-index loading with 16/4096 mostly pruned slots | the production FILE_CHANNEL decoder issues more than one metadata read or reads more than one history pass; warm index loading rereads any records |
 | `sirix-core` `ChangeLogWorkBudgetTest` | 20 projected row changes beside 256/4096 rows, all versioning types | slab bytes or slots grow with untouched rows; first old cells or represented base revisions disappear across page flushes, explicit barriers, cold reopening or revert; unchanged writer reads rebuild, encode or replay an already-applied batch |
@@ -309,9 +310,11 @@ event already costs a system call. Then list it in the catalog and in the diagno
 `docs/SEGMENT_PROJECTION_INDEXES.md`.
 
 `InlineSlotCopyAllocationBudgetTest` measures 16,384 inline slot copies and empty overflow-reference
-lookups with key 1,031, beyond the `Long` cache. It warms the exact loop and grows the owned frame
-before measuring; frame recycling stays outside the byte window. An actual overflow carrier is
-replaced by inline bytes in the correctness control, while an unrelated reference survives.
+lookups with key 1,031, beyond the `Long` cache. One counter window wraps each individual copy and
+the windows are summed; warmup drives the same measured method, so its invocations are compiled
+before the first counted window rather than only the warmup loop's backedges. Page recycling and
+page growth stay outside the windows. An actual overflow carrier is replaced by inline bytes in the
+correctness control, while an unrelated reference survives.
 It runs in the existing `dictionaryReadViewAllocationTest` fork, invoked by the standard core test
 task and included in coverage, so sibling Mockito mocks cannot contaminate the measured classes.
 Mutation evidence (2026-11-01): restoring the unconditional `copySlotFromPage` removal failed at
