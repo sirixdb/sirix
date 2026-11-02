@@ -87,18 +87,16 @@ final class BitemporalEventReader implements AutoCloseable {
           reader.string();
           if (reader.matches(BitemporalSchema.CONTRACTS)) {
             table = BitemporalSchema.CONTRACTS;
+            tableCode = 0;
           } else if (reader.matches(BitemporalSchema.PRODUCTS)) {
             table = BitemporalSchema.PRODUCTS;
+            tableCode = 1;
           } else if (reader.matches(BitemporalSchema.SUPPLIERS)) {
             table = BitemporalSchema.SUPPLIERS;
+            tableCode = 2;
           } else {
             throw new IllegalArgumentException("unknown event table");
           }
-          tableCode = table == BitemporalSchema.CONTRACTS
-              ? 0
-              : table == BitemporalSchema.PRODUCTS
-                  ? 1
-                  : 2;
           bit = 2;
         }
         case 2 -> {
@@ -121,13 +119,13 @@ final class BitemporalEventReader implements AutoCloseable {
           to = reader.nextInt();
           bit = 32;
         }
-        case 6 -> {
+        case 6, 11, 13 -> {
           payload[0] = reader.nextInt();
-          bit = 64;
+          bit = 1 << field;
         }
-        case 7 -> {
+        case 7, 12, 14 -> {
           payload[1] = reader.nextInt();
-          bit = 128;
+          bit = 1 << field;
         }
         case 8 -> {
           payload[2] = reader.nextInt();
@@ -140,22 +138,6 @@ final class BitemporalEventReader implements AutoCloseable {
         case 10 -> {
           payload[4] = reader.nextInt();
           bit = 1024;
-        }
-        case 11 -> {
-          payload[0] = reader.nextInt();
-          bit = 2048;
-        }
-        case 12 -> {
-          payload[1] = reader.nextInt();
-          bit = 4096;
-        }
-        case 13 -> {
-          payload[0] = reader.nextInt();
-          bit = 8192;
-        }
-        case 14 -> {
-          payload[1] = reader.nextInt();
-          bit = 16384;
         }
         default -> throw new IllegalArgumentException("unknown event field");
       }
