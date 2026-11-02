@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.sun.management.ThreadMXBean;
 import io.sirix.query.bench.bitemporal.BitemporalIntervalStore.Intervals;
 import io.sirix.query.bench.bitemporal.BitemporalSchema.Tier;
+import java.io.IOException;
 import java.io.StringReader;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
@@ -33,11 +34,7 @@ final class BitemporalLoaderBudgetTest {
     for (int pass = 0; pass < 6; pass++) {
       try (BitemporalEventReader reader = new BitemporalEventReader(new StringReader(input), Tier.DEVELOPMENT)) {
         final int[] payload = reader.payload;
-        final long before = bean.getThreadAllocatedBytes(thread);
-        while (reader.advance()) {
-          // No Event, DOM, field-name, or table-name objects are created in this loop.
-        }
-        final long bytes = bean.getThreadAllocatedBytes(thread) - before;
+        final long bytes = parsingAllocatedBytes(reader, bean, thread);
         if (pass >= 4) {
           assertEquals(0, bytes, "warmed canonical parsing must not allocate per event");
         }
@@ -132,18 +129,12 @@ final class BitemporalLoaderBudgetTest {
       event.from = 0;
       event.to = 366;
       event.put = true;
-      // Keep the measured kernel separate from assertions: entering the assertion branch in the
-      // warmup loop can deoptimize its compiled frame and charge runtime setup to the next pass.
+      // Warm the complete counter-wrapped kernel. The caller's warmup-loop exit must not
+      // deoptimize a frame that owns a live allocation-counter window.
       for (int pass = 0; pass < 4; pass++) {
-        // Warm the allocation-counter call path too; its first use can allocate runtime state.
-        bean.getThreadAllocatedBytes(thread);
-        replaceRepeatedly(relation, old, next, event, 40_000);
-        bean.getThreadAllocatedBytes(thread);
+        replacementAllocatedBytes(relation, old, next, event, bean, thread);
       }
-      final long before = bean.getThreadAllocatedBytes(thread);
-      final long inserted = replaceRepeatedly(relation, old, next, event, 40_000);
-      final long bytes = bean.getThreadAllocatedBytes(thread) - before;
-      assertEquals(20_000, inserted);
+      final long bytes = replacementAllocatedBytes(relation, old, next, event, bean, thread);
       assertEquals(0, bytes, "warmed interval replacement/read/write must allocate nothing");
       assertEquals((long) BitemporalIntervalStore.SLAB_SIZE * (40 + 4), owner.reservedBytes());
     }
@@ -158,16 +149,28 @@ final class BitemporalLoaderBudgetTest {
     assertThrows(IllegalStateException.class, () -> retained.read(1, old));
   }
 
-  private static long replaceRepeatedly(final BitemporalIntervalStore.Relation relation, final Intervals old,
-      final Intervals next, final BitemporalEventReader event, final int operations) {
+  private static long parsingAllocatedBytes(final BitemporalEventReader reader, final ThreadMXBean bean,
+      final long thread) throws IOException {
+    final long before = bean.getThreadAllocatedBytes(thread);
+    while (reader.advance()) {
+      // No Event, DOM, field-name, or table-name objects are created in this loop.
+    }
+    return bean.getThreadAllocatedBytes(thread) - before;
+  }
+
+  private static long replacementAllocatedBytes(final BitemporalIntervalStore.Relation relation, final Intervals old,
+      final Intervals next, final BitemporalEventReader event, final ThreadMXBean bean, final long thread) {
     long inserted = 0;
-    for (int operation = 0; operation < operations; operation++) {
+    final long before = bean.getThreadAllocatedBytes(thread);
+    for (int operation = 0; operation < 40_000; operation++) {
       event.put = (operation & 1) == 0;
       relation.read(1, old);
       old.replace(event, next);
       relation.write(1, next);
       inserted += next.size;
     }
-    return inserted;
+    final long bytes = bean.getThreadAllocatedBytes(thread) - before;
+    assertEquals(20_000, inserted);
+    return bytes;
   }
 }

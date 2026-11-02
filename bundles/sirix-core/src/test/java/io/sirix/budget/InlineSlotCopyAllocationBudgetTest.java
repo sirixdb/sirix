@@ -47,16 +47,14 @@ final class InlineSlotCopyAllocationBudgetTest {
             new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false)) {
       source.setSlot(SLOT_BYTES, SLOT);
       assertTrue(RECORD_KEY > 127, "exercise keys beyond the Long cache");
-      // Warm the exact loop and grow owned page storage before counting temporary work.
+      final long thread = Thread.currentThread().threadId();
+      // Warm the counter-wrapped loop too, so first-use accounting stays outside the byte window.
       for (int warmup = 0; warmup < 8; warmup++) {
         target.reset();
-        copySlots(source, target);
+        copySlotsAllocatedBytes(source, target, bean, thread);
       }
       target.reset();
-      final long thread = Thread.currentThread().threadId();
-      final long before = bean.getThreadAllocatedBytes(thread);
-      copySlots(source, target);
-      final long bytes = bean.getThreadAllocatedBytes(thread) - before;
+      final long bytes = copySlotsAllocatedBytes(source, target, bean, thread);
       assertEquals(0, bytes, "inline copy and empty reference lookup must not allocate boxed keys");
       assertNull(referenceSink);
       assertEquals(1, target.size(), "the measured copies must actually publish a slot");
@@ -90,10 +88,13 @@ final class InlineSlotCopyAllocationBudgetTest {
     }
   }
 
-  private static void copySlots(final KeyValueLeafPage source, final KeyValueLeafPage target) {
+  private static long copySlotsAllocatedBytes(final KeyValueLeafPage source, final KeyValueLeafPage target,
+      final ThreadMXBean bean, final long thread) {
+    final long before = bean.getThreadAllocatedBytes(thread);
     for (int copy = 0; copy < COPIES; copy++) {
       target.copySlotFromPage(source, SLOT);
       referenceSink = target.getPageReference(RECORD_KEY);
     }
+    return bean.getThreadAllocatedBytes(thread) - before;
   }
 }
