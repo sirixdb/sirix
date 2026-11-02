@@ -119,6 +119,17 @@ owned by the load, with a shared 512-MiB reservation limit across the three
 business relations; closing the load releases them, including on failure. This
 is benchmark-harness state, separate from the engine's retained state.
 
+`BitemporalLoaderBudgetTest` compares warmed replacement/read/write windows of
+40,000 and 80,000 operations and requires their allocated-byte difference to be
+exactly zero. A separate fixed runtime/JIT initialization allowance is capped at
+1,072 bytes per window, the amount observed in the historical macOS arm64 failure;
+that failure did not establish which runtime operation allocated it. The test prints
+every window's operation count and allocated bytes to the Gradle console so CI can
+distinguish fixed overhead from growth with operation count. Each window checks
+that half its operations insert an interval, and an escaping per-operation
+allocation control must produce a positive slope and fail the same budget.
+Canonical input parsing retains its separate exact zero-byte assertion.
+
 The loader emits `SIRIX_COMMIT` lines with epoch, resource, event count and
 separate apply/commit milliseconds. For E1–E24, `apply_ms` excludes time spent
 advancing the input reader, reported as `parse_io_ms`. E0 reports `apply_ms=0.0`

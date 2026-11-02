@@ -2,6 +2,7 @@ package io.sirix.query.bench.bitemporal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -20,6 +21,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 final class BitemporalLoaderBudgetTest {
+  private static final int REPLACEMENT_OPERATIONS = 40_000;
+  private static final int WINDOWS_PER_CONTROL = 6;
+  private static final long MAX_FIXED_ALLOCATION_BYTES = 1_072;
+  private static volatile Object allocationSink;
+
   @TempDir
   Path directory;
 
@@ -129,13 +135,27 @@ final class BitemporalLoaderBudgetTest {
       event.from = 0;
       event.to = 366;
       event.put = true;
-      // Warm the complete counter-wrapped kernel. The caller's warmup-loop exit must not
-      // deoptimize a frame that owns a live allocation-counter window.
-      for (int pass = 0; pass < 4; pass++) {
-        replacementAllocatedBytes(relation, old, next, event, bean, thread);
+      final long[] allocated = new long[2 * WINDOWS_PER_CONTROL];
+      final long[] inserted = new long[allocated.length];
+      for (int window = 0; window < allocated.length; window++) {
+        final int operations = REPLACEMENT_OPERATIONS * (1 + (window & 1));
+        final long before = bean.getThreadAllocatedBytes(thread);
+        inserted[window] = replaceRepeatedly(relation, old, next, event, operations, window >= WINDOWS_PER_CONTROL);
+        allocated[window] = bean.getThreadAllocatedBytes(thread) - before;
       }
-      final long bytes = replacementAllocatedBytes(relation, old, next, event, bean, thread);
-      assertEquals(0, bytes, "warmed interval replacement/read/write must allocate nothing");
+      for (int window = 0; window < allocated.length; window++) {
+        final int operations = REPLACEMENT_OPERATIONS * (1 + (window & 1));
+        System.out.println("BITEMPORAL_ALLOCATION window=" + window + " operations=" + operations + " control="
+            + (window >= WINDOWS_PER_CONTROL) + " bytes=" + allocated[window]);
+        assertEquals(operations / 2, inserted[window], "each PUT must publish one interval");
+      }
+      assertReplacementAllocationBudget(allocated[WINDOWS_PER_CONTROL - 2], allocated[WINDOWS_PER_CONTROL - 1]);
+      final long controlBytesN = allocated[allocated.length - 2];
+      final long controlBytes2N = allocated[allocated.length - 1];
+      assertTrue(controlBytes2N - controlBytesN >= REPLACEMENT_OPERATIONS,
+          "one escaping allocation per operation must produce a positive allocation slope");
+      assertNotNull(allocationSink, "the allocation control must publish its result");
+      assertThrows(AssertionError.class, () -> assertReplacementAllocationBudget(controlBytesN, controlBytes2N));
       assertEquals((long) BitemporalIntervalStore.SLAB_SIZE * (40 + 4), owner.reservedBytes());
     }
     assertThrows(IllegalStateException.class, () -> relation.read(1, old));
@@ -158,19 +178,25 @@ final class BitemporalLoaderBudgetTest {
     return bean.getThreadAllocatedBytes(thread) - before;
   }
 
-  private static long replacementAllocatedBytes(final BitemporalIntervalStore.Relation relation, final Intervals old,
-      final Intervals next, final BitemporalEventReader event, final ThreadMXBean bean, final long thread) {
+  private static void assertReplacementAllocationBudget(final long bytesN, final long bytes2N) {
+    assertEquals(0, bytes2N - bytesN, "doubling warmed interval replacement/read/write must add zero allocated bytes");
+    assertTrue(bytesN >= 0 && bytesN <= MAX_FIXED_ALLOCATION_BYTES,
+        "fixed runtime/JIT initialization allowance must not exceed 1,072 bytes per window");
+  }
+
+  private static long replaceRepeatedly(final BitemporalIntervalStore.Relation relation, final Intervals old,
+      final Intervals next, final BitemporalEventReader event, final int operations, final boolean allocatePerOperation) {
     long inserted = 0;
-    final long before = bean.getThreadAllocatedBytes(thread);
-    for (int operation = 0; operation < 40_000; operation++) {
+    for (int operation = 0; operation < operations; operation++) {
       event.put = (operation & 1) == 0;
       relation.read(1, old);
       old.replace(event, next);
       relation.write(1, next);
       inserted += next.size;
+      if (allocatePerOperation) {
+        allocationSink = new Object();
+      }
     }
-    final long bytes = bean.getThreadAllocatedBytes(thread) - before;
-    assertEquals(20_000, inserted);
-    return bytes;
+    return inserted;
   }
 }
