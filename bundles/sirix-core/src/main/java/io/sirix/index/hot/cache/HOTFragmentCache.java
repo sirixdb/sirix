@@ -60,6 +60,22 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
         : nativeImages;
   }
 
+  /**
+   * Prefer a fragment that just left the writer's sliding window when its partition needs space.
+   * Historical readers can still reload the immutable image, and guards keep current readers alive.
+   * Below the sweeper's pressure threshold, retain it for those historical reads as usual.
+   */
+  public boolean evictSupersededFragment(final HOTLeafPage page) {
+    Objects.requireNonNull(page);
+    final ShardedPageCache<HOTLeafPage> cache = cacheFor(page);
+    final long maximum = cache.getMaxWeightBytes();
+    if (maximum <= 0 || cache.getCurrentWeightBytes() < maximum - maximum / 10) {
+      return false;
+    }
+    final PageReference key = page.lastCacheKey();
+    return key != null && cache.evictIfSame(key, page);
+  }
+
   @Override
   public @Nullable HOTLeafPage getAndGuard(final PageReference key) {
     // Compact images first: they answer the requested-slot reads, which is the latency-sensitive path.

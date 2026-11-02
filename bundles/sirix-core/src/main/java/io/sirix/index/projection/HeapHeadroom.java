@@ -208,12 +208,13 @@ public final class HeapHeadroom {
   }
 
   /**
-   * Per-consumer execution share, bounded by the declared workspace reserve and a quarter of
-   * current headroom. Group tables and distinct sets plan against this figure. Retained column
-   * fills have a separate ceiling inside the projection cache share; when residency headroom is
-   * enabled, this figure can further reduce that ceiling without enlarging it.
+   * Per-consumer execution share, bounded by the declared workspace reserve and a quarter of current
+   * headroom. Group tables and distinct sets plan against this figure. Retained column fills have a
+   * separate ceiling inside the projection cache share; when residency headroom is enabled, this
+   * figure can further reduce that ceiling without enlarging it.
    *
-   * <p>The bounded top-k aggregate releases completed partitions one at a time and may use
+   * <p>
+   * The bounded top-k aggregate releases completed partitions one at a time and may use
    * {@link GroupTableSpill#boundedGroupBudgetFor}, up to three quarters of observed headroom.
    *
    * @return the planned per-consumer share of the heap, in bytes

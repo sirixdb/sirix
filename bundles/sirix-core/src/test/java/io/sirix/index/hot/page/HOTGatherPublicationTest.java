@@ -31,8 +31,12 @@ final class HOTGatherPublicationTest {
         final int expected = reader;
         results[reader] = executor.submit(() -> {
           final byte[] key = new byte[11];
-          key[0] = (byte) ((expected & 2) == 0 ? 0 : 0x10);
-          key[10] = (byte) ((expected & 1) == 0 ? 0 : 0x04);
+          key[0] = (byte) ((expected & 2) == 0
+              ? 0
+              : 0x10);
+          key[10] = (byte) ((expected & 1) == 0
+              ? 0
+              : 0x04);
           try {
             for (final HOTIndirectPage page : pages) {
               // Every round races the first read of a fresh, shared immutable page.

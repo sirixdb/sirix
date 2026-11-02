@@ -49,7 +49,8 @@ public final class GlobalDictionaryRecordCache implements Cache<GlobalDictionary
     }
     final long unit = HeapCacheBudget.weightUnit(maxWeightBytes);
     cache = Caffeine.newBuilder()
-                    .maximumWeight(maxWeightBytes / unit).executor(Runnable::run)
+                    .maximumWeight(maxWeightBytes / unit)
+                    .executor(Runnable::run)
                     .weigher((GlobalDictionaryRecordCacheKey key,
                         DataRecord record) -> HeapCacheBudget.weight(retainedBytes(record), unit))
                     .scheduler(scheduler)

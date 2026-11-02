@@ -1250,7 +1250,8 @@ public final class ProjectionIndexRegistry {
       final String configured = System.getProperty("sirix.projection.promoteMaxBytes");
       if (configured != null && !configured.isEmpty()) {
         try {
-          return Math.max(0L, Math.min(Long.parseLong(configured.trim()), HeapCacheBudget.global().projectionFillBytes()));
+          return Math.max(0L,
+              Math.min(Long.parseLong(configured.trim()), HeapCacheBudget.global().projectionFillBytes()));
         } catch (final NumberFormatException ignored) {
           // fall through to the derived default
         }

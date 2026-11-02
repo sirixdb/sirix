@@ -34,10 +34,15 @@ public final class GlobalVerdictCache implements Cache<GlobalVerdictCacheKey, lo
       throw new IllegalArgumentException("verdict cache budget must be non-negative, got " + maxWeightBytes);
     }
     final long unit = HeapCacheBudget.weightUnit(maxWeightBytes);
-    cache = Caffeine.newBuilder().maximumWeight(maxWeightBytes / unit).executor(Runnable::run).weigher((GlobalVerdictCacheKey key, long[] verdict) -> {
-      final long bytes = 128L + (long) verdict.length * Long.BYTES;
-      return HeapCacheBudget.weight(bytes, unit);
-    }).scheduler(scheduler).build();
+    cache = Caffeine.newBuilder()
+                    .maximumWeight(maxWeightBytes / unit)
+                    .executor(Runnable::run)
+                    .weigher((GlobalVerdictCacheKey key, long[] verdict) -> {
+                      final long bytes = 128L + (long) verdict.length * Long.BYTES;
+                      return HeapCacheBudget.weight(bytes, unit);
+                    })
+                    .scheduler(scheduler)
+                    .build();
   }
 
   @Override

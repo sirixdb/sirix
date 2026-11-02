@@ -9,8 +9,8 @@ import java.util.function.Function;
 
 /**
  * Startup allocation of disjoint retained-cache ceilings within half the runtime heap. The other
- * half remains available to query execution, output, GC and application/metadata objects. This is
- * a heap policy, not a second grant from the native persisted-page allocator or an RSS limit.
+ * half remains available to query execution, output, GC and application/metadata objects. This is a
+ * heap policy, not a second grant from the native persisted-page allocator or an RSS limit.
  */
 public final class HeapCacheBudget {
   public static final String MAX_BYTES_PROPERTY = "sirix.heapCache.maxBytes";
@@ -18,15 +18,12 @@ public final class HeapCacheBudget {
 
   /** Leaves of the allocation tree; their ceilings sum to no more than the envelope. */
   public enum Pool {
-    PROJECTION("sirix.projection.cacheBytes"),
-    DERIVED("sirix.derivedCache.heapReserveBytes"),
-    DICTIONARY_RECORDS("sirix.projection.globalDict.recordCacheBytes"),
-    GLOBAL_VERDICTS("sirix.projection.globalDict.verdictCacheBytes"),
-    SEGMENT_VERDICTS("sirix.projection.segmentDict.verdictCacheBytes"),
-    HOT_IMAGES("sirix.hotHeapCache.maxBytes"),
-    HOT_LOOKUPS("sirix.heapCache.hotLookupBytes"),
-    HOT_MINI_PAGES("sirix.heapCache.hotMiniBytes"),
-    PROJECTION_BLOBS("sirix.heapCache.projectionBlobBytes");
+    PROJECTION("sirix.projection.cacheBytes"), DERIVED("sirix.derivedCache.heapReserveBytes"), DICTIONARY_RECORDS(
+        "sirix.projection.globalDict.recordCacheBytes"), GLOBAL_VERDICTS(
+            "sirix.projection.globalDict.verdictCacheBytes"), SEGMENT_VERDICTS(
+                "sirix.projection.segmentDict.verdictCacheBytes"), HOT_IMAGES(
+                    "sirix.hotHeapCache.maxBytes"), HOT_LOOKUPS("sirix.heapCache.hotLookupBytes"), HOT_MINI_PAGES(
+                        "sirix.heapCache.hotMiniBytes"), PROJECTION_BLOBS("sirix.heapCache.projectionBlobBytes");
 
     private final String property;
 
@@ -40,10 +37,12 @@ public final class HeapCacheBudget {
   }
 
   /** Configured=-1 denotes the default share; effective is always bounded by the share. */
-  public record Limit(long configuredBytes, long ceilingBytes, long effectiveBytes) {}
+  public record Limit(long configuredBytes, long ceilingBytes, long effectiveBytes) {
+  }
 
   public record Metrics(long heapBytes, long configuredBytes, long envelopeBytes, long workspaceReserveBytes,
-      Map<Pool, Limit> pools, Limit projectionFill) {}
+      Map<Pool, Limit> pools, Limit projectionFill) {
+  }
 
   private static final class RuntimeBudget {
     private static final HeapCacheBudget INSTANCE =
@@ -63,7 +62,9 @@ public final class HeapCacheBudget {
     }
     Objects.requireNonNull(properties);
     final long configured = configured(properties, MAX_BYTES_PROPERTY);
-    final long envelope = configured < 0 ? heapBytes / 2 : Math.min(configured, heapBytes / 2);
+    final long envelope = configured < 0
+        ? heapBytes / 2
+        : Math.min(configured, heapBytes / 2);
     final EnumMap<Pool, Limit> limits = new EnumMap<>(Pool.class);
     assign(limits, properties, Pool.PROJECTION, envelope / 2);
     assign(limits, properties, Pool.DERIVED, envelope / 4);
@@ -80,7 +81,9 @@ public final class HeapCacheBudget {
     // inside the projection share; a per-store override cannot grant more than the catalog owns.
     final long fillCeiling = fraction(projection, 4, 5);
     final long fillConfigured = configured(properties, PROJECTION_FILL_BYTES_PROPERTY);
-    final long fill = fillConfigured < 0 ? projection / 2 : Math.min(fillConfigured, fillCeiling);
+    final long fill = fillConfigured < 0
+        ? projection / 2
+        : Math.min(fillConfigured, fillCeiling);
     metrics = new Metrics(heapBytes, configured, envelope, heapBytes - envelope, Map.copyOf(limits),
         new Limit(fillConfigured, fillCeiling, fill));
   }
@@ -88,7 +91,9 @@ public final class HeapCacheBudget {
   private static void assign(final EnumMap<Pool, Limit> limits, final Function<String, @Nullable String> properties,
       final Pool pool, final long ceiling) {
     final long requested = configured(properties, pool.property());
-    limits.put(pool, new Limit(requested, ceiling, requested < 0 ? ceiling : Math.min(requested, ceiling)));
+    limits.put(pool, new Limit(requested, ceiling, requested < 0
+        ? ceiling
+        : Math.min(requested, ceiling)));
   }
 
   private static long configured(final Function<String, @Nullable String> properties, final String property) {
@@ -118,7 +123,9 @@ public final class HeapCacheBudget {
       throw new IllegalArgumentException("Negative cache ceiling");
     }
     final long units = Integer.MAX_VALUE - 1L;
-    return Math.max(1L, maximumBytes / units + (maximumBytes % units == 0 ? 0 : 1));
+    return Math.max(1L, maximumBytes / units + (maximumBytes % units == 0
+        ? 0
+        : 1));
   }
 
   /** Round capacity up, never wrap a long byte count into a cheap or negative cache entry. */
@@ -126,7 +133,9 @@ public final class HeapCacheBudget {
     if (bytes < 0 || unit <= 0) {
       throw new IllegalArgumentException("Invalid cache weight or unit");
     }
-    return (int) Math.min(Integer.MAX_VALUE, bytes / unit + (bytes % unit == 0 ? 0 : 1));
+    return (int) Math.min(Integer.MAX_VALUE, bytes / unit + (bytes % unit == 0
+        ? 0
+        : 1));
   }
 
   public long bytes(final Pool pool) {

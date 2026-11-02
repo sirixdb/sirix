@@ -52,11 +52,13 @@ public final class SegmentVerdictCache implements Cache<GlobalVerdictCacheKey, b
       throw new IllegalArgumentException("segment verdict cache budget must be non-negative, got " + maxWeightBytes);
     }
     final long unit = HeapCacheBudget.weightUnit(maxWeightBytes);
-    cache = Caffeine.newBuilder()
-                    .maximumWeight(maxWeightBytes / unit).executor(Runnable::run)
-                    .weigher((GlobalVerdictCacheKey key, byte[] table) -> HeapCacheBudget.weight(128L + table.length, unit))
-                    .scheduler(scheduler)
-                    .build();
+    cache =
+        Caffeine.newBuilder()
+                .maximumWeight(maxWeightBytes / unit)
+                .executor(Runnable::run)
+                .weigher((GlobalVerdictCacheKey key, byte[] table) -> HeapCacheBudget.weight(128L + table.length, unit))
+                .scheduler(scheduler)
+                .build();
   }
 
   @Override

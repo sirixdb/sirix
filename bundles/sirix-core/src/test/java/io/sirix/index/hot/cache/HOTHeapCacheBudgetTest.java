@@ -59,7 +59,9 @@ final class HOTHeapCacheBudgetTest {
   private void withCeiling(final String value, final Runnable body) {
     final HeapCacheBudget previous = allocation;
     allocation = new HeapCacheBudget(Runtime.getRuntime().maxMemory(),
-        name -> name.equals(BufferManagerImpl.HOT_HEAP_CACHE_BYTES_PROPERTY) ? value : null);
+        name -> name.equals(BufferManagerImpl.HOT_HEAP_CACHE_BYTES_PROPERTY)
+            ? value
+            : null);
     try {
       body.run();
     } finally {
@@ -105,7 +107,8 @@ final class HOTHeapCacheBudgetTest {
   @Test
   void malformedCeilingsFailConfigurationAndZeroDisablesRetention() {
     for (final String invalid : new String[] {"-1", "not-a-number"}) {
-      assertThrows(IllegalArgumentException.class, () -> withCeiling(invalid, () -> {}));
+      assertThrows(IllegalArgumentException.class, () -> withCeiling(invalid, () -> {
+      }));
     }
     withCeiling("0", () -> {
       try (BufferManagerImpl manager = manager()) {

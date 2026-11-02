@@ -95,8 +95,7 @@ final class HeapCacheBudgetTest {
   @Test
   void dictionaryWeightsIncludeOffsetsAndLargeSpilledValuesAndZeroDisables() {
     final GlobalDictionaryRecordCacheKey key = new GlobalDictionaryRecordCacheKey(1, 2, 3, 4);
-    final ValueDictionaryValueBlockNode block =
-        new ValueDictionaryValueBlockNode(4, 1, new int[257], new byte[0]);
+    final ValueDictionaryValueBlockNode block = new ValueDictionaryValueBlockNode(4, 1, new int[257], new byte[0]);
     final GlobalDictionaryRecordCache small = new GlobalDictionaryRecordCache(1024);
     small.put(key, block);
     assertNull(small.get(key), "the offset array alone exceeds this allowance");

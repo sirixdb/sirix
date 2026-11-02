@@ -266,8 +266,8 @@ public final class BufferManagerImpl implements BufferManager {
   public BufferManagerImpl(long maxPageCacheWeight, long maxRecordPageCacheWeight,
       long maxRecordPageFragmentCacheWeight, int maxRevisionRootPageCache, int maxNamesCacheSize,
       int maxPathSummaryCacheSize) {
-    this(maxPageCacheWeight, maxRecordPageCacheWeight, maxRecordPageFragmentCacheWeight,
-        maxRevisionRootPageCache, maxNamesCacheSize, maxPathSummaryCacheSize, HeapCacheBudget.global());
+    this(maxPageCacheWeight, maxRecordPageCacheWeight, maxRecordPageFragmentCacheWeight, maxRevisionRootPageCache,
+        maxNamesCacheSize, maxPathSummaryCacheSize, HeapCacheBudget.global());
   }
 
   /** Explicit policy seam for deterministic memory-budget tests. */
@@ -312,14 +312,18 @@ public final class BufferManagerImpl implements BufferManager {
     // The total HOT allowance and raw-fragment allowance do not increase.
     final long combinedBudget = hotLeafBudget - hotFragmentBudget;
     final long miniAllowance = Math.min(hotHeapBudget, heapBudget.bytes(Pool.HOT_MINI_PAGES));
-    final long miniBudget = combinedBudget <= 0 ? 0 : Math.min(combinedBudget / 16, miniAllowance);
+    final long miniBudget = combinedBudget <= 0
+        ? 0
+        : Math.min(combinedBudget / 16, miniAllowance);
     hotMiniPageCache = miniBudget == 0
         ? HOTMiniPageCache.disabled()
         : new HOTMiniPageCache(miniBudget);
     // Verified referenced payloads keep their own accounted copies; never swizzle side arrays
     // into native leaves. Reserve this share from the existing HOT allowance too.
     final long blobAllowance = Math.min(miniBudget / 2, heapBudget.bytes(Pool.PROJECTION_BLOBS));
-    final long blobBudget = blobAllowance < 1024 ? 0 : blobAllowance;
+    final long blobBudget = blobAllowance < 1024
+        ? 0
+        : blobAllowance;
     projectionBlobCache = blobBudget == 0
         ? ProjectionBlobCache.disabled()
         : new ProjectionBlobCache(blobBudget);
@@ -358,12 +362,14 @@ public final class BufferManagerImpl implements BufferManager {
 
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     final String configuredHotLookupEntries = System.getProperty(HOT_LOOKUP_CACHE_ENTRIES_PROPERTY);
-    final HotLookupSize requestedHotLookup = hotLookupCacheEntries(maxRecordPageCacheWeight, configuredHotLookupEntries);
-    final long affordableHotLookups = heapBudget.bytes(Pool.HOT_LOOKUPS)
-        / HOT_LOOKUP_WORST_CASE_ENTRY_BYTES;
+    final HotLookupSize requestedHotLookup =
+        hotLookupCacheEntries(maxRecordPageCacheWeight, configuredHotLookupEntries);
+    final long affordableHotLookups = heapBudget.bytes(Pool.HOT_LOOKUPS) / HOT_LOOKUP_WORST_CASE_ENTRY_BYTES;
     final int boundedHotLookups = (int) Math.min(requestedHotLookup.entries(), affordableHotLookups);
     // HOTLookupCache rounds a positive capacity below its eight-way associativity UP to eight.
-    final int hotLookupEntries = boundedHotLookups < 8 ? 0 : boundedHotLookups;
+    final int hotLookupEntries = boundedHotLookups < 8
+        ? 0
+        : boundedHotLookups;
     final HotLookupSize hotLookupSize = new HotLookupSize(hotLookupEntries,
         requestedHotLookup.fromProperty() && hotLookupEntries == requestedHotLookup.entries());
     hotLookupCache = hotLookupEntries == 0

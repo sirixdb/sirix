@@ -138,8 +138,7 @@ public final class ProjectionIndexCatalog {
   private static final ProjectionIndexRegistry.Handle NOT_USABLE =
       new ProjectionIndexRegistry.Handle(new String[0], List.of());
 
-  private static final long CACHE_BYTES =
-      HeapCacheBudget.global().bytes(Pool.PROJECTION);
+  private static final long CACHE_BYTES = HeapCacheBudget.global().bytes(Pool.PROJECTION);
 
   private static final long CACHE_WEIGHT_UNIT = HeapCacheBudget.weightUnit(CACHE_BYTES);
 
@@ -1137,10 +1136,10 @@ public final class ProjectionIndexCatalog {
    * eager whole-column materialization.
    *
    * <p>
-   * The default is half the projection share of {@link HeapCacheBudget}; overrides remain within
-   * that share together with a quarter-fill payload-window allowance. The projected weight is the
-   * handle's conservative resident weight, so a large projection switches to windowed serving
-   * before allocating its whole eager list.
+   * The default is half the projection share of {@link HeapCacheBudget}; overrides remain within that
+   * share together with a quarter-fill payload-window allowance. The projected weight is the handle's
+   * conservative resident weight, so a large projection switches to windowed serving before
+   * allocating its whole eager list.
    */
   private static final long EAGER_MATERIALIZE_BYTES_DEFAULT = HeapCacheBudget.global().projectionFillBytes();
 
@@ -1281,8 +1280,8 @@ public final class ProjectionIndexCatalog {
     // sized by the projected per-leaf weight (conservative — includes decode expansion, so the cap
     // errs toward fewer resident windows). A worker-count floor would exceed tiny declared budgets.
     final long projectedWindowBytes = Math.max(1L, projectedWeightBytes / Math.max(1, rowGroupCount)) * windowSize;
-    final int residentCap = (int) Math.min(Integer.MAX_VALUE,
-        Math.max(0L, (eagerMaterializeBytes / 4) / projectedWindowBytes));
+    final int residentCap =
+        (int) Math.min(Integer.MAX_VALUE, Math.max(0L, (eagerMaterializeBytes / 4) / projectedWindowBytes));
     if (DIAG) {
       System.err.println("[cat] windowed payloads: defId=" + defId + " rowGroups=" + rowGroupCount + " projected="
           + (projectedWeightBytes >> 20) + "MB windowLeaves=" + windowSize + " residentCap=" + residentCap);
