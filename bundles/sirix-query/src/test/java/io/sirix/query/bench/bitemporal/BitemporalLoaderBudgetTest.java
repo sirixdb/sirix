@@ -23,7 +23,6 @@ import org.junit.jupiter.api.io.TempDir;
 final class BitemporalLoaderBudgetTest {
   private static final int REPLACEMENT_OPERATIONS = 40_000;
   private static final int WINDOWS_PER_CONTROL = 6;
-  private static final long MAX_FIXED_ALLOCATION_BYTES = 1_072;
   private static volatile Object allocationSink;
 
   @TempDir
@@ -169,6 +168,14 @@ final class BitemporalLoaderBudgetTest {
     assertThrows(IllegalStateException.class, () -> retained.read(1, old));
   }
 
+  @Test
+  void replacementAllocationBudgetRequiresZeroInBothWindows() {
+    assertReplacementAllocationBudget(0, 0);
+    assertThrows(AssertionError.class, () -> assertReplacementAllocationBudget(1_072, 1_072));
+    assertThrows(AssertionError.class, () -> assertReplacementAllocationBudget(1, 0));
+    assertThrows(AssertionError.class, () -> assertReplacementAllocationBudget(0, 1));
+  }
+
   private static long parsingAllocatedBytes(final BitemporalEventReader reader, final ThreadMXBean bean,
       final long thread) throws IOException {
     final long before = bean.getThreadAllocatedBytes(thread);
@@ -179,9 +186,8 @@ final class BitemporalLoaderBudgetTest {
   }
 
   private static void assertReplacementAllocationBudget(final long bytesN, final long bytes2N) {
-    assertEquals(0, bytes2N - bytesN, "doubling warmed interval replacement/read/write must add zero allocated bytes");
-    assertTrue(bytesN >= 0 && bytesN <= MAX_FIXED_ALLOCATION_BYTES,
-        "fixed runtime/JIT initialization allowance must not exceed 1,072 bytes per window");
+    assertEquals(0, bytesN, "warmed interval replacement/read/write must allocate nothing at N operations");
+    assertEquals(0, bytes2N, "warmed interval replacement/read/write must allocate nothing at 2N operations");
   }
 
   private static long replaceRepeatedly(final BitemporalIntervalStore.Relation relation, final Intervals old,
