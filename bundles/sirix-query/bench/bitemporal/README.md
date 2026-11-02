@@ -112,21 +112,18 @@ VALIDTIME row-mask and projection-group route when aggregate admission declines.
 The loader consumes generated events through a reusable one-record window and
 streams E0 JSON into the original single subtree insertion. It makes a single
 forward pass and refuses a stream that departs from the generator's strict
-`(epoch, table, id)` order or from the tier's exact event count above, so a
-hand-edited or reordered `events.jsonl` fails the load rather than producing a
-quietly different database. Retained interval state uses reusable native slabs
-owned by the load, with a shared 512-MiB reservation limit across the three
-business relations; closing the load releases them, including on failure. This
-is benchmark-harness state, separate from the engine's retained state.
+`(epoch, table, id)` order or from the tier's exact event count above.
+Retained interval state uses reusable native slabs owned by the load, with a
+shared 512-MiB reservation limit across the three business relations; closing
+the load releases them, including on failure. This is benchmark-harness state,
+separate from the engine's retained state.
 
-`BitemporalLoaderBudgetTest` compares warmed replacement/read/write windows of
-40,000 and 80,000 operations and requires their allocated-byte difference to be
-exactly zero. A separate fixed runtime/JIT initialization allowance is capped at
-1,072 bytes per window, the amount observed in the historical macOS arm64 failure;
-that failure did not establish which runtime operation allocated it. The test prints
-every window's operation count and allocated bytes to the Gradle console so CI can
-distinguish fixed overhead from growth with operation count. Each window checks
-that half its operations insert an interval, and an escaping per-operation
+`BitemporalLoaderBudgetTest` measures warmed replacement/read/write windows of
+40,000 and 80,000 operations and requires exactly zero allocated bytes in each
+window. A regression control rejects equal nonzero allocations in both windows.
+The test prints every window's operation count and allocated bytes to the Gradle
+console so CI can distinguish fixed overhead from growth with operation count.
+Each window checks that half its operations insert an interval, and an escaping per-operation
 allocation control must produce a positive slope and fail the same budget.
 Canonical input parsing retains its separate exact zero-byte assertion.
 
