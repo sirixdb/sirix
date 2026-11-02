@@ -311,16 +311,17 @@ event already costs a system call. Then list it in the catalog and in the diagno
 
 `InlineSlotCopyAllocationBudgetTest` measures 16,384 inline slot copies and
 empty overflow-reference lookups with key 1,031, beyond the `Long` cache. One
-counter window wraps each individual copy and the windows are summed; warmup
-drives the same measured method, so its invocations are compiled before the
-first counted window rather than only the warmup loop's backedges. Page
+counter window wraps each individual copy and the windows are summed. Eight warmup
+passes and the asserted ninth pass share one loop and callsite, including accumulation
+of the returned byte count; measurement does not enter a separate cold caller loop. Page
 recycling and page growth stay outside the windows. An actual overflow carrier
 is replaced by inline bytes in the correctness control, while an unrelated
 reference survives.
 It runs in the existing `dictionaryReadViewAllocationTest` fork, invoked by the standard core test
 task and included in coverage, so sibling Mockito mocks cannot contaminate the measured classes.
-Mutation evidence (2026-11-01): restoring the unconditional `copySlotFromPage` removal failed at
-393,216 bytes (24 bytes per copy), against zero with the guard. The source was restored afterwards.
+Mutation evidence (2026-11-02): restoring either unconditional empty-map lookup or removal in an
+interpreted JVM failed at 393,216 bytes (24 bytes per copy), against zero with the guards. The source
+was restored afterwards.
 
 ## Adding a budget test
 

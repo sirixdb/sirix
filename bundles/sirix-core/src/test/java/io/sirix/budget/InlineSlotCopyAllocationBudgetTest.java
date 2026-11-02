@@ -48,17 +48,14 @@ final class InlineSlotCopyAllocationBudgetTest {
       source.setSlot(SLOT_BYTES, SLOT);
       assertTrue(RECORD_KEY > 127, "exercise keys beyond the Long cache");
       final long thread = Thread.currentThread().threadId();
-      // Warm method invocations as well as loop backedges before measuring the same operation.
-      for (int warmup = 0; warmup < 8; warmup++) {
-        target.reset();
-        for (int copy = 0; copy < COPIES; copy++) {
-          copySlotAllocatedBytes(source, target, bean, thread);
-        }
-      }
-      target.reset();
+      // Keep warmup and measurement at one callsite, including accumulation of the returned count.
       long bytes = 0;
-      for (int copy = 0; copy < COPIES; copy++) {
-        bytes += copySlotAllocatedBytes(source, target, bean, thread);
+      for (int pass = 0; pass < 9; pass++) {
+        target.reset();
+        bytes = 0;
+        for (int copy = 0; copy < COPIES; copy++) {
+          bytes += copySlotAllocatedBytes(source, target, bean, thread);
+        }
       }
       assertEquals(0, bytes, "inline copy and empty reference lookup must not allocate boxed keys");
       assertNull(referenceSink);
