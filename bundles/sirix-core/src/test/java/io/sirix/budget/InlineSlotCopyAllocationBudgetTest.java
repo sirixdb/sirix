@@ -48,13 +48,18 @@ final class InlineSlotCopyAllocationBudgetTest {
       source.setSlot(SLOT_BYTES, SLOT);
       assertTrue(RECORD_KEY > 127, "exercise keys beyond the Long cache");
       final long thread = Thread.currentThread().threadId();
-      // Warm the counter-wrapped loop too, so first-use accounting stays outside the byte window.
+      // Warm method invocations as well as loop backedges before measuring the same operation.
       for (int warmup = 0; warmup < 8; warmup++) {
         target.reset();
-        copySlotsAllocatedBytes(source, target, bean, thread);
+        for (int copy = 0; copy < COPIES; copy++) {
+          copySlotAllocatedBytes(source, target, bean, thread);
+        }
       }
       target.reset();
-      final long bytes = copySlotsAllocatedBytes(source, target, bean, thread);
+      long bytes = 0;
+      for (int copy = 0; copy < COPIES; copy++) {
+        bytes += copySlotAllocatedBytes(source, target, bean, thread);
+      }
       assertEquals(0, bytes, "inline copy and empty reference lookup must not allocate boxed keys");
       assertNull(referenceSink);
       assertEquals(1, target.size(), "the measured copies must actually publish a slot");
@@ -88,13 +93,11 @@ final class InlineSlotCopyAllocationBudgetTest {
     }
   }
 
-  private static long copySlotsAllocatedBytes(final KeyValueLeafPage source, final KeyValueLeafPage target,
+  private static long copySlotAllocatedBytes(final KeyValueLeafPage source, final KeyValueLeafPage target,
       final ThreadMXBean bean, final long thread) {
     final long before = bean.getThreadAllocatedBytes(thread);
-    for (int copy = 0; copy < COPIES; copy++) {
-      target.copySlotFromPage(source, SLOT);
-      referenceSink = target.getPageReference(RECORD_KEY);
-    }
+    target.copySlotFromPage(source, SLOT);
+    referenceSink = target.getPageReference(RECORD_KEY);
     return bean.getThreadAllocatedBytes(thread) - before;
   }
 }
