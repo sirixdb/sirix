@@ -47,9 +47,15 @@ keep the locality route. A background packing of an interval-join side counts it
 the exact slab, and scatters the records off the query thread; the synchronous build side is
 packed into a query-owned slab when the cache refuses, so a disabled cache changes no answer.
 
-Query kernels read resident lanes through `SegmentAccess` with lane offsets hoisted once per leaf,
-never through a per-row branch or wrapper. Roster and mask comparisons use the Vector API over the
-slab. The segments at those sites are always native.
+A snapshot stores each kept leaf's lanes as one row-major block (`8 * fieldCount` bytes per row,
+64-byte aligned, 32 bytes of slack), so a dense kernel reads a whole row of up to four fields with
+one 256-bit vector load (`NativeRows.load`) instead of one checked access per field; packed join
+records (five longs) are read the same way, with the group lane read only for overlapping pairs.
+Lane offsets are hoisted once per leaf, never through a per-row branch or wrapper, and roster and
+mask comparisons use the Vector API over the slab. The segments at those sites are always native.
+The first off-heap candidate kept columnar lanes and paid one bounds check per field per row; on the
+t1M diagnostic pair its Q10 merge ran 36 ms against 25 ms for the heap-array candidate, which the
+row-major block and vector loads address.
 
 ## Heap envelope
 

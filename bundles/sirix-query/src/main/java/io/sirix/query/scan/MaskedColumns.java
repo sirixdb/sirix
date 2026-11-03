@@ -131,14 +131,23 @@ public final class MaskedColumns implements AutoCloseable {
     return requireNonNull(snapshot, "not a native view").slab();
   }
 
-  /** Byte offset of {@code field}'s numeric lane on {@code leaf}, -1 when skipped or pruned. */
-  public long laneBase(final int field, final int leaf) {
-    return requireNonNull(snapshot, "not a native view").laneBase(field, leaf);
+  /**
+   * Byte offset of {@code leaf}'s row-major lane block, -1 when the leaf is skipped. Field {@code f}
+   * of row {@code r} lies at {@code rowBase(leaf) + r * laneStride() + 8 * f}; a row of at most four
+   * fields is one {@link NativeRows#load} away.
+   */
+  public long rowBase(final int leaf) {
+    return requireNonNull(snapshot, "not a native view").rowBase(leaf);
   }
 
-  /** Per-leaf lane offsets of {@code field}, hoisted once per side rather than per leaf. */
-  public long[] laneBases(final int field) {
-    return requireNonNull(snapshot, "not a native view").laneBases(field);
+  /** Bytes between consecutive rows of a lane block: eight per rostered field. */
+  public long laneStride() {
+    return requireNonNull(snapshot, "not a native view").laneStride();
+  }
+
+  /** Whether {@code field}'s values exist in {@code leaf}'s lane block (pruned slices have none). */
+  public boolean laneAvailable(final int field, final int leaf) {
+    return requireNonNull(snapshot, "not a native view").laneAvailable(field, leaf);
   }
 
   /** Byte offset of {@code field}'s presence words on {@code leaf}, -1 when skipped or pruned. */
@@ -472,17 +481,18 @@ public final class MaskedColumns implements AutoCloseable {
         continue;
       }
       final long presence = resident.presenceBase(field, leaf);
-      final long lane = resident.laneBase(field, leaf);
-      if (lane < 0) {
+      if (!resident.laneAvailable(field, leaf)) {
         throw new IllegalStateException("an admitted long field needs a numeric lane");
       }
+      final long stride = resident.laneStride();
+      final long lane = resident.rowBase(leaf) + 8L * field;
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w] & SegmentAccess.getLong(slab, presence + 8L * w);
-        final long rowBase = lane + 8L * ((long) w << 6);
+        final long rowBase = lane + ((long) w << 6) * stride;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
-          values.add(SegmentAccess.getLong(slab, rowBase + 8L * bit));
+          values.add(SegmentAccess.getLong(slab, rowBase + bit * stride));
         }
       }
     }
@@ -554,10 +564,11 @@ public final class MaskedColumns implements AutoCloseable {
       }
       final boolean pruned = resident.sliceRows(field, leaf) <= 0;
       final long presence = resident.presenceBase(field, leaf);
-      final long lane = resident.laneBase(field, leaf);
-      if (!pruned && lane < 0) {
+      if (!pruned && !resident.laneAvailable(field, leaf)) {
         throw new IllegalStateException("an admitted membership field needs a numeric lane");
       }
+      final long stride = resident.laneStride();
+      final long lane = resident.rowBase(leaf) + 8L * field;
       final long leafKeys = resident.keyBase(leaf);
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
@@ -570,7 +581,7 @@ public final class MaskedColumns implements AutoCloseable {
           word &= word - 1L;
           final long row = rowBase + bit;
           final boolean member =
-              (presenceWord & 1L << bit) != 0L && values.contains(SegmentAccess.getLong(slab, lane + 8L * row));
+              (presenceWord & 1L << bit) != 0L && values.contains(SegmentAccess.getLong(slab, lane + row * stride));
           if (anti
               ? !member
               : member) {
@@ -588,8 +599,14 @@ public final class MaskedColumns implements AutoCloseable {
     }
     final NativeNumericSnapshot resident = snapshot;
     if (resident != null) {
+      final long[] laneBase = new long[rowMasks.length];
+      for (int leaf = 0; leaf < laneBase.length; leaf++) {
+        laneBase[leaf] = resident.rowBase(leaf) < 0 || !resident.laneAvailable(field, leaf)
+            ? -1L
+            : resident.rowBase(leaf) + 8L * field;
+      }
       return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, resident.slab(), resident.keyBases(),
-          resident.leafRowCounts(), resident.laneBases(field), resident.presenceBases(field), values, anti);
+          resident.leafRowCounts(), laneBase, resident.laneStride(), resident.presenceBases(field), values, anti);
     }
     return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, requireNonNull(recordKeys),
         requireNonNull(slices)[field], values, anti);

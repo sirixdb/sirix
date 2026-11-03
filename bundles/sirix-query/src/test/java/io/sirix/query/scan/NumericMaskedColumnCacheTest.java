@@ -396,6 +396,65 @@ final class NumericMaskedColumnCacheTest {
     }
   }
 
+  @Test
+  void multiFieldRostersReadEveryFieldThroughTheRowMajorBlock() {
+    final ProjectionColumnStore store = store();
+    for (final int fieldCount : new int[] {3, 5}) {
+      final MaskedColumns heap = columns(store, fieldCount);
+      final String[] fields = new String[fieldCount];
+      for (int field = 0; field < fieldCount; field++) {
+        fields[field] = "f" + field;
+      }
+      cache.admit(store, fields, new long[] {10, 11}, heap);
+      try (MaskedColumns view = cache.lookup(store, fields, new long[] {10, 11})) {
+        assertNotNull(view);
+        assertEquals(8L * fieldCount, view.laneStride());
+        for (int field = 0; field < fieldCount; field++) {
+          assertTrue(view.laneAvailable(field, 0));
+          assertEquals(heap.minimum(field), view.minimum(field));
+          assertEquals(heap.maximum(field), view.maximum(field));
+          assertEquals(heap.isTimestamp(field), view.isTimestamp(field));
+          for (int row = 0; row < 2; row++) {
+            assertEquals(heap.present(field, 0, row), view.present(field, 0, row));
+            assertEquals(heap.longValue(field, 0, row), view.longValue(field, 0, row),
+                "field " + field + " row " + row);
+          }
+          assertEquals(heap.presentLongValues(field), view.presentLongValues(field));
+        }
+        final LongOpenHashSet members = new LongOpenHashSet(new long[] {heap.longValue(fieldCount - 1, 0, 1)});
+        assertArrayEquals(heap.recordKeysByMembership(fieldCount - 1, members, false),
+            view.recordKeysByMembership(fieldCount - 1, members, false));
+        assertArrayEquals(heap.recordKeysByMembership(fieldCount - 1, members, true),
+            view.recordKeysByMembership(fieldCount - 1, members, true));
+        final ColumnPredicate expected = heap.recordKeyPredicateByMembership(0, new long[] {10, 11}, members, false);
+        final ColumnPredicate actual = view.recordKeyPredicateByMembership(0, new long[] {10, 11}, members, false);
+        assertArrayEquals(Objects.requireNonNull(expected.keyMasks).byFirstKey().get(10),
+            Objects.requireNonNull(actual.keyMasks).byFirstKey().get(10));
+      }
+    }
+  }
+
+  /**
+   * {@code fieldCount} lanes over two rows; field {@code f} holds {@code 10 * f + row + 1}, field 1 a
+   * timestamp.
+   */
+  private static MaskedColumns columns(final ProjectionColumnStore store, final int fieldCount) {
+    final ColumnSlice[][] slices = new ColumnSlice[fieldCount][1];
+    final byte[] kinds = new byte[fieldCount];
+    for (int field = 0; field < fieldCount; field++) {
+      final long first = 10L * field + 1;
+      slices[field][0] = new ColumnSlice(2, (byte) 0, first, first + 1, new long[] {3}, new long[] {first, first + 1},
+          null, null, null, null, null, null);
+      kinds[field] = field == 1
+          ? ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP
+          : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
+    }
+    final MaskedColumns columns =
+        new MaskedColumns(store, new long[][] {{3}}, new long[][] {{10, 11}}, slices, kinds, 2);
+    columns.markImmutableRevision();
+    return columns;
+  }
+
   private DerivedCacheBudget withNumericShare(final long bytes) {
     final long total = (4 * bytes + 2) / 3;
     return new DerivedCacheBudget(allocator, total * 8, total);

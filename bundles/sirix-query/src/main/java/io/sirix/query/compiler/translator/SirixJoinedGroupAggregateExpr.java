@@ -26,6 +26,7 @@ import io.sirix.query.ColumnarRecordSequence;
 import io.sirix.query.scan.DerivedCacheBudget;
 import io.sirix.query.scan.DerivedCacheBudget.Reservation;
 import io.sirix.query.scan.MaskedColumns;
+import io.sirix.query.scan.NativeRows;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
@@ -447,7 +448,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final int probeFieldCount = sideFields[probeSide].length;
     final int distinctCapacity = distinctCapacity(buildColumns, buildSide, probeColumns);
     final DistinctDomain[] distinctDomains = distinctDomains(buildColumns, buildSide, probeColumns);
-    final long[] probeValues = new long[probeFieldCount];
+    final long[] probeValues = new long[Math.max(NativeRows.LANES, probeFieldCount)];
     final boolean[] probePresent = new boolean[probeFieldCount];
     final boolean denseProbe = denseNumeric(probeColumns, probeFieldCount);
     final boolean[] probeTimestamps = new boolean[probeFieldCount];
@@ -583,7 +584,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private static int probeRows(final ProbeFold fold, final MaskedColumns probeColumns, final boolean denseProbe,
       final boolean[] probeTimestamps, final int probeFieldCount) {
     final long[][] probeLanes = new long[probeFieldCount][];
-    final long[] laneBases = new long[probeFieldCount];
     for (int leaf = 0; leaf < probeColumns.leafCount(); leaf++) {
       final long[] mask = probeColumns.rowMask(leaf);
       if (mask == null) {
@@ -592,10 +592,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       if (!denseProbe) {
         probeLeafSparse(fold, probeColumns, leaf, mask, probeFieldCount);
       } else if (probeColumns.isNative()) {
-        for (int field = 0; field < probeFieldCount; field++) {
-          laneBases[field] = probeColumns.laneBase(field, leaf);
-        }
-        probeLeafDense(fold, probeColumns.slab(), laneBases, probeTimestamps, leaf, mask);
+        probeLeafDense(fold, probeColumns.slab(), probeColumns.rowBase(leaf), probeColumns.laneStride(),
+            probeFieldCount, probeTimestamps, leaf, mask);
       } else {
         for (int field = 0; field < probeFieldCount; field++) {
           probeLanes[field] = probeColumns.numericLane(field, leaf);
@@ -648,22 +646,24 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
   }
 
-  private static void probeLeafDense(final ProbeFold fold, final MemorySegment slab, final long[] laneBases,
-      final boolean[] timestamps, final int leaf, final long[] mask) {
-    final long joinBase = laneBases[0];
+  /** A native probe leaf: one row load per selected row, the join key is its first lane. */
+  private static void probeLeafDense(final ProbeFold fold, final MemorySegment slab, final long rowBase,
+      final long stride, final int fieldCount, final boolean[] timestamps, final int leaf, final long[] mask) {
+    final long[] values = fold.probeValues;
     for (int w = 0; w < mask.length; w++) {
       long word = mask[w];
-      final int rowBase = w << 6;
+      final int rowOrdinal = w << 6;
+      final long wordBase = rowBase + ((long) w << 6) * stride;
       while (word != 0L) {
         final int bit = Long.numberOfTrailingZeros(word);
         word &= word - 1L;
-        final int row = rowBase + bit;
-        final int at = fold.first(SegmentAccess.getLong(slab, joinBase + 8L * row));
+        readNumericRow(slab, wordBase + bit * stride, fieldCount, values);
+        final int at = fold.first(values[0]);
         if (at < 0) {
           continue;
         }
-        readNumericRow(slab, laneBases, timestamps, row, fold.probeValues);
-        fold.matches(at, leaf, row);
+        scaleTimestamps(values, timestamps, fieldCount);
+        fold.matches(at, leaf, rowOrdinal + bit);
       }
     }
   }
@@ -798,17 +798,23 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long @Nullable [][] distinct;
     final long @Nullable [][] group;
     final @Nullable MemorySegment slab;
-    final long[] joinBase;
-    final long[] fromBase;
-    final long[] toBase;
-    final long[] marginBase;
-    final long @Nullable [] distinctBase;
-    final long @Nullable [] groupBase;
+    /** Per leaf: start of the row-major lane block, -1 on a skipped leaf. */
+    final long[] rowBase;
+    /** Bytes per row of the lane block. */
+    final long stride;
+    /** Byte offsets within a row; -1 when the side has no such lane. */
+    final long joinOffset;
+    final long fromOffset;
+    final long toOffset;
+    final long marginOffset;
+    final long distinctOffset;
+    final long groupOffset;
 
     private SideLanes(final long[] @Nullable [] masks, final long[][] join, final long[][] from, final long[][] to,
         final long[][] margin, final long @Nullable [][] distinct, final long @Nullable [][] group,
-        final @Nullable MemorySegment slab, final long[] joinBase, final long[] fromBase, final long[] toBase,
-        final long[] marginBase, final long @Nullable [] distinctBase, final long @Nullable [] groupBase) {
+        final @Nullable MemorySegment slab, final long[] rowBase, final long stride, final long joinOffset,
+        final long fromOffset, final long toOffset, final long marginOffset, final long distinctOffset,
+        final long groupOffset) {
       this.masks = masks;
       this.join = join;
       this.from = from;
@@ -817,12 +823,14 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       this.distinct = distinct;
       this.group = group;
       this.slab = slab;
-      this.joinBase = joinBase;
-      this.fromBase = fromBase;
-      this.toBase = toBase;
-      this.marginBase = marginBase;
-      this.distinctBase = distinctBase;
-      this.groupBase = groupBase;
+      this.rowBase = rowBase;
+      this.stride = stride;
+      this.joinOffset = joinOffset;
+      this.fromOffset = fromOffset;
+      this.toOffset = toOffset;
+      this.marginOffset = marginOffset;
+      this.distinctOffset = distinctOffset;
+      this.groupOffset = groupOffset;
     }
 
     static SideLanes capture(final MaskedColumns columns, final int fromSlot, final int toSlot, final int marginSlot,
@@ -836,14 +844,17 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         }
       }
       if (columns.isNative()) {
-        return new SideLanes(masks, NO_LANES, NO_LANES, NO_LANES, NO_LANES, null, null, columns.slab(),
-            columns.laneBases(0), columns.laneBases(fromSlot), columns.laneBases(toSlot), columns.laneBases(marginSlot),
-            distinctSlot < 0
-                ? null
-                : columns.laneBases(distinctSlot),
+        final long[] rowBase = new long[leaves];
+        for (int leaf = 0; leaf < leaves; leaf++) {
+          rowBase[leaf] = columns.rowBase(leaf);
+        }
+        return new SideLanes(masks, NO_LANES, NO_LANES, NO_LANES, NO_LANES, null, null, columns.slab(), rowBase,
+            columns.laneStride(), 0L, 8L * fromSlot, 8L * toSlot, 8L * marginSlot, distinctSlot < 0
+                ? -1L
+                : 8L * distinctSlot,
             groupSlot < 0
-                ? null
-                : columns.laneBases(groupSlot));
+                ? -1L
+                : 8L * groupSlot);
       }
       final long[][] join = new long[leaves][];
       final long[][] from = new long[leaves][];
@@ -870,8 +881,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           group[leaf] = columns.numericLane(groupSlot, leaf);
         }
       }
-      return new SideLanes(masks, join, from, to, margin, distinct, group, null, NO_BASES, NO_BASES, NO_BASES, NO_BASES,
-          null, null);
+      return new SideLanes(masks, join, from, to, margin, distinct, group, null, NO_BASES, 0L, -1L, -1L, -1L, -1L, -1L,
+          -1L);
     }
 
     boolean isNative() {
@@ -935,7 +946,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         }
         total += slab == null
             ? countLeaf(mask, lanes.join[leaf], keyMinimum, slots, bucketStart)
-            : countLeaf(mask, slab, lanes.joinBase[leaf], keyMinimum, slots, bucketStart);
+            : countLeaf(mask, slab, lanes.rowBase[leaf] + lanes.joinOffset, lanes.stride, keyMinimum, slots,
+                bucketStart);
       }
       return total;
     }
@@ -958,16 +970,16 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       return total;
     }
 
-    private static int countLeaf(final long[] mask, final MemorySegment slab, final long joinBase,
+    private static int countLeaf(final long[] mask, final MemorySegment slab, final long joinBase, final long stride,
         final long keyMinimum, final int slots, final int[] bucketStart) {
       int total = 0;
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
-        final long rowBase = joinBase + 8L * ((long) w << 6);
+        final long rowBase = joinBase + ((long) w << 6) * stride;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
-          final long slot = SegmentAccess.getLong(slab, rowBase + 8L * bit) - keyMinimum;
+          final long slot = SegmentAccess.getLong(slab, rowBase + bit * stride) - keyMinimum;
           if (slot >= 0 && slot < slots) {
             bucketStart[(int) slot + 1]++;
             total++;
@@ -1048,37 +1060,35 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     private static void fillLeaf(final MemorySegment slab, final long rowsBase, final MemorySegment lanesSlab,
         final SideLanes lanes, final int leaf, final long[] mask, final int[] fill, final long keyMinimum,
         final int slots, final long groupMinimum) {
-      final long joinBase = lanes.joinBase[leaf];
-      final long fromBase = lanes.fromBase[leaf];
-      final long toBase = lanes.toBase[leaf];
-      final long marginBase = lanes.marginBase[leaf];
-      final long distinctBase = lanes.distinctBase == null
-          ? -1L
-          : lanes.distinctBase[leaf];
-      final long groupBase = lanes.groupBase == null
-          ? -1L
-          : lanes.groupBase[leaf];
+      final long leafBase = lanes.rowBase[leaf];
+      final long stride = lanes.stride;
+      final long joinOffset = lanes.joinOffset;
+      final long fromOffset = lanes.fromOffset;
+      final long toOffset = lanes.toOffset;
+      final long marginOffset = lanes.marginOffset;
+      final long distinctOffset = lanes.distinctOffset;
+      final long groupOffset = lanes.groupOffset;
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
-        final long rowOffset = 8L * ((long) w << 6);
+        final long wordBase = leafBase + ((long) w << 6) * stride;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
-          final long row = rowOffset + 8L * bit;
-          final long slot = SegmentAccess.getLong(lanesSlab, joinBase + row) - keyMinimum;
+          final long row = wordBase + bit * stride;
+          final long slot = SegmentAccess.getLong(lanesSlab, row + joinOffset) - keyMinimum;
           if (slot < 0 || slot >= slots) {
             continue;
           }
           final long at = rowsBase + fill[(int) slot]++ * STRIDE_BYTES;
-          SegmentAccess.putLong(slab, at + FROM, SegmentAccess.getLong(lanesSlab, fromBase + row));
-          SegmentAccess.putLong(slab, at + TO, SegmentAccess.getLong(lanesSlab, toBase + row));
-          SegmentAccess.putLong(slab, at + MARGIN, SegmentAccess.getLong(lanesSlab, marginBase + row));
-          SegmentAccess.putLong(slab, at + DISTINCT, distinctBase < 0
+          SegmentAccess.putLong(slab, at + FROM, SegmentAccess.getLong(lanesSlab, row + fromOffset));
+          SegmentAccess.putLong(slab, at + TO, SegmentAccess.getLong(lanesSlab, row + toOffset));
+          SegmentAccess.putLong(slab, at + MARGIN, SegmentAccess.getLong(lanesSlab, row + marginOffset));
+          SegmentAccess.putLong(slab, at + DISTINCT, distinctOffset < 0
               ? 0L
-              : SegmentAccess.getLong(lanesSlab, distinctBase + row));
-          SegmentAccess.putLong(slab, at + META, groupBase < 0
+              : SegmentAccess.getLong(lanesSlab, row + distinctOffset));
+          SegmentAccess.putLong(slab, at + META, groupOffset < 0
               ? 0L
-              : SegmentAccess.getLong(lanesSlab, groupBase + row) - groupMinimum);
+              : SegmentAccess.getLong(lanesSlab, row + groupOffset) - groupMinimum);
         }
       }
     }
@@ -1351,6 +1361,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long @Nullable [] bits;
     final LongOpenHashSet @Nullable [] sets;
     final MemorySegment buildSlab;
+    /** One build record's from, to, margin and distinct lanes, loaded with one checked access. */
+    final long[] buildRecord = new long[NativeRows.LANES];
     final int groups;
     final long domainMinimum;
     final boolean distinctBuild;
@@ -1379,17 +1391,29 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           : null;
     }
 
-    /** Fold one probe row against the build records in {@code [buildBegin, buildEnd)} byte offsets. */
+    /**
+     * Fold one probe row against the build records in {@code [buildBegin, buildEnd)} byte offsets. Each
+     * record's first four lanes arrive through one vector load; only an overlapping record also reads
+     * its group lane.
+     */
     void pair(final long from, final long to, final long margin, final long probeValue, final long buildBegin,
         final long buildEnd) {
       final MemorySegment slab = this.buildSlab;
-      for (long b = buildEnd - BucketedSide.STRIDE_BYTES; b >= buildBegin; b -= BucketedSide.STRIDE_BYTES) {
-        if (from >= SegmentAccess.getLong(slab, b + BucketedSide.TO)
-            || SegmentAccess.getLong(slab, b + BucketedSide.FROM) >= to) {
+      final long[] record = this.buildRecord;
+      for (long b = buildBegin; b < buildEnd; b += BucketedSide.STRIDE_BYTES) {
+        if (NativeRows.VECTOR_ROWS) {
+          NativeRows.load(slab, b, record);
+        } else {
+          record[0] = SegmentAccess.getLong(slab, b + BucketedSide.FROM);
+          record[1] = SegmentAccess.getLong(slab, b + BucketedSide.TO);
+          record[2] = SegmentAccess.getLong(slab, b + BucketedSide.MARGIN);
+          record[3] = SegmentAccess.getLong(slab, b + BucketedSide.DISTINCT);
+        }
+        if (from >= record[1] || record[0] >= to) {
           continue;
         }
         final int group = (int) SegmentAccess.getLong(slab, b + BucketedSide.META);
-        final long buildMargin = SegmentAccess.getLong(slab, b + BucketedSide.MARGIN);
+        final long buildMargin = record[2];
         final long value = buildMinusProbe
             ? Math.subtractExact(buildMargin, margin)
             : Math.subtractExact(margin, buildMargin);
@@ -1400,7 +1424,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           groupMaximum[group] = value;
         }
         final long distinctValue = distinctBuild
-            ? SegmentAccess.getLong(slab, b + BucketedSide.DISTINCT)
+            ? record[3]
             : probeValue;
         if (bits != null) {
           final long bitIndex = (distinctValue - domainMinimum) * groups + group;
@@ -1449,6 +1473,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long buildRows = build.rowsBase;
     final long probeRows = probe.rowsBase;
     final long stride = BucketedSide.STRIDE_BYTES;
+    final long[] record = new long[NativeRows.LANES];
     int buildBeginRow = SegmentAccess.getInt(buildSlab, 0L);
     int probeBeginRow = SegmentAccess.getInt(probeSlab, 0L);
     for (int slot = 0; slot < slots; slot++) {
@@ -1459,10 +1484,15 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         final long buildEnd = buildRows + buildEndRow * stride;
         final long probeEnd = probeRows + probeEndRow * stride;
         for (long p = probeRows + probeBeginRow * stride; p < probeEnd; p += stride) {
-          fold.pair(SegmentAccess.getLong(probeSlab, p + BucketedSide.FROM),
-              SegmentAccess.getLong(probeSlab, p + BucketedSide.TO),
-              SegmentAccess.getLong(probeSlab, p + BucketedSide.MARGIN),
-              SegmentAccess.getLong(probeSlab, p + BucketedSide.DISTINCT), buildBegin, buildEnd);
+          if (NativeRows.VECTOR_ROWS) {
+            NativeRows.load(probeSlab, p, record);
+          } else {
+            record[0] = SegmentAccess.getLong(probeSlab, p + BucketedSide.FROM);
+            record[1] = SegmentAccess.getLong(probeSlab, p + BucketedSide.TO);
+            record[2] = SegmentAccess.getLong(probeSlab, p + BucketedSide.MARGIN);
+            record[3] = SegmentAccess.getLong(probeSlab, p + BucketedSide.DISTINCT);
+          }
+          fold.pair(record[0], record[1], record[2], record[3], buildBegin, buildEnd);
         }
       }
       buildBeginRow = buildEndRow;
@@ -1533,22 +1563,22 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final MemorySegment buildSlab = build.slab;
     final long buildRows = build.rowsBase;
     final long stride = BucketedSide.STRIDE_BYTES;
-    final long joinBase = lanes.joinBase[leaf];
-    final long fromBase = lanes.fromBase[leaf];
-    final long toBase = lanes.toBase[leaf];
-    final long marginBase = lanes.marginBase[leaf];
-    final long distinctBase = lanes.distinctBase == null
-        ? -1L
-        : lanes.distinctBase[leaf];
+    final long leafBase = lanes.rowBase[leaf];
+    final long laneStride = lanes.stride;
+    final long joinOffset = lanes.joinOffset;
+    final long fromOffset = lanes.fromOffset;
+    final long toOffset = lanes.toOffset;
+    final long marginOffset = lanes.marginOffset;
+    final long distinctOffset = lanes.distinctOffset;
     int admitted = 0;
     for (int w = 0; w < mask.length; w++) {
       long word = mask[w];
-      final long rowOffset = 8L * ((long) w << 6);
+      final long wordBase = leafBase + ((long) w << 6) * laneStride;
       while (word != 0L) {
         final int bit = Long.numberOfTrailingZeros(word);
         word &= word - 1L;
-        final long row = rowOffset + 8L * bit;
-        final long slot = SegmentAccess.getLong(lanesSlab, joinBase + row) - keyMinimum;
+        final long row = wordBase + bit * laneStride;
+        final long slot = SegmentAccess.getLong(lanesSlab, row + joinOffset) - keyMinimum;
         if (slot < 0 || slot >= slots) {
           continue;
         }
@@ -1558,10 +1588,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         if (buildBeginRow == buildEndRow) {
           continue;
         }
-        fold.pair(SegmentAccess.getLong(lanesSlab, fromBase + row), SegmentAccess.getLong(lanesSlab, toBase + row),
-            SegmentAccess.getLong(lanesSlab, marginBase + row), distinctBase < 0
+        fold.pair(SegmentAccess.getLong(lanesSlab, row + fromOffset), SegmentAccess.getLong(lanesSlab, row + toOffset),
+            SegmentAccess.getLong(lanesSlab, row + marginOffset), distinctOffset < 0
                 ? 0L
-                : SegmentAccess.getLong(lanesSlab, distinctBase + row),
+                : SegmentAccess.getLong(lanesSlab, row + distinctOffset),
             buildRows + buildBeginRow * stride, buildRows + buildEndRow * stride);
       }
     }
@@ -1678,15 +1708,28 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
   }
 
-  /** The native twin: every lane of {@code row} from the slab through the hoisted lane offsets. */
-  private static void readNumericRow(final MemorySegment slab, final long[] laneBases, final boolean[] timestamps,
-      final int row, final long[] values) {
-    final long offset = 8L * row;
-    for (int field = 0; field < laneBases.length; field++) {
-      final long value = SegmentAccess.getLong(slab, laneBases[field] + offset);
-      values[field] = timestamps[field]
-          ? Math.multiplyExact(value, 1000L)
-          : value;
+  /**
+   * The native twin: the raw lanes of the row at byte offset {@code rowAt} of a row-major lane block,
+   * one vector load for up to four fields, scalar reads beyond. Timestamps are scaled afterwards by
+   * {@link #scaleTimestamps} so the caller can read the raw join key first. {@code values} must hold
+   * at least {@link NativeRows#LANES} longs.
+   */
+  private static void readNumericRow(final MemorySegment slab, final long rowAt, final int fieldCount,
+      final long[] values) {
+    if (NativeRows.VECTOR_ROWS && fieldCount <= NativeRows.LANES) {
+      NativeRows.load(slab, rowAt, values);
+      return;
+    }
+    for (int field = 0; field < fieldCount; field++) {
+      values[field] = SegmentAccess.getLong(slab, rowAt + 8L * field);
+    }
+  }
+
+  private static void scaleTimestamps(final long[] values, final boolean[] timestamps, final int fieldCount) {
+    for (int field = 0; field < fieldCount; field++) {
+      if (timestamps[field]) {
+        values[field] = Math.multiplyExact(values[field], 1000L);
+      }
     }
   }
 
@@ -2045,8 +2088,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       final boolean denseNumeric) {
     buildRows.nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8, buildColumns.rows()))];
     final long[][] lanes = new long[buildFieldCount][];
-    final long[] laneBases = new long[buildFieldCount];
-    final long[] values = new long[buildFieldCount];
+    final long[] values = new long[Math.max(NativeRows.LANES, buildFieldCount)];
     final boolean[] timestamps = new boolean[buildFieldCount];
     if (denseNumeric) {
       for (int field = 0; field < buildFieldCount; field++) {
@@ -2063,11 +2105,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       if (!denseNumeric) {
         buildLeafSparse(buildColumns, leaf, mask, buildFieldCount, buildRows);
       } else if (buildColumns.isNative()) {
-        for (int field = 0; field < buildFieldCount; field++) {
-          laneBases[field] = buildColumns.laneBase(field, leaf);
-        }
-        buildLeafDense(buildColumns.slab(), laneBases, timestamps, leaf, mask, buildFieldCount, buildRows, values,
-            buildColumns);
+        buildLeafDense(buildColumns.slab(), buildColumns.rowBase(leaf), buildColumns.laneStride(), timestamps, leaf,
+            mask, buildFieldCount, buildRows, values, buildColumns);
       } else {
         for (int field = 0; field < buildFieldCount; field++) {
           lanes[field] = buildColumns.numericLane(field, leaf);
@@ -2114,22 +2153,21 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
   }
 
-  private static void buildLeafDense(final MemorySegment slab, final long[] laneBases, final boolean[] timestamps,
-      final int leaf, final long[] mask, final int buildFieldCount, final BuildRows buildRows, final long[] values,
-      final MaskedColumns buildColumns) {
-    final long joinBase = laneBases[0];
+  /** A native build leaf: one row load plus one record-key read per selected row. */
+  private static void buildLeafDense(final MemorySegment slab, final long rowBase, final long stride,
+      final boolean[] timestamps, final int leaf, final long[] mask, final int buildFieldCount,
+      final BuildRows buildRows, final long[] values, final MaskedColumns buildColumns) {
     final long keyBase = buildColumns.keyBase(leaf);
     for (int w = 0; w < mask.length; w++) {
       long word = mask[w];
-      final long rowOffset = 8L * ((long) w << 6);
-      final int rowBase = w << 6;
+      final long wordBase = rowBase + ((long) w << 6) * stride;
+      final long keyWordBase = keyBase + 8L * ((long) w << 6);
       while (word != 0L) {
         final int bit = Long.numberOfTrailingZeros(word);
         word &= word - 1L;
-        final long row = rowOffset + 8L * bit;
-        final int at =
-            buildRows.addKeyed(SegmentAccess.getLong(slab, joinBase + row), SegmentAccess.getLong(slab, keyBase + row));
-        readNumericRow(slab, laneBases, timestamps, rowBase + bit, values);
+        readNumericRow(slab, wordBase + bit * stride, buildFieldCount, values);
+        final int at = buildRows.addKeyed(values[0], SegmentAccess.getLong(slab, keyWordBase + 8L * bit));
+        scaleTimestamps(values, timestamps, buildFieldCount);
         System.arraycopy(values, 0, buildRows.values, at * buildFieldCount, buildFieldCount);
       }
     }

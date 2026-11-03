@@ -171,14 +171,15 @@ public final class ProjectionRecordKeySet {
   }
 
   /**
-   * Membership over lanes resident in a process-private slab. Leaf {@code leaf}'s record keys,
-   * presence words and numeric values start at the byte offsets {@code keyBase[leaf]},
-   * {@code presenceBase[leaf]} and {@code laneBase[leaf]}; {@code leafRows[leaf]} is its record-key
-   * count and {@code -1} marks a skipped or pruned leaf. Same answer as the array form.
+   * Membership over lanes resident in a process-private slab. Leaf {@code leaf}'s record keys and
+   * presence words start at the byte offsets {@code keyBase[leaf]} and {@code presenceBase[leaf]};
+   * its numeric value of row {@code r} lies at {@code laneBase[leaf] + r * laneStride} (a row-major
+   * block holds every rostered field of a row). {@code leafRows[leaf]} is the record-key count and
+   * {@code -1} marks a skipped or pruned leaf. Same answer as the array form.
    */
   static Masks filterMembership(final long[][] sourceMasks, final MemorySegment slab, final long[] keyBase,
-      final int[] leafRows, final long[] laneBase, final long[] presenceBase, final IntToLongFunction physicalSlot,
-      final LongOpenHashSet values, final boolean anti) {
+      final int[] leafRows, final long[] laneBase, final long laneStride, final long[] presenceBase,
+      final IntToLongFunction physicalSlot, final LongOpenHashSet values, final boolean anti) {
     Objects.requireNonNull(values);
     int keptLeaves = 0;
     for (final long[] mask : sourceMasks) {
@@ -201,7 +202,7 @@ public final class ProjectionRecordKeySet {
         throw new IllegalStateException("membership requires an integral column");
       }
       final long[] mask = new long[selected.length];
-      if (filterMembershipWords(selected, slab, lane, presenceBase[leaf], values, anti, mask)) {
+      if (filterMembershipWords(selected, slab, lane, laneStride, presenceBase[leaf], values, anti, mask)) {
         byFirstKey.put(SegmentAccess.getLong(slab, keyBase[leaf]), mask);
         slots.add(physicalSlot.applyAsLong(leaf));
       }
@@ -210,17 +211,19 @@ public final class ProjectionRecordKeySet {
   }
 
   private static boolean filterMembershipWords(final long[] selected, final MemorySegment slab, final long laneBase,
-      final long presenceBase, final LongOpenHashSet values, final boolean anti, final long[] mask) {
+      final long laneStride, final long presenceBase, final LongOpenHashSet values, final boolean anti,
+      final long[] mask) {
     long any = 0;
     for (int word = 0; word < selected.length; word++) {
       long candidates = selected[word];
       final long presence = SegmentAccess.getLong(slab, presenceBase + 8L * word);
+      final long rowBase = laneBase + ((long) word << 6) * laneStride;
       long kept = 0;
       while (candidates != 0) {
         final int bit = Long.numberOfTrailingZeros(candidates);
         candidates &= candidates - 1;
-        final boolean member = (presence & 1L << bit) != 0
-            && values.contains(SegmentAccess.getLong(slab, laneBase + 8L * ((word << 6) + bit)));
+        final boolean member =
+            (presence & 1L << bit) != 0 && values.contains(SegmentAccess.getLong(slab, rowBase + bit * laneStride));
         if (anti != member) {
           kept |= 1L << bit;
         }
