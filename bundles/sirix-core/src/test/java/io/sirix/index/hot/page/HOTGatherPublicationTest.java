@@ -13,6 +13,7 @@ final class HOTGatherPublicationTest {
   @Test
   void concurrentFirstReadersSeeCompleteGatherState() throws Exception {
     final int readers = 4;
+    final long constructionsBefore = HOTIndirectPage.gatherConstructionCount();
     final HOTIndirectPage[] pages = new HOTIndirectPage[512];
     for (int round = 0; round < pages.length; round++) {
       final PageReference[] children = new PageReference[4];
@@ -24,6 +25,18 @@ final class HOTGatherPublicationTest {
           new long[] {(0x10L << 56) | (0x04L << 48)}, 2, new int[] {0, 1, 2, 3}, children, 1, (short) 3);
     }
 
+    // Eager construction: every multi-mask page built its shuffle before it existed anywhere else,
+    // copies of an unchanged layout share it, and no lookup builds anything.
+    final long built = HOTIndirectPage.gatherConstructionCount() - constructionsBefore;
+    assertEquals(pages.length, built, "one shuffle per created multi-mask page");
+    final HOTIndirectPage[] copies = new HOTIndirectPage[pages.length];
+    for (int round = 0; round < pages.length; round++) {
+      copies[round] = round % 2 == 0
+          ? new HOTIndirectPage(pages[round])
+          : pages[round].copyWithNewPageKey(100_000L + round, 2);
+    }
+    assertEquals(built, HOTIndirectPage.gatherConstructionCount() - constructionsBefore,
+        "copy-on-write copies share the immutable gather state");
     final Phaser firstRead = new Phaser(readers);
     try (var executor = Executors.newFixedThreadPool(readers)) {
       final Future<?>[] results = new Future<?>[readers];
@@ -38,12 +51,13 @@ final class HOTGatherPublicationTest {
               ? 0
               : 0x04);
           try {
-            for (final HOTIndirectPage page : pages) {
-              // Every round races the first read of a fresh, shared immutable page.
+            for (int round = 0; round < pages.length; round++) {
+              // Every round races the first read of a fresh, shared immutable page and its copy.
               if (firstRead.arriveAndAwaitAdvance() < 0) {
                 return;
               }
-              assertEquals(expected, page.computeDensePartialKey(key));
+              assertEquals(expected, pages[round].computeDensePartialKey(key));
+              assertEquals(expected, copies[round].computeDensePartialKey(key));
             }
           } catch (final RuntimeException | Error failure) {
             firstRead.forceTermination();
@@ -55,5 +69,7 @@ final class HOTGatherPublicationTest {
         result.get();
       }
     }
+    assertEquals(built, HOTIndirectPage.gatherConstructionCount() - constructionsBefore,
+        "lookups never construct gather state");
   }
 }

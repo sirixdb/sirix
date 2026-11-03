@@ -22,6 +22,7 @@ import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import io.sirix.cache.Allocators;
 import io.sirix.query.scan.DerivedCacheBudget;
+import io.sirix.query.scan.HeapWindows;
 import io.sirix.query.scan.NumericMaskedColumnCache;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
@@ -219,6 +220,85 @@ final class IntervalRangeJoinWorkBudgetTest {
       budget.packed().clear();
       assertEquals(0, budget.metrics().retiredLeasedBytes(), "no view outlives its query");
     }
+  }
+
+  /**
+   * The merge copies consecutive buckets into heap windows of 2048 build and 8192 probe records; a
+   * bucket beyond either size is merged from the slabs. One product id shared by 2100 products (the
+   * smaller, bucketed build side) and 2200 contracts: the build bucket exceeds a window. Each shape
+   * gets its own database directory: the global projection catalog is keyed by path and revision.
+   */
+  @Test
+  void anOversizedBuildBucketMergesExactly() throws Exception {
+    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
+    try {
+      build(VersioningType.FULL, skewed("contracts", 2200), skewed("products", 2100));
+      assertMergesTwice("{\"category\":1,\"n\":2200,\"minimum\":16,\"maximum\":16}");
+    } finally {
+      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
+    }
+  }
+
+  /** One product and 9000 contracts in its bucket: the probe bucket exceeds a window. */
+  @Test
+  void anOversizedProbeBucketMergesExactly() throws Exception {
+    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
+    try {
+      build(VersioningType.FULL, skewed("contracts", 9000), skewed("products", 1));
+      assertMergesTwice("{\"category\":1,\"n\":9000,\"minimum\":16,\"maximum\":16}");
+    } finally {
+      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
+    }
+  }
+
+  /** 5000 keys, two contracts each: 10000 probe records across several windows. */
+  @Test
+  void aDenseDomainMergesAcrossSeveralWindowsExactly() throws Exception {
+    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
+    try {
+      build(VersioningType.FULL, true, 10000);
+      assertMergesTwice("{\"category\":1,\"n\":10000,\"minimum\":16,\"maximum\":16}");
+    } finally {
+      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
+    }
+  }
+
+  private void assertMergesTwice(final String expected) throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      assertEquals(expected, run(chain, ctx), "first execution streams the probe lanes");
+      final WorkCapture.Captured<String> repeated =
+          WorkCapture.of(JOINED).and(BUCKETED_SIDES).call(() -> run(chain, ctx));
+      assertEquals(expected, repeated.result(), "second execution merges the resident packed sides");
+      assertEquals(run(generic, ctx), repeated.result());
+      repeated.work().assertExactly(JOINED, 1, "the column join serves both executions");
+      repeated.work().assertExactly(BUCKETED_SIDES, 0, "both packed sides are resident for the repeat");
+    } finally {
+      DerivedCacheBudget.global().numeric().clear();
+      DerivedCacheBudget.global().packed().clear();
+    }
+  }
+
+  /** {@code rowCount} rows of {@code resource} that all share join key 1 over the same year. */
+  private static String skewed(final String resource, final int rowCount) {
+    final boolean contracts = resource.equals("contracts");
+    final StringBuilder json = new StringBuilder(rowCount * 120).append('[');
+    for (int row = 0; row < rowCount; row++) {
+      if (row > 0) {
+        json.append(',');
+      }
+      json.append("{\"id\":")
+          .append(contracts
+              ? row + 1
+              : 1);
+      json.append(contracts
+          ? ",\"pid\":1,\"cost\":4"
+          : ",\"category\":1,\"retail\":20");
+      json.append(",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-12-31T00:00:00Z\"}");
+    }
+    return json.append(']').toString();
   }
 
   private void build(final VersioningType versioning, final boolean dense) {

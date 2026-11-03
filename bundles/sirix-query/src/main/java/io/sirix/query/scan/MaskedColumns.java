@@ -6,6 +6,7 @@ import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
+import io.sirix.index.projection.ProjectionRecordKeySet;
 import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrays;
@@ -138,6 +139,11 @@ public final class MaskedColumns implements AutoCloseable {
    */
   public long rowBase(final int leaf) {
     return requireNonNull(snapshot, "not a native view").rowBase(leaf);
+  }
+
+  /** Rows of {@code leaf}'s lane block and record keys in a native view. */
+  public int leafRows(final int leaf) {
+    return requireNonNull(snapshot, "not a native view").leafRows(leaf);
   }
 
   /** Bytes between consecutive rows of a lane block: eight per rostered field. */
@@ -475,24 +481,27 @@ public final class MaskedColumns implements AutoCloseable {
   private void presentLongValuesNative(final NativeNumericSnapshot resident, final int field,
       final LongOpenHashSet values) {
     final MemorySegment slab = resident.slab();
+    final int stride = resident.fieldCount();
+    final HeapWindows windows = HeapWindows.current();
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       final long[] mask = rowMasks[leaf];
       if (mask == null || resident.sliceRows(field, leaf) <= 0) {
         continue;
       }
-      final long presence = resident.presenceBase(field, leaf);
       if (!resident.laneAvailable(field, leaf)) {
         throw new IllegalStateException("an admitted long field needs a numeric lane");
       }
-      final long stride = resident.laneStride();
-      final long lane = resident.rowBase(leaf) + 8L * field;
+      final int rows = resident.leafRows(leaf);
+      final long[] block = windows.leaf(rows * stride);
+      HeapWindows.copy(slab, resident.rowBase(leaf), block, rows * stride);
+      final long presence = resident.presenceBase(field, leaf);
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w] & SegmentAccess.getLong(slab, presence + 8L * w);
-        final long rowBase = lane + ((long) w << 6) * stride;
+        final int rowBase = w << 6;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
-          values.add(SegmentAccess.getLong(slab, rowBase + bit * stride));
+          values.add(block[(rowBase + bit) * stride + field]);
         }
       }
     }
@@ -557,35 +566,40 @@ public final class MaskedColumns implements AutoCloseable {
   private void recordKeysByMembershipNative(final NativeNumericSnapshot resident, final int field,
       final LongOpenHashSet values, final boolean anti, final LongArrayList keys) {
     final MemorySegment slab = resident.slab();
+    final int stride = resident.fieldCount();
+    final HeapWindows windows = HeapWindows.current();
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       final long[] mask = rowMasks[leaf];
       if (mask == null) {
         continue;
       }
       final boolean pruned = resident.sliceRows(field, leaf) <= 0;
-      final long presence = resident.presenceBase(field, leaf);
       if (!pruned && !resident.laneAvailable(field, leaf)) {
         throw new IllegalStateException("an admitted membership field needs a numeric lane");
       }
-      final long stride = resident.laneStride();
-      final long lane = resident.rowBase(leaf) + 8L * field;
-      final long leafKeys = resident.keyBase(leaf);
+      final int rows = resident.leafRows(leaf);
+      final long[] block = windows.leaf(rows * stride);
+      if (!pruned) {
+        HeapWindows.copy(slab, resident.rowBase(leaf), block, rows * stride);
+      }
+      final long[] leafKeys = windows.keys(rows);
+      HeapWindows.copy(slab, resident.keyBase(leaf), leafKeys, rows);
+      final long presence = resident.presenceBase(field, leaf);
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
         final long presenceWord = pruned
             ? 0L
             : SegmentAccess.getLong(slab, presence + 8L * w);
-        final long rowBase = (long) w << 6;
+        final int rowBase = w << 6;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
-          final long row = rowBase + bit;
-          final boolean member =
-              (presenceWord & 1L << bit) != 0L && values.contains(SegmentAccess.getLong(slab, lane + row * stride));
+          final int row = rowBase + bit;
+          final boolean member = (presenceWord & 1L << bit) != 0L && values.contains(block[row * stride + field]);
           if (anti
               ? !member
               : member) {
-            keys.add(SegmentAccess.getLong(slab, leafKeys + 8L * row));
+            keys.add(leafKeys[row]);
           }
         }
       }
@@ -599,17 +613,69 @@ public final class MaskedColumns implements AutoCloseable {
     }
     final NativeNumericSnapshot resident = snapshot;
     if (resident != null) {
-      final long[] laneBase = new long[rowMasks.length];
-      for (int leaf = 0; leaf < laneBase.length; leaf++) {
-        laneBase[leaf] = resident.rowBase(leaf) < 0 || !resident.laneAvailable(field, leaf)
-            ? -1L
-            : resident.rowBase(leaf) + 8L * field;
-      }
-      return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, resident.slab(), resident.keyBases(),
-          resident.leafRowCounts(), laneBase, resident.laneStride(), resident.presenceBases(field), values, anti);
+      return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, resident.leafRowCounts(),
+          new ResidentLeafLanes(resident, field), values, anti);
     }
     return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, requireNonNull(recordKeys),
         requireNonNull(slices)[field], values, anti);
+  }
+
+  /** One field of a resident snapshot served leaf by leaf from heap windows filled by bulk copies. */
+  private static final class ResidentLeafLanes implements ProjectionRecordKeySet.LeafLanes {
+    private final NativeNumericSnapshot resident;
+    private final int field;
+    private final int stride;
+    private final HeapWindows windows = HeapWindows.current();
+    private long[] block = new long[0];
+    private long[] presence = new long[0];
+    private long firstKey;
+
+    ResidentLeafLanes(final NativeNumericSnapshot resident, final int field) {
+      this.resident = resident;
+      this.field = field;
+      this.stride = resident.fieldCount();
+    }
+
+    @Override
+    public boolean load(final int leaf) {
+      if (resident.rowBase(leaf) < 0 || !resident.laneAvailable(field, leaf)) {
+        return false;
+      }
+      final MemorySegment slab = resident.slab();
+      final int rows = resident.leafRows(leaf);
+      block = windows.leaf(rows * stride);
+      HeapWindows.copy(slab, resident.rowBase(leaf), block, rows * stride);
+      final int words = rows + 63 >>> 6;
+      presence = windows.presence(words);
+      HeapWindows.copy(slab, resident.presenceBase(field, leaf), presence, words);
+      firstKey = SegmentAccess.getLong(slab, resident.keyBase(leaf));
+      return true;
+    }
+
+    @Override
+    public long[] values() {
+      return block;
+    }
+
+    @Override
+    public int stride() {
+      return stride;
+    }
+
+    @Override
+    public int laneOffset() {
+      return field;
+    }
+
+    @Override
+    public long[] presence() {
+      return presence;
+    }
+
+    @Override
+    public long firstKey() {
+      return firstKey;
+    }
   }
 
   /** The interned id of a string on a PRESENT row, through the shared interner when adopted. */
