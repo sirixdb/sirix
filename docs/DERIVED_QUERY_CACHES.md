@@ -48,14 +48,18 @@ the exact slab, and scatters the records off the query thread; the synchronous b
 packed into a query-owned slab when the cache refuses, so a disabled cache changes no answer.
 
 A snapshot stores each kept leaf's lanes as one row-major block (`8 * fieldCount` bytes per row,
-64-byte aligned, 32 bytes of slack), so a dense kernel reads a whole row of up to four fields with
-one 256-bit vector load (`NativeRows.load`) instead of one checked access per field; packed join
-records (five longs) are read the same way, with the group lane read only for overlapping pairs.
-Lane offsets are hoisted once per leaf, never through a per-row branch or wrapper, and roster and
-mask comparisons use the Vector API over the slab. The segments at those sites are always native.
-The first off-heap candidate kept columnar lanes and paid one bounds check per field per row; on the
-t1M diagnostic pair its Q10 merge ran 36 ms against 25 ms for the heap-array candidate, which the
-row-major block and vector loads address.
+64-byte aligned, 32 bytes of slack); packed join records are five longs each. The kernels that read
+them (the packed merge, the dense build and probe, the membership filter) do not touch the slab row
+by row: each copies one leaf block or one window of consecutive records into a per-thread heap
+window (`HeapWindows`: fixed maxima sized to the L2 cache, allocated once per thread, reused across
+chunks and queries, never retained per snapshot) with one bulk `MemorySegment.copy`, then runs the
+array kernel over the window. A bucket larger than a window is merged from the slab with one 256-bit
+vector row load (`NativeRows.load`) per record. Lane offsets are hoisted once per leaf, and roster
+and mask comparisons use the Vector API over the slab. The segments at those sites are always
+native. The first off-heap candidate kept columnar lanes and paid one bounds check per field per
+row (t1M Q10 merge 36 ms against 25 ms for the heap-array candidate); the second read row-major
+rows with vector loads and still trailed (32.5 ms); the windows keep the cached data off-heap and
+the kernels on arrays. `IntervalRangeJoinWorkBudgetTest` pins zero steady-state window growth.
 
 ## Heap envelope
 
@@ -110,7 +114,8 @@ rosters, alternating selections, concurrent readers, readers of an evicted snaps
 native membership filters, mutable-transaction exclusion, failed copies) and
 `IntervalRangeJoinWorkBudgetTest` (exact answers with the cache disabled, tiny and roomy, and a
 concurrent reader joining an in-flight packing). `HOTGatherPublicationTest` races first readers of
-shared HOT pages: the gather state is an immutable holder published through a plain field. Run the
+shared HOT pages: the gather state is computed into final fields by the page constructors, one
+construction per deserialized page and none per copy or lookup. Run the
 full **Work budgets** block in [VERIFICATION.md](VERIFICATION.md) after changing admission or read
 paths. Timing and memory acceptance additionally require paired native+PGO runs; unit tests assert
 work and exact answers, never elapsed time.
