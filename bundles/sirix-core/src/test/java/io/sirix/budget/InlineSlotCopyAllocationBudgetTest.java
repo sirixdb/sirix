@@ -47,16 +47,16 @@ final class InlineSlotCopyAllocationBudgetTest {
             new KeyValueLeafPage(PAGE_KEY, IndexType.DOCUMENT, config, 1, null, null, false)) {
       source.setSlot(SLOT_BYTES, SLOT);
       assertTrue(RECORD_KEY > 127, "exercise keys beyond the Long cache");
-      // Warm the exact loop and grow owned page storage before counting temporary work.
-      for (int warmup = 0; warmup < 8; warmup++) {
-        target.reset();
-        copySlots(source, target);
-      }
-      target.reset();
       final long thread = Thread.currentThread().threadId();
-      final long before = bean.getThreadAllocatedBytes(thread);
-      copySlots(source, target);
-      final long bytes = bean.getThreadAllocatedBytes(thread) - before;
+      // Keep warmup and measurement at one callsite, including accumulation of the returned count.
+      long bytes = 0;
+      for (int pass = 0; pass < 9; pass++) {
+        target.reset();
+        bytes = 0;
+        for (int copy = 0; copy < COPIES; copy++) {
+          bytes += copySlotAllocatedBytes(source, target, bean, thread);
+        }
+      }
       assertEquals(0, bytes, "inline copy and empty reference lookup must not allocate boxed keys");
       assertNull(referenceSink);
       assertEquals(1, target.size(), "the measured copies must actually publish a slot");
@@ -90,10 +90,11 @@ final class InlineSlotCopyAllocationBudgetTest {
     }
   }
 
-  private static void copySlots(final KeyValueLeafPage source, final KeyValueLeafPage target) {
-    for (int copy = 0; copy < COPIES; copy++) {
-      target.copySlotFromPage(source, SLOT);
-      referenceSink = target.getPageReference(RECORD_KEY);
-    }
+  private static long copySlotAllocatedBytes(final KeyValueLeafPage source, final KeyValueLeafPage target,
+      final ThreadMXBean bean, final long thread) {
+    final long before = bean.getThreadAllocatedBytes(thread);
+    target.copySlotFromPage(source, SLOT);
+    referenceSink = target.getPageReference(RECORD_KEY);
+    return bean.getThreadAllocatedBytes(thread) - before;
   }
 }

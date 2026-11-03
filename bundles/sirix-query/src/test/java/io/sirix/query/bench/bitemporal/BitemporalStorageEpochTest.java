@@ -9,7 +9,6 @@ import io.sirix.access.trx.page.StorageEpochTestSupport;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.json.JsonNodeTrx;
-import io.sirix.query.bench.bitemporal.BitemporalSchema.Event;
 import io.sirix.query.bench.bitemporal.BitemporalSchema.Tier;
 import io.sirix.service.json.serialize.JsonSerializer;
 import java.io.StringWriter;
@@ -45,7 +44,8 @@ final class BitemporalStorageEpochTest {
 
   @Test
   void allPublicationsMatchTheUnboundedTwinAfterColdReopen() throws Exception {
-    final List<Event>[] events = generateEvents(directory.resolve("events.jsonl"));
+    final Path events = directory.resolve("events.jsonl");
+    generateEvents(events);
 
     final Path plain = directory.resolve("plain");
     assertEquals(0, load(plain, events, Integer.MAX_VALUE));
@@ -55,53 +55,58 @@ final class BitemporalStorageEpochTest {
     assertEquals(expected, coldPublications(bounded), "every resource at every publication");
   }
 
-  static List<Event>[] generateEvents(final Path eventsPath) throws Exception {
+  static void generateEvents(final Path eventsPath) throws Exception {
     // Exercise the generator/loader internals without their command-line campaign path restriction.
     final Class<?> generatorType = nestedClass(BitemporalGenerateMain.class, "Generator");
     final Constructor<?> generatorConstructor = generatorType.getDeclaredConstructor(Tier.class, Path.class);
     generatorConstructor.setAccessible(true);
     invoke(method(generatorType, "generate"), generatorConstructor.newInstance(Tier.DEVELOPMENT, eventsPath));
-    @SuppressWarnings("unchecked")
-    final List<Event>[] events =
-        (List<Event>[]) invoke(method(BitemporalSirixLoadMain.class, "readEvents", Path.class, Tier.class), null,
-            eventsPath, Tier.DEVELOPMENT);
-    assertEquals(4_776, List.of(events).stream().mapToInt(List::size).sum());
-    return events;
+    try (BitemporalEventReader reader = new BitemporalEventReader(eventsPath, Tier.DEVELOPMENT)) {
+      while (reader.advance()) {
+        // Validate the complete generated stream without retaining it in the test driver.
+      }
+      assertEquals(4_776, reader.count());
+    }
   }
 
-  static int load(final Path path, final List<Event>[] events, final int bound) throws Exception {
+  static int load(final Path path, final Path events, final int bound) throws Exception {
     StorageEpochTestSupport.setPlainTransactionBound(bound);
     final Class<?> stateType = nestedClass(BitemporalSirixLoadMain.class, "RelationState");
-    final Constructor<?> stateConstructor = stateType.getDeclaredConstructor(String.class, int.class);
+    final Constructor<?> stateConstructor =
+        stateType.getDeclaredConstructor(String.class, int.class, BitemporalIntervalStore.class);
     stateConstructor.setAccessible(true);
     final Method loadInitial =
-        method(BitemporalSirixLoadMain.class, "loadInitial", Database.class, stateType, List.class);
-    final Method apply = method(stateType, "apply", JsonNodeTrx.class, Event.class);
+        method(BitemporalSirixLoadMain.class, "loadInitial", Database.class, stateType, BitemporalEventReader.class);
+    final Method apply = method(stateType, "apply", JsonNodeTrx.class, BitemporalEventReader.class);
     final int[] counts = {Tier.DEVELOPMENT.contracts(), Tier.DEVELOPMENT.products(), Tier.DEVELOPMENT.suppliers()};
     int rotations = 0;
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
-    try (final var database = Databases.openJsonDatabase(path)) {
+    try (final var database = Databases.openJsonDatabase(path);
+        final var owner = new BitemporalIntervalStore(16L << 20);
+        final var reader = new BitemporalEventReader(events, Tier.DEVELOPMENT)) {
       invoke(method(BitemporalSirixLoadMain.class, "createResources", Database.class), null, database);
+      final Object[] states = new Object[RESOURCES.size()];
+      reader.advance();
       for (int resource = 0; resource < RESOURCES.size(); resource++) {
-        final String name = RESOURCES.get(resource);
-        final Object state = stateConstructor.newInstance(name, counts[resource]);
-        invoke(loadInitial, null, database, state, filter(events[0], name));
-        for (int epoch = 1; epoch < BitemporalSchema.PUBLICATIONS; epoch++) {
+        states[resource] = stateConstructor.newInstance(RESOURCES.get(resource), counts[resource], owner);
+        invoke(loadInitial, null, database, states[resource], reader);
+      }
+      for (int epoch = 1; epoch < BitemporalSchema.PUBLICATIONS; epoch++) {
+        for (int resource = 0; resource < RESOURCES.size(); resource++) {
+          final String name = RESOURCES.get(resource);
           try (final var session = database.beginResourceSession(name); final var wtx = session.beginNodeTrx()) {
-            for (final Event event : filter(events[epoch], name)) {
-              invoke(apply, state, wtx, event);
+            while (reader.matches(epoch, name)) {
+              invoke(apply, states[resource], wtx, reader);
+              reader.advance();
             }
             rotations += StorageEpochTestSupport.rotatedEpochs(wtx);
             wtx.commit("SH1 E" + epoch, BitemporalSchema.systemTime(epoch));
           }
         }
       }
+      reader.requireEnd();
     }
     return rotations;
-  }
-
-  private static List<Event> filter(final List<Event> events, final String resource) {
-    return events.stream().filter(event -> event.table().equals(resource)).toList();
   }
 
   static List<String> coldPublications(final Path path) throws Exception {

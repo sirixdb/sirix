@@ -212,6 +212,11 @@ ext.nativeDowncallPreinitializeRequested =
     project.providers.gradleProperty(nativeDowncallPreinitializeProperty).getOrElse('false').toBoolean()
 
 test {
+    onOutput { descriptor, output ->
+        if (descriptor.className == 'io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest') {
+            logger.lifecycle(output.message.trim())
+        }
+    }
     systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     useJUnitPlatform()
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
