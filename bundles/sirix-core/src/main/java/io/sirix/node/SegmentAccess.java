@@ -9,7 +9,8 @@ import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 
 /**
- * Unaligned scalar reads with constant, typed handles for the storage format's byte orders.
+ * Unaligned scalar reads with constant, typed handles for the storage format's byte orders, plus
+ * aligned native-order accessors for process-private slabs.
  *
  * <p>
  * Keeping each handle at its access site lets ahead-of-time compilers specialize the access without
@@ -29,8 +30,31 @@ public final class SegmentAccess {
       ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN).varHandle();
   private static final VarHandle INT_BE = ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN).varHandle();
   private static final VarHandle LONG_BE = ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN).varHandle();
+  /** Aligned, native-order handles for process-private slabs; never used on persisted bytes. */
+  private static final VarHandle LONG_NATIVE = ValueLayout.JAVA_LONG.varHandle();
+  private static final VarHandle INT_NATIVE = ValueLayout.JAVA_INT.varHandle();
 
   private SegmentAccess() {}
+
+  /** Read an 8-byte-aligned native-order long from a process-private slab. */
+  public static long getLong(final MemorySegment segment, final long offset) {
+    return (long) LONG_NATIVE.get(segment, offset);
+  }
+
+  /** Write an 8-byte-aligned native-order long into a process-private slab. */
+  public static void putLong(final MemorySegment segment, final long offset, final long value) {
+    LONG_NATIVE.set(segment, offset, value);
+  }
+
+  /** Read a 4-byte-aligned native-order int from a process-private slab. */
+  public static int getInt(final MemorySegment segment, final long offset) {
+    return (int) INT_NATIVE.get(segment, offset);
+  }
+
+  /** Write a 4-byte-aligned native-order int into a process-private slab. */
+  public static void putInt(final MemorySegment segment, final long offset, final int value) {
+    INT_NATIVE.set(segment, offset, value);
+  }
 
   /** Read one byte at the given byte offset. */
   public static byte getByte(final MemorySegment segment, final long offset) {

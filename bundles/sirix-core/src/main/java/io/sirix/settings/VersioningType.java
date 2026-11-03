@@ -26,7 +26,6 @@ import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.NodeReferencesSerializer;
-import io.sirix.index.hot.cache.HOTFragmentCache;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.FsstAwareSlotCopier;
 import io.sirix.index.hot.page.HOTLeafPage;
@@ -1627,14 +1626,6 @@ public enum VersioningType {
         modifiedLeaf.markAllEntriesDirty();
       } else if (slidingRotation && windowFragments != null) {
         carryForwardAgingHOTEntries(windowFragments, modifiedLeaf);
-        // The final fragment has left this writer's window. Its last carry-forward read should
-        // not protect it from pressure eviction at the expense of fragments the next commit needs.
-        // Element zero is caller-owned, so only offer an older, cache-owned fragment. Eviction
-        // retires the exact image while these guards (and any historical readers) still hold it.
-        if (windowFragments.size() > 1
-            && storageEngineReader.getBufferManager().getHOTLeafFragmentCache() instanceof HOTFragmentCache cache) {
-          cache.evictSupersededFragment(windowFragments.getLast());
-        }
       } else if (differentialCumulative && windowFragments != null && !windowFragments.isEmpty()) {
         carryForwardDifferentialDelta(windowFragments.getFirst(), modifiedLeaf);
       }

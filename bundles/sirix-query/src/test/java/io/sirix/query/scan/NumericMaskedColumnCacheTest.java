@@ -1,5 +1,6 @@
 package io.sirix.query.scan;
 
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
@@ -9,6 +10,7 @@ import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -17,19 +19,33 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("native-image")
 final class NumericMaskedColumnCacheTest {
-  private final DerivedCacheBudget budget = new DerivedCacheBudget(1L << 20, 1L << 20, 1L << 20, -1);
-  private final NumericMaskedColumnCache cache = new NumericMaskedColumnCache(budget.numeric());
+  private final FrameSlotAllocator allocator = new FrameSlotAllocator(16L << 20);
+  private final DerivedCacheBudget budget = new DerivedCacheBudget(allocator, 8L << 20, -1);
+  /** Copies run inline so every admission is observable right after it returns. */
+  private final NumericMaskedColumnCache cache = new NumericMaskedColumnCache(budget.numeric(), Runnable::run);
+
+  @AfterEach
+  void releaseEverySlab() {
+    budget.numeric().clear();
+    budget.packed().clear();
+    assertEquals(0, allocator.getSlabBytes(), "no slab outlives the views and entries of a test");
+    allocator.shutdown();
+  }
+
   @Test
   void signaturesAndRevisionIdentityFenceReuseAndEveryViewOwnsItsMasks() {
     final ProjectionColumnStore store = store();
@@ -37,23 +53,33 @@ final class NumericMaskedColumnCacheTest {
     final long[] keys = {10, 11};
     final MaskedColumns original = columns(store);
     cache.admit(store, fields, keys, original);
-    final MaskedColumns cached = cache.lookup(store, fields, keys);
-    assertNotNull(cached);
-    assertEquals(2, cached.longValue(0, 0, 1));
-    assertEquals(1, cached.minimum(0));
-    assertEquals(2, cached.maximum(0));
-    assertTrue(cached.allSelectedPresent(0));
-    Objects.requireNonNull(cached.rowMask(0))[0] = 0;
-    Objects.requireNonNull(original.rowMask(0))[0] = 0;
-    fields[0] = "changed";
-    keys[0] = 9;
-    final MaskedColumns repeated = cache.lookup(store, new String[] {"value"}, new long[] {10, 11});
-    assertNotNull(repeated);
-    assertEquals(3, Objects.requireNonNull(repeated.rowMask(0))[0]);
-    assertNull(cache.lookup(store, fields, keys));
-    assertNull(cache.lookup(store, new String[] {"value"}, new long[] {10}));
-    assertNull(cache.lookup(store(), new String[] {"value"}, new long[] {10, 11}),
-        "a new revision/store identity cannot reuse old values even with identical keys");
+    assertFalse(cache.copying(store, fields, keys));
+    try (MaskedColumns cached = cache.lookup(store, fields, keys)) {
+      assertNotNull(cached);
+      assertTrue(cached.isNative());
+      assertEquals(2, cached.longValue(0, 0, 1));
+      assertEquals(11, cached.recordKey(0, 1));
+      assertEquals(1, cached.minimum(0));
+      assertEquals(2, cached.maximum(0));
+      assertTrue(cached.allSelectedPresent(0));
+      assertTrue(cached.present(0, 0, 0));
+      assertTrue(cached.isImmutableRevision());
+      Objects.requireNonNull(cached.rowMask(0))[0] = 0;
+      assertFalse(cached.isImmutableRevision(), "a filtered view no longer matches the resident masks");
+      Objects.requireNonNull(original.rowMask(0))[0] = 0;
+      fields[0] = "changed";
+      keys[0] = 9;
+      try (MaskedColumns repeated = cache.lookup(store, new String[] {"value"}, new long[] {10, 11})) {
+        assertNotNull(repeated);
+        assertEquals(3, Objects.requireNonNull(repeated.rowMask(0))[0], "the slab masks never change");
+        assertSame(cached.rowIdentity(), repeated.rowIdentity());
+      }
+      assertNull(cache.lookup(store, fields, keys));
+      assertNull(cache.lookup(store, new String[] {"value"}, new long[] {10}));
+      assertNull(cache.lookup(store(), new String[] {"value"}, new long[] {10, 11}),
+          "a new revision/store identity cannot reuse old values even with identical keys");
+      assertThrows(IllegalStateException.class, () -> cached.numericLane(0, 0), "native lanes are read via the slab");
+    }
   }
 
   @Test
@@ -81,48 +107,50 @@ final class NumericMaskedColumnCacheTest {
     final String[] fields = {"value"};
     final long[] keys = {10, 11};
     cache.admit(store, fields, keys, original);
-    final MaskedColumns first = cache.lookup(store, fields, keys);
-    final MaskedColumns second = cache.lookup(store, fields, keys);
-    assertNotNull(first);
-    assertNotNull(second);
-    assertSame(original.rowIdentity(), first.rowIdentity());
-    assertSame(first.rowIdentity(), second.rowIdentity());
-    assertFalse(first.allSelectedPresent(0));
-    Objects.requireNonNull(first.rowMask(0))[0] = 1;
-    assertTrue(first.allSelectedPresent(0));
-    assertFalse(first.isImmutableRevision());
-    assertFalse(second.allSelectedPresent(0));
-    Objects.requireNonNull(second.rowMask(0))[0] = 1;
-    assertTrue(second.allSelectedPresent(0));
-    Objects.requireNonNull(first.rowMask(0))[0] = 2;
-    assertFalse(first.allSelectedPresent(0));
-    assertTrue(second.allSelectedPresent(0));
-    assertFalse(original.allSelectedPresent(0));
+    try (MaskedColumns first = cache.lookup(store, fields, keys);
+        MaskedColumns second = cache.lookup(store, fields, keys)) {
+      assertNotNull(first);
+      assertNotNull(second);
+      assertSame(original.rowIdentity(), first.rowIdentity());
+      assertSame(first.rowIdentity(), second.rowIdentity());
+      assertFalse(first.allSelectedPresent(0));
+      assertFalse(first.present(0, 0, 1));
+      Objects.requireNonNull(first.rowMask(0))[0] = 1;
+      assertTrue(first.allSelectedPresent(0));
+      assertFalse(first.isImmutableRevision());
+      assertFalse(second.allSelectedPresent(0));
+      Objects.requireNonNull(second.rowMask(0))[0] = 1;
+      assertTrue(second.allSelectedPresent(0));
+      Objects.requireNonNull(first.rowMask(0))[0] = 2;
+      assertFalse(first.allSelectedPresent(0));
+      assertTrue(second.allSelectedPresent(0));
+      assertFalse(original.allSelectedPresent(0));
+    }
   }
 
   @Test
   void snapshotsWithSharedRecordKeysKeepSeparateIdentitiesAndFieldRosters() {
     final ProjectionColumnStore store = store();
     final MaskedColumns first = columns(store);
-    final MaskedColumns.NumericSnapshot snapshot =
-        first.numericSnapshot(new String[] {"value"}, new long[] {10, 11}, 1);
-    final MaskedColumns second = new MaskedColumns(store, new long[][] {{2}}, snapshot.recordKeys(), snapshot.slices(),
-        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 1);
+    final MaskedColumns second = new MaskedColumns(store, new long[][] {{2}}, new long[][] {{10, 11}},
+        new ColumnSlice[][] {{slice()}}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 1);
     second.markImmutableRevision();
     cache.admit(store, new String[] {"value"}, new long[] {10, 11}, first);
     cache.admit(store, new String[] {"value"}, new long[] {11}, second);
     cache.admit(store, new String[] {"other"}, new long[] {11}, columns(store));
-    final MaskedColumns cachedFirst = cache.lookup(store, new String[] {"value"}, new long[] {10, 11});
-    final MaskedColumns cachedSecond = cache.lookup(store, new String[] {"value"}, new long[] {11});
-    final MaskedColumns otherField = cache.lookup(store, new String[] {"other"}, new long[] {11});
-    assertNotNull(cachedFirst);
-    assertNotNull(cachedSecond);
-    assertNotNull(otherField);
-    assertSame(first.rowIdentity(), cachedFirst.rowIdentity());
-    assertNotSame(cachedFirst.rowIdentity(), cachedSecond.rowIdentity());
-    assertNotSame(cachedSecond.rowIdentity(), otherField.rowIdentity());
-    assertEquals(3, Objects.requireNonNull(cachedFirst.rowMask(0))[0]);
-    assertEquals(2, Objects.requireNonNull(cachedSecond.rowMask(0))[0]);
+    try (MaskedColumns cachedFirst = cache.lookup(store, new String[] {"value"}, new long[] {10, 11});
+        MaskedColumns cachedSecond = cache.lookup(store, new String[] {"value"}, new long[] {11});
+        MaskedColumns otherField = cache.lookup(store, new String[] {"other"}, new long[] {11})) {
+      assertNotNull(cachedFirst);
+      assertNotNull(cachedSecond);
+      assertNotNull(otherField);
+      assertSame(first.rowIdentity(), cachedFirst.rowIdentity());
+      assertNotSame(cachedFirst.rowIdentity(), cachedSecond.rowIdentity());
+      assertNotSame(cachedSecond.rowIdentity(), otherField.rowIdentity());
+      assertEquals(3, Objects.requireNonNull(cachedFirst.rowMask(0))[0]);
+      assertEquals(2, Objects.requireNonNull(cachedSecond.rowMask(0))[0]);
+      assertEquals(3, budget.metrics().numeric().entries());
+    }
   }
 
   @Test
@@ -146,12 +174,13 @@ final class NumericMaskedColumnCacheTest {
     try {
       start.await();
       for (int i = 0; i < 1000; i++) {
-        final MaskedColumns view = cache.lookup(store, fields, keys);
-        assertNotNull(view);
-        final long[] rowMask = Objects.requireNonNull(view.rowMask(0));
-        assertEquals(3, rowMask[0]);
-        assertEquals(2, view.longValue(0, 0, 1));
-        rowMask[0] = 0;
+        try (MaskedColumns view = cache.lookup(store, fields, keys)) {
+          assertNotNull(view);
+          final long[] rowMask = Objects.requireNonNull(view.rowMask(0));
+          assertEquals(3, rowMask[0]);
+          assertEquals(2, view.longValue(0, 0, 1));
+          rowMask[0] = 0;
+        }
       }
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -160,23 +189,84 @@ final class NumericMaskedColumnCacheTest {
   }
 
   @Test
+  void readersOfAnEvictedSnapshotKeepValidMemoryUntilTheyClose() {
+    final ProjectionColumnStore store = store();
+    final MaskedColumns original = columns(store);
+    final long bytes = Objects.requireNonNull(NativeNumericSnapshot.layout(original, 2)).bytes();
+    final DerivedCacheBudget tight = withNumericShare(bytes);
+    final NumericMaskedColumnCache one = new NumericMaskedColumnCache(tight.numeric(), Runnable::run);
+    one.admit(store, new String[] {"value"}, new long[] {10, 11}, original);
+    final MaskedColumns reader = one.lookup(store, new String[] {"value"}, new long[] {10, 11});
+    assertNotNull(reader);
+    // Pressure cannot evict a leased snapshot: a second roster of the same size is refused instead.
+    one.admit(store, new String[] {"other"}, new long[] {10, 11}, columns(store));
+    assertNull(one.lookup(store, new String[] {"other"}, new long[] {10, 11}));
+    assertEquals(bytes, tight.metrics().rejectedBytes());
+    try (MaskedColumns again = one.lookup(store, new String[] {"value"}, new long[] {10, 11})) {
+      assertNotNull(again, "the leased snapshot is still served");
+    }
+    // An explicit eviction retires the snapshot but defers freeing to the reader.
+    tight.numeric().clear();
+    assertNull(one.lookup(store, new String[] {"value"}, new long[] {10, 11}));
+    assertEquals(bytes, tight.metrics().retiredLeasedBytes(), "the evicted slab stays mapped for its reader");
+    assertEquals(2, reader.longValue(0, 0, 1), "the reader still reads valid memory");
+    assertEquals(11, reader.recordKey(0, 1));
+    assertTrue(reader.isImmutableRevision());
+    reader.close();
+    reader.close();
+    assertEquals(0, tight.metrics().retiredLeasedBytes(), "closing twice releases once");
+    assertEquals(0, allocator.getSlabBytes());
+    assertNull(one.lookup(store, new String[] {"value"}, new long[] {10, 11}), "a freed snapshot never returns");
+    one.admit(store, new String[] {"other"}, new long[] {10, 11}, columns(store));
+    try (MaskedColumns replacement = one.lookup(store, new String[] {"other"}, new long[] {10, 11})) {
+      assertNotNull(replacement, "the share is free again");
+    }
+    tight.numeric().clear();
+    assertEquals(0, allocator.getSlabBytes());
+  }
+
+  @Test
+  void aTaskLeaseOutlivesTheViewThatTookIt() {
+    final ProjectionColumnStore store = store();
+    cache.admit(store, new String[] {"value"}, new long[] {10, 11}, columns(store));
+    final MaskedColumns view = cache.lookup(store, new String[] {"value"}, new long[] {10, 11});
+    assertNotNull(view);
+    final DerivedCacheBudget.Lease task = view.acquireTaskLease();
+    view.close();
+    budget.numeric().clear();
+    assertTrue(allocator.getSlabBytes() > 0, "the background task still pins the slab");
+    task.run();
+    assertEquals(0, allocator.getSlabBytes());
+  }
+
+  @Test
   void membershipPredicatesFilterCachedMasksWithoutChangingTheSnapshot() {
     final ProjectionColumnStore store = store();
     final String[] fields = {"value"};
     final long[] keys = {10, 11};
-    cache.admit(store, fields, keys, columns(store));
+    final MaskedColumns heap = columns(store);
+    cache.admit(store, fields, keys, heap);
     for (final boolean anti : new boolean[] {false, true}) {
-      final MaskedColumns cached = cache.lookup(store, fields, keys);
-      assertNotNull(cached);
-      final ColumnPredicate predicate =
-          cached.recordKeyPredicateByMembership(0, keys, new LongOpenHashSet(new long[] {1}), anti);
-      assertEquals(anti
-          ? 2L
-          : 1L, Objects.requireNonNull(predicate.keyMasks).byFirstKey().get(10)[0]);
-      assertEquals(3L, Objects.requireNonNull(cached.rowMask(0))[0]);
-      final MaskedColumns repeated = cache.lookup(store, fields, keys);
-      assertNotNull(repeated);
-      assertEquals(3L, Objects.requireNonNull(repeated.rowMask(0))[0]);
+      try (MaskedColumns cached = cache.lookup(store, fields, keys)) {
+        assertNotNull(cached);
+        final ColumnPredicate predicate =
+            cached.recordKeyPredicateByMembership(0, keys, new LongOpenHashSet(new long[] {1}), anti);
+        final ColumnPredicate expected =
+            heap.recordKeyPredicateByMembership(0, keys, new LongOpenHashSet(new long[] {1}), anti);
+        assertEquals(anti
+            ? 2L
+            : 1L, Objects.requireNonNull(predicate.keyMasks).byFirstKey().get(10)[0]);
+        assertArrayEquals(Objects.requireNonNull(expected.keyMasks).byFirstKey().get(10),
+            Objects.requireNonNull(predicate.keyMasks).byFirstKey().get(10), "native and heap filters agree");
+        assertArrayEquals(heap.recordKeysByMembership(0, new LongOpenHashSet(new long[] {2}), anti),
+            cached.recordKeysByMembership(0, new LongOpenHashSet(new long[] {2}), anti));
+        assertEquals(heap.presentLongValues(0), cached.presentLongValues(0));
+        assertEquals(3L, Objects.requireNonNull(cached.rowMask(0))[0]);
+      }
+      try (MaskedColumns repeated = cache.lookup(store, fields, keys)) {
+        assertNotNull(repeated);
+        assertEquals(3L, Objects.requireNonNull(repeated.rowMask(0))[0]);
+      }
     }
   }
 
@@ -184,94 +274,140 @@ final class NumericMaskedColumnCacheTest {
   void sparseMasksDoNotAcquireDenseReuse() {
     final ProjectionColumnStore store = store();
     final MaskedColumns sparse = new MaskedColumns(store, new long[][] {{0}}, new long[][] {{10, 11}},
-        columns(store).numericSnapshot(new String[] {"value"}, new long[] {10, 11}, 1).slices(),
-        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 0);
+        new ColumnSlice[][] {{slice()}}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 0);
+    sparse.markImmutableRevision();
+    assertNull(NativeNumericSnapshot.layout(sparse, 1));
     cache.admit(store, new String[] {"value"}, new long[] {10}, sparse);
     assertNull(cache.lookup(store, new String[] {"value"}, new long[] {10}));
+    assertEquals(0, budget.metrics().retainedBytes());
   }
 
   @Test
   void aSingleOversizedSnapshotIsRefusedBeforeCopyingAndFitsAtTheExactThreshold() {
     final ProjectionColumnStore store = store();
     final MaskedColumns columns = columns(store);
-    final long bytes = columns.numericSnapshotWeight(2) + 64 + 2 * "value".length();
+    final long bytes = Objects.requireNonNull(NativeNumericSnapshot.layout(columns, 2)).bytes();
     final DerivedCacheBudget below = withNumericShare(bytes - 1);
-    final NumericMaskedColumnCache refused = new NumericMaskedColumnCache(below.numeric());
+    final NumericMaskedColumnCache refused = new NumericMaskedColumnCache(below.numeric(), Runnable::run);
     refused.admit(store, new String[] {"value"}, new long[] {10, 11}, columns);
     assertNull(refused.lookup(store, new String[] {"value"}, new long[] {10, 11}));
     assertEquals(0, below.metrics().retainedBytes());
     assertEquals(0, below.metrics().inFlightBytes());
     assertEquals(bytes, below.metrics().rejectedBytes());
+    assertEquals(0, allocator.getSlabBytes(), "a refusal maps nothing");
 
     final DerivedCacheBudget exact = withNumericShare(bytes);
-    final NumericMaskedColumnCache admitted = new NumericMaskedColumnCache(exact.numeric());
+    final NumericMaskedColumnCache admitted = new NumericMaskedColumnCache(exact.numeric(), Runnable::run);
     admitted.admit(store, new String[] {"value"}, new long[] {10, 11}, columns);
-    assertNotNull(admitted.lookup(store, new String[] {"value"}, new long[] {10, 11}));
+    try (MaskedColumns view = admitted.lookup(store, new String[] {"value"}, new long[] {10, 11})) {
+      assertNotNull(view);
+    }
     assertEquals(bytes, exact.metrics().retainedBytes());
     assertEquals(0, exact.metrics().inFlightBytes());
+    exact.numeric().clear();
   }
 
   @Test
   void combinedRostersEvictIndividualSnapshotsAndAlternatingSelectionsReuseWhenTheyFit() {
     final ProjectionColumnStore store = store();
     final String[] rosterNames = {"diffs", "costs", "joins"};
-    final long bytes = columns(store).numericSnapshotWeight(2) + 64 + 10;
+    final long bytes = Objects.requireNonNull(NativeNumericSnapshot.layout(columns(store), 2)).bytes();
     final DerivedCacheBudget roomy = withNumericShare(3 * bytes);
-    final NumericMaskedColumnCache all = new NumericMaskedColumnCache(roomy.numeric());
+    final NumericMaskedColumnCache all = new NumericMaskedColumnCache(roomy.numeric(), Runnable::run);
     for (final String name : rosterNames) {
       all.admit(store, new String[] {name}, new long[] {10, 11}, columns(store));
     }
     for (int repeat = 0; repeat < 4; repeat++) {
       for (final String name : rosterNames) {
-        final MaskedColumns view = all.lookup(store, new String[] {name}, new long[] {10, 11});
-        assertNotNull(view);
-        assertEquals(2, view.longValue(0, 0, 1));
-        assertEquals(3, Objects.requireNonNull(view.rowMask(0))[0]);
+        try (MaskedColumns view = all.lookup(store, new String[] {name}, new long[] {10, 11})) {
+          assertNotNull(view);
+          assertEquals(2, view.longValue(0, 0, 1));
+          assertEquals(3, Objects.requireNonNull(view.rowMask(0))[0]);
+        }
       }
     }
     assertEquals(3 * bytes, roomy.metrics().retainedBytes());
+    roomy.numeric().clear();
 
     final DerivedCacheBudget tight = withNumericShare(2 * bytes);
-    final NumericMaskedColumnCache two = new NumericMaskedColumnCache(tight.numeric());
+    final NumericMaskedColumnCache two = new NumericMaskedColumnCache(tight.numeric(), Runnable::run);
     for (final String name : rosterNames) {
       two.admit(store, new String[] {name}, new long[] {10, 11}, columns(store));
     }
     int hits = 0;
     for (final String name : rosterNames) {
-      if (two.lookup(store, new String[] {name}, new long[] {10, 11}) != null) {
-        hits++;
+      try (MaskedColumns view = two.lookup(store, new String[] {name}, new long[] {10, 11})) {
+        if (view != null) {
+          hits++;
+        }
       }
     }
     assertEquals(2, hits, "one oversized roster list must not evict all this store's snapshots");
     assertEquals(2 * bytes, tight.metrics().retainedBytes());
     assertEquals(0, tight.metrics().inFlightBytes());
+    tight.numeric().clear();
   }
 
   @Test
   void mutableTransactionsAndChangedMasksCannotAcquireSnapshotResidency() {
     final ProjectionColumnStore store = store();
     final MaskedColumns immutable = columns(store);
-    final MaskedColumns.NumericSnapshot data = immutable.numericSnapshot(new String[] {"value"}, new long[] {10, 11}, 1);
-    final MaskedColumns writer = new MaskedColumns(store, new long[][] {{3}}, data.recordKeys(), data.slices(),
-        data.kinds(), 2);
+    final MaskedColumns writer = new MaskedColumns(store, new long[][] {{3}}, new long[][] {{10, 11}},
+        new ColumnSlice[][] {{slice()}}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 2);
     cache.admit(store, new String[] {"value"}, new long[] {10, 11}, writer);
     assertNull(cache.lookup(store, new String[] {"value"}, new long[] {10, 11}));
     Objects.requireNonNull(immutable.rowMask(0))[0] = 1;
     cache.admit(store, new String[] {"value"}, new long[] {10, 11}, immutable);
     assertNull(cache.lookup(store, new String[] {"value"}, new long[] {10, 11}));
     assertEquals(0, budget.metrics().retainedBytes());
+    assertEquals(0, allocator.getSlabBytes());
   }
 
-  private static DerivedCacheBudget withNumericShare(final long bytes) {
+  @Test
+  void aRefusedBackgroundCopyReleasesItsReservationAndTheSelectionCanBeAdmittedLater() {
+    final ProjectionColumnStore store = store();
+    final NumericMaskedColumnCache rejecting = new NumericMaskedColumnCache(budget.numeric(), task -> {
+      throw new RejectedExecutionException("no copy thread");
+    });
+    assertThrows(RejectedExecutionException.class,
+        () -> rejecting.admit(store, new String[] {"value"}, new long[] {10, 11}, columns(store)));
+    assertEquals(0, budget.metrics().inFlightBytes());
+    assertEquals(0, budget.metrics().retainedBytes());
+    assertEquals(0, allocator.getSlabBytes(), "the reserved slab is released with the failed reservation");
+    assertFalse(rejecting.copying(store, new String[] {"value"}, new long[] {10, 11}));
+    cache.admit(store, new String[] {"value"}, new long[] {10, 11}, columns(store));
+    try (MaskedColumns view = cache.lookup(store, new String[] {"value"}, new long[] {10, 11})) {
+      assertNotNull(view);
+    }
+  }
+
+  @Test
+  void admissionOfAResidentOrCopyingSelectionIsANoOp() {
+    final ProjectionColumnStore store = store();
+    cache.admit(store, new String[] {"value"}, new long[] {10, 11}, columns(store));
+    final long retained = budget.metrics().retainedBytes();
+    cache.admit(store, new String[] {"value"}, new long[] {10, 11}, columns(store));
+    assertEquals(retained, budget.metrics().retainedBytes());
+    assertEquals(1, budget.metrics().numeric().entries());
+    try (MaskedColumns view = cache.lookup(store, new String[] {"value"}, new long[] {10, 11})) {
+      assertNotNull(view);
+      cache.admit(store, new String[] {"value"}, new long[] {10, 11}, view);
+      assertEquals(1, budget.metrics().numeric().entries(), "a native view is already resident");
+    }
+  }
+
+  private DerivedCacheBudget withNumericShare(final long bytes) {
     final long total = (4 * bytes + 2) / 3;
-    return new DerivedCacheBudget(total * 8, total * 8, total, total);
+    return new DerivedCacheBudget(allocator, total * 8, total);
+  }
+
+  private static ColumnSlice slice() {
+    return new ColumnSlice(2, (byte) 0, 1, 2, new long[] {3}, new long[] {1, 2}, null, null, null, null, null, null);
   }
 
   private static MaskedColumns columns(final ProjectionColumnStore store) {
-    final ColumnSlice slice =
-        new ColumnSlice(2, (byte) 0, 1, 2, new long[] {3}, new long[] {1, 2}, null, null, null, null, null, null);
     final MaskedColumns columns = new MaskedColumns(store, new long[][] {{3}}, new long[][] {{10, 11}},
-        new ColumnSlice[][] {{slice}}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 2);
+        new ColumnSlice[][] {{slice()}}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 2);
     columns.markImmutableRevision();
     return columns;
   }

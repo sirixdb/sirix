@@ -11,6 +11,14 @@ import java.util.function.Function;
  * Startup allocation of disjoint retained-cache ceilings within half the runtime heap. The other
  * half remains available to query execution, output, GC and application/metadata objects. This is a
  * heap policy, not a second grant from the native persisted-page allocator or an RSS limit.
+ *
+ * <p>
+ * Derived query images (numeric snapshots, packed join sides) live in allocator-backed foreign
+ * memory and take no share here; see {@code docs/DERIVED_QUERY_CACHES.md}. The default shares were
+ * chosen so that, at a 6 GiB heap, no retained heap cache is smaller than its pre-envelope size:
+ * compact HOT images keep one sixteenth of the heap, the mini-page cap stays at 64 MiB, dictionary
+ * and verdict caches stay above 256, 64 and 128 MiB, and the per-store projection fill keeps a
+ * quarter of the heap.
  */
 public final class HeapCacheBudget {
   public static final String MAX_BYTES_PROPERTY = "sirix.heapCache.maxBytes";
@@ -18,7 +26,7 @@ public final class HeapCacheBudget {
 
   /** Leaves of the allocation tree; their ceilings sum to no more than the envelope. */
   public enum Pool {
-    PROJECTION("sirix.projection.cacheBytes"), DERIVED("sirix.derivedCache.heapReserveBytes"), DICTIONARY_RECORDS(
+    PROJECTION("sirix.projection.cacheBytes"), DICTIONARY_RECORDS(
         "sirix.projection.globalDict.recordCacheBytes"), GLOBAL_VERDICTS(
             "sirix.projection.globalDict.verdictCacheBytes"), SEGMENT_VERDICTS(
                 "sirix.projection.segmentDict.verdictCacheBytes"), HOT_IMAGES(
@@ -66,15 +74,15 @@ public final class HeapCacheBudget {
         ? heapBytes / 2
         : Math.min(configured, heapBytes / 2);
     final EnumMap<Pool, Limit> limits = new EnumMap<>(Pool.class);
-    assign(limits, properties, Pool.PROJECTION, envelope / 2);
-    assign(limits, properties, Pool.DERIVED, envelope / 4);
-    final long dictionary = envelope / 8;
+    // Shares sum to 189/192 of the envelope; unused shares are never granted again to siblings.
+    assign(limits, properties, Pool.PROJECTION, fraction(envelope, 5, 8));
+    final long dictionary = envelope / 6;
     assign(limits, properties, Pool.DICTIONARY_RECORDS, fraction(dictionary, 4, 7));
     assign(limits, properties, Pool.GLOBAL_VERDICTS, dictionary / 7);
     assign(limits, properties, Pool.SEGMENT_VERDICTS, fraction(dictionary, 2, 7));
-    assign(limits, properties, Pool.HOT_IMAGES, envelope / 16);
+    assign(limits, properties, Pool.HOT_IMAGES, envelope / 8);
     assign(limits, properties, Pool.HOT_LOOKUPS, envelope / 32);
-    assign(limits, properties, Pool.HOT_MINI_PAGES, envelope / 64);
+    assign(limits, properties, Pool.HOT_MINI_PAGES, envelope / 48);
     assign(limits, properties, Pool.PROJECTION_BLOBS, envelope / 64);
     final long projection = limits.get(Pool.PROJECTION).effectiveBytes();
     // A windowed handle retains at most a fill plus a quarter-fill of payload windows. Price both
@@ -82,7 +90,7 @@ public final class HeapCacheBudget {
     final long fillCeiling = fraction(projection, 4, 5);
     final long fillConfigured = configured(properties, PROJECTION_FILL_BYTES_PROPERTY);
     final long fill = fillConfigured < 0
-        ? projection / 2
+        ? fillCeiling
         : Math.min(fillConfigured, fillCeiling);
     metrics = new Metrics(heapBytes, configured, envelope, heapBytes - envelope, Map.copyOf(limits),
         new Limit(fillConfigured, fillCeiling, fill));

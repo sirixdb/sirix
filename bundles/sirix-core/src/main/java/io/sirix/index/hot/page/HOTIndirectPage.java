@@ -267,13 +267,29 @@ public final class HOTIndirectPage implements Page {
   private static final ThreadLocal<byte[]> SIMD_PADDED_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[BYTE_SPECIES.length()]);
 
-  // Transient SIMD state — lazily initialized from extractionPositions after deserialization.
-  // VectorShuffle maps each extraction byte to its offset within the contiguous key load window.
-  private transient VectorShuffle<Byte> gatherShuffle;
-  private transient int gatherLoadOffset; // min extraction position (start of load window)
-  private transient boolean gatherFitsInVector; // true if span ≤ 32 bytes
-  // Publish the complete immutable gather state to concurrent readers without a hot-path lock.
-  private transient volatile boolean gatherInitialized;
+  /**
+   * The SIMD gather state, lazily derived from {@code extractionPositions} after deserialization.
+   * Immutable with final fields only, so a plain-field publication is safe under the memory model: a
+   * reader that observes the reference observes a complete shuffle. The field is deliberately not
+   * volatile; racing first readers may build equivalent states, and the lookup path pays one plain
+   * reference load.
+   */
+  private static final class GatherState {
+    /** Extraction span exceeds the vector width, or the page has no extraction bytes. */
+    static final GatherState SCALAR = new GatherState(null, 0);
+
+    /** Maps each extraction byte lane to its offset within the contiguous key load window. */
+    final VectorShuffle<Byte> shuffle;
+    /** Minimum extraction position, the start of the load window. */
+    final int loadOffset;
+
+    GatherState(final VectorShuffle<Byte> shuffle, final int loadOffset) {
+      this.shuffle = shuffle;
+      this.loadOffset = loadOffset;
+    }
+  }
+
+  private transient GatherState gather;
 
   /**
    * Determine the partial key width (in bytes) from the number of discriminative bits. Matches C++
@@ -626,11 +642,13 @@ public final class HOTIndirectPage implements Page {
    * </p>
    */
   private int computeMultiMaskPartialKey(final byte[] key, final int keyLen) {
-    if (!gatherInitialized) {
-      initGatherShuffle();
+    GatherState state = gather;
+    if (state == null) {
+      state = buildGatherState();
+      gather = state;
     }
-    if (gatherFitsInVector) {
-      return computeMultiMaskPartialKeySIMD(key, keyLen);
+    if (state.shuffle != null) {
+      return computeMultiMaskPartialKeySIMD(key, keyLen, state);
     }
     return computeMultiMaskPartialKeyScalar(key, keyLen);
   }
@@ -644,11 +662,9 @@ public final class HOTIndirectPage implements Page {
    * zeroed via wrap-around to lane 0 (don't-care).
    * </p>
    */
-  private void initGatherShuffle() {
+  private GatherState buildGatherState() {
     if (extractionPositions == null || numExtractionBytes == 0) {
-      gatherFitsInVector = false;
-      gatherInitialized = true;
-      return;
+      return GatherState.SCALAR;
     }
 
     // Find min/max extraction positions to determine the load window
@@ -665,12 +681,8 @@ public final class HOTIndirectPage implements Page {
     final int span = maxPos - minPos + 1;
     if (span > BYTE_SPECIES.length()) {
       // Span exceeds vector width (>32 bytes for AVX2) — use scalar fallback
-      gatherFitsInVector = false;
-      gatherInitialized = true;
-      return;
+      return GatherState.SCALAR;
     }
-
-    gatherLoadOffset = minPos;
 
     // Build shuffle indices: lane i → offset of extractionPositions[i] within load window
     // Unused lanes (>= numExtractionBytes) get index 0 (harmless — gathered value is don't-care)
@@ -684,10 +696,7 @@ public final class HOTIndirectPage implements Page {
       shuffleIndices[i] = 0;
     }
 
-    gatherShuffle = VectorShuffle.fromValues(BYTE_SPECIES, shuffleIndices);
-    gatherFitsInVector = true;
-    // Racing first readers may construct equivalent shuffles, but cannot observe a partial one.
-    gatherInitialized = true;
+    return new GatherState(VectorShuffle.fromValues(BYTE_SPECIES, shuffleIndices), minPos);
   }
 
   /**
@@ -705,8 +714,9 @@ public final class HOTIndirectPage implements Page {
    * </ol>
    * </p>
    */
-  private int computeMultiMaskPartialKeySIMD(final byte[] key, final int keyLen) {
+  private int computeMultiMaskPartialKeySIMD(final byte[] key, final int keyLen, final GatherState state) {
     final int vectorLen = BYTE_SPECIES.length();
+    final int gatherLoadOffset = state.loadOffset;
 
     // Load key bytes into vector. If key is shorter than the load window, pad with zeros.
     final ByteVector keyVec;
@@ -730,7 +740,7 @@ public final class HOTIndirectPage implements Page {
     }
 
     // vpshufb: gather extraction bytes into contiguous lanes — lane i holds extraction byte i.
-    final ByteVector gathered = keyVec.rearrange(gatherShuffle);
+    final ByteVector gathered = keyVec.rearrange(state.shuffle);
 
     // Chunk w is gathered lanes [8w, 8w + 8) assembled big-endian: extraction byte 0 lands in bits
     // 56..63, exactly what reinterpretAsLongs() + Long.reverseBytes() produced. Lane extraction is

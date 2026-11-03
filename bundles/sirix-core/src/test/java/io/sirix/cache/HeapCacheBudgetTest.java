@@ -21,11 +21,22 @@ final class HeapCacheBudgetTest {
     final HeapCacheBudget budget = new HeapCacheBudget(heap, ignored -> null);
     assertEquals(heap / 2, budget.metrics().envelopeBytes());
     assertEquals(heap / 2, budget.metrics().workspaceReserveBytes());
-    assertEquals(heap / 4, budget.bytes(Pool.PROJECTION));
-    assertEquals(heap / 8, budget.bytes(Pool.DERIVED));
-    assertEquals(heap / 8, budget.projectionFillBytes());
+    assertEquals(5 * heap / 16, budget.bytes(Pool.PROJECTION));
+    assertEquals(heap / 4, budget.projectionFillBytes(), "a per-store fill keeps a quarter of the heap");
     assertEquals(heap / 8, budget.queryWorkspaceBytes());
     assertBounded(budget);
+  }
+
+  @Test
+  void defaultSharesAtSixGibAreNotBelowThePreEnvelopeCeilings() {
+    final HeapCacheBudget budget = new HeapCacheBudget(6L << 30, ignored -> null);
+    assertEquals(384L << 20, budget.bytes(Pool.HOT_IMAGES), "compact HOT images keep a sixteenth of the heap");
+    assertEquals(64L << 20, budget.bytes(Pool.HOT_MINI_PAGES), "the mini-page cap stays at 64 MiB");
+    assertTrue(budget.bytes(Pool.DICTIONARY_RECORDS) >= 256L << 20);
+    assertTrue(budget.bytes(Pool.GLOBAL_VERDICTS) >= 64L << 20);
+    assertTrue(budget.bytes(Pool.SEGMENT_VERDICTS) >= 128L << 20);
+    assertEquals(3L << 29, budget.projectionFillBytes(), "1.5 GiB, the former min(cacheBytes / 2, heap / 4)");
+    assertTrue(budget.bytes(Pool.HOT_LOOKUPS) / 2400L >= 32768L);
   }
 
   @Test
@@ -51,11 +62,11 @@ final class HeapCacheBudgetTest {
     final Map<String, String> properties = new HashMap<>();
     properties.put(HeapCacheBudget.MAX_BYTES_PROPERTY, "800");
     properties.put(Pool.PROJECTION.property(), "0");
-    properties.put(Pool.DERIVED.property(), "99999");
+    properties.put(Pool.DICTIONARY_RECORDS.property(), "99999");
     final HeapCacheBudget budget = new HeapCacheBudget(8000, properties::get);
     assertEquals(0, budget.bytes(Pool.PROJECTION));
     assertEquals(0, budget.projectionFillBytes());
-    assertEquals(200, budget.bytes(Pool.DERIVED));
+    assertEquals(76, budget.bytes(Pool.DICTIONARY_RECORDS), "four sevenths of a sixth of the 800-byte envelope");
     assertBounded(budget);
     properties.put(HeapCacheBudget.MAX_BYTES_PROPERTY, "0");
     final HeapCacheBudget disabled = new HeapCacheBudget(8000, properties::get);

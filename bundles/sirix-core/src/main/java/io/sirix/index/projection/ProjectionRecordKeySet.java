@@ -3,12 +3,14 @@
  */
 package io.sirix.index.projection;
 
+import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.IntToLongFunction;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
@@ -166,6 +168,67 @@ public final class ProjectionRecordKeySet {
       }
     }
     return new Masks(byFirstKey, slots);
+  }
+
+  /**
+   * Membership over lanes resident in a process-private slab. Leaf {@code leaf}'s record keys,
+   * presence words and numeric values start at the byte offsets {@code keyBase[leaf]},
+   * {@code presenceBase[leaf]} and {@code laneBase[leaf]}; {@code leafRows[leaf]} is its record-key
+   * count and {@code -1} marks a skipped or pruned leaf. Same answer as the array form.
+   */
+  static Masks filterMembership(final long[][] sourceMasks, final MemorySegment slab, final long[] keyBase,
+      final int[] leafRows, final long[] laneBase, final long[] presenceBase, final IntToLongFunction physicalSlot,
+      final LongOpenHashSet values, final boolean anti) {
+    Objects.requireNonNull(values);
+    int keptLeaves = 0;
+    for (final long[] mask : sourceMasks) {
+      if (mask != null) {
+        keptLeaves++;
+      }
+    }
+    final Long2ObjectOpenHashMap<long[]> byFirstKey = new Long2ObjectOpenHashMap<>(keptLeaves);
+    final LongOpenHashSet slots = new LongOpenHashSet(keptLeaves);
+    for (int leaf = 0; leaf < keyBase.length; leaf++) {
+      if (leafRows[leaf] == 0) {
+        continue;
+      }
+      final long[] selected = sourceMasks[leaf];
+      if (selected == null) {
+        continue;
+      }
+      final long lane = laneBase[leaf];
+      if (lane < 0) {
+        throw new IllegalStateException("membership requires an integral column");
+      }
+      final long[] mask = new long[selected.length];
+      if (filterMembershipWords(selected, slab, lane, presenceBase[leaf], values, anti, mask)) {
+        byFirstKey.put(SegmentAccess.getLong(slab, keyBase[leaf]), mask);
+        slots.add(physicalSlot.applyAsLong(leaf));
+      }
+    }
+    return new Masks(byFirstKey, slots);
+  }
+
+  private static boolean filterMembershipWords(final long[] selected, final MemorySegment slab, final long laneBase,
+      final long presenceBase, final LongOpenHashSet values, final boolean anti, final long[] mask) {
+    long any = 0;
+    for (int word = 0; word < selected.length; word++) {
+      long candidates = selected[word];
+      final long presence = SegmentAccess.getLong(slab, presenceBase + 8L * word);
+      long kept = 0;
+      while (candidates != 0) {
+        final int bit = Long.numberOfTrailingZeros(candidates);
+        candidates &= candidates - 1;
+        final boolean member = (presence & 1L << bit) != 0
+            && values.contains(SegmentAccess.getLong(slab, laneBase + 8L * ((word << 6) + bit)));
+        if (anti != member) {
+          kept |= 1L << bit;
+        }
+      }
+      mask[word] = kept;
+      any |= kept;
+    }
+    return any != 0;
   }
 
   private static boolean filterMembershipWords(final long[] selected, final long[] lane, final long[] presence,

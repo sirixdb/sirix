@@ -1,6 +1,7 @@
 package io.sirix.cache;
 
 import com.sun.management.OperatingSystemMXBean;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.management.ManagementFactory;
@@ -68,6 +69,36 @@ public interface MemorySegmentAllocator {
   void release(MemorySegment segment);
 
   long getMaxBufferSize();
+
+  /**
+   * Allocate a cache-owned slab: a page-granular native region whose segment has the global scope, so
+   * reads carry no per-access liveness check and the owner frees it explicitly, from any thread, with
+   * {@link #releaseSlab(MemorySegment)}. The bytes are charged to this allocator's physical budget
+   * before the region is mapped and refunded exactly once on release.
+   *
+   * @param bytes the requested size; the charged size is rounded up to whole pages
+   * @return the slab, or {@code null} when the budget cannot admit it. The caller reclaims its own
+   *         retained images first; this allocator never evicts page caches on behalf of a slab.
+   */
+  default @Nullable MemorySegment allocateSlab(final long bytes) {
+    return null;
+  }
+
+  /**
+   * Release a slab obtained from {@link #allocateSlab(long)}. Idempotent: a stale or repeated release
+   * is rejected and returns {@code false}.
+   *
+   * @param slab the exact segment returned by {@link #allocateSlab(long)}
+   * @return whether this call released the slab's memory and refunded its charge
+   */
+  default boolean releaseSlab(final MemorySegment slab) {
+    throw new UnsupportedOperationException(getClass().getName() + " does not own slabs");
+  }
+
+  /** Bytes currently committed to live slabs, included in {@link #getPhysicalMemoryBytes()}. */
+  default long getSlabBytes() {
+    return 0L;
+  }
 
   /**
    * Physical off-heap bytes currently committed by this allocator. Used by metrics; implementations

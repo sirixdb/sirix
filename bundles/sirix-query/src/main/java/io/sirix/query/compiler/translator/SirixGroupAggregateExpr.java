@@ -304,22 +304,33 @@ public final class SirixGroupAggregateExpr implements Expr {
     final SirixVectorizedExecutor.GroupRouting routing =
         new SirixVectorizedExecutor.GroupRouting(keys, computedLanes, values, columns -> prepared[0] = columns);
     final SirixVectorizedExecutor.GroupMembership normalizedMembership = routing.membership();
-    final SirixVectorizedExecutor.ServedGroups served = serveRoutedGroup(executor, ctx, routing);
-    if (served != null || normalizedMembership == null) {
-      return served;
+    MaskedColumns columns = null;
+    try {
+      final SirixVectorizedExecutor.ServedGroups served = serveRoutedGroup(executor, ctx, routing);
+      if (served != null || normalizedMembership == null) {
+        return served;
+      }
+      // Membership and aggregate fields may be covered by separate projections, or the combined
+      // columns may exceed the resident budget. Keep the original two-stage routed plan when the
+      // fused mask cannot serve; falling straight back to document objects would lose that route.
+      columns = prepared[0] != null
+          ? prepared[0]
+          : executor.maskedColumns(sourcePath, keys, new String[] {normalizedMembership.field()});
+      if (columns == null || !columns.isLong(0)) {
+        return null;
+      }
+      final long[] selected =
+          columns.recordKeysByMembership(0, normalizedMembership.values(), normalizedMembership.anti());
+      return serveRoutedGroup(executor, ctx, new SirixVectorizedExecutor.GroupRouting(selected, computedLanes));
+    } finally {
+      // This evaluation owns the prepared view (and any fallback view); a native one leases a snapshot.
+      if (prepared[0] != null) {
+        prepared[0].close();
+      }
+      if (columns != null && columns != prepared[0]) {
+        columns.close();
+      }
     }
-    // Membership and aggregate fields may be covered by separate projections, or the combined
-    // columns may exceed the resident budget. Keep the original two-stage routed plan when the
-    // fused mask cannot serve; falling straight back to document objects would lose that route.
-    final MaskedColumns columns = prepared[0] != null
-        ? prepared[0]
-        : executor.maskedColumns(sourcePath, keys, new String[] {normalizedMembership.field()});
-    if (columns == null || !columns.isLong(0)) {
-      return null;
-    }
-    final long[] selected =
-        columns.recordKeysByMembership(0, normalizedMembership.values(), normalizedMembership.anti());
-    return serveRoutedGroup(executor, ctx, new SirixVectorizedExecutor.GroupRouting(selected, computedLanes));
   }
 
   private SirixVectorizedExecutor.@Nullable ServedGroups serveRoutedGroup(final SirixVectorizedExecutor executor,

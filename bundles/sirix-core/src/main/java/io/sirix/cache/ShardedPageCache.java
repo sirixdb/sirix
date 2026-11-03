@@ -11,7 +11,6 @@ import java.util.AbstractMap;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -435,33 +434,6 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     evictionLock.lock();
     try {
       return removeMappingIfSameWhileLocked(key, expected);
-    } finally {
-      evictionLock.unlock();
-    }
-  }
-
-  /**
-   * Best-effort eviction of an exact, no-longer-useful cache image. A stale observation cannot remove
-   * a replacement under the same key. Existing guards defer physical reclamation, while the mapping
-   * and its charge are removed together. A busy sweeper makes this hint a no-op.
-   */
-  public boolean evictIfSame(final PageReference key, final V expected) {
-    Objects.requireNonNull(key);
-    Objects.requireNonNull(expected);
-    if (!evictionLock.tryLock()) {
-      return false;
-    }
-    try {
-      if (conditionalRemovalExpected != null) {
-        return false;
-      }
-      final RetirementFailures failures = new RetirementFailures();
-      final boolean removed = removeMappingIfSameWhileLocked(key, expected, true, failures);
-      if (removed) {
-        CACHE_EVICTIONS.increment();
-      }
-      failures.throwIfPresent();
-      return removed;
     } finally {
       evictionLock.unlock();
     }

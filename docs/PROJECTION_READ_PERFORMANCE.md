@@ -170,19 +170,10 @@ older point fragments contribute to `HOT_FRAGMENTS_WALKED`, and complete-leaf or
 contribute neither. A FULL-versioned resource still bypasses the merge and contributes nothing.
 Existing work-budget bounds are unchanged.
 
-A successful sliding-window carry-forward offers its oldest dropped fragment as a preferred
-eviction victim when that fragment's partition is at least 90% full. The hint skips a busy
-eviction lock and checks the exact cached instance, so it cannot remove a replacement based on
-a stale observation. Outstanding reader guards defer physical reclamation. Historical revisions
-still reload the same durable image; below pressure, the image stays cached. This prevents the
-writer's final use of an old fragment from protecting it at the expense of the next window,
-without increasing either cache share or changing revision publication.
-
 Regression coverage: `HOTProjectionEntryReadTest`, `HOTMiniPageCacheTest`, `HOTHeapCacheBudgetTest`,
 `HOTCompactFragmentReadTest`, `HOTCompactFragmentBatchReadTest`,
 `ProjectionBlobHistoryReadTest`, `HOTLongSuffixSearchTest`,
-`HOTHistoricalBlobReadWorkBudgetTest`, `HOTProjectionMergeBytesTest`, `HOTFragmentWindowEvictionTest`,
-and `HOTSlidingWindowCacheWorkBudgetTest`. The *Work budgets* block in
+`HOTHistoricalBlobReadWorkBudgetTest`, and `HOTProjectionMergeBytesTest`. The *Work budgets* block in
 `docs/VERIFICATION.md` remains the required load/query work check.
 
 ## Projection execution

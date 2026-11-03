@@ -1,30 +1,37 @@
 package io.sirix.query.scan;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.RemovalCause;
 import io.sirix.cache.Allocators;
-import io.sirix.cache.HeapCacheBudget;
-import io.sirix.cache.HeapCacheBudget.Pool;
+import io.sirix.cache.MemorySegmentAllocator;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.foreign.MemorySegment;
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 
 /**
- * One runtime heap allocation for decoded numeric snapshots and packed join sides. The fixed
- * partitions include retained entries and reservations for cache construction. Query workspace
- * needed even with caching disabled is separate; an optional background build must reserve first.
+ * One allowance for decoded numeric snapshots and packed join sides, carved from the persisted-page
+ * allocator's physical budget rather than the Java heap. Every entry owns one allocator slab: a
+ * global-scope {@link MemorySegment} whose bytes are reserved before mapping and refunded exactly
+ * once when the last lease drops. Removing an entry from lookup never frees its storage; a reader
+ * that acquired a lease before the eviction keeps reading valid memory until it releases.
+ *
+ * <p>
+ * The default target is {@code D = A / 8} of the allocator's effective allowance {@code A}; an
+ * explicit byte override ({@value #MAX_BYTES_PROPERTY}) replaces it within {@code A}, and zero
+ * disables both caches. Numeric snapshots receive three quarters, packed sides one quarter. Within
+ * a share, retained bytes plus in-flight construction plus retired-but-leased bytes never exceed
+ * the share, and a single entry must fit it. Admission and eviction take a short partition lock;
+ * copies and packing run outside it.
  */
 public final class DerivedCacheBudget {
   public static final String MAX_BYTES_PROPERTY = "sirix.derivedCache.maxBytes";
-  public static final String HEAP_RESERVE_BYTES_PROPERTY = "sirix.derivedCache.heapReserveBytes";
 
+  private final MemorySegmentAllocator allocator;
   private final long configuredBytes;
   private final long allocatorBytes;
-  private final long heapBytes;
-  private final long heapReserveBytes;
   private final long effectiveBytes;
   private final Partition numeric;
   private final Partition packed;
@@ -43,21 +50,16 @@ public final class DerivedCacheBudget {
       synchronized (DerivedCacheBudget.class) {
         result = runtime;
         if (result == null) {
-          if (!Allocators.getInstance().isInitialized()) {
+          final MemorySegmentAllocator allocator = Allocators.getInstance();
+          if (!allocator.isInitialized()) {
             throw new IllegalStateException("Initialize the persisted allocator before using derived caches");
           }
-          result = fromRuntime();
+          result = new DerivedCacheBudget(allocator, allocator.getMaxBufferSize(), property(MAX_BYTES_PROPERTY, -1));
           runtime = result;
         }
       }
     }
     return result;
-  }
-
-  private static DerivedCacheBudget fromRuntime() {
-    final long heap = Runtime.getRuntime().maxMemory();
-    return new DerivedCacheBudget(Allocators.getInstance().getMaxBufferSize(), heap,
-        HeapCacheBudget.global().bytes(Pool.DERIVED), property(MAX_BYTES_PROPERTY, -1));
   }
 
   private static long property(final String name, final long fallback) {
@@ -78,26 +80,29 @@ public final class DerivedCacheBudget {
   }
 
   /**
-   * @param allocatorBytes effective allocator allowance, not a second allocation from that arena
-   * @param heapBytes effective runtime maximum heap
-   * @param heapReserveBytes operator-declared allocation left for these caches
-   * @param configuredBytes explicit target, or -1 to derive min(allocator / 8, heap / 8, reserve)
+   * @param allocator the allocator whose physical budget every slab is charged to
+   * @param allocatorBytes the allocator's effective allowance, the scaling input of the default
+   * @param configuredBytes an explicit target, or -1 to derive one eighth of the allowance
    */
-  public DerivedCacheBudget(final long allocatorBytes, final long heapBytes, final long heapReserveBytes,
+  public DerivedCacheBudget(final MemorySegmentAllocator allocator, final long allocatorBytes,
       final long configuredBytes) {
-    if (allocatorBytes < 0 || heapBytes < 0 || heapReserveBytes < 0 || configuredBytes < -1) {
+    this.allocator = Objects.requireNonNull(allocator);
+    if (allocatorBytes < 0 || configuredBytes < -1) {
       throw new IllegalArgumentException("Memory allowances must be non-negative (target -1 means automatic)");
     }
     this.allocatorBytes = allocatorBytes;
-    this.heapBytes = heapBytes;
-    this.heapReserveBytes = heapReserveBytes;
     this.configuredBytes = configuredBytes;
-    final long target = configuredBytes < 0 ? Math.min(allocatorBytes / 8, heapBytes / 8) : configuredBytes;
-    effectiveBytes = Math.min(target, Math.min(heapBytes, heapReserveBytes));
+    effectiveBytes = configuredBytes < 0
+        ? allocatorBytes / 8
+        : Math.min(configuredBytes, allocatorBytes);
     final long packedBytes = effectiveBytes / 4;
     // Round down both shares; at most one byte remains unassigned. Never multiply D by three.
-    numeric = new Partition(effectiveBytes / 4 * 3 + effectiveBytes % 4 * 3 / 4);
-    packed = new Partition(packedBytes);
+    numeric = new Partition(this, effectiveBytes / 4 * 3 + effectiveBytes % 4 * 3 / 4);
+    packed = new Partition(this, packedBytes);
+  }
+
+  public MemorySegmentAllocator allocator() {
+    return allocator;
   }
 
   public Partition numeric() {
@@ -112,18 +117,22 @@ public final class DerivedCacheBudget {
   public Metrics metrics() {
     final PartitionMetrics n = numeric.metrics();
     final PartitionMetrics p = packed.metrics();
-    return new Metrics(configuredBytes, allocatorBytes, heapBytes, heapReserveBytes, effectiveBytes,
-        n, p, n.retainedBytes() + p.retainedBytes(), n.inFlightBytes() + p.inFlightBytes(),
+    return new Metrics(configuredBytes, allocatorBytes, effectiveBytes, n, p, n.retainedBytes() + p.retainedBytes(),
+        n.inFlightBytes() + p.inFlightBytes(), n.retiredLeasedBytes() + p.retiredLeasedBytes(),
         saturatedAdd(n.rejectedBytes(), p.rejectedBytes()));
   }
 
-  public record Metrics(long configuredBytes, long allocatorBytes, long heapBytes, long heapReserveBytes,
-      long effectiveBytes, PartitionMetrics numeric, PartitionMetrics packed, long retainedBytes,
-      long inFlightBytes, long rejectedBytes) {}
+  public record Metrics(long configuredBytes, long allocatorBytes, long effectiveBytes, PartitionMetrics numeric,
+      PartitionMetrics packed, long retainedBytes, long inFlightBytes, long retiredLeasedBytes, long rejectedBytes) {
+  }
 
-  public record PartitionMetrics(long maximumBytes, long retainedBytes, long inFlightBytes, long rejectedBytes) {}
+  public record PartitionMetrics(long maximumBytes, long retainedBytes, long inFlightBytes, long retiredLeasedBytes,
+      long rejectedBytes, int entries) {
+  }
 
-  /** Test seam for isolated integration fixtures. Callers must restore it after all packing finishes. */
+  /**
+   * Test seam for isolated integration fixtures. Callers must restore it after all packing finishes.
+   */
   public static @Nullable DerivedCacheBudget setForTesting(final @Nullable DerivedCacheBudget budget) {
     final DerivedCacheBudget previous = testing;
     testing = budget;
@@ -135,7 +144,9 @@ public final class DerivedCacheBudget {
     if (left < 0 || right < 0) {
       throw new IllegalArgumentException("Negative byte weight");
     }
-    return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
+    return left > Long.MAX_VALUE - right
+        ? Long.MAX_VALUE
+        : left + right;
   }
 
   /** Non-negative byte multiplication, saturating rather than wrapping into an admissible size. */
@@ -143,146 +154,322 @@ public final class DerivedCacheBudget {
     if (left < 0 || right < 0) {
       throw new IllegalArgumentException("Negative byte weight");
     }
-    return right != 0 && left > Long.MAX_VALUE / right ? Long.MAX_VALUE : left * right;
+    return right != 0 && left > Long.MAX_VALUE / right
+        ? Long.MAX_VALUE
+        : left * right;
   }
 
-  /** Optional index cleanup. Implementations must not retain the weak cache owner. */
-  interface EvictionKey {
-    void evicted();
+  /** Round a byte offset up to the next multiple of 64, saturating. */
+  public static long alignUp(final long bytes) {
+    if (bytes < 0) {
+      throw new IllegalArgumentException("Negative byte offset");
+    }
+    return bytes > Long.MAX_VALUE - 63
+        ? Long.MAX_VALUE
+        : (bytes + 63) & -64L;
   }
 
   /**
-   * A weak-identity weighted cache. Hits never take the admission monitor. Admission reserves exact
-   * long byte weights before construction; Caffeine's replacement order supplies victims when
-   * needed. Its integer weights use rounded-up units, never a narrowing byte cast.
+   * A slab-owning cache entry. One lease belongs to the cache while the entry is published, one to
+   * each reader view and background task, and the publisher receives one on publication. Leases are
+   * counted per view, never per element. When the count reaches zero the slab is released and its
+   * bytes refunded; a reader can only acquire a lease while the count is positive, so a freed slab is
+   * never resurrected.
    */
-  public static final class Partition {
-    private final long maximumBytes;
-    private final long weightUnit;
-    private final AtomicLong occupied = new AtomicLong();
-    private final AtomicLong inFlight = new AtomicLong();
-    private final AtomicLong rejected = new AtomicLong();
-    private final Cache<Object, Entry> cache;
+  public abstract static class Entry {
+    private @Nullable Partition partition;
+    private @Nullable MemorySegment slab;
+    private long bytes;
+    private final AtomicInteger leases = new AtomicInteger(1);
+    private long lastUse;
+    private boolean published;
 
-    private record Entry(Object value, long bytes, Reservation reservation) {}
-
-    private Partition(final long maximumBytes) {
-      this.maximumBytes = maximumBytes;
-      weightUnit = Math.max(1, maximumBytes / Integer.MAX_VALUE
-          + (maximumBytes % Integer.MAX_VALUE == 0 ? 0 : 1));
-      cache = Caffeine.newBuilder().weakKeys().maximumWeight(maximumBytes / weightUnit)
-          .executor(Runnable::run)
-          .weigher((Object key, Entry entry) -> weight(entry.bytes))
-          .removalListener((Object key, Entry entry, RemovalCause cause) -> {
-            if (entry != null) {
-              entry.reservation.release();
-            }
-            if (key instanceof EvictionKey indexed) {
-              indexed.evicted();
-            }
-          }).build();
+    /** The slab this entry owns; valid only while a lease is held. */
+    public final MemorySegment slab() {
+      return Objects.requireNonNull(slab, "entry is not published");
     }
 
-    private int weight(final long bytes) {
-      return Math.toIntExact(bytes / weightUnit + (bytes % weightUnit == 0 ? 0 : 1));
+    public final long bytes() {
+      return bytes;
     }
 
-    public @Nullable Object get(final Object key) {
-      final Entry entry = cache.getIfPresent(Objects.requireNonNull(key));
-      return entry == null ? null : entry.value;
+    /** The partition that published this entry. */
+    protected final Partition partition() {
+      return Objects.requireNonNull(partition, "entry is not published");
     }
 
-    /** Returns null without building when the entry or simultaneous builds cannot fit the share. */
-    public synchronized @Nullable Reservation reserve(final long bytes) {
-      if (bytes <= 0) {
-        throw new IllegalArgumentException("Construction weight must be positive");
-      }
-      if (bytes > maximumBytes) {
-        reject(bytes);
-        return null;
-      }
-      cache.cleanUp();
-      while (bytes > maximumBytes - occupied.get()) {
-        final var victims = cache.policy().eviction().orElseThrow().coldest(1);
-        if (victims.isEmpty()) {
-          reject(bytes);
-          return null;
+    /** Acquire a reader lease; fails once the final lease has dropped. */
+    public final boolean tryAcquire() {
+      for (;;) {
+        final int current = leases.get();
+        if (current == 0) {
+          return false;
         }
-        cache.invalidate(victims.keySet().iterator().next());
-        cache.cleanUp();
-      }
-      synchronized (occupied) {
-        occupied.addAndGet(bytes);
-        inFlight.addAndGet(bytes);
-      }
-      return new Reservation(this, bytes);
-    }
-
-    private void reject(final long bytes) {
-      rejected.getAndUpdate(previous -> saturatedAdd(previous, bytes));
-    }
-
-    public PartitionMetrics metrics() {
-      // Reservation transitions and listener releases use this same monitor for coherent metrics.
-      synchronized (occupied) {
-        final long building = inFlight.get();
-        return new PartitionMetrics(maximumBytes, occupied.get() - building, building, rejected.get());
+        if (leases.compareAndSet(current, current + 1)) {
+          return true;
+        }
       }
     }
 
-    public void clear() {
-      cache.invalidateAll();
-      cache.cleanUp();
+    /** Drop one lease; the final drop frees the slab and refunds the share. */
+    public final void release() {
+      final int remaining = leases.decrementAndGet();
+      if (remaining == 0) {
+        Objects.requireNonNull(partition).freed(this);
+      } else if (remaining < 0) {
+        throw new IllegalStateException("lease released more often than acquired");
+      }
+    }
+
+    /** Whether a weakly held owner this entry depends on is gone; stale entries are reaped. */
+    protected boolean isStale() {
+      return false;
+    }
+
+    /** Whether this entry derives from {@code identity}; such entries are evicted with it. */
+    protected boolean dependsOn(final Object identity) {
+      return false;
+    }
+
+    /** Runs under the partition lock right after this entry left the lookup set. */
+    protected void evicted() {}
+  }
+
+  /**
+   * One reader's hold on an entry; idempotent, so an explicit close and a cleaner backstop cannot
+   * double-release. The lease, never the view that owns it, is the cleaning action.
+   */
+  public static final class Lease implements Runnable {
+    private final Entry entry;
+    private final AtomicBoolean released = new AtomicBoolean();
+
+    public Lease(final Entry entry) {
+      this.entry = Objects.requireNonNull(entry);
+    }
+
+    @Override
+    public void run() {
+      if (released.compareAndSet(false, true)) {
+        entry.release();
+      }
     }
   }
 
-  /** Exactly one owner, with idempotent release on failed construction, eviction or publication failure. */
+  /** A share of the allowance: a short list of published entries under one lock. */
+  public static final class Partition {
+    private final DerivedCacheBudget budget;
+    private final long maximumBytes;
+    private final ArrayList<Entry> entries = new ArrayList<>();
+    private long retained;
+    private long inFlight;
+    private long retiredLeased;
+    private long rejected;
+    private long clock;
+
+    private Partition(final DerivedCacheBudget budget, final long maximumBytes) {
+      this.budget = budget;
+      this.maximumBytes = maximumBytes;
+    }
+
+    public DerivedCacheBudget budget() {
+      return budget;
+    }
+
+    public long maximumBytes() {
+      return maximumBytes;
+    }
+
+    /**
+     * Reserve {@code bytes} of this share and map a slab for them. The coldest entries no reader holds
+     * are evicted first; an entry under a lease stays resident because evicting it would free nothing
+     * yet. Returns {@code null} without building when the entry cannot fit the share even then, or when
+     * the allocator refuses the slab.
+     */
+    public @Nullable Reservation reserve(final long bytes) {
+      if (bytes <= 0) {
+        throw new IllegalArgumentException("Construction weight must be positive");
+      }
+      synchronized (this) {
+        if (bytes > maximumBytes) {
+          reject(bytes);
+          return null;
+        }
+        reapStale();
+        while (bytes > maximumBytes - retained - inFlight - retiredLeased) {
+          final Entry victim = coldestUnleased();
+          if (victim == null) {
+            reject(bytes);
+            return null;
+          }
+          evictLocked(victim);
+        }
+        inFlight += bytes;
+      }
+      final MemorySegment slab = budget.allocator.allocateSlab(bytes);
+      if (slab == null) {
+        synchronized (this) {
+          inFlight -= bytes;
+          reject(bytes);
+        }
+        return null;
+      }
+      return new Reservation(this, slab, bytes);
+    }
+
+    private void reject(final long bytes) {
+      rejected = saturatedAdd(rejected, bytes);
+    }
+
+    private void reapStale() {
+      for (int i = entries.size() - 1; i >= 0; i--) {
+        final Entry entry = entries.get(i);
+        if (entry.isStale()) {
+          evictLocked(entry);
+        }
+      }
+    }
+
+    /** The least recently acquired entry whose only lease is the cache's own. */
+    private @Nullable Entry coldestUnleased() {
+      Entry coldest = null;
+      for (final Entry entry : entries) {
+        if (entry.leases.get() == 1 && (coldest == null || entry.lastUse < coldest.lastUse)) {
+          coldest = entry;
+        }
+      }
+      return coldest;
+    }
+
+    private void evictLocked(final Entry entry) {
+      if (!entries.remove(entry)) {
+        return;
+      }
+      entry.published = false;
+      retained -= entry.bytes;
+      retiredLeased += entry.bytes;
+      entry.evicted();
+      entry.release();
+    }
+
+    /** The final lease dropped: free the slab and refund the share. */
+    private void freed(final Entry entry) {
+      budget.allocator.releaseSlab(Objects.requireNonNull(entry.slab));
+      synchronized (this) {
+        retiredLeased -= entry.bytes;
+      }
+    }
+
+    private void publish(final Reservation reservation, final Entry entry) {
+      synchronized (this) {
+        inFlight -= reservation.bytes;
+        retained += reservation.bytes;
+        entry.partition = this;
+        entry.slab = reservation.slab;
+        entry.bytes = reservation.bytes;
+        entry.published = true;
+        entry.lastUse = ++clock;
+        entries.add(entry);
+      }
+    }
+
+    private void abort(final Reservation reservation) {
+      synchronized (this) {
+        inFlight -= reservation.bytes;
+      }
+      budget.allocator.releaseSlab(reservation.slab);
+    }
+
+    /**
+     * The first published entry matching {@code matcher}, with a lease acquired for the caller, or
+     * {@code null}. The caller must release that lease.
+     */
+    public synchronized @Nullable Entry acquire(final Predicate<Entry> matcher) {
+      for (final Entry entry : entries) {
+        if (matcher.test(entry) && entry.tryAcquire()) {
+          entry.lastUse = ++clock;
+          return entry;
+        }
+      }
+      return null;
+    }
+
+    /** Whether a published entry matches, without acquiring it. */
+    public synchronized boolean contains(final Predicate<Entry> matcher) {
+      for (final Entry entry : entries) {
+        if (matcher.test(entry)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /** Evict every entry that derives from {@code identity}. */
+    public synchronized void evictDependents(final Object identity) {
+      for (int i = entries.size() - 1; i >= 0; i--) {
+        final Entry entry = entries.get(i);
+        if (entry.dependsOn(identity)) {
+          evictLocked(entry);
+        }
+      }
+    }
+
+    /** Evict every published entry; leased slabs free when their readers finish. */
+    public synchronized void clear() {
+      for (int i = entries.size() - 1; i >= 0; i--) {
+        evictLocked(entries.get(i));
+      }
+    }
+
+    public synchronized PartitionMetrics metrics() {
+      return new PartitionMetrics(maximumBytes, retained, inFlight, retiredLeased, rejected, entries.size());
+    }
+  }
+
+  /**
+   * An in-flight construction: the slab is mapped and charged; {@link #publish} turns it into a
+   * leased entry and {@link #close()} without publication releases it.
+   */
   public static final class Reservation implements AutoCloseable {
     private final Partition partition;
-    private final AtomicBoolean released = new AtomicBoolean();
-    private long bytes;
+    private final MemorySegment slab;
+    private final long bytes;
     private boolean published;
 
-    private Reservation(final Partition partition, final long bytes) {
+    private Reservation(final Partition partition, final MemorySegment slab, final long bytes) {
       this.partition = partition;
+      this.slab = slab;
       this.bytes = bytes;
     }
 
-    public void publish(final Object key, final Object value, final long retainedBytes) {
-      Objects.requireNonNull(key);
-      Objects.requireNonNull(value);
-      if (published || released.get() || retainedBytes <= 0 || retainedBytes > bytes) {
-        throw new IllegalArgumentException("Publication must fit its live construction reservation");
-      }
-      synchronized (partition.occupied) {
-        partition.inFlight.addAndGet(-bytes);
-        partition.occupied.addAndGet(retainedBytes - bytes);
-        bytes = retainedBytes;
-        published = true;
-      }
-      try {
-        partition.cache.put(key, new Partition.Entry(value, bytes, this));
-      } catch (final RuntimeException | Error e) {
-        release();
-        throw e;
-      }
+    public MemorySegment slab() {
+      return slab;
     }
 
-    private void release() {
-      if (released.compareAndSet(false, true)) {
-        synchronized (partition.occupied) {
-          partition.occupied.addAndGet(-bytes);
-          if (!published) {
-            partition.inFlight.addAndGet(-bytes);
-          }
-        }
+    public long bytes() {
+      return bytes;
+    }
+
+    /**
+     * Publish the completed entry over this slab. The publisher holds one lease afterwards and must
+     * release it; the cache holds its own.
+     */
+    public void publish(final Entry entry) {
+      Objects.requireNonNull(entry);
+      if (published) {
+        throw new IllegalStateException("reservation already published");
       }
+      if (!entry.tryAcquire()) {
+        throw new IllegalStateException("a fresh entry must accept the publisher's lease");
+      }
+      published = true;
+      partition.publish(this, entry);
     }
 
     @Override
     public void close() {
       if (!published) {
-        release();
+        published = true;
+        partition.abort(this);
       }
     }
   }

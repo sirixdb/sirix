@@ -20,7 +20,9 @@ import io.sirix.query.bench.bitemporal.BitemporalProjections;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.query.scan.SirixVectorizedExecutor;
+import io.sirix.cache.Allocators;
 import io.sirix.query.scan.DerivedCacheBudget;
+import io.sirix.query.scan.NumericMaskedColumnCache;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.io.TempDir;
@@ -180,21 +182,25 @@ final class IntervalRangeJoinWorkBudgetTest {
       throws Exception {
     final int rows = 1000;
     build(VersioningType.FULL, true, rows);
-    final DerivedCacheBudget budget = new DerivedCacheBudget(bytes * 8, bytes * 8, bytes, bytes);
+    final DerivedCacheBudget budget = new DerivedCacheBudget(Allocators.getInstance(), bytes * 8, bytes);
     final DerivedCacheBudget previous = DerivedCacheBudget.setForTesting(budget);
+    // Snapshot copies run inline so the repeated execution deterministically sees the resident one.
+    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
         var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       final String expected = "{\"category\":1,\"n\":" + rows + ",\"minimum\":16,\"maximum\":16}";
       assertEquals(expected, run(chain, ctx));
-      final WorkCapture.Captured<String> repeated = WorkCapture.of(JOINED).and(BUCKETED_SIDES)
-          .call(() -> run(chain, ctx));
+      final WorkCapture.Captured<String> repeated =
+          WorkCapture.of(JOINED).and(BUCKETED_SIDES).call(() -> run(chain, ctx));
       assertEquals(expected, repeated.result());
       assertEquals(run(generic, ctx), repeated.result());
       repeated.work().assertExactly(JOINED, 1, "budget refusal must preserve the exact column join");
-      repeated.work().assertExactly(BUCKETED_SIDES, bytes < (8L << 20) ? 1 : 0,
-          "only the required synchronous side is rebuilt when the optional probe cannot be retained");
+      repeated.work()
+              .assertExactly(BUCKETED_SIDES, bytes < (8L << 20)
+                  ? 1
+                  : 0, "only the required synchronous side is rebuilt when the optional probe cannot be retained");
       final DerivedCacheBudget.Metrics metrics = budget.metrics();
       assertEquals(0, metrics.inFlightBytes(), "the repeated query joins any admitted background build");
       assertTrue(metrics.retainedBytes() <= bytes);
@@ -203,11 +209,15 @@ final class IntervalRangeJoinWorkBudgetTest {
       } else {
         assertTrue(metrics.retainedBytes() > 0);
         assertEquals(0, metrics.rejectedBytes());
+        assertTrue(metrics.numeric().entries() >= 2, "both sides' numeric selections are resident");
+        assertEquals(2, metrics.packed().entries(), "both packed sides are resident");
       }
     } finally {
+      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
       DerivedCacheBudget.setForTesting(previous);
       budget.numeric().clear();
       budget.packed().clear();
+      assertEquals(0, budget.metrics().retiredLeasedBytes(), "no view outlives its query");
     }
   }
 
@@ -219,8 +229,9 @@ final class IntervalRangeJoinWorkBudgetTest {
   void concurrentReaderReusesReservedPackingWithoutDuplicatingItsConstruction() throws Exception {
     build(VersioningType.FULL, true, 1000);
     final long bytes = 8L << 20;
-    final DerivedCacheBudget budget = new DerivedCacheBudget(bytes * 8, bytes * 8, bytes, bytes);
+    final DerivedCacheBudget budget = new DerivedCacheBudget(Allocators.getInstance(), bytes * 8, bytes);
     final DerivedCacheBudget previous = DerivedCacheBudget.setForTesting(budget);
+    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
     final AtomicReference<Runnable> pending = new AtomicReference<>();
     final Executor previousExecutor = SirixJoinedGroupAggregateExpr.setPackingExecutorForTesting(task -> {
       assertTrue(pending.compareAndSet(null, task), "one immutable probe has only one in-flight build");
@@ -255,6 +266,7 @@ final class IntervalRangeJoinWorkBudgetTest {
       }
     } finally {
       SirixJoinedGroupAggregateExpr.setPackingExecutorForTesting(previousExecutor);
+      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
       DerivedCacheBudget.setForTesting(previous);
       budget.numeric().clear();
       budget.packed().clear();

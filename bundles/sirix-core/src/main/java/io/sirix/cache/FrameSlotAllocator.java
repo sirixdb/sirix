@@ -4,6 +4,7 @@
 package io.sirix.cache;
 
 import io.sirix.HftBoundaryTelemetry;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -314,6 +315,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     pressureListener = listener;
   }
 
+  /** Test seam: the registered listener, so a test can restore it instead of dropping it. */
+  static PressureListener pressureListener() {
+    return pressureListener;
+  }
+
   /**
    * Test-only diagnostic. When {@code true}, {@link #releaseSlot} zero-fills a slot's physical pages
    * as it is freed. Production deliberately leaves a released slot's bytes intact (no
@@ -351,6 +357,90 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   private final ConcurrentHashMap<Long, OversizedAllocation> oversizedByAddress = new ConcurrentHashMap<>();
+
+  /**
+   * A cache-owned slab: one page-granular region with a global-scope segment, charged to the same
+   * physical budget as oversized allocations and refunded exactly once on release. No arena: the
+   * owner's leases decide when nothing can still dereference it, and a global-scope segment carries
+   * no per-access liveness check. Release may come from any thread.
+   */
+  private record SlabAllocation(MemorySegment segment, long bytes) {
+  }
+
+  private static final long SLAB_PAGE_BYTES = 4096L;
+
+  private final ConcurrentHashMap<Long, SlabAllocation> slabsByAddress = new ConcurrentHashMap<>();
+
+  private final AtomicLong slabBytes = new AtomicLong();
+
+  @Override
+  public @Nullable MemorySegment allocateSlab(final long bytes) {
+    if (bytes <= 0) {
+      throw new IllegalArgumentException("slab size must be positive: " + bytes);
+    }
+    ensureInitialized();
+    if (terminated.get()) {
+      throw new IllegalStateException("FrameSlotAllocator has been shut down");
+    }
+    final long mapped = bytes > Long.MAX_VALUE - SLAB_PAGE_BYTES
+        ? Long.MAX_VALUE
+        : (bytes + SLAB_PAGE_BYTES - 1) & -SLAB_PAGE_BYTES;
+    // Charged against the whole budget like an oversized allocation: slab bytes return on release.
+    // A refusal is reported, never retried through page-cache pressure: the caller owns reclaimable
+    // images of its own and must give those up before a persisted page loses its frame.
+    if (!reserveCommittedBytes(mapped)) {
+      return null;
+    }
+    final MemorySegment segment;
+    try {
+      segment = VM.reserve(mapped);
+    } catch (final RuntimeException | Error failure) {
+      committedBytes.addAndGet(-mapped);
+      throw failure;
+    }
+    try {
+      VM.commitFresh(segment);
+      final SlabAllocation allocation = new SlabAllocation(segment, mapped);
+      if (slabsByAddress.putIfAbsent(segment.address(), allocation) != null) {
+        throw new IllegalStateException("duplicate slab address " + segment.address());
+      }
+    } catch (final RuntimeException | Error failure) {
+      VM.release(segment);
+      committedBytes.addAndGet(-mapped);
+      throw failure;
+    }
+    activeBytes.addAndGet(mapped);
+    slabBytes.addAndGet(mapped);
+    HftBoundaryTelemetry.allocatorAllocation();
+    HftBoundaryTelemetry.nativeAllocation();
+    return segment;
+  }
+
+  @Override
+  public boolean releaseSlab(final MemorySegment slab) {
+    final long address = slab.address();
+    final SlabAllocation allocation = slabsByAddress.get(address);
+    // Exact instance: a stale handle whose address a newer slab reuses must not unmap that slab.
+    if (allocation == null || allocation.segment() != slab) {
+      LOGGER.warn("Rejected stale or repeated slab release of address {} ({} bytes)", address, slab.byteSize());
+      return false;
+    }
+    if (!slabsByAddress.remove(address, allocation)) {
+      return false;
+    }
+    final boolean released = VM.release(allocation.segment());
+    activeBytes.addAndGet(-allocation.bytes());
+    slabBytes.addAndGet(-allocation.bytes());
+    committedBytes.addAndGet(-allocation.bytes());
+    HftBoundaryTelemetry.allocatorRelease();
+    HftBoundaryTelemetry.nativeRelease();
+    return released;
+  }
+
+  @Override
+  public long getSlabBytes() {
+    return slabBytes.get();
+  }
 
   public static FrameSlotAllocator getInstance() {
     return INSTANCE;
@@ -1256,6 +1346,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       terminated.set(false);
       throw new IllegalStateException("FrameSlotAllocator shutdown raced " + oversizedOperations
           + " oversized allocation operation(s); retry after admission completes");
+    }
+    // A live slab may still be read through a lease; unmapping it here would be a use-after-free.
+    final long liveSlabBytes = slabBytes.get();
+    if (liveSlabBytes != 0L) {
+      terminated.set(false);
+      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveSlabBytes
+          + " live slab bytes; clear the derived caches that own them before shutdown");
     }
 
     // Confined arenas preserve the same-thread, allocation-free normal release path. Validate all

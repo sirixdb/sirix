@@ -15066,7 +15066,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * {@code membership} narrows those candidate rows through evaluation-owned masks; an empty
    * anti-join set is normalized away. {@code membershipPrepared}, when supplied, receives the
    * prepared columns so this evaluation's two-stage fallback can reuse them after a fused decline
-   * without loading membership again. The callback must not retain them beyond the evaluation.
+   * without loading membership again. The receiver owns the view: it must close it after the
+   * evaluation and must not retain it beyond that.
    * </p>
    */
   @SuppressWarnings("ArrayRecordComponent") // Read-only mask/program carrier; no record equality is used.
@@ -18128,10 +18129,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       declineGroupAgg("membership columns do not fit the residency budget");
       return null;
     }
-    if (routing.membershipPrepared() != null) {
-      routing.membershipPrepared().accept(columns);
+    final Consumer<MaskedColumns> prepared = routing.membershipPrepared();
+    try {
+      if (prepared != null) {
+        // The receiver owns the view from here and closes it after its evaluation.
+        prepared.accept(columns);
+      }
+      return columns.recordKeyPredicateByMembership(0, routing.rowKeys(), membership.values(), membership.anti());
+    } finally {
+      if (prepared == null) {
+        columns.close();
+      }
     }
-    return columns.recordKeyPredicateByMembership(0, routing.rowKeys(), membership.values(), membership.anti());
   }
 
   private @Nullable ServedGroups trySortedGroupTopK(final String[] sourcePath, final @Nullable PredicateNode predicate,
