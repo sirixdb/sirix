@@ -3,32 +3,22 @@ package io.sirix.query.scan;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.node.SegmentAccess;
-import jdk.incubator.vector.LongVector;
-import jdk.incubator.vector.VectorOperators;
-import jdk.incubator.vector.VectorSpecies;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.ref.WeakReference;
-import java.nio.ByteOrder;
 import java.util.Arrays;
 
 /**
  * An immutable numeric column selection resident in one allocator slab: the routed key roster that
- * identifies it, then per kept leaf its row mask, record keys, per-field presence words and one
- * row-major lane block holding every field of a row contiguously ({@code 8 * fieldCount} bytes per
- * row, 64-byte aligned, padded by {@value #ROW_SLACK_BYTES} bytes). A dense kernel therefore reads
- * a whole row with one checked access, a 256-bit vector when the roster has at most four fields,
- * instead of one checked access per field. Only per-leaf offsets, slice extrema and the field names
- * stay on the heap; nothing here allocates per row.
+ * identifies it, then per kept leaf its row mask, record keys and, per field, presence words and
+ * one contiguous numeric lane, exactly the arrays of the heap view laid out one after another. A
+ * kernel therefore reads a lane of a resident snapshot the way it reads a heap lane: a base offset
+ * hoisted once per leaf plus eight bytes per row, through the typed slab handles. Only per-leaf
+ * offsets, slice extrema and the field names stay on the heap; nothing here allocates per row.
  */
 final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
-  private static final VectorSpecies<Long> SPECIES = LongVector.SPECIES_PREFERRED;
-  private static final ByteOrder ORDER = ByteOrder.nativeOrder();
-  /** Bytes past the last row of a lane block, so a 256-bit row load never leaves the block. */
-  static final long ROW_SLACK_BYTES = 32L;
-
   private final WeakReference<ProjectionColumnStore> store;
   private final String[] fields;
   private final int keyCount;
@@ -50,22 +40,20 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
     final long[] keyBase;
     /** Per leaf: record keys, 0 when skipped. */
     final int[] leafRows;
-    /** Per leaf: start of the row-major lane block, -1 when skipped. */
-    final long[] rowBase;
     /** Per (field, leaf): -1 for a skipped or pruned leaf. */
     final long[] presenceBase;
+    /** Per (field, leaf): start of the field's numeric lane, -1 when the leaf carries none. */
+    final long[] laneBase;
     final int[] sliceRows;
-    /** Per (field, leaf): whether the lane block carries this field's values. */
-    final boolean[] laneAvailable;
     final long[] sliceMin;
     final long[] sliceMax;
     final long keysBase;
     final long bytes;
 
     private Layout(final int leaves, final int fieldCount, final long rows, final byte[] kinds, final int[] maskWords,
-        final long[] maskBase, final long[] keyBase, final int[] leafRows, final long[] rowBase,
-        final long[] presenceBase, final int[] sliceRows, final boolean[] laneAvailable, final long[] sliceMin,
-        final long[] sliceMax, final long keysBase, final long bytes) {
+        final long[] maskBase, final long[] keyBase, final int[] leafRows, final long[] presenceBase,
+        final long[] laneBase, final int[] sliceRows, final long[] sliceMin, final long[] sliceMax, final long keysBase,
+        final long bytes) {
       this.leaves = leaves;
       this.fieldCount = fieldCount;
       this.rows = rows;
@@ -74,10 +62,9 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
       this.maskBase = maskBase;
       this.keyBase = keyBase;
       this.leafRows = leafRows;
-      this.rowBase = rowBase;
       this.presenceBase = presenceBase;
+      this.laneBase = laneBase;
       this.sliceRows = sliceRows;
-      this.laneAvailable = laneAvailable;
       this.sliceMin = sliceMin;
       this.sliceMax = sliceMax;
       this.keysBase = keysBase;
@@ -86,10 +73,6 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
 
     long bytes() {
       return bytes;
-    }
-
-    long stride() {
-      return 8L * fieldCount;
     }
   }
 
@@ -127,17 +110,15 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
     final long[] maskBase = new long[leaves];
     final long[] keyBase = new long[leaves];
     final int[] leafRows = new int[leaves];
-    final long[] rowBase = new long[leaves];
     final long[] presenceBase = new long[fieldCount * leaves];
+    final long[] laneBase = new long[fieldCount * leaves];
     final int[] sliceRows = new int[fieldCount * leaves];
-    final boolean[] laneAvailable = new boolean[fieldCount * leaves];
     final long[] sliceMin = new long[fieldCount * leaves];
     final long[] sliceMax = new long[fieldCount * leaves];
     Arrays.fill(maskBase, -1L);
     Arrays.fill(keyBase, -1L);
-    Arrays.fill(rowBase, -1L);
     Arrays.fill(presenceBase, -1L);
-    final long stride = 8L * fieldCount;
+    Arrays.fill(laneBase, -1L);
     long cursor = 0;
     final long keysBase = cursor;
     cursor = DerivedCacheBudget.alignUp(cursor + 8L * keyCount);
@@ -171,15 +152,13 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
         final long[] values = slice.numericValues();
         if (values != null) {
           if (values.length != keys.length) {
-            return null; // a lane shorter than the leaf cannot share the row-major block
+            return null; // a lane shorter than the leaf cannot be addressed by row
           }
-          laneAvailable[at] = true;
+          laneBase[at] = cursor;
+          cursor = DerivedCacheBudget.alignUp(
+              DerivedCacheBudget.saturatedAdd(cursor, DerivedCacheBudget.saturatedMultiply(values.length, 8L)));
         }
       }
-      rowBase[leaf] = cursor;
-      cursor = DerivedCacheBudget.alignUp(DerivedCacheBudget.saturatedAdd(
-          DerivedCacheBudget.saturatedAdd(cursor, DerivedCacheBudget.saturatedMultiply(keys.length, stride)),
-          ROW_SLACK_BYTES));
       if (cursor == Long.MAX_VALUE) {
         return null;
       }
@@ -190,14 +169,13 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
         : 1) || kept * 4L < leaves * 3L) {
       return null;
     }
-    return new Layout(leaves, fieldCount, rows, kinds.clone(), maskWords, maskBase, keyBase, leafRows, rowBase,
-        presenceBase, sliceRows, laneAvailable, sliceMin, sliceMax, keysBase, Math.max(64L, cursor));
+    return new Layout(leaves, fieldCount, rows, kinds.clone(), maskWords, maskBase, keyBase, leafRows, presenceBase,
+        laneBase, sliceRows, sliceMin, sliceMax, keysBase, Math.max(64L, cursor));
   }
 
   /**
-   * Fill {@code slab} from the heap view and the masks copied at admission: bulk copies for keys,
-   * masks and presence words, one scatter pass per lane into the row-major block. The returned entry
-   * is not yet published.
+   * Fill {@code slab} from the heap view and the masks copied at admission: one bulk copy per array
+   * (keys, masks, presence words and every lane). The returned entry is not yet published.
    */
   static NativeNumericSnapshot build(final MemorySegment slab, final Layout layout, final long[][] masks,
       final MaskedColumns columns, final ProjectionColumnStore store, final String[] fields, final long[] keys) {
@@ -206,7 +184,6 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
     }
     MemorySegment.copy(keys, 0, slab, ValueLayout.JAVA_LONG, layout.keysBase, keys.length);
     final int leaves = layout.leaves;
-    final long stride = layout.stride();
     for (int leaf = 0; leaf < leaves; leaf++) {
       if (layout.maskBase[leaf] < 0) {
         continue;
@@ -218,9 +195,6 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
       MemorySegment.copy(mask, 0, slab, ValueLayout.JAVA_LONG, layout.maskBase[leaf], mask.length);
       final long[] leafKeys = columns.recordKeysOf(leaf);
       MemorySegment.copy(leafKeys, 0, slab, ValueLayout.JAVA_LONG, layout.keyBase[leaf], leafKeys.length);
-      final long rowBase = layout.rowBase[leaf];
-      // The slack after the last row is read by vector row loads; it must hold defined bytes.
-      slab.asSlice(rowBase, leafKeys.length * stride + ROW_SLACK_BYTES).fill((byte) 0);
       for (int field = 0; field < layout.fieldCount; field++) {
         final int at = field * leaves + leaf;
         final ColumnSlice slice = columns.slice(field, leaf);
@@ -228,12 +202,9 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
         if (layout.presenceBase[at] >= 0) {
           MemorySegment.copy(presence, 0, slab, ValueLayout.JAVA_LONG, layout.presenceBase[at], presence.length);
         }
-        if (layout.laneAvailable[at]) {
+        if (layout.laneBase[at] >= 0) {
           final long[] values = slice.numericValues();
-          final long laneBase = rowBase + 8L * field;
-          for (int row = 0; row < values.length; row++) {
-            SegmentAccess.putLong(slab, laneBase + row * stride, values[row]);
-          }
+          MemorySegment.copy(values, 0, slab, ValueLayout.JAVA_LONG, layout.laneBase[at], values.length);
         }
       }
     }
@@ -245,22 +216,23 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
     return this.store.get() == store && Arrays.equals(this.fields, fields) && keysEqual(keys);
   }
 
+  /** The routed roster against the resident one: the bulk mismatch intrinsic, no slice allocated. */
   private boolean keysEqual(final long[] keys) {
     if (keys.length != keyCount) {
       return false;
     }
+    final long bytes = 8L * keyCount;
+    return MemorySegment.mismatch(MemorySegment.ofArray(keys), 0L, bytes, slab(), layout.keysBase,
+        layout.keysBase + bytes) < 0L;
+  }
+
+  /**
+   * Whether a leaf's mask words equal the resident ones: a plain loop, nothing allocated per leaf.
+   */
+  private boolean wordsEqual(final long[] words, final long base) {
     final MemorySegment slab = slab();
-    final long base = layout.keysBase;
-    int i = 0;
-    final int bound = SPECIES.loopBound(keyCount);
-    for (; i < bound; i += SPECIES.length()) {
-      final LongVector resident = LongVector.fromMemorySegment(SPECIES, slab, base + 8L * i, ORDER);
-      if (LongVector.fromArray(SPECIES, keys, i).compare(VectorOperators.NE, resident).anyTrue()) {
-        return false;
-      }
-    }
-    for (; i < keyCount; i++) {
-      if (keys[i] != SegmentAccess.getLong(slab, base + 8L * i)) {
+    for (int i = 0; i < words.length; i++) {
+      if (words[i] != SegmentAccess.getLong(slab, base + 8L * i)) {
         return false;
       }
     }
@@ -292,7 +264,6 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
     if (masks.length != layout.leaves) {
       return false;
     }
-    final MemorySegment slab = slab();
     for (int leaf = 0; leaf < masks.length; leaf++) {
       final long[] words = masks[leaf];
       final long base = layout.maskBase[leaf];
@@ -302,22 +273,8 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
       if (words == null) {
         continue;
       }
-      final int count = layout.maskWords[leaf];
-      if (words.length != count) {
+      if (words.length != layout.maskWords[leaf] || !wordsEqual(words, base)) {
         return false;
-      }
-      int i = 0;
-      final int bound = SPECIES.loopBound(count);
-      for (; i < bound; i += SPECIES.length()) {
-        final LongVector resident = LongVector.fromMemorySegment(SPECIES, slab, base + 8L * i, ORDER);
-        if (LongVector.fromArray(SPECIES, words, i).compare(VectorOperators.NE, resident).anyTrue()) {
-          return false;
-        }
-      }
-      for (; i < count; i++) {
-        if (words[i] != SegmentAccess.getLong(slab, base + 8L * i)) {
-          return false;
-        }
       }
     }
     return true;
@@ -364,19 +321,16 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
     return layout.leafRows;
   }
 
-  /** Byte offset of leaf {@code leaf}'s row-major lane block, or -1 when the leaf is skipped. */
-  long rowBase(final int leaf) {
-    return layout.rowBase[leaf];
+  /**
+   * Byte offset of {@code field}'s numeric lane on {@code leaf}, or -1 when the leaf carries none.
+   */
+  long laneBase(final int field, final int leaf) {
+    return layout.laneBase[field * layout.leaves + leaf];
   }
 
-  /** Bytes between consecutive rows of a lane block: eight per field. */
-  long laneStride() {
-    return layout.stride();
-  }
-
-  /** Whether {@code field}'s values are present in {@code leaf}'s lane block. */
-  boolean laneAvailable(final int field, final int leaf) {
-    return layout.laneAvailable[field * layout.leaves + leaf];
+  /** Per leaf, the byte offsets of {@code field}'s numeric lane (-1 where absent). */
+  long[] laneBases(final int field) {
+    return Arrays.copyOfRange(layout.laneBase, field * layout.leaves, (field + 1) * layout.leaves);
   }
 
   long presenceBase(final int field, final int leaf) {
@@ -410,10 +364,11 @@ final class NativeNumericSnapshot extends DerivedCacheBudget.Entry {
   }
 
   long longValue(final int field, final int leaf, final int row) {
-    if (!layout.laneAvailable[field * layout.leaves + leaf]) {
+    final long lane = layout.laneBase[field * layout.leaves + leaf];
+    if (lane < 0) {
       throw new IllegalStateException("an admitted long field needs a numeric lane");
     }
-    return SegmentAccess.getLong(slab(), layout.rowBase[leaf] + row * layout.stride() + 8L * field);
+    return SegmentAccess.getLong(slab(), lane + 8L * row);
   }
 
   @Override

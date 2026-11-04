@@ -397,7 +397,7 @@ final class NumericMaskedColumnCacheTest {
   }
 
   @Test
-  void multiFieldRostersReadEveryFieldThroughTheRowMajorBlock() {
+  void multiFieldRostersReadEveryFieldFromItsResidentLane() {
     final ProjectionColumnStore store = store();
     for (final int fieldCount : new int[] {3, 5}) {
       final MaskedColumns heap = columns(store, fieldCount);
@@ -408,9 +408,10 @@ final class NumericMaskedColumnCacheTest {
       cache.admit(store, fields, new long[] {10, 11}, heap);
       try (MaskedColumns view = cache.lookup(store, fields, new long[] {10, 11})) {
         assertNotNull(view);
-        assertEquals(8L * fieldCount, view.laneStride());
         for (int field = 0; field < fieldCount; field++) {
-          assertTrue(view.laneAvailable(field, 0));
+          assertTrue(view.laneBase(field, 0) >= 0, "field " + field + " has a resident lane");
+          assertTrue(field == 0 || view.laneBase(field, 0) >= view.laneBase(field - 1, 0) + 16L,
+              "lanes are laid out one after another, eight bytes per row");
           assertEquals(heap.minimum(field), view.minimum(field));
           assertEquals(heap.maximum(field), view.maximum(field));
           assertEquals(heap.isTimestamp(field), view.isTimestamp(field));

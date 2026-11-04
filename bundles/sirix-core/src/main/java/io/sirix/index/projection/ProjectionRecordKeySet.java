@@ -3,12 +3,14 @@
  */
 package io.sirix.index.projection;
 
+import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.IntToLongFunction;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
@@ -169,32 +171,15 @@ public final class ProjectionRecordKeySet {
   }
 
   /**
-   * A field's numeric values and presence words supplied leaf by leaf as arrays, refilled by the
-   * caller per leaf, for example from a heap window over a resident slab. {@code values()} is a
-   * row-major block: row {@code r}'s value is {@code values()[r * stride() + laneOffset()]}.
+   * Membership over one field of a resident snapshot: {@code laneBases[leaf]} and
+   * {@code presenceBases[leaf]} are byte offsets of the field's numeric lane and presence words in
+   * {@code slab} (-1 where the leaf carries none), {@code keyBases[leaf]} the offset of its record
+   * keys and {@code leafRows[leaf]} their count. The row loop is the slice form's, reading the lane
+   * through the slab handle with the offsets hoisted per leaf. Same answer as the slice form.
    */
-  public interface LeafLanes {
-    /** Prepare {@code leaf}; {@code false} when it carries no numeric lane. */
-    boolean load(int leaf);
-
-    long[] values();
-
-    int stride();
-
-    int laneOffset();
-
-    long[] presence();
-
-    /** The first record key of the prepared leaf. */
-    long firstKey();
-  }
-
-  /**
-   * Membership over lanes served by {@code lanes}; {@code leafRows[leaf]} is each leaf's record-key
-   * count. Same answer as the slice form.
-   */
-  static Masks filterMembership(final long[][] sourceMasks, final int[] leafRows, final LeafLanes lanes,
-      final IntToLongFunction physicalSlot, final LongOpenHashSet values, final boolean anti) {
+  static Masks filterMembership(final long[][] sourceMasks, final MemorySegment slab, final long[] keyBases,
+      final int[] leafRows, final long[] laneBases, final long[] presenceBases, final IntToLongFunction physicalSlot,
+      final LongOpenHashSet values, final boolean anti) {
     Objects.requireNonNull(values);
     int keptLeaves = 0;
     for (final long[] mask : sourceMasks) {
@@ -212,32 +197,33 @@ public final class ProjectionRecordKeySet {
       if (selected == null) {
         continue;
       }
-      if (!lanes.load(leaf)) {
+      final long lane = laneBases[leaf];
+      final long presence = presenceBases[leaf];
+      if (lane < 0 || presence < 0) {
         throw new IllegalStateException("membership requires an integral column");
       }
       final long[] mask = new long[selected.length];
-      if (filterMembershipWords(selected, lanes.values(), lanes.laneOffset(), lanes.stride(), lanes.presence(), values,
-          anti, mask)) {
-        byFirstKey.put(lanes.firstKey(), mask);
+      if (filterMembershipWords(selected, slab, lane, presence, values, anti, mask)) {
+        byFirstKey.put(SegmentAccess.getLong(slab, keyBases[leaf]), mask);
         slots.add(physicalSlot.applyAsLong(leaf));
       }
     }
     return new Masks(byFirstKey, slots);
   }
 
-  private static boolean filterMembershipWords(final long[] selected, final long[] block, final int laneOffset,
-      final int stride, final long[] presence, final LongOpenHashSet values, final boolean anti, final long[] mask) {
+  private static boolean filterMembershipWords(final long[] selected, final MemorySegment slab, final long lane,
+      final long presence, final LongOpenHashSet values, final boolean anti, final long[] mask) {
     long any = 0;
     for (int word = 0; word < selected.length; word++) {
       long candidates = selected[word];
-      final long presenceWord = presence[word];
-      final int rowBase = word << 6;
+      final long presenceWord = SegmentAccess.getLong(slab, presence + 8L * word);
       long kept = 0;
       while (candidates != 0) {
         final int bit = Long.numberOfTrailingZeros(candidates);
         candidates &= candidates - 1;
+        final int row = (word << 6) + bit;
         final boolean member =
-            (presenceWord & 1L << bit) != 0 && values.contains(block[(rowBase + bit) * stride + laneOffset]);
+            (presenceWord & 1L << bit) != 0 && values.contains(SegmentAccess.getLong(slab, lane + 8L * row));
         if (anti != member) {
           kept |= 1L << bit;
         }

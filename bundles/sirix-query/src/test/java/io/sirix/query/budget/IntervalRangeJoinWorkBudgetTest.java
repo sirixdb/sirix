@@ -22,7 +22,6 @@ import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import io.sirix.cache.Allocators;
 import io.sirix.query.scan.DerivedCacheBudget;
-import io.sirix.query.scan.HeapWindows;
 import io.sirix.query.scan.NumericMaskedColumnCache;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
@@ -223,10 +222,10 @@ final class IntervalRangeJoinWorkBudgetTest {
   }
 
   /**
-   * The merge copies consecutive buckets into heap windows of 2048 build and 8192 probe records; a
-   * bucket beyond either size is merged from the slabs. One product id shared by 2100 products (the
-   * smaller, bucketed build side) and 2200 contracts: the build bucket exceeds a window. Each shape
-   * gets its own database directory: the global projection catalog is keyed by path and revision.
+   * Skewed bucket shapes of the slab-resident merge. One product id shared by 2100 products (the
+   * smaller, bucketed build side) and 2200 contracts: one build bucket holds the whole side. Each
+   * shape gets its own database directory: the global projection catalog is keyed by path and
+   * revision.
    */
   @Test
   void anOversizedBuildBucketMergesExactly() throws Exception {
@@ -239,7 +238,7 @@ final class IntervalRangeJoinWorkBudgetTest {
     }
   }
 
-  /** One product and 9000 contracts in its bucket: the probe bucket exceeds a window. */
+  /** One product and 9000 contracts in its bucket: one probe bucket holds the whole side. */
   @Test
   void anOversizedProbeBucketMergesExactly() throws Exception {
     final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
@@ -251,9 +250,9 @@ final class IntervalRangeJoinWorkBudgetTest {
     }
   }
 
-  /** 5000 keys, two contracts each: 10000 probe records across several windows. */
+  /** 5000 keys, two contracts each: 10000 probe records across 5000 buckets. */
   @Test
-  void aDenseDomainMergesAcrossSeveralWindowsExactly() throws Exception {
+  void aDenseDomainMergesAcrossManyBucketsExactly() throws Exception {
     final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
     try {
       build(VersioningType.FULL, true, 10000);

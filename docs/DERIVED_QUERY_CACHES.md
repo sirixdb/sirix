@@ -47,19 +47,27 @@ keep the locality route. A background packing of an interval-join side counts it
 the exact slab, and scatters the records off the query thread; the synchronous build side is
 packed into a query-owned slab when the cache refuses, so a disabled cache changes no answer.
 
-A snapshot stores each kept leaf's lanes as one row-major block (`8 * fieldCount` bytes per row,
-64-byte aligned, 32 bytes of slack); packed join records are five longs each. The kernels that read
-them (the packed merge, the dense build and probe, the membership filter) do not touch the slab row
-by row: each copies one leaf block or one window of consecutive records into a per-thread heap
-window (`HeapWindows`: fixed maxima sized to the L2 cache, allocated once per thread, reused across
-chunks and queries, never retained per snapshot) with one bulk `MemorySegment.copy`, then runs the
-array kernel over the window. A bucket larger than a window is merged from the slab with one 256-bit
-vector row load (`NativeRows.load`) per record. Lane offsets are hoisted once per leaf, and roster
-and mask comparisons use the Vector API over the slab. The segments at those sites are always
-native. The first off-heap candidate kept columnar lanes and paid one bounds check per field per
-row (t1M Q10 merge 36 ms against 25 ms for the heap-array candidate); the second read row-major
-rows with vector loads and still trailed (32.5 ms); the windows keep the cached data off-heap and
-the kernels on arrays. `IntervalRangeJoinWorkBudgetTest` pins zero steady-state window growth.
+A snapshot stores, per kept leaf, its row mask, record keys and, per field, the presence words and
+one contiguous numeric lane: the heap view's arrays laid out one after another, eight bytes per
+row. Packed join records are five longs each. The kernels that read them (the dense build and
+probe, the packed merge and chained fold, the membership filters) are the heap kernels: one loop
+body whose representation is a loop-invariant choice, reading a resident lane through the typed
+slab handle at a base offset hoisted once per leaf plus eight bytes per row (`SegmentAccess`, native
+order, the unaligned layout because the slab is aligned by construction and the alignment check
+would only repeat per access; the merge kernels invoke the handle at the read site itself, which the
+compiler intrinsifies there instead of calling a helper). Nothing is copied per query, no per-row
+call separates the row loop from its fold, and the slab read sites only ever see native segments.
+Roster comparisons use the bulk `mismatch` intrinsic and mask comparisons a plain word loop, neither
+allocating per leaf. A row-output join whose ordering keys are all long columns present on every row
+orders its rows through one primitive buffer and an index sort rather than the generic tuple sort,
+whose per-row allocations the optimized native image had compiled as calls into the collector's
+slow path (the t250k row join read +16% in the first gate on that account). Measured cost of this form as native
+images against the heap-array kernels of the base (one window, PGO): about +5% on the t250k
+equi-join and +30% on the t250k interval merge, whose millions of reads each carry the handle's
+bounds and session checks, while the t1M interval join runs at 0.18 of the base because the base
+cannot cache there. Two earlier forms were measured and rejected: per-row vector loads from a
+row-major block, and bulk copies into per-thread heap windows; both split the probe loop from its
+fold into separate frames and the copies ran as a native-image word loop at about 3 GB/s.
 
 ## Heap envelope
 

@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 
+import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import org.jspecify.annotations.Nullable;
 
@@ -191,19 +192,22 @@ public final class ProjectionIndexScan {
     }
 
     /**
-     * Membership over numeric lanes served leaf by leaf by {@code lanes} (for example heap windows over
-     * a resident slab); see {@link ProjectionRecordKeySet.LeafLanes}.
+     * Membership over one field of a resident snapshot in {@code slab}: per leaf the byte offsets of
+     * its record keys, their count, and the field's numeric lane and presence words (-1 where absent);
+     * the row loop is the slice form's over the slab ({@code ProjectionRecordKeySet.filterMembership}).
      */
     public static ColumnPredicate recordKeysByMembership(final long[] sortedKeys, final ProjectionColumnStore store,
-        final long[][] rowMasks, final int[] leafRows, final ProjectionRecordKeySet.LeafLanes lanes,
-        final LongOpenHashSet values, final boolean anti) {
+        final long[][] rowMasks, final MemorySegment slab, final long[] keyBases, final int[] leafRows,
+        final long[] laneBases, final long[] presenceBases, final LongOpenHashSet values, final boolean anti) {
       ProjectionRecordKeySet.requireSorted(sortedKeys);
-      if (store == null || rowMasks == null || leafRows == null || lanes == null || values == null
-          || rowMasks.length != store.leafCount() || leafRows.length != rowMasks.length) {
+      if (store == null || rowMasks == null || slab == null || keyBases == null || leafRows == null || laneBases == null
+          || presenceBases == null || values == null || rowMasks.length != store.leafCount()
+          || keyBases.length != rowMasks.length || leafRows.length != rowMasks.length
+          || laneBases.length != rowMasks.length || presenceBases.length != rowMasks.length) {
         throw new IllegalArgumentException("membership requires aligned masks, keys and numeric lanes");
       }
-      final ProjectionRecordKeySet.Masks filtered =
-          ProjectionRecordKeySet.filterMembership(rowMasks, leafRows, lanes, store::physicalSlot, values, anti);
+      final ProjectionRecordKeySet.Masks filtered = ProjectionRecordKeySet.filterMembership(rowMasks, slab, keyBases,
+          leafRows, laneBases, presenceBases, store::physicalSlot, values, anti);
       return new ColumnPredicate(ProjectionColumnStore.KEYS_COLUMN, Op.KEY_IN, 0L, 0L, false, null, null, 0, null, null,
           sortedKeys, ProjectionRecordKeySet.contentHash(filtered), filtered);
     }

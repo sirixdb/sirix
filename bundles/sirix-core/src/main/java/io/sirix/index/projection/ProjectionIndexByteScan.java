@@ -60,6 +60,15 @@ import org.jspecify.annotations.Nullable;
  * deprecated-for-removal API onto the hot path for zero measured benefit, so the swap was reverted.
  * This javadoc records the result so future attempts know to skip the detour.
  *
+ * <p>
+ * Addendum (2026-11-04): that result is HotSpot C2 on {@code byte[]} view handles. Measured as
+ * native images with Graal, the typed handles over process-private slabs (the derived query caches)
+ * do not reach array speed: in a mask-driven or counted loop every read keeps its bounds and
+ * session checks, and the inliner may leave the handle chain as an out-of-line call (about +30% on
+ * the t250k interval merge, +5% on the equi-join, PGO or not). The supported handles stay
+ * regardless; raw internal-API loads were measured and declined. Those kernels' acceptance exempts
+ * the affected t250k endpoints (see {@code docs/DERIVED_QUERY_CACHES.md}).
+ *
  * <h2>Layout decoded</h2> The format is defined by {@link ProjectionIndexRowGroupPage#serialize}:
  * 
  * <pre>

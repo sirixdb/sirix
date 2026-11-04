@@ -30,28 +30,32 @@ public final class SegmentAccess {
       ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN).varHandle();
   private static final VarHandle INT_BE = ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN).varHandle();
   private static final VarHandle LONG_BE = ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN).varHandle();
-  /** Aligned, native-order handles for process-private slabs; never used on persisted bytes. */
-  private static final VarHandle LONG_NATIVE = ValueLayout.JAVA_LONG.varHandle();
-  private static final VarHandle INT_NATIVE = ValueLayout.JAVA_INT.varHandle();
+  /**
+   * Native-order handles for process-private slabs; never used on persisted bytes. The slab layouts
+   * align every value naturally, so the unaligned layouts are used only to omit the alignment check
+   * that the aligned handles would repeat on every access; the load itself is the same instruction.
+   */
+  private static final VarHandle LONG_NATIVE = ValueLayout.JAVA_LONG_UNALIGNED.varHandle();
+  private static final VarHandle INT_NATIVE = ValueLayout.JAVA_INT_UNALIGNED.varHandle();
 
   private SegmentAccess() {}
 
-  /** Read an 8-byte-aligned native-order long from a process-private slab. */
+  /** Read a native-order long from a process-private slab (the layout keeps it 8-byte aligned). */
   public static long getLong(final MemorySegment segment, final long offset) {
     return (long) LONG_NATIVE.get(segment, offset);
   }
 
-  /** Write an 8-byte-aligned native-order long into a process-private slab. */
+  /** Write a native-order long into a process-private slab (the layout keeps it 8-byte aligned). */
   public static void putLong(final MemorySegment segment, final long offset, final long value) {
     LONG_NATIVE.set(segment, offset, value);
   }
 
-  /** Read a 4-byte-aligned native-order int from a process-private slab. */
+  /** Read a native-order int from a process-private slab (the layout keeps it 4-byte aligned). */
   public static int getInt(final MemorySegment segment, final long offset) {
     return (int) INT_NATIVE.get(segment, offset);
   }
 
-  /** Write a 4-byte-aligned native-order int into a process-private slab. */
+  /** Write a native-order int into a process-private slab (the layout keeps it 4-byte aligned). */
   public static void putInt(final MemorySegment segment, final long offset, final int value) {
     INT_NATIVE.set(segment, offset, value);
   }
