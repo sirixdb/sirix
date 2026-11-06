@@ -481,9 +481,9 @@ public class CompKindTest {
   /**
    * {@code LE}/{@code GE} on strings and URIs decide from {@link String#compareTo}, which returns the
    * character or length difference rather than a value in {@code {-1, 0, +1}} — e.g.
-   * {@code "a".compareTo("d") == -3}. These operands keep the comparison honest about that: they fail
-   * for any form that assumes a unit magnitude, such as {@code compareTo(..) < 1} standing in for
-   * {@code <= 0}.
+   * {@code "a".compareTo("d") == -3}. These cases exercise negative, zero and positive results
+   * without assuming unit magnitude. The former {@code < 1}/{@code > -1} checks are equivalent to
+   * {@code <= 0}/{@code >= 0} for integer results.
    */
   @Test
   public void testStringOrderIgnoresCompareToMagnitude() throws SirixXPathException {
