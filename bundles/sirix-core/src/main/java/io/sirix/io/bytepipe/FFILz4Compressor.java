@@ -530,6 +530,10 @@ public final class FFILz4Compressor implements ByteHandler {
    * @param compressed compressed data (with 4-byte header containing decompressed size)
    * @return scoped result; must be closed to return buffer to allocator
    */
+  // Heap-staging arena below is acquired outside the try that frees it, so a failing staging
+  // allocate/copy leaks it and the reserved output buffer; deferred to sirix-lz4-staging-leak
+  // because every restructuring tried so far moves the hot native decode path's compiled shape.
+  @SuppressWarnings("MustBeClosedChecker")
   @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
     // No native-availability gate here: the stored-uncompressed path needs no LZ4 at all, and
@@ -573,32 +577,19 @@ public final class FFILz4Compressor implements ByteHandler {
           () -> ALLOCATOR.release(backingBuffer), new AtomicBoolean(false));
     }
 
-    final int decompressedSize = sizeHeader;
+    int decompressedSize = sizeHeader;
 
+    MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
+
+    MemorySegment nativeCompressed;
+    Arena tempArena = null;
     if (compressed.isNative()) {
-      return decompressNativeFrame(compressed, decompressedSize);
-    }
-
-    // A heap-backed payload has no address the native LZ4 entry points can take, so stage one
-    // off-heap copy. try-with-resources, not a manual close after the decode: the arena used to be
-    // acquired outside every try, so a failing staging allocate/copy leaked both the arena and the
-    // allocator buffer that had already been reserved for the output.
-    try (Arena tempArena = Arena.ofConfined()) {
-      final MemorySegment nativeCompressed = tempArena.allocate(compressed.byteSize());
+      nativeCompressed = compressed;
+    } else {
+      tempArena = Arena.ofConfined();
+      nativeCompressed = tempArena.allocate(compressed.byteSize());
       MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
-      return decompressNativeFrame(nativeCompressed, decompressedSize);
     }
-  }
-
-  /**
-   * Decompress a native-backed LZ4 frame (4-byte size header + block) into a fresh allocator buffer.
-   *
-   * @param nativeCompressed native-backed frame, header included
-   * @param decompressedSize decompressed size declared by the already-validated header
-   * @return scoped result owning the allocator buffer; must be closed unless ownership is transferred
-   */
-  private DecompressionResult decompressNativeFrame(final MemorySegment nativeCompressed, final int decompressedSize) {
-    final MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
 
     // Ownership of the allocator-owned buffer transfers to the returned DecompressionResult
     // only on success; EVERY failure path — including the native MethodHandle invocation itself
@@ -635,6 +626,9 @@ public final class FFILz4Compressor implements ByteHandler {
     } finally {
       if (!ownershipTransferred) {
         ALLOCATOR.release(buffer);
+      }
+      if (tempArena != null) {
+        tempArena.close();
       }
     }
   }
