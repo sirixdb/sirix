@@ -25,8 +25,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests for {@link DeltaVarIntCodec#resizeField} and {@link KeyValueLeafPage#resizeRecordField}.
  *
- * <p>Verifies INV-4 (offset table consistency) and INV-5 (raw-copy resize correctness)
- * from the LeanStore write path plan.
+ * <p>
+ * Verifies INV-4 (offset table consistency) and INV-5 (raw-copy resize correctness) from the
+ * LeanStore write path plan.
  */
 class ResizeFieldCorrectnessTest {
 
@@ -47,16 +48,14 @@ class ResizeFieldCorrectnessTest {
   private ObjectNode objectNode;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
-    page = new KeyValueLeafPage(0L, IndexType.DOCUMENT,
-        new ResourceConfiguration.Builder("testResource").build(), 1,
+    page = new KeyValueLeafPage(0L, IndexType.DOCUMENT, new ResourceConfiguration.Builder("testResource").build(), 1,
         arena.allocate(SIXTYFOUR_KB), null);
 
-    objectNode = new ObjectNode(NODE_KEY, PARENT_KEY, PREV_REVISION, LAST_MOD_REVISION,
-        RIGHT_SIB_KEY, LEFT_SIB_KEY, FIRST_CHILD_KEY, LAST_CHILD_KEY,
-        CHILD_COUNT, DESCENDANT_COUNT, HASH,
-        LongHashFunction.xx3(), (byte[]) null);
+    objectNode = new ObjectNode(NODE_KEY, PARENT_KEY, PREV_REVISION, LAST_MOD_REVISION, RIGHT_SIB_KEY, LEFT_SIB_KEY,
+        FIRST_CHILD_KEY, LAST_CHILD_KEY, CHILD_COUNT, DESCENDANT_COUNT, HASH, LongHashFunction.xx3(), (byte[]) null);
     objectNode.setWriteSingleton(true);
   }
 
@@ -86,10 +85,10 @@ class ResizeFieldCorrectnessTest {
   /**
    * Verify all 10 fields of the bound ObjectNode match expected values.
    */
-  private void assertAllFields(final long expectedParent, final long expectedRightSib,
-      final long expectedLeftSib, final long expectedFirstChild, final long expectedLastChild,
-      final int expectedPrevRev, final int expectedLastModRev, final long expectedHash,
-      final long expectedChildCount, final long expectedDescCount) {
+  private void assertAllFields(final long expectedParent, final long expectedRightSib, final long expectedLeftSib,
+      final long expectedFirstChild, final long expectedLastChild, final int expectedPrevRev,
+      final int expectedLastModRev, final long expectedHash, final long expectedChildCount,
+      final long expectedDescCount) {
     assertEquals(expectedParent, objectNode.getParentKey(), "parentKey");
     assertEquals(expectedRightSib, objectNode.getRightSiblingKey(), "rightSiblingKey");
     assertEquals(expectedLeftSib, objectNode.getLeftSiblingKey(), "leftSiblingKey");
@@ -105,8 +104,8 @@ class ResizeFieldCorrectnessTest {
   // ==================== INV-5: Raw-Copy Resize Correctness ====================
 
   /**
-   * Provides (fieldIndex, newValue) pairs for each of the 10 ObjectNode fields.
-   * Each new value is chosen to require a different varint width than the original.
+   * Provides (fieldIndex, newValue) pairs for each of the 10 ObjectNode fields. Each new value is
+   * chosen to require a different varint width than the original.
    */
   static Stream<Arguments> fieldResizeParameters() {
     // Original values produce small deltas (1-2 byte varints).
@@ -125,14 +124,12 @@ class ResizeFieldCorrectnessTest {
         // Hash: fixed 8 bytes, no width change — test that it survives resize of OTHER field
         // childCount/descendantCount: signed long varint
         Arguments.of(NodeFieldLayout.OBJECT_CHILD_COUNT, 100_000L, "childCount"),
-        Arguments.of(NodeFieldLayout.OBJECT_DESCENDANT_COUNT, 100_000L, "descendantCount")
-    );
+        Arguments.of(NodeFieldLayout.OBJECT_DESCENDANT_COUNT, 100_000L, "descendantCount"));
   }
 
   @ParameterizedTest(name = "resize field {2} (index={0})")
   @MethodSource("fieldResizeParameters")
-  void resizeRecordField_preservesUnchangedFields(final int fieldIndex, final long newValue,
-      final String fieldName) {
+  void resizeRecordField_preservesUnchangedFields(final int fieldIndex, final long newValue, final String fieldName) {
     serializeAndBind();
 
     // Record heap state before resize
@@ -141,57 +138,68 @@ class ResizeFieldCorrectnessTest {
 
     // Perform raw-copy resize via KVL
     final DeltaVarIntCodec.FieldEncoder encoder = createEncoder(fieldIndex, newValue);
-    page.resizeRecordField(objectNode, NODE_KEY, 0, fieldIndex,
-        NodeFieldLayout.OBJECT_FIELD_COUNT, encoder);
+    page.resizeRecordField(objectNode, NODE_KEY, 0, fieldIndex, NodeFieldLayout.OBJECT_FIELD_COUNT, encoder);
 
     // INV-2: Heap monotonicity
     final int heapEndAfter = PageLayout.getHeapEnd(page.getSlottedPage());
     assertTrue(heapEndAfter > heapEndBefore, "heapEnd must advance after resize");
 
     // INV-5: All unchanged fields preserved, changed field updated
-    final long expectedParent = fieldIndex == NodeFieldLayout.OBJECT_PARENT_KEY ? newValue : PARENT_KEY;
-    final long expectedRightSib = fieldIndex == NodeFieldLayout.OBJECT_RIGHT_SIB_KEY ? newValue : RIGHT_SIB_KEY;
-    final long expectedLeftSib = fieldIndex == NodeFieldLayout.OBJECT_LEFT_SIB_KEY ? newValue : LEFT_SIB_KEY;
-    final long expectedFirstChild = fieldIndex == NodeFieldLayout.OBJECT_FIRST_CHILD_KEY ? newValue : FIRST_CHILD_KEY;
-    final long expectedLastChild = fieldIndex == NodeFieldLayout.OBJECT_LAST_CHILD_KEY ? newValue : LAST_CHILD_KEY;
-    final int expectedPrevRev = fieldIndex == NodeFieldLayout.OBJECT_PREV_REVISION ? (int) newValue : PREV_REVISION;
-    final int expectedLastModRev = fieldIndex == NodeFieldLayout.OBJECT_LAST_MOD_REVISION ? (int) newValue : LAST_MOD_REVISION;
-    final long expectedChildCount = fieldIndex == NodeFieldLayout.OBJECT_CHILD_COUNT ? newValue : CHILD_COUNT;
-    final long expectedDescCount = fieldIndex == NodeFieldLayout.OBJECT_DESCENDANT_COUNT ? newValue : DESCENDANT_COUNT;
+    final long expectedParent = fieldIndex == NodeFieldLayout.OBJECT_PARENT_KEY
+        ? newValue
+        : PARENT_KEY;
+    final long expectedRightSib = fieldIndex == NodeFieldLayout.OBJECT_RIGHT_SIB_KEY
+        ? newValue
+        : RIGHT_SIB_KEY;
+    final long expectedLeftSib = fieldIndex == NodeFieldLayout.OBJECT_LEFT_SIB_KEY
+        ? newValue
+        : LEFT_SIB_KEY;
+    final long expectedFirstChild = fieldIndex == NodeFieldLayout.OBJECT_FIRST_CHILD_KEY
+        ? newValue
+        : FIRST_CHILD_KEY;
+    final long expectedLastChild = fieldIndex == NodeFieldLayout.OBJECT_LAST_CHILD_KEY
+        ? newValue
+        : LAST_CHILD_KEY;
+    final int expectedPrevRev = fieldIndex == NodeFieldLayout.OBJECT_PREV_REVISION
+        ? (int) newValue
+        : PREV_REVISION;
+    final int expectedLastModRev = fieldIndex == NodeFieldLayout.OBJECT_LAST_MOD_REVISION
+        ? (int) newValue
+        : LAST_MOD_REVISION;
+    final long expectedChildCount = fieldIndex == NodeFieldLayout.OBJECT_CHILD_COUNT
+        ? newValue
+        : CHILD_COUNT;
+    final long expectedDescCount = fieldIndex == NodeFieldLayout.OBJECT_DESCENDANT_COUNT
+        ? newValue
+        : DESCENDANT_COUNT;
 
-    assertAllFields(expectedParent, expectedRightSib, expectedLeftSib,
-        expectedFirstChild, expectedLastChild,
-        expectedPrevRev, expectedLastModRev,
-        HASH, // hash is always fixed 8 bytes, never changed in this test
+    assertAllFields(expectedParent, expectedRightSib, expectedLeftSib, expectedFirstChild, expectedLastChild,
+        expectedPrevRev, expectedLastModRev, HASH, // hash is always fixed 8 bytes, never changed in this test
         expectedChildCount, expectedDescCount);
   }
 
   /**
-   * Test resizing a field that shrinks (large varint → small varint).
-   * This exercises the negative widthDelta path.
+   * Test resizing a field that shrinks (large varint → small varint). This exercises the negative
+   * widthDelta path.
    */
   @Test
   void resizeRecordField_shrinkField() {
     // Create node with a far-away parent (large delta → multi-byte varint)
     final long farParent = NODE_KEY + 100_000L;
-    objectNode = new ObjectNode(NODE_KEY, farParent, PREV_REVISION, LAST_MOD_REVISION,
-        RIGHT_SIB_KEY, LEFT_SIB_KEY, FIRST_CHILD_KEY, LAST_CHILD_KEY,
-        CHILD_COUNT, DESCENDANT_COUNT, HASH,
-        LongHashFunction.xx3(), (byte[]) null);
+    objectNode = new ObjectNode(NODE_KEY, farParent, PREV_REVISION, LAST_MOD_REVISION, RIGHT_SIB_KEY, LEFT_SIB_KEY,
+        FIRST_CHILD_KEY, LAST_CHILD_KEY, CHILD_COUNT, DESCENDANT_COUNT, HASH, LongHashFunction.xx3(), (byte[]) null);
     objectNode.setWriteSingleton(true);
     serializeAndBind();
 
     // Now resize parentKey back to a nearby value (small delta → 1-byte varint)
     final long nearParent = NODE_KEY - 1;
-    final DeltaVarIntCodec.FieldEncoder encoder = (target, offset) ->
-        DeltaVarIntCodec.writeDeltaToSegment(target, offset, nearParent, NODE_KEY);
+    final DeltaVarIntCodec.FieldEncoder encoder =
+        (target, offset) -> DeltaVarIntCodec.writeDeltaToSegment(target, offset, nearParent, NODE_KEY);
     page.resizeRecordField(objectNode, NODE_KEY, 0, NodeFieldLayout.OBJECT_PARENT_KEY,
         NodeFieldLayout.OBJECT_FIELD_COUNT, encoder);
 
-    assertAllFields(nearParent, RIGHT_SIB_KEY, LEFT_SIB_KEY,
-        FIRST_CHILD_KEY, LAST_CHILD_KEY,
-        PREV_REVISION, LAST_MOD_REVISION, HASH,
-        CHILD_COUNT, DESCENDANT_COUNT);
+    assertAllFields(nearParent, RIGHT_SIB_KEY, LEFT_SIB_KEY, FIRST_CHILD_KEY, LAST_CHILD_KEY, PREV_REVISION,
+        LAST_MOD_REVISION, HASH, CHILD_COUNT, DESCENDANT_COUNT);
   }
 
   /**
@@ -203,8 +211,8 @@ class ResizeFieldCorrectnessTest {
 
     // leftSiblingKey starts as NULL (-1). Resize to a real value.
     final long realSib = NODE_KEY + 50_000L;
-    DeltaVarIntCodec.FieldEncoder encoder = (target, offset) ->
-        DeltaVarIntCodec.writeDeltaToSegment(target, offset, realSib, NODE_KEY);
+    DeltaVarIntCodec.FieldEncoder encoder =
+        (target, offset) -> DeltaVarIntCodec.writeDeltaToSegment(target, offset, realSib, NODE_KEY);
     page.resizeRecordField(objectNode, NODE_KEY, 0, NodeFieldLayout.OBJECT_LEFT_SIB_KEY,
         NodeFieldLayout.OBJECT_FIELD_COUNT, encoder);
 
@@ -215,8 +223,7 @@ class ResizeFieldCorrectnessTest {
 
     // Now resize back to NULL
     final long nullKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-    encoder = (target, offset) ->
-        DeltaVarIntCodec.writeDeltaToSegment(target, offset, nullKey, NODE_KEY);
+    encoder = (target, offset) -> DeltaVarIntCodec.writeDeltaToSegment(target, offset, nullKey, NODE_KEY);
     page.resizeRecordField(objectNode, NODE_KEY, 0, NodeFieldLayout.OBJECT_LEFT_SIB_KEY,
         NodeFieldLayout.OBJECT_FIELD_COUNT, encoder);
 
@@ -226,8 +233,8 @@ class ResizeFieldCorrectnessTest {
   }
 
   /**
-   * Test multiple consecutive resizes on the same node (fragmentation test).
-   * INV-2: heap must grow monotonically. INV-8: fragmentation tracked.
+   * Test multiple consecutive resizes on the same node (fragmentation test). INV-2: heap must grow
+   * monotonically. INV-8: fragmentation tracked.
    */
   @Test
   void resizeRecordField_multipleResizes_heapMonotonic() {
@@ -238,22 +245,16 @@ class ResizeFieldCorrectnessTest {
 
     // Resize 5 different fields consecutively
     final long farKey = NODE_KEY + 200_000L;
-    final int[] fields = {
-        NodeFieldLayout.OBJECT_PARENT_KEY,
-        NodeFieldLayout.OBJECT_RIGHT_SIB_KEY,
-        NodeFieldLayout.OBJECT_FIRST_CHILD_KEY,
-        NodeFieldLayout.OBJECT_CHILD_COUNT,
-        NodeFieldLayout.OBJECT_DESCENDANT_COUNT
-    };
+    final int[] fields = {NodeFieldLayout.OBJECT_PARENT_KEY, NodeFieldLayout.OBJECT_RIGHT_SIB_KEY,
+        NodeFieldLayout.OBJECT_FIRST_CHILD_KEY, NodeFieldLayout.OBJECT_CHILD_COUNT,
+        NodeFieldLayout.OBJECT_DESCENDANT_COUNT};
 
     for (final int field : fields) {
       final DeltaVarIntCodec.FieldEncoder encoder = createEncoder(field, farKey);
-      page.resizeRecordField(objectNode, NODE_KEY, 0, field,
-          NodeFieldLayout.OBJECT_FIELD_COUNT, encoder);
+      page.resizeRecordField(objectNode, NODE_KEY, 0, field, NodeFieldLayout.OBJECT_FIELD_COUNT, encoder);
 
       final int currentHeapEnd = PageLayout.getHeapEnd(page.getSlottedPage());
-      assertTrue(currentHeapEnd > prevHeapEnd,
-          "heapEnd must advance after resize of field " + field);
+      assertTrue(currentHeapEnd > prevHeapEnd, "heapEnd must advance after resize of field " + field);
       prevHeapEnd = currentHeapEnd;
     }
 
@@ -278,10 +279,9 @@ class ResizeFieldCorrectnessTest {
 
     // Resize a middle field to force offset shifts
     final long farKey = NODE_KEY + 100_000L;
-    final DeltaVarIntCodec.FieldEncoder encoder = (target, offset) ->
-        DeltaVarIntCodec.writeDeltaToSegment(target, offset, farKey, NODE_KEY);
-    page.resizeRecordField(objectNode, NODE_KEY, 0,
-        NodeFieldLayout.OBJECT_FIRST_CHILD_KEY,
+    final DeltaVarIntCodec.FieldEncoder encoder =
+        (target, offset) -> DeltaVarIntCodec.writeDeltaToSegment(target, offset, farKey, NODE_KEY);
+    page.resizeRecordField(objectNode, NODE_KEY, 0, NodeFieldLayout.OBJECT_FIRST_CHILD_KEY,
         NodeFieldLayout.OBJECT_FIELD_COUNT, encoder);
 
     // Read offset table and verify monotonicity
@@ -293,8 +293,7 @@ class ResizeFieldCorrectnessTest {
     for (int i = 0; i < NodeFieldLayout.OBJECT_FIELD_COUNT; i++) {
       final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + i) & 0xFF;
       assertTrue(fieldOff > prevOffset || (i == 0 && fieldOff == 0),
-          "offset table must be monotonically increasing: field " + i
-              + " offset=" + fieldOff + " prev=" + prevOffset);
+          "offset table must be monotonically increasing: field " + i + " offset=" + fieldOff + " prev=" + prevOffset);
       prevOffset = fieldOff;
     }
   }
@@ -307,10 +306,9 @@ class ResizeFieldCorrectnessTest {
 
     // Resize
     final long farKey = NODE_KEY + 100_000L;
-    final DeltaVarIntCodec.FieldEncoder encoder = (target, offset) ->
-        DeltaVarIntCodec.writeDeltaToSegment(target, offset, farKey, NODE_KEY);
-    page.resizeRecordField(objectNode, NODE_KEY, 0,
-        NodeFieldLayout.OBJECT_PARENT_KEY,
+    final DeltaVarIntCodec.FieldEncoder encoder =
+        (target, offset) -> DeltaVarIntCodec.writeDeltaToSegment(target, offset, farKey, NODE_KEY);
+    page.resizeRecordField(objectNode, NODE_KEY, 0, NodeFieldLayout.OBJECT_PARENT_KEY,
         NodeFieldLayout.OBJECT_FIELD_COUNT, encoder);
 
     final MemorySegment sp = page.getSlottedPage();
@@ -318,8 +316,7 @@ class ResizeFieldCorrectnessTest {
     final int dirDataLen = PageLayout.getDirDataLength(sp, 0);
     final int heapEnd = PageLayout.getHeapEnd(sp);
 
-    assertTrue(dirHeapOff + dirDataLen <= heapEnd,
-        "directory entry must point within heap bounds");
+    assertTrue(dirHeapOff + dirDataLen <= heapEnd, "directory entry must point within heap bounds");
     assertTrue(PageLayout.isSlotPopulated(sp, 0), "slot must remain populated");
     assertTrue(PageLayout.getDirNodeKindId(sp, 0) > 0, "nodeKindId must be > 0");
   }
@@ -357,11 +354,8 @@ class ResizeFieldCorrectnessTest {
     final byte[] dst = new byte[64];
     final MemorySegment dstSeg = MemorySegment.ofArray(dst);
 
-    final int newRecordLen = DeltaVarIntCodec.resizeField(
-        srcSeg, 0, srcRecordLen,
-        fieldCount, 1,
-        dstSeg, 0,
-        (target, offset) -> {
+    final int newRecordLen =
+        DeltaVarIntCodec.resizeField(srcSeg, 0, srcRecordLen, fieldCount, 1, dstSeg, 0, (target, offset) -> {
           target.set(ValueLayout.JAVA_BYTE, offset, (byte) 0x11);
           target.set(ValueLayout.JAVA_BYTE, offset + 1, (byte) 0x22);
           target.set(ValueLayout.JAVA_BYTE, offset + 2, (byte) 0x33);
@@ -399,23 +393,17 @@ class ResizeFieldCorrectnessTest {
    */
   private DeltaVarIntCodec.FieldEncoder createEncoder(final int fieldIndex, final long newValue) {
     return switch (fieldIndex) {
-      case NodeFieldLayout.OBJECT_PARENT_KEY,
-           NodeFieldLayout.OBJECT_RIGHT_SIB_KEY,
-           NodeFieldLayout.OBJECT_LEFT_SIB_KEY,
-           NodeFieldLayout.OBJECT_FIRST_CHILD_KEY,
-           NodeFieldLayout.OBJECT_LAST_CHILD_KEY ->
-          (target, offset) -> DeltaVarIntCodec.writeDeltaToSegment(target, offset, newValue, NODE_KEY);
-      case NodeFieldLayout.OBJECT_PREV_REVISION,
-           NodeFieldLayout.OBJECT_LAST_MOD_REVISION ->
-          (target, offset) -> DeltaVarIntCodec.writeSignedToSegment(target, offset, (int) newValue);
-      case NodeFieldLayout.OBJECT_HASH ->
-          (target, offset) -> {
-            DeltaVarIntCodec.writeLongToSegment(target, offset, newValue);
-            return Long.BYTES;
-          };
-      case NodeFieldLayout.OBJECT_CHILD_COUNT,
-           NodeFieldLayout.OBJECT_DESCENDANT_COUNT ->
-          (target, offset) -> DeltaVarIntCodec.writeSignedLongToSegment(target, offset, newValue);
+      case NodeFieldLayout.OBJECT_PARENT_KEY, NodeFieldLayout.OBJECT_RIGHT_SIB_KEY, NodeFieldLayout.OBJECT_LEFT_SIB_KEY,
+          NodeFieldLayout.OBJECT_FIRST_CHILD_KEY, NodeFieldLayout.OBJECT_LAST_CHILD_KEY ->
+        (target, offset) -> DeltaVarIntCodec.writeDeltaToSegment(target, offset, newValue, NODE_KEY);
+      case NodeFieldLayout.OBJECT_PREV_REVISION, NodeFieldLayout.OBJECT_LAST_MOD_REVISION ->
+        (target, offset) -> DeltaVarIntCodec.writeSignedToSegment(target, offset, (int) newValue);
+      case NodeFieldLayout.OBJECT_HASH -> (target, offset) -> {
+        DeltaVarIntCodec.writeLongToSegment(target, offset, newValue);
+        return Long.BYTES;
+      };
+      case NodeFieldLayout.OBJECT_CHILD_COUNT, NodeFieldLayout.OBJECT_DESCENDANT_COUNT ->
+        (target, offset) -> DeltaVarIntCodec.writeSignedLongToSegment(target, offset, newValue);
       default -> throw new IllegalArgumentException("Unknown field index: " + fieldIndex);
     };
   }

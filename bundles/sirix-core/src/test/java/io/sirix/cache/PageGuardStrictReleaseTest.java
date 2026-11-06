@@ -20,13 +20,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * A {@link PageGuard} must hold a real guard, and must say so when it does not.
  *
- * <p>{@code close()} used to return quietly when the page was already closed or its guard count had
+ * <p>
+ * {@code close()} used to return quietly when the page was already closed or its guard count had
  * reached zero, justified by the cache paths that force-released guards they did not own. Those
- * drains are gone, which makes both states impossible under a live guard — {@code close()} defers on
- * a guarded page, and nothing may release a guard it did not take. The tolerance was worse than dead
- * code: an unbacked guard object, produced by {@code wrapAlreadyGuarded} over a failed
+ * drains are gone, which makes both states impossible under a live guard — {@code close()} defers
+ * on a guarded page, and nothing may release a guard it did not take. The tolerance was worse than
+ * dead code: an unbacked guard object, produced by {@code wrapAlreadyGuarded} over a failed
  * {@code acquireGuard()}, took the count-is-zero exit and reported nothing, so the bug surfaced
- * later as someone else's page being freed early.</p>
+ * later as someone else's page being freed early.
+ * </p>
  */
 public final class PageGuardStrictReleaseTest {
 
@@ -35,6 +37,7 @@ public final class PageGuardStrictReleaseTest {
   private Arena arena;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
   }
@@ -48,8 +51,8 @@ public final class PageGuardStrictReleaseTest {
 
   private KeyValueLeafPage newPage() {
     return new KeyValueLeafPage(1L, IndexType.DOCUMENT,
-        new ResourceConfiguration.Builder("pageGuardStrictReleaseResource").build(), 1,
-        arena.allocate(SIXTY_FOUR_KB), null);
+        new ResourceConfiguration.Builder("pageGuardStrictReleaseResource").build(), 1, arena.allocate(SIXTY_FOUR_KB),
+        null);
   }
 
   @Test
@@ -92,12 +95,14 @@ public final class PageGuardStrictReleaseTest {
   /**
    * The wrapper catches only the zero-count case — the call site is what has to be right.
    *
-   * <p>When another holder's guard is live, an unbacked wrapper's release is indistinguishable from a
+   * <p>
+   * When another holder's guard is live, an unbacked wrapper's release is indistinguishable from a
    * legitimate one: the count is positive either way, and {@link PageGuard} keeps no record of having
    * acquired. So it releases, and the real holder loses its guard. That is not a hole this class can
    * close; it is why {@code wrapAlreadyGuarded}'s callers must check {@code acquireGuard()}'s result,
    * and why the acquiring constructor is the better default. Pinned here so the limit is documented
-   * behaviour rather than a surprise to the next caller.</p>
+   * behaviour rather than a surprise to the next caller.
+   * </p>
    */
   @Test
   void wrapAlreadyGuardedCannotDetectAStolenGuard() {

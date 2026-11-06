@@ -26,14 +26,14 @@ import java.lang.foreign.ValueLayout;
 import java.lang.foreign.MemorySegment;
 
 /**
- * Verifies the {@link KeyValueLeafPage#invalidateNumberRegion()} contract introduced
- * to keep the cached {@link NumberRegion} in sync with mutations of OBJECT_NUMBER_VALUE
- * records on the same page — needed for any future writer-side query path that reads
- * a writer's TIL-resident page through the PAX region.
+ * Verifies the {@link KeyValueLeafPage#invalidateNumberRegion()} contract introduced to keep the
+ * cached {@link NumberRegion} in sync with mutations of OBJECT_NUMBER_VALUE records on the same
+ * page — needed for any future writer-side query path that reads a writer's TIL-resident page
+ * through the PAX region.
  *
- * <p>Also covers the {@code tryBuildNumberRegionFromSlottedPage} fix that preserves
- * any pre-existing region (e.g. {@link RegionTable#KIND_OBJECT_KEY_NAMEKEY}) when
- * lazily building the number region.
+ * <p>
+ * Also covers the {@code tryBuildNumberRegionFromSlottedPage} fix that preserves any pre-existing
+ * region (e.g. {@link RegionTable#KIND_OBJECT_KEY_NAMEKEY}) when lazily building the number region.
  */
 @DisplayName("NumberRegion invalidation")
 final class NumberRegionInvalidationTest {
@@ -43,6 +43,7 @@ final class NumberRegionInvalidationTest {
   private Arena arena;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
   }
@@ -56,31 +57,21 @@ final class NumberRegionInvalidationTest {
 
   private KeyValueLeafPage createPage(final long recordPageKey) {
     return new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT,
-        new ResourceConfiguration.Builder("testResource").build(), 1,
-        arena.allocate(SIXTYFOUR_KB), null);
+        new ResourceConfiguration.Builder("testResource").build(), 1, arena.allocate(SIXTYFOUR_KB), null);
   }
 
   /**
-   * Push a fused OBJECT_NAMED_NUMBER record through the production writer path:
-   * primary constructor → {@code page.serializeNewRecord}. Each call writes a unique
-   * nameKey so the encoder produces a fresh tag per record (mirrors a JSON object
-   * with N distinct primitive numeric fields).
+   * Push a fused OBJECT_NAMED_NUMBER record through the production writer path: primary constructor →
+   * {@code page.serializeNewRecord}. Each call writes a unique nameKey so the encoder produces a
+   * fresh tag per record (mirrors a JSON object with N distinct primitive numeric fields).
    */
-  private void writeObjectNumber(final KeyValueLeafPage page, final long nodeKey,
-      final int nameKey, final long value) {
+  private void writeObjectNumber(final KeyValueLeafPage page, final long nodeKey, final int nameKey, final long value) {
     final int slot = (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1));
-    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(),  // parentKey
-        Fixed.NULL_NODE_KEY.getStandardProperty(),  // rightSiblingKey
-        Fixed.NULL_NODE_KEY.getStandardProperty(),  // leftSiblingKey
-        nameKey,
-        /*pathNodeKey*/ -1L,
-        /*previousRevision*/ 0,
-        /*lastModifiedRevision*/ 0,
-        /*hash*/ 0L,
-        /*value*/ value,
-        HASH_FN,
-        (byte[]) null);
+    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey, Fixed.NULL_NODE_KEY.getStandardProperty(), // parentKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // rightSiblingKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(), // leftSiblingKey
+        nameKey, /* pathNodeKey */ -1L, /* previousRevision */ 0, /* lastModifiedRevision */ 0, /* hash */ 0L,
+        /* value */ value, HASH_FN, (byte[]) null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slot);
   }
@@ -94,7 +85,7 @@ final class NumberRegionInvalidationTest {
 
     // Build a real number region by writing one OBJECT_NUMBER_VALUE and triggering
     // the lazy build.
-    writeObjectNumber(page, /*nodeKey*/ 0, /*parentKey*/ 1, /*value*/ 42L);
+    writeObjectNumber(page, /* nodeKey */ 0, /* parentKey */ 1, /* value */ 42L);
     final NumberRegion.Header h1 = page.getNumberRegionHeader();
     assertNotNull(h1, "expected lazily-built region after writing a number record");
     assertNotNull(page.getNumberRegionPayload(), "region payload should be cached");
@@ -129,12 +120,12 @@ final class NumberRegionInvalidationTest {
   void invalidateDropsTheDoubleColumnToo() {
     final KeyValueLeafPage page = createPage(0);
 
-    writeObjectNumber(page, /*nodeKey*/ 0, /*nameKey*/ 1, /*value*/ 42L);
+    writeObjectNumber(page, /* nodeKey */ 0, /* nameKey */ 1, /* value */ 42L);
     assertNotNull(page.getNumberRegionHeader(), "expected lazily-built region after writing a number record");
     final RegionTable table = page.getRegionTable();
     assertNotNull(table);
     // A page that carries doubles beside its longs — the number builder installs both from one walk.
-    table.set(RegionTable.KIND_DOUBLE, new byte[] { 1, 2, 3, 4 });
+    table.set(RegionTable.KIND_DOUBLE, new byte[] {1, 2, 3, 4});
 
     page.invalidateNumberRegion();
 
@@ -158,7 +149,7 @@ final class NumberRegionInvalidationTest {
     // The shape the writer emits for a page whose numbers are all doubles: KIND_DOUBLE alone, with
     // neither a long column nor a zone map to notice.
     final RegionTable seeded = new RegionTable();
-    seeded.set(RegionTable.KIND_DOUBLE, new byte[] { 9, 8, 7 });
+    seeded.set(RegionTable.KIND_DOUBLE, new byte[] {9, 8, 7});
     page.setRegionTable(seeded);
 
     page.invalidateNumberRegion();
@@ -178,11 +169,11 @@ final class NumberRegionInvalidationTest {
     // installed: a fused OBJECT_NAMED_NUMBER is a row of the field-name column as well as of the
     // number column, so writing one after seeding would (correctly) invalidate the seeded names
     // payload and this test would be asserting the wrong contract.
-    writeObjectNumber(page, /*nodeKey*/ 0, /*parentKey*/ 1, /*value*/ 99L);
+    writeObjectNumber(page, /* nodeKey */ 0, /* parentKey */ 1, /* value */ 99L);
 
     // Pre-install a fake OBJECT_KEY_NAMEKEY payload — represents a page loaded from
     // disk where NAMEKEY was serialized but NUMBER was not.
-    final byte[] nameKeyPayload = new byte[] { 7, 1, 2, 3 };
+    final byte[] nameKeyPayload = new byte[] {7, 1, 2, 3};
     final RegionTable seeded = new RegionTable();
     seeded.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, nameKeyPayload);
     page.setRegionTable(seeded);
@@ -194,14 +185,11 @@ final class NumberRegionInvalidationTest {
     assertEquals(1, h.count);
 
     // Post-fix: the NAMEKEY payload survives, identical bytes, same RegionTable instance.
-    assertSame(seeded, page.getRegionTable(),
-        "regionTable instance must be preserved across lazy NUMBER build");
+    assertSame(seeded, page.getRegionTable(), "regionTable instance must be preserved across lazy NUMBER build");
     assertArrayEquals(nameKeyPayload,
-        seeded.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY).toArray(
-            ValueLayout.JAVA_BYTE),
+        seeded.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY).toArray(ValueLayout.JAVA_BYTE),
         "OBJECT_KEY_NAMEKEY payload must survive lazy NUMBER build");
-    assertNotNull(seeded.payload(RegionTable.KIND_NUMBER),
-        "NUMBER payload must be installed on the same RegionTable");
+    assertNotNull(seeded.payload(RegionTable.KIND_NUMBER), "NUMBER payload must be installed on the same RegionTable");
   }
 
   // ───────────────────────────────────────────────────── mutation-hook smoke test
@@ -221,8 +209,7 @@ final class NumberRegionInvalidationTest {
     // Writing another number record must drop the stale region. The
     // serializeToHeap → invalidateNumberRegion hook is what enforces this.
     writeObjectNumber(page, 1, 2, 7L);
-    assertNull(page.getNumberRegionPayload(),
-        "writing a NUMBER record must invalidate the cached region");
+    assertNull(page.getNumberRegionPayload(), "writing a NUMBER record must invalidate the cached region");
 
     // Next read picks up both values.
     final NumberRegion.Header after = page.getNumberRegionHeader();
@@ -247,11 +234,9 @@ final class NumberRegionInvalidationTest {
     // mutation paths and is exercised by integration tests.)
     org.junit.jupiter.api.Assertions.assertTrue(
         KeyValueLeafPage.isNumberValueKindId(NodeKind.OBJECT_NAMED_NUMBER.getId()));
-    org.junit.jupiter.api.Assertions.assertTrue(
-        KeyValueLeafPage.isNumberValueKindId(NodeKind.NUMBER_VALUE.getId()));
+    org.junit.jupiter.api.Assertions.assertTrue(KeyValueLeafPage.isNumberValueKindId(NodeKind.NUMBER_VALUE.getId()));
     org.junit.jupiter.api.Assertions.assertFalse(
         KeyValueLeafPage.isNumberValueKindId(NodeKind.OBJECT_NAMED_OBJECT.getId()));
-    org.junit.jupiter.api.Assertions.assertFalse(
-        KeyValueLeafPage.isNumberValueKindId(NodeKind.STRING_VALUE.getId()));
+    org.junit.jupiter.api.Assertions.assertFalse(KeyValueLeafPage.isNumberValueKindId(NodeKind.STRING_VALUE.getId()));
   }
 }

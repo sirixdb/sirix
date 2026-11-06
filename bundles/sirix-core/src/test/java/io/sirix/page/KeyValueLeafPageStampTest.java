@@ -48,6 +48,7 @@ final class KeyValueLeafPageStampTest {
   private Arena arena;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     page = new KeyValueLeafPage(1L, IndexType.DOCUMENT, new ResourceConfiguration.Builder("testResource").build(), 1,

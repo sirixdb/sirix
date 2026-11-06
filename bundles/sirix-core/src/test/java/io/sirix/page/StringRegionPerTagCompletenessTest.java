@@ -100,6 +100,7 @@ final class StringRegionPerTagCompletenessTest {
   private boolean runLengthLaneBefore;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     perTagCompletenessBefore = PageKind.STRING_REGION_PER_TAG_COMPLETENESS;

@@ -636,6 +636,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * initial, exponential up to 5 ms, 10 s total ceiling). A mid-query OOM cascades into partial-page
    * state and SIGSEGV downstream, so waiting is almost always the right call.
    */
+  // The oversized branch's confined arena is not a try-with-resources resource by design: it is
+  // handed to the OversizedAllocation registered in #oversizedByAddress and outlives this call,
+  // until release(MemorySegment) closes it on the allocating thread. Its own catch block closes it
+  // on every failure path before registration completes.
+  @SuppressWarnings("MustBeClosedChecker")
   @Override
   public MemorySegment allocate(final long size) {
     if (size <= 0) {

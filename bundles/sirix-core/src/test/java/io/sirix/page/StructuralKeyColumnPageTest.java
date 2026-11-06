@@ -56,6 +56,7 @@ final class StructuralKeyColumnPageTest {
   private boolean siblingColumnsBefore;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     siblingColumnsBefore = PageKind.SIBLING_KEY_COLUMNS_ENABLED;

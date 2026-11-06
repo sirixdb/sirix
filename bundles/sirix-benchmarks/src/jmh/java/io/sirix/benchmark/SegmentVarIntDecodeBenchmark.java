@@ -51,13 +51,15 @@ import java.util.concurrent.TimeUnit;
  * Varint decode out of a {@link MemorySegment}, byte-wise against a bulk 8-byte load, across the
  * width distributions the two callers actually see.
  *
- * <p>This exists because the obvious optimisation did not survive being measured. Reading eight
- * bytes in one unaligned load and shifting the varint out of the register replaces up to eight
- * individually bounds-checked byte reads, which sounds like it should win outright. It does not:
- * on the hardware this was written against the byte-wise decoder was faster at <em>every</em> width
+ * <p>
+ * This exists because the obvious optimisation did not survive being measured. Reading eight bytes
+ * in one unaligned load and shifting the varint out of the register replaces up to eight
+ * individually bounds-checked byte reads, which sounds like it should win outright. It does not: on
+ * the hardware this was written against the byte-wise decoder was faster at <em>every</em> width
  * tested — about 2.1× on {@code NARROW}, 1.6× on {@code MIXED}, 1.5× on {@code WIDE}.
  *
- * <p>The narrow case is the easiest to explain: record deltas are overwhelmingly one or two bytes,
+ * <p>
+ * The narrow case is the easiest to explain: record deltas are overwhelmingly one or two bytes,
  * where the byte-wise decoder issues a single load and returns, while the bulk path first reads
  * {@code byteSize()}, compares, issues a wider load that can straddle a cache line, and only then
  * starts branching. That the wide cases lose too is the more interesting result, and the reason
@@ -65,13 +67,17 @@ import java.util.concurrent.TimeUnit;
  * different hardware, and against the {@code int}-offset overload of {@link DeltaVarIntCodec},
  * which does carry a bulk path on the strength of an analytical-scan profile not reproduced here.
  *
- * <p>The {@code long}-offset overload — the one the record accessors reach, since their offsets
- * derive from a {@code long} heap base — stays byte-wise on the strength of these numbers.
+ * <p>
+ * The {@code long}-offset overload — the one the record accessors reach, since their offsets derive
+ * from a {@code long} heap base — stays byte-wise on the strength of these numbers.
  *
- * <p>{@code WIDE} is the scan-shaped distribution; {@code NARROW} is the ingest-shaped one;
+ * <p>
+ * {@code WIDE} is the scan-shaped distribution; {@code NARROW} is the ingest-shaped one;
  * {@code MIXED} is an even spread across widths.
  *
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  *   ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="SegmentVarIntDecodeBenchmark"
  * </pre>
@@ -100,7 +106,9 @@ public class SegmentVarIntDecodeBenchmark {
     NARROW {
       @Override
       long next(final Random random) {
-        return random.nextInt(4) == 0 ? 128 + random.nextInt(16_256) : random.nextInt(128);
+        return random.nextInt(4) == 0
+            ? 128 + random.nextInt(16_256)
+            : random.nextInt(128);
       }
     },
     /** An even spread over every width. */
@@ -132,6 +140,7 @@ public class SegmentVarIntDecodeBenchmark {
   private long[] offsets;
 
   @Setup(Level.Trial)
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   public void setUp() {
     final Random random = new Random(SEED);
     final byte[] scratch = new byte[16];
@@ -151,8 +160,8 @@ public class SegmentVarIntDecodeBenchmark {
     segment = arena.allocate(position + 16);
     MemorySegment.copy(staging, 0, segment, ValueLayout.JAVA_BYTE, 0L, position);
 
-    System.out.printf("[SegmentVarIntDecodeBenchmark] widths=%s %d varints in %d B (%.2f B each)%n",
-        widths, COUNT, position, position / (double) COUNT);
+    System.out.printf("[SegmentVarIntDecodeBenchmark] widths=%s %d varints in %d B (%.2f B each)%n", widths, COUNT,
+        position, position / (double) COUNT);
   }
 
   @TearDown(Level.Trial)
@@ -202,11 +211,10 @@ public class SegmentVarIntDecodeBenchmark {
       }
       final int b4 = (int) ((w >>> 32) & 0xFF);
       if ((b4 & 0x80) == 0) {
-        return (b0 & 0x7FL) | ((b1 & 0x7FL) << 7) | ((b2 & 0x7FL) << 14)
-            | ((b3 & 0x7FL) << 21) | ((long) b4 << 28);
+        return (b0 & 0x7FL) | ((b1 & 0x7FL) << 7) | ((b2 & 0x7FL) << 14) | ((b3 & 0x7FL) << 21) | ((long) b4 << 28);
       }
-      long result = (b0 & 0x7FL) | ((b1 & 0x7FL) << 7) | ((b2 & 0x7FL) << 14)
-          | ((b3 & 0x7FL) << 21) | ((b4 & 0x7FL) << 28);
+      long result =
+          (b0 & 0x7FL) | ((b1 & 0x7FL) << 7) | ((b2 & 0x7FL) << 14) | ((b3 & 0x7FL) << 21) | ((b4 & 0x7FL) << 28);
       long position = offset + 5;
       int shift = 35;
       byte b;

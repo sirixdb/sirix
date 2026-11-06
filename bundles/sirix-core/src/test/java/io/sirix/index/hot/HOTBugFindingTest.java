@@ -55,6 +55,7 @@ class HOTBugFindingTest {
 
     private Arena arena;
 
+    @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
     private HOTLeafPage createTestLeafPage() {
       arena = Arena.ofConfined();
       MemorySegment slotMemory = arena.allocate(HOTLeafPage.DEFAULT_SIZE);
@@ -599,6 +600,7 @@ class HOTBugFindingTest {
 
     private Arena arena;
 
+    @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
     private HOTLeafPage createTestLeafPage() {
       arena = Arena.ofConfined();
       MemorySegment slotMemory = arena.allocate(HOTLeafPage.DEFAULT_SIZE);

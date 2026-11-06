@@ -63,6 +63,7 @@ final class FusedRecordSizeCapTest {
   }
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
   }

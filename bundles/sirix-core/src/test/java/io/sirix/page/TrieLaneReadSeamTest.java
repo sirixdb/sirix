@@ -118,6 +118,7 @@ final class TrieLaneReadSeamTest {
    * </p>
    */
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     chunkedBodyBefore = ChunkedBodyConfig.enabled();

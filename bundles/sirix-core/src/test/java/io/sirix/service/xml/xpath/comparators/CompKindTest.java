@@ -478,6 +478,33 @@ public class CompKindTest {
     }
   }
 
+  /**
+   * {@code LE}/{@code GE} on strings and URIs decide from {@link String#compareTo}, which returns the
+   * character or length difference rather than a value in {@code {-1, 0, +1}} — e.g.
+   * {@code "a".compareTo("d") == -3}. These operands keep the comparison honest about that: they fail
+   * for any form that assumes a unit magnitude, such as {@code compareTo(..) < 1} standing in for
+   * {@code <= 0}.
+   */
+  @Test
+  public void testStringOrderIgnoresCompareToMagnitude() throws SirixXPathException {
+
+    assertEquals(-3, "a".compareTo("d"));
+    assertEquals(3, "d".compareTo("a"));
+
+    assertEquals(CompKind.LE.compare("a", "d", Type.STRING), true);
+    assertEquals(CompKind.LE.compare("d", "a", Type.STRING), false);
+    assertEquals(CompKind.LE.compare("a", "a", Type.STRING), true);
+
+    assertEquals(CompKind.GE.compare("a", "d", Type.STRING), false);
+    assertEquals(CompKind.GE.compare("d", "a", Type.STRING), true);
+    assertEquals(CompKind.GE.compare("a", "a", Type.STRING), true);
+
+    assertEquals(CompKind.LE.compare("a", "d", Type.ANY_URI), true);
+    assertEquals(CompKind.LE.compare("d", "a", Type.ANY_URI), false);
+    assertEquals(CompKind.GE.compare("a", "d", Type.ANY_URI), false);
+    assertEquals(CompKind.GE.compare("d", "a", Type.ANY_URI), true);
+  }
+
   @Test
   public void testFO() throws SirixXPathException {
 

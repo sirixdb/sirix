@@ -48,6 +48,9 @@ public final class PooledGrowingSegment {
    * 
    * @param required the required capacity in bytes
    */
+  // The one overflow arena below is not a try-with-resources resource by design: it becomes the
+  // #overflowArena field and outlives this call, serving every later write until reset() closes it.
+  @SuppressWarnings("MustBeClosedChecker")
   public void ensureCapacity(long required) {
     if (required > currentSegment.byteSize()) {
       // Buffer too small - allocate overflow (rare, ~1% of cases)

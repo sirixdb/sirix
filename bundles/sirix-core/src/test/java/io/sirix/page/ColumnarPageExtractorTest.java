@@ -23,8 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests for {@link ColumnarPageExtractor} — the core engine that extracts
- * string-type columns from slotted page MemorySegments.
+ * Tests for {@link ColumnarPageExtractor} — the core engine that extracts string-type columns from
+ * slotted page MemorySegments.
  */
 final class ColumnarPageExtractorTest {
 
@@ -44,6 +44,7 @@ final class ColumnarPageExtractorTest {
   private final int[] deweyLens = new int[CAPACITY];
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     extractor = new ColumnarPageExtractor();
@@ -60,26 +61,23 @@ final class ColumnarPageExtractorTest {
 
   private KeyValueLeafPage createPage(final long recordPageKey) {
     return new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT,
-        new ResourceConfiguration.Builder("testResource").build(), 1,
-        arena.allocate(SIXTYFOUR_KB), null);
+        new ResourceConfiguration.Builder("testResource").build(), 1, arena.allocate(SIXTYFOUR_KB), null);
   }
 
   private KeyValueLeafPage createPageWithDewey(final long recordPageKey) {
     return new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT,
-        new ResourceConfiguration.Builder("testResource").useDeweyIDs(true).build(), 1,
-        arena.allocate(SIXTYFOUR_KB), null);
+        new ResourceConfiguration.Builder("testResource").useDeweyIDs(true).build(), 1, arena.allocate(SIXTYFOUR_KB),
+        null);
   }
 
   // --- Helper: create and serialize a StringNode ---
 
-  private void serializeStringNode(final KeyValueLeafPage page, final long nodeKey,
-      final long parentKey, final String value) {
+  private void serializeStringNode(final KeyValueLeafPage page, final long nodeKey, final long parentKey,
+      final String value) {
     final int slot = (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1));
     final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-    final StringNode node = new StringNode(nodeKey, parentKey, 0, 0,
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        0, bytes, HASH_FN, (byte[]) null);
+    final StringNode node = new StringNode(nodeKey, parentKey, 0, 0, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), 0, bytes, HASH_FN, (byte[]) null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slot);
   }
@@ -95,8 +93,7 @@ final class ColumnarPageExtractorTest {
     serializeStringNode(page, 1, 101, "world");
     serializeStringNode(page, 2, 102, "test");
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(3, writePos, "Should extract 3 string nodes");
@@ -138,8 +135,7 @@ final class ColumnarPageExtractorTest {
     serializeStringNode(page, 5, 200, "stringVal");
     insertDummyNonStringNode(page, 0, (byte) 24); // ObjectNode kindId=24
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(1, writePos, "Should extract only the string-type node");
@@ -155,8 +151,7 @@ final class ColumnarPageExtractorTest {
   void extractFromEmptyPage() {
     final KeyValueLeafPage page = createPage(0);
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(0, writePos, "Empty page should yield writePos=0");
@@ -171,8 +166,7 @@ final class ColumnarPageExtractorTest {
     serializeStringNode(page, 100, 500, "sparse1");
     serializeStringNode(page, 900, 600, "sparse2");
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(2, writePos);
@@ -191,8 +185,7 @@ final class ColumnarPageExtractorTest {
     serializeStringNode(page, 0, 50, "obj1");
     serializeStringNode(page, 1, 51, "obj2");
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(2, writePos);
@@ -211,18 +204,15 @@ final class ColumnarPageExtractorTest {
     final KeyValueLeafPage page = createPageWithDewey(0);
 
     // Create a string node with DeweyID
-    final byte[] deweyBytes = new byte[]{1, 2, 3, 4};
+    final byte[] deweyBytes = new byte[] {1, 2, 3, 4};
     final int slot = 5;
     final long nodeKey = 5;
-    final StringNode node = new StringNode(nodeKey, 100, 0, 0,
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        0, "hello".getBytes(StandardCharsets.UTF_8), HASH_FN, deweyBytes);
+    final StringNode node = new StringNode(nodeKey, 100, 0, 0, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), 0, "hello".getBytes(StandardCharsets.UTF_8), HASH_FN, deweyBytes);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slot);
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(1, writePos);
@@ -239,8 +229,7 @@ final class ColumnarPageExtractorTest {
 
     serializeStringNode(page, 0, 100, "noDewey");
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(1, writePos);
@@ -268,9 +257,8 @@ final class ColumnarPageExtractorTest {
       serializeStringNode(page, i, 100 + i, "val" + i);
     }
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, smallNodeKeys, smallParentKeys, smallPayloadOffs, smallValueLens,
-        smallCompressed, smallDeweyOffs, smallDeweyLens, 0);
+    final int writePos = extractor.extractStringsFromPage(page, smallNodeKeys, smallParentKeys, smallPayloadOffs,
+        smallValueLens, smallCompressed, smallDeweyOffs, smallDeweyLens, 0);
 
     assertEquals(3, writePos, "Should stop at batch capacity (3)");
     assertEquals(0, smallNodeKeys[0]);
@@ -289,15 +277,13 @@ final class ColumnarPageExtractorTest {
     serializeStringNode(page2, 1024, 200, "page2_val");
 
     // Extract from page1 starting at writePos=0
-    int writePos = extractor.extractStringsFromPage(
-        page1, nodeKeys, parentKeys, payloadOffs, valueLens,
-        compressed, deweyOffs, deweyLens, 0);
+    int writePos = extractor.extractStringsFromPage(page1, nodeKeys, parentKeys, payloadOffs, valueLens, compressed,
+        deweyOffs, deweyLens, 0);
     assertEquals(1, writePos);
 
     // Extract from page2 continuing at writePos=1
-    writePos = extractor.extractStringsFromPage(
-        page2, nodeKeys, parentKeys, payloadOffs, valueLens,
-        compressed, deweyOffs, deweyLens, writePos);
+    writePos = extractor.extractStringsFromPage(page2, nodeKeys, parentKeys, payloadOffs, valueLens, compressed,
+        deweyOffs, deweyLens, writePos);
     assertEquals(2, writePos);
 
     // Verify both pages' data
@@ -319,13 +305,12 @@ final class ColumnarPageExtractorTest {
     serializeStringNode(page, 2, 30, "anotherString");
     serializeStringNode(page, 3, 40, "anotherStr2");
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(4, writePos);
-    assertEquals(6, valueLens[0]);  // "string"
-    assertEquals(7, valueLens[1]);  // "string2"
+    assertEquals(6, valueLens[0]); // "string"
+    assertEquals(7, valueLens[1]); // "string2"
     assertEquals(13, valueLens[2]); // "anotherString"
     assertEquals(11, valueLens[3]); // "anotherStr2"
 
@@ -340,8 +325,7 @@ final class ColumnarPageExtractorTest {
     // but we verify the extractor handles populatedCount=0.
     final KeyValueLeafPage page = createPage(0);
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(0, writePos, "Page with no populated slots should return 0");
@@ -356,8 +340,7 @@ final class ColumnarPageExtractorTest {
     // Node at slot 7 → nodeKey = 5120 | 7 = 5127
     serializeStringNode(page, 5127, 5000, "pageKey5");
 
-    final int writePos = extractor.extractStringsFromPage(
-        page, nodeKeys, parentKeys, payloadOffs, valueLens,
+    final int writePos = extractor.extractStringsFromPage(page, nodeKeys, parentKeys, payloadOffs, valueLens,
         compressed, deweyOffs, deweyLens, 0);
 
     assertEquals(1, writePos);
@@ -369,19 +352,17 @@ final class ColumnarPageExtractorTest {
 
   // ==================== Helpers ====================
 
-  private void assertStringAt(final MemorySegment seg, final int offset,
-      final int length, final String expected) {
+  private void assertStringAt(final MemorySegment seg, final int offset, final int length, final String expected) {
     final byte[] bytes = new byte[length];
     MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, offset, bytes, 0, length);
     assertEquals(expected, new String(bytes, StandardCharsets.UTF_8));
   }
 
   /**
-   * Insert a dummy non-string record at the given slot by writing raw bytes.
-   * This simulates a node type that the extractor should skip.
+   * Insert a dummy non-string record at the given slot by writing raw bytes. This simulates a node
+   * type that the extractor should skip.
    */
-  private void insertDummyNonStringNode(final KeyValueLeafPage page,
-      final int slot, final byte kindId) {
+  private void insertDummyNonStringNode(final KeyValueLeafPage page, final int slot, final byte kindId) {
     final MemorySegment seg = page.getSlottedPage();
 
     // Manually write a minimal record to the heap

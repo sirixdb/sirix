@@ -438,6 +438,9 @@ public final class RegionTable implements AutoCloseable {
     retained[allocatorAllocationCount++] = allocation;
   }
 
+  // Not a try-with-resources resource by design: the returned arena becomes this table's #arena
+  // field and is released by close()/closeLastOwnership() through SharedArenas.close(Arena).
+  @SuppressWarnings("MustBeClosedChecker")
   private Arena newPayloadArena() {
     if (closed) {
       throw new IllegalStateException("region table is already closed");

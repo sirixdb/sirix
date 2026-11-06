@@ -82,6 +82,7 @@ final class DerivedElisionSectionTest {
   private boolean runLengthLaneBefore;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     derivedElisionBefore = PageKind.DERIVED_ELISION_SECTIONS;

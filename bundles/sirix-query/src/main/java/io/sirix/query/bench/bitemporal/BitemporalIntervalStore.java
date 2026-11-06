@@ -17,6 +17,9 @@ final class BitemporalIntervalStore implements AutoCloseable {
   private final long limit;
   private long reservedBytes;
 
+  // The confined arena below is not a try-with-resources resource by design: it becomes the #arena
+  // field of this AutoCloseable store, and #close() releases every slab allocated from it.
+  @SuppressWarnings("MustBeClosedChecker")
   BitemporalIntervalStore(final long limit) {
     if (limit < (long) SLAB_SIZE * RECORD_BYTES) {
       throw new IllegalArgumentException("native interval budget is smaller than one slab");
