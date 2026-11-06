@@ -52,23 +52,24 @@ final class SirixVectorizedExecutorLifecycleTest {
         new Class<?>[] {JsonResourceSession.class}, (proxy, method, args) -> null);
   }
 
+  /**
+   * Every top-level call opens a residency scope, with or without the headroom gate: the scope's pins
+   * are what prove a store may free an off-heap column lane; the gate only decides whether the
+   * headroom share lowers what a store retains.
+   */
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void residencyScopesFollowTheEnabledPolicy(final boolean enabled) {
-    final boolean previous = ProjectionColumnStore.setResidencyHeadroomForTesting(enabled);
+  void everyTopLevelCallOpensAResidencyScope(final boolean headroomEnabled) {
+    final boolean previous = ProjectionColumnStore.setResidencyHeadroomForTesting(headroomEnabled);
     final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 1);
     final long before = ProjectionResidencyScope.openedCount();
     try {
       executor.enterExecution();
       try {
-        assertEquals(enabled
-            ? 1L
-            : 0L, ProjectionResidencyScope.openedCount() - before);
-        assertEquals(enabled, ProjectionResidencyScope.anyOpen());
-        executor.parallel(1, lane -> assertEquals(enabled, ProjectionResidencyScope.anyOpen()));
-        assertEquals(enabled
-            ? 1L
-            : 0L, ProjectionResidencyScope.openedCount() - before, "nested work shares the outermost scope");
+        assertEquals(1L, ProjectionResidencyScope.openedCount() - before);
+        assertTrue(ProjectionResidencyScope.anyOpen());
+        executor.parallel(1, lane -> assertTrue(ProjectionResidencyScope.anyOpen()));
+        assertEquals(1L, ProjectionResidencyScope.openedCount() - before, "nested work shares the outermost scope");
       } finally {
         executor.leaveExecution();
       }

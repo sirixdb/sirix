@@ -2,22 +2,24 @@ package io.sirix.query.scan;
 
 import static java.util.Objects.requireNonNull;
 
+import io.sirix.cache.Allocators;
+import io.sirix.index.projection.NumericLane;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
-import io.sirix.index.projection.ProjectionRecordKeySet;
 import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongArrays;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.ref.Cleaner;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * A projection's columns under a row mask: the leaves and rows an index-routed row source admits,
@@ -33,20 +35,24 @@ import java.util.List;
  * </p>
  *
  * <p>
- * A view is backed either by heap slices decoded for this query or by a resident
- * {@link NativeNumericSnapshot} read through its slab. Kernels decide the representation once per
- * leaf ({@link #isNative()}), never per row. A native view holds a lease on its snapshot and must
- * be {@linkplain #close() closed}; the masks are always this view's own heap copy.
+ * <b>Representation and lifetime</b> (docs/DERIVED_QUERY_CACHES.md). Every view reads a long lane
+ * through its slice's segment ({@link #laneSegment}, {@link #laneBase}), hoisted once per leaf: the
+ * store's resident column slab, the slab of the cache entry a leased view reads, this view's own
+ * query-local slab, or — only when the allocator refused the memory — a heap array. What a view
+ * releases on {@link #close()} is exactly what it holds: the lease on its entry, or its own slab; a
+ * view over resident columns holds nothing itself, the query scope pins them. A {@link Cleaner}
+ * releases what a view that was never closed held. The masks are always the view's own heap copy.
  * </p>
  */
 public final class MaskedColumns implements AutoCloseable {
 
+  /** Backstop for a view that was never closed: the release action, never the view, is registered. */
+  private static final Cleaner CLEANER = Cleaner.create();
+
   private final ProjectionColumnStore store;
   private final long[][] rowMasks;
-  private final long @Nullable [][] recordKeys;
-  private final ColumnSlice @Nullable [][] slices;
-  private final @Nullable NativeNumericSnapshot snapshot;
-  private DerivedCacheBudget.@Nullable Lease lease;
+  private final long[][] recordKeys;
+  private final ColumnSlice[][] slices;
   private final byte[] kinds;
   private final long rows;
   /** Interned string values, id-indexed; {@code 0} is reserved for "no value". */
@@ -58,102 +64,147 @@ public final class MaskedColumns implements AutoCloseable {
    * Original masks of an immutable revision; derived state is reusable only while they still match.
    */
   private long @Nullable [][] immutableMasks;
-  private final Object rowIdentity;
+  /** Final once the view is published or served from a cache entry; see {@link #adoptIdentity}. */
+  private Object rowIdentity;
   /**
-   * Per field: 0 unknown, 1 every selected row present, 2 not; shared by the views of one snapshot.
+   * Per field: 0 unknown, 1 every selected row present, 2 not; shared by the views of one entry.
    */
   private final byte[] presenceMemo;
+  /** The cache entry a leased view reads, for task leases that outlive the view. */
+  private DerivedCacheBudget.@Nullable Entry entry;
+  /** What {@link #close()} releases — the entry lease or the owned slab; runs once. */
+  private @Nullable Runnable release;
+  private @Nullable MaskedColumns sharedInterner;
 
   MaskedColumns(final ProjectionColumnStore store, final long[][] rowMasks, final long[][] recordKeys,
       final ColumnSlice[][] slices, final byte[] kinds, final long rows) {
-    this.store = store;
-    this.rowMasks = rowMasks;
-    this.recordKeys = recordKeys;
-    this.slices = slices;
-    this.snapshot = null;
-    this.kinds = kinds;
+    this(store, rowMasks, recordKeys, slices, kinds, rows, new Object(), null, new byte[kinds.length]);
+  }
+
+  /**
+   * A view over a cached {@link LaneSnapshot}: shared slices (lanes in the entry's slab or the
+   * store's resident columns) and record keys, this view's own mask copy, the entry's identity and
+   * original masks. The entry attaches the lease through {@link #adoptLease}.
+   */
+  MaskedColumns(final ProjectionColumnStore store, final long[][] masks, final long[][] recordKeys,
+      final ColumnSlice[][] slices, final byte[] kinds, final long rows, final Object rowIdentity,
+      final long @Nullable [][] immutableMasks, final byte[] presenceMemo) {
+    this.store = requireNonNull(store);
+    this.rowMasks = requireNonNull(masks);
+    this.recordKeys = requireNonNull(recordKeys);
+    this.slices = requireNonNull(slices);
+    this.kinds = requireNonNull(kinds);
+    if (slices.length != kinds.length || presenceMemo.length != kinds.length) {
+      throw new IllegalArgumentException("one slice array and one presence memo per field");
+    }
+    if (recordKeys.length != masks.length) {
+      throw new IllegalArgumentException("one record-key lane per leaf");
+    }
     this.rows = rows;
-    this.dictToInterned = new int[kinds.length][rowMasks.length][];
-    this.rowIdentity = new Object();
-    this.presenceMemo = new byte[kinds.length];
-    strings.add(null);
-    stringIds.defaultReturnValue(0);
-  }
-
-  /** A view over a resident snapshot; {@code masks} are this view's own copy. */
-  MaskedColumns(final ProjectionColumnStore store, final long[][] masks, final NativeNumericSnapshot snapshot,
-      final DerivedCacheBudget.Lease lease) {
-    this.store = store;
-    this.rowMasks = masks;
-    this.recordKeys = null;
-    this.slices = null;
-    this.snapshot = snapshot;
-    this.lease = lease;
-    this.kinds = snapshot.kinds();
-    this.rows = snapshot.rows();
     this.dictToInterned = new int[kinds.length][masks.length][];
-    this.rowIdentity = snapshot.rowIdentity();
-    this.presenceMemo = snapshot.presenceMemo();
+    this.rowIdentity = requireNonNull(rowIdentity);
+    this.immutableMasks = immutableMasks;
+    this.presenceMemo = presenceMemo;
     strings.add(null);
     stringIds.defaultReturnValue(0);
   }
 
-  /** Whether this view reads a resident slab instead of heap slices. */
-  public boolean isNative() {
-    return snapshot != null;
+  /**
+   * Attach the lease this view holds on {@code held}, the cache entry it reads; released by
+   * {@link #close()}, or by the cleaner backstop for a view that is never closed.
+   */
+  void adoptLease(final DerivedCacheBudget.Entry held, final DerivedCacheBudget.Lease lease) {
+    adoptRelease(lease);
+    entry = requireNonNull(held);
   }
 
-  /** The resident snapshot behind a native view; kernels hoist its offsets per leaf. */
-  NativeNumericSnapshot nativeSnapshot() {
-    return requireNonNull(snapshot, "not a native view");
+  /**
+   * Make this (query-local) view the owner of {@code slab}, the memory its lanes were decoded into:
+   * closing the view returns it to the allocator.
+   */
+  void ownSlab(final MemorySegment slab) {
+    adoptRelease(new SlabRelease(slab));
   }
 
-  /** Release this view's lease on its snapshot; idempotent, a no-op for heap views. */
+  private void adoptRelease(final Runnable once) {
+    if (release != null) {
+      throw new IllegalStateException("view already holds a lease or a slab");
+    }
+    release = once;
+    CLEANER.register(this, once);
+  }
+
+  /**
+   * Take the published entry's row identity, so derived state built by this (publisher's) view, the
+   * packed join sides above all, is found by every later view over the same entry.
+   */
+  void adoptIdentity(final Object identity) {
+    rowIdentity = requireNonNull(identity);
+  }
+
+  /** Whether this view reads a cache entry (a lease is held; see {@link #acquireTaskLease()}). */
+  public boolean isCached() {
+    return entry != null;
+  }
+
+  /**
+   * A lease on this view's cache entry for a background task that outlives the view, released by that
+   * task; {@code null} for a view that reads no entry — such a view's lanes are not guaranteed to
+   * exist once it is closed, so a task must not read them.
+   */
+  public DerivedCacheBudget.@Nullable Lease acquireTaskLease() {
+    final DerivedCacheBudget.Entry held = entry;
+    if (held == null) {
+      return null;
+    }
+    if (!held.tryAcquire()) {
+      throw new IllegalStateException("a leased entry cannot have been freed");
+    }
+    return new DerivedCacheBudget.Lease(held);
+  }
+
+  /** Release what this view holds (its entry lease or its slab); idempotent. */
   @Override
   public void close() {
-    final DerivedCacheBudget.Lease held = lease;
+    final Runnable held = release;
     if (held != null) {
-      lease = null;
+      release = null;
+      entry = null;
       held.run();
     }
   }
 
-  /** A lease for a background task that outlives this view; released by that task. */
-  public DerivedCacheBudget.Lease acquireTaskLease() {
-    final NativeNumericSnapshot resident = requireNonNull(snapshot, "not a native view");
-    if (!resident.tryAcquire()) {
-      throw new IllegalStateException("a leased snapshot cannot have been freed");
+  /** A once-only return of a query-local slab to the allocator. */
+  private static final class SlabRelease implements Runnable {
+    private final MemorySegment slab;
+    private final AtomicBoolean released = new AtomicBoolean();
+
+    SlabRelease(final MemorySegment slab) {
+      this.slab = requireNonNull(slab);
     }
-    return new DerivedCacheBudget.Lease(resident);
+
+    @Override
+    public void run() {
+      if (released.compareAndSet(false, true)) {
+        Allocators.getInstance().releaseSlab(slab);
+      }
+    }
   }
 
-  /** The resident slab of a native view; valid while this view or a task lease is held. */
-  public MemorySegment slab() {
-    return requireNonNull(snapshot, "not a native view").slab();
+  ColumnSlice[][] slices() {
+    return slices;
+  }
+
+  long[][] recordKeys() {
+    return recordKeys;
   }
 
   /**
-   * Byte offset of {@code field}'s numeric lane on {@code leaf} in a native view, -1 when the leaf is
-   * skipped or carries no lane. Row {@code r} of the lane lies {@code 8 * r} bytes past it, so a
-   * kernel hoists this offset once per leaf and reads rows the way it reads a heap lane.
+   * The original masks of an immutable revision, or {@code null} before
+   * {@link #markImmutableRevision}.
    */
-  public long laneBase(final int field, final int leaf) {
-    return requireNonNull(snapshot, "not a native view").laneBase(field, leaf);
-  }
-
-  /** Rows of {@code leaf}'s record keys and lanes in a native view. */
-  public int leafRows(final int leaf) {
-    return requireNonNull(snapshot, "not a native view").leafRows(leaf);
-  }
-
-  /** Byte offset of {@code field}'s presence words on {@code leaf}, -1 when skipped or pruned. */
-  public long presenceBase(final int field, final int leaf) {
-    return requireNonNull(snapshot, "not a native view").presenceBase(field, leaf);
-  }
-
-  /** Byte offset of {@code leaf}'s record keys, -1 when skipped. */
-  public long keyBase(final int leaf) {
-    return requireNonNull(snapshot, "not a native view").keyBase(leaf);
+  long @Nullable [][] immutableMasks() {
+    return immutableMasks;
   }
 
   static long[][] copyMasks(final long[][] masks) {
@@ -166,26 +217,12 @@ public final class MaskedColumns implements AutoCloseable {
     return copy;
   }
 
-  long[][] copyRowMasks() {
-    return copyMasks(rowMasks);
-  }
-
   byte[] kinds() {
     return kinds;
   }
 
   byte[] presenceMemo() {
     return presenceMemo;
-  }
-
-  /** The record keys of {@code leaf} in a heap view. */
-  long[] recordKeysOf(final int leaf) {
-    return requireNonNull(recordKeys, "native views keep record keys in their slab")[leaf];
-  }
-
-  /** The decoded slice of {@code field} on {@code leaf} in a heap view. */
-  ColumnSlice slice(final int field, final int leaf) {
-    return requireNonNull(slices, "native views keep lanes in their slab")[field][leaf];
   }
 
   /** How many rows the mask admits over every leaf. */
@@ -199,7 +236,7 @@ public final class MaskedColumns implements AutoCloseable {
   }
 
   /**
-   * An identity shared only by one loaded snapshot and its cached views, including its field roster.
+   * An identity shared only by one cached selection and its views, including its field roster.
    * Derived caches must also check {@link #isImmutableRevision()} because a view's masks may change.
    */
   public Object rowIdentity() {
@@ -208,15 +245,10 @@ public final class MaskedColumns implements AutoCloseable {
 
   /** Mark the columns as read from an immutable revision (no write transaction). */
   void markImmutableRevision() {
-    if (snapshot == null) {
-      immutableMasks = copyMasks(rowMasks);
-    }
+    immutableMasks = copyMasks(rowMasks);
   }
 
   public boolean isImmutableRevision() {
-    if (snapshot != null) {
-      return snapshot.masksEqual(rowMasks);
-    }
     return immutableMasks != null && Arrays.deepEquals(immutableMasks, rowMasks);
   }
 
@@ -237,10 +269,7 @@ public final class MaskedColumns implements AutoCloseable {
 
   /** The record key of {@code row} on {@code leaf}. */
   public long recordKey(final int leaf, final int row) {
-    final NativeNumericSnapshot resident = snapshot;
-    return resident != null
-        ? resident.recordKey(leaf, row)
-        : requireNonNull(recordKeys)[leaf][row];
+    return recordKeys[leaf][row];
   }
 
   public boolean isLong(final int field) {
@@ -259,12 +288,10 @@ public final class MaskedColumns implements AutoCloseable {
   /** Inclusive domain of a numeric field across admitted leaves; empty leaves retain sentinels. */
   public long minimum(final int field) {
     long minimum = Long.MAX_VALUE;
-    final NativeNumericSnapshot resident = snapshot;
+    final ColumnSlice[] fieldSlices = slices[field];
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       if (rowMasks[leaf] != null) {
-        minimum = Math.min(minimum, resident != null
-            ? resident.sliceMin(field, leaf)
-            : requireNonNull(slices)[field][leaf].min());
+        minimum = Math.min(minimum, fieldSlices[leaf].min());
       }
     }
     return minimum;
@@ -272,12 +299,10 @@ public final class MaskedColumns implements AutoCloseable {
 
   public long maximum(final int field) {
     long maximum = Long.MIN_VALUE;
-    final NativeNumericSnapshot resident = snapshot;
+    final ColumnSlice[] fieldSlices = slices[field];
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       if (rowMasks[leaf] != null) {
-        maximum = Math.max(maximum, resident != null
-            ? resident.sliceMax(field, leaf)
-            : requireNonNull(slices)[field][leaf].max());
+        maximum = Math.max(maximum, fieldSlices[leaf].max());
       }
     }
     return maximum;
@@ -300,11 +325,7 @@ public final class MaskedColumns implements AutoCloseable {
   }
 
   private boolean scanSelectedPresent(final int field) {
-    final NativeNumericSnapshot resident = snapshot;
-    if (resident != null) {
-      return scanSelectedPresentNative(resident, field);
-    }
-    final ColumnSlice[] fieldSlices = requireNonNull(slices)[field];
+    final ColumnSlice[] fieldSlices = slices[field];
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       final long[] mask = rowMasks[leaf];
       if (mask == null) {
@@ -324,53 +345,37 @@ public final class MaskedColumns implements AutoCloseable {
     return true;
   }
 
-  private boolean scanSelectedPresentNative(final NativeNumericSnapshot resident, final int field) {
-    final MemorySegment slab = resident.slab();
-    for (int leaf = 0; leaf < rowMasks.length; leaf++) {
-      final long[] mask = rowMasks[leaf];
-      if (mask == null) {
-        continue;
-      }
-      if (resident.sliceRows(field, leaf) == 0) {
-        return false;
-      }
-      final long presence = resident.presenceBase(field, leaf);
-      for (int word = 0; word < mask.length; word++) {
-        if ((mask[word] & ~SegmentAccess.getLong(slab, presence + 8L * word)) != 0L) {
-          return false;
-        }
-      }
-    }
-    return true;
+  /**
+   * The segment holding {@code field}'s lane on {@code leaf}: the store's column slab, the cache
+   * entry's slab, this view's own slab, or (allocator refusal) the heap array viewed as a segment.
+   * Kernels hoist it per leaf with {@link #laneBase(int, int)} and read eight bytes per row at linear
+   * offsets.
+   */
+  public MemorySegment laneSegment(final int field, final int leaf) {
+    return slices[field][leaf].laneSegment();
   }
 
-  /** Immutable numeric values for a leaf of a heap view; native views hoist lane offsets instead. */
-  public long[] numericLane(final int field, final int leaf) {
-    if (snapshot != null) {
-      throw new IllegalStateException("native views read lanes through their slab");
-    }
-    return requireNonNull(requireNonNull(slices)[field][leaf].numericValues(),
-        "an admitted numeric field needs a numeric lane");
+  /**
+   * Byte offset of {@code field}'s lane on {@code leaf} within {@link #laneSegment(int, int)}. Row
+   * {@code r} of the lane lies {@code 8 * r} bytes past it.
+   */
+  public long laneBase(final int field, final int leaf) {
+    return slices[field][leaf].laneBase();
   }
 
   /** Whether {@code field} is present on {@code row} of {@code leaf}. */
   public boolean present(final int field, final int leaf, final int row) {
-    final NativeNumericSnapshot resident = snapshot;
-    if (resident != null) {
-      return resident.present(field, leaf, row);
-    }
-    final ColumnSlice slice = requireNonNull(slices)[field][leaf];
+    final ColumnSlice slice = slices[field][leaf];
     return slice.rowCount() > 0 && (slice.presenceWords()[row >>> 6] & 1L << (row & 63)) != 0L;
   }
 
   /** The long value of {@code field} on a PRESENT row. */
   public long longValue(final int field, final int leaf, final int row) {
-    final NativeNumericSnapshot resident = snapshot;
-    if (resident != null) {
-      return resident.longValue(field, leaf, row);
-    }
-    return requireNonNull(requireNonNull(slices)[field][leaf].numericValues(),
-        "an admitted long field needs a numeric lane")[row];
+    final ColumnSlice slice = slices[field][leaf];
+    final NumericLane lane = slice.lane();
+    return lane != null
+        ? lane.get(row)
+        : requireNonNull(slice.numericValues(), "an admitted long field needs a numeric lane")[row];
   }
 
   /**
@@ -378,7 +383,7 @@ public final class MaskedColumns implements AutoCloseable {
    * leaves and across every {@link MaskedColumns} sharing this interner.
    */
   public int stringId(final int field, final int leaf, final int row) {
-    final ColumnSlice slice = stringSlice(field, leaf);
+    final ColumnSlice slice = slices[field][leaf];
     final int[] ids = requireNonNull(slice.stringDictIds(), "an admitted string field needs dictionary ids");
     int[] table = dictToInterned[field][leaf];
     if (table == null) {
@@ -390,13 +395,6 @@ public final class MaskedColumns implements AutoCloseable {
       dictToInterned[field][leaf] = table;
     }
     return table[ids[row]];
-  }
-
-  private ColumnSlice stringSlice(final int field, final int leaf) {
-    if (snapshot != null) {
-      throw new IllegalStateException("numeric snapshots carry no string columns");
-    }
-    return requireNonNull(slices)[field][leaf];
   }
 
   /** The string behind an interned id. */
@@ -427,8 +425,6 @@ public final class MaskedColumns implements AutoCloseable {
     other.sharedInterner = this;
   }
 
-  private @Nullable MaskedColumns sharedInterner;
-
   private int internShared(final String value) {
     return sharedInterner != null
         ? sharedInterner.intern(value)
@@ -438,12 +434,7 @@ public final class MaskedColumns implements AutoCloseable {
   /** Every present long value of {@code field} over the admitted rows. */
   public LongOpenHashSet presentLongValues(final int field) {
     final LongOpenHashSet values = new LongOpenHashSet();
-    final NativeNumericSnapshot resident = snapshot;
-    if (resident != null) {
-      presentLongValuesNative(resident, field, values);
-      return values;
-    }
-    final ColumnSlice[] fieldSlices = requireNonNull(slices)[field];
+    final ColumnSlice[] fieldSlices = slices[field];
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       final long[] mask = rowMasks[leaf];
       if (mask == null) {
@@ -454,44 +445,19 @@ public final class MaskedColumns implements AutoCloseable {
         continue;
       }
       final long[] presence = slice.presenceWords();
-      final long[] lane = requireNonNull(slice.numericValues(), "an admitted long field needs a numeric lane");
+      final MemorySegment lane = slice.laneSegment();
+      final long laneBase = slice.laneBase();
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w] & presence[w];
         final int rowBase = w << 6;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
-          values.add(lane[rowBase + bit]);
+          values.add(SegmentAccess.getLong(lane, laneBase + ((long) (rowBase + bit) << 3)));
         }
       }
     }
     return values;
-  }
-
-  /** The heap loop over the resident lane: the lane and presence offsets are hoisted per leaf. */
-  private void presentLongValuesNative(final NativeNumericSnapshot resident, final int field,
-      final LongOpenHashSet values) {
-    final MemorySegment slab = resident.slab();
-    for (int leaf = 0; leaf < rowMasks.length; leaf++) {
-      final long[] mask = rowMasks[leaf];
-      if (mask == null || resident.sliceRows(field, leaf) <= 0) {
-        continue;
-      }
-      final long lane = resident.laneBase(field, leaf);
-      if (lane < 0) {
-        throw new IllegalStateException("an admitted long field needs a numeric lane");
-      }
-      final long presence = resident.presenceBase(field, leaf);
-      for (int w = 0; w < mask.length; w++) {
-        long word = mask[w] & SegmentAccess.getLong(slab, presence + 8L * w);
-        final int rowBase = w << 6;
-        while (word != 0L) {
-          final int bit = Long.numberOfTrailingZeros(word);
-          word &= word - 1L;
-          values.add(SegmentAccess.getLong(slab, lane + 8L * (rowBase + bit)));
-        }
-      }
-    }
   }
 
   /**
@@ -502,21 +468,7 @@ public final class MaskedColumns implements AutoCloseable {
    */
   public long[] recordKeysByMembership(final int field, final LongOpenHashSet values, final boolean anti) {
     final LongArrayList keys = new LongArrayList();
-    final NativeNumericSnapshot resident = snapshot;
-    if (resident != null) {
-      recordKeysByMembershipNative(resident, field, values, anti, keys);
-    } else {
-      recordKeysByMembershipHeap(field, values, anti, keys);
-    }
-    final long[] sorted = keys.toLongArray();
-    Arrays.sort(sorted);
-    return sorted;
-  }
-
-  private void recordKeysByMembershipHeap(final int field, final LongOpenHashSet values, final boolean anti,
-      final LongArrayList keys) {
-    final ColumnSlice[] fieldSlices = requireNonNull(slices)[field];
-    final long[][] leafKeyLanes = requireNonNull(recordKeys);
+    final ColumnSlice[] fieldSlices = slices[field];
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       final long[] mask = rowMasks[leaf];
       if (mask == null) {
@@ -527,10 +479,13 @@ public final class MaskedColumns implements AutoCloseable {
       final long[] presence = pruned
           ? null
           : slice.presenceWords();
-      final long[] lane = pruned
-          ? LongArrays.EMPTY_ARRAY
-          : requireNonNull(slice.numericValues(), "an admitted membership field needs a numeric lane");
-      final long[] leafKeys = leafKeyLanes[leaf];
+      final MemorySegment lane = pruned
+          ? MemorySegment.NULL
+          : slice.laneSegment();
+      final long laneBase = pruned
+          ? 0L
+          : slice.laneBase();
+      final long[] leafKeys = recordKeys[leaf];
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
         final int rowBase = w << 6;
@@ -539,7 +494,7 @@ public final class MaskedColumns implements AutoCloseable {
           word &= word - 1L;
           final int row = rowBase + bit;
           final boolean present = presence != null && (presence[w] & 1L << bit) != 0L;
-          final boolean member = present && values.contains(lane[row]);
+          final boolean member = present && values.contains(SegmentAccess.getLong(lane, laneBase + ((long) row << 3)));
           if (anti
               ? !member
               : member) {
@@ -548,44 +503,9 @@ public final class MaskedColumns implements AutoCloseable {
         }
       }
     }
-  }
-
-  /** The heap loop over the resident lane and record keys, offsets hoisted per leaf. */
-  private void recordKeysByMembershipNative(final NativeNumericSnapshot resident, final int field,
-      final LongOpenHashSet values, final boolean anti, final LongArrayList keys) {
-    final MemorySegment slab = resident.slab();
-    for (int leaf = 0; leaf < rowMasks.length; leaf++) {
-      final long[] mask = rowMasks[leaf];
-      if (mask == null) {
-        continue;
-      }
-      final boolean pruned = resident.sliceRows(field, leaf) <= 0;
-      final long lane = resident.laneBase(field, leaf);
-      if (!pruned && lane < 0) {
-        throw new IllegalStateException("an admitted membership field needs a numeric lane");
-      }
-      final long leafKeys = resident.keyBase(leaf);
-      final long presence = resident.presenceBase(field, leaf);
-      for (int w = 0; w < mask.length; w++) {
-        long word = mask[w];
-        final long presenceWord = pruned
-            ? 0L
-            : SegmentAccess.getLong(slab, presence + 8L * w);
-        final int rowBase = w << 6;
-        while (word != 0L) {
-          final int bit = Long.numberOfTrailingZeros(word);
-          word &= word - 1L;
-          final int row = rowBase + bit;
-          final boolean member =
-              (presenceWord & 1L << bit) != 0L && values.contains(SegmentAccess.getLong(slab, lane + 8L * row));
-          if (anti
-              ? !member
-              : member) {
-            keys.add(SegmentAccess.getLong(slab, leafKeys + 8L * row));
-          }
-        }
-      }
-    }
+    final long[] sorted = keys.toLongArray();
+    Arrays.sort(sorted);
+    return sorted;
   }
 
   ColumnPredicate recordKeyPredicateByMembership(final int field, final long[] sortedKeys, final LongOpenHashSet values,
@@ -593,18 +513,12 @@ public final class MaskedColumns implements AutoCloseable {
     if (field < 0 || field >= kinds.length || !isLong(field)) {
       throw new IllegalArgumentException("membership requires a numeric field");
     }
-    final NativeNumericSnapshot resident = snapshot;
-    if (resident != null) {
-      return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, resident.slab(), resident.keyBases(),
-          resident.leafRowCounts(), resident.laneBases(field), resident.presenceBases(field), values, anti);
-    }
-    return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, requireNonNull(recordKeys),
-        requireNonNull(slices)[field], values, anti);
+    return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, recordKeys, slices[field], values, anti);
   }
 
   /** The interned id of a string on a PRESENT row, through the shared interner when adopted. */
   public int sharedStringId(final int field, final int leaf, final int row) {
-    final ColumnSlice slice = stringSlice(field, leaf);
+    final ColumnSlice slice = slices[field][leaf];
     final int[] ids = requireNonNull(slice.stringDictIds(), "an admitted string field needs dictionary ids");
     int[] table = dictToInterned[field][leaf];
     if (table == null) {

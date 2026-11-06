@@ -11,6 +11,7 @@ import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.IntBuffer;
@@ -1695,6 +1696,49 @@ public final class ProjectionIndexColumnSegmentCodec {
       }
       default -> throw new IllegalStateException("Column " + col + " (kind " + kind + ") is not body-only sliceable");
     }
+  }
+
+  /**
+   * The body-only sliceable kinds whose cells are one long per row: the kinds a slab lane carries.
+   */
+  static boolean bodyLongLane(final byte kind) {
+    return switch (kind) {
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE ->
+        true;
+      default -> false;
+    };
+  }
+
+  /**
+   * {@link #decodeBodySlice(byte[], byte[], int)} for a {@link #bodyLongLane} column, its values
+   * written straight into {@code slab} at {@code laneBase} (eight bytes per row): the returned slice
+   * carries a {@link NumericLane} and no heap value array. Presence words stay on the heap.
+   */
+  static ProjectionColumnStore.ColumnSlice decodeBodySliceInto(final byte[] descriptor, final byte[] bodyColumnSegment,
+      final int col, final MemorySegment slab, final long laneBase) {
+    final int rowCount = RowGroupDescriptor.rowCount(descriptor);
+    final byte kind = RowGroupDescriptor.kind(descriptor, col);
+    if (!bodyLongLane(kind)) {
+      throw new IllegalStateException("Column " + col + " (kind " + kind + ") has no long lane to decode off-heap");
+    }
+    final ProjectionIndexRowGroupCodec.Cursor body = openBodySlice(descriptor, bodyColumnSegment, col, false);
+    final byte flags = body.readByte();
+    final int presWords = rowCount > 0
+        ? (rowCount + 63) >>> 6
+        : 0;
+    final long[] presence = new long[presWords];
+    if (rowCount == 0) {
+      return new ProjectionColumnStore.ColumnSlice(0, flags, Long.MAX_VALUE, Long.MIN_VALUE, presence, null, null, null,
+          null, null);
+    }
+    final long min = body.readLong();
+    final long max = body.readLong();
+    ProjectionIndexRowGroupCodec.decodePresenceInto(body, presence, presWords, rowCount);
+    ProjectionIndexRowGroupCodec.decodeForBitPackedColumnInto(body, rowCount, slab, laneBase);
+    return new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence,
+        new NumericLane(slab, laneBase, rowCount));
   }
 
   private static ProjectionIndexRowGroupCodec.Cursor openBodySlice(final byte[] descriptor, final byte[] bytes,

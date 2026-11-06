@@ -475,6 +475,16 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
+     * This handle left its cache or registry: its column store releases what no query pins (see
+     * {@link ProjectionColumnStore#retire()}); an eager handle holds nothing off-heap. Idempotent.
+     */
+    public void retire() {
+      if (columnStore != null) {
+        columnStore.retire();
+      }
+    }
+
+    /**
      * Column kind byte WITHOUT materializing a lazy handle (descriptor truth); eager handles read leaf
      * 0's kind byte as before (empty stores default to NUMERIC_LONG, preserving the historical
      * extraction semantics).
@@ -1689,8 +1699,14 @@ public final class ProjectionIndexRegistry {
     final List<Handle> pool = WILDCARDS.get(resourceKey);
     if (pool == null)
       return;
-    pool.removeIf(handle -> Arrays.equals(handle.fieldNames, fieldNames)
-        && (rootPath == null || Objects.equals(handle.rootPath, rootPath)));
+    pool.removeIf(handle -> {
+      final boolean remove = Arrays.equals(handle.fieldNames, fieldNames)
+          && (rootPath == null || Objects.equals(handle.rootPath, rootPath));
+      if (remove) {
+        handle.retire();
+      }
+      return remove;
+    });
   }
 
   private static String prewarmKey(final String resourceKey, final String rootPath, final String[] fieldNames) {
@@ -1699,12 +1715,26 @@ public final class ProjectionIndexRegistry {
 
   /** Remove any installed index for {@code (resourceKey, sourcePath)}. */
   public static void uninstall(final String resourceKey, final String[] sourcePath) {
-    REGISTRY.remove(key(resourceKey, sourcePath));
+    final Handle removed = REGISTRY.remove(key(resourceKey, sourcePath));
+    if (removed != null) {
+      removed.retire();
+    }
   }
 
-  /** Drop every entry (incl. the catalog decode cache) — for test isolation. */
+  /**
+   * Drop every entry (incl. the catalog decode cache) — for test isolation. Every dropped handle is
+   * retired, so the off-heap lanes of stores no query pins return to the allocator here.
+   */
   public static void clear() {
+    for (final Handle handle : REGISTRY.values()) {
+      handle.retire();
+    }
     REGISTRY.clear();
+    for (final List<Handle> pool : WILDCARDS.values()) {
+      for (final Handle handle : pool) {
+        handle.retire();
+      }
+    }
     WILDCARDS.clear();
     PREWARMED.clear();
     ProjectionIndexCatalog.clearCache();

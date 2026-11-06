@@ -439,7 +439,7 @@ final class IndexRoutedGroupWorkBudgetTest {
               .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusal is an ordinary decline");
         verify(observedColumns, empty
             ? never()
-            : times(1)).columnMaskedView(eq(id), any(), any());
+            : times(1)).columnMaskedView(eq(id), any(), any(), any());
         assertFalse(observedColumns.columnFilled(id), "the sparse source never fills excluded membership leaves");
       } finally {
         ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);

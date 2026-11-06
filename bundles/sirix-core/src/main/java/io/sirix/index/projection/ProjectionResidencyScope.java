@@ -12,6 +12,16 @@ import java.util.concurrent.atomic.LongAdder;
  * the stores it touched release what is no longer pinned and no longer fits the headroom share.
  *
  * <p>
+ * <b>Pins are also the proof that a column may be freed.</b> A store's numeric columns live in
+ * allocator slabs that are unmapped on release, so a release must know that no query reads them:
+ * every executor-driven read runs inside a scope (the executor opens one per top-level call whether
+ * or not the headroom share gates retention), and a store frees a column only when its pin count is
+ * zero — at a scope exit over the share, when a fit door makes room, and when its handle leaves the
+ * catalog ({@link ProjectionColumnStore#retire()}). See docs/DERIVED_QUERY_CACHES.md, "Column
+ * lanes".
+ * </p>
+ *
+ * <p>
  * <b>Why a scope and not an LRU.</b> A published fill is handed to running scan workers as plain
  * arrays. Evicting one on a size trigger, from a maintenance thread or a cache listener, would drop
  * the store's slot under a kernel that is mid-scan: correct in Java (the worker's own reference
@@ -79,8 +89,11 @@ public final class ProjectionResidencyScope implements AutoCloseable {
     // Sample the headroom ONCE per query boundary, so every planner predicate and every fill door of
     // the query that is starting price against the SAME budget. A budget that moved mid-query would
     // let a route be admitted as resident and then refused at its second fill — the whole-leaf
-    // re-entry the combined-fit rule already exists to prevent.
-    ProjectionColumnStore.sampleHeadroomShare();
+    // re-entry the combined-fit rule already exists to prevent. Only the headroom-gated budget reads
+    // the sample; with the gate off the scope exists for its pins alone and costs no heap walk.
+    if (ProjectionColumnStore.residencyHeadroomEnabled()) {
+      ProjectionColumnStore.sampleHeadroomShare();
+    }
     return scope;
   }
 
@@ -185,7 +198,9 @@ public final class ProjectionResidencyScope implements AutoCloseable {
     }
     // Re-sample at the query's END too: the release decides against the memory situation the query
     // actually left behind, not the one it started from.
-    ProjectionColumnStore.sampleHeadroomShare();
+    if (ProjectionColumnStore.residencyHeadroomEnabled()) {
+      ProjectionColumnStore.sampleHeadroomShare();
+    }
     // Drop every pin BEFORE sweeping any store: a query that filled two columns of one store must
     // see both unpinned when the first sweep runs, or the sweep would keep the second for no reason.
     // The store monitor is taken by the sweep, never while this scope's monitor is held — the pin

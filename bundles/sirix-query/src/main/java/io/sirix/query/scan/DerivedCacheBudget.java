@@ -2,6 +2,8 @@ package io.sirix.query.scan;
 
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.index.projection.NumericLane;
+import io.sirix.index.projection.ProjectionColumnStore;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
@@ -12,11 +14,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 /**
- * One allowance for decoded numeric snapshots and packed join sides, carved from the persisted-page
- * allocator's physical budget rather than the Java heap. Every entry owns one allocator slab: a
- * global-scope {@link MemorySegment} whose bytes are reserved before mapping and refunded exactly
- * once when the last lease drops. Removing an entry from lookup never frees its storage; a reader
- * that acquired a lease before the eviction keeps reading valid memory until it releases.
+ * One allowance for cached masked selections and packed join sides, carved from the persisted-page
+ * allocator's physical budget rather than the Java heap. An entry owns at most one allocator slab:
+ * a global-scope {@link MemorySegment} whose bytes are reserved before mapping and refunded exactly
+ * once when the last lease drops (an entry over a store's resident columns owns none and pins those
+ * columns instead, until the same moment). Removing an entry from lookup never frees its storage; a
+ * reader that acquired a lease before the eviction keeps reading valid memory until it releases.
  *
  * <p>
  * The default target is {@code D = A / 8} of the allocator's effective allowance {@code A}; an
@@ -119,11 +122,22 @@ public final class DerivedCacheBudget {
     final PartitionMetrics p = packed.metrics();
     return new Metrics(configuredBytes, allocatorBytes, effectiveBytes, n, p, n.retainedBytes() + p.retainedBytes(),
         n.inFlightBytes() + p.inFlightBytes(), n.retiredLeasedBytes() + p.retiredLeasedBytes(),
-        saturatedAdd(n.rejectedBytes(), p.rejectedBytes()));
+        saturatedAdd(n.rejectedBytes(), p.rejectedBytes()),
+        new LaneMetrics(allocator.getSlabBytes(), ProjectionColumnStore.slabFillsDeclinedCount(),
+            NumericLane.materializedCount(), NumericLane.materializedBytes()));
   }
 
   public record Metrics(long configuredBytes, long allocatorBytes, long effectiveBytes, PartitionMetrics numeric,
-      PartitionMetrics packed, long retainedBytes, long inFlightBytes, long retiredLeasedBytes, long rejectedBytes) {
+      PartitionMetrics packed, long retainedBytes, long inFlightBytes, long retiredLeasedBytes, long rejectedBytes,
+      LaneMetrics lanes) {
+  }
+
+  /**
+   * The off-heap column lanes of the projection stores: slab bytes the allocator currently commits,
+   * fills the allocator refused (decoded to the heap instead), and lanes a not-yet-converted consumer
+   * copied to the heap ({@link NumericLane#values()}).
+   */
+  public record LaneMetrics(long slabBytes, long fillsDeclined, long materializedLanes, long materializedBytes) {
   }
 
   public record PartitionMetrics(long maximumBytes, long retainedBytes, long inFlightBytes, long retiredLeasedBytes,
@@ -233,6 +247,12 @@ public final class DerivedCacheBudget {
 
     /** Runs under the partition lock right after this entry left the lookup set. */
     protected void evicted() {}
+
+    /**
+     * Runs once, outside the partition lock, after the final lease dropped and the slab (if any) was
+     * released: nothing reads this entry any more.
+     */
+    protected void released() {}
   }
 
   /**
@@ -351,11 +371,53 @@ public final class DerivedCacheBudget {
       entry.release();
     }
 
-    /** The final lease dropped: free the slab and refund the share. */
+    /** The final lease dropped: free the slab (a resident entry owns none) and refund the share. */
     private void freed(final Entry entry) {
-      budget.allocator.releaseSlab(Objects.requireNonNull(entry.slab));
+      final MemorySegment slab = entry.slab;
+      if (slab != null) {
+        budget.allocator.releaseSlab(slab);
+      }
       synchronized (this) {
         retiredLeased -= entry.bytes;
+      }
+      entry.released();
+    }
+
+    /**
+     * Publish an entry that owns no slab: its lanes are the store's resident column slabs, which the
+     * entry pins for its lifetime; {@code bytes} is what the entry itself retains (its heap keys and
+     * masks), charged to this share like any other entry. Fails when the share cannot hold it.
+     */
+    public boolean publishResident(final Entry entry, final long bytes) {
+      Objects.requireNonNull(entry);
+      if (bytes < 0) {
+        throw new IllegalArgumentException("Negative resident weight");
+      }
+      synchronized (this) {
+        if (bytes > maximumBytes) {
+          reject(bytes);
+          return false;
+        }
+        reapStale();
+        while (bytes > maximumBytes - retained - inFlight - retiredLeased) {
+          final Entry victim = coldestUnleased();
+          if (victim == null) {
+            reject(bytes);
+            return false;
+          }
+          evictLocked(victim);
+        }
+        if (!entry.tryAcquire()) {
+          throw new IllegalStateException("a fresh entry must accept the publisher's lease");
+        }
+        retained += bytes;
+        entry.partition = this;
+        entry.slab = null;
+        entry.bytes = bytes;
+        entry.published = true;
+        entry.lastUse = ++clock;
+        entries.add(entry);
+        return true;
       }
     }
 

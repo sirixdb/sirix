@@ -148,8 +148,15 @@ public final class ProjectionIndexCatalog {
 
   /** Decoded leaves, priced in overflow-safe units within the declared projection share. */
   private static final Cache<DataKey, ProjectionIndexRegistry.Handle> DATA =
-      Caffeine.newBuilder()
-              .executor(Runnable::run)
+      Caffeine.newBuilder().executor(Runnable::run)
+      // A handle that leaves the cache (weight pressure, invalidation, test isolation) retires
+      // its column store: the off-heap lanes of every column no query pins are released now,
+      // pinned ones at their last unpin. Runs on the removing thread (the executor above).
+      .<DataKey, ProjectionIndexRegistry.Handle>removalListener((key, handle, cause) -> {
+        if (handle != null) {
+          handle.retire();
+        }
+      })
               .maximumWeight(
                   (CACHE_BYTES / CACHE_WEIGHT_UNIT)).<DataKey, ProjectionIndexRegistry.Handle>weigher((key, handle) -> {
                     // Column-lazy handles (P5b stage 2) weigh at their worst-case RESIDENT size (raw

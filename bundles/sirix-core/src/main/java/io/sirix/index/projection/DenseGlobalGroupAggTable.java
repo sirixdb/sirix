@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.node.SegmentAccess;
+import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 
@@ -304,6 +306,47 @@ public final class DenseGlobalGroupAggTable {
         continue;
       }
       final long v = aggValues[a][rowIdx];
+      final int aggBase = base + 2 + 4 * a;
+      // The PRESENT count is never skippable: min/max/avg over a group whose every row lacked the
+      // operand must answer the empty sequence, and this lane is the only thing that says so.
+      addLane(block, aggBase, 1L);
+      // Exact sum or DECLINE, and a lane no sum/avg reads is not folded at all — the same rule the
+      // hash kernels obey, so a min-only query never declines on a sum it does not read.
+      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+        addExactLane(block, aggBase + 1, v);
+      }
+      minLane(block, aggBase + 2, v);
+      maxLane(block, aggBase + 3, v);
+    }
+  }
+
+  /** {@link #fold} over lane segments: {@code aggSeg[a]} at byte offset {@code aggBase[a]}. */
+  public void foldLane(final long id, final long firstSeenOrdinal, final MemorySegment[] aggSeg, final long[] laneBases,
+      final long[][] aggPresence, final int aggCount, final int w, final int bit, final int rowIdx,
+      final IdRoster roster, final long[] decline) {
+    final long[] block;
+    final int base;
+    if (id == 0L) {
+      block = zeroSlot;
+      base = 0;
+    } else if (id < 0L || id > maxId) {
+      decline[0] = 1L;
+      return;
+    } else {
+      block = lanes;
+      base = (int) (id - 1L) * slotWidth;
+    }
+    if (foldCountLane) {
+      addLane(block, base, 1L);
+    }
+    if (minLaneCreated(block, base + 1, firstSeenOrdinal) && id != 0L) {
+      roster.add((int) id);
+    }
+    for (int a = 0; a < aggCount; a++) {
+      if ((aggPresence[a][w] & 1L << bit) == 0L) {
+        continue;
+      }
+      final long v = SegmentAccess.getLong(aggSeg[a], laneBases[a] + ((long) rowIdx << 3));
       final int aggBase = base + 2 + 4 * a;
       // The PRESENT count is never skippable: min/max/avg over a group whose every row lacked the
       // operand must answer the empty sequence, and this lane is the only thing that says so.

@@ -52,6 +52,7 @@ import io.sirix.index.projection.NumericGroupAggTable;
 import io.sirix.index.projection.ProjectionColumnGroupScan;
 import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionComputedColumn;
+import io.sirix.cache.Allocators;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
@@ -1391,11 +1392,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (terminallyClosed && !reentrant) {
           throw new IllegalStateException("Vectorized executor is closed");
         }
-        if (activeCalls == 0 && ProjectionColumnStore.residencyHeadroomEnabled()) {
-          // R1: the outermost admitted call IS the query scope. Column fills published while it is
-          // open are pinned; at its exit the stores it touched release what nothing pins any more
-          // and no longer fits the headroom share. Nested and concurrent calls share the scope —
-          // the counter, not the object, decides when the last one has left.
+        if (activeCalls == 0) {
+          // The outermost admitted call IS the query scope: every column this query reads is pinned
+          // in it, which is what lets a store free an off-heap lane — at a scope exit over the
+          // headroom share, in a fit door, or when its handle leaves the catalog — knowing that no
+          // query reads it. Nested and concurrent calls share the scope: the counter, not the
+          // object, decides when the last one has left. Whether the headroom share LOWERS what a
+          // store retains is a separate switch (ProjectionColumnStore.residencyHeadroomEnabled()).
           residencyScope = ProjectionResidencyScope.open();
         }
         activeCalls++;
@@ -9452,17 +9455,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         ? rowKeys
         : null;
     if (cacheKeys != null) {
-      final MaskedColumns cached = NumericMaskedColumnCache.get(store, fields, cacheKeys);
+      final MaskedColumns cached = NumericMaskedColumnCache.global().lookup(store, fields, cacheKeys);
       if (cached != null) {
         return cached;
       }
     }
-    final MaskedColumns result = readMaskedColumns(store, fetcher, rowKeys, cols, kinds);
-    if (result != null && wtx == null) {
+    // A cacheable selection decodes its lanes straight into a reservation of the numeric partition
+    // and is published from there; nothing is copied afterwards.
+    final MaskedColumns result = readMaskedColumns(store, fetcher, rowKeys, cols, kinds, fields, cacheKeys);
+    if (result != null && wtx == null && result.immutableMasks() == null) {
       result.markImmutableRevision();
-    }
-    if (result != null && cacheKeys != null) {
-      NumericMaskedColumnCache.put(store, fields, cacheKeys, result);
     }
     return result;
   }
@@ -30906,7 +30908,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   private @Nullable MaskedColumns readMaskedColumns(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] rowKeys, final int[] cols,
-      final byte[] kinds) {
+      final byte[] kinds, final String[] fields, final long @Nullable [] cacheKeys) {
     final int[] residency = Arrays.copyOf(cols, cols.length + 1);
     residency[cols.length] = ProjectionColumnStore.KEYS_COLUMN;
     if (!store.columnsFitWithinBudget(residency, -1)) {
@@ -30925,10 +30927,88 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final long[][] rowMasks = new long[leaves][];
     final long rows = ProjectionColumnScan.rowKeepMasks(store, preds, predCols, null, null, 0, leaves, rowMasks);
     final ProjectionColumnStore.ColumnSlice[][] slices = new ProjectionColumnStore.ColumnSlice[cols.length][];
-    for (int i = 0; i < cols.length; i++) {
-      slices[i] = store.columnMaskedView(cols[i], fetcher, keep);
+    // Long lanes the store does not hold resident decode straight into ONE slab: a reservation of the
+    // numeric partition when the selection is cacheable (an immutable revision with a key roster),
+    // otherwise query-local memory this view owns and releases when it closes. Resident columns are
+    // served pruned from their own slabs; a cached view pins them through its entry. Only when the
+    // allocator refuses the memory does a lane decode to heap arrays (counted as a declined fill).
+    final long[][] laneBases = new long[cols.length][];
+    long laneBytes = 0L;
+    if (keep != null) {
+      for (int i = 0; i < cols.length; i++) {
+        if (store.columnLongLane(cols[i]) && !store.columnFilled(cols[i])) {
+          laneBases[i] = new long[leaves];
+          laneBytes = store.maskedLaneLayout(cols[i], keep, laneBases[i], laneBytes);
+        }
+      }
     }
-    return new MaskedColumns(store, rowMasks, store.recordKeysMasked(fetcher, keep), slices, kinds, rows);
+    DerivedCacheBudget.Reservation reservation = null;
+    MemorySegment owned = null;
+    MemorySegment slab = null;
+    if (laneBytes > 0L) {
+      if (cacheKeys != null) {
+        reservation = NumericMaskedColumnCache.global().reserve(laneBytes);
+        slab = reservation == null
+            ? null
+            : reservation.slab();
+      }
+      if (slab == null) {
+        owned = Allocators.getInstance().allocateSlab(laneBytes);
+        slab = owned;
+        if (owned == null) {
+          ProjectionColumnStore.noteSlabFillDeclined();
+        }
+      }
+    }
+    try {
+      final boolean[] residentColumn = new boolean[cols.length];
+      int resident = 0;
+      for (int i = 0; i < cols.length; i++) {
+        final ProjectionColumnStore.LaneTarget target = !store.columnLongLane(cols[i])
+            ? null
+            : slab != null && laneBases[i] != null
+                ? new ProjectionColumnStore.LaneTarget(slab, laneBases[i])
+                : new ProjectionColumnStore.LaneTarget();
+        slices[i] = store.columnMaskedView(cols[i], fetcher, keep, target);
+        if (target != null && target.resident()) {
+          residentColumn[i] = true;
+          resident++;
+        }
+      }
+      final MaskedColumns view =
+          new MaskedColumns(store, rowMasks, store.recordKeysMasked(fetcher, keep), slices, kinds, rows);
+      if (cacheKeys == null || (laneBytes > 0L && reservation == null)) {
+        // Mutable, no key roster, or the share refused the lanes: this query's view only.
+        if (owned != null) {
+          view.ownSlab(owned);
+          owned = null;
+        }
+        return view;
+      }
+      final int[] pinned = new int[resident];
+      resident = 0;
+      for (int i = 0; i < cols.length; i++) {
+        if (residentColumn[i]) {
+          pinned[resident++] = cols[i];
+        }
+      }
+      view.markImmutableRevision();
+      final NumericMaskedColumnCache cache = NumericMaskedColumnCache.global();
+      if (reservation != null) {
+        final MaskedColumns published = cache.publish(reservation, store, fields, cacheKeys, view, pinned);
+        reservation = null;
+        return published;
+      }
+      return cache.publishResident(store, fields, cacheKeys, view, pinned);
+    } finally {
+      // Whatever was not handed to the view or the cache goes back: a failed decode, a refused fill.
+      if (reservation != null) {
+        reservation.close();
+      }
+      if (owned != null) {
+        Allocators.getInstance().releaseSlab(owned);
+      }
+    }
   }
 
 }

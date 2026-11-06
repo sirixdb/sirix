@@ -184,8 +184,6 @@ final class IntervalRangeJoinWorkBudgetTest {
     build(VersioningType.FULL, true, rows);
     final DerivedCacheBudget budget = new DerivedCacheBudget(Allocators.getInstance(), bytes * 8, bytes);
     final DerivedCacheBudget previous = DerivedCacheBudget.setForTesting(budget);
-    // Snapshot copies run inline so the repeated execution deterministically sees the resident one.
-    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
     try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         var ctx = SirixQueryContext.createWithJsonStore(store);
         var chain = SirixCompileChain.createWithJsonStore(store);
@@ -213,7 +211,6 @@ final class IntervalRangeJoinWorkBudgetTest {
         assertEquals(2, metrics.packed().entries(), "both packed sides are resident");
       }
     } finally {
-      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
       DerivedCacheBudget.setForTesting(previous);
       budget.numeric().clear();
       budget.packed().clear();
@@ -229,37 +226,22 @@ final class IntervalRangeJoinWorkBudgetTest {
    */
   @Test
   void anOversizedBuildBucketMergesExactly() throws Exception {
-    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
-    try {
-      build(VersioningType.FULL, skewed("contracts", 2200), skewed("products", 2100));
-      assertMergesTwice("{\"category\":1,\"n\":2200,\"minimum\":16,\"maximum\":16}");
-    } finally {
-      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
-    }
+    build(VersioningType.FULL, skewed("contracts", 2200), skewed("products", 2100));
+    assertMergesTwice("{\"category\":1,\"n\":2200,\"minimum\":16,\"maximum\":16}");
   }
 
   /** One product and 9000 contracts in its bucket: one probe bucket holds the whole side. */
   @Test
   void anOversizedProbeBucketMergesExactly() throws Exception {
-    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
-    try {
-      build(VersioningType.FULL, skewed("contracts", 9000), skewed("products", 1));
-      assertMergesTwice("{\"category\":1,\"n\":9000,\"minimum\":16,\"maximum\":16}");
-    } finally {
-      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
-    }
+    build(VersioningType.FULL, skewed("contracts", 9000), skewed("products", 1));
+    assertMergesTwice("{\"category\":1,\"n\":9000,\"minimum\":16,\"maximum\":16}");
   }
 
   /** 5000 keys, two contracts each: 10000 probe records across 5000 buckets. */
   @Test
   void aDenseDomainMergesAcrossManyBucketsExactly() throws Exception {
-    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
-    try {
-      build(VersioningType.FULL, true, 10000);
-      assertMergesTwice("{\"category\":1,\"n\":10000,\"minimum\":16,\"maximum\":16}");
-    } finally {
-      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
-    }
+    build(VersioningType.FULL, true, 10000);
+    assertMergesTwice("{\"category\":1,\"n\":10000,\"minimum\":16,\"maximum\":16}");
   }
 
   private void assertMergesTwice(final String expected) throws Exception {
@@ -310,7 +292,6 @@ final class IntervalRangeJoinWorkBudgetTest {
     final long bytes = 8L << 20;
     final DerivedCacheBudget budget = new DerivedCacheBudget(Allocators.getInstance(), bytes * 8, bytes);
     final DerivedCacheBudget previous = DerivedCacheBudget.setForTesting(budget);
-    final Executor previousCopies = NumericMaskedColumnCache.setCopyExecutorForTesting(Runnable::run);
     final AtomicReference<Runnable> pending = new AtomicReference<>();
     final Executor previousExecutor = SirixJoinedGroupAggregateExpr.setPackingExecutorForTesting(task -> {
       assertTrue(pending.compareAndSet(null, task), "one immutable probe has only one in-flight build");
@@ -345,7 +326,6 @@ final class IntervalRangeJoinWorkBudgetTest {
       }
     } finally {
       SirixJoinedGroupAggregateExpr.setPackingExecutorForTesting(previousExecutor);
-      NumericMaskedColumnCache.setCopyExecutorForTesting(previousCopies);
       DerivedCacheBudget.setForTesting(previous);
       budget.numeric().clear();
       budget.packed().clear();

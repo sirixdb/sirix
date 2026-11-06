@@ -86,7 +86,7 @@ final class SliceArrayPool {
       }
       presenceFree[presenceCount++] = presence;
     }
-    final long[] values = slice.numericValues();
+    final long[] values = slice.heapNumericValues();
     if (values != null && values.length > 0 && valuesCount < MAX_FREE) {
       if (valuesCount == valuesFree.length) {
         valuesFree = grow(valuesFree);

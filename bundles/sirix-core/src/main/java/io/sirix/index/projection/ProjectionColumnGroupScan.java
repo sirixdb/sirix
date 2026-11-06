@@ -10,8 +10,10 @@ import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
 import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import io.sirix.node.SegmentAccess;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.regex.Pattern;
@@ -88,7 +90,8 @@ public final class ProjectionColumnGroupScan {
     }
     // Hoisted per leaf — the record accessors and double indirection must stay out of the
     // per-row loop (1M-row group scans pay every load in it).
-    final long[][] aggValues = new long[aggCount][];
+    final MemorySegment[] aggSeg = new MemorySegment[aggCount];
+    final long[] aggBase = new long[aggCount];
     final long[][] aggPresence = new long[aggCount][];
     final int[][] aggIds = new int[aggCount][];
     final int[][] leafLengthTables = new int[aggCount][];
@@ -105,7 +108,8 @@ public final class ProjectionColumnGroupScan {
         continue;
       }
       final ColumnSlice group = groupCol[leaf];
-      final long[] groupValues = group.numericValues();
+      final MemorySegment groupSeg = group.laneSegment();
+      final long groupBase = group.laneBase();
       final long[] groupPresence = group.presenceWords();
       byte[] cdDictBytes = null;
       int[] cdDictOffsets = null;
@@ -121,7 +125,8 @@ public final class ProjectionColumnGroupScan {
             // fold reads table[(int) idLane[row]] and no dictionary bytes are touched. A GLOBAL
             // column's table serves every leaf; a SEGMENT column's is its own segment's, chosen once
             // per leaf just now.
-            aggValues[a] = agg.numericValues();
+            aggSeg[a] = agg.laneSegment();
+            aggBase[a] = agg.laneBase();
             aggIds[a] = null;
           } else {
             precomputeStringLengths(ds, a, agg, stringLengthModes[a]);
@@ -132,7 +137,7 @@ public final class ProjectionColumnGroupScan {
               // such a lane, so reaching here is a contract breach — refused by name, not by NPE.
               throw new IllegalStateException("length lane " + a + " has no per-leaf dictionary and no length table");
             }
-            aggValues[a] = null;
+            aggSeg[a] = null;
           }
         } else if (cdStringDict && a == distinctBlock) {
           cdHash = cdHashesFor(ds, agg);
@@ -143,9 +148,10 @@ public final class ProjectionColumnGroupScan {
               ? null
               : agg.dictOffsets();
           aggIds[a] = agg.stringDictIds();
-          aggValues[a] = null;
+          aggSeg[a] = null;
         } else {
-          aggValues[a] = agg.numericValues();
+          aggSeg[a] = agg.laneSegment();
+          aggBase[a] = agg.laneBase();
           aggIds[a] = null;
         }
       }
@@ -166,7 +172,7 @@ public final class ProjectionColumnGroupScan {
               }
               missingAcc[0]++;
             } else {
-              final long gv = groupValues[rowIdx];
+              final long gv = SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3));
               if (gv == 0L) {
                 out.acquireZero(leafOrdinalBase | rowIdx)[0]++;
               } else {
@@ -194,7 +200,7 @@ public final class ProjectionColumnGroupScan {
           final boolean groupMissing = (groupPresWord & 1L << bit) == 0L;
           final long distinctGroup = groupMissing
               ? 0L
-              : groupValues[rowIdx];
+              : SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3));
           if (groupMissing) {
             slotArr = missingAcc;
             base = 0;
@@ -213,9 +219,9 @@ public final class ProjectionColumnGroupScan {
               base = out.offsetAtAccBase(handle);
             }
           }
-          foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
-              bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null, sumExactMask,
-              leafLengthTables, groupMissing
+          foldSlicedLane(slotArr, base, aggSeg, aggBase, aggPresence, aggIds, ds.stringLengths, stringLengthModes,
+              aggCount, w, bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null,
+              sumExactMask, leafLengthTables, groupMissing
                   ? null
                   : distinctOut,
               distinctGroup);
@@ -255,7 +261,8 @@ public final class ProjectionColumnGroupScan {
     final int aggCount = aggCols.length;
     // Hoisted per leaf, exactly as the hash kernel hoists them: the record accessors and the double
     // indirection must stay out of the per-row loop.
-    final long[][] aggValues = new long[aggCount][];
+    final MemorySegment[] aggSeg = new MemorySegment[aggCount];
+    final long[] aggBase = new long[aggCount];
     final long[][] aggPresence = new long[aggCount][];
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       if (decline[0] != 0L) {
@@ -268,12 +275,14 @@ public final class ProjectionColumnGroupScan {
         continue;
       }
       final ColumnSlice group = groupCol[leaf];
-      final long[] groupValues = group.numericValues();
+      final MemorySegment groupSeg = group.laneSegment();
+      final long groupBase = group.laneBase();
       final long[] groupPresence = group.presenceWords();
       for (int a = 0; a < aggCount; a++) {
         final ColumnSlice agg = aggCols[a][leaf];
         aggPresence[a] = agg.presenceWords();
-        aggValues[a] = agg.numericValues();
+        aggSeg[a] = agg.laneSegment();
+        aggBase[a] = agg.laneBase();
       }
       final long leafOrdinalBase = (long) leaf << 20;
       final int stride = (rowCount + 63) >>> 6;
@@ -289,10 +298,10 @@ public final class ProjectionColumnGroupScan {
             if (missingAcc[0] == 0) {
               missingAcc[1] = leafOrdinalBase | rowIdx;
             }
-            foldNumericPlain(missingAcc, 0, aggValues, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
+            foldNumericPlainLane(missingAcc, 0, aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
           } else {
-            out.fold(groupValues[rowIdx], leafOrdinalBase | rowIdx, aggValues, aggPresence, aggCount, w, bit, rowIdx,
-                roster, decline);
+            out.foldLane(SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3)), leafOrdinalBase | rowIdx,
+                aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, roster, decline);
           }
         }
       }
@@ -314,6 +323,30 @@ public final class ProjectionColumnGroupScan {
         continue;
       }
       final long v = aggValues[a][rowIdx];
+      final int aggBase = base + 2 + 4 * a;
+      acc[aggBase]++;
+      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+        acc[aggBase + 1] = Math.addExact(acc[aggBase + 1], v);
+      }
+      if (v < acc[aggBase + 2]) {
+        acc[aggBase + 2] = v;
+      }
+      if (v > acc[aggBase + 3]) {
+        acc[aggBase + 3] = v;
+      }
+    }
+  }
+
+  /** {@link #foldNumericPlain} over lane segments. */
+  private static void foldNumericPlainLane(final long[] acc, final int base, final MemorySegment[] aggSeg,
+      final long[] laneBases, final long[][] aggPresence, final int aggCount, final int w, final int bit,
+      final int rowIdx, final long sumExactMask) {
+    acc[base]++;
+    for (int a = 0; a < aggCount; a++) {
+      if ((aggPresence[a][w] & 1L << bit) == 0L) {
+        continue;
+      }
+      final long v = SegmentAccess.getLong(aggSeg[a], laneBases[a] + ((long) rowIdx << 3));
       final int aggBase = base + 2 + 4 * a;
       acc[aggBase]++;
       if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
@@ -966,6 +999,82 @@ public final class ProjectionColumnGroupScan {
         v = h;
       } else {
         v = aggValues[a][rowIdx];
+      }
+      if (a == distinctBlock) {
+        // Dense global ids go to the shared per-group bitmap, which is exact at any cardinality and
+        // therefore spends no budget; everything else keeps the per-worker exact set and its ceiling.
+        if (dwords != null) {
+          if (!requireNonNull(bitmaps, "distinct bitmap words require their accumulator").set(dwords, v)) {
+            // An id outside the sized range declines; dropping it would silently lower the count.
+            requireNonNull(budget, "a distinct bitmap accumulator requires its budget")[1] = 1;
+          }
+        } else if (directDistinct != null) {
+          directDistinct.addToGroup(distinctGroup, v);
+        } else {
+          requireNonNull(dset, "a distinct aggregate requires its sink").add(v); // exact and bounded
+        }
+        continue;
+      }
+      final int aggBase = base + 2 + 4 * a;
+      slotArr[aggBase]++;
+      // Exact sum or DECLINE — the interpreter promotes an overflowing xs:integer sum. A lane no
+      // sum/avg reads is not folded at all: declining a min-only query over an unread sum would
+      // refuse an answer the accumulator's fixed [count, sum, min, max] shape never needed.
+      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+        slotArr[aggBase + 1] = Math.addExact(slotArr[aggBase + 1], v);
+      }
+      if (v < slotArr[aggBase + 2]) {
+        slotArr[aggBase + 2] = v;
+      }
+      if (v > slotArr[aggBase + 3]) {
+        slotArr[aggBase + 3] = v;
+      }
+    }
+  }
+
+  /** {@link #foldSliced} over lane segments: {@code aggSeg[a]} at byte offset {@code aggBase[a]}. */
+  private static void foldSlicedLane(final long[] slotArr, final int base, final MemorySegment[] aggSeg,
+      final long[] laneBases, final long[][] aggPresence, final int[][] aggIds, final int @Nullable [][] stringLengths,
+      final byte @Nullable [] stringLengthModes, final int aggCount, final int w, final int bit, final int rowIdx,
+      final int distinctBlock, final @Nullable Sink dset, final long @Nullable [] budget,
+      final byte @Nullable [] cdDictBytes, final int @Nullable [] cdDictOffsets, final long @Nullable [] cdHash,
+      final @Nullable GroupDistinctBitmaps bitmaps, final long @Nullable [] dwords, final long sumExactMask,
+      final int[][] leafLengthTables, final @Nullable Worker directDistinct, final long distinctGroup) {
+    slotArr[base]++;
+    for (int a = 0; a < aggCount; a++) {
+      final boolean stringLengthAgg =
+          stringLengthModes != null && stringLengthModes[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE;
+      final boolean present = (aggPresence[a][w] & 1L << bit) != 0L;
+      if (!present && !stringLengthAgg) {
+        continue;
+      }
+      // fn:string-length(()) is 0, never empty: a row MISSING the operand still contributes 0.
+      final long v;
+      if (stringLengthAgg) {
+        // An id-lane operand's lengths live in the table the leaf setup chose (GLOBAL: the per-query
+        // table; SEGMENT: this leaf's segment's), indexed by the row's id lane — a segment cell's low
+        // 32 bits are its id; a per-leaf dict operand's in the precomputed per-entry pass, indexed by
+        // its dict id.
+        v = !present
+            ? 0L
+            : leafLengthTables[a] != null
+                ? leafLengthTables[a][(int) SegmentAccess.getLong(aggSeg[a], laneBases[a] + ((long) rowIdx << 3))]
+                : requireNonNull(stringLengths,
+                    "a dictionary length operand requires its length table")[a][aggIds[a][rowIdx]];
+      } else if (cdHash != null && a == distinctBlock) {
+        final int cdId = aggIds[a][rowIdx];
+        long h = cdHash[cdId];
+        // cdDictBytes == null marks a PRECOMPUTED table (the leaf's DICT_HASHES segment): the value
+        // read is already the answer, and the array is shared across workers — never written here.
+        if (h == 0L && cdDictBytes != null) {
+          final int[] offsets = requireNonNull(cdDictOffsets, "dictionary bytes require their offsets");
+          final int off = offsets[cdId];
+          h = ProjectionIndexByteScan.fnv1a64(cdDictBytes, off, offsets[cdId + 1] - off);
+          cdHash[cdId] = h;
+        }
+        v = h;
+      } else {
+        v = SegmentAccess.getLong(aggSeg[a], laneBases[a] + ((long) rowIdx << 3));
       }
       if (a == distinctBlock) {
         // Dense global ids go to the shared per-group bitmap, which is exact at any cardinality and
@@ -2251,11 +2360,11 @@ public final class ProjectionColumnGroupScan {
       acc[0] += matched;
       for (int a = 0; a < aggCount; a++) {
         final ColumnSlice agg = aggCols[a][leaf];
-        final long[] values = agg.numericValues();
-        if (values == null) {
+        if (!agg.hasNumericLane()) {
           throw new IllegalStateException("const-group aggregate over a column without a numeric lane on leaf " + leaf);
         }
-        foldNumericLaneFlat(acc, 2 + 4 * a, values, agg.presenceWords(), mask, stride, rowCount);
+        foldNumericLaneFlat(acc, 2 + 4 * a, agg.laneSegment(), agg.laneBase(), agg.presenceWords(), mask, stride,
+            rowCount);
       }
     }
   }
@@ -2271,8 +2380,8 @@ public final class ProjectionColumnGroupScan {
    * lane. Plain adds throughout; the leaf's contribution is proven exact from its own extrema before
    * it is committed, otherwise re-summed with {@code addExact}.
    */
-  private static void foldNumericLaneFlat(final long[] acc, final int aggBase, final long[] values,
-      final long @Nullable [] presence, final long[] mask, final int stride, final int rowCount) {
+  private static void foldNumericLaneFlat(final long[] acc, final int aggBase, final MemorySegment lane,
+      final long laneBase, final long @Nullable [] presence, final long[] mask, final int stride, final int rowCount) {
     long cnt = 0L;
     long sum = 0L;
     long min = Long.MAX_VALUE;
@@ -2292,11 +2401,13 @@ public final class ProjectionColumnGroupScan {
         long s1 = 0L;
         long s2 = 0L;
         long s3 = 0L;
-        for (int i = rowBase; i < rowBase + 64; i += 4) {
-          final long v0 = values[i];
-          final long v1 = values[i + 1];
-          final long v2 = values[i + 2];
-          final long v3 = values[i + 3];
+        final long wordAt = laneBase + ((long) rowBase << 3);
+        for (int i = 0; i < 64; i += 4) {
+          final long at = wordAt + ((long) i << 3);
+          final long v0 = SegmentAccess.getLong(lane, at);
+          final long v1 = SegmentAccess.getLong(lane, at + 8L);
+          final long v2 = SegmentAccess.getLong(lane, at + 16L);
+          final long v3 = SegmentAccess.getLong(lane, at + 24L);
           s0 += v0;
           s1 += v1;
           s2 += v2;
@@ -2311,7 +2422,7 @@ public final class ProjectionColumnGroupScan {
       while (bits != 0L) {
         final int bit = Long.numberOfTrailingZeros(bits);
         bits &= bits - 1L;
-        final long v = values[rowBase + bit];
+        final long v = SegmentAccess.getLong(lane, laneBase + ((long) (rowBase + bit) << 3));
         sum += v;
         min = Math.min(min, v);
         max = Math.max(max, v);
@@ -2324,7 +2435,7 @@ public final class ProjectionColumnGroupScan {
     // Every partial sum is bounded by cnt × max|v|: below 2^62 the plain adds cannot have wrapped.
     final long bound = EXACT_SUM_MAGNITUDE / cnt;
     if (min <= -bound || max >= bound) {
-      sum = exactSumOfLane(values, presence, mask, stride, rowCount);
+      sum = exactSumOfLane(lane, laneBase, presence, mask, stride, rowCount);
     }
     acc[aggBase] += cnt;
     acc[aggBase + 1] = Math.addExact(acc[aggBase + 1], sum);
@@ -2337,8 +2448,8 @@ public final class ProjectionColumnGroupScan {
   }
 
   /** The rare exact re-sum of a leaf whose extrema could not prove the plain fold wrap-free. */
-  private static long exactSumOfLane(final long[] values, final long @Nullable [] presence, final long[] mask,
-      final int stride, final int rowCount) {
+  private static long exactSumOfLane(final MemorySegment lane, final long laneBase, final long @Nullable [] presence,
+      final long[] mask, final int stride, final int rowCount) {
     long sum = 0L;
     for (int w = 0; w < stride; w++) {
       long bits = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
@@ -2349,7 +2460,7 @@ public final class ProjectionColumnGroupScan {
       while (bits != 0L) {
         final int bit = Long.numberOfTrailingZeros(bits);
         bits &= bits - 1L;
-        sum = Math.addExact(sum, values[rowBase + bit]);
+        sum = Math.addExact(sum, SegmentAccess.getLong(lane, laneBase + ((long) (rowBase + bit) << 3)));
       }
     }
     return sum;

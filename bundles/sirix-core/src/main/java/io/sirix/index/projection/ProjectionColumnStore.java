@@ -3,7 +3,11 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.cache.Allocators;
 import io.sirix.cache.HeapCacheBudget;
+import io.sirix.node.SegmentAccess;
+import java.lang.foreign.MemorySegment;
+import java.lang.ref.Cleaner;
 
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.NumericBucketDecoder;
@@ -25,6 +29,7 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntToLongFunction;
 import java.util.stream.IntStream;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Column-sliced view of a projection's persisted leaves (P5b stage 2,
@@ -156,7 +161,71 @@ public final class ProjectionColumnStore {
   public record ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
       long @Nullable [] numericValues, long @Nullable [] boolWords, int @Nullable [] stringDictIds,
       byte @Nullable [] dictBytes, int @Nullable [] dictOffsets, int @Nullable [] setCounts,
-      long @Nullable [] dictHashes, @Nullable PackedDictionaryIds packedStringIds) {
+      long @Nullable [] dictHashes, @Nullable PackedDictionaryIds packedStringIds, @Nullable NumericLane lane) {
+
+    /** The shape every producer but the slab fill uses: no off-heap lane. */
+    public ColumnSlice(final int rowCount, final byte flags, final long min, final long max, final long[] presenceWords,
+        final long @Nullable [] numericValues, final long @Nullable [] boolWords, final int @Nullable [] stringDictIds,
+        final byte @Nullable [] dictBytes, final int @Nullable [] dictOffsets, final int @Nullable [] setCounts,
+        final long @Nullable [] dictHashes, final @Nullable PackedDictionaryIds packedStringIds) {
+      this(rowCount, flags, min, max, presenceWords, numericValues, boolWords, stringDictIds, dictBytes, dictOffsets,
+          setCounts, dictHashes, packedStringIds, null);
+    }
+
+    /** A numeric slice whose values live in an off-heap lane: no heap value array exists. */
+    public ColumnSlice(final int rowCount, final byte flags, final long min, final long max, final long[] presenceWords,
+        final NumericLane lane) {
+      this(rowCount, flags, min, max, presenceWords, null, null, null, null, null, null, null, null, lane);
+    }
+
+    /**
+     * The numeric lane as a heap array. A slab-backed slice materializes a copy once, counted by
+     * {@link NumericLane#materializedCount()}: the transition seam for consumers not yet reading the
+     * lane in place. Converted kernels read {@link #lane()} and never call this.
+     */
+    @Override
+    public long @Nullable [] numericValues() {
+      final long[] onHeap = numericValues;
+      if (onHeap != null) {
+        return onHeap;
+      }
+      final NumericLane resident = lane;
+      return resident == null
+          ? null
+          : resident.values();
+    }
+
+    /**
+     * The heap value array as stored, never materializing a slab-backed lane ({@code null} for one).
+     */
+    public long @Nullable [] heapNumericValues() {
+      return numericValues;
+    }
+
+    /** Whether the slice carries a numeric lane in either representation. */
+    public boolean hasNumericLane() {
+      return numericValues != null || lane != null;
+    }
+
+    /**
+     * The numeric lane as a segment for the in-place kernels: the slab lane, or, for a producer not yet
+     * converted, its heap array viewed as a heap segment. Hoisted per leaf, never read per row.
+     */
+    public MemorySegment laneSegment() {
+      final NumericLane resident = lane;
+      if (resident != null) {
+        return resident.segment();
+      }
+      return MemorySegment.ofArray(requireNonNull(numericValues, "slice has no numeric lane"));
+    }
+
+    /** Byte offset of row 0 within {@link #laneSegment()}. */
+    public long laneBase() {
+      final NumericLane resident = lane;
+      return resident == null
+          ? 0L
+          : resident.base();
+    }
 
     /** Existing dense slice shape; packed IDs are an optional immutable read representation. */
     public ColumnSlice(final int rowCount, final byte flags, final long min, final long max, final long[] presenceWords,
@@ -679,6 +748,74 @@ public final class ProjectionColumnStore {
    * (transient) failures never set it.
    */
   private final byte[] corruptColumns;
+  /**
+   * The allocator slabs this store's numeric columns decoded into, one per column; see
+   * {@link ColumnSlabs} for the ownership rules and the backstop. A slab is released only through
+   * {@link #releaseColumnLanes}, which proves no query holds the column
+   * (docs/DERIVED_QUERY_CACHES.md, "Column lanes").
+   */
+  private final ColumnSlabs columnSlabs;
+  /** Backstop for a store dropped without {@link #retire()}; see {@link ColumnSlabs#run()}. */
+  private static final Cleaner SLAB_CLEANER = Cleaner.create();
+  /**
+   * Fills that wanted a slab the allocator refused and decoded to the heap instead (observability).
+   */
+  private static final LongAdder SLAB_FILLS_DECLINED = new LongAdder();
+  /**
+   * Whether this store's handle left the catalog ({@link #retire()}): what no pin holds is released
+   * at once, the rest at its last unpin. Written under the monitor, read by the pin-drop paths.
+   */
+  private volatile boolean retired;
+
+  /**
+   * Byte base of every leaf's lane in a whole-column slab (64-byte aligned, leaf order), its size.
+   */
+  private record LaneLayout(long[] leafBases, long bytes) {
+  }
+
+  /** Computed once from the leaf row counts: the same for every numeric column. */
+  private volatile @Nullable LaneLayout laneLayout;
+
+  /**
+   * Where {@link #columnMaskedView(int, ColumnSegmentFetcher, long[], LaneTarget)} decodes a
+   * non-resident long-lane column's surviving leaves: the caller's slab and the per-leaf lane bases
+   * from {@link #maskedLaneLayout}. After the call, exactly one of {@link #filled()} (the view reads
+   * this slab) and {@link #resident()} (the view is the store's resident column, pruned; the caller
+   * keeps that column pinned for as long as a view that outlives its query scope reads it) is set, or
+   * neither (the column decoded to heap arrays: no slab was given, the column carries no long lane,
+   * or the allocator refused the memory).
+   */
+  public static final class LaneTarget {
+    private final @Nullable MemorySegment slab;
+    private final long @Nullable [] laneBases;
+    private boolean filled;
+    private boolean resident;
+
+    /** A target without memory: it only reports how the view was served. */
+    public LaneTarget() {
+      this.slab = null;
+      this.laneBases = null;
+    }
+
+    /**
+     * @param slab the memory the surviving leaves' lanes are decoded into
+     * @param laneBases per leaf, the lane's byte base in {@code slab} ({@code -1} for a pruned leaf)
+     */
+    public LaneTarget(final MemorySegment slab, final long[] laneBases) {
+      this.slab = requireNonNull(slab, "slab");
+      this.laneBases = requireNonNull(laneBases, "laneBases");
+    }
+
+    /** Whether the view's lanes were decoded into this target's slab. */
+    public boolean filled() {
+      return filled;
+    }
+
+    /** Whether the view is a pruned view of the store's resident column. */
+    public boolean resident() {
+      return resident;
+    }
+  }
 
   /**
    * Lazily decoded per-leaf record keys (ascending rowGroupId; empty array for a rowless leaf) — the
@@ -784,6 +921,8 @@ public final class ProjectionColumnStore {
     this.zoneIndices = new ZoneIndex[columnKinds.length];
     this.stringSupplementary = new byte[columnKinds.length];
     this.corruptColumns = new byte[columnKinds.length];
+    this.columnSlabs = new ColumnSlabs(columnKinds.length);
+    SLAB_CLEANER.register(this, columnSlabs);
     this.residencyPins = new AtomicIntegerArray(columnKinds.length + 1);
     this.chargedSliceBytes = new long[columnKinds.length];
     this.chargedIdentityBytes = new long[columnKinds.length];
@@ -1200,10 +1339,11 @@ public final class ProjectionColumnStore {
     if (slice == null || slice.rowCount() <= 0) {
       return;
     }
-    final long[] lane = slice.numericValues();
-    if (lane == null) {
+    if (!slice.hasNumericLane()) {
       return; // no long lane: the caller sees the slots absent and treats the leaf as unbounded
     }
+    final MemorySegment lane = slice.laneSegment();
+    final long laneBase = slice.laneBase();
     final long[] presence = slice.presenceWords();
     final int rowCount = slice.rowCount();
     long min1 = Long.MAX_VALUE;
@@ -1215,7 +1355,7 @@ public final class ProjectionColumnStore {
       if (presence != null && (presence[r >>> 6] & 1L << (r & 63)) == 0L) {
         continue;
       }
-      final long v = lane[r];
+      final long v = SegmentAccess.getLong(lane, laneBase + ((long) r << 3));
       if (distinctSeen == 0) {
         min1 = v;
         max1 = v;
@@ -1947,11 +2087,17 @@ public final class ProjectionColumnStore {
               : -1)
           + ")");
     }
-    final ColumnSlice[][] slots = columns;
-    ColumnSlice[] slices = slots[col];
+    ColumnSlice[] slices = columns[col];
     if (slices != null) {
-      pinResident(col); // this query is now serving from these arrays — no close may release them
-      return slices;
+      // Pin FIRST, then re-read the slot: a release that unpublished the slot after the first read
+      // re-checks the pins before it frees the slab (releaseColumnLanes), so a slot still published
+      // after this pin cannot be freed under this query. Read-then-pin left a window in which an
+      // off-heap lane could be unmapped between the two.
+      pinResident(col); // this query is now serving from these lanes — no close may release them
+      slices = columns[col];
+      if (slices != null) {
+        return slices;
+      }
     }
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
@@ -1974,12 +2120,17 @@ public final class ProjectionColumnStore {
     synchronized (this) {
       final ColumnSlice[] existing = columns[col];
       if (existing != null) {
+        releaseLaneSlab(laneSlabOf(slices)); // the race's loser frees its slab; the winner's lanes serve
         return existing;
       }
       // Publish via a fresh array write so the unsynchronized volatile read stays safe.
       final ColumnSlice[][] next = columns.clone();
       next[col] = slices;
       columns = next;
+      final MemorySegment slab = laneSlabOf(slices);
+      if (slab != null) {
+        columnSlabs.set(col, slab);
+      }
       // Re-priced HERE, not reused from the check: the fill above ran the inner raw-BODY door,
       // which may have published and charged that chain in between. Same helper, later moment.
       final long charged = incrementalFillBytes(col, projected);
@@ -2254,16 +2405,17 @@ public final class ProjectionColumnStore {
    * instead of fetching a second chain for the same column.
    */
   public boolean columnFilled(final int col) {
-    final ColumnSlice[][] slots = columns;
-    final boolean filled = col >= 0 && col < slots.length && slots[col] != null;
-    if (filled) {
-      // A POSITIVE residency answer is what a planner turns into a resident route, so it pins for the
-      // asking query exactly like a fill does. Without this a concurrent scope's close could release
-      // the column between the planner's answer and the route's first read — and the route would then
-      // meet the decline door mid-kernel instead of having been sent windowed up front.
-      pinResident(col);
+    if (col < 0 || col >= columnKinds.length || columns[col] == null) {
+      return false;
     }
-    return filled;
+    // A POSITIVE residency answer is what a planner turns into a resident route, so it pins for the
+    // asking query exactly like a fill does. Without this a concurrent scope's close could release
+    // the column between the planner's answer and the route's first read — and the route would then
+    // meet the decline door mid-kernel instead of having been sent windowed up front. Pinned first,
+    // then re-read, for the same reason as in column(): the answer is positive only for a slot that
+    // was still published after the pin, which no release can free any more.
+    pinResident(col);
+    return columns[col] != null;
   }
 
   /**
@@ -2480,7 +2632,11 @@ public final class ProjectionColumnStore {
         } else if (bestColumn < 0 || bestBytes <= 0L) {
           break; // the dry pass admitted this fit, so this is unreachable; fail closed if it is not
         } else {
-          releaseColumnLanes(bestColumn);
+          bestBytes = releaseColumnLanes(bestColumn);
+          if (bestBytes == 0L) {
+            kept[bestColumn] = true; // a reader pinned it meanwhile: it stays, and is not asked again
+            continue;
+          }
         }
         retained = retainedFillBytes.addAndGet(-bestBytes);
         freed += bestBytes;
@@ -2534,10 +2690,84 @@ public final class ProjectionColumnStore {
         final int bit = Long.numberOfTrailingZeros(remaining);
         remaining &= remaining - 1;
         final int slot = (word << 6) + bit;
-        if (slot < slots) {
-          residencyPins.decrementAndGet(slot);
+        if (slot < slots && residencyPins.decrementAndGet(slot) == 0 && retired) {
+          releaseRetiredSlot(slot);
         }
       }
+    }
+  }
+
+  /**
+   * Pin {@code col} resident for a cache entry that reads its slab lanes in place (no query scope
+   * covers an entry's lifetime); the residency release skips pinned columns. Paired with
+   * {@link #releaseColumn}.
+   */
+  public void retainColumn(final int col) {
+    residencyPins.incrementAndGet(col);
+  }
+
+  /** Drop a {@link #retainColumn} pin; on a retired store the last pin releases the column. */
+  public void releaseColumn(final int col) {
+    final int remaining = residencyPins.decrementAndGet(col);
+    if (remaining < 0) {
+      throw new IllegalStateException("column " + col + " released more often than retained");
+    }
+    if (remaining == 0 && retired) {
+      releaseRetiredSlot(col);
+    }
+  }
+
+  /**
+   * The handle over this store left the catalog: release every column and the KEYS lane that no query
+   * pins, now; a pinned one is released by its last unpin. A retired store still serves (a query that
+   * looked its handle up before the eviction keeps using it, under its own pins), and what it fills
+   * afterwards leaves the same way, or through the {@link ColumnSlabs} backstop once the store is
+   * unreachable. Idempotent.
+   */
+  public void retire() {
+    long freed = 0L;
+    synchronized (this) {
+      if (retired) {
+        return;
+      }
+      retired = true;
+      for (int col = 0; col < columnKinds.length; col++) {
+        freed += releaseColumnLanes(col);
+      }
+      if (recordKeySlices != null && residencyPins.get(keysPinSlot()) == 0) {
+        recordKeySlices = null;
+        freed += chargedKeysBytes;
+        chargedKeysBytes = 0L;
+      }
+      retainedFillBytes.addAndGet(-freed);
+    }
+    if (freed > 0L) {
+      RESIDENCY_RELEASED_BYTES.add(freed);
+    }
+  }
+
+  /** Whether {@link #retire()} ran. */
+  public boolean retired() {
+    return retired;
+  }
+
+  /** A pin of {@code slot} dropped to zero on a retired store: release what it held. */
+  private void releaseRetiredSlot(final int slot) {
+    long freed = 0L;
+    synchronized (this) {
+      if (slot == keysPinSlot()) {
+        if (recordKeySlices != null && residencyPins.get(slot) == 0) {
+          recordKeySlices = null;
+          freed = chargedKeysBytes;
+          chargedKeysBytes = 0L;
+        }
+      } else {
+        freed = releaseColumnLanes(slot);
+      }
+      retainedFillBytes.addAndGet(-freed);
+    }
+    if (freed > 0L) {
+      RESIDENCY_RELEASED_BYTES.add(freed);
     }
   }
 
@@ -2590,6 +2820,8 @@ public final class ProjectionColumnStore {
     synchronized (this) {
       long retained = retainedFillBytes.get();
       final int keysSlot = keysPinSlot();
+      // A column whose release found a reader (see releaseColumnLanes) stays and is not asked again.
+      final boolean[] kept = new boolean[columnKinds.length];
       while (retained > budget) {
         // Largest releasable unit first: not an LRU (no recency is consulted, and none is recorded),
         // simply the choice that reaches the budget in the fewest drops and therefore re-fetches the
@@ -2597,7 +2829,7 @@ public final class ProjectionColumnStore {
         int bestColumn = -1;
         long bestBytes = 0L;
         for (int col = 0; col < columnKinds.length; col++) {
-          if (residencyPins.get(col) != 0) {
+          if (kept[col] || residencyPins.get(col) != 0) {
             continue;
           }
           final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
@@ -2619,7 +2851,11 @@ public final class ProjectionColumnStore {
           recordKeySlices = null;
           chargedKeysBytes = 0L;
         } else {
-          releaseColumnLanes(bestColumn);
+          bestBytes = releaseColumnLanes(bestColumn);
+          if (bestBytes == 0L) {
+            kept[bestColumn] = true;
+            continue;
+          }
         }
         retained = retainedFillBytes.addAndGet(-bestBytes);
         freed += bestBytes;
@@ -2638,27 +2874,57 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * Drop every published lane of {@code col}; the caller holds the monitor and does the accounting.
+   * Drop every published lane of {@code col} unless a query holds it; the caller holds the monitor
+   * and subtracts the returned bytes from the ledger. The slot is unpublished BEFORE the pins are
+   * checked a second time: a reader pins and then re-reads the slot ({@link #column},
+   * {@link #columnFilled}), so a pin seen after the unpublish may belong to a reader that holds these
+   * slices, and the column is republished instead of freed. An off-heap lane is unmapped only when no
+   * reader can have it; the heap arrays would merely have stayed reachable, the slab would not.
+   *
+   * @return the bytes returned to the ledger, {@code 0} when the column stays resident
    */
-  private void releaseColumnLanes(final int col) {
+  private long releaseColumnLanes(final int col) {
     assert Thread.holdsLock(this);
-    if (chargedSliceBytes[col] != 0L) {
+    if (residencyPins.get(col) != 0) {
+      return 0L;
+    }
+    final ColumnSlice[] slices = columns[col];
+    final ColumnSlice[] identity = identityColumns[col];
+    final byte[][] bodies = columnBytes[col];
+    final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+    if (slices == null && identity == null && bodies == null) {
+      return 0L;
+    }
+    publishColumn(col, null, null, null);
+    if (residencyPins.get(col) != 0) {
+      publishColumn(col, slices, identity, bodies); // a reader pinned between the checks: it may hold these
+      return 0L;
+    }
+    chargedSliceBytes[col] = 0L;
+    chargedIdentityBytes[col] = 0L;
+    chargedBodyBytes[col] = 0L;
+    releaseLaneSlab(columnSlabs.take(col));
+    return bytes;
+  }
+
+  /** Publish (or unpublish, with nulls) the three retained representations of {@code col} at once. */
+  private void publishColumn(final int col, final ColumnSlice @Nullable [] slices,
+      final ColumnSlice @Nullable [] identity, final byte[] @Nullable [] bodies) {
+    assert Thread.holdsLock(this);
+    if (columns[col] != slices) {
       final ColumnSlice[][] next = columns.clone();
-      next[col] = null;
+      next[col] = slices;
       columns = next;
-      chargedSliceBytes[col] = 0L;
     }
-    if (chargedIdentityBytes[col] != 0L) {
+    if (identityColumns[col] != identity) {
       final ColumnSlice[][] next = identityColumns.clone();
-      next[col] = null;
+      next[col] = identity;
       identityColumns = next;
-      chargedIdentityBytes[col] = 0L;
     }
-    if (chargedBodyBytes[col] != 0L) {
+    if (columnBytes[col] != bodies) {
       final byte[][][] next = columnBytes.clone();
-      next[col] = null;
+      next[col] = bodies;
       columnBytes = next;
-      chargedBodyBytes[col] = 0L;
     }
   }
 
@@ -3233,6 +3499,17 @@ public final class ProjectionColumnStore {
    */
   public ColumnSlice[] columnMaskedView(final int col, final ColumnSegmentFetcher fetcher,
       final long @Nullable [] keepWords) {
+    return columnMaskedView(col, fetcher, keepWords, null);
+  }
+
+  /**
+   * {@link #columnMaskedView(int, ColumnSegmentFetcher, long[])} decoding a non-resident long-lane
+   * column's surviving leaves into {@code target} (laid out by {@link #maskedLaneLayout}) instead of
+   * heap arrays, and reporting through it how the view was served. A resident column is served pruned
+   * from its own slab, whatever the target.
+   */
+  public ColumnSlice[] columnMaskedView(final int col, final ColumnSegmentFetcher fetcher,
+      final long @Nullable [] keepWords, final @Nullable LaneTarget target) {
     if (col == KEYS_COLUMN) {
       return recordKeyPredicateView(fetcher, keepWords);
     }
@@ -3240,8 +3517,17 @@ public final class ProjectionColumnStore {
       return column(col, fetcher);
     }
     if (!columnFilled(col)) {
+      if (target != null && target.slab != null && columnLongLane(col)) {
+        final ColumnSlice[] view = columnMasked(col, fetcher, keepWords, target.slab, target.laneBases);
+        target.filled = true;
+        return view;
+      }
       return columnMasked(col, fetcher, keepWords);
     }
+    if (target != null) {
+      target.resident = true;
+    }
+    // A resident column is pruned by the mask: no per-query decode.
     final ColumnSlice[] resident = column(col, fetcher);
     final ColumnSlice[] view = new ColumnSlice[resident.length];
     for (int i = 0; i < resident.length; i++) {
@@ -3405,7 +3691,48 @@ public final class ProjectionColumnStore {
     return slices;
   }
 
+  /** Whether {@code col} decodes to an off-heap long lane (the numeric, id and temporal kinds). */
+  public boolean columnLongLane(final int col) {
+    return ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col]);
+  }
+
+  /**
+   * The lane layout of a masked fill of {@code col}: for every surviving leaf its byte base in a slab
+   * that starts at {@code offset} (64-byte aligned, leaf order; {@code -1} for a pruned leaf),
+   * written to {@code laneBasesOut}; returns the byte offset after the last lane.
+   */
+  public long maskedLaneLayout(final int col, final long[] keepWords, final long[] laneBasesOut, final long offset) {
+    if (!columnLongLane(col)) {
+      throw new IllegalStateException("Column " + col + " has no long lane");
+    }
+    final int n = directories.size();
+    if (laneBasesOut.length != n) {
+      throw new IllegalArgumentException("lane bases for " + laneBasesOut.length + " leaves, store has " + n);
+    }
+    long cursor = offset;
+    for (int i = 0; i < n; i++) {
+      if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
+        laneBasesOut[i] = -1L;
+        continue;
+      }
+      laneBasesOut[i] = cursor;
+      cursor += (8L * RowGroupDescriptor.rowCount(directories.get(i).descriptor()) + 63L) & ~63L;
+    }
+    return cursor;
+  }
+
   public ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords) {
+    return columnMasked(col, fetcher, keepWords, null, null);
+  }
+
+  /**
+   * {@link #columnMasked(int, ColumnSegmentFetcher, long[])} decoding the surviving leaves' lanes of
+   * a long-lane column into the caller's {@code providedSlab} at {@code providedBases} (from
+   * {@link #maskedLaneLayout}); with {@code null}, or for any other column, the fill decodes to heap
+   * arrays.
+   */
+  private ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords,
+      final @Nullable MemorySegment providedSlab, final long @Nullable [] providedBases) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="
           + (col >= 0 && col < columnKinds.length
@@ -3433,6 +3760,18 @@ public final class ProjectionColumnStore {
         : null;
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
+    // The surviving leaves' lanes of a long-lane column decode straight into the caller's slab.
+    final boolean offHeapLane =
+        providedSlab != null && !string && ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col]);
+    if (offHeapLane && (providedBases == null || providedBases.length != n)) {
+      throw new IllegalArgumentException("a provided slab needs one lane base per leaf");
+    }
+    final MemorySegment laneSlab = offHeapLane
+        ? providedSlab
+        : null;
+    final long[] laneBases = offHeapLane
+        ? providedBases
+        : null;
     try {
       if (n >= PARALLEL_DECODE_MIN) {
         // Across the common pool, exactly as the unmasked fill decodes — and for the SAME reason,
@@ -3446,7 +3785,7 @@ public final class ProjectionColumnStore {
             return;
           }
           try {
-            slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords);
+            slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
           } catch (final IllegalStateException corrupt) {
             failed.compareAndSet(null, corrupt);
           }
@@ -3457,7 +3796,7 @@ public final class ProjectionColumnStore {
         }
       } else {
         for (int i = 0; i < n; i++) {
-          slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords);
+          slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
         }
       }
     } catch (final ProjectionStoreInconsistentException inconsistent) {
@@ -3475,12 +3814,14 @@ public final class ProjectionColumnStore {
 
   /** One leaf of a masked fill: the canonical pruned slice, or the same decode the full fill does. */
   private ColumnSlice decodeMaskedSlice(final int i, final int col, final boolean set, final boolean string,
-      final byte[][] segments, final byte[][] dictSegments, final long[] keepWords) {
+      final byte[][] segments, final byte[][] dictSegments, final long[] keepWords,
+      final @Nullable MemorySegment laneSlab, final long @Nullable [] laneBases) {
     if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
       return PRUNED_SLICE;
     }
-    return decodeOneSlice(i, col, set, string, segments, dictSegments);
+    return decodeOneSlice(i, col, set, string, segments, dictSegments, laneSlab, laneBases);
   }
+
 
   private ColumnSlice[] fillColumn(final int col, final ColumnSegmentFetcher fetcher) {
     final long tEnter = FILL_DIAG
@@ -3505,6 +3846,23 @@ public final class ProjectionColumnStore {
         : 0L;
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
+    // Numeric lanes decode straight into one allocator slab per column, leaf after leaf at 64-byte
+    // aligned bases; the slices only point into it. Presence words stay heap arrays (one bit per row).
+    final boolean offHeapLane = !string && ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col]);
+    final long[] laneBases = offHeapLane
+        ? new long[n]
+        : null;
+    MemorySegment slab = null;
+    if (offHeapLane) {
+      final long total = laneBases(laneBases);
+      if (total != 0L) {
+        slab = Allocators.getInstance().allocateSlab(total);
+        if (slab == null) {
+          SLAB_FILLS_DECLINED.increment();
+        }
+      }
+    }
+    final MemorySegment laneSlab = slab;
     try {
       if (n >= PARALLEL_DECODE_MIN) {
         // The per-leaf decode is a pure in-memory transform over already-verified bytes
@@ -3517,7 +3875,7 @@ public final class ProjectionColumnStore {
             return;
           }
           try {
-            slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments);
+            slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments, laneSlab, laneBases);
           } catch (final IllegalStateException corrupt) {
             failed.compareAndSet(null, corrupt);
           }
@@ -3528,7 +3886,7 @@ public final class ProjectionColumnStore {
         }
       } else {
         for (int i = 0; i < n; i++) {
-          slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments);
+          slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments, laneSlab, laneBases);
         }
       }
     } catch (final ProjectionStoreInconsistentException inconsistent) {
@@ -3539,7 +3897,11 @@ public final class ProjectionColumnStore {
       throw inconsistent;
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
+      releaseLaneSlab(slab);
       throw corrupt;
+    } catch (final RuntimeException | Error failure) {
+      releaseLaneSlab(slab);
+      throw failure;
     }
     if (FILL_DIAG) {
       final long tDone = System.nanoTime();
@@ -3595,9 +3957,11 @@ public final class ProjectionColumnStore {
     b += s.presenceWords() == null
         ? 0
         : s.presenceWords().length * 8L;
-    b += s.numericValues() == null
-        ? 0
-        : s.numericValues().length * 8L;
+    b += s.lane() != null
+        ? 8L * s.rowCount()
+        : s.heapNumericValues() == null
+            ? 0
+            : s.heapNumericValues().length * 8L;
     b += s.boolWords() == null
         ? 0
         : s.boolWords().length * 8L;
@@ -3625,14 +3989,70 @@ public final class ProjectionColumnStore {
   /** Leaves below this count decode serially — fork/join overhead beats the win. */
   private static final int PARALLEL_DECODE_MIN = 128;
 
+  /**
+   * The byte base of every leaf's lane in a whole-column slab (64-byte aligned, leaf order), copied
+   * into {@code out}; returns the slab size. The layout depends only on the leaf row counts, so it is
+   * computed once per store and shared by every numeric column.
+   */
+  private long laneBases(final long[] out) {
+    LaneLayout layout = laneLayout;
+    if (layout == null) {
+      final int n = directories.size();
+      final long[] bases = new long[n];
+      long total = 0L;
+      for (int i = 0; i < n; i++) {
+        bases[i] = total;
+        total += (8L * RowGroupDescriptor.rowCount(directories.get(i).descriptor()) + 63L) & ~63L;
+      }
+      layout = new LaneLayout(bases, total);
+      laneLayout = layout; // idempotent: a racing computation publishes an equal layout
+    }
+    System.arraycopy(layout.leafBases(), 0, out, 0, out.length);
+    return layout.bytes();
+  }
+
   private ColumnSlice decodeOneSlice(final int i, final int col, final boolean set, final boolean string,
-      final byte[][] segments, final byte[] @Nullable [] dictSegments) {
+      final byte[][] segments, final byte[] @Nullable [] dictSegments, final @Nullable MemorySegment laneSlab,
+      final long @Nullable [] laneBases) {
     final byte[] descriptor = directories.get(i).descriptor();
+    if (laneSlab != null) {
+      return ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, segments[i], col, laneSlab,
+          requireNonNull(laneBases)[i]);
+    }
     return set
         ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, segments[i], dictSegments[i], col)
         : string
             ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, segments[i], dictSegments[i], col)
             : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, segments[i], col);
+  }
+
+  /** The slab a column fill decoded into, from its slices ({@code null} for a heap fill). */
+  private static @Nullable MemorySegment laneSlabOf(final ColumnSlice[] slices) {
+    for (final ColumnSlice slice : slices) {
+      final NumericLane lane = slice == null
+          ? null
+          : slice.lane();
+      if (lane != null) {
+        return lane.segment();
+      }
+    }
+    return null;
+  }
+
+  private static void releaseLaneSlab(final @Nullable MemorySegment slab) {
+    if (slab != null) {
+      Allocators.getInstance().releaseSlab(slab);
+    }
+  }
+
+  /** Fills that decoded to the heap because the allocator refused their slab, process-wide. */
+  public static long slabFillsDeclinedCount() {
+    return SLAB_FILLS_DECLINED.sum();
+  }
+
+  /** Count a masked fill whose caller could not get a slab and decoded to the heap instead. */
+  public static void noteSlabFillDeclined() {
+    SLAB_FILLS_DECLINED.increment();
   }
 
   /**

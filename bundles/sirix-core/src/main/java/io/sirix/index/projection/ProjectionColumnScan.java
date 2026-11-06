@@ -15,8 +15,10 @@ import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongArrays;
 import net.openhft.hashing.LongTupleHashFunction;
+import io.sirix.node.SegmentAccess;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -471,7 +473,8 @@ public final class ProjectionColumnScan {
         continue;
       }
       final ColumnSlice agg = aggCol[leaf];
-      final long[] values = agg.numericValues();
+      final MemorySegment lane = agg.laneSegment();
+      final long laneBase = agg.laneBase();
       final long[] presence = agg.presenceWords();
       final int stride = (rowCount + 63) >>> 6;
       long count = acc[0];
@@ -488,7 +491,7 @@ public final class ProjectionColumnScan {
           if (rowIdx >= rowCount) {
             break;
           }
-          final long v = values[rowIdx];
+          final long v = SegmentAccess.getLong(lane, laneBase + ((long) rowIdx << 3));
           count++;
           sum = Math.addExact(sum, v);
           if (v < min)
@@ -2398,7 +2401,7 @@ public final class ProjectionColumnScan {
     for (int i = 0; i < predicates.length; i++) {
       final ColumnSlice slice = slices[i];
       requireTranslatedLiteral(predicates[i], slice);
-      if (slice.numericValues() == null) {
+      if (!slice.hasNumericLane()) {
         continue;
       }
       if (slice.min() > slice.max()) {
@@ -2415,6 +2418,11 @@ public final class ProjectionColumnScan {
       final ColumnPredicate p = predicates[i];
       final ColumnSlice slice = slices[i];
       final long[] presence = slice.presenceWords();
+      final NumericLane lane = slice.lane();
+      if (lane != null) {
+        evalNumericLane(lane.segment(), lane.base(), rows, p, presence, mask);
+        continue;
+      }
       final long[] values = slice.numericValues();
       if (values != null) {
         evalNumeric(values, rows, p, presence, mask);
@@ -2653,6 +2661,185 @@ public final class ProjectionColumnScan {
       mask[w] = out;
     }
   }
+
+  /**
+   * {@link #evalNumeric} over a lane segment: {@code rowCount} values at byte offset
+   * {@code laneBase}.
+   */
+  private static void evalNumericLane(final MemorySegment lane, final long laneBase, final int rowCount,
+      final ColumnPredicate p, final long[] presence, final long[] mask) {
+    final int stride = (rowCount + 63) >>> 6;
+    if (p.op == ProjectionIndexScan.Op.KEY_IN) {
+      throw new IllegalStateException("record-key set over a lane segment: KEYS are never a slab lane");
+    }
+    if (p.globalIdVerdict != null) {
+      // Pre-evaluated global verdict: one bit test per present row. Ids outside 1..count — the
+      // missing-cell 0 included — never match, the leaf contract's missing ⇒ false.
+      final long[] verdict = p.globalIdVerdict;
+      final int idCount = p.globalIdVerdictCount;
+      for (int w = 0; w < stride; w++) {
+        long candidates = mask[w] & presence[w];
+        long out = 0L;
+        final int rowBase = w << 6;
+        while (candidates != 0L) {
+          final int bit = Long.numberOfTrailingZeros(candidates);
+          candidates &= candidates - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          final long id = SegmentAccess.getLong(lane, laneBase + ((long) rowIdx << 3));
+          if (id >= 1 && id <= idCount && (verdict[(int) (id >>> 6)] & 1L << (id & 63)) != 0L) {
+            out |= 1L << bit;
+          }
+        }
+        mask[w] = out;
+      }
+      return;
+    }
+    final SegmentCellVerdicts cellVerdicts = p.segmentCellVerdicts;
+    if (cellVerdicts != null) {
+      // Per-VALUE string op over a segment-scoped column. The memo settles each distinct cell once;
+      // what this loop must not do is ask it per ROW, which costs a volatile read of the memo and a
+      // virtual call every time. A leaf never straddles a segment, so the table is resolved ONCE here
+      // and the row path becomes an array read and a compare — the unsettled entries, at most one per
+      // distinct cell over the whole query, are the only ones that call back.
+      final int words = stride(rowCount);
+      final long anyCell = firstPresentValueLane(lane, laneBase, presence, rowCount);
+      if (anyCell == NO_PRESENT_VALUE) {
+        clearMask(mask, words);
+        return;
+      }
+      final byte[] settledTable = cellVerdicts.tableForLeaf(anyCell);
+      final int settledLength = settledTable == null
+          ? 0
+          : settledTable.length;
+      for (int w = 0; w < words; w++) {
+        long candidates = mask[w] & presence[w];
+        long out = 0L;
+        final int rowBase = w << 6;
+        while (candidates != 0L) {
+          final int bit = Long.numberOfTrailingZeros(candidates);
+          candidates &= candidates - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          final long cell = SegmentAccess.getLong(lane, laneBase + ((long) rowIdx << 3));
+          final int id = ProjectionIndexRowGroupPage.idOfCell(cell);
+          final byte settled = id >= 0 && id < settledLength
+              ? settledTable[id]
+              : SegmentCellVerdicts.UNSETTLED;
+          final boolean matched = settled != SegmentCellVerdicts.UNSETTLED
+              ? SegmentCellVerdicts.isMatch(settled)
+              : cellVerdicts.matchesSlow(cell);
+          if (matched) {
+            out |= 1L << bit;
+          }
+        }
+        mask[w] = out;
+      }
+      return;
+    }
+    long lit = p.longLit;
+    if (p.segmentLiteralCells != null) {
+      // SEGMENT-SCOPED literal: the lane holds (segment, id) cells and the literal has a different
+      // id in every segment. A leaf never straddles a segment, so ONE present cell names the segment
+      // for the whole leaf and the row loop below stays a plain integer compare.
+      final long anyCell = firstPresentValueLane(lane, laneBase, presence, rowCount);
+      if (anyCell == NO_PRESENT_VALUE) {
+        clearMask(mask, stride(rowCount));
+        return; // nothing present: missing ⇒ false, for EQ and NE alike
+      }
+      final long target = p.literalForLeaf(anyCell);
+      if (target == ProjectionIndexScan.ColumnPredicate.SEGMENT_LITERAL_ABSENT) {
+        // This segment's dictionary provably lacks the value: EQ matches nothing, NE matches every
+        // PRESENT row — the presence AND is what keeps a missing cell from satisfying `!= x`.
+        final int words = stride(rowCount);
+        if (p.op == ProjectionIndexScan.Op.EQ) {
+          clearMask(mask, words);
+        } else {
+          for (int w = 0; w < words; w++) {
+            mask[w] &= presence[w];
+          }
+        }
+        return;
+      }
+      lit = target;
+    }
+    final long high = p.highLit;
+    for (int w = 0; w < stride; w++) {
+      final long m = mask[w] & presence[w];
+      if (m == 0L) {
+        mask[w] = 0L;
+        continue;
+      }
+      final int rowBase = w << 6;
+      // Slice arrays are exactly rowCount long, so the branch-free vector compare (measured
+      // ~20x over the walk on dense words — see ProjectionVectorKernels) serves only words
+      // with a full 64-value window; the tail word takes the guarded walk below.
+      if (rowBase + 64 <= rowCount) {
+        if (m == -1L) {
+          mask[w] = ProjectionVectorKernels.compareWordLane(lane, laneBase + ((long) rowBase << 3), p.op, lit, high);
+          continue;
+        }
+        if (Long.bitCount(m) > ProjectionVectorKernels.COMPARE_WALK_MAX_BITS) {
+          mask[w] =
+              m & ProjectionVectorKernels.compareWordLane(lane, laneBase + ((long) rowBase << 3), p.op, lit, high);
+          continue;
+        }
+      }
+      long out = 0L;
+      long candidates = m;
+      while (candidates != 0L) {
+        final int bit = Long.numberOfTrailingZeros(candidates);
+        candidates &= candidates - 1L;
+        final int rowIdx = rowBase + bit;
+        if (rowIdx >= rowCount) {
+          break;
+        }
+        final long v = SegmentAccess.getLong(lane, laneBase + ((long) rowIdx << 3));
+        final boolean match = switch (p.op) {
+          case GT -> v > lit;
+          case LT -> v < lit;
+          case GE -> v >= lit;
+          case LE -> v <= lit;
+          case EQ -> v == lit;
+          case NE -> v != lit;
+          case BETWEEN_GT_LT -> v > lit && v < high;
+          case BETWEEN_GT_LE -> v > lit && v <= high;
+          case BETWEEN_GE_LT -> v >= lit && v < high;
+          case BETWEEN_GE_LE -> v >= lit && v <= high;
+          // Routing defect — checkPredicates admits string ops onto STRING_DICT slices only.
+          case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+            throw new IllegalStateException("string op in the numeric slice kernel: " + p.op);
+          // Handled before the compare loop; reaching the loop with it is a routing defect.
+          case KEY_IN -> throw new IllegalStateException("record-key set in the numeric compare loop");
+        };
+        if (match) {
+          out |= 1L << bit;
+        }
+      }
+      mask[w] = out;
+    }
+  }
+
+  private static long firstPresentValueLane(final MemorySegment lane, final long laneBase, final long[] presence,
+      final int rowCount) {
+    final int words = stride(rowCount);
+    for (int w = 0; w < words; w++) {
+      long bits = presence[w];
+      while (bits != 0L) {
+        final int row = (w << 6) + Long.numberOfTrailingZeros(bits);
+        if (row < rowCount) {
+          return SegmentAccess.getLong(lane, laneBase + ((long) row << 3));
+        }
+        bits &= bits - 1L;
+      }
+    }
+    return NO_PRESENT_VALUE;
+  }
+
 
   private static void evalBoolean(final long[] boolWords, final int stride, final boolean lit, final long[] presence,
       final long[] mask) {
@@ -3174,11 +3361,12 @@ public final class ProjectionColumnScan {
       if (slice == null || slice.rowCount() == 0) {
         continue;
       }
-      final long[] values = slice.numericValues();
       final long[] presence = slice.presenceWords();
-      if (values == null || presence == null) {
+      if (!slice.hasNumericLane() || presence == null) {
         return false;
       }
+      final MemorySegment lane = slice.laneSegment();
+      final long laneBase = slice.laneBase();
       final int rows = slice.rowCount();
       for (int w = 0, words = (rows + 63) >>> 6; w < words; w++) {
         long bits = presence[w];
@@ -3189,7 +3377,7 @@ public final class ProjectionColumnScan {
           if (row >= rows) {
             break;
           }
-          sink.put(values[row]);
+          sink.put(SegmentAccess.getLong(lane, laneBase + ((long) row << 3)));
         }
       }
     }
@@ -3221,11 +3409,12 @@ public final class ProjectionColumnScan {
       if (slice == null || slice.rowCount() == 0) {
         continue;
       }
-      final long[] values = slice.numericValues();
       final long[] presence = slice.presenceWords();
-      if (values == null || presence == null) {
+      if (!slice.hasNumericLane() || presence == null) {
         return false;
       }
+      final MemorySegment lane = slice.laneSegment();
+      final long laneBase = slice.laneBase();
       final int rows = slice.rowCount();
       for (int w = 0, words = (rows + 63) >>> 6; w < words; w++) {
         long bits = presence[w];
@@ -3236,7 +3425,7 @@ public final class ProjectionColumnScan {
           if (row >= rows) {
             break;
           }
-          final long slot = values[row] - min;
+          final long slot = SegmentAccess.getLong(lane, laneBase + ((long) row << 3)) - min;
           if (slot < 0L || slot >= slots) {
             return false;
           }
