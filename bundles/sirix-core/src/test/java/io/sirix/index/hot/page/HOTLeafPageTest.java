@@ -64,6 +64,7 @@ class HOTLeafPageTest {
   private Arena arena;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     MemorySegment slotMemory = arena.allocate(PAGE_SIZE);

@@ -229,6 +229,7 @@ class HOTTrieCoverageTest {
       }
     }
 
+    @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
     private HOTLeafPage createLeafPage() {
       arena = Arena.ofConfined();
       MemorySegment slotMemory = arena.allocate(HOTLeafPage.DEFAULT_SIZE);

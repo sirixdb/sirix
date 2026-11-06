@@ -53,32 +53,38 @@ import java.util.concurrent.TimeUnit;
 /**
  * Encode throughput of the three page-body codecs, on the inputs a record heap actually produces.
  *
- * <p>Profiling a warm JSON ingest attributes roughly a tenth of application-thread CPU to
+ * <p>
+ * Profiling a warm JSON ingest attributes roughly a tenth of application-thread CPU to
  * {@link SirixLZ77Codec} alone, which makes this the largest single block on the write path and the
  * one most worth guarding against regression. The two run-length codecs sit on the same path for
  * the column regions.
  *
- * <p>Each codec is measured against four payload shapes, because their cost is entirely
- * data-dependent — a page of repeating record headers and a page of incompressible payload exercise
- * completely different branches:
+ * <p>
+ * Each codec is measured against four payload shapes, because their cost is entirely data-dependent
+ * — a page of repeating record headers and a page of incompressible payload exercise completely
+ * different branches:
  * <ul>
- *   <li>{@code RECORD_HEAP} — repeating record headers with varying payloads, the common case;</li>
- *   <li>{@code ZERO_RUNS} — long zero runs, what a sparse column region looks like;</li>
- *   <li>{@code INCOMPRESSIBLE} — random bytes, the worst case, where LZ77 finds nothing and falls
- *       back to literal tokens;</li>
- *   <li>{@code SHORT_RUNS} — a few distinct byte values, which is where the run-length codecs earn
- *       their place.</li>
+ * <li>{@code RECORD_HEAP} — repeating record headers with varying payloads, the common case;</li>
+ * <li>{@code ZERO_RUNS} — long zero runs, what a sparse column region looks like;</li>
+ * <li>{@code INCOMPRESSIBLE} — random bytes, the worst case, where LZ77 finds nothing and falls
+ * back to literal tokens;</li>
+ * <li>{@code SHORT_RUNS} — a few distinct byte values, which is where the run-length codecs earn
+ * their place.</li>
  * </ul>
  *
- * <p>The {@code segment} and {@code array} arms of the run-length codecs are deliberately both
+ * <p>
+ * The {@code segment} and {@code array} arms of the run-length codecs are deliberately both
  * present: the segment entry point mirrors its input into a heap array and then runs the array
  * scan, so the pair reports what that mirror costs against what it saves. If the two ever converge,
  * the mirror has stopped paying for itself.
  *
- * <p>Every arm consumes its result through a {@link Blackhole} and encodes from a pre-filled input,
- * so nothing here measures allocation.
+ * <p>
+ * Every arm consumes its result through a {@link Blackhole} and encodes from a pre-filled input, so
+ * nothing here measures allocation.
  *
- * <p>Run with:
+ * <p>
+ * Run with:
+ *
  * <pre>
  *   ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="PageCodecEncodeBenchmark"
  * </pre>
@@ -118,7 +124,9 @@ public class PageCodecEncodeBenchmark {
           }
           final int payload = 4 + random.nextInt(28);
           for (int p = 0; p < payload && i < data.length; p++) {
-            data[i++] = (byte) (random.nextInt(6) == 0 ? 0 : random.nextInt(256));
+            data[i++] = (byte) (random.nextInt(6) == 0
+                ? 0
+                : random.nextInt(256));
           }
         }
         return data;
@@ -132,7 +140,7 @@ public class PageCodecEncodeBenchmark {
         final byte[] data = new byte[PAGE_SIZE];
         int i = 0;
         while (i < data.length) {
-          i += Math.min(data.length - i, 24 + random.nextInt(200));  // zeros, already in place
+          i += Math.min(data.length - i, 24 + random.nextInt(200)); // zeros, already in place
           final int values = 1 + random.nextInt(8);
           for (int v = 0; v < values && i < data.length; v++) {
             data[i++] = (byte) (1 + random.nextInt(255));
@@ -178,6 +186,7 @@ public class PageCodecEncodeBenchmark {
   private byte[] output;
 
   @Setup(Level.Trial)
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   public void setUp() {
     inputArray = shape.generate(new Random(SEED));
     arena = Arena.ofConfined();
@@ -188,13 +197,11 @@ public class PageCodecEncodeBenchmark {
     // expand further than it does, and the overrun surfaces as a dropped @Param rather than a
     // visible failure in JMH's summary table.
     final int worstCase = Math.max(SirixLZ77Codec.maxEncodedSize(inputArray.length),
-        Math.max(ByteRunCodec.maxEncodedSize(inputArray.length),
-            ZeroRunByteCodec.maxEncodedSize(inputArray.length)));
+        Math.max(ByteRunCodec.maxEncodedSize(inputArray.length), ZeroRunByteCodec.maxEncodedSize(inputArray.length)));
     output = new byte[worstCase + 64];
 
-    System.out.printf("[PageCodecEncodeBenchmark] shape=%s size=%d B -> lz77=%d B, byteRun=%d B, zeroRun=%d B%n",
-        shape, inputArray.length,
-        SirixLZ77Codec.encode(input, 0L, inputArray.length, output, 0),
+    System.out.printf("[PageCodecEncodeBenchmark] shape=%s size=%d B -> lz77=%d B, byteRun=%d B, zeroRun=%d B%n", shape,
+        inputArray.length, SirixLZ77Codec.encode(input, 0L, inputArray.length, output, 0),
         ByteRunCodec.encode(input, 0L, inputArray.length, output, 0),
         ZeroRunByteCodec.encode(input, 0L, inputArray.length, output, 0));
   }

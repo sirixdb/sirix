@@ -58,6 +58,7 @@ public class CacheTestHelper {
    * @param cache cache to fill
    * @throws SirixException if setting up Sirix session fails
    */
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
     arena = Arena.ofConfined();
     STORAGE_ENGINE_READER = Holder.openResourceSession().getResourceSession().createStorageEngineReader();

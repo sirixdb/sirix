@@ -61,6 +61,7 @@ final class ProjectionCommittedSlotCorruptionTest {
   }
 
   /** One resident, stamp-stable leaf whose declared value may extend beyond its packed bytes. */
+  @SuppressWarnings("MustBeClosedChecker") // arena owned by the returned fixture
   private static Fixture fixture(final long slotKey, final int declaredValueLength) {
     final Arena arena = Arena.ofConfined();
     try {

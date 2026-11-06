@@ -530,6 +530,10 @@ public final class FFILz4Compressor implements ByteHandler {
    * @param compressed compressed data (with 4-byte header containing decompressed size)
    * @return scoped result; must be closed to return buffer to allocator
    */
+  // Heap-staging arena below is acquired outside the try that frees it, so a failing staging
+  // allocate/copy leaks it and the reserved output buffer; deferred to sirix-lz4-staging-leak
+  // because every restructuring tried so far moves the hot native decode path's compiled shape.
+  @SuppressWarnings("MustBeClosedChecker")
   @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
     // No native-availability gate here: the stored-uncompressed path needs no LZ4 at all, and
@@ -588,9 +592,9 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     // Ownership of the allocator-owned buffer transfers to the returned DecompressionResult
-    // only on success; EVERY failure path — including the native MethodHandle invocation itself
-    // throwing — must release it exactly once, or repeated corrupt reads drain the frame-slot
-    // budget into an OutOfMemoryError (issue #1074).
+    // only on success; once staging completes, every decode failure — including the native
+    // MethodHandle invocation itself throwing — must release it exactly once, or repeated corrupt
+    // reads drain the frame-slot budget into an OutOfMemoryError (issue #1074).
     boolean ownershipTransferred = false;
     try {
       int actualSize;

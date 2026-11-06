@@ -55,8 +55,13 @@ class HOTBugFindingTest {
 
     private Arena arena;
 
-    private HOTLeafPage createTestLeafPage() {
+    @BeforeEach
+    @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
+    void setUpArena() {
       arena = Arena.ofConfined();
+    }
+
+    private HOTLeafPage createTestLeafPage() {
       MemorySegment slotMemory = arena.allocate(HOTLeafPage.DEFAULT_SIZE);
       return new HOTLeafPage(1L, 1, IndexType.CAS, slotMemory, null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
     }
@@ -599,8 +604,13 @@ class HOTBugFindingTest {
 
     private Arena arena;
 
-    private HOTLeafPage createTestLeafPage() {
+    @BeforeEach
+    @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
+    void setUpArena() {
       arena = Arena.ofConfined();
+    }
+
+    private HOTLeafPage createTestLeafPage() {
       MemorySegment slotMemory = arena.allocate(HOTLeafPage.DEFAULT_SIZE);
       return new HOTLeafPage(1L, 1, IndexType.CAS, slotMemory, null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
     }

@@ -57,6 +57,7 @@ final class PathNodeKeyColumnCompactionTest {
   private boolean derivedElisionBefore;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     compactBefore = PageKind.PATH_NODE_KEY_COLUMN_COMPACT;

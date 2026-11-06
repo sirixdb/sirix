@@ -48,6 +48,7 @@ public final class KeyValueLeafPageGuardStateTest {
   private Arena arena;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
   }

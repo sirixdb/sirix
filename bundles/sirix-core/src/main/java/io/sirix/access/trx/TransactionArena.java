@@ -73,6 +73,9 @@ public final class TransactionArena implements AutoCloseable {
    * 
    * @param blockSize the size of each memory block
    */
+  // The confined arena below is not a try-with-resources resource by design: it becomes the #arena
+  // field of this AutoCloseable instance, and #close() releases it once the transaction is done.
+  @SuppressWarnings("MustBeClosedChecker")
   public TransactionArena(int blockSize) {
     this.arena = Arena.ofConfined();
     this.blockSize = blockSize;
