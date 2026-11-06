@@ -592,9 +592,9 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     // Ownership of the allocator-owned buffer transfers to the returned DecompressionResult
-    // only on success; EVERY failure path — including the native MethodHandle invocation itself
-    // throwing — must release it exactly once, or repeated corrupt reads drain the frame-slot
-    // budget into an OutOfMemoryError (issue #1074).
+    // only on success; once staging completes, every decode failure — including the native
+    // MethodHandle invocation itself throwing — must release it exactly once, or repeated corrupt
+    // reads drain the frame-slot budget into an OutOfMemoryError (issue #1074).
     boolean ownershipTransferred = false;
     try {
       int actualSize;

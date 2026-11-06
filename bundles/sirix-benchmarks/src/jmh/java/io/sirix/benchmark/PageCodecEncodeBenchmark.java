@@ -84,7 +84,7 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>
  * Run with:
- * 
+ *
  * <pre>
  *   ./gradlew :sirix-benchmarks:jmh -Pjmh.includes="PageCodecEncodeBenchmark"
  * </pre>
