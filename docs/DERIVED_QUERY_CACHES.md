@@ -23,6 +23,24 @@ hoisted once per leaf, eight bytes per row at linear offsets (`SegmentAccess`), 
 to the heap once and counts it (`NumericLane.materializedCount`), the seam that keeps a consumer
 not yet converted working — a converted kernel never calls it, and the integration step deletes it.
 
+**Reading a lane in a group fold.** A group fold's row index comes out of
+`Long.numberOfTrailingZeros` over the selection word, so its loop is not counted over linear offsets
+and no compiler hoists the segment's bounds check out of it: every surviving row would pay its own.
+The group kernels therefore exist in two forms per accumulator shape. `foldSlicedLane`,
+`foldSumsSlicedLane` and `foldNumericPlainLane` read the lane in place, one checked read per
+surviving row. `foldSlicedWindow`, `foldSumsWindow` and `foldNumericPlainWindow` instead fold a
+64-row value window that `ProjectionColumnGroupScan.gatherWindow` copied out of the lane with one
+counted, intrinsified `MemorySegment.copy` — one bounds check per vector rather than per row — and so
+index their values by the bit position rather than the row. `gatherPays` chooses per selection word
+at the `ProjectionVectorKernels.FOLD_WALK_MAX_BITS` crossover, the same walk-versus-word crossover
+the compare and fold kernels already dispatch on: below it a gather would read 64 rows to use a
+handful, above it the per-row checks cost more than the copy. The window is per-thread scratch, 512
+bytes per column reused for every word of every leaf — never a column representation, and nothing is
+allocated per leaf, which is what distinguishes it from the `numericValues()` seam it removes.
+`GroupFoldLaneEquivalenceTest` pins the two forms to identical accumulators, over native slab lanes
+and over the heap-array lanes a still-heap windowed slice hands them, so the choice is about speed
+alone.
+
 **Ownership.** The slab belongs to the store and the column (`ColumnSlabs`). It is charged to the
 store's residency ledger exactly as a heap fill was (`decodedColumnResidentBytes` prices a long lane
 at eight bytes per row), so the fill doors, the catalog weigher and the headroom share keep one

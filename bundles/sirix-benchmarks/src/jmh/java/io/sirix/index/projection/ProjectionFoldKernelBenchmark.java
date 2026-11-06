@@ -25,6 +25,7 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.node.SegmentAccess;
 import io.sirix.page.pax.BitUnpackSimd;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorMask;
@@ -43,7 +44,9 @@ import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -983,5 +986,419 @@ public class ProjectionFoldKernelBenchmark {
     acc[1] = 0;
     acc[2] = Long.MAX_VALUE;
     acc[3] = Long.MIN_VALUE;
+  }
+
+  // ==================== group fold: heap array lane vs off-heap slab lane ====================
+
+  /** Widest aggregate count the group-fold arms run, so the slot scratch is one fixed size. */
+  private static final int MAX_GROUP_AGGS = 4;
+
+  /** See {@link GroupLanes#verifyArmsAgree()} — off by default so no fork sees a mixed profile. */
+  private static final boolean VERIFY_ARMS = Boolean.getBoolean("sirix.bench.verifyArms");
+
+  /** Every aggregate column's SUM lane is read, i.e. every sum folds exactly. */
+  private static final long ALL_SUMS_EXACT = -1L;
+
+  /**
+   * The same aggregate values reachable three ways, leaf by leaf: per-leaf heap arrays (the shape
+   * every group kernel read before the off-heap lanes), one 64-byte-aligned global-scope allocator
+   * slab (the shape {@code ProjectionColumnStore.fillColumn} now decodes into), and the per-leaf heap
+   * arrays viewed as {@link MemorySegment}s (the shape the still-heap windowed slices hand a
+   * converted kernel). The three carry identical values, checked through the shipped kernels in
+   * {@link #setUp}, so a score difference is the READ and nothing else.
+   *
+   * <p>
+   * All rows are present and one group absorbs every row: no probe, no hash table, no distinct set
+   * dilutes the per-row read. That is deliberately the lane arm's worst case — the ratio of segment
+   * reads to other work per row is as high as a group scan can make it.
+   */
+  @State(Scope.Benchmark)
+  public static class GroupLanes {
+    @Param({"1", "4"})
+    int aggCount;
+
+    /** {@code [leaf][agg]} heap value arrays — one array per leaf per aggregate column. */
+    long[][][] heapValues;
+
+    /** {@code [leaf][agg]} views of {@link #heapValues} as heap segments. */
+    MemorySegment[][] heapSegments;
+
+    /**
+     * One slab PER COLUMN, holding that column's lane for every leaf at 64-byte-aligned bases — what
+     * {@code ProjectionColumnStore.fillColumn} allocates. Distinct segment objects per column matter:
+     * sharing one would let the compiler hoist one segment's base and length across all the columns of
+     * a row, which no group scan over separately filled columns ever gets.
+     */
+    MemorySegment[] slabs;
+
+    /** {@code [leaf][agg]} byte offset of row 0 within {@code slabs[agg]}. */
+    long[][] slabBases;
+
+    /** {@code [leaf][agg]} presence words; every row present. */
+    long[][][] presence;
+
+    @Setup
+    public void setUp() {
+      final Random rnd = new Random(0x6E0_1A4E5L);
+      heapValues = new long[POOL_BLOCKS][aggCount][];
+      heapSegments = new MemorySegment[POOL_BLOCKS][aggCount];
+      slabBases = new long[POOL_BLOCKS][aggCount];
+      presence = new long[POOL_BLOCKS][aggCount][];
+      // 64-byte aligned lanes, exactly as ProjectionColumnStore.laneBases lays a column out; the
+      // global scope is what the allocator hands out, so the reads carry no liveness check.
+      final long laneStride = (BLOCK_VALUES * (long) Long.BYTES + 63L) & ~63L;
+      slabs = new MemorySegment[aggCount];
+      for (int a = 0; a < aggCount; a++) {
+        slabs[a] = Arena.global().allocate(laneStride * POOL_BLOCKS, 64);
+      }
+      final long[] allPresent = new long[WORDS_PER_BLOCK];
+      Arrays.fill(allPresent, -1L);
+      for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
+        for (int a = 0; a < aggCount; a++) {
+          final long base = leaf * laneStride;
+          final long[] vals = new long[BLOCK_VALUES];
+          for (int r = 0; r < BLOCK_VALUES; r++) {
+            vals[r] = rnd.nextLong(0, 1024);
+            SegmentAccess.putLong(slabs[a], base + ((long) r << 3), vals[r]);
+          }
+          heapValues[leaf][a] = vals;
+          heapSegments[leaf][a] = MemorySegment.ofArray(vals);
+          slabBases[leaf][a] = base;
+          presence[leaf][a] = allPresent;
+        }
+      }
+      if (VERIFY_ARMS) {
+        verifyArmsAgree();
+      }
+    }
+
+    /**
+     * The three reads and the three kernels produce identical accumulators — OFF by default and
+     * asserted by {@code GroupFoldLaneEquivalenceTest} in sirix-core instead, because running it here
+     * would walk the pool through heap segments AND native slab segments inside every fork, leaving
+     * {@code SegmentAccess.getLong}'s call site bimorphic before the measured arm starts and charging a
+     * monomorphic production path for a type profile the harness created. Enable with
+     * {@code -jvmArgs -Dsirix.bench.verifyArms=true} when changing an arm.
+     */
+    private void verifyArmsAgree() {
+      final long[] full = new long[WORDS_PER_BLOCK];
+      Arrays.fill(full, -1L);
+      final long[] fromArrays = foldWholePool(full, Arm.ARRAY, Kernel.SLICED);
+      final long[] fromSlab = foldWholePool(full, Arm.SLAB, Kernel.SLICED);
+      final long[] fromHeapSegments = foldWholePool(full, Arm.HEAP_SEGMENT, Kernel.SLICED);
+      if (!Arrays.equals(fromArrays, foldWholePool(full, Arm.ARRAY_AFTER_COPY, Kernel.SLICED))) {
+        throw new AssertionError("the materialized copy does not hold the lane's values");
+      }
+      if (!Arrays.equals(fromArrays, foldWholePool(full, Arm.SLAB_WORD_GATHER, Kernel.SLICED))) {
+        throw new AssertionError("the word gather does not fold the lane's values");
+      }
+      if (!Arrays.equals(fromArrays, fromSlab) || !Arrays.equals(fromArrays, fromHeapSegments)) {
+        throw new AssertionError("foldSliced array/slab/heap-segment divergence: " + Arrays.toString(fromArrays)
+            + " vs " + Arrays.toString(fromSlab) + " vs " + Arrays.toString(fromHeapSegments));
+      }
+      final long[] plainArrays = foldWholePool(full, Arm.ARRAY, Kernel.NUMERIC_PLAIN);
+      final long[] plainSlab = foldWholePool(full, Arm.SLAB, Kernel.NUMERIC_PLAIN);
+      if (!Arrays.equals(plainArrays, plainSlab)) {
+        throw new AssertionError("foldNumericPlain array/slab divergence");
+      }
+      // foldSliced's [count, sum, min, max] stripe and foldNumericPlain's are the same shape over
+      // the same rows, so the two kernels must also agree with each other.
+      if (!Arrays.equals(fromArrays, plainArrays)) {
+        throw new AssertionError("foldSliced and foldNumericPlain disagree");
+      }
+      final long[] sumsArrays = foldWholePool(full, Arm.ARRAY, Kernel.SUMS);
+      final long[] sumsSlab = foldWholePool(full, Arm.SLAB, Kernel.SUMS);
+      final long[] sumsHeapSegments = foldWholePool(full, Arm.HEAP_SEGMENT, Kernel.SUMS);
+      if (!Arrays.equals(sumsArrays, sumsSlab) || !Arrays.equals(sumsArrays, sumsHeapSegments)) {
+        throw new AssertionError("foldSumsSliced array/slab/heap-segment divergence");
+      }
+      for (int a = 0; a < aggCount; a++) {
+        if (sumsArrays[2 + 2 * a] != fromArrays[2 + 4 * a] || sumsArrays[3 + 2 * a] != fromArrays[3 + 4 * a]) {
+          throw new AssertionError("the sums-only stripe disagrees with the full stripe for column " + a);
+        }
+      }
+    }
+
+    /** Verification-only pass: the same walk the benchmark arms run, over one repeated mask word. */
+    private long[] foldWholePool(final long[] maskWords, final Arm arm, final Kernel kernel) {
+      final long[] slot = new long[2 + 4 * MAX_GROUP_AGGS];
+      final long[][] values = new long[MAX_GROUP_AGGS][];
+      final MemorySegment[] segments = new MemorySegment[MAX_GROUP_AGGS];
+      final long[] bases = new long[MAX_GROUP_AGGS];
+      final long[][] presenceWords = new long[MAX_GROUP_AGGS][];
+      resetSlot(slot, kernel);
+      for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
+        hoistLeaf(this, leaf, arm, values, segments, bases, presenceWords);
+        foldLeaf(maskWords, 0, aggCount, slot, values, segments, bases, presenceWords, arm, kernel,
+            new long[MAX_GROUP_AGGS][64]);
+      }
+      return slot;
+    }
+  }
+
+  /** Which representation the aggregate values are read from. */
+  private enum Arm {
+    /** Per-leaf heap arrays that were never off-heap: the shape before the lanes existed. */
+    ARRAY,
+    /** {@code NumericLane.values()}: the leaf's lane copied to a fresh heap array, then read. */
+    ARRAY_AFTER_COPY,
+    /** The store's own slab, read in place. */
+    SLAB,
+    /** A heap array viewed as a segment: the still-heap windowed slices. */
+    HEAP_SEGMENT,
+    /**
+     * The store's slab, gathered one 64-row word at a time into a reusable 512-byte scratch and then
+     * folded by the ARRAY kernels with the bit position as the row index — the shape
+     * {@code ProjectionColumnGroupScan.gatherPays} dispatches to above
+     * {@link ProjectionVectorKernels#FOLD_WALK_MAX_BITS} set bits, so the segment pays one bounds check
+     * per word instead of one per row, and nothing is allocated per leaf.
+     */
+    SLAB_WORD_GATHER
+  }
+
+  /** Whether {@code arm} folds through the array kernels over a whole row-indexed lane. */
+  private static boolean readsArrays(final Arm arm) {
+    return arm == Arm.ARRAY || arm == Arm.ARRAY_AFTER_COPY;
+  }
+
+  /** Which shipped group-fold kernel folds the row. */
+  private enum Kernel {
+    SLICED, NUMERIC_PLAIN, SUMS
+  }
+
+  /** Per-thread hoist scratch: the per-leaf arrays a group kernel's caller fills once per leaf. */
+  @State(Scope.Thread)
+  public static class GroupScratch {
+    final long[] slot = new long[2 + 4 * MAX_GROUP_AGGS];
+    final long[][] values = new long[MAX_GROUP_AGGS][];
+    final MemorySegment[] segments = new MemorySegment[MAX_GROUP_AGGS];
+    final long[] bases = new long[MAX_GROUP_AGGS];
+    final long[][] presence = new long[MAX_GROUP_AGGS][];
+    final int[][] ids = new int[MAX_GROUP_AGGS][];
+    final int[][] lengthTables = new int[MAX_GROUP_AGGS][];
+    /** 64 rows per column: the whole scratch is 2 KiB at the widest arm, reused for every word. */
+    final long[][] gathered = new long[MAX_GROUP_AGGS][64];
+  }
+
+  /**
+   * Zero the stripe and plant the extrema sentinels the kernel's layout expects. The sums-only
+   * kernel's {@code [count, sum]} pairs sit two longs apart, so its slots overlap where the full
+   * {@code [count, sum, min, max]} stripe keeps its MIN/MAX sentinels — planting those for a
+   * sums-only run would add {@code Long.MAX_VALUE} to a count.
+   */
+  private static void resetSlot(final long[] slot, final Kernel kernel) {
+    Arrays.fill(slot, 0L);
+    if (kernel == Kernel.SUMS) {
+      return;
+    }
+    for (int a = 0; a < MAX_GROUP_AGGS; a++) {
+      final int at = 2 + 4 * a;
+      slot[at + 2] = Long.MAX_VALUE;
+      slot[at + 3] = Long.MIN_VALUE;
+    }
+  }
+
+  /** What a converted kernel's caller does once per leaf: resolve the lane of every column. */
+  private static void hoistLeaf(final GroupLanes s, final int leaf, final Arm arm, final long[][] values,
+      final MemorySegment[] segments, final long[] bases, final long[][] presence) {
+    for (int a = 0; a < s.aggCount; a++) {
+      presence[a] = s.presence[leaf][a];
+      switch (arm) {
+        case ARRAY -> values[a] = s.heapValues[leaf][a];
+        case ARRAY_AFTER_COPY -> {
+          // What ColumnSlice.numericValues() does for a slab-backed slice: one fresh heap array per
+          // slice, filled once from the lane, then read by the array kernel. The allocation is part
+          // of the cost — the slices of a query's fill are new objects, so the copy is not reused.
+          final long[] copy = new long[BLOCK_VALUES];
+          MemorySegment.copy(s.slabs[a], ValueLayout.JAVA_LONG_UNALIGNED, s.slabBases[leaf][a], copy, 0, BLOCK_VALUES);
+          values[a] = copy;
+        }
+        case SLAB, SLAB_WORD_GATHER -> {
+          segments[a] = s.slabs[a];
+          bases[a] = s.slabBases[leaf][a];
+        }
+        case HEAP_SEGMENT -> {
+          segments[a] = s.heapSegments[leaf][a];
+          bases[a] = 0L;
+        }
+      }
+    }
+  }
+
+  /** One leaf's masked row walk through the chosen kernel; {@code wordBase} indexes the mask pool. */
+  /**
+   * One leaf's masked row walk through the chosen kernel; {@code wordBase} indexes the mask pool.
+   * Every arm reaches the kernels through {@link #foldOneRow}, so two arms that resolve to the same
+   * read path really do run the same code and a score difference between them is an effect, not a
+   * difference in how this harness happened to inline.
+   */
+  private static void foldLeaf(final long[] maskWords, final int wordBase, final int aggCount, final long[] slot,
+      final long[][] values, final MemorySegment[] segments, final long[] bases, final long[][] presence, final Arm arm,
+      final Kernel kernel, final long[][] gathered) {
+    final boolean arrays = readsArrays(arm);
+    for (int w = 0; w < WORDS_PER_BLOCK; w++) {
+      final long word = maskWords[wordBase + w];
+      if (word == 0L) {
+        continue;
+      }
+      // The dense arm's one decision per word, the same crossover ProjectionVectorKernels uses.
+      final boolean gather = arm == Arm.SLAB_WORD_GATHER && ProjectionColumnGroupScan.gatherPays(word);
+      if (gather) {
+        ProjectionColumnGroupScan.gatherWindow(segments, bases, aggCount, w, POOL_VALUES, gathered);
+      }
+      long remaining = word;
+      while (remaining != 0L) {
+        final int bit = Long.numberOfTrailingZeros(remaining);
+        remaining &= remaining - 1L;
+        if (gather) {
+          // The gathered scratch is indexed by the bit position, so the row index IS the bit.
+          foldOneRow(kernel, slot, gathered, segments, bases, presence, aggCount, w, bit, bit, true);
+        } else {
+          foldOneRow(kernel, slot, values, segments, bases, presence, aggCount, w, bit, (w << 6) + bit, arrays);
+        }
+      }
+    }
+  }
+
+  /** One row through the chosen kernel; {@code arrays} picks the array form over the lane form. */
+  private static void foldOneRow(final Kernel kernel, final long[] slot, final long[][] values,
+      final MemorySegment[] segments, final long[] bases, final long[][] presence, final int aggCount, final int w,
+      final int bit, final int rowIdx, final boolean arrays) {
+    switch (kernel) {
+      case SLICED -> {
+        if (arrays) {
+          ProjectionColumnGroupScan.foldSlicedWindow(slot, 0, values, presence, NO_IDS, null, null, aggCount, w, bit,
+              rowIdx, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, NO_LENGTH_TABLES);
+        } else {
+          ProjectionColumnGroupScan.foldSlicedLane(slot, 0, segments, bases, presence, NO_IDS, null, null, aggCount, w,
+              bit, rowIdx, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, NO_LENGTH_TABLES, null, 0L);
+        }
+      }
+      case NUMERIC_PLAIN -> {
+        if (arrays) {
+          ProjectionColumnGroupScan.foldNumericPlainWindow(slot, 0, values, presence, aggCount, w, bit, rowIdx,
+              ALL_SUMS_EXACT);
+        } else {
+          ProjectionColumnGroupScan.foldNumericPlainLane(slot, 0, segments, bases, presence, aggCount, w, bit, rowIdx,
+              ALL_SUMS_EXACT);
+        }
+      }
+      case SUMS -> {
+        if (arrays) {
+          ProjectionColumnGroupScan.foldSumsWindow(slot, 0, values, presence, aggCount, w, bit, ALL_SUMS_EXACT);
+        } else {
+          ProjectionColumnGroupScan.foldSumsSlicedLane(slot, 0, segments, bases, presence, aggCount, w, bit, rowIdx,
+              ALL_SUMS_EXACT);
+        }
+      }
+    }
+  }
+
+  /** No distinct block and no string-length operand, so no kernel arm reads these. */
+  private static final int[][] NO_IDS = new int[MAX_GROUP_AGGS][];
+
+  private static final int[][] NO_LENGTH_TABLES = new int[MAX_GROUP_AGGS][];
+
+  private static long runGroupFold(final GroupLanes s, final Masks m, final GroupScratch g, final Arm arm,
+      final Kernel kernel) {
+    resetSlot(g.slot, kernel);
+    for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
+      hoistLeaf(s, leaf, arm, g.values, g.segments, g.bases, g.presence);
+      foldLeaf(m.candidates, leaf * WORDS_PER_BLOCK, s.aggCount, g.slot, g.values, g.segments, g.bases, g.presence, arm,
+          kernel, g.gathered);
+    }
+    return g.slot[0] ^ g.slot[2] ^ g.slot[3] ^ g.slot[4] ^ g.slot[5];
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSlicedArray(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.ARRAY, Kernel.SLICED);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSlicedLaneSlab(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.SLAB, Kernel.SLICED);
+  }
+
+  /**
+   * The route's real "before" once the store decodes into slabs: {@code numericValues()} copies the
+   * leaf's lane to a fresh heap array, and only then does the array kernel read it. Compare
+   * {@link #groupFoldSlicedLaneSlab} against THIS, not against {@link #groupFoldSlicedArray} — the
+   * latter is a shape no lane-backed fill can offer any more.
+   */
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSlicedArrayAfterCopy(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.ARRAY_AFTER_COPY, Kernel.SLICED);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSlicedLaneHeapSegment(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.HEAP_SEGMENT, Kernel.SLICED);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldNumericPlainArray(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.ARRAY, Kernel.NUMERIC_PLAIN);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldNumericPlainLaneSlab(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.SLAB, Kernel.NUMERIC_PLAIN);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSumsArray(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.ARRAY, Kernel.SUMS);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSumsLaneSlab(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.SLAB, Kernel.SUMS);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSlicedLaneWordGather(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.SLAB_WORD_GATHER, Kernel.SLICED);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSumsLaneWordGather(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.SLAB_WORD_GATHER, Kernel.SUMS);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldNumericPlainLaneWordGather(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.SLAB_WORD_GATHER, Kernel.NUMERIC_PLAIN);
+  }
+
+  /** {@link #groupFoldSlicedArrayAfterCopy} for the dense arm's plain numeric kernel. */
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldNumericPlainArrayAfterCopy(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.ARRAY_AFTER_COPY, Kernel.NUMERIC_PLAIN);
+  }
+
+  /** {@link #groupFoldSlicedArrayAfterCopy} for the sums-only kernel. */
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSumsArrayAfterCopy(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.ARRAY_AFTER_COPY, Kernel.SUMS);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long groupFoldSumsLaneHeapSegment(final GroupLanes s, final Masks m, final GroupScratch g) {
+    return runGroupFold(s, m, g, Arm.HEAP_SEGMENT, Kernel.SUMS);
   }
 }

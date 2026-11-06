@@ -280,9 +280,10 @@ public final class DenseGlobalGroupAggTable {
    * @param decline set to {@code 1} when {@code id} is outside the sized range — the caller declines,
    *        because folding it elsewhere or dropping it are both wrong answers
    * @throws ArithmeticException when a READ sum lane overflows, exactly as the hash kernels throw
+   * @param window this word's 64 gathered values per column, so the VALUE index is {@code bit}
    */
-  public void fold(final long id, final long firstSeenOrdinal, final long[][] aggValues, final long[][] aggPresence,
-      final int aggCount, final int w, final int bit, final int rowIdx, final IdRoster roster, final long[] decline) {
+  public void foldWindow(final long id, final long firstSeenOrdinal, final long[][] window, final long[][] aggPresence,
+      final int aggCount, final int w, final int bit, final IdRoster roster, final long[] decline) {
     final long[] block;
     final int base;
     if (id == 0L) {
@@ -305,7 +306,7 @@ public final class DenseGlobalGroupAggTable {
       if ((aggPresence[a][w] & 1L << bit) == 0L) {
         continue;
       }
-      final long v = aggValues[a][rowIdx];
+      final long v = window[a][bit];
       final int aggBase = base + 2 + 4 * a;
       // The PRESENT count is never skippable: min/max/avg over a group whose every row lacked the
       // operand must answer the empty sequence, and this lane is the only thing that says so.
@@ -320,7 +321,11 @@ public final class DenseGlobalGroupAggTable {
     }
   }
 
-  /** {@link #fold} over lane segments: {@code aggSeg[a]} at byte offset {@code aggBase[a]}. */
+  /**
+   * {@link #foldWindow} reading the lanes in place instead of a gathered window: one checked segment
+   * read per surviving row, which is the cheaper side below the gather crossover
+   * ({@code ProjectionColumnGroupScan#gatherPays}).
+   */
   public void foldLane(final long id, final long firstSeenOrdinal, final MemorySegment[] aggSeg, final long[] laneBases,
       final long[][] aggPresence, final int aggCount, final int w, final int bit, final int rowIdx,
       final IdRoster roster, final long[] decline) {

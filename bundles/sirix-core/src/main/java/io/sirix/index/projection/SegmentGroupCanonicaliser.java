@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import static io.sirix.utils.StringComparisons.compareCodePoints;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
@@ -15,6 +16,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.function.IntConsumer;
@@ -541,11 +543,14 @@ public final class SegmentGroupCanonicaliser {
       if (rowKeep != null && rowsKept == null) {
         continue; // no row of this leaf passes the predicates: none of its cells is ever read
       }
-      final long[] cells = slice.numericValues();
-      if (cells == null) {
+      if (!slice.hasNumericLane()) {
         report("a slice carries no long lane");
         return null; // canonicalise refuses it anyway
       }
+      // Hoisted once per leaf: the cells are read where they already live, so nothing copies the
+      // lane to the heap to look at a handful of kept rows.
+      final MemorySegment cellSeg = slice.laneSegment();
+      final long cellBase = slice.laneBase();
       final long[] presence = slice.presenceWords();
       final int rows = slice.rowCount();
       // The segment's state is looked up on a CHANGE of segment, not per cell: a leaf never
@@ -568,7 +573,7 @@ public final class SegmentGroupCanonicaliser {
           if (row >= rows) {
             break;
           }
-          final long cell = cells[row];
+          final long cell = SegmentAccess.getLong(cellSeg, cellBase + ((long) row << 3));
           final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
           final int mint = ProjectionIndexRowGroupPage.idOfCell(cell);
           if (segment < 0 || mint < 1) {
@@ -1058,6 +1063,18 @@ public final class SegmentGroupCanonicaliser {
    * representative cells never change during a walk, so a proven match stays valid. A hash collision
    * or an arrival after this snapshot uses the ordinary exact check when publishing.
    */
+  /**
+   * Longs in a slice's value lane. The produced canonical lane must match it, because the shared
+   * all-zero lane is reused by LENGTH and callers compare the two shapes; a slab-backed slice knows
+   * its own row count, a heap-backed one its array's length.
+   */
+  private static int laneLongs(final ColumnSlice slice) {
+    final NumericLane lane = slice.lane();
+    return lane != null
+        ? lane.rows()
+        : requireNonNull(slice.heapNumericValues(), "a slice with a lane has one of the two forms").length;
+  }
+
   private synchronized void snapshotCandidates(final long[] hashes, final int[] candidates, final long[] cells,
       final String[] values, final boolean[] identities, final int n) {
     for (int i = 0; i < n; i++) {
@@ -1288,8 +1305,7 @@ public final class SegmentGroupCanonicaliser {
         out[i] = slice;
         continue;
       }
-      final long[] cells = slice.numericValues();
-      if (cells == null) {
+      if (!slice.hasNumericLane()) {
         // A segment-scoped column IS a long lane, so a slice WITH rows but without one cannot be
         // canonicalised. Passing it through would be far worse than declining: its raw cells would
         // then group BESIDE canonical ids from the leaves that were canonicalised, and a segment-0
@@ -1297,6 +1313,11 @@ public final class SegmentGroupCanonicaliser {
         // silently land in the same group.
         return false;
       }
+      final MemorySegment cellSeg = slice.laneSegment();
+      final long cellBase = slice.laneBase();
+      // The produced canonical lane keeps the INPUT lane's length exactly — a shared empty lane is
+      // matched by length, and the group kernels read the slice's own row count either way.
+      final int laneLongs = laneLongs(slice);
       final int rows = slice.rowCount();
       final int words = (rows + 63) >>> 6;
       final long[] slicePresence = slice.presenceWords();
@@ -1330,25 +1351,25 @@ public final class SegmentGroupCanonicaliser {
       }
       final long[] canonical;
       if (diag) {
-        sourceLongs += cells.length;
+        sourceLongs += laneLongs;
       }
       if (rowsKept != null && firstWord == words) {
         // An all-zero conjunctive mask still makes the kernel read this slice. Preserve its
         // full lane shape, sharing only untouched zeroes within this rewrite. A leaf with a live
         // row always owns this lane; dense inputs allocate exactly as before.
-        if (emptyCanonical == null || emptyCanonical.length != cells.length) {
-          emptyCanonical = new long[cells.length];
+        if (emptyCanonical == null || emptyCanonical.length != laneLongs) {
+          emptyCanonical = new long[laneLongs];
           if (diag) {
-            allocatedLongs += cells.length;
+            allocatedLongs += laneLongs;
           }
         } else if (diag) {
           reusedEmptyLeaves++;
         }
         canonical = emptyCanonical;
       } else {
-        canonical = new long[cells.length];
+        canonical = new long[laneLongs];
         if (diag) {
-          allocatedLongs += cells.length;
+          allocatedLongs += laneLongs;
         }
       }
       long min = Long.MAX_VALUE;
@@ -1377,7 +1398,7 @@ public final class SegmentGroupCanonicaliser {
           if (row >= rows) {
             break;
           }
-          final long cell = cells[row];
+          final long cell = SegmentAccess.getLong(cellSeg, cellBase + ((long) row << 3));
           if (settled == null) {
             final int segment = ProjectionIndexRowGroupPage.segmentOfCell(cell);
             settled = segment >= 0 && segment < tables.length
@@ -1514,10 +1535,11 @@ public final class SegmentGroupCanonicaliser {
       if (rowKeep != null && rowsKept == null) {
         continue; // no row of the leaf passes: its values are not the query's
       }
-      final long[] cells = slice.numericValues();
-      if (cells == null) {
+      if (!slice.hasNumericLane()) {
         return false; // a segment-scoped column IS a long lane; see canonicalise
       }
+      final MemorySegment cellSeg = slice.laneSegment();
+      final long cellBase = slice.laneBase();
       final long[] presence = slice.presenceWords();
       final int rows = slice.rowCount();
       // An absent row holds no value and is not a distinct one; a cleared one is not read. By word,
@@ -1533,7 +1555,7 @@ public final class SegmentGroupCanonicaliser {
           if (row >= rows) {
             break;
           }
-          if (canonicalOf(cells[row]) == UNRESOLVABLE) {
+          if (canonicalOf(SegmentAccess.getLong(cellSeg, cellBase + ((long) row << 3))) == UNRESOLVABLE) {
             return false;
           }
         }
