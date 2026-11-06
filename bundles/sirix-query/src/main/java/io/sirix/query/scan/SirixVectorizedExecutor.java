@@ -82,6 +82,7 @@ import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.NodeKind;
+import io.sirix.node.SegmentAccess;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.page.KeyValueLeafPage;
@@ -12636,7 +12637,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (slice == null || slice.rowCount() == 0) {
         continue;
       }
-      if (slice.numericValues() == null || slice.presenceWords() == null) {
+      if (!slice.hasNumericLane() || slice.presenceWords() == null) {
         return null;
       }
       presentRows += slice.rowCount();
@@ -12839,16 +12840,22 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private static final long NUMERIC_DISTINCT_BITSET_SPAN = 1L << 22;
 
-  /** Distinct count over a narrow value range, one bit per representable value. */
-  private static long distinctViaBitset(final ProjectionColumnStore.ColumnSlice[] slices, final long min,
-      final long span) {
+  /**
+   * Distinct count over a narrow value range, one bit per representable value. Package-private so
+   * {@code ProjectionLaneKernelParityTest} can run it over a slab lane and over the heap array of the
+   * same values and compare the answers.
+   */
+  static long distinctViaBitset(final ProjectionColumnStore.ColumnSlice[] slices, final long min, final long span) {
     final long[] seen = new long[(int) ((span >> 6) + 1)];
     long distinct = 0L;
     for (final ProjectionColumnStore.ColumnSlice slice : slices) {
       if (slice == null || slice.rowCount() == 0) {
         continue;
       }
-      final long[] values = slice.numericValues();
+      // Lane in place: segment and base hoisted once per leaf, eight bytes per row at a linear
+      // offset, so the bounds check leaves the row loop (see sirix-low-latency-coding section 6).
+      final MemorySegment lane = slice.laneSegment();
+      final long laneBase = slice.laneBase();
       final long[] presence = slice.presenceWords();
       final int rows = slice.rowCount();
       for (int w = 0, words = (rows + 63) >>> 6; w < words; w++) {
@@ -12860,7 +12867,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (row >= rows) {
             break;
           }
-          final long slot = values[row] - min;
+          final long slot = SegmentAccess.getLong(lane, laneBase + ((long) row << 3)) - min;
           final int word = (int) (slot >>> 6);
           final long mask = 1L << (slot & 63);
           if ((seen[word] & mask) == 0L) {
@@ -12873,14 +12880,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return distinct;
   }
 
-  /** Distinct count over a wide value range, by exact membership rather than by hash sketch. */
-  private static long distinctViaHashSet(final ProjectionColumnStore.ColumnSlice[] slices) {
+  /**
+   * Distinct count over a wide value range, by exact membership rather than by hash sketch.
+   * Package-private for the lane/array parity test, like {@link #distinctViaBitset}.
+   */
+  static long distinctViaHashSet(final ProjectionColumnStore.ColumnSlice[] slices) {
     final LongOpenHashSet seen = new LongOpenHashSet();
     for (final ProjectionColumnStore.ColumnSlice slice : slices) {
       if (slice == null || slice.rowCount() == 0) {
         continue;
       }
-      final long[] values = slice.numericValues();
+      final MemorySegment lane = slice.laneSegment();
+      final long laneBase = slice.laneBase();
       final long[] presence = slice.presenceWords();
       final int rows = slice.rowCount();
       for (int w = 0, words = (rows + 63) >>> 6; w < words; w++) {
@@ -12892,7 +12903,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (row >= rows) {
             break;
           }
-          seen.add(values[row]);
+          seen.add(SegmentAccess.getLong(lane, laneBase + ((long) row << 3)));
         }
       }
     }
@@ -13516,7 +13527,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * and the generic pipeline behind this route promotes rather than wraps. On overflow the fold
    * declines and that pipeline answers.
    */
-  private long foldBinaryNumeric(final ProjectionColumnStore.ColumnSlice[] left,
+  static long foldBinaryNumeric(final ProjectionColumnStore.ColumnSlice[] left,
       final ProjectionColumnStore.ColumnSlice[] right, final String op) {
     final int rowGroups = Math.min(left.length, right.length);
     long total = 0L;
@@ -13524,12 +13535,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       for (int g = 0; g < rowGroups; g++) {
         final ProjectionColumnStore.ColumnSlice l = left[g];
         final ProjectionColumnStore.ColumnSlice r = right[g];
-        if (l == null || r == null || l.numericValues() == null || r.numericValues() == null) {
+        if (l == null || r == null || !l.hasNumericLane() || !r.hasNumericLane()) {
           return BINARY_FOLD_DECLINED;
         }
         final int rows = Math.min(l.rowCount(), r.rowCount());
-        final long[] lv = l.numericValues();
-        final long[] rv = r.numericValues();
+        final MemorySegment lLane = l.laneSegment();
+        final long lBase = l.laneBase();
+        final MemorySegment rLane = r.laneSegment();
+        final long rBase = r.laneBase();
         final long[] lp = l.presenceWords();
         final long[] rp = r.presenceWords();
         if (lp == null || rp == null) {
@@ -13547,7 +13560,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             if (row >= rows) {
               break;
             }
-            total = Math.addExact(total, applyBinaryOp(lv[row], rv[row], op));
+            final long rowOffset = (long) row << 3;
+            total = Math.addExact(total, applyBinaryOp(SegmentAccess.getLong(lLane, lBase + rowOffset),
+                SegmentAccess.getLong(rLane, rBase + rowOffset), op));
           }
         }
       }
@@ -14606,6 +14621,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final ObjectArrayList<long[]> candidates = new ObjectArrayList<>(ANY_K_MAX_CANDIDATES);
     final ProjectionColumnStore.LeafColumnAccess access = store.leafSetAccess(fetcher, null, sampleLeaves, 0, sampled);
     final ProjectionColumnStore.ColumnSlice[] slices = new ProjectionColumnStore.ColumnSlice[keyCount];
+    // Per numeric key column: the sampled leaf's lane, hoisted once in the column loop below so the
+    // row loop reads eight bytes at a linear offset instead of resolving a lane per cell.
+    final MemorySegment[] keyLanes = new MemorySegment[keyCount];
+    final long[] keyLaneBases = new long[keyCount];
     final int[][] dictToCanon = new int[keyCount][];
     long[] tuple = new long[keyCount];
     leaves: for (int i = 0; i < sampled; i++) {
@@ -14615,7 +14634,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final ProjectionColumnStore.ColumnSlice slice = access.slice(cols[g], leaf);
         if (slice == null || slice.rowCount() <= 0 || slice.presenceWords() == null || (stringKey[g]
             ? slice.stringDictIds() == null
-            : slice.numericValues() == null)) {
+            : !slice.hasNumericLane())) {
           continue leaves;
         }
         if (rows < 0) {
@@ -14624,6 +14643,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           continue leaves;
         }
         slices[g] = slice;
+        if (!stringKey[g]) {
+          keyLanes[g] = slice.laneSegment();
+          keyLaneBases[g] = slice.laneBase();
+        }
         if (stringKey[g]) {
           final int dictSize = slice.dictSize();
           if (dictToCanon[g] == null || dictToCanon[g].length < dictSize) {
@@ -14661,7 +14684,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
             tuple[g] = canon;
           } else {
-            tuple[g] = slice.numericValues()[r];
+            tuple[g] = SegmentAccess.getLong(keyLanes[g], keyLaneBases[g] + ((long) r << 3));
           }
         }
         if (seen.add(tuple)) {
@@ -15176,6 +15199,172 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * One query-local off-heap slab holding the masked long lanes a group route decodes.
+   *
+   * <p>
+   * A route resolves each of its columns through
+   * {@link ProjectionColumnStore#columnMaskedView(int, ProjectionColumnStore.ColumnSegmentFetcher, long[], ProjectionColumnStore.LaneTarget)}.
+   * A column the store holds RESIDENT is served pruned from the store's own slab and is pinned by the
+   * query's residency scope; a non-resident long-lane column would otherwise decode into one heap
+   * {@code long[]} per leaf. Giving it a target keeps the route's operands off-heap, so the group
+   * kernels read every lane through a native segment instead of a mix of native lanes and
+   * {@code MemorySegment.ofArray} views — the mixed shape that compiles bimorphic segment code.
+   *
+   * <p>
+   * <b>Lifetime.</b> The slices point into this slab, so the method that opened it closes it in a
+   * {@code finally} once its winners are materialized (every group route emits an
+   * {@link ItemSequence} over copied accumulator lanes and strings: nothing downstream reads a
+   * slice). The layout and the allocation are LAZY — a route that declines before resolving a column,
+   * or one that delegates to another arm, allocates nothing.
+   *
+   * <p>
+   * <b>Thread confinement.</b> Every group route resolves its columns on the calling thread before it
+   * fans out (the workers share the resulting immutable slice arrays), so this object is only ever
+   * touched by that one thread and carries no synchronization. The LANES it hands out are read by the
+   * workers, and they are immutable once the fill that wrote them returned.
+   */
+  static final class RouteLaneSlab implements AutoCloseable {
+
+    /** No columns to lay out: every {@link #target} is {@code null} and {@link #close} is free. */
+    static final RouteLaneSlab NONE = new RouteLaneSlab(null, null, null);
+
+    private final @Nullable ProjectionColumnStore store;
+    private final long @Nullable [] keep;
+    /** The route's requested columns, duplicates and non-lane columns included; filtered on open. */
+    private final int @Nullable [] requested;
+    /** Distinct non-resident long-lane columns, valid once {@link #laidOut}. */
+    private int @Nullable [] cols;
+    /** Per column of {@link #cols}, the per-leaf lane bases from {@code maskedLaneLayout}. */
+    private long @Nullable [][] bases;
+    private @Nullable MemorySegment slab;
+    private boolean laidOut;
+
+    private RouteLaneSlab(final @Nullable ProjectionColumnStore store, final long @Nullable [] keep,
+        final int @Nullable [] requested) {
+      this.store = store;
+      this.keep = keep;
+      this.requested = requested;
+    }
+
+    /**
+     * A slab plan for every long-lane column of {@code colGroups} this store does not hold resident.
+     *
+     * @param store the route's column store
+     * @param keep the route's leaf keep mask, or {@code null} when the route reads whole columns (then
+     *        the views are resident reads and no masked fill happens at all)
+     * @param colGroups the route's column index arrays; {@code null} groups and negative indices are
+     *        ignored
+     */
+    static RouteLaneSlab forColumns(final @Nullable ProjectionColumnStore store, final long @Nullable [] keep,
+        final int @Nullable []... colGroups) {
+      if (store == null || keep == null) {
+        return NONE;
+      }
+      int total = 0;
+      for (final int[] group : colGroups) {
+        if (group != null) {
+          total += group.length;
+        }
+      }
+      if (total == 0) {
+        return NONE;
+      }
+      final int[] requested = new int[total];
+      int at = 0;
+      for (final int[] group : colGroups) {
+        if (group == null) {
+          continue;
+        }
+        for (final int col : group) {
+          requested[at++] = col;
+        }
+      }
+      return new RouteLaneSlab(store, keep, requested);
+    }
+
+    /**
+     * Where {@code col}'s masked view decodes its surviving leaves, or {@code null} to leave it to heap
+     * arrays: the column carries no long lane, the store holds it resident, or the allocator refused
+     * the memory (then the fill is counted as a declined slab fill).
+     */
+    ProjectionColumnStore.@Nullable LaneTarget target(final int col) {
+      if (col < 0 || requested == null) {
+        return null;
+      }
+      if (!laidOut) {
+        layOut();
+      }
+      final MemorySegment memory = slab;
+      final int[] planned = cols;
+      if (memory == null || planned == null) {
+        return null;
+      }
+      for (int i = 0; i < planned.length; i++) {
+        if (planned[i] == col) {
+          return new ProjectionColumnStore.LaneTarget(memory, Objects.requireNonNull(bases)[i]);
+        }
+      }
+      return null;
+    }
+
+    /** One pass over the requested columns: distinct lane columns, their layout, one allocation. */
+    private void layOut() {
+      laidOut = true;
+      final ProjectionColumnStore columnStore = Objects.requireNonNull(store);
+      final long[] keepWords = Objects.requireNonNull(keep);
+      final int leaves = columnStore.rowGroupCount();
+      if (leaves == 0 || keepWords.length < (leaves + 63) >>> 6) {
+        return; // a short mask names no leaf beyond its words; the heap fill handles it
+      }
+      final int[] wanted = new int[Objects.requireNonNull(requested).length];
+      int distinct = 0;
+      for (final int col : requested) {
+        if (col < 0 || !columnStore.columnLongLane(col) || columnStore.columnFilled(col)) {
+          continue;
+        }
+        boolean seen = false;
+        for (int i = 0; i < distinct; i++) {
+          seen |= wanted[i] == col;
+        }
+        if (!seen) {
+          wanted[distinct++] = col;
+        }
+      }
+      if (distinct == 0) {
+        return;
+      }
+      final long[][] laneBases = new long[distinct][];
+      long bytes = 0L;
+      for (int i = 0; i < distinct; i++) {
+        laneBases[i] = new long[leaves];
+        bytes = columnStore.maskedLaneLayout(wanted[i], keepWords, laneBases[i], bytes);
+      }
+      if (bytes <= 0L) {
+        return; // every surviving leaf is rowless
+      }
+      final MemorySegment memory = Allocators.getInstance().allocateSlab(bytes);
+      if (memory == null) {
+        ProjectionColumnStore.noteSlabFillDeclined();
+        return;
+      }
+      cols = Arrays.copyOf(wanted, distinct);
+      bases = laneBases;
+      slab = memory;
+    }
+
+    @Override
+    public void close() {
+      final MemorySegment memory = slab;
+      if (memory != null) {
+        slab = null;
+        cols = null;
+        bases = null;
+        Allocators.getInstance().releaseSlab(memory);
+      }
+    }
+  }
+
+  /**
    * The group-aggregate body, with the sliced arm suppressible.
    *
    * <p>
@@ -15196,6 +15385,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final String @Nullable [] keyRegexPattern, final String @Nullable [] keyRegexRepl,
       final long @Nullable [] keyDivMod, final boolean @Nullable [] keyStringify, final long @Nullable [] having,
       final boolean wholeLeafOnly, final boolean budgetRefused, final @Nullable GroupRouting routing) {
+    // The masked long lanes of this route's key, aggregate and conditional-key columns: one slab,
+    // laid out and allocated on the first column the route actually resolves, released below.
+    RouteLaneSlab laneSlab = RouteLaneSlab.NONE;
     try {
       final RuntimeException fault = GROUP_AGG_TEST_FAULT;
       if (fault != null) {
@@ -16068,6 +16260,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final long[] groupKeep = groupSliced
           ? ProjectionColumnScan.predicateKeepMask(groupStore, preds, tree, columnFetcher())
           : null;
+      laneSlab = RouteLaneSlab.forColumns(groupStore, groupKeep, groupCols, aggColsFlat, keyCondCols);
       final ProjectionColumnStore.ColumnSlice[][] computedLaneSlices;
       if (anyDerivedLane) {
         // Evaluate each program once, over the leaves the predicates keep, on the calling thread
@@ -16082,11 +16275,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final int[] operandCols = derivedOperandCols[a];
           final ProjectionColumnStore.ColumnSlice[][] operands =
               new ProjectionColumnStore.ColumnSlice[operandCols.length][];
-          for (int o = 0; o < operandCols.length; o++) {
-            operands[o] = groupStore.columnMaskedView(operandCols[o], derivedFetcher, groupKeep);
+          // The operands are read ONCE, by the program evaluation below, which writes its result
+          // into slices of its own: their lanes go back as soon as the program has run.
+          // ProjectionComputedColumn still takes its operand values as arrays, so a lane it is
+          // handed is copied once per leaf and counted (NumericLane.materializedCount) — the same
+          // seam it already crosses for a RESIDENT operand column, and the aggregations area's
+          // conversion of that kernel removes it for both.
+          try (RouteLaneSlab operandSlab = RouteLaneSlab.forColumns(groupStore, groupKeep, operandCols)) {
+            for (int o = 0; o < operandCols.length; o++) {
+              operands[o] = groupStore.columnMaskedView(operandCols[o], derivedFetcher, groupKeep,
+                  operandSlab.target(operandCols[o]));
+            }
+            computedLaneSlices[a] = ProjectionComputedColumn.evaluate(operands, derivedLanes[a].code(),
+                derivedLanes[a].consts(), derivedKeep);
           }
-          computedLaneSlices[a] = ProjectionComputedColumn.evaluate(operands, derivedLanes[a].code(),
-              derivedLanes[a].consts(), derivedKeep);
         }
       } else {
         computedLaneSlices = null;
@@ -16337,7 +16539,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             handle.columnKindOf(groupCol) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
                 ? handle.valueDictionaryHeaderKey(groupCol)
                 : 0L,
-            handle, packedShapeFp, groupKeep);
+            handle, packedShapeFp, groupKeep, laneSlab);
       }
       if (numericSingleKey && !anyKeyTransform) {
         return numericGroupAggregate(armPayloads, windowedSlices, numericSlicedArm
@@ -16351,7 +16553,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 ? keyRegex
                 : null,
             keyRegexReplacement, handle, groupShapeFingerprint(groupCols, preds, tree, cdBlock), computedLaneSlices,
-            groupKeep);
+            groupKeep, laneSlab);
       }
       if (keyCount > 1 || anyKeyTransform) {
         if (orderPlan != null) {
@@ -16523,7 +16725,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                       : keyOffsetsEff[k], keyDivModEff[2 * k], keyDivModEff[2 * k + 1])
                   : groupKeep == null
                       ? compositeOperandColumn(groupCols[k], groupStore, cFetcher, preds, cPredCols, tree, cTreeCols)
-                      : groupStore.columnMaskedView(groupCols[k], cFetcher, groupKeep);
+                      : groupStore.columnMaskedView(groupCols[k], cFetcher, groupKeep, laneSlab.target(groupCols[k]));
             }
             // Resident: the whole column is here, so each segment-scoped key builds its value space
             // by the merge, over the rows the predicates keep — the kernels' own verdict, taken once
@@ -16547,13 +16749,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               }
               cAggCols[a] = groupKeep == null
                   ? compositeOperandColumn(aggColsFlat[a], groupStore, cFetcher, preds, cPredCols, tree, cTreeCols)
-                  : groupStore.columnMaskedView(aggColsFlat[a], cFetcher, groupKeep);
+                  : groupStore.columnMaskedView(aggColsFlat[a], cFetcher, groupKeep, laneSlab.target(aggColsFlat[a]));
             }
             if (keyCondCols != null) {
               cCondCols = new ProjectionColumnStore.ColumnSlice[2 * keyCount][];
               for (int c2 = 0; c2 < 2 * keyCount; c2++) {
                 if (keyCondCols[c2] >= 0) {
-                  cCondCols[c2] = groupStore.columnMaskedView(keyCondCols[c2], cFetcher, groupKeep);
+                  cCondCols[c2] = groupStore.columnMaskedView(keyCondCols[c2], cFetcher, groupKeep,
+                      laneSlab.target(keyCondCols[c2]));
                 }
               }
             } else {
@@ -17268,7 +17471,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           sTreeCols = tree != null
               ? ProjectionColumnScan.resolveTreeColumnsShared(groupStore, tree, sFetcher, groupKeep)
               : null;
-          sGroupCol = groupStore.columnMaskedView(groupCol, sFetcher, groupKeep);
+          sGroupCol = groupStore.columnMaskedView(groupCol, sFetcher, groupKeep, laneSlab.target(groupCol));
           sAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
           for (int a = 0; a < aggColsFlat.length; a++) {
             final int expected = (stringLengthModesInFlat != null
@@ -17299,7 +17502,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             sAggCols[a] =
                 groupKeep == null && distinctIdentityOperand(cdStringDict, a, cdBlock, aggColsFlat[a], groupStore)
                     ? groupStore.columnDistinctIdentity(aggColsFlat[a], sFetcher)
-                    : groupStore.columnMaskedView(aggColsFlat[a], sFetcher, groupKeep);
+                    : groupStore.columnMaskedView(aggColsFlat[a], sFetcher, groupKeep, laneSlab.target(aggColsFlat[a]));
           }
         } else {
           sPredCols = null;
@@ -17749,6 +17952,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               if (groupStore.columnKind(deferredColsArr[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
                 throw new IllegalStateException("stringAggColumn " + deferredColsArr[a] + " is not STRING_DICT");
               }
+              // STRING_DICT (checked just above): no long lane, so no slab target exists.
               dAggCols[a] = groupStore.columnMaskedView(deferredColsArr[a], dFetcher, groupKeep);
             }
           } else {
@@ -17928,14 +18132,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
         }
         legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, legFetcher, groupKeep);
-        legGroupCol = groupStore.columnMaskedView(groupCol, legFetcher, groupKeep);
+        legGroupCol = groupStore.columnMaskedView(groupCol, legFetcher, groupKeep, laneSlab.target(groupCol));
         legAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
         for (int a = 0; a < aggColsFlat.length; a++) {
           if (groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
               && groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
             throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
           }
-          legAggCols[a] = groupStore.columnMaskedView(aggColsFlat[a], legFetcher, groupKeep);
+          legAggCols[a] =
+              groupStore.columnMaskedView(aggColsFlat[a], legFetcher, groupKeep, laneSlab.target(aggColsFlat[a]));
         }
       } else {
         legPredCols = null;
@@ -18058,6 +18263,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // fallback would hide it — log it and count it so drift is observable.
       failSoft(GROUP_AGG_FAILED, "group-aggregate serving", e);
       return null;
+    } finally {
+      // Every arm has materialized its winners by now (an ItemSequence over copied lanes), so no
+      // slice outlives the route and the slab goes back to the allocator here.
+      laneSlab.close();
     }
   }
 
@@ -18691,7 +18900,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
       final GroupOrderPlan orderPlan, final long limit, final long[] having, final long sumExactMask,
       final long globalDictionaryHeaderKey, final ProjectionIndexRegistry.Handle handle, final long groupShapeFp,
-      final long @Nullable [] groupKeep) {
+      final long @Nullable [] groupKeep, final RouteLaneSlab laneSlab) {
     if (orderPlan == null) {
       return declineGroupAgg("packed substring arm without an order plan");
     }
@@ -18722,14 +18931,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       pTreeCols = tree != null
           ? ProjectionColumnScan.resolveTreeColumnsShared(slicedStore, tree, pFetcher, groupKeep)
           : null;
-      pGroupCol = slicedStore.columnMaskedView(groupCol, pFetcher, groupKeep);
+      pGroupCol = slicedStore.columnMaskedView(groupCol, pFetcher, groupKeep, laneSlab.target(groupCol));
       pAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
       for (int a = 0; a < aggCols.length; a++) {
         if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             && slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
           throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
         }
-        pAggCols[a] = slicedStore.columnMaskedView(aggCols[a], pFetcher, groupKeep);
+        pAggCols[a] = slicedStore.columnMaskedView(aggCols[a], pFetcher, groupKeep, laneSlab.target(aggCols[a]));
       }
     } else {
       pPredCols = null;
@@ -19013,7 +19222,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int @Nullable [] segmentLengthCols, final @Nullable Pattern segmentKeyRegex,
       final @Nullable String segmentKeyRegexReplacement, final ProjectionIndexRegistry.Handle handle,
       final long groupShapeFp, final ProjectionColumnStore.ColumnSlice @Nullable [][] computedLaneSlices,
-      final long @Nullable [] groupKeep) {
+      final long @Nullable [] groupKeep, final RouteLaneSlab laneSlab) {
     final int rowGroupCount = slicedStore != null
         ? slicedStore.rowGroupCount()
         : rowGroupPayloads.size();
@@ -19102,8 +19311,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final DenseGlobalGroupAggTable dense = denseGlobalGroupTable(globalKeyDictionary, aggCols.length, sumExactMask,
             denseCountLaneRead(funcs, orderPlan, having));
         if (dense != null) {
-          return denseGlobalGroupAggregate(slicedStore, preds, predTree, groupCol, aggCols, keyNames, funcs, aggFields,
-              outNames, distinctFields, eff, chunkSize, orderPlan, limit, having, globalKeyDictionary, dense,
+          return denseGlobalGroupAggregate(laneSlab, slicedStore, preds, predTree, groupCol, aggCols, keyNames, funcs,
+              aggFields, outNames, distinctFields, eff, chunkSize, orderPlan, limit, having, globalKeyDictionary, dense,
               rankStringViews, groupKeep);
         }
       }
@@ -19156,9 +19365,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long[][] rowKeep = segmentKeys != null || anySegmentSeal
             ? predicateRowKeep(slicedStore, preds, slicedPredCols, predTree, slicedTreeCols)
             : null;
-        slicedGroupCol =
-            canonicaliseGroupColumn(segmentKeys, slicedStore.columnMaskedView(groupCol, fetcher, groupKeep),
-                groupKeepMask, rowKeep, segmentWalksOnWorkers());
+        slicedGroupCol = canonicaliseGroupColumn(segmentKeys,
+            slicedStore.columnMaskedView(groupCol, fetcher, groupKeep, laneSlab.target(groupCol)), groupKeepMask,
+            rowKeep, segmentWalksOnWorkers());
         if (segmentTransformVisits != null) {
           System.err.println(
               "[proj] segment transform: visit=" + segmentTransformVisits.sum() + " cand=" + segmentKeys.size());
@@ -19233,7 +19442,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 || slicedAggCols[a] != null) {
               continue;
             }
-            slicedAggCols[a] = slicedStore.columnMaskedView(aggCols[a], fetcher, groupKeep);
+            slicedAggCols[a] =
+                slicedStore.columnMaskedView(aggCols[a], fetcher, groupKeep, laneSlab.target(aggCols[a]));
             segmentLengthTables[a] = segmentLengthTables(handle, aggCols[a], stringLengthModes[a]);
           }
         } else {
@@ -19269,7 +19479,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               ? computedLaneSlices[a] // the derived lane, never its proxy column
               : groupKeep == null && distinctIdentityOperand(cdStringDict, a, cdBlockIdx, aggCols[a], slicedStore)
                   ? slicedStore.columnDistinctIdentity(aggCols[a], fetcher)
-                  : slicedStore.columnMaskedView(aggCols[a], fetcher, groupKeep);
+                  : slicedStore.columnMaskedView(aggCols[a], fetcher, groupKeep, laneSlab.target(aggCols[a]));
         }
       } else {
         slicedPredCols = null;
@@ -19555,8 +19765,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (slicedStore != null && !windowedSlices) {
       final ProjectionColumnStore.ColumnSegmentFetcher legFetcher = columnFetcher();
       legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, legFetcher, groupKeep);
-      legGroupCol = canonicaliseGroupColumn(segmentKeys, slicedStore.columnMaskedView(groupCol, legFetcher, groupKeep),
-          null, null, segmentWalksOnWorkers());
+      legGroupCol = canonicaliseGroupColumn(segmentKeys,
+          slicedStore.columnMaskedView(groupCol, legFetcher, groupKeep, laneSlab.target(groupCol)), null, null,
+          segmentWalksOnWorkers());
       if (legGroupCol == null) {
         return declineGroupAgg("a segment-scoped group key has no value in this revision");
       }
@@ -19570,7 +19781,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             && slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
           throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
         }
-        legAggCols[a] = slicedStore.columnMaskedView(aggCols[a], legFetcher, groupKeep);
+        legAggCols[a] = slicedStore.columnMaskedView(aggCols[a], legFetcher, groupKeep, laneSlab.target(aggCols[a]));
       }
     } else {
       legPredCols = null;
@@ -19768,7 +19979,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * The MISSING-key group stays per-worker and unsynchronized: it has no id, it is one accumulator
    * rather than millions, and merging {@code eff} of them costs nothing.
    */
-  private ServedGroups denseGlobalGroupAggregate(final ProjectionColumnStore store,
+  private ServedGroups denseGlobalGroupAggregate(final RouteLaneSlab laneSlab, final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree predTree,
       final int groupCol, final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
       final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
@@ -19784,14 +19995,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final ProjectionColumnStore.ColumnSlice[][] treeCols = predTree != null
         ? ProjectionColumnScan.resolveTreeColumnsShared(store, predTree, fetcher, groupKeep)
         : null;
-    final ProjectionColumnStore.ColumnSlice[] groupSlices = store.columnMaskedView(groupCol, fetcher, groupKeep);
+    final ProjectionColumnStore.ColumnSlice[] groupSlices =
+        store.columnMaskedView(groupCol, fetcher, groupKeep, laneSlab.target(groupCol));
     final ProjectionColumnStore.ColumnSlice[][] aggSlices = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
     for (int a = 0; a < aggCols.length; a++) {
       if (store.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
           && store.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
         throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG or STRING_GLOBAL");
       }
-      aggSlices[a] = store.columnMaskedView(aggCols[a], fetcher, groupKeep);
+      aggSlices[a] = store.columnMaskedView(aggCols[a], fetcher, groupKeep, laneSlab.target(aggCols[a]));
     }
     final int maxId = dense.maxId();
     final int slotWidth = dense.slotWidth();

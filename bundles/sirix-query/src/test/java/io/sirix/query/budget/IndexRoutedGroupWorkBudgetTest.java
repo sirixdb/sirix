@@ -405,8 +405,10 @@ final class IndexRoutedGroupWorkBudgetTest {
       final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
       doReturn(observedColumns).when(observedHandle).columnStoreOrNull();
       if (lateRefusal) {
+        // The group routes resolve a long-lane column through the LaneTarget overload (the masked
+        // lanes decode into the route's own slab), so that is the call the fill refusal arrives on.
         doThrow(mock(FillBudgetExceededException.class)).when(observedColumns)
-                                                        .columnMaskedView(eq(grade), any(), any());
+                                                        .columnMaskedView(eq(grade), any(), any(), any());
       }
       final long budget = columns.retainedFillBytes() + (columns.recordKeysFilled()
           ? 0L
@@ -960,6 +962,7 @@ final class IndexRoutedGroupWorkBudgetTest {
               .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "decline precedes any operand fill");
           verify(observedColumns).columnsFitWithinBudget(any(), eq(-1), eq(derivedBytes));
           verify(observedColumns, never()).columnMaskedView(anyInt(), any(), any());
+          verify(observedColumns, never()).columnMaskedView(anyInt(), any(), any(), any());
           assertFalse(columns.columnFilled(handle.columnOf("qty")));
         }
         ProjectionColumnStore.setColumnFillBudgetBytesForTesting(retained + qtyBytes + derivedBytes);
