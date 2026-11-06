@@ -220,13 +220,15 @@ final class SegmentTopKBoundsTest {
       assertNotNull(receiving);
       assertFalse(receiving.fullyOrdered(), "mint order must disagree with value order to need a view");
       final TopKHeap global = new TopKHeap(1, kinds, ascending, new GlobalValueDictionary.ReadView[] {receiving});
-      global.offer(new ColumnSlice[] {onlyRow(1)}, 0, 100L, 0L);
+      global.bindLeaf(new ColumnSlice[] {onlyRow(1)});
+      global.offer(0, 100L, 0L);
       final TopKHeap local = pool.submit(() -> {
         final JsonNodeReadOnlyTrx worker = session.beginNodeReadOnlyTrx();
         opened.add(worker);
         final TopKHeap heap =
             new TopKHeap(1, kinds, ascending, new GlobalValueDictionary.ReadView[] {globalView(fixture, worker)});
-        heap.offer(new ColumnSlice[] {onlyRow(2)}, 0, 200L, 1L);
+        heap.bindLeaf(new ColumnSlice[] {onlyRow(2)});
+        heap.offer(0, 200L, 1L);
         return heap;
       }).get();
       global.mergeFrom(local);
