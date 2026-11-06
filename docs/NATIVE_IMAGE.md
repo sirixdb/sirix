@@ -44,6 +44,13 @@ native reachability metadata.
 ./gradlew :sirix-query:nativeCompile -Ppgo=default.iprof
 ```
 
+The `-Ppgo` build also passes `-H:CAIRegularCompilationCoverage=1.0` (Oracle GraalVM). By default
+PGO compiles every unit outside the top 99.9 % of the profile mass as "cold" (economy configuration,
+no inlining, GC slow-path allocation), and for the sub-millisecond queries that set has included the
+parser, the AST rewrites and the tuple/ordering code, with membership changing by training run
+(about 10 % on those queries between two trainings of the same classes). Full coverage runs them
+20-30 % faster and makes two trainings agree within 1-3 %; the binary grows from 62 MB to 126 MB.
+
 ## Arena blocker — RESOLVED (`io.sirix.io.SharedArenas`)
 
 The write path is now native-clean. `MMStorage` (and the `ProjectionIndexHOTStorage`

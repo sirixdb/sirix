@@ -962,6 +962,15 @@ graalvmNative {
             }
             if (project.hasProperty('pgo')) {
                 buildArgs.add("--pgo=${project.findProperty('pgo')}")
+                // PGO compiles every unit outside the top 99.9 % of the profile mass as "cold"
+                // (economy configuration: no inlining, GC slow-path allocation). Which units fall
+                // into that set changes from one training run to the next, and for the
+                // sub-millisecond queries it has included the parser, the AST rewrites and the
+                // tuple/ordering code, moving their latency by about 10 % between two trainings.
+                // Full coverage compiles every unit at the regular tier: those queries run 20-30 %
+                // faster and two trainings agree within 1-3 %, for a larger binary (62 -> 126 MB).
+                // Oracle GraalVM only, like --pgo itself (requires -H:+UnlockExperimentalVMOptions).
+                buildArgs.add('-H:CAIRegularCompilationCoverage=1.0')
             }
 
             // Enable verbose output for debugging

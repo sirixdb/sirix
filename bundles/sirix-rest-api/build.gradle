@@ -229,6 +229,9 @@ graalvmNative {
             }
             if (project.hasProperty('pgo')) {
                 buildArgs.add("--pgo=${project.findProperty('pgo')}")
+                // Compile every unit at the regular tier instead of leaving the profile's cold
+                // tail to the economy configuration; see the sirix-query PGO block for the numbers.
+                buildArgs.add('-H:CAIRegularCompilationCoverage=1.0')
             }
 
             // Enable verbose output for debugging
