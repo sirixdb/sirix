@@ -180,14 +180,20 @@ public final class ProjectionRecordKeySet {
       final long[] presence, final LongOpenHashSet values, final boolean anti, final long[] mask) {
     long any = 0;
     for (int word = 0; word < selected.length; word++) {
-      long candidates = selected[word];
-      long kept = 0;
+      final long selectedWord = selected[word];
+      final long presentWord = presence[word];
+      // A selected row with no cell is a non-member, so only the ANTI form keeps it. Deciding that
+      // whole class with one word operation leaves the row walk only the rows that have a value to
+      // test, instead of a presence bit test per selected row.
+      long kept = anti
+          ? selectedWord & ~presentWord
+          : 0L;
+      long candidates = selectedWord & presentWord;
+      final long wordBase = laneBase + ((long) (word << 6) << 3);
       while (candidates != 0) {
         final int bit = Long.numberOfTrailingZeros(candidates);
         candidates &= candidates - 1;
-        final int row = (word << 6) + bit;
-        final boolean member = (presence[word] & 1L << bit) != 0
-            && values.contains(SegmentAccess.getLong(lane, laneBase + ((long) row << 3)));
+        final boolean member = values.contains(SegmentAccess.getLong(lane, wordBase + ((long) bit << 3)));
         if (anti != member) {
           kept |= 1L << bit;
         }

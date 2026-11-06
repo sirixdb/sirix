@@ -293,6 +293,33 @@ final class LaneScanKernelEquivalenceTest {
   }
 
   @Test
+  @DisplayName("a selected row with no cell is a non-member: kept by the anti form only")
+  void filterMembershipPlacesSelectedRowsWithoutACell() {
+    try (Arena arena = Arena.ofConfined()) {
+      final int rows = 4;
+      // Row 0 holds a member, row 1 a non-member, rows 2 and 3 have no cell at all; every row is
+      // selected. The semi form keeps row 0; the anti form keeps rows 1, 2 and 3.
+      final long[] values = {7L, 8L, 0L, 0L};
+      final long[] presence = {0b0011L};
+      final long[] selected = {0b1111L};
+      final long[] keys = {10L, 11L, 12L, 13L};
+      final LongOpenHashSet wanted = new LongOpenHashSet(new long[] {7L});
+      for (final boolean anti : new boolean[] {false, true}) {
+        final long expected = anti
+            ? 0b1110L
+            : 0b0001L;
+        for (final ColumnSlice slice : new ColumnSlice[] {heapSlice(values, presence, rows),
+            laneSlice(arena, values, presence, rows)}) {
+          final ProjectionRecordKeySet.Masks masks =
+              ProjectionRecordKeySet.filterMembership(new long[][] {selected.clone()}, new long[][] {keys},
+                  new ColumnSlice[] {slice}, leaf -> leaf + 1L, wanted, anti);
+          assertArrayEquals(new long[] {expected}, masks.byFirstKey().get(keys[0]), "anti=" + anti);
+        }
+      }
+    }
+  }
+
+  @Test
   @DisplayName("a column with no integral lane is refused by filterMembership, not silently skipped")
   void filterMembershipRefusesANonIntegralColumn() {
     final int rows = 4;
