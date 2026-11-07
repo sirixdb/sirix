@@ -96,7 +96,7 @@ final class LaneDecoderEquivalenceTest {
             case 1 -> 1e300;
             case 2 -> -0.0;
             case 3 -> Double.MIN_VALUE;
-            default -> Math.round(rnd.nextInt(2_000_000) - 1_000_000L) * unit;
+            default -> (rnd.nextInt(2_000_000) - 1_000_000L) * unit;
           };
           values[i] = ProjectionDoubleEncoding.encode(d);
         }
