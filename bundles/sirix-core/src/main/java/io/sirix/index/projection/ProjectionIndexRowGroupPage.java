@@ -1792,7 +1792,9 @@ public final class ProjectionIndexRowGroupPage {
     final boolean byValue = switch (kind) {
       case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE,
           COLUMN_KIND_STRING_GLOBAL ->
-        slice.numericValues() != null;
+        // hasNumericLane(), not numericValues(): the latter would copy a slab lane to the heap only
+        // to answer whether one exists.
+        slice.hasNumericLane();
       case COLUMN_KIND_BOOLEAN -> slice.boolWords() != null;
       case COLUMN_KIND_STRING_DICT ->
         slice.hasStringDictIds() && slice.dictBytes() != null && slice.dictOffsets() != null;
@@ -1858,9 +1860,17 @@ public final class ProjectionIndexRowGroupPage {
           COLUMN_KIND_STRING_GLOBAL -> {
         // A Z-suffixed timestamp keeps its epoch beside the lexical flag. A STRING_GLOBAL cell holds
         // its resolved resource-wide id; an absent one holds id 0.
-        final long v = present
-            ? Objects.requireNonNull(slice.numericValues())[sliceRow]
-            : 0L;
+        // One cell of one row: read the heap array when the slice has one, else the slab lane in
+        // place. Never numericValues(), which would copy the whole lane per carried row.
+        final long v;
+        if (!present) {
+          v = 0L;
+        } else {
+          final long[] heapValues = slice.heapNumericValues();
+          v = heapValues != null
+              ? heapValues[sliceRow]
+              : Objects.requireNonNull(slice.lane()).get(sliceRow);
+        }
         numericCols[0][row] = v;
         if (clean) {
           columnMin[0] = Math.min(columnMin[0], v);

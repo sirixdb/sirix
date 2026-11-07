@@ -84,6 +84,18 @@ non-resident long-lane column's surviving leaves into the caller's slab at the p
 store's resident column pruned (`resident`). Without a target, or when the allocator refused the
 memory (counted in `slabFillsDeclinedCount`), the fill decodes to heap arrays as before.
 
+**Group routes.** A grouped aggregate reads its key, aggregate and conditional-key columns behind
+the route's leaf keep mask, so the columns the store does not hold resident take that masked fill.
+The route gives them ONE query-local slab (`SirixVectorizedExecutor.RouteLaneSlab`): the plan is
+built from the route's column arrays, and the layout and the single allocation happen on the first
+column the route actually resolves, so a route that declines earlier, or that delegates to another
+arm, allocates nothing. Repeated and non-lane columns take no extra memory — a column already
+resident gets no target at all and is served pruned from the store's own slab, pinned by the query
+scope. The slices point into the route's slab, so `groupByAggregate` returns it in a `finally` once
+its winners are materialized (every arm emits an `ItemSequence` over copied accumulator lanes and
+strings, so nothing downstream reads a slice); the slab is charged to the allocator's physical
+budget like every other, and a refusal falls back to heap arrays and counts a declined slab fill.
+
 ## Allowance
 
 `DerivedCacheBudget` derives one combined allowance `D = A / 8` from the allocator's effective

@@ -10,10 +10,12 @@ import io.sirix.index.changelog.ChangeLogSlab.Row;
 import io.sirix.index.changelog.ChangeLogStorage;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
+import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -179,6 +181,21 @@ public final class ProjectionChangeLog implements AutoCloseable {
   }
 
   void before(final long[] records, final ProjectionColumnStore.ColumnSlice[] slices) {
+    // Lanes hoisted once per column, not per captured cell: a slab-backed slice is read in place
+    // through its segment, a heap-backed one through the array view the slice hands out. Two small
+    // arrays per capture call, nothing per row.
+    final int columns = kinds.length;
+    final MemorySegment[] laneSegments = new MemorySegment[columns];
+    final long[] laneBases = new long[columns];
+    for (int column = 0; column < columns; column++) {
+      // A column the caller could not decode stays null here, exactly as the row loop below finds
+      // it: the hoist must not turn "nothing was captured" into a failure.
+      final ProjectionColumnStore.ColumnSlice slice = slices[column];
+      if (slice != null && slice.hasNumericLane()) {
+        laneSegments[column] = slice.laneSegment();
+        laneBases[column] = slice.laneBase();
+      }
+    }
     for (int row = 0; row < records.length; row++) {
       final long record = records[row];
       if (!dirty.contains(record) || entries.containsKey(record)) {
@@ -203,8 +220,8 @@ public final class ProjectionChangeLog implements AutoCloseable {
             if (slice.hasStringDictIds()) {
               captured.text[column] = slice.dictString(Objects.requireNonNull(slice.stringDictIds())[row]);
             } else {
-              captured.text[column] = globalString(metadata.columnKinds()[column], column,
-                  Objects.requireNonNull(slice.numericValues())[row]);
+              captured.text[column] = globalString(metadata.columnKinds()[column], column, SegmentAccess.getLong(
+                  Objects.requireNonNull(laneSegments[column]), laneBases[column] + ((long) row << 3)));
             }
           }
           case ChangeLogSlab.STRING_SET -> {
@@ -223,7 +240,8 @@ public final class ProjectionChangeLog implements AutoCloseable {
             captured.numbers[column] = (Objects.requireNonNull(slice.boolWords())[row >>> 6] & (1L << row)) == 0
                 ? 0
                 : 1;
-          default -> captured.numbers[column] = Objects.requireNonNull(slice.numericValues())[row];
+          default -> captured.numbers[column] = SegmentAccess.getLong(Objects.requireNonNull(laneSegments[column]),
+              laneBases[column] + ((long) row << 3));
         }
       }
       before(record, captured);
