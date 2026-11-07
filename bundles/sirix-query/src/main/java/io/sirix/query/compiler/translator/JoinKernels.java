@@ -36,6 +36,109 @@ final class JoinKernels {
 
   private JoinKernels() {}
 
+  /**
+   * {@code segment} as a fresh native view of the same bytes, for a kernel that hoists a lane per
+   * leaf and reads it per row.
+   *
+   * <p>
+   * Every read through a segment handle casts the segment to the JDK's abstract segment class and
+   * calls three of its abstract methods (base, offset, alignment mask). C2 devirtualizes those from
+   * the profile and the trap history of the JDK methods themselves, which every caller in the process
+   * shares: once a heap-array segment ({@code MemorySegment.ofArray}) has been read through the same
+   * path at a site compiled for native segments four times ({@code PerBytecodeTrapLimit}), the
+   * speculation is gone for every kernel compiled afterwards, which then pays a subtype check and a
+   * guarded virtual call per read (t250k Q4 lost 3 % to the heap-array KEYS reads of an unrelated
+   * kernel this way). A view built here is a {@code new} native segment the compiler sees being
+   * constructed, so its class is known statically at every read through the local that holds it, and
+   * no profile is consulted. Costs one small object per leaf; a heap segment (the allocator-refused
+   * key lanes) is returned as it is, since it has no address to view.
+   * </p>
+   *
+   * <p>
+   * The view keeps the segment's address and size, so every base and offset computed against the
+   * original addresses the same byte. It is read-only in use and never released: the slab it views
+   * stays mapped by the pin or ownership the kernel's caller already holds.
+   * </p>
+   */
+  static MemorySegment nativeView(final MemorySegment segment) {
+    if (!segment.isNative()) {
+      return segment;
+    }
+    return MemorySegment.ofAddress(segment.address()).reinterpret(segment.byteSize());
+  }
+
+  /**
+   * The permutation that orders {@code count} rows by {@code keyColumns} lexicographically: column 0
+   * most significant, every column in ascending natural order of its longs, ties broken by the next
+   * column and, when every column ties, by row index (a caller that wants a column descending stores
+   * its values bitwise inverted, which reverses the order of every pair of longs without overflow).
+   *
+   * <p>
+   * A least-significant-digit radix sort: for each column from the last, eight stable counting passes
+   * over the key's bytes (the top byte with its sign bit flipped, so negative keys sort first), each
+   * a histogram and a scatter of the row indexes, and a byte every row agrees on costs its histogram
+   * only. The whole order is a few linear passes rather than a comparator call per comparison, which
+   * is what the row-output join's ordering needs: a handful of long keys over thousands of rows,
+   * where a comparator sort cost more than the join's reads. (fastutil's indirect radix sort is not
+   * usable here: its "stable" variant breaks ties by row index, not by the incoming order, so passes
+   * cannot be chained.)
+   * </p>
+   *
+   * @param keyColumns the columns, each at least {@code count} long
+   * @param count the rows to order
+   * @return row indexes in order
+   */
+  static int[] sortRows(final long[][] keyColumns, final int count) {
+    if (count < 0) {
+      throw new IllegalArgumentException("negative row count " + count);
+    }
+    for (int column = 0; column < keyColumns.length; column++) {
+      if (keyColumns[column].length < count) {
+        throw new IllegalArgumentException(
+            "key column " + column + " holds " + keyColumns[column].length + " of " + count + " rows");
+      }
+    }
+    final int[] order = new int[count];
+    for (int i = 0; i < count; i++) {
+      order[i] = i;
+    }
+    if (count < 2) {
+      return order;
+    }
+    final int[] counts = new int[257];
+    int[] source = order;
+    int[] target = new int[count];
+    for (int column = keyColumns.length - 1; column >= 0; column--) {
+      final long[] keys = keyColumns[column];
+      for (int shift = 0; shift < 64; shift += 8) {
+        final int signFlip = shift == 56
+            ? 0x80
+            : 0;
+        Arrays.fill(counts, 0);
+        for (int i = 0; i < count; i++) {
+          counts[(((int) (keys[source[i]] >>> shift) & 0xFF) ^ signFlip) + 1]++;
+        }
+        if (counts[(((int) (keys[source[0]] >>> shift) & 0xFF) ^ signFlip) + 1] == count) {
+          continue; // every row shares this byte: the pass would move nothing
+        }
+        for (int digit = 1; digit <= 256; digit++) {
+          counts[digit] += counts[digit - 1];
+        }
+        for (int i = 0; i < count; i++) {
+          final int row = source[i];
+          target[counts[((int) (keys[row] >>> shift) & 0xFF) ^ signFlip]++] = row;
+        }
+        final int[] swap = source;
+        source = target;
+        target = swap;
+      }
+    }
+    if (source != order) {
+      System.arraycopy(source, 0, order, 0, count);
+    }
+    return order;
+  }
+
   /** A bounded distinct domain: value {@code v} is bit {@code v - minimum} of {@code words} words. */
   record DistinctDomain(long minimum, int words) {
   }

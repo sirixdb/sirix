@@ -34,6 +34,21 @@ the heap — the windowed leaf access's recycled slice arrays (`SliceArrayPool`)
 reach those same kernels as heap segments (`MemorySegment.ofArray`), which is a representation
 difference, not a second code path.
 
+**One segment class per process.** That representation difference is not free at the JIT level.
+Every read through a segment handle casts the segment to the JDK's abstract segment class and calls
+three of its abstract methods (base, offset, alignment mask), and C2 devirtualizes those from the
+profile and the trap history of the JDK's own methods, which every caller in the process shares.
+Once a heap-array segment has been read through that path four times at a site compiled for native
+segments (`PerBytecodeTrapLimit`), the speculation is gone at those bytecodes for every kernel
+compiled afterwards, which then pays a subtype check and a guarded virtual call per read: on the
+integrated head the KEY_IN membership kernel's heap-array KEYS reads during a join's first execution
+cost the join kernels compiled half a second later 3 % of t250k Q4. The join kernels therefore read
+every per-leaf lane through a local holding a fresh native view of it
+(`JoinKernels.nativeView`: `MemorySegment.ofAddress(address).reinterpret(size)`, one small object per
+leaf), whose class the compiler sees being constructed, so no shared profile is consulted. The
+durable cure is for no producer to hand a kernel a heap array as a segment: a heap array should be
+read as an array, or decoded into a slab like every other lane.
+
 **Reading a lane in a group fold.** A group fold's row index comes out of
 `Long.numberOfTrailingZeros` over the selection word, so its loop is not counted over linear offsets
 and no compiler hoists the segment's bounds check out of it: every surviving row would pay its own.
