@@ -113,7 +113,8 @@ The required quality-gate policy is **no new bugs or vulnerabilities on new code
 configure its conditions in SonarCloud.
 PR analysis uses GitHub Actions' automatic PR parameters and the source commit with full history.
 Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
-The REST integration suite remains outside this job, as before.
+The REST integration suite remains outside this job. The offline REST authorization tests run
+without Docker or Keycloak, and their JaCoCo execution data feeds both the REST and query reports.
 
 The core XML report includes the isolated test forks' execution data. Their agent-handling
 safety invariant is documented beside the fork-option copy in

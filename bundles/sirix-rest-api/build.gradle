@@ -128,6 +128,18 @@ tasks.register('offlineTest', Test) {
     ]
 }
 
+// Sonar skips the Docker-backed test task, but these tests exercise both the REST
+// permission checks and the query module's mutation guards. Report their probes in both modules.
+final def offlineTests = tasks.named('offlineTest')
+tasks.named('jacocoTestReport') {
+    dependsOn offlineTests
+    executionData offlineTests.get()
+}
+project(':sirix-query').tasks.named('jacocoTestReport') {
+    dependsOn offlineTests
+    executionData offlineTests.get()
+}
+
 // Task to run only native-image smoke tests on JVM (for validation before native compilation)
 // This task does NOT require Docker/Keycloak
 tasks.register('nativeImageSmokeTest', Test) {
