@@ -40,8 +40,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The cached masked selection: lanes decoded straight into a reservation of the numeric share (or
- * the store's resident columns, pinned), served through leased views, freed exactly once when the
- * last lease drops — on close, on a background task's release, never under a reader.
+ * the store's resident columns, pinned) and the record keys laid out in the same slab, served
+ * through leased views, freed exactly once when the last lease drops — on close, on a background
+ * task's release, never under a reader.
  */
 @Tag("native-image")
 final class NumericMaskedColumnCacheTest {
@@ -129,42 +130,50 @@ final class NumericMaskedColumnCacheTest {
     final LaneTarget target = new LaneTarget();
     final ColumnSlice[] slices = store.columnMaskedView(0, NO_FETCH, KEEP, target);
     assertTrue(target.resident());
-    final MaskedColumns view = view(store, slices);
+    // Nothing to decode: the reservation holds the selection's record keys alone.
+    final long[] keyBases = new long[1];
+    final long keyBytes = KeyLanes.layout(store, KEEP, keyBases, 0L);
+    assertEquals(64L, keyBytes, "two keys, one leaf: one 64-byte aligned key lane");
+    final Reservation reservation = cache.reserve(keyBytes);
+    assertNotNull(reservation);
+    final MaskedColumns view = new MaskedColumns(store, new long[][] {{3}},
+        KeyLanes.copyInto(reservation.slab(), keyBases, store.recordKeysMasked(NO_FETCH, KEEP), store),
+        new ColumnSlice[][] {slices}, KINDS, 2);
     view.markImmutableRevision();
-    assertSame(view, cache.publishResident(store, FIELDS, KEYS, view, new int[] {0}));
+    assertSame(view, cache.publish(reservation, store, FIELDS, KEYS, view, new int[] {0}));
     assertTrue(view.isCached());
     assertEquals(1, store.residencyPins(0), "the entry pins the column it reads in place");
-    assertEquals(LaneSnapshot.residentBytes(view.recordKeys(), Objects.requireNonNull(view.immutableMasks())),
-        budget.metrics().retainedBytes(), "a resident entry is charged what it keeps on the heap");
+    assertEquals(keyBytes, budget.metrics().retainedBytes(), "the entry is charged its key lanes");
     final MaskedColumns reader = cache.lookup(store, FIELDS, KEYS);
     assertNotNull(reader);
     assertEquals(2, reader.longValue(0, 0, 1));
     assertSame(store.column(0, NO_FETCH)[0].lane(), reader.slices()[0][0].lane(), "no copy: the store's lane");
+    assertSame(reservation.slab(), reader.keySegment(0), "the keys are read from the entry's slab");
+    assertEquals(11, SegmentAccess.getLong(reader.keySegment(0), reader.keyBase(0) + 8L));
+    assertEquals(11, reader.recordKey(0, 1));
     budget.numeric().clear();
     assertEquals(1, store.residencyPins(0), "evicted, but two views still read: the pin stays");
     view.close();
     assertEquals(1, store.residencyPins(0));
+    assertEquals(keyBytes, budget.metrics().retiredLeasedBytes(), "the reader keeps the key slab mapped");
     reader.close();
     assertEquals(0, store.residencyPins(0), "the last lease dropped: the column is unpinned");
-    assertEquals(0, allocator.getSlabBytes(), "a resident entry owned no slab of its own");
+    assertEquals(0, allocator.getSlabBytes(), "the key slab left with the last lease");
     store.retire();
   }
 
   @Test
-  void aRefusedResidentPublishLeavesTheViewUncachedAndUnpinned() {
+  void aRefusedReservationLeavesTheSelectionUncachedAndUnpinned() {
     final ProjectionColumnStore store = store();
     assertNotNull(store.column(0, NO_FETCH));
-    final MaskedColumns view = view(store, store.columnMaskedView(0, NO_FETCH, KEEP, new LaneTarget()));
-    view.markImmutableRevision();
     final DerivedCacheBudget tight = withNumericShare(8);
     final NumericMaskedColumnCache refusing = new NumericMaskedColumnCache(tight.numeric());
-    assertSame(view, refusing.publishResident(store, FIELDS, KEYS, view, new int[] {0}));
-    assertFalse(view.isCached());
-    assertEquals(0, store.residencyPins(0), "a refused entry gave its pins back");
+    assertNull(refusing.reserve(64L), "the key lanes alone exceed the share");
+    assertEquals(0, store.residencyPins(0), "nothing was published, nothing is pinned");
     assertNull(refusing.lookup(store, FIELDS, KEYS));
     assertTrue(tight.metrics().rejectedBytes() > 0);
     assertEquals(0, tight.metrics().retainedBytes());
-    view.close();
+    assertEquals(0, tight.metrics().inFlightBytes());
     store.retire();
   }
 
@@ -195,9 +204,8 @@ final class NumericMaskedColumnCacheTest {
         view(store, store.columnMaskedView(0, NO_FETCH, KEEP, new LaneTarget(reservation.slab(), bases)));
     assertFalse(view.isImmutableRevision(), "never marked: a mutable revision's view");
     assertThrows(IllegalStateException.class, () -> cache.publish(reservation, store, FIELDS, KEYS, view, new int[0]));
-    assertThrows(IllegalStateException.class, () -> cache.publishResident(store, FIELDS, KEYS, view, new int[0]));
-    assertThrows(IllegalArgumentException.class, () -> cache.publishResident(store(), FIELDS, KEYS, view, new int[0]),
-        "a view belongs to its store");
+    assertThrows(IllegalArgumentException.class,
+        () -> cache.publish(reservation, store(), FIELDS, KEYS, view, new int[0]), "a view belongs to its store");
     reservation.close();
     assertEquals(0, budget.metrics().inFlightBytes(), "a reservation closed unpublished refunds the share");
     assertEquals(0, allocator.getSlabBytes());
@@ -374,8 +382,8 @@ final class NumericMaskedColumnCacheTest {
     SegmentAccess.putLong(slab, 0L, 1L);
     SegmentAccess.putLong(slab, 8L, 2L);
     final ColumnSlice sparse = new ColumnSlice(2, (byte) 0, 1, 2, new long[] {1}, new NumericLane(slab, 0L, 2));
-    final MaskedColumns original =
-        new MaskedColumns(store, new long[][] {{3}}, new long[][] {{10, 11}}, new ColumnSlice[][] {{sparse}}, KINDS, 2);
+    final MaskedColumns original = new MaskedColumns(store, new long[][] {{3}},
+        KeyLanes.onHeap(new long[][] {{10, 11}}), new ColumnSlice[][] {{sparse}}, KINDS, 2);
     original.markImmutableRevision();
     assertFalse(original.allSelectedPresent(0));
     cache.publish(reservation, store, FIELDS, KEYS, original, new int[0]);
@@ -406,7 +414,9 @@ final class NumericMaskedColumnCacheTest {
     assertNotNull(store.column(0, NO_FETCH));
     final MaskedColumns view = view(store, store.columnMaskedView(0, NO_FETCH, KEEP, new LaneTarget()));
     view.markImmutableRevision();
-    cache.publishResident(store, FIELDS, KEYS, view, new int[] {0});
+    final Reservation reservation = cache.reserve(64L);
+    assertNotNull(reservation);
+    cache.publish(reservation, store, FIELDS, KEYS, view, new int[] {0});
     final MaskedColumns reader = cache.lookup(store, FIELDS, KEYS);
     assertNotNull(reader);
     store.retire();
@@ -444,6 +454,53 @@ final class NumericMaskedColumnCacheTest {
     assertEquals(0, allocator.getSlabBytes());
   }
 
+  @Test
+  void keyLanesLayOutKeptLeavesInTheSlabAndReadInPlace() {
+    final ProjectionColumnStore store = store();
+    final long[] bases = new long[1];
+    assertEquals(192L, KeyLanes.layout(store, KEEP, bases, 128L), "one 64-byte aligned lane behind the offset");
+    assertEquals(128L, bases[0]);
+    assertEquals(128L, KeyLanes.layout(store, new long[] {0L}, bases, 128L), "a pruned leaf takes no bytes");
+    assertEquals(-1L, bases[0]);
+    assertThrows(IllegalArgumentException.class, () -> KeyLanes.layout(store, KEEP, new long[2], 0L),
+        "one base per leaf");
+    assertThrows(IllegalArgumentException.class, () -> KeyLanes.layout(store, KEEP, new long[1], 8L), "aligned start");
+    final MemorySegment slab = Allocators.getInstance().allocateSlab(192L);
+    assertNotNull(slab);
+    try {
+      KeyLanes.layout(store, KEEP, bases, 128L);
+      final KeyLanes lanes = KeyLanes.copyInto(slab, bases, store.recordKeysMasked(NO_FETCH, KEEP), store);
+      assertTrue(lanes.has(0));
+      assertSame(slab, lanes.segment(0));
+      assertEquals(128L, lanes.base(0));
+      assertEquals(2, lanes.rows(0));
+      assertEquals(10L, lanes.key(0, 0));
+      assertEquals(11L, lanes.key(0, 1));
+      assertEquals(11L, SegmentAccess.getLong(slab, 128L + 8L), "the keys live in the slab");
+      assertThrows(IndexOutOfBoundsException.class, () -> lanes.key(0, 2));
+      assertArrayEquals(new long[] {10L}, lanes.firstKeyArrays()[0], "the membership filter's per-leaf identity");
+      assertSame(lanes.firstKeyArrays(), lanes.firstKeyArrays(), "built once");
+      assertThrows(IllegalStateException.class, () -> KeyLanes.copyInto(slab, bases, new long[][] {{10L}}, store),
+          "a lane holds every row of its leaf");
+      assertThrows(IllegalArgumentException.class,
+          () -> KeyLanes.copyInto(slab, new long[] {slab.byteSize()}, store.recordKeysMasked(NO_FETCH, KEEP), store),
+          "a lane outside the slab (slabs round up to whole pages)");
+      final KeyLanes pruned = KeyLanes.copyInto(slab, new long[] {-1L}, new long[][] {new long[0]}, store);
+      assertFalse(pruned.has(0));
+      assertThrows(IllegalStateException.class, () -> pruned.segment(0));
+      assertEquals(0, pruned.firstKeyArrays()[0].length);
+    } finally {
+      Allocators.getInstance().releaseSlab(slab);
+    }
+    final KeyLanes heap = KeyLanes.onHeap(new long[][] {{10L, 11L}, new long[0], null});
+    assertTrue(heap.has(0));
+    assertFalse(heap.segment(0).isNative(), "the allocator-refused fallback views the array");
+    assertEquals(11L, heap.key(0, 1));
+    assertTrue(heap.has(1), "an empty array is an empty lane");
+    assertEquals(0, heap.rows(1));
+    assertFalse(heap.has(2));
+  }
+
   // --- fixtures
 
   /** Reserve the lanes of the one surviving leaf of {@link #store()} in the test's numeric share. */
@@ -469,8 +526,9 @@ final class NumericMaskedColumnCacheTest {
     return view;
   }
 
+  /** A view whose record keys stay in their decoded arrays (the allocator-refused shape). */
   private static MaskedColumns view(final ProjectionColumnStore store, final ColumnSlice[] slices) {
-    return new MaskedColumns(store, new long[][] {{3}}, store.recordKeysMasked(NO_FETCH, KEEP),
+    return new MaskedColumns(store, new long[][] {{3}}, KeyLanes.onHeap(store.recordKeysMasked(NO_FETCH, KEEP)),
         new ColumnSlice[][] {slices}, KINDS, 2);
   }
 
@@ -507,7 +565,7 @@ final class NumericMaskedColumnCacheTest {
           : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
     }
     final MaskedColumns columns =
-        new MaskedColumns(store, new long[][] {{3}}, new long[][] {{10, 11}}, slices, kinds, 2);
+        new MaskedColumns(store, new long[][] {{3}}, KeyLanes.onHeap(new long[][] {{10, 11}}), slices, kinds, 2);
     columns.markImmutableRevision();
     return columns;
   }

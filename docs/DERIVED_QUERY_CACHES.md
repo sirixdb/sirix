@@ -16,8 +16,9 @@ A projection store (`ProjectionColumnStore`) decodes every long-lane column (`NU
 column: leaf after leaf, each lane at a 64-byte aligned base, written by the decoder itself
 (`ProjectionIndexRowGroupCodec.unpackInto` and `ProjectionAlpEncoding.decodeInto` have segment
 twins of their array forms). A `ColumnSlice` of such a column carries a `NumericLane` (segment, base,
-rows) and no heap value array; presence words, boolean words, string dictionaries and the record
-keys stay heap arrays in this step. Kernels read a lane through the slice's segment and base,
+rows) and no heap value array; presence words, boolean words and string dictionaries stay heap
+arrays in this step, and the store decodes the KEYS chain to heap arrays (a masked selection moves
+the kept leaves' keys into its own slab, below). Kernels read a lane through the slice's segment and base,
 hoisted once per leaf, eight bytes per row at linear offsets (`SegmentAccess`), or through
 `LongVector.fromMemorySegment`; `ColumnSlice.numericValues()` on a lane-backed slice copies the lane
 to the heap once and counts it (`NumericLane.materializedCount`), the seam that keeps a consumer
@@ -135,8 +136,9 @@ Removing an entry from lookup never frees its storage. Every reader view (`Maske
 every background packing task holds one lease on its entry; the cache holds one while the entry
 is published. The slab is unmapped and its bytes refunded when the last lease drops, so a reader
 that acquired a lease before an eviction keeps reading valid memory until it closes, and a freed
-entry can never be acquired again. An entry over resident columns (`publishResident`) owns no slab;
-it holds the columns' pins until that same moment (`Entry.released`). Views are closed by the
+entry can never be acquired again. Every entry owns a slab (at least its key lanes); an entry that
+reads the store's resident columns in place also holds their pins until that same moment
+(`Entry.released`). Views are closed by the
 kernels that opened them (the joined aggregate, the routed membership paths); a `Cleaner` backstop
 releases what a view that was never closed held. A view's row masks are its own heap copy; the
 lanes are immutable.
@@ -156,26 +158,41 @@ side built from a one-off selection is reaped once that identity is unreachable.
 
 ## Admission
 
-Admission is reservation-first and copy-free. The executor lays out the surviving leaves' lanes of
-every non-resident long-lane field of the selection in one slab (`maskedLaneLayout`), reserves it
-from the numeric share (`NumericMaskedColumnCache.reserve`), decodes straight into it, and
-publishes the view as the entry (`publish`); fields the store already holds resident are read in
-place and pinned by the entry (`publishResident` when nothing had to be decoded). Only immutable
-committed selections with a key roster qualify: write-transaction selections stay query-local.
-When the share or the allocator refuses the reservation, the lanes decode into a query-local slab
-the view owns, and nothing is cached. A background packing of an interval-join side counts its
+Admission is reservation-first and copies no column. The executor lays out the surviving leaves'
+lanes of every non-resident long-lane field of the selection and, behind them, the surviving
+leaves' record keys in one slab (`maskedLaneLayout`, `KeyLanes.layout`); a routed selection whose
+keys prune no leaf keeps every leaf explicitly rather than reading the store's whole columns
+(which would fill them resident, one slab each, and spread the side's lanes over several
+segments). It reserves the slab from the
+numeric share (`NumericMaskedColumnCache.reserve`), decodes the lanes straight into it, moves the
+keys in once from the store's decoded KEYS arrays (`KeyLanes.copyInto`, eight bytes per row, the
+arrays are not retained), and publishes the view as the entry (`publish`); fields the store already
+holds resident are read in place and pinned by the entry. Only immutable committed selections with
+a key roster qualify: write-transaction selections stay query-local. When the share or the
+allocator refuses the reservation, the lanes and keys go into a query-local slab the view owns, and
+nothing is cached; only an allocator that refuses that slab too leaves the keys in their arrays
+(viewed as heap segments) and the lanes in heap arrays. A background packing of an interval-join
+side counts its
 rows, reserves the exact slab, and scatters the records off the query thread under a task lease on
 the selection's entry; the synchronous build side is packed into a query-owned slab when the cache
 refuses, so a disabled cache changes no answer.
 
-An entry stores, per kept leaf, its row mask and record keys (heap) and, per field, the slice whose
-lane points into the entry's slab or the store's column slab. Packed join records are five longs
-each. The kernels that read them (the dense build and probe, the packed merge and chained fold, the
-membership filters) are one loop body per kernel reading the lane through the typed slab handle at a
-base offset hoisted once per leaf plus eight bytes per row (`SegmentAccess`, native order, the
-unaligned layout because the slab is aligned by construction and the alignment check would only
-repeat per access). Nothing is copied per query and no per-row call separates the row loop from its
-fold. A row-output join whose ordering keys are all long columns present on every row orders its
+An entry stores, per kept leaf, its row mask (heap) and its key lane (`KeyLanes`: segment and
+base, read like a numeric lane) and, per field, the slice whose lane points into the entry's slab or
+the store's column slab. Packed join records are five longs each. The kernels that read them (the
+dense build and probe, the packed merge and chained fold, the membership filters) are one loop body
+per kernel reading the lane through the typed slab handle at a base offset hoisted once per leaf
+plus eight bytes per row (`SegmentAccess`, native order, the unaligned layout because the slab is
+aligned by construction and the alignment check would only repeat per access); the record keys of
+a build row and of an emitted probe row come from the key lanes the same way. The dense build and
+probe loops read a row's fields through the one segment the side's lanes share when the selection
+was decoded into its own slab (bounds and scope loaded once per row, not once per field), each
+lane's own segment otherwise; the packed merge is build-major: each build record of a bucket
+is read once into locals and the bucket's probe records stream past it, two reads deciding a
+non-overlapping pair (`JoinKernels`, measured against the heap kernels by `JoinKernelBenchmark`
+and proven equal by `JoinKernelsTest`). A full mask word is walked as a counted run of 64 rows, a
+partial word by its bits. Nothing is copied per query and no per-row call separates the row loop
+from its fold. A row-output join whose ordering keys are all long columns present on every row orders its
 rows through one primitive buffer and an index sort rather than the generic tuple sort.
 
 ## Heap envelope
@@ -232,9 +249,9 @@ targets, the cleaner backstop), `LaneDecoderEquivalenceTest` (segment and array 
 every FOR width, for ALP with exceptions, and for every long-lane kind through the body-slice
 decoder), `DerivedCacheBudgetTest` (shares, simultaneous construction, deferred freeing under a
 reader lease, dependents, stale entries, allocator refusal, saturating arithmetic),
-`NumericMaskedColumnCacheTest` (reservation publish and leased views, resident entries and their
-pins, refused publishes, query-local slab ownership, readers of an evicted entry, task leases,
-membership filters, a retired store's stale entry) and `IntervalRangeJoinWorkBudgetTest` (exact
+`NumericMaskedColumnCacheTest` (reservation publish and leased views, entries over resident columns
+and their pins, refused reservations, query-local slab ownership, key lanes in the entry's slab,
+readers of an evicted entry, task leases, membership filters, a retired store's stale entry) and `IntervalRangeJoinWorkBudgetTest` (exact
 answers with the cache disabled, tiny and roomy, and a concurrent reader joining an in-flight
 packing). `SirixVectorizedExecutorLifecycleTest` pins the rule that every top-level call opens a
 residency scope. `HOTGatherPublicationTest` races first readers of shared HOT pages: the gather

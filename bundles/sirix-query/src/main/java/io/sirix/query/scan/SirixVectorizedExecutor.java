@@ -9411,12 +9411,26 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
    * The projection's {@code fields} under the row mask {@code rowKeys} (every row when {@code null}),
-   * resident as slices, for the column-side join and membership routes. {@code null} declines: no
-   * covering projection, a field that is neither an integral null-free NUMERIC_LONG nor a
-   * per-leaf-dictionary string column, or a fill the residency budget refuses.
+   * resident as slices, for the membership routes, whose columns the grouping that follows reads
+   * whole as well: a selection that prunes no leaf reads the store's whole columns, filled resident
+   * once for both. {@code null} declines: no covering projection, a field that is neither an integral
+   * null-free NUMERIC_LONG nor a per-leaf-dictionary string column, or a fill the residency budget
+   * refuses.
    */
   public @Nullable MaskedColumns maskedColumns(final String[] sourcePath, final long @Nullable [] rowKeys,
       final String[] fields) {
+    return maskedColumns(sourcePath, rowKeys, fields, false);
+  }
+
+  /**
+   * {@link #maskedColumns(String[], long[], String[])} for a reader that is the selection's only
+   * consumer (a column-side join side): with {@code ownLanes} a routed selection decodes its lanes
+   * into its own slab even when its keys prune no leaf, so every lane of the side lives in one
+   * segment and the join reads a row's fields through it, instead of filling the store's columns
+   * whole, one slab each.
+   */
+  public @Nullable MaskedColumns maskedColumns(final String[] sourcePath, final long @Nullable [] rowKeys,
+      final String[] fields, final boolean ownLanes) {
     if (rowKeys != null && rowKeys.length == 0) {
       return maskedColumnsDecline("empty row mask");
     }
@@ -9442,16 +9456,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (invalid != null) {
         return maskedColumnsDecline(invalid);
       }
-      return readOrCacheMaskedColumns(store, fetcher, rowKeys, fields, cols, kinds);
+      return readOrCacheMaskedColumns(store, fetcher, rowKeys, fields, cols, kinds, ownLanes);
     } catch (final RuntimeException e) {
       failSoft(GROUP_AGG_FAILED, "masked-columns serving", e);
       return null;
     }
   }
 
+  /**
+   * @param ownLanes whether a routed selection that prunes no leaf still decodes its lanes into its
+   *        own slab (a join side: the selection is the only reader, and one segment per side is what
+   *        lets the join read a row's fields through one segment) rather than reading the store's
+   *        whole columns, which fill them resident for later readers (the membership route: the
+   *        grouping that follows reads the same columns whole)
+   */
   private @Nullable MaskedColumns readOrCacheMaskedColumns(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] rowKeys, final String[] fields,
-      final int[] cols, final byte[] kinds) {
+      final int[] cols, final byte[] kinds, final boolean ownLanes) {
     final long @Nullable [] cacheKeys = wtx == null
         ? rowKeys
         : null;
@@ -9463,7 +9484,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     // A cacheable selection decodes its lanes straight into a reservation of the numeric partition
     // and is published from there; nothing is copied afterwards.
-    final MaskedColumns result = readMaskedColumns(store, fetcher, rowKeys, cols, kinds, fields, cacheKeys);
+    final MaskedColumns result = readMaskedColumns(store, fetcher, rowKeys, cols, kinds, fields, cacheKeys, ownLanes);
     if (result != null && wtx == null && result.immutableMasks() == null) {
       result.markImmutableRevision();
     }
@@ -18335,7 +18356,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     final MaskedColumns columns =
         readOrCacheMaskedColumns(membershipStore, fetcher, routing.rowKeys(), new String[] {membership.field()},
-            new int[] {column}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+            new int[] {column}, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, false);
     if (columns == null) {
       declineGroupAgg("membership columns do not fit the residency budget");
       return null;
@@ -31118,9 +31139,35 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  /**
+   * The leaf keep mask of a masked selection: the row keys' pruning, or, for a selection that owns
+   * its lanes, every leaf when nothing was pruned. {@code null} sends every field through the
+   * whole-column read, which fills the store's columns resident one slab each; a join side's lanes
+   * belong in the selection's own slab instead (one segment per side, which is what lets the join
+   * read a row's fields through one segment). A source without row keys has no selection and keeps
+   * {@code null}, as does a selection whose columns later readers share.
+   */
+  private static long @Nullable [] selectionKeepMask(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
+      final int leaves, final boolean ownLanes) {
+    if (preds.length == 0) {
+      return null;
+    }
+    final long[] pruned = ProjectionColumnScan.predicateKeepMask(store, preds, fetcher);
+    if (pruned != null || !ownLanes) {
+      return pruned;
+    }
+    final long[] every = new long[(leaves + 63) >>> 6];
+    Arrays.fill(every, -1L);
+    if ((leaves & 63) != 0) {
+      every[every.length - 1] = -1L >>> (64 - (leaves & 63));
+    }
+    return every;
+  }
+
   private @Nullable MaskedColumns readMaskedColumns(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] rowKeys, final int[] cols,
-      final byte[] kinds, final String[] fields, final long @Nullable [] cacheKeys) {
+      final byte[] kinds, final String[] fields, final long @Nullable [] cacheKeys, final boolean ownLanes) {
     final int[] residency = Arrays.copyOf(cols, cols.length + 1);
     residency[cols.length] = ProjectionColumnStore.KEYS_COLUMN;
     if (!store.columnsFitWithinBudget(residency, -1)) {
@@ -31130,42 +31177,43 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         ? new ProjectionIndexScan.ColumnPredicate[0]
         : new ProjectionIndexScan.ColumnPredicate[] {
             ProjectionIndexScan.ColumnPredicate.recordKeysIn(rowKeys, store, fetcher)};
-    final long[] keep = preds.length == 0
-        ? null
-        : ProjectionColumnScan.predicateKeepMask(store, preds, fetcher);
+    final int leaves = store.rowGroupCount();
+    final long[] keep = selectionKeepMask(store, preds, fetcher, leaves, ownLanes);
     final ProjectionColumnStore.ColumnSlice[][] predCols =
         ProjectionColumnScan.resolvePredicateColumnsShared(store, preds, fetcher, keep);
-    final int leaves = store.rowGroupCount();
     final long[][] rowMasks = new long[leaves][];
     final long rows = ProjectionColumnScan.rowKeepMasks(store, preds, predCols, null, null, 0, leaves, rowMasks);
     final ProjectionColumnStore.ColumnSlice[][] slices = new ProjectionColumnStore.ColumnSlice[cols.length][];
-    // Long lanes the store does not hold resident decode straight into ONE slab: a reservation of the
-    // numeric partition when the selection is cacheable (an immutable revision with a key roster),
-    // otherwise query-local memory this view owns and releases when it closes. Resident columns are
-    // served pruned from their own slabs; a cached view pins them through its entry. Only when the
-    // allocator refuses the memory does a lane decode to heap arrays (counted as a declined fill).
+    // Long lanes the store does not hold resident, and the record keys of the kept leaves, go into
+    // ONE slab: a reservation of the numeric partition when the selection is cacheable (an immutable
+    // revision with a key roster), otherwise query-local memory this view owns and releases when it
+    // closes. Resident columns are served pruned from their own slabs; a cached view pins them
+    // through its entry. Only when the allocator refuses the memory does a lane decode to heap arrays
+    // (counted as a declined fill) and the keys stay in their decoded arrays.
     final long[][] laneBases = new long[cols.length][];
-    long laneBytes = 0L;
+    long slabBytes = 0L;
     if (keep != null) {
       for (int i = 0; i < cols.length; i++) {
         if (store.columnLongLane(cols[i]) && !store.columnFilled(cols[i])) {
           laneBases[i] = new long[leaves];
-          laneBytes = store.maskedLaneLayout(cols[i], keep, laneBases[i], laneBytes);
+          slabBytes = store.maskedLaneLayout(cols[i], keep, laneBases[i], slabBytes);
         }
       }
     }
+    final long[] keyBases = new long[leaves];
+    slabBytes = KeyLanes.layout(store, keep, keyBases, slabBytes);
     DerivedCacheBudget.Reservation reservation = null;
     MemorySegment owned = null;
     MemorySegment slab = null;
-    if (laneBytes > 0L) {
+    if (slabBytes > 0L) {
       if (cacheKeys != null) {
-        reservation = NumericMaskedColumnCache.global().reserve(laneBytes);
+        reservation = NumericMaskedColumnCache.global().reserve(slabBytes);
         slab = reservation == null
             ? null
             : reservation.slab();
       }
       if (slab == null) {
-        owned = Allocators.getInstance().allocateSlab(laneBytes);
+        owned = Allocators.getInstance().allocateSlab(slabBytes);
         slab = owned;
         if (owned == null) {
           ProjectionColumnStore.noteSlabFillDeclined();
@@ -31187,10 +31235,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           resident++;
         }
       }
-      final MaskedColumns view =
-          new MaskedColumns(store, rowMasks, store.recordKeysMasked(fetcher, keep), slices, kinds, rows);
-      if (cacheKeys == null || (laneBytes > 0L && reservation == null)) {
-        // Mutable, no key roster, or the share refused the lanes: this query's view only.
+      final long[][] decodedKeys = store.recordKeysMasked(fetcher, keep);
+      final KeyLanes keyLanes = slab != null
+          ? KeyLanes.copyInto(slab, keyBases, decodedKeys, store)
+          : KeyLanes.onHeap(decodedKeys);
+      final MaskedColumns view = new MaskedColumns(store, rowMasks, keyLanes, slices, kinds, rows);
+      if (cacheKeys == null || reservation == null) {
+        // Mutable, no key roster, no kept leaf, or the share refused the slab: this query's view only.
         if (owned != null) {
           view.ownSlab(owned);
           owned = null;
@@ -31205,13 +31256,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
       view.markImmutableRevision();
-      final NumericMaskedColumnCache cache = NumericMaskedColumnCache.global();
-      if (reservation != null) {
-        final MaskedColumns published = cache.publish(reservation, store, fields, cacheKeys, view, pinned);
-        reservation = null;
-        return published;
-      }
-      return cache.publishResident(store, fields, cacheKeys, view, pinned);
+      final MaskedColumns published =
+          NumericMaskedColumnCache.global().publish(reservation, store, fields, cacheKeys, view, pinned);
+      reservation = null;
+      return published;
     } finally {
       // Whatever was not handed to the view or the cache goes back: a failed decode, a refused fill.
       if (reservation != null) {

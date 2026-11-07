@@ -12,10 +12,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * A cached masked selection whose numeric lanes were decoded straight into this entry's slab (a
  * reservation of the numeric partition) or are the store's own resident columns, which the entry
- * pins for as long as a lease exists: no heap arrays, no copy. The entry keeps the selection's
- * original masks, its record keys and the slices that point into the lanes; every reader gets a
- * view with its own mask copy and a lease on this entry. Packed join sides are keyed by the entry's
- * row identity and leave with it.
+ * pins for as long as a lease exists, and whose record keys live in the same slab as lanes: no heap
+ * arrays, no copy per query. The entry keeps the selection's original masks, its key lanes and the
+ * slices that point into the lanes; every reader gets a view with its own mask copy and a lease on
+ * this entry. Packed join sides are keyed by the entry's row identity and leave with it.
  *
  * <p>
  * The store is held strongly: the pins must be returned to it when the final lease drops, and a
@@ -28,7 +28,7 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
   private final String[] fields;
   private final long[] keys;
   private final long[][] masks;
-  private final long[][] recordKeys;
+  private final KeyLanes recordKeys;
   private final ColumnSlice[][] slices;
   private final byte[] kinds;
   private final long rows;
@@ -44,7 +44,7 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
    *        {@link #discard()}ed
    */
   LaneSnapshot(final ProjectionColumnStore store, final String[] fields, final long[] keys, final long[][] masks,
-      final long[][] recordKeys, final ColumnSlice[][] slices, final byte[] kinds, final long rows,
+      final KeyLanes recordKeys, final ColumnSlice[][] slices, final byte[] kinds, final long rows,
       final byte[] presenceMemo, final int[] pinnedColumns) {
     this.store = Objects.requireNonNull(store);
     this.fields = fields.clone();
@@ -66,7 +66,9 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
     return this.store == store && Arrays.equals(this.fields, fields) && Arrays.equals(this.keys, keys);
   }
 
-  /** A view holding {@code lease} on this entry: shared slices and keys, this view's own masks. */
+  /**
+   * A view holding {@code lease} on this entry: shared slices and key lanes, this view's own masks.
+   */
   MaskedColumns view(final DerivedCacheBudget.Lease lease) {
     final MaskedColumns view = new MaskedColumns(store, MaskedColumns.copyMasks(masks), recordKeys, slices, kinds, rows,
         rowIdentity, masks, presenceMemo);
@@ -95,7 +97,7 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
     unpin();
   }
 
-  /** Undo the constructor's pins for an entry the share refused; it was never published. */
+  /** Undo the constructor's pins for an entry that was never published. */
   void discard() {
     unpin();
   }
@@ -106,21 +108,5 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
         store.releaseColumn(col);
       }
     }
-  }
-
-  /** The heap bytes a resident entry retains itself: its record keys and masks. */
-  static long residentBytes(final long[][] recordKeys, final long[][] masks) {
-    long bytes = 0L;
-    for (final long[] keys : recordKeys) {
-      bytes += keys == null
-          ? 0L
-          : 8L * keys.length;
-    }
-    for (final long[] mask : masks) {
-      bytes += mask == null
-          ? 0L
-          : 8L * mask.length;
-    }
-    return bytes;
   }
 }
