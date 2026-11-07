@@ -1,5 +1,9 @@
 package io.sirix.access;
 
+import io.sirix.exception.SirixIOException;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
@@ -144,7 +148,28 @@ public final class MutationGate {
   }
 
   private static Path key(final Path databaseFile) {
-    return Objects.requireNonNull(databaseFile, "databaseFile").toAbsolutePath().normalize();
+    Path ancestor = Objects.requireNonNull(databaseFile, "databaseFile").toAbsolutePath();
+    Path remaining = ancestor.getFileSystem().getPath("");
+    try {
+      while (true) {
+        try {
+          return ancestor.toRealPath().resolve(remaining).normalize();
+        } catch (final NoSuchFileException missing) {
+          if (Files.isSymbolicLink(ancestor)) {
+            ancestor = ancestor.resolveSibling(Files.readSymbolicLink(ancestor));
+          } else {
+            final Path parent = ancestor.getParent();
+            if (parent == null) {
+              throw missing;
+            }
+            remaining = ancestor.getFileName().resolve(remaining);
+            ancestor = parent;
+          }
+        }
+      }
+    } catch (final IOException failure) {
+      throw new SirixIOException("Could not resolve database path " + databaseFile, failure);
+    }
   }
 
   /** Releases exactly once, so a try-with-resources block cannot unlock a hold it no longer owns. */

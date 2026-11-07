@@ -9,6 +9,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
+import io.brackit.query.util.io.URIHandler;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceAccessScope;
 import io.sirix.query.MutationAuthorization;
@@ -37,6 +38,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -45,6 +47,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -859,6 +862,28 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, Set<JsonReader> jsonReaders, Object options) {
+    final var partitions = new ArrayList<Callable<JsonReader>>(jsonReaders.size());
+    for (final JsonReader reader : jsonReaders) {
+      partitions.add(() -> reader);
+    }
+    return createCollection(collName, partitions, options);
+  }
+
+  @Override
+  public JsonDBCollection createFromUris(final String collName, final List<String> uris, final Object options) {
+    requireNonNull(collName);
+    requireNonNull(uris);
+    requireNonNull(options);
+    final var partitions = new ArrayList<Callable<JsonReader>>(uris.size());
+    for (final String uri : uris) {
+      requireNonNull(uri);
+      partitions.add(() -> new JsonReader(new InputStreamReader(URIHandler.getInputStream(uri))));
+    }
+    return createCollection(collName, partitions, options);
+  }
+
+  private JsonDBCollection createCollection(final String collName, final List<Callable<JsonReader>> partitions,
+      final Object options) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try (var gate = MutationGate.acquireDatabase(dbPath)) {
@@ -867,11 +892,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
       databases.add(database);
       final Options resourceOptions = OptionsFactory.createOptions(options, options());
       int numberOfResources = database.listResources().size();
-      final var resourceNames = new ArrayList<String>(jsonReaders.size());
-      final var partitions = new ArrayList<Callable<JsonReader>>(jsonReaders.size());
-      for (final var jsonReader : jsonReaders) {
+      final var resourceNames = new ArrayList<String>(partitions.size());
+      for (int i = 0; i < partitions.size(); i++) {
         resourceNames.add("resource" + (++numberOfResources));
-        partitions.add(() -> jsonReader);
       }
       // Hardened concurrent fan-out: all-or-nothing rollback + fail-fast collision check + bounded
       // pool, shared with the single-resource parallel shredder. Replaces a raw CompletableFuture

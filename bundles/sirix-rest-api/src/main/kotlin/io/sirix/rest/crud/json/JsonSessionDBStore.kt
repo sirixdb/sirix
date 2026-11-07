@@ -132,6 +132,12 @@ class JsonSessionDBStore(
         return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, jsonReaders, options)) }
     }
 
+    override fun createFromUris(name: String, uris: List<String>, options: Object): JsonDBCollection {
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.createFromUris(name, uris, options)) }
+    }
+
     override fun createFromJsonStrings(name: String, jsons: Stream<Str>): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 

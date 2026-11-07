@@ -166,9 +166,6 @@ final class ParallelJsonShredderTest {
     final Database<JsonResourceSession> interruptObservingDatabase =
         observeRemoveInterruptStatus(database, rollbackInterruptStatus);
 
-    // Block before the worker opens a resource session and deliberately consume cancellation. With the
-    // old ordering, Future.cancel(true) made Future.get return immediately, rollback deleted records-0,
-    // and this factory later resumed against a resource that had disappeared underneath it.
     final Callable<JsonReader> interruptionIgnoringPartition = () -> {
       workerEntered.countDown();
       boolean released = false;
@@ -290,6 +287,17 @@ final class ParallelJsonShredderTest {
     });
     ParallelJsonShredder.shredPartitioned(database, List.of(tracked), BASE, CONFIG, 0, 1);
     assertTrue(closed.get(), "the partition's JsonReader must be closed by the shredder");
+  }
+
+  @Test
+  void workerOwnsItsResourceWhileOpeningTheInput() {
+    final Callable<JsonReader> partition = () -> {
+      assertThrows(IllegalStateException.class, () -> database.removeResource("records-0"),
+          "a resource must remain protected while its worker opens an input");
+      return new JsonReader(new StringReader("[1]"));
+    };
+    ParallelJsonShredder.shredPartitioned(database, List.of(partition), BASE, CONFIG, 0, 1);
+    assertEquals("[1]", serialize("records-0"));
   }
 
   // ---------------------------------------------------------------------------------------------

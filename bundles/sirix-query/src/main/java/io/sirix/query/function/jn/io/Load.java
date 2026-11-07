@@ -30,15 +30,11 @@ import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 
-import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * <p>
@@ -184,7 +180,7 @@ public final class Load extends AbstractFunction {
   }
 
   private JsonDBCollection create(final JsonDBStore store, final String collectionName, final String resourceName,
-      final Sequence resources, final Object options) throws IOException {
+      final Sequence resources, final Object options) {
     if (resources instanceof Atomic atomic) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(atomic.stringValue())))) {
@@ -194,28 +190,14 @@ public final class Load extends AbstractFunction {
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
-        final Set<JsonReader> jsonReaders = new HashSet<>();
-
-        try {
-          for (Item item; (item = iter.next()) != null;) {
-            jsonReaders.add(
-                new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
-          }
-          return store.create(collectionName, jsonReaders, options);
-        } finally {
-          jsonReaders.forEach(this::closeReader);
+        final List<String> uris = new ArrayList<>();
+        for (Item item; (item = iter.next()) != null;) {
+          uris.add(((Str) item).stringValue());
         }
+        return store.createFromUris(collectionName, uris, options);
       }
     }
 
     return null;
-  }
-
-  private void closeReader(JsonReader reader) {
-    try {
-      reader.close();
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
   }
 }

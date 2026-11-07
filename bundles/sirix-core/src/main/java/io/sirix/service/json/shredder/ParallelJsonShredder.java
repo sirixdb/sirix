@@ -430,7 +430,7 @@ public final class ParallelJsonShredder {
       final Callable<JsonReader> partition, final int autoCommitNodeCount, final AfterCommitState afterCommitState)
       throws Exception {
     JsonReader reader = null;
-    try {
+    try (final JsonResourceSession session = database.beginResourceSession(resourceName)) {
       reader = partition.call();
       if (reader == null) {
         throw new SirixException("partition produced a null JsonReader for resource '" + resourceName + "'");
@@ -453,10 +453,9 @@ public final class ParallelJsonShredder {
       // An earlier comment here claimed async modes regress in the parallel path. That was measured
       // for async commit with auto-commit disabled on a 25 MB input, where the whole shard sits in
       // one transaction; it does not hold once auto-commit bounds the epoch.
-      try (final JsonResourceSession session = database.beginResourceSession(resourceName);
-          final JsonNodeTrx wtx = autoCommitNodeCount > 0
-              ? session.beginNodeTrx(autoCommitNodeCount, afterCommitState)
-              : session.beginNodeTrx(afterCommitState)) {
+      try (final JsonNodeTrx wtx = autoCommitNodeCount > 0
+          ? session.beginNodeTrx(autoCommitNodeCount, afterCommitState)
+          : session.beginNodeTrx(afterCommitState)) {
         // Commit.NO: the explicit commit below is the single durable commit point for this shard.
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit();

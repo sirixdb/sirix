@@ -99,6 +99,7 @@ class JsonSessionDBStoreAuthTest {
         assertForbidden { store.create(DB, "res", reader, options) }
         assertForbidden { store.create(DB, setOf(reader)) }
         assertForbidden { store.create(DB, setOf(reader), options) }
+        assertForbidden { store.createFromUris(DB, listOf("file:///missing.json"), options) }
         assertForbidden { store.createFromJsonStrings(DB, strStream) }
         assertForbidden { store.makeDir(DB) }
         assertForbidden { store.drop(DB) }
@@ -133,6 +134,7 @@ class JsonSessionDBStoreAuthTest {
             assertForbidden { store.create(DB, "res", reader, options) }
             assertForbidden { store.create(DB, setOf(reader)) }
             assertForbidden { store.create(DB, setOf(reader), options) }
+            assertForbidden { store.createFromUris(DB, listOf(path.toUri().toString()), options) }
             assertForbidden { store.createFromJsonStrings(DB, strStream) }
             assertForbidden { store.createFromJsonStrings(DB, strStream, options) }
 

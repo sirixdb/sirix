@@ -9,6 +9,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.MutationGate;
 import io.sirix.access.ResourceConfiguration;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +29,61 @@ final class MutationGateRegressionTest {
 
   @TempDir
   Path directory;
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void existingDatabaseSymlinkSharesOneHold(final boolean resource) throws Exception {
+    final Path physical = Files.createDirectories(directory.resolve("orders"));
+    final Path alias = Files.createSymbolicLink(directory.resolve("alias"), physical);
+    assertDatabaseAliasesSerialize(physical, alias, resource);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void missingDatabaseUnderSymlinkParentSharesOneHold(final boolean resource) throws Exception {
+    final Path physicalParent = Files.createDirectories(directory.resolve("physical"));
+    final Path aliasParent = Files.createSymbolicLink(directory.resolve("alias"), physicalParent);
+    assertDatabaseAliasesSerialize(physicalParent.resolve("missing/nested/orders"),
+        aliasParent.resolve("missing/nested/orders"), resource);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void danglingDatabaseSymlinkSharesOneHold(final boolean resource) throws Exception {
+    final Path physical = directory.resolve("missing/orders");
+    final Path alias = Files.createSymbolicLink(directory.resolve("alias"), directory.relativize(physical));
+    assertDatabaseAliasesSerialize(physical, alias, resource);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void parentSegmentsAfterSymlinksFollowPhysicalIdentity(final boolean resource) throws Exception {
+    final Path physicalParent = Files.createDirectories(directory.resolve("physical"));
+    final Path child = Files.createDirectory(physicalParent.resolve("child"));
+    final Path physical = Files.createDirectory(physicalParent.resolve("orders"));
+    final Path alias = Files.createSymbolicLink(directory.resolve("alias"), child);
+    assertDatabaseAliasesSerialize(physical, alias.resolve("../orders"), resource);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void databaseRemovalThroughSymlinkWaitsForResourceOperation(final boolean xml) throws Exception {
+    final Path physical = directory.resolve("orders");
+    assertTrue(create(physical, xml));
+    final Path alias = Files.createSymbolicLink(directory.resolve("alias"), physical);
+    final FutureTask<Void> removal = new FutureTask<>(() -> {
+      Databases.removeDatabase(alias);
+      return null;
+    });
+    try (var gate = MutationGate.acquireResource(physical, "fresh")) {
+      final Thread waiting = Thread.ofPlatform().daemon().start(removal);
+      awaitWaiting(waiting);
+      assertFalse(removal.isDone(), "database removal through an alias must wait for the resource operation");
+      assertTrue(Databases.existsDatabase(physical));
+    }
+    removal.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    assertFalse(Databases.existsDatabase(physical));
+  }
 
   @ParameterizedTest
   @CsvSource({"fresh, ./fresh", "./fresh, fresh", "fresh, fresh//", "fresh//, fresh",
@@ -147,6 +203,27 @@ final class MutationGateRegressionTest {
   private static boolean create(final Path path, final boolean xml) {
     final DatabaseConfiguration configuration = new DatabaseConfiguration(path);
     return xml ? Databases.createXmlDatabase(configuration) : Databases.createJsonDatabase(configuration);
+  }
+
+  private static void assertDatabaseAliasesSerialize(final Path physical, final Path alias,
+      final boolean resource) throws Exception {
+    final AtomicBoolean firstInside = new AtomicBoolean(true);
+    final FutureTask<Boolean> contender = new FutureTask<>(() -> {
+      try (var gate = resource
+          ? MutationGate.acquireResource(alias, "fresh")
+          : MutationGate.acquireDatabase(alias)) {
+        return firstInside.get();
+      }
+    });
+    try (var gate = resource
+        ? MutationGate.acquireResource(physical, "fresh")
+        : MutationGate.acquireDatabase(physical)) {
+      final Thread waiting = Thread.ofPlatform().daemon().start(contender);
+      awaitWaiting(waiting);
+      assertFalse(contender.isDone(), "physical database aliases must share a hold");
+      firstInside.set(false);
+    }
+    assertFalse(contender.get(TIMEOUT_SECONDS, TimeUnit.SECONDS), "database aliases must never overlap");
   }
 
   private static void awaitWaiting(final Thread thread) {
