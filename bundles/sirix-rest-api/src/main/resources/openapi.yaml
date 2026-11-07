@@ -1140,9 +1140,7 @@ components:
         JSON query results: the result-sequence items in serialization order.
         JSON document nodes are serialized from storage (annotated with
         `revisionNumber`/`revisionTimestamp` when they stem from a versioned
-        resource); XML nodes, including returned index definitions, are
-        serialized as XML escaped inside JSON strings. Atomics are serialized
-        as JSON scalars. Updating queries and queries with no result produce
+        resource). Atomics are serialized as JSON scalars. Updating queries and queries with no result produce
         an EMPTY response body instead of
         this envelope.
       required: [rest]

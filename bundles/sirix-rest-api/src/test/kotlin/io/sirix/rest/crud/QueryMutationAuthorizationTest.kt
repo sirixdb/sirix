@@ -19,16 +19,15 @@ import io.sirix.index.IndexType
 import io.sirix.index.aggregate.TemporalAggregateDeclarations
 import io.sirix.index.projection.ProjectionIndexHOTStorage
 import io.sirix.io.StorageType
-import io.sirix.query.JsonDBSerializer
 import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.BasicJsonDBStore
 import io.sirix.query.node.BasicXmlDBStore
 import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
+import io.sirix.service.json.serialize.JsonSerializer
 import io.sirix.service.json.shredder.JsonShredder
 import io.vertx.core.Future
-import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.Authorization
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -112,8 +111,7 @@ class QueryMutationAuthorizationTest {
                 if (indexType == IndexType.PROJECTION && delta == -1) {
                     expected[IndexType.TEMPORAL_AGGREGATE] = 0
                 }
-                val results = JsonObject(run(fixture, query, keycloak)).getJsonArray("rest")
-                assertEquals(1, results.size(), "An authorized DDL call must return its JSON result: $query")
+                run(fixture, query, keycloak)
                 session.nodeTrx.orElseThrow().use { writer ->
                     val after = session.getWtxIndexController<JsonIndexController>(writer.revisionNumber).indexes
                     for (type in IndexType.entries) {
@@ -314,7 +312,9 @@ class QueryMutationAuthorizationTest {
         val revisions: Int,
         val indexCounts: Map<IndexType, Int>,
         val projectionMetadata: ByteArray?,
-        val aggregateHeader: ByteArray?
+        val aggregateHeader: ByteArray?,
+        val catalogue: String,
+        val document: String
     )
 
     /**
@@ -330,13 +330,19 @@ class QueryMutationAuthorizationTest {
         val header = DerivedAggregateWitness.header(session, revisions)
         session.beginNodeReadOnlyTrx(revisions).use { reader ->
             val projection = ProjectionIndexHOTStorage.readMetadataBlob(reader.storageEngineReader, 0)
-            return Witness(revisions, counts, projection, header)
+            val catalogueOutput = StringWriter()
+            StringSerializer(PrintWriter(catalogueOutput)).use { it.serialize(catalogue.materialize()) }
+            val document = StringBuilder()
+            JsonSerializer.Builder(session, document, revisions).build().call()
+            return Witness(revisions, counts, projection, header, catalogueOutput.toString(), document.toString())
         }
     }
 
     private fun assertWitnessUnchanged(before: Witness, after: Witness, query: String) {
         assertEquals(before.revisions, after.revisions, "A refused mutation published a revision: $query")
         assertEquals(before.indexCounts, after.indexCounts, "A refused mutation changed the catalogue: $query")
+        assertEquals(before.catalogue, after.catalogue, "A refused mutation changed an index definition: $query")
+        assertEquals(before.document, after.document, "A refused mutation changed the document: $query")
         assertArrayEquals(
             before.projectionMetadata, after.projectionMetadata,
             "A refused mutation changed the projection index metadata: $query"
@@ -416,6 +422,75 @@ class QueryMutationAuthorizationTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource(
+        "store,named", "store,existing", "store,generated", "store,multiple",
+        "load,named", "load,existing", "load,generated", "load,multiple"
+    )
+    fun createRoleCannotReplaceAnExistingDatabase(function: String, target: String) {
+        createDatabase()
+        val before = databaseWitness()
+        val query = replacementQuery(function, target)
+        withRoles("auth-view", "create") { fixture ->
+            assertRefused(query) { run(fixture, query, Mockito.mock(OAuth2Auth::class.java)) }
+        }
+        val after = databaseWitness()
+        assertEquals(before.first, after.first, "A refused replacement changed the database resources")
+        assertWitnessUnchanged(before.second, after.second, query)
+    }
+
+    @ParameterizedTest
+    @CsvSource(
+        "store,named", "store,existing", "store,generated", "store,multiple",
+        "load,named", "load,existing", "load,generated", "load,multiple"
+    )
+    fun createAndDeleteRolesCanReplaceAnExistingDatabase(function: String, target: String) {
+        createDatabase()
+        withRoles("auth-view", "create", "delete") { fixture ->
+            run(fixture, replacementQuery(function, target), Mockito.mock(OAuth2Auth::class.java))
+        }
+        Databases.clearGlobalCaches()
+        Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
+            val expected = when (target) {
+                "named" -> setOf("fresh")
+                "existing" -> setOf("records")
+                "generated" -> setOf("resource")
+                "multiple" -> setOf("resource1", "resource2")
+                else -> error(target)
+            }
+            assertEquals(expected, database.listResources().map { it.fileName.toString() }.toSet())
+        }
+    }
+
+    private fun replacementQuery(function: String, target: String): String {
+        val resource = when (target) {
+            "generated" -> "()"
+            "existing" -> "'records'"
+            else -> "'fresh'"
+        }
+        val input = when (function) {
+            "store" -> "'{}'"
+            "load" -> {
+                val source = Files.writeString(directory.resolve("replacement.json"), "{}")
+                "'${source.toUri()}'"
+            }
+            else -> error(function)
+        }
+        val inputs = if (target == "multiple") "($input,$input)" else input
+        return "jn:$function('auth',$resource,$inputs)"
+    }
+
+    private fun databaseWitness(): Pair<Set<String>, Witness> {
+        Databases.clearGlobalCaches()
+        Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
+            database.beginResourceSession("records").use { session ->
+                val state = witness(session)
+                assertNotNull(state.projectionMetadata, "The fixture must contain projection metadata")
+                return database.listResources().map { it.fileName.toString() }.toSet() to state
+            }
+        }
+    }
+
     /** Creating a resource needs CREATE, so MODIFY alone must not bring one into existence. */
     @ParameterizedTest
     @CsvSource("store,true", "store,false", "load,true", "load,false")
@@ -438,7 +513,7 @@ class QueryMutationAuthorizationTest {
     fun authorizedStoreAndLoadStillWrite(function: String, createNew: Boolean) {
         createDatabase()
         val keycloak = Mockito.mock(OAuth2Auth::class.java)
-        withRoles("auth-view", "create", "modify") { fixture ->
+        withRoles("auth-view", "create", "modify", "delete") { fixture ->
             run(fixture, storeOrLoad(function, "fresh", createNew), keycloak)
         }
         assertTrue(resourceExists("fresh"), "An authorized store/load must create the resource")
@@ -523,9 +598,9 @@ class QueryMutationAuthorizationTest {
     }
 
     private fun run(fixture: Fixture, query: String, keycloak: OAuth2Auth): String {
-        val output = StringBuilder()
+        val output = StringWriter()
         val checked = PermissionCheckingQuery(fixture.chain, query, keycloak, fixture.user, fixture.authz)
-        checked.serialize(fixture.context, JsonDBSerializer(output, false))
+        checked.serialize(fixture.context, PrintWriter(output))
         return output.toString().trim()
     }
 }

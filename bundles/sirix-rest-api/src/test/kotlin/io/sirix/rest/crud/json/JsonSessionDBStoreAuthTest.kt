@@ -98,6 +98,42 @@ class JsonSessionDBStoreAuthTest {
     }
 
     @Test
+    fun createTokenCannotReachAnyDatabaseReplacementWithoutDelete() {
+        val delegate = Mockito.mock(JsonDBStore::class.java)
+        val ctx = Mockito.mock(RoutingContext::class.java)
+        val authz = Mockito.mock(AuthorizationProvider::class.java)
+        val reader = Mockito.mock(JsonReader::class.java)
+        val options = Mockito.mock(Object::class.java)
+        val path = Mockito.mock(Path::class.java)
+        @Suppress("UNCHECKED_CAST")
+        val pathStream = Mockito.mock(Stream::class.java) as Stream<Path>
+        @Suppress("UNCHECKED_CAST")
+        val strStream = Mockito.mock(Stream::class.java) as Stream<Str>
+        val existing = stubCollection()
+        Mockito.`when`(delegate.lookup(DB)).thenReturn(existing)
+        val store = JsonSessionDBStore(ctx, delegate, userWith("$DB-view", "$DB-create"), authz)
+
+        assertForbidden { store.create(DB, "path") }
+        assertForbidden { store.create(DB, "path", options) }
+        assertForbidden { store.create(DB, path) }
+        assertForbidden { store.create(DB, path, options) }
+        assertForbidden { store.createFromPaths(DB, pathStream) }
+        assertForbidden { store.create(DB, "res", path) }
+        assertForbidden { store.create(DB, "res", path, options) }
+        assertForbidden { store.create(DB, "res", "{}") }
+        assertForbidden { store.create(DB, "res", "{}", options) }
+        assertForbidden { store.create(DB, "res", reader) }
+        assertForbidden { store.create(DB, "res", reader, options) }
+        assertForbidden { store.create(DB, setOf(reader)) }
+        assertForbidden { store.create(DB, setOf(reader), options) }
+        assertForbidden { store.createFromJsonStrings(DB, strStream) }
+        assertForbidden { store.createFromJsonStrings(DB, strStream, options) }
+
+        Mockito.verify(delegate, Mockito.times(15)).lookup(DB)
+        Mockito.verifyNoMoreInteractions(delegate)
+    }
+
+    @Test
     @DisplayName("lookup is allowed for a VIEW token and returns an authorization-checking collection")
     fun viewTokenMayLookUpButGetsGuardedCollection() {
         val delegate = Mockito.mock(JsonDBStore::class.java)

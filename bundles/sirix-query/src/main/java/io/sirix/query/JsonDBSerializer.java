@@ -34,7 +34,6 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.jdm.json.Array;
 import io.brackit.query.jdm.json.Object;
-import io.brackit.query.jdm.node.Node;
 import io.brackit.query.util.serialize.Serializer;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -140,12 +139,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               }
               try (final var out = new StringWriter(); final var printWriter = new PrintWriter(out)) {
                 new StringSerializer(printWriter).serialize(item);
-                if (item instanceof Node<?>) {
-                  // The JSON output method represents an XML node as its serialized, escaped string.
-                  this.out.append('"').append(StringValue.escape(out.toString())).append('"');
-                } else {
-                  this.out.append(out.toString());
-                }
+                this.out.append(out.toString());
               }
 
               item = printCommaIfNextItemExists(it);

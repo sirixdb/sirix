@@ -65,25 +65,8 @@ public final class MutationAuthorization {
     }
   }
 
-  /**
-   * Authorize storing or loading into {@code resourceName} of {@code databaseName}: creating it when
-   * it does not exist yet, modifying it when it does.
-   *
-   * <p>
-   * Both {@code jn:store} and {@code jn:load} reach both operations, and the create-new path writes
-   * into an existing resource rather than refusing it, so the permission follows the target's
-   * existence rather than the create-new flag. Establishing existence goes through the store's own
-   * lookup, which is itself permission-checked; a caller who may not see the database cannot learn
-   * whether it would be creating or overwriting.
-   * </p>
-   *
-   * @param ctx the query context the function was handed
-   * @param store the store the function resolved from {@code ctx}
-   * @param databaseName the target collection name
-   * @param resourceName the target resource, or {@code null} when the store generates the name
-   */
   public static void requireStorable(final QueryContext ctx, final JsonDBStore store, final String databaseName,
-      final @Nullable String resourceName) {
+      final @Nullable String resourceName, final boolean replaceDatabase) {
     Objects.requireNonNull(ctx, "ctx");
     Objects.requireNonNull(store, "store");
     Objects.requireNonNull(databaseName, "databaseName");
@@ -91,7 +74,7 @@ public final class MutationAuthorization {
     if (authorizer == null) {
       return;
     }
-    if (existingResource(store, databaseName, resourceName)) {
+    if (!replaceDatabase && existingResource(store, databaseName, resourceName)) {
       authorizer.authorizeWrite(databaseName, resourceName);
     } else {
       authorizer.authorizeCreate(databaseName, resourceName);

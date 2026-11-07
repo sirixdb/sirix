@@ -122,7 +122,7 @@ public final class Load extends AbstractFunction {
       // Before the store is touched and before any input is read: storing and loading mutate but
       // are not updating expressions, so this is the only check standing between a caller
       // without write permission and the write.
-      MutationAuthorization.requireStorable(ctx, store, collectionName, resourceName);
+      MutationAuthorization.requireStorable(ctx, store, collectionName, resourceName, createIfNotExists);
 
       if (createIfNotExists) {
         collection = create(store, collectionName, resourceName, resources, options);

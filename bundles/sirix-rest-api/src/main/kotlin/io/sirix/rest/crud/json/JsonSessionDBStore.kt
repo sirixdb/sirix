@@ -65,100 +65,107 @@ class JsonSessionDBStore(
     }
 
     override fun create(name: String, path: String): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, path))
     }
 
     override fun create(name: String, path: String, options: Object): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, path, options))
     }
 
     override fun create(name: String, path: Path): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, path))
     }
 
     override fun create(name: String, path: Path, options: Object): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, path, options))
     }
 
     override fun createFromPaths(name: String, paths: Stream<Path>): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.createFromPaths(name, paths))
     }
 
-    override fun create(name: String, resourceName: String, path: Path): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+    override fun create(name: String, resourceName: String?, path: Path): JsonDBCollection {
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, resourceName, path))
     }
 
-    override fun create(name: String, resourceName: String, path: Path, options: Object): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+    override fun create(name: String, resourceName: String?, path: Path, options: Object): JsonDBCollection {
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, resourceName, path, options))
     }
 
-    override fun create(name: String, resourceName: String, json: String?): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+    override fun create(name: String, resourceName: String?, json: String?): JsonDBCollection {
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, resourceName, json))
     }
 
     override fun create(
-        name: String, resourceName: String, json: String?, options: Object
+        name: String, resourceName: String?, json: String?, options: Object
     ): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, resourceName, json, options))
     }
 
-    override fun create(name: String, resourceName: String, json: JsonReader): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+    override fun create(name: String, resourceName: String?, json: JsonReader): JsonDBCollection {
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, resourceName, json))
     }
 
     override fun create(
         name: String,
-        resourceName: String,
+        resourceName: String?,
         json: JsonReader,
         options: Object
     ): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, resourceName, json, options))
     }
 
     override fun create(name: String, jsonReaders: Set<JsonReader>): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, jsonReaders))
     }
 
     override fun create(name: String, jsonReaders: Set<JsonReader>, options: Object): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.create(name, jsonReaders, options))
     }
 
     override fun createFromJsonStrings(name: String, jsons: Stream<Str>): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.createFromJsonStrings(name, jsons))
     }
 
     override fun createFromJsonStrings(name: String, jsons: Stream<Str>, options: Object): JsonDBCollection {
-        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        authorizeReplacement(name)
 
         return wrap(dbStore.createFromJsonStrings(name, jsons, options))
+    }
+
+    private fun authorizeReplacement(name: String) {
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        if (dbStore.lookup(name) != null) {
+            Auth.checkIfAuthorized(user, name, AuthRole.DELETE, authz)
+        }
     }
 
     override fun drop(name: String) {
