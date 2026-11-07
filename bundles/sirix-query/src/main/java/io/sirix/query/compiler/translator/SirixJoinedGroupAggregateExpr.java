@@ -31,8 +31,6 @@ import io.sirix.query.scan.DerivedCacheBudget.Reservation;
 import io.sirix.query.scan.MaskedColumns;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
-import it.unimi.dsi.fastutil.ints.IntArrays;
-import it.unimi.dsi.fastutil.ints.IntComparator;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -550,17 +548,22 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
 
   /**
    * The order of row output without per-row allocation, for joins whose ordering keys are all long
-   * columns present on every emitted row: each row's key values and both record keys live in one
-   * primitive buffer and the rows are sorted by index, in the order the tuple sort would produce (the
-   * keys by their modifiers, then the record keys of side 0 and side 1 ascending, which are unique).
+   * columns present on every emitted row: each row's key values and both record keys live in
+   * column-major primitive buffers and the rows are ordered by stable radix passes
+   * ({@link JoinKernels#sortRows}), in the order the tuple sort would produce (the keys by their
+   * modifiers, then the record keys of side 0 and side 1 ascending, which are unique). A descending
+   * key is stored bitwise inverted, so every pass sorts ascending.
    */
-  private static final class RowOrder implements IntComparator {
+  private static final class RowOrder {
     final ColumnarRecordSequence.Builder columns;
     final long[] scratch;
     private final boolean[] ascending;
     private final int keyCount;
-    private final int stride;
-    private long[] values;
+    /**
+     * Column-major: the ordering keys as stored for an ascending pass, then the side-0 and side-1
+     * record keys.
+     */
+    private final long[][] keys;
     private int[] rows;
     private int count;
 
@@ -568,50 +571,36 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       this.ascending = ascending;
       this.columns = columns;
       this.keyCount = ascending.length;
-      this.stride = keyCount + 2;
       this.scratch = new long[keyCount];
-      this.values = new long[capacity * stride];
+      this.keys = new long[keyCount + 2][];
+      for (int k = 0; k < keys.length; k++) {
+        keys[k] = new long[capacity];
+      }
       this.rows = new int[capacity];
     }
 
     /** Append one emitted row: its ordering keys (from {@link #scratch}) and the two record keys. */
     void add(final int outputRow, final long side0Key, final long side1Key) {
       if (count == rows.length) {
-        rows = Arrays.copyOf(rows, rows.length << 1);
-        values = Arrays.copyOf(values, values.length << 1);
-      }
-      final int base = count * stride;
-      System.arraycopy(scratch, 0, values, base, keyCount);
-      values[base + keyCount] = side0Key;
-      values[base + keyCount + 1] = side1Key;
-      rows[count++] = outputRow;
-    }
-
-    @Override
-    public int compare(final int a, final int b) {
-      final int x = a * stride;
-      final int y = b * stride;
-      for (int k = 0; k < keyCount; k++) {
-        final int c = Long.compare(values[x + k], values[y + k]);
-        if (c != 0) {
-          return ascending[k]
-              ? c
-              : -c;
+        final int grown = rows.length << 1;
+        rows = Arrays.copyOf(rows, grown);
+        for (int k = 0; k < keys.length; k++) {
+          keys[k] = Arrays.copyOf(keys[k], grown);
         }
       }
-      final int c0 = Long.compare(values[x + keyCount], values[y + keyCount]);
-      return c0 != 0
-          ? c0
-          : Long.compare(values[x + keyCount + 1], values[y + keyCount + 1]);
+      for (int k = 0; k < keyCount; k++) {
+        keys[k][count] = ascending[k]
+            ? scratch[k]
+            : ~scratch[k];
+      }
+      keys[keyCount][count] = side0Key;
+      keys[keyCount + 1][count] = side1Key;
+      rows[count++] = outputRow;
     }
 
     /** The output rows in order. */
     int[] sorted() {
-      final int[] order = new int[count];
-      for (int i = 0; i < count; i++) {
-        order[i] = i;
-      }
-      IntArrays.quickSort(order, 0, count, this);
+      final int[] order = JoinKernels.sortRows(keys, count);
       final int[] result = new int[count];
       for (int i = 0; i < count; i++) {
         result[i] = rows[order[i]];
@@ -658,14 +647,21 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       if (mask == null) {
         continue;
       }
+      // Per-row reads through locals holding fresh native views; see the build loop.
       final MemorySegment keySeg = emitsRows
-          ? probeColumns.keySegment(leaf)
+          ? JoinKernels.nativeView(probeColumns.keySegment(leaf))
           : MemorySegment.NULL;
       final long keyBase = emitsRows
           ? probeColumns.keyBase(leaf)
           : 0L;
-      final MemorySegment shared = denseProbe
+      final MemorySegment captured = denseProbe
           ? captureLanes(probeColumns, leaf, laneSeg, laneOff)
+          : null;
+      final MemorySegment shared = captured == null
+          ? null
+          : JoinKernels.nativeView(captured);
+      final MemorySegment joinLane = denseProbe
+          ? JoinKernels.nativeView(laneSeg[0])
           : null;
       if (DIAG) {
         noteCapturedLeaf("probe", shared != null);
@@ -681,7 +677,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             continue;
           }
           final long joinKey = denseProbe
-              ? (long) SLAB_LONG.get(laneSeg[0], laneOff[0] + 8L * row)
+              ? (long) SLAB_LONG.get(joinLane, laneOff[0] + 8L * row)
               : probeColumns.longValue(0, leaf, row);
           int at = firstMatch(joinKey, buildRows, denseHeads, firstRow);
           if (at < 0) {
@@ -1608,14 +1604,33 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       if (mask == null) {
         continue;
       }
-      final MemorySegment keySeg = buildColumns.keySegment(leaf);
+      final MemorySegment keyLane = buildColumns.keySegment(leaf);
       final long keyBase = buildColumns.keyBase(leaf);
-      final MemorySegment shared = denseNumeric
+      final MemorySegment captured = denseNumeric
           ? captureLanes(buildColumns, leaf, laneSeg, laneOff)
           : null;
       if (DIAG) {
-        noteCapturedLeaf("build", shared != null);
+        noteCapturedLeaf("build", captured != null);
       }
+      if (captured != null && laneSeg[0] == captured && keyLane == captured) {
+        // The common shape, a selection decoded into its own slab: the join key, every further field
+        // and the record key of a row live in one segment and are read back to back through one
+        // local, so the segment's bounds, address and scope load once per row.
+        buildLeafOneSegment(buildRows, buildFieldCount, JoinKernels.nativeView(captured), laneOff, keyBase, timestamps,
+            mask, values);
+        continue;
+      }
+      // Lanes spread over several segments (a store-resident column beside the selection's slab) or
+      // a sparse side: every lane read per row still goes through a local holding a fresh native view
+      // (JoinKernels.nativeView), so the compiler knows the segment's class at the read and needs none
+      // of the JDK's shared segment speculation, which heap-array reads elsewhere in the process disable.
+      final MemorySegment keySeg = JoinKernels.nativeView(keyLane);
+      final MemorySegment shared = captured == null
+          ? null
+          : JoinKernels.nativeView(captured);
+      final MemorySegment joinLane = denseNumeric
+          ? JoinKernels.nativeView(laneSeg[0])
+          : null;
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
         final int rowBase = w << 6;
@@ -1627,7 +1642,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             continue; // a missing join key matches nothing
           }
           final long joinKey = denseNumeric
-              ? (long) SLAB_LONG.get(laneSeg[0], laneOff[0] + 8L * row)
+              ? (long) SLAB_LONG.get(joinLane, laneOff[0] + 8L * row)
               : buildColumns.longValue(0, leaf, row);
           final int at = buildRows.addKeyed(joinKey, (long) SLAB_LONG.get(keySeg, keyBase + 8L * row));
           if (denseNumeric) {
@@ -1640,6 +1655,42 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
     }
     return buildRows.nextRow;
+  }
+
+  /**
+   * The build loop over one leaf whose join key lane, further lanes and record keys all live in
+   * {@code lane} (bases per field in {@code bases}, the record keys at {@code keyBase}): a row's
+   * reads are issued back to back through that one local before the row is added, so the segment's
+   * bounds, address and scope are loaded once per row and the compiler checks only the offsets; the
+   * values then go straight into the row table. The same rows, chains and key domain as the general
+   * loop.
+   */
+  private static void buildLeafOneSegment(final BuildRows buildRows, final int fieldCount, final MemorySegment lane,
+      final long[] bases, final long keyBase, final boolean[] timestamps, final long[] mask, final long[] values) {
+    final long joinBase = bases[0];
+    for (int w = 0; w < mask.length; w++) {
+      long word = mask[w];
+      final int rowBase = w << 6;
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final long at = 8L * (rowBase + bit);
+        final long joinKey = (long) SLAB_LONG.get(lane, joinBase + at);
+        final long recordKey = (long) SLAB_LONG.get(lane, keyBase + at);
+        values[0] = joinKey;
+        for (int field = 1; field < fieldCount; field++) {
+          final long value = (long) SLAB_LONG.get(lane, bases[field] + at);
+          values[field] = timestamps[field]
+              ? Math.multiplyExact(value, 1000L)
+              : value;
+        }
+        final int cell = buildRows.addKeyed(joinKey, recordKey) * fieldCount;
+        final long[] rows = buildRows.values; // addKeyed may have grown the table
+        for (int field = 0; field < fieldCount; field++) {
+          rows[cell + field] = values[field];
+        }
+      }
+    }
   }
 
   private static void readBuildRow(final MaskedColumns buildColumns, final int leaf, final int row,

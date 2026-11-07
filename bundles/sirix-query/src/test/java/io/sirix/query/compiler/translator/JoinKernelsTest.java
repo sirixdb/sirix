@@ -5,6 +5,9 @@ package io.sirix.query.compiler.translator;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -504,6 +507,84 @@ final class JoinKernelsTest {
     final BucketedSide packedProbe = pack(lanes(probe), 0L, slots, 0L);
     final ExtremaFold fold = new ExtremaFold(2, new JoinKernels.DistinctDomain(5L, 4), packedBuild, false, true);
     assertThrows(ArithmeticException.class, () -> JoinKernels.foldMerge(fold, packedBuild, packedProbe, slots));
+  }
+
+  @Test
+  void aNativeViewAddressesTheSlabsBytesAtTheSameOffsets() {
+    final MemorySegment slab = slab(64L * 1024);
+    final SplittableRandom random = new SplittableRandom(11);
+    final long[] values = new long[ROWS];
+    for (int r = 0; r < ROWS; r++) {
+      values[r] = random.nextLong();
+    }
+    final long base = 4096L + 64L; // a lane at an aligned base past the first page, as a layout places it
+    MemorySegment.copy(values, 0, slab, ValueLayout.JAVA_LONG_UNALIGNED, base, ROWS);
+    final MemorySegment view = JoinKernels.nativeView(slab);
+    assertNotSame(slab, view, "a fresh view, so the compiler sees its construction");
+    assertTrue(view.isNative());
+    assertEquals(slab.address(), view.address(), "same address");
+    assertEquals(slab.byteSize(), view.byteSize(), "same size");
+    for (int r = 0; r < ROWS; r++) {
+      assertEquals(values[r], (long) JoinKernels.SLAB_LONG.get(view, base + 8L * r), "row " + r);
+    }
+    assertThrows(IndexOutOfBoundsException.class, () -> JoinKernels.SLAB_LONG.get(view, slab.byteSize() - 4L),
+        "the view keeps the slab's bounds");
+    // The view is a reader's handle, never the allocation: releasing through it is rejected, and the
+    // slab goes back through the instance the allocator handed out (releaseSlabs).
+    assertFalse(allocator.releaseSlab(view));
+    assertEquals(0L, JoinKernels.nativeView(MemorySegment.NULL).byteSize(), "the NULL segment views as an empty one");
+  }
+
+  @Test
+  void sortRowsOrdersLexicographicallyWithStableTiesLikeTheComparatorDid() {
+    final SplittableRandom random = new SplittableRandom(17);
+    final int count = 5_000;
+    final long[][] columns = new long[4][count + 7]; // columns may be longer than the row count
+    for (int i = 0; i < count; i++) {
+      // Few distinct leading keys, so the later columns decide most ties; the extremes included.
+      columns[0][i] = switch (random.nextInt(8)) {
+        case 0 -> Long.MIN_VALUE;
+        case 1 -> Long.MAX_VALUE;
+        case 2 -> -1L;
+        default -> random.nextLong(-3L, 4L);
+      };
+      columns[1][i] = ~random.nextLong(0L, 50L); // a key the caller stores inverted to sort descending
+      columns[2][i] = random.nextLong(0L, 100L);
+      columns[3][i] = random.nextLong(); // unique in practice: the record key
+    }
+    final Integer[] reference = new Integer[count];
+    for (int i = 0; i < count; i++) {
+      reference[i] = i;
+    }
+    Arrays.sort(reference, (a, b) -> {
+      for (int k = 0; k < 4; k++) {
+        final int c = Long.compare(columns[k][a], columns[k][b]);
+        if (c != 0) {
+          return c;
+        }
+      }
+      return Integer.compare(a, b); // stability: equal keys keep insertion order
+    });
+    final int[] order = JoinKernels.sortRows(columns, count);
+    assertEquals(count, order.length);
+    for (int i = 0; i < count; i++) {
+      assertEquals(reference[i].intValue(), order[i], "position " + i);
+    }
+    // The inverted column really sorts descending: the original values decrease along the order
+    // wherever column 0 ties.
+    for (int i = 1; i < count; i++) {
+      if (columns[0][order[i - 1]] == columns[0][order[i]]) {
+        assertTrue(~columns[1][order[i - 1]] >= ~columns[1][order[i]], "descending key at " + i);
+      }
+    }
+    assertEquals(0, JoinKernels.sortRows(columns, 0).length);
+    assertThrows(IllegalArgumentException.class, () -> JoinKernels.sortRows(new long[][] {new long[3]}, 4));
+  }
+
+  @Test
+  void aHeapSegmentHasNoViewAndIsReturnedAsItIs() {
+    final MemorySegment heap = MemorySegment.ofArray(new long[] {1L, 2L, 3L});
+    assertSame(heap, JoinKernels.nativeView(heap));
   }
 
   @Test
