@@ -63,7 +63,7 @@ public final class CreatePathIndex extends AbstractFunction {
     final XmlResourceSession resourceSession = rtx.getResourceSession();
     // Before any write transaction is begun, reverted or committed: this function mutates but is not
     // an updating expression, so only this check stands between a read-only caller and the mutation.
-    MutationAuthorization.requireWritable(ctx, resourceSession);
+    MutationAuthorization.requireWritable(ctx, doc);
 
     final Optional<XmlNodeTrx> optionalWriteTrx = resourceSession.getNodeTrx();
     final XmlNodeTrx wtx = optionalWriteTrx.orElseGet(() -> resourceSession.beginNodeTrx());

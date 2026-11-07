@@ -1,8 +1,9 @@
 package io.sirix.query;
 
 import io.brackit.query.QueryContext;
-import io.sirix.api.ResourceSession;
-import java.nio.file.Path;
+import io.brackit.query.jdm.Item;
+import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.node.XmlDBNode;
 import java.util.Objects;
 
 /**
@@ -29,7 +30,7 @@ public final class MutationAuthorization {
   }
 
   /**
-   * Authorize a mutation of the resource behind {@code session}, or do nothing when the context's
+   * Authorize a mutation of the resource behind {@code document}, or do nothing when the context's
    * store does not authorize mutations (an embedded caller).
    *
    * <p>
@@ -39,27 +40,25 @@ public final class MutationAuthorization {
    * </p>
    *
    * @param ctx the query context the function was handed
-   * @param session the resource session the mutation targets
+   * @param document the item the mutation targets
    * @throws RuntimeException if the caller may not mutate the resource
    */
-  public static void requireWritable(final QueryContext ctx, final ResourceSession<?, ?> session) {
+  public static void requireWritable(final QueryContext ctx, final Item document) {
     Objects.requireNonNull(ctx, "ctx");
-    Objects.requireNonNull(session, "session");
+    Objects.requireNonNull(document, "document");
     final MutationAuthorizer authorizer = authorizerOf(ctx);
     if (authorizer == null) {
       return;
     }
-    final Path resourcePath = session.getResourcePath();
-    // <location>/<database>/resources/<resource>: LocalDatabase asserts this layout, so the
-    // database directory is the grandparent and its name is what REST roles are scoped to.
-    final Path resources = resourcePath.getParent();
-    final Path databaseDirectory = resources == null
-        ? null
-        : resources.getParent();
-    if (databaseDirectory == null) {
-      throw new IllegalStateException("Cannot derive the database name from resource path " + resourcePath);
+    if (document instanceof JsonDBItem jsonItem) {
+      authorizer.authorizeWrite(jsonItem.getCollection().getName(),
+          jsonItem.getResourceSession().getResourceConfig().getName());
+    } else if (document instanceof XmlDBNode xmlNode) {
+      authorizer.authorizeWrite(xmlNode.getCollection().getName(),
+          xmlNode.getTrx().getResourceSession().getResourceConfig().getName());
+    } else {
+      throw new IllegalArgumentException("Cannot authorize an item without a collection name");
     }
-    authorizer.authorizeWrite(databaseDirectory.getFileName().toString(), resourcePath.getFileName().toString());
   }
 
   /**

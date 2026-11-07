@@ -44,7 +44,7 @@ public final class CreateTemporalAggregateIndex extends AbstractFunction {
     final JsonResourceSession session = document.getResourceSession();
     // Before any write transaction is begun, reverted or committed: this function mutates but is not
     // an updating expression, so only this check stands between a read-only caller and the mutation.
-    MutationAuthorization.requireWritable(query, session);
+    MutationAuthorization.requireWritable(query, document);
     final var existing = session.getNodeTrx();
     if (existing.isPresent()) {
       existing.get().awaitPendingAsyncCommit();

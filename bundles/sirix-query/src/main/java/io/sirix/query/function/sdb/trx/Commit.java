@@ -52,7 +52,7 @@ public final class Commit extends AbstractFunction {
     final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
     // Committing or rolling back is itself a mutation and is not an updating expression, so this is
     // the only check before a revision is published or pending work is discarded.
-    MutationAuthorization.requireWritable(ctx, document.getTrx().getResourceSession());
+    MutationAuthorization.requireWritable(ctx, document);
 
     final String commitMessage = args.length >= 2
         ? FunUtil.getString(args, 1, "commitMessage", null, null, false)

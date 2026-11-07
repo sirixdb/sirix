@@ -78,7 +78,7 @@ public final class CreateValidTimeIndex extends AbstractFunction {
     final JsonResourceSession resourceSession = rtx.getResourceSession();
     // Before any write transaction is begun, reverted or committed: this function mutates but is not
     // an updating expression, so only this check stands between a read-only caller and the mutation.
-    MutationAuthorization.requireWritable(ctx, resourceSession);
+    MutationAuthorization.requireWritable(ctx, document);
 
     final ValidTimeConfig validTimeConfig = resourceSession.getResourceConfig().getValidTimeConfig();
     if (validTimeConfig == null) {

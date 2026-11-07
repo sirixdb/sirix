@@ -45,7 +45,7 @@ public final class Rollback extends AbstractFunction {
     final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
     // Committing or rolling back is itself a mutation and is not an updating expression, so this is
     // the only check before a revision is published or pending work is discarded.
-    MutationAuthorization.requireWritable(ctx, document.getTrx().getResourceSession());
+    MutationAuthorization.requireWritable(ctx, document);
 
     if (document.getTrx() instanceof NodeTrx) {
       final NodeTrx wtx = (NodeTrx) document.getTrx();

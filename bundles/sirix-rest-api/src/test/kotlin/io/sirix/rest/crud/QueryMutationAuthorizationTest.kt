@@ -1,30 +1,30 @@
 package io.sirix.rest.crud
 
+import io.brackit.query.Query
 import io.brackit.query.atomic.QNm
 import io.brackit.query.jdm.Type
+import io.brackit.query.node.parser.DocumentParser
 import io.brackit.query.util.path.Path as QueryPath
 import io.brackit.query.util.path.PathParser
 import io.brackit.query.util.serialize.StringSerializer
 import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
 import io.sirix.access.ResourceConfiguration
-import io.sirix.access.trx.node.AbstractResourceSession
 import io.sirix.access.trx.node.json.JsonIndexController
-import io.sirix.api.StorageEngineReader
 import io.sirix.api.json.JsonNodeTrx
 import io.sirix.api.json.JsonResourceSession
 import io.sirix.index.IndexDef
 import io.sirix.index.IndexDefs
 import io.sirix.index.IndexType
 import io.sirix.index.aggregate.TemporalAggregateDeclarations
-import io.sirix.index.aggregate.TemporalAggregateIndexes
-import io.sirix.index.aggregate.TemporalAggregateStorage
 import io.sirix.index.projection.ProjectionIndexHOTStorage
 import io.sirix.io.StorageType
 import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.BasicJsonDBStore
+import io.sirix.query.node.BasicXmlDBStore
 import io.sirix.rest.crud.json.JsonSessionDBStore
+import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.sirix.service.json.shredder.JsonShredder
 import io.vertx.core.Future
 import io.vertx.ext.auth.User
@@ -37,18 +37,18 @@ import io.vertx.ext.web.handler.HttpException
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Tag
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.Mockito
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.nio.file.Path
-import java.time.Duration
 import java.time.Instant
 
 /**
@@ -74,18 +74,18 @@ class QueryMutationAuthorizationTest {
      * `execute` accepts, so a refusal cannot be confused with an arity complaint.
      */
     @ParameterizedTest
-    @ValueSource(
-        strings = [
-            "jn:create-name-index(jn:doc('auth','records'),'g')",
-            "jn:create-path-index(jn:doc('auth','records'),'/[]/g')",
-            "jn:create-cas-index(jn:doc('auth','records'),'xs:integer','/[]/g')",
-            "jn:create-projection-index(jn:doc('auth','records'),'/[]',('n'))",
-            "jn:create-temporal-aggregate-index(jn:doc('auth','records'),'/[]','g','sum(n)')",
-            "jn:drop-projection-index(jn:doc('auth','records'),0)",
-            "jn:drop-temporal-aggregate-index(jn:doc('auth','records'),0)"
+    @CsvSource(
+        delimiter = '|', quoteCharacter = '"', value = [
+            "jn:create-name-index(jn:doc('auth','records'),'g')|NAME|1",
+            "jn:create-path-index(jn:doc('auth','records'),'/[]/g')|PATH|1",
+            "jn:create-cas-index(jn:doc('auth','records'),'xs:integer','/[]/g')|CAS|1",
+            "jn:create-projection-index(jn:doc('auth','records'),'/[]',('/[]/n'))|PROJECTION|1",
+            "jn:create-temporal-aggregate-index(jn:doc('auth','records'),'/[]','g','max(n)')|TEMPORAL_AGGREGATE|1",
+            "jn:drop-projection-index(jn:doc('auth','records'),0)|PROJECTION|-1",
+            "jn:drop-temporal-aggregate-index(jn:doc('auth','records'),0)|TEMPORAL_AGGREGATE|-1"
         ]
     )
-    fun viewOnlyUserCannotMutateThroughQueryFunctions(query: String) {
+    fun viewOnlyUserCannotMutateThroughQueryFunctions(query: String, indexType: IndexType, delta: Int) {
         createDatabase()
         val keycloak = Mockito.mock(OAuth2Auth::class.java)
 
@@ -98,18 +98,23 @@ class QueryMutationAuthorizationTest {
             }
         }
 
-        // The same call with MODIFY must get past authorization, which proves the refusal above is
-        // the authorization check rather than the function being unavailable. Whether the call then
-        // succeeds is a separate question: a few of these queries are only valid against a resource
-        // this fixture does not build (jn:create-projection-index rejects a second index whose field
-        // name the path summary cannot disambiguate), and that failure is not a refusal.
         Databases.clearGlobalCaches()
         withStore(modify = true) { fixture ->
-            assertNotRefused(query) { run(fixture, query, keycloak) }
             fixture.store.lookup("auth").database.beginResourceSession("records").use { session ->
-                session.nodeTrx.ifPresent {
-                    it.rollback()
-                    it.close()
+                val before = session.getRtxIndexController<JsonIndexController>(session.mostRecentRevisionNumber).indexes
+                val expected = IndexType.entries.associateWith {
+                    before.getNrOfIndexDefsWithType(it) + if (it == indexType) delta else 0
+                }.toMutableMap()
+                if (indexType == IndexType.PROJECTION && delta == -1) {
+                    expected[IndexType.TEMPORAL_AGGREGATE] = 0
+                }
+                run(fixture, query, keycloak)
+                session.nodeTrx.orElseThrow().use { writer ->
+                    val after = session.getWtxIndexController<JsonIndexController>(writer.revisionNumber).indexes
+                    for (type in IndexType.entries) {
+                        assertEquals(expected[type], after.getNrOfIndexDefsWithType(type), "$type catalogue: $query")
+                    }
+                    writer.rollback()
                 }
             }
         }
@@ -145,6 +150,106 @@ class QueryMutationAuthorizationTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = [
+        "sdb:commit(jn:doc('tenant-b/orders','records'))",
+        "sdb:rollback(jn:doc('tenant-b/orders','records'))",
+        "jn:create-name-index(jn:doc('tenant-b/orders','records'),'g')"
+    ])
+    fun basenameModifyRoleCannotMutateNestedDatabase(query: String) {
+        createDatabase("orders")
+        createDatabase("tenant-b/orders")
+        val keycloak = Mockito.mock(OAuth2Auth::class.java)
+        withStore(modify = true, databaseName = "tenant-b/orders", modifyRole = "orders-modify") { fixture ->
+            fixture.store.lookup("tenant-b/orders").database.beginResourceSession("records").use { session ->
+                val before = witness(session)
+                session.beginNodeTrx().use { writer ->
+                    numberField(writer)
+                    writer.setNumberValue(4242)
+                    assertRefused(query) { run(fixture, query, keycloak) }
+                    numberField(writer)
+                    assertEquals(4242, writer.numberValue.toInt())
+                    writer.rollback()
+                }
+                assertWitnessUnchanged(before, witness(session), query)
+            }
+        }
+    }
+
+    @Test
+    fun nestedDatabaseModifyRoleCanPublishRevision() {
+        createDatabase("tenant-b/orders")
+        withStore(modify = true, databaseName = "tenant-b/orders", modifyRole = "tenant-b/orders-modify") { fixture ->
+            fixture.store.lookup("tenant-b/orders").database.beginResourceSession("records").use { session ->
+                val before = session.mostRecentRevisionNumber
+                run(fixture, "sdb:commit(jn:doc('tenant-b/orders','records'))", Mockito.mock(OAuth2Auth::class.java))
+                assertEquals(before + 1, session.mostRecentRevisionNumber)
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = [
+        "sdb:commit(xn:doc('tenant-b/orders','resource1'))",
+        "sdb:rollback(xn:doc('tenant-b/orders','resource1'))",
+        "xn:create-name-index(xn:doc('tenant-b/orders','resource1'),())",
+        "xn:create-path-index(xn:doc('tenant-b/orders','resource1'),'/root')",
+        "xn:create-cas-index(xn:doc('tenant-b/orders','resource1'),'xs:string','/root')",
+        "xn:import('tenant-b/orders','resource1','unused.xml')"
+    ])
+    fun basenameModifyRoleCannotMutateNestedXmlDatabase(query: String) {
+        val user = userWith("view", "orders-modify")
+        val authz = authorizations()
+        BasicXmlDBStore.newBuilder().location(directory).build().use { store ->
+            store.create("orders", DocumentParser("<root>1</root>"))
+            store.create("tenant-b/orders", DocumentParser("<root>1</root>"))
+            val guarded = XmlSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
+            SirixQueryContext.createWithNodeStore(guarded).use { context ->
+                SirixCompileChain.createWithNodeStore(guarded).use { chain ->
+                    guarded.lookup("tenant-b/orders").database.beginResourceSession("resource1").use { session ->
+                        val before = session.mostRecentRevisionNumber
+                        session.beginNodeTrx().use { writer ->
+                            writer.moveToDocumentRoot()
+                            writer.moveToFirstChild()
+                            writer.moveToFirstChild()
+                            writer.setValue("pending")
+                            assertRefused(query) {
+                                StringSerializer(PrintWriter(StringWriter())).use {
+                                    it.serialize(Query(chain, query).execute(context))
+                                }
+                            }
+                            assertEquals("pending", writer.value)
+                            assertEquals(before, session.mostRecentRevisionNumber)
+                            writer.rollback()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun nestedXmlDatabaseModifyRoleCanPublishRevision() {
+        val user = userWith("view", "tenant-b/orders-modify")
+        val authz = authorizations()
+        BasicXmlDBStore.newBuilder().location(directory).build().use { store ->
+            store.create("tenant-b/orders", DocumentParser("<root>1</root>"))
+            val guarded = XmlSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
+            SirixQueryContext.createWithNodeStore(guarded).use { context ->
+                SirixCompileChain.createWithNodeStore(guarded).use { chain ->
+                    guarded.lookup("tenant-b/orders").database.beginResourceSession("resource1").use { session ->
+                        val before = session.mostRecentRevisionNumber
+                        val query = "sdb:commit(xn:doc('tenant-b/orders','resource1'))"
+                        StringSerializer(PrintWriter(StringWriter())).use {
+                            it.serialize(Query(chain, query).execute(context))
+                        }
+                        assertEquals(before + 1, session.mostRecentRevisionNumber)
+                    }
+                }
+            }
+        }
+    }
+
     /**
      * A mutation is refused in one of two shapes, both of which the REST layer maps to a status
      * code: the store decorator throws [HttpException] 403, and [PermissionCheckingQuery]'s
@@ -172,15 +277,6 @@ class QueryMutationAuthorizationTest {
         )
     }
 
-    private fun assertNotRefused(query: String, body: () -> Unit) {
-        try {
-            body()
-        } catch (thrown: RuntimeException) {
-            val refusal = refusalOrNull(thrown)
-            assertNull(refusal, "A MODIFY caller must not be refused ($refusal); query: $query")
-        }
-    }
-
     /** Everything a refused mutation could have touched, captured as comparable bytes. */
     private class Witness(
         val revisions: Int,
@@ -199,23 +295,10 @@ class QueryMutationAuthorizationTest {
         val revisions = session.mostRecentRevisionNumber
         val catalogue = session.getRtxIndexController<JsonIndexController>(revisions).indexes
         val counts = IndexType.entries.associateWith { catalogue.getNrOfIndexDefsWithType(it) }
-        val derivedResource = (session as AbstractResourceSession<*, *>).derivedResource
-        assertNotNull(derivedResource, "Derived aggregate maintenance must be enabled for this fixture")
-        assertTrue(
-            derivedResource!!.awaitRevision(revisions, Duration.ofSeconds(30)),
-            "Timed out waiting for derived aggregate maintenance of revision $revisions"
-        )
+        val header = DerivedAggregateWitness.header(session, revisions)
         session.beginNodeReadOnlyTrx(revisions).use { reader ->
             val projection = ProjectionIndexHOTStorage.readMetadataBlob(reader.storageEngineReader, 0)
-            val derived: StorageEngineReader? = session.openDerivedIndexReader(reader.storageEngineReader)
-            assertNotNull(derived, "The derived aggregate snapshot must be readable for revision $revisions")
-            derived!!.use {
-                TemporalAggregateStorage.Reader(it, 0).use { aggregates ->
-                    val header = aggregates.get(TemporalAggregateIndexes.headerKey())
-                    assertNotNull(header, "The aggregate header must exist, or it is no witness")
-                    return Witness(revisions, counts, projection, header)
-                }
-            }
+            return Witness(revisions, counts, projection, header)
         }
     }
 
@@ -237,8 +320,8 @@ class QueryMutationAuthorizationTest {
      * test has something to create or drop, and so both the projection metadata blob and the
      * derived aggregate header exist as witnesses.
      */
-    private fun createDatabase() {
-        val path = directory.resolve("auth")
+    private fun createDatabase(databaseName: String = "auth") {
+        val path = directory.resolve(databaseName)
         Databases.createJsonDatabase(DatabaseConfiguration(path))
         Databases.openJsonDatabase(path).use { database ->
             database.createResource(
@@ -278,8 +361,13 @@ class QueryMutationAuthorizationTest {
      * The query context and compile chain outlive every query a case runs: closing them also closes
      * the resource sessions they registered, which would close the session the assertions read.
      */
-    private fun withStore(modify: Boolean = false, body: (Fixture) -> Unit) {
-        val roles = if (modify) arrayOf("auth-view", "modify") else arrayOf("auth-view")
+    private fun withStore(
+        modify: Boolean = false,
+        databaseName: String = "auth",
+        modifyRole: String = "modify",
+        body: (Fixture) -> Unit
+    ) {
+        val roles = if (modify) arrayOf("$databaseName-view", modifyRole) else arrayOf("$databaseName-view")
         val user = userWith(*roles)
         val authz = authorizations()
         BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build().use { store ->
