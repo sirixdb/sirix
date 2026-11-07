@@ -62,8 +62,6 @@ public final class CreateNameIndex extends AbstractFunction {
     final XmlDBNode doc = ((XmlDBNode) args[0]);
     final XmlNodeReadOnlyTrx rtx = doc.getTrx();
     final XmlResourceSession resourceSession = rtx.getResourceSession();
-    // Before any write transaction is begun, reverted or committed: this function mutates but is not
-    // an updating expression, so only this check stands between a read-only caller and the mutation.
     MutationAuthorization.requireWritable(ctx, doc);
 
     final Optional<XmlNodeTrx> optionalWriteTrx = resourceSession.getNodeTrx();

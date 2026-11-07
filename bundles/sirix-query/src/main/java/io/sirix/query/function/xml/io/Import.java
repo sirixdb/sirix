@@ -80,8 +80,6 @@ public final class Import extends AbstractFunction {
     try {
       doc = coll.getDocument(resName);
 
-      // Importing a revision mutates the resource but is not an updating expression, so this is the
-      // only check before the write transaction is begun.
       MutationAuthorization.requireWritable(ctx, doc);
 
       try (final XmlNodeTrx wtx =

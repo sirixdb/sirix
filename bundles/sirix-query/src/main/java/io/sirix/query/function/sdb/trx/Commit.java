@@ -50,8 +50,6 @@ public final class Commit extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
-    // Committing or rolling back is itself a mutation and is not an updating expression, so this is
-    // the only check before a revision is published or pending work is discarded.
     MutationAuthorization.requireWritable(ctx, document);
 
     final String commitMessage = args.length >= 2

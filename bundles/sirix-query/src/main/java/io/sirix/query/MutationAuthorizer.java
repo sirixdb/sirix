@@ -12,10 +12,9 @@ package io.sirix.query;
  * </p>
  *
  * <p>
- * This is the authorization point for mutations that are <em>not</em> expressed as XQuery Update
- * expressions, so no {@code isUpdating} flag marks them: index DDL, {@code sdb:commit} and
- * {@code sdb:rollback}. Those run through ordinary function calls, which an updating-expression
- * check cannot see.
+ * This is the authorization point for mutating function calls such as index DDL, {@code sdb:commit}
+ * and {@code sdb:rollback}. A query-level {@code isUpdating} check alone does not reliably identify
+ * these calls, so permission must be checked at the mutation itself.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -26,7 +25,7 @@ public interface MutationAuthorizer {
    * Authorize a mutation of {@code resourceName} in {@code databaseName}, which must happen before
    * the mutation takes any effect — before a write transaction is begun, reverted or committed.
    *
-   * @param databaseName the database the mutation targets; the name every REST role is scoped to
+   * @param databaseName the target's full collection name used for REST roles, never a path basename
    * @param resourceName the resource the mutation targets
    * @throws RuntimeException if the caller may not mutate it; the implementation chooses the type
    */

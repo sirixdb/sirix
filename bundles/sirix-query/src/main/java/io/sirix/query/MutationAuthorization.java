@@ -18,7 +18,7 @@ import java.util.Objects;
  * </p>
  *
  * <p>
- * Not a hot path: every caller is index DDL or an explicit commit/rollback, once per statement.
+ * Called at statement-level mutation boundaries rather than per record.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -62,8 +62,7 @@ public final class MutationAuthorization {
   }
 
   /**
-   * The JSON store is consulted first and the node store second; the REST API decorates both with the
-   * same identity, and a query context carries only the store its items came from.
+   * If both stores implement MutationAuthorizer, they must carry the same caller identity.
    */
   private static MutationAuthorizer authorizerOf(final QueryContext ctx) {
     if (ctx.getJsonItemStore() instanceof MutationAuthorizer jsonAuthorizer) {

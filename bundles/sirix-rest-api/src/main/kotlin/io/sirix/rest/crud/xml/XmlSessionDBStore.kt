@@ -20,9 +20,7 @@ class XmlSessionDBStore(
 ) : XmlDBStore by dbStore, MutationAuthorizer {
 
     /**
-     * Authorize a mutation a query is about to perform, for the database that mutation targets.
-     * See the JSON store's counterpart: index DDL and commit/rollback are not XQuery Update
-     * expressions, so the updating-expression check in [PermissionCheckingQuery] cannot see them.
+     * Bind [MutationAuthorizer]'s guard to the request identity using the full collection name.
      */
     override fun authorizeWrite(databaseName: String, resourceName: String) {
         Auth.checkIfAuthorized(user, databaseName, AuthRole.MODIFY, authz)

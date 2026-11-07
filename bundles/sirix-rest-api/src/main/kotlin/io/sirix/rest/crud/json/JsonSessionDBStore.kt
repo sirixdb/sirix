@@ -22,13 +22,7 @@ class JsonSessionDBStore(
 ) : JsonDBStore by dbStore, MutationAuthorizer {
 
     /**
-     * Authorize a mutation a query is about to perform, for the database that mutation targets.
-     *
-     * Index DDL, `sdb:commit` and `sdb:rollback` are ordinary function calls rather than XQuery
-     * Update expressions, so [PermissionCheckingQuery]'s updating-expression check cannot see them.
-     * Those functions reach a resource session through a looked-up document and begin their own
-     * write transaction, which also leaves the decorated collection behind. This is where the
-     * caller's identity meets such a mutation, so a VIEW-only token is refused here.
+     * Bind [MutationAuthorizer]'s guard to the request identity using the full collection name.
      */
     override fun authorizeWrite(databaseName: String, resourceName: String) {
         Auth.checkIfAuthorized(user, databaseName, AuthRole.MODIFY, authz)
