@@ -36,12 +36,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>
  * <b>Representation and lifetime</b> (docs/DERIVED_QUERY_CACHES.md). Every view reads a long lane
- * through its slice's segment ({@link #laneSegment}, {@link #laneBase}), hoisted once per leaf: the
+ * through its slice's segment ({@link #laneSegment}, {@link #laneBase}) and the record keys through
+ * the selection's key lanes ({@link #keySegment}, {@link #keyBase}), hoisted once per leaf: the
  * store's resident column slab, the slab of the cache entry a leased view reads, this view's own
  * query-local slab, or — only when the allocator refused the memory — a heap array. What a view
  * releases on {@link #close()} is exactly what it holds: the lease on its entry, or its own slab; a
- * view over resident columns holds nothing itself, the query scope pins them. A {@link Cleaner}
- * releases what a view that was never closed held. The masks are always the view's own heap copy.
+ * view over resident columns alone holds nothing itself, the query scope pins them. A
+ * {@link Cleaner} releases what a view that was never closed held. The masks are always the view's
+ * own heap copy.
  * </p>
  */
 public final class MaskedColumns implements AutoCloseable {
@@ -51,7 +53,7 @@ public final class MaskedColumns implements AutoCloseable {
 
   private final ProjectionColumnStore store;
   private final long[][] rowMasks;
-  private final long[][] recordKeys;
+  private final KeyLanes keys;
   private final ColumnSlice[][] slices;
   private final byte[] kinds;
   private final long rows;
@@ -76,28 +78,28 @@ public final class MaskedColumns implements AutoCloseable {
   private @Nullable Runnable release;
   private @Nullable MaskedColumns sharedInterner;
 
-  MaskedColumns(final ProjectionColumnStore store, final long[][] rowMasks, final long[][] recordKeys,
+  MaskedColumns(final ProjectionColumnStore store, final long[][] rowMasks, final KeyLanes keys,
       final ColumnSlice[][] slices, final byte[] kinds, final long rows) {
-    this(store, rowMasks, recordKeys, slices, kinds, rows, new Object(), null, new byte[kinds.length]);
+    this(store, rowMasks, keys, slices, kinds, rows, new Object(), null, new byte[kinds.length]);
   }
 
   /**
    * A view over a cached {@link LaneSnapshot}: shared slices (lanes in the entry's slab or the
-   * store's resident columns) and record keys, this view's own mask copy, the entry's identity and
+   * store's resident columns) and key lanes, this view's own mask copy, the entry's identity and
    * original masks. The entry attaches the lease through {@link #adoptLease}.
    */
-  MaskedColumns(final ProjectionColumnStore store, final long[][] masks, final long[][] recordKeys,
+  MaskedColumns(final ProjectionColumnStore store, final long[][] masks, final KeyLanes keys,
       final ColumnSlice[][] slices, final byte[] kinds, final long rows, final Object rowIdentity,
       final long @Nullable [][] immutableMasks, final byte[] presenceMemo) {
     this.store = requireNonNull(store);
     this.rowMasks = requireNonNull(masks);
-    this.recordKeys = requireNonNull(recordKeys);
+    this.keys = requireNonNull(keys);
     this.slices = requireNonNull(slices);
     this.kinds = requireNonNull(kinds);
     if (slices.length != kinds.length || presenceMemo.length != kinds.length) {
       throw new IllegalArgumentException("one slice array and one presence memo per field");
     }
-    if (recordKeys.length != masks.length) {
+    if (keys.leafCount() != masks.length) {
       throw new IllegalArgumentException("one record-key lane per leaf");
     }
     this.rows = rows;
@@ -195,8 +197,9 @@ public final class MaskedColumns implements AutoCloseable {
     return slices;
   }
 
-  long[][] recordKeys() {
-    return recordKeys;
+  /** The record-key lanes of the selection, shared with the entry a cached view reads. */
+  KeyLanes keyLanes() {
+    return keys;
   }
 
   /**
@@ -267,9 +270,26 @@ public final class MaskedColumns implements AutoCloseable {
     return store.rowCount(leaf);
   }
 
-  /** The record key of {@code row} on {@code leaf}. */
+  /**
+   * The record key of {@code row} on {@code leaf}; kernels hoist {@link #keySegment} and
+   * {@link #keyBase}.
+   */
   public long recordKey(final int leaf, final int row) {
-    return recordKeys[leaf][row];
+    return keys.key(leaf, row);
+  }
+
+  /**
+   * The segment holding the record keys of {@code leaf} (an admitted leaf): the slab of the cache
+   * entry, this view's own slab, or (allocator refusal) the heap array viewed as a segment. Row
+   * {@code r}'s key lies {@code 8 * r} bytes past {@link #keyBase(int)}.
+   */
+  public MemorySegment keySegment(final int leaf) {
+    return keys.segment(leaf);
+  }
+
+  /** Byte offset of row 0's record key within {@link #keySegment(int)}. */
+  public long keyBase(final int leaf) {
+    return keys.base(leaf);
   }
 
   public boolean isLong(final int field) {
@@ -375,7 +395,7 @@ public final class MaskedColumns implements AutoCloseable {
     final NumericLane lane = slice.lane();
     return lane != null
         ? lane.get(row)
-        : requireNonNull(slice.numericValues(), "an admitted long field needs a numeric lane")[row];
+        : requireNonNull(slice.heapNumericValues(), "an admitted long field needs a numeric lane")[row];
   }
 
   /**
@@ -431,7 +451,10 @@ public final class MaskedColumns implements AutoCloseable {
         : intern(value);
   }
 
-  /** Every present long value of {@code field} over the admitted rows. */
+  /**
+   * Every present long value of {@code field} over the admitted rows. A full word of present,
+   * admitted rows is read as a counted run of 64; a partial word walks its bits.
+   */
   public LongOpenHashSet presentLongValues(final int field) {
     final LongOpenHashSet values = new LongOpenHashSet();
     final ColumnSlice[] fieldSlices = slices[field];
@@ -448,12 +471,22 @@ public final class MaskedColumns implements AutoCloseable {
       final MemorySegment lane = slice.laneSegment();
       final long laneBase = slice.laneBase();
       for (int w = 0; w < mask.length; w++) {
-        long word = mask[w] & presence[w];
-        final int rowBase = w << 6;
-        while (word != 0L) {
-          final int bit = Long.numberOfTrailingZeros(word);
-          word &= word - 1L;
-          values.add(SegmentAccess.getLong(lane, laneBase + ((long) (rowBase + bit) << 3)));
+        final long word = mask[w] & presence[w];
+        if (word == 0L) {
+          continue;
+        }
+        final long wordBase = laneBase + ((long) w << 9);
+        if (word == -1L) {
+          for (int r = 0; r < 64; r++) {
+            values.add(SegmentAccess.getLong(lane, wordBase + ((long) r << 3)));
+          }
+        } else {
+          long bits = word;
+          while (bits != 0L) {
+            final int bit = Long.numberOfTrailingZeros(bits);
+            bits &= bits - 1L;
+            values.add(SegmentAccess.getLong(lane, wordBase + ((long) bit << 3)));
+          }
         }
       }
     }
@@ -467,11 +500,11 @@ public final class MaskedColumns implements AutoCloseable {
    * so it survives an anti-join and fails a semi-join.
    */
   public long[] recordKeysByMembership(final int field, final LongOpenHashSet values, final boolean anti) {
-    final LongArrayList keys = new LongArrayList();
+    final LongArrayList out = new LongArrayList();
     final ColumnSlice[] fieldSlices = slices[field];
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       final long[] mask = rowMasks[leaf];
-      if (mask == null) {
+      if (mask == null || !keys.has(leaf)) {
         continue;
       }
       final ColumnSlice slice = fieldSlices[leaf];
@@ -485,35 +518,45 @@ public final class MaskedColumns implements AutoCloseable {
       final long laneBase = pruned
           ? 0L
           : slice.laneBase();
-      final long[] leafKeys = recordKeys[leaf];
+      final MemorySegment keySegment = keys.segment(leaf);
+      final long keyBase = keys.base(leaf);
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
-        final int rowBase = w << 6;
+        final long present = presence == null
+            ? 0L
+            : presence[w];
+        final long at8 = (long) w << 9;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
-          final int row = rowBase + bit;
-          final boolean present = presence != null && (presence[w] & 1L << bit) != 0L;
-          final boolean member = present && values.contains(SegmentAccess.getLong(lane, laneBase + ((long) row << 3)));
+          final long rowAt = at8 + ((long) bit << 3);
+          final boolean member =
+              (present & 1L << bit) != 0L && values.contains(SegmentAccess.getLong(lane, laneBase + rowAt));
           if (anti
               ? !member
               : member) {
-            keys.add(leafKeys[row]);
+            out.add(SegmentAccess.getLong(keySegment, keyBase + rowAt));
           }
         }
       }
     }
-    final long[] sorted = keys.toLongArray();
+    final long[] sorted = out.toLongArray();
     Arrays.sort(sorted);
     return sorted;
   }
 
+  /**
+   * The core membership filter over this view's masks and {@code field}'s slices. The filter reads,
+   * per leaf, only the first record key and whether the leaf has rows, which the key lanes supply as
+   * one-element arrays; the keys themselves stay in the lanes.
+   */
   ColumnPredicate recordKeyPredicateByMembership(final int field, final long[] sortedKeys, final LongOpenHashSet values,
       final boolean anti) {
     if (field < 0 || field >= kinds.length || !isLong(field)) {
       throw new IllegalArgumentException("membership requires a numeric field");
     }
-    return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, recordKeys, slices[field], values, anti);
+    return ColumnPredicate.recordKeysByMembership(sortedKeys, store, rowMasks, keys.firstKeyArrays(), slices[field],
+        values, anti);
   }
 
   /** The interned id of a string on a PRESENT row, through the shared interner when adopted. */
