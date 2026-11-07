@@ -1,5 +1,6 @@
 package io.sirix.rest.crud.xml
 
+import io.sirix.query.MutationAuthorizer
 import io.sirix.query.node.XmlDBCollection
 import io.sirix.query.node.XmlDBStore
 import io.sirix.rest.Auth
@@ -16,7 +17,16 @@ class XmlSessionDBStore(
     private val dbStore: XmlDBStore,
     private val user: User,
     private val authz: AuthorizationProvider
-) : XmlDBStore by dbStore {
+) : XmlDBStore by dbStore, MutationAuthorizer {
+
+    /**
+     * Authorize a mutation a query is about to perform, for the database that mutation targets.
+     * See the JSON store's counterpart: index DDL and commit/rollback are not XQuery Update
+     * expressions, so the updating-expression check in [PermissionCheckingQuery] cannot see them.
+     */
+    override fun authorizeWrite(databaseName: String, resourceName: String) {
+        Auth.checkIfAuthorized(user, databaseName, AuthRole.MODIFY, authz)
+    }
 
     /**
      * Wrap a collection so that every mutating operation performed through it re-checks the

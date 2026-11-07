@@ -1,6 +1,7 @@
 package io.sirix.query.function.jn.index.create;
 
 import java.util.Set;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.json.JsonDBItem;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -63,6 +64,9 @@ public final class CreateNameIndex extends AbstractFunction {
     final JsonDBItem document = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonResourceSession resourceSession = rtx.getResourceSession();
+    // Before any write transaction is begun, reverted or committed: this function mutates but is not
+    // an updating expression, so only this check stands between a read-only caller and the mutation.
+    MutationAuthorization.requireWritable(ctx, resourceSession);
 
     final Optional<JsonNodeTrx> optionalWriteTrx = resourceSession.getNodeTrx();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);

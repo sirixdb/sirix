@@ -9,6 +9,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.sirix.api.NodeTrx;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.StructuredDBItem;
 import io.sirix.query.function.sdb.SDBFun;
 
@@ -42,6 +43,9 @@ public final class Rollback extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
+    // Committing or rolling back is itself a mutation and is not an updating expression, so this is
+    // the only check before a revision is published or pending work is discarded.
+    MutationAuthorization.requireWritable(ctx, document.getTrx().getResourceSession());
 
     if (document.getTrx() instanceof NodeTrx) {
       final NodeTrx wtx = (NodeTrx) document.getTrx();

@@ -27,6 +27,7 @@ import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionTemporalCodec;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.json.JsonDBItem;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -122,6 +123,9 @@ public final class CreateProjectionIndex extends AbstractFunction {
     }
     final JsonDBItem document = (JsonDBItem) args[0];
     final JsonResourceSession session = document.getTrx().getResourceSession();
+    // Before any write transaction is begun, reverted or committed: this function mutates but is not
+    // an updating expression, so only this check stands between a read-only caller and the mutation.
+    MutationAuthorization.requireWritable(ctx, session);
     if (!session.getResourceConfig().withPathSummary) {
       throw new QueryException(new QNm("jn:create-projection-index requires a resource created with a path summary "
           + "(buildPathSummary=true) — the projection builder resolves its paths through it."));

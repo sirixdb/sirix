@@ -9,6 +9,7 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.RoutingContext
 import io.sirix.rest.Auth
 import io.sirix.rest.AuthRole
+import io.sirix.query.MutationAuthorizer
 import io.sirix.query.json.JsonDBCollection
 import io.sirix.query.json.JsonDBStore
 import java.nio.file.Path
@@ -18,7 +19,20 @@ class JsonSessionDBStore(
     private val dbStore: JsonDBStore,
     private val user: User,
     private val authz: AuthorizationProvider
-) : JsonDBStore by dbStore {
+) : JsonDBStore by dbStore, MutationAuthorizer {
+
+    /**
+     * Authorize a mutation a query is about to perform, for the database that mutation targets.
+     *
+     * Index DDL, `sdb:commit` and `sdb:rollback` are ordinary function calls rather than XQuery
+     * Update expressions, so [PermissionCheckingQuery]'s updating-expression check cannot see them.
+     * Those functions reach a resource session through a looked-up document and begin their own
+     * write transaction, which also leaves the decorated collection behind. This is where the
+     * caller's identity meets such a mutation, so a VIEW-only token is refused here.
+     */
+    override fun authorizeWrite(databaseName: String, resourceName: String) {
+        Auth.checkIfAuthorized(user, databaseName, AuthRole.MODIFY, authz)
+    }
 
     /**
      * Wrap a collection so that every mutating operation performed through it re-checks the
