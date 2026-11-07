@@ -4,7 +4,10 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.node.SegmentAccess;
 import org.jspecify.annotations.Nullable;
+
+import java.lang.foreign.MemorySegment;
 
 /**
  * A query-local DERIVED numeric column: one slice per leaf holding, for every row on which every
@@ -63,7 +66,11 @@ public final class ProjectionComputedColumn {
     final ColumnSlice[] out = new ColumnSlice[leaves];
     final long[] stack = new long[MAX_STACK];
     final long[] operandValues = new long[operands.length];
-    final long[][] operandLanes = new long[operands.length][];
+    // Hoisted once for the whole pass and refilled per leaf: the operand lanes are read where the
+    // store decoded them, so no operand is ever copied to the heap.
+    final MemorySegment[] operandSeg = new MemorySegment[operands.length];
+    final long[] operandBase = new long[operands.length];
+    final long[][] operandPresence = new long[operands.length][];
     for (int leaf = 0; leaf < leaves; leaf++) {
       final boolean kept =
           keepWords == null || ((leaf >>> 6) < keepWords.length && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) != 0L);
@@ -71,13 +78,15 @@ public final class ProjectionComputedColumn {
         out[leaf] = ProjectionColumnStore.prunedSlice();
         continue;
       }
-      out[leaf] = evaluateLeaf(operands, leaf, code, consts, stack, operandValues, operandLanes);
+      out[leaf] =
+          evaluateLeaf(operands, leaf, code, consts, stack, operandValues, operandSeg, operandBase, operandPresence);
     }
     return out;
   }
 
   private static ColumnSlice evaluateLeaf(final ColumnSlice[][] operands, final int leaf, final int[] code,
-      final long[] consts, final long[] stack, final long[] operandValues, final long[][] operandLanes) {
+      final long[] consts, final long[] stack, final long[] operandValues, final MemorySegment[] operandSeg,
+      final long[] operandBase, final long[][] operandPresence) {
     final int operandCount = operands.length;
     int rowCount = -1;
     for (int c = 0; c < operandCount; c++) {
@@ -85,11 +94,12 @@ public final class ProjectionComputedColumn {
       if (slice == null || slice.rowCount() <= 0) {
         return ProjectionColumnStore.prunedSlice();
       }
-      final long[] lane = slice.numericValues();
-      if (lane == null) {
+      if (!slice.hasNumericLane()) {
         throw new IllegalArgumentException("computed operand " + c + " is not a long-lane column on leaf " + leaf);
       }
-      operandLanes[c] = lane;
+      operandSeg[c] = slice.laneSegment();
+      operandBase[c] = slice.laneBase();
+      operandPresence[c] = slice.presenceWords();
       if (rowCount < 0) {
         rowCount = slice.rowCount();
       } else if (rowCount != slice.rowCount()) {
@@ -105,7 +115,7 @@ public final class ProjectionComputedColumn {
     for (int w = 0; w < stride; w++) {
       long word = -1L;
       for (int c = 0; c < operandCount; c++) {
-        word &= operands[c][leaf].presenceWords()[w];
+        word &= operandPresence[c][w]; // hoisted per leaf above, not re-dereferenced per word
       }
       final int tailBits = rowCount - (w << 6);
       if (tailBits < 64) {
@@ -117,8 +127,9 @@ public final class ProjectionComputedColumn {
         final int bit = Long.numberOfTrailingZeros(word);
         word &= word - 1L;
         final int row = rowBase + bit;
+        final long at = (long) row << 3;
         for (int c = 0; c < operandCount; c++) {
-          operandValues[c] = operandLanes[c][row];
+          operandValues[c] = SegmentAccess.getLong(operandSeg[c], operandBase[c] + at);
         }
         final long v = run(code, consts, operandValues, stack);
         values[row] = v;
