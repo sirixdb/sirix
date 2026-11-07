@@ -332,8 +332,8 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
     return writeResource(parser, resourceName, commitMessage, commitTimestamp);
   }
 
-  private XmlDBNode writeResource(NodeSubtreeParser parser, final String resourceName,
-      final String commitMessage, final Instant commitTimestamp) {
+  private XmlDBNode writeResource(NodeSubtreeParser parser, final String resourceName, final String commitMessage,
+      final Instant commitTimestamp) {
     final XmlResourceSession resource = database.beginResourceSession(resourceName);
     final XmlNodeTrx wtx;
     try {

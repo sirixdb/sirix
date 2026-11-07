@@ -9,6 +9,7 @@ import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.AbstractJsonItemCollection;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.node.stream.ArrayStream;
+import io.sirix.access.MutationGate;
 import io.sirix.api.Database;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -257,7 +258,9 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
     final String resolvedName;
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
     synchronized (database.getDatabaseConfig()) {
-      resolvedName = database.existsResource(resourceName) ? resourceName + "1" : resourceName;
+      resolvedName = database.existsResource(resourceName)
+          ? resourceName + "1"
+          : resourceName;
       prepareResource(resolvedName, resourceOptions);
     }
     return writeResource(resolvedName, reader, resourceOptions);
@@ -278,7 +281,9 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       for (int i = 0; i < names.length; i++) {
         requireNonNull(readers.get(i));
         final String requested = "resource" + (initialSize + i);
-        final String resolved = resources.contains(requested) ? requested + "1" : requested;
+        final String resolved = resources.contains(requested)
+            ? requested + "1"
+            : requested;
         MutationAuthorization.requireStore(name, resolved, resources.contains(resolved));
         names[i] = resolved;
         resources.add(resolved);
@@ -292,11 +297,30 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
     }
   }
 
+  /**
+   * Create-if-absent for one resource, atomic against another caller racing the same name.
+   *
+   * <p>
+   * The resource's own gate hold spans the existence test, the authorization decision that follows
+   * from it and the creation, so a loser of the race cannot act on a stale "absent": it re-reads
+   * existence inside the gate, and when {@code createResource} reports the resource already there it
+   * is authorized again as a write, which needs MODIFY. Neither a silent overwrite nor a skipped
+   * check is reachable. Callers racing <em>different</em> resources of this database take different
+   * holds and never wait on each other.
+   * </p>
+   */
   private void prepareResource(final String resourceName, final Options resourceOptions) {
-    MutationAuthorization.requireStore(name, resourceName, database.existsResource(resourceName));
-    if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
-      MutationAuthorization.requireStore(name, resourceName, true);
+    try (var gate = MutationGate.acquireResource(databaseDirectory(), resourceName)) {
+      MutationAuthorization.requireStore(name, resourceName, database.existsResource(resourceName));
+      if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
+        MutationAuthorization.requireStore(name, resourceName, true);
+      }
     }
+  }
+
+  /** The database directory, so a resource hold can be keyed within it. */
+  private Path databaseDirectory() {
+    return database.getDatabaseConfig().getDatabaseFile();
   }
 
   private JsonDBItem writeResource(final String resName, final JsonReader reader, final Options resourceOptions) {

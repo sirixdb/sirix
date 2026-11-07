@@ -446,6 +446,11 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
   }
 
+  @Override
+  public Path databaseDirectory(final String name) {
+    return databasePath(name);
+  }
+
   private Path databasePath(final String name) {
     final Path dbPath = location.resolve(name);
     ResourceAccessScope.checkDatabase(dbPath, false);

@@ -11,13 +11,15 @@ import java.util.List;
 /**
  * A JSON database collection backed by a Sirix {@link Database}.
  *
- * <p>This is an interface (implemented by {@link JsonDBCollectionImpl}) so that cross-cutting
- * concerns can be layered on by composition/delegation rather than by subclassing the concrete
+ * <p>
+ * This is an interface (implemented by {@link JsonDBCollectionImpl}) so that cross-cutting concerns
+ * can be layered on by composition/delegation rather than by subclassing the concrete
  * implementation. In particular the REST layer wraps a collection in an authorization-checking
- * decorator that delegates every read to the real collection and re-checks the caller's role on
- * the mutating methods.
+ * decorator that delegates every read to the real collection and re-checks the caller's role on the
+ * mutating methods.
  *
- * <p>The brackit {@link TemporalJsonCollection} supertype already declares the standard collection
+ * <p>
+ * The brackit {@link TemporalJsonCollection} supertype already declares the standard collection
  * operations ({@code getDocument*}, {@code getDocuments}, {@code getDocumentCount}, {@code add},
  * {@code delete}, {@code remove}, {@code getName}); this interface only adds the Sirix-specific
  * accessors and the resource-named {@code add} overloads.

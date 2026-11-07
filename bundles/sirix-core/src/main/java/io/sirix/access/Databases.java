@@ -243,6 +243,14 @@ public final class Databases {
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     requireNonNull(dbConfig);
     ResourceAccessScope.checkDatabase(dbConfig.getDatabaseFile(), true);
+    // Creation replaces an existing database on some paths, so it takes the exclusive database hold
+    // and is ordered against removal and against every resource operation in that database.
+    try (var gate = MutationGate.acquireDatabase(dbConfig.getDatabaseFile())) {
+      return createTheDatabaseUnderGate(dbConfig);
+    }
+  }
+
+  private static boolean createTheDatabaseUnderGate(final DatabaseConfiguration dbConfig) {
     initAllocator(dbConfig.getMaxSegmentAllocationSize());
 
     final Path databaseFile = dbConfig.getDatabaseFile();
@@ -318,6 +326,15 @@ public final class Databases {
   public static void removeDatabase(final Path dbFile) {
     requireNonNull(dbFile);
     ResourceAccessScope.checkDatabase(dbFile, true);
+    // Removing a whole database takes the exclusive database hold, so it waits for every resource
+    // operation in it: a store or load authorized against one of its resources must not have the
+    // database removed between its check and its write.
+    try (var gate = MutationGate.acquireDatabase(dbFile)) {
+      removeDatabaseUnderGate(dbFile);
+    }
+  }
+
+  private static void removeDatabaseUnderGate(final Path dbFile) {
     final Path path;
     final @Nullable OpenDatabase<?> owner;
     final Set<Database<?>> handles;

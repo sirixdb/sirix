@@ -1053,6 +1053,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
+  @Override
+  public Path databaseDirectory(final String name) {
+    return databasePath(name);
+  }
+
   private Path databasePath(final String name) {
     return databasePath(location.resolve(name));
   }

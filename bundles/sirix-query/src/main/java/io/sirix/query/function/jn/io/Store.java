@@ -21,6 +21,7 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.node.stream.ArrayStream;
 import io.brackit.query.sequence.FunctionConversionSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
+import io.sirix.access.MutationGate;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
@@ -29,6 +30,7 @@ import io.sirix.service.json.shredder.JsonShredder;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -116,15 +118,28 @@ public final class Store extends AbstractFunction {
       // without write permission and the write.
       MutationAuthorization.requireCreate(ctx, collectionName, resourceName);
 
-      if (createIfNotExists) {
-        create(store, collectionName, resourceName, nodes, options);
-      } else {
-        final JsonDBCollection collection = store.lookup(collectionName);
-        if (collection == null) {
+      // Only the create path can replace the whole database, so only it takes the exclusive
+      // database hold. Appending into an existing collection takes nothing here: each target's
+      // check and write are ordered on that resource's own hold, inside the collection, so two
+      // callers writing different resources of one database never wait on each other. The gate
+      // orders operations; it does not take ownership of sessions or sources, so the streaming
+      // lifecycle and its cleanup are untouched.
+      final Path databaseDirectory = store.databaseDirectory(collectionName);
+      final boolean mayReplaceDatabase = createIfNotExists || store.lookup(collectionName) == null;
+      try (var gate = databaseDirectory == null || !mayReplaceDatabase
+          ? null
+          : MutationGate.acquireDatabase(databaseDirectory)) {
+        if (createIfNotExists) {
           create(store, collectionName, resourceName, nodes, options);
         } else {
-          add(collection, resourceName, nodes, options);
+          final JsonDBCollection collection = store.lookup(collectionName);
+          if (collection == null) {
+            create(store, collectionName, resourceName, nodes, options);
+          } else {
+            add(collection, resourceName, nodes, options);
+          }
         }
+
       }
 
       return null;
