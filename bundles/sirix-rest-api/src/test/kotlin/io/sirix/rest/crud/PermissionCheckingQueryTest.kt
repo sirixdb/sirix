@@ -9,10 +9,12 @@ import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
 import io.sirix.access.ResourceConfiguration
 import io.sirix.access.trx.node.json.JsonIndexController
+import io.sirix.api.StorageEngineReader
 import io.sirix.api.json.JsonNodeTrx
 import io.sirix.index.IndexDef
 import io.sirix.index.IndexDefs
 import io.sirix.index.IndexType
+import io.sirix.index.Indexes
 import io.sirix.index.aggregate.TemporalAggregateDeclarations
 import io.sirix.index.aggregate.TemporalAggregateIndexes
 import io.sirix.index.aggregate.TemporalAggregateStorage
@@ -32,6 +34,7 @@ import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -74,7 +77,9 @@ class PermissionCheckingQueryTest {
                             writer.setNumberValue(99)
                             val represented = writer.storageEngineWriter.revisionToRepresent
                             val revision = session.mostRecentRevisionNumber
-                            val before = aggregateHeader(writer)
+                            assertNull(sourceAggregateHeader(writer.storageEngineWriter), NO_SOURCE_COLUMNS)
+                            val before = aggregateDeclaration(
+                                session.getWtxIndexController<JsonIndexController>(writer.revisionNumber).indexes)
                             val query = if (action == "create") {
                                 "jn:create-temporal-aggregate-index(jn:doc('auth','records'),'/[]','g','sum(n)')"
                             } else {
@@ -87,7 +92,9 @@ class PermissionCheckingQueryTest {
                                     run(mode, chain, context, query, keycloak, authz, user)
                                 }
                                 assertTrue(failure.message!!.contains("not allowed to modify"))
-                                assertArrayEquals(before, aggregateHeader(writer))
+                                assertEquals(before, aggregateDeclaration(
+                                    session.getWtxIndexController<JsonIndexController>(writer.revisionNumber).indexes))
+                                assertNull(sourceAggregateHeader(writer.storageEngineWriter), NO_SOURCE_COLUMNS)
                             }
                             val expected = if (modify) {
                                 if (action == "create") 1 else 0
@@ -153,7 +160,7 @@ class PermissionCheckingQueryTest {
         Mockito.`when`(authz.getAuthorizations(user)).thenReturn(Future.succeededFuture())
         val keycloak = Mockito.mock(OAuth2Auth::class.java)
         val beforeProjection: ByteArray
-        val beforeAggregate: ByteArray
+        val beforeAggregate: String
         BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build().use { store ->
             val guarded = JsonSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
             SirixQueryContext.createWithJsonStore(guarded).use { context ->
@@ -161,9 +168,9 @@ class PermissionCheckingQueryTest {
                     store.lookup("auth").database.beginResourceSession("records").use { session ->
                         session.beginNodeReadOnlyTrx().use { reader ->
                             beforeProjection = ProjectionIndexHOTStorage.readMetadataBlob(reader.storageEngineReader, 0)!!
-                            beforeAggregate = TemporalAggregateStorage.Reader(reader.storageEngineReader, 0).use {
-                                it.get(TemporalAggregateIndexes.headerKey())!!
-                            }
+                            assertNull(sourceAggregateHeader(reader.storageEngineReader), NO_SOURCE_COLUMNS)
+                            beforeAggregate = aggregateDeclaration(
+                                session.getRtxIndexController<JsonIndexController>(reader.revisionNumber).indexes)
                         }
                         val drop = "jn:drop-projection-index(jn:doc('auth','records')${if (withId) ",0" else ""})"
                         val wrapped = commitArguments != 0
@@ -207,12 +214,12 @@ class PermissionCheckingQueryTest {
                     val expected = if (modify && revision == 2) 0 else 1
                     assertEquals(expected, catalogue.getNrOfIndexDefsWithType(IndexType.PROJECTION))
                     assertEquals(expected, catalogue.getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE))
+                    assertEquals(if (expected == 1) beforeAggregate else NO_DECLARATION,
+                        aggregateDeclaration(catalogue))
                     session.beginNodeReadOnlyTrx(revision).use { reader ->
                         assertArrayEquals(beforeProjection,
                             ProjectionIndexHOTStorage.readMetadataBlob(reader.storageEngineReader, 0))
-                        TemporalAggregateStorage.Reader(reader.storageEngineReader, 0).use {
-                            assertArrayEquals(beforeAggregate, it.get(TemporalAggregateIndexes.headerKey()))
-                        }
+                        assertNull(sourceAggregateHeader(reader.storageEngineReader), NO_SOURCE_COLUMNS)
                         reader.moveToDocumentRoot()
                         reader.moveToFirstChild()
                         reader.moveToFirstChild()
@@ -257,8 +264,18 @@ class PermissionCheckingQueryTest {
         }
     }
 
-    private fun aggregateHeader(writer: JsonNodeTrx): ByteArray? =
-        TemporalAggregateStorage.Reader(writer.storageEngineWriter, 0).use { it.get(TemporalAggregateIndexes.headerKey()) }
+    /**
+     * Temporal aggregate columns are maintained in the hidden derived resource: every user-facing
+     * resource leaves `aggregateKernel` false, so `TemporalAggregateIndexes.build` only reserves the
+     * declaration and the source resource must never carry aggregate pages of its own. Reading the
+     * source side is the witness for exactly that, and therefore for a mutation that wrote there.
+     */
+    private fun sourceAggregateHeader(storage: StorageEngineReader): ByteArray? =
+        TemporalAggregateStorage.Reader(storage, 0).use { it.get(TemporalAggregateIndexes.headerKey()) }
+
+    /** The aggregate declaration's persisted form, which a refused mutation must leave identical. */
+    private fun aggregateDeclaration(indexes: Indexes): String =
+        indexes.getIndexDef(0, IndexType.TEMPORAL_AGGREGATE)?.toString() ?: NO_DECLARATION
 
     private fun numberField(writer: JsonNodeTrx, record: Long) {
         writer.moveTo(record)
@@ -290,5 +307,14 @@ class PermissionCheckingQueryTest {
         }
         writer.flush()
         return output.toString().trim()
+    }
+
+    private companion object {
+        /** Why a non-null source-side aggregate header is a defect, not a missing feature. */
+        const val NO_SOURCE_COLUMNS =
+            "Derived maintenance owns the aggregate columns; the source resource must hold none"
+
+        /** Stand-in for an absent declaration, so present and absent compare as plain values. */
+        const val NO_DECLARATION = "absent"
     }
 }
