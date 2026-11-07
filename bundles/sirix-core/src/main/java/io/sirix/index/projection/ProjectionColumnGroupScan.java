@@ -43,15 +43,15 @@ public final class ProjectionColumnGroupScan {
 
   private ProjectionColumnGroupScan() {}
 
-  /** Per-thread predicate mask over one leaf (MAX_ROWS bound — same bound the scans use). */
   /** Rows per selection word, hence rows per gathered value window. */
-  private static final int WINDOW_ROWS = 64;
+  static final int WINDOW_ROWS = 64;
 
   /** A query with no conditional key component: no condition lane to resolve or to gather. */
   private static final MemorySegment[] NO_COND_SEGMENTS = new MemorySegment[0];
 
   private static final long[] NO_COND_BASES = new long[0];
 
+  /** Per-thread predicate mask over one leaf (MAX_ROWS bound — same bound the scans use). */
   private static final ThreadLocal<long[]> MASK =
       ThreadLocal.withInitial(() -> new long[(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6]);
 

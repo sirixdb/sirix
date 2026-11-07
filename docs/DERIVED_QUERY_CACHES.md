@@ -51,6 +51,24 @@ allocated per leaf, which is what distinguishes it from the `numericValues()` se
 and over the heap-array lanes a still-heap windowed slice hands them, so the choice is about speed
 alone.
 
+**Reading operand lanes in a derived column.** `ProjectionComputedColumn` evaluates a program over
+operand lanes for every row of a kept leaf, because the group kernel's own per-row mask decides later
+which values count, so its walk is normally dense rather than selective. It has three read forms and
+decides from one presence pass per leaf. When every row carries every operand — the shape of every
+measured route — it stages each operand lane with ONE counted copy of the leaf's own rows and walks
+the rows counted: a per-word gather would move the same bytes in 64-row pieces and pay sixteen times
+the `MemorySegment.copy` calls for a full leaf, which is what that copy costs at this size, not its
+bytes. When some row lacks an operand it falls back to the group folds' own per-word choice at the
+same `gatherPays` crossover, so a selective leaf wastes nothing. Both buffers are flat — operand `c`
+at `c * stride` in one array, not one array per operand — so a read is a single bounds-checked load of
+a loop-invariant array, and neither is allocated per leaf: the window is 512 bytes per operand and the
+staging buffer is allocated once per pass, at the row-group row bound, when the first fully present
+leaf asks for it. A leaf above that bound reads per word instead. Each walk is deliberately its own
+small method: the program interpreter runs once per row, and a caller it cannot be inlined into pays
+that call for every row of the query. `ComputedColumnLaneEquivalenceTest` pins the three forms to an
+independent oracle at every density and program width, over slab lanes and over the heap-array lanes
+an unconverted producer still hands out.
+
 **Ownership.** The slab belongs to the store and the column (`ColumnSlabs`). It is charged to the
 store's residency ledger exactly as a heap fill was (`decodedColumnResidentBytes` prices a long lane
 at eight bytes per row), so the fill doors, the catalog weigher and the headroom share keep one

@@ -8,6 +8,7 @@ import io.sirix.node.SegmentAccess;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 
 /**
  * A query-local DERIVED numeric column: one slice per leaf holding, for every row on which every
@@ -36,6 +37,9 @@ public final class ProjectionComputedColumn {
 
   /** Programs deeper than this are refused at construction (the kernels' own bound). */
   private static final int MAX_STACK = 64;
+
+  /** Rows per selection word, hence rows per operand in the gather window. */
+  private static final int WINDOW_ROWS = ProjectionColumnGroupScan.WINDOW_ROWS;
 
   private ProjectionComputedColumn() {}
 
@@ -67,10 +71,11 @@ public final class ProjectionComputedColumn {
     final long[] stack = new long[MAX_STACK];
     final long[] operandValues = new long[operands.length];
     // Hoisted once for the whole pass and refilled per leaf: the operand lanes are read where the
-    // store decoded them, so no operand is ever copied to the heap.
+    // store decoded them, so no operand lane is ever materialized on the heap.
     final MemorySegment[] operandSeg = new MemorySegment[operands.length];
     final long[] operandBase = new long[operands.length];
     final long[][] operandPresence = new long[operands.length][];
+    final Scratch scratch = new Scratch(operands.length);
     for (int leaf = 0; leaf < leaves; leaf++) {
       final boolean kept =
           keepWords == null || ((leaf >>> 6) < keepWords.length && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) != 0L);
@@ -78,15 +83,15 @@ public final class ProjectionComputedColumn {
         out[leaf] = ProjectionColumnStore.prunedSlice();
         continue;
       }
-      out[leaf] =
-          evaluateLeaf(operands, leaf, code, consts, stack, operandValues, operandSeg, operandBase, operandPresence);
+      out[leaf] = evaluateLeaf(operands, leaf, code, consts, stack, operandValues, operandSeg, operandBase,
+          operandPresence, scratch);
     }
     return out;
   }
 
   private static ColumnSlice evaluateLeaf(final ColumnSlice[][] operands, final int leaf, final int[] code,
       final long[] consts, final long[] stack, final long[] operandValues, final MemorySegment[] operandSeg,
-      final long[] operandBase, final long[][] operandPresence) {
+      final long[] operandBase, final long[][] operandPresence, final Scratch scratch) {
     final int operandCount = operands.length;
     int rowCount = -1;
     for (int c = 0; c < operandCount; c++) {
@@ -108,28 +113,113 @@ public final class ProjectionComputedColumn {
     }
     final int stride = (rowCount + 63) >>> 6;
     final long[] presence = new long[stride];
-    final long[] values = new long[rowCount];
-    long min = Long.MAX_VALUE;
-    long max = Long.MIN_VALUE;
-    // Presence of the derived value = every operand present (the interpreter's empty arithmetic).
+    // ONE PRESENCE PASS FIRST, for the whole leaf: presence of the derived value is every operand
+    // present (the interpreter's empty arithmetic), and how many rows that leaves decides the read
+    // form. The pass costs one word per 64 rows and saves deciding per word.
+    int present = 0;
     for (int w = 0; w < stride; w++) {
       long word = -1L;
       for (int c = 0; c < operandCount; c++) {
         word &= operandPresence[c][w]; // hoisted per leaf above, not re-dereferenced per word
       }
-      final int tailBits = rowCount - (w << 6);
-      if (tailBits < 64) {
-        word &= (1L << tailBits) - 1L;
+      final int validRows = rowCount - (w << 6);
+      if (validRows < WINDOW_ROWS) {
+        word &= (1L << validRows) - 1L;
       }
       presence[w] = word;
+      present += Long.bitCount(word);
+    }
+    if (present == 0) {
+      // No row carries every operand. The zone map stays inverted (min > max), which is how every
+      // evaluator reads "this leaf holds no derived value".
+      return new ColumnSlice(rowCount, (byte) 0, Long.MAX_VALUE, Long.MIN_VALUE, presence, new long[rowCount], null,
+          null, null, null);
+    }
+    // EVERY ROW SURVIVES — the shape of every measured route, where a kept leaf is dense because the
+    // group kernel's own per-row mask decides later which values count. Then the rows to read are the
+    // leaf's own, consecutive, so ONE counted copy per operand stages the whole lane into a buffer
+    // reused for the pass and the walk is counted too. Per word the same bytes move in 64-row pieces,
+    // which is 16 times the copy calls for one leaf of this size: measured on the t250k anti-join
+    // group route the per-word calls, not their bytes, were what the gather still cost. A leaf the
+    // row mask thins keeps the per-word form, which wastes nothing on a sparse selection.
+    final long[] staged = present == rowCount
+        ? scratch.stage(operandSeg, operandBase, operandCount, rowCount)
+        : null;
+    // The two walks are their own methods and stay small on purpose: the program interpreter is
+    // called once per row, and a caller it cannot be inlined into pays that call 468,000 times on the
+    // measured route. Folding both walks into this method cost 17% of the interpreter's samples.
+    return staged != null
+        ? evaluateStagedRows(code, consts, stack, operandValues, operandCount, rowCount, presence, staged)
+        : evaluateKeptRows(code, consts, stack, operandValues, operandSeg, operandBase, operandCount, rowCount, stride,
+            presence, scratch.window);
+  }
+
+  /**
+   * Every row of the leaf carries every operand and its operand lanes are staged, so the walk is a
+   * counted loop over the leaf's rows and operand {@code c} of row {@code row} is
+   * {@code staged[c * rowCount + row]}.
+   */
+  private static ColumnSlice evaluateStagedRows(final int[] code, final long[] consts, final long[] stack,
+      final long[] operandValues, final int operandCount, final int rowCount, final long[] presence,
+      final long[] staged) {
+    final long[] values = new long[rowCount];
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (int row = 0; row < rowCount; row++) {
+      for (int c = 0, slot = row; c < operandCount; c++, slot += rowCount) {
+        operandValues[c] = staged[slot];
+      }
+      final long v = run(code, consts, operandValues, stack);
+      values[row] = v;
+      if (v < min) {
+        min = v;
+      }
+      if (v > max) {
+        max = v;
+      }
+    }
+    return new ColumnSlice(rowCount, (byte) 0, min, max, presence, values, null, null, null, null);
+  }
+
+  /**
+   * Some row of the leaf lacks an operand, so the walk is by presence word, with one read-form
+   * decision per word taken before the walk consumes it. The crossover is the one the group folds
+   * already dispatch on ({@link ProjectionColumnGroupScan#gatherPays}), so the area keeps a single
+   * crossover: a bit walk's row index comes out of {@code numberOfTrailingZeros}, the loop is
+   * therefore not counted over linear offsets and no compiler lifts a segment's bounds and alignment
+   * checks out of it, so every surviving row would pay its own. Above the crossover one counted,
+   * intrinsified copy per operand pays one check per vector instead.
+   */
+  private static ColumnSlice evaluateKeptRows(final int[] code, final long[] consts, final long[] stack,
+      final long[] operandValues, final MemorySegment[] operandSeg, final long[] operandBase, final int operandCount,
+      final int rowCount, final int stride, final long[] presence, final long[] window) {
+    final long[] values = new long[rowCount];
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (int w = 0; w < stride; w++) {
+      long word = presence[w];
+      if (word == 0L) {
+        continue; // no row of this word has every operand: nothing to read and nothing to gather
+      }
       final int rowBase = w << 6;
+      final boolean gathered = ProjectionColumnGroupScan.gatherPays(word);
+      if (gathered) {
+        gatherOperands(operandSeg, operandBase, operandCount, rowBase, Math.min(WINDOW_ROWS, rowCount - rowBase),
+            window, WINDOW_ROWS);
+      }
       while (word != 0L) {
         final int bit = Long.numberOfTrailingZeros(word);
         word &= word - 1L;
         final int row = rowBase + bit;
-        final long at = (long) row << 3;
-        for (int c = 0; c < operandCount; c++) {
-          operandValues[c] = SegmentAccess.getLong(operandSeg[c], operandBase[c] + at);
+        if (gathered) {
+          for (int c = 0, slot = bit; c < operandCount; c++, slot += WINDOW_ROWS) {
+            operandValues[c] = window[slot];
+          }
+        } else {
+          final long at = (long) row << 3;
+          for (int c = 0; c < operandCount; c++) {
+            operandValues[c] = SegmentAccess.getLong(operandSeg[c], operandBase[c] + at);
+          }
         }
         final long v = run(code, consts, operandValues, stack);
         values[row] = v;
@@ -142,6 +232,57 @@ public final class ProjectionComputedColumn {
       }
     }
     return new ColumnSlice(rowCount, (byte) 0, min, max, presence, values, null, null, null, null);
+  }
+
+  /**
+   * Copy {@code rows} rows of every operand lane into {@code buffer}, operand {@code c} at
+   * {@code c * stride}, with one counted, intrinsified copy per operand. The caller clamps
+   * {@code rows} to the leaf's row count, so neither the tail word nor the last leaf reads past a
+   * lane.
+   */
+  private static void gatherOperands(final MemorySegment[] segs, final long[] bases, final int operandCount,
+      final int rowBase, final int rows, final long[] buffer, final int stride) {
+    final long from = (long) rowBase << 3;
+    for (int c = 0; c < operandCount; c++) {
+      MemorySegment.copy(segs[c], ValueLayout.JAVA_LONG_UNALIGNED, bases[c] + from, buffer, c * stride, rows);
+    }
+  }
+
+  /**
+   * The read scratch of one {@link #evaluate} pass: the per-word gather window, always needed, and
+   * the per-leaf staging buffer, allocated once the first fully present leaf asks for it. Both are
+   * flat rather than one array per operand, so a read is a single bounds-checked load of a
+   * loop-invariant array instead of a two-dimensional indirection.
+   */
+  private static final class Scratch {
+    private final int operandCount;
+
+    private final long[] window;
+
+    private long @Nullable [] leaf;
+
+    Scratch(final int operandCount) {
+      this.operandCount = operandCount;
+      window = new long[operandCount * WINDOW_ROWS];
+    }
+
+    /**
+     * The whole lane of every operand, staged for a leaf of {@code rows} rows, or {@code null} when the
+     * leaf is wider than a row group may be — then the caller reads per word, which has no such bound.
+     * Operand {@code c} starts at {@code c * rows}.
+     */
+    long @Nullable [] stage(final MemorySegment[] segs, final long[] bases, final int columns, final int rows) {
+      if (rows > ProjectionIndexRowGroupPage.MAX_ROWS) {
+        return null;
+      }
+      long[] buffer = this.leaf;
+      if (buffer == null) {
+        buffer = new long[operandCount * ProjectionIndexRowGroupPage.MAX_ROWS];
+        this.leaf = buffer;
+      }
+      gatherOperands(segs, bases, columns, 0, rows, buffer, rows);
+      return buffer;
+    }
   }
 
   /**
