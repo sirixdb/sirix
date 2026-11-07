@@ -10,6 +10,7 @@ import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.node.stream.ArrayStream;
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.Databases;
+import io.sirix.access.MutationGate;
 import io.sirix.api.Database;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -308,12 +309,9 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
         names[i] = resourceName;
         resources.add(resourceName);
       }
-      for (final String resourceName : names) {
-        prepareResource(resourceName, null);
-      }
     }
     for (int i = 0; i < names.length; i++) {
-      writeResource(parsers.get(i), names[i], null, null).getTrx().close();
+      createResource(parsers.get(i), names[i], null, null).getTrx().close();
     }
   }
 
@@ -326,10 +324,10 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
 
   private XmlDBNode createResource(final NodeSubtreeParser parser, final String resourceName,
       final String commitMessage, final Instant commitTimestamp) {
-    synchronized (database.getDatabaseConfig()) {
+    try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
       prepareResource(resourceName, commitTimestamp);
+      return writeResource(parser, resourceName, commitMessage, commitTimestamp);
     }
-    return writeResource(parser, resourceName, commitMessage, commitTimestamp);
   }
 
   private XmlDBNode writeResource(NodeSubtreeParser parser, final String resourceName, final String commitMessage,

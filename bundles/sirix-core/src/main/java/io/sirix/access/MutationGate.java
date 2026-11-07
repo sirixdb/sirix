@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Supplier;
 
 /**
  * Orders, within this JVM, the operations that create, replace, write or remove a database or one
@@ -54,17 +55,17 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *
  * <p>
  * Not a hot path: every caller is a database or resource lifecycle operation, never a per-record or
- * per-page step. The maps hold one entry per database directory and per resource touched in this
- * JVM's lifetime, bounded by the schema rather than by the data written.
+ * per-page step. Registry entries exist only while an owner or waiter retains them. Lifecycle
+ * monitors must be acquired after the gate, never while waiting to acquire it.
  * </p>
  *
  * @author Johannes Lichtenberger
  */
 public final class MutationGate {
 
-  private static final Map<Path, ReentrantReadWriteLock> DATABASES = new ConcurrentHashMap<>();
+  private static final Map<Path, Entry<ReentrantReadWriteLock>> DATABASES = new ConcurrentHashMap<>();
 
-  private static final Map<Path, ReentrantLock> RESOURCES = new ConcurrentHashMap<>();
+  private static final Map<Path, Entry<ReentrantLock>> RESOURCES = new ConcurrentHashMap<>();
 
   private MutationGate() {
     throw new AssertionError("No instances");
@@ -78,9 +79,14 @@ public final class MutationGate {
    * @return a handle whose {@code close} releases the hold
    */
   public static Handle acquireDatabase(final Path databaseFile) {
-    final var gate = databaseGate(databaseFile).writeLock();
+    final Path path = key(databaseFile);
+    final var entry = retain(DATABASES, path, ReentrantReadWriteLock::new);
+    final var gate = entry.lock.writeLock();
     gate.lock();
-    return new Handle(gate::unlock);
+    return new Handle(() -> {
+      gate.unlock();
+      release(DATABASES, path);
+    });
   }
 
   /**
@@ -94,24 +100,47 @@ public final class MutationGate {
    */
   public static Handle acquireResource(final Path databaseFile, final String resourceName) {
     Objects.requireNonNull(resourceName, "resourceName");
-    final var database = databaseGate(databaseFile).readLock();
+    final Path path = key(databaseFile);
+    final Path resourcePath = path.resolve(resourceName);
+    final var entry = retain(DATABASES, path, ReentrantReadWriteLock::new);
+    final var database = entry.lock.readLock();
     database.lock();
-    final ReentrantLock resource =
-        RESOURCES.computeIfAbsent(key(databaseFile).resolve(resourceName), path -> new ReentrantLock());
     try {
-      resource.lock();
+      final var resource = retain(RESOURCES, resourcePath, ReentrantLock::new);
+      resource.lock.lock();
+      return new Handle(() -> {
+        resource.lock.unlock();
+        release(RESOURCES, resourcePath);
+        database.unlock();
+        release(DATABASES, path);
+      });
     } catch (final RuntimeException | Error failure) {
       database.unlock();
+      release(DATABASES, path);
       throw failure;
     }
-    return new Handle(() -> {
-      resource.unlock();
-      database.unlock();
+  }
+
+  private static <L> Entry<L> retain(final Map<Path, Entry<L>> registry, final Path path,
+      final Supplier<L> factory) {
+    return registry.compute(path, (key, current) -> {
+      final Entry<L> entry = current == null ? new Entry<>(factory.get()) : current;
+      entry.users++;
+      return entry;
     });
   }
 
-  private static ReentrantReadWriteLock databaseGate(final Path databaseFile) {
-    return DATABASES.computeIfAbsent(key(databaseFile), path -> new ReentrantReadWriteLock());
+  private static <L> void release(final Map<Path, Entry<L>> registry, final Path path) {
+    registry.computeIfPresent(path, (key, entry) -> --entry.users == 0 ? null : entry);
+  }
+
+  private static final class Entry<L> {
+    private final L lock;
+    private int users;
+
+    private Entry(final L lock) {
+      this.lock = lock;
+    }
   }
 
   private static Path key(final Path databaseFile) {

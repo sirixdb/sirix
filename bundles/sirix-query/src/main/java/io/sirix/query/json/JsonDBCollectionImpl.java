@@ -9,6 +9,7 @@ import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.AbstractJsonItemCollection;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.node.stream.ArrayStream;
+import io.brackit.query.util.io.URIHandler;
 import io.sirix.access.MutationGate;
 import io.sirix.api.Database;
 import io.sirix.query.MutationAuthorization;
@@ -21,6 +22,7 @@ import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -261,17 +263,44 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       resolvedName = database.existsResource(resourceName)
           ? resourceName + "1"
           : resourceName;
-      prepareResource(resolvedName, resourceOptions);
     }
-    return writeResource(resolvedName, reader, resourceOptions);
+    return createAndWriteResource(resolvedName, reader, resourceOptions);
   }
 
   @Override
   public void addAll(final List<JsonReader> readers, final Object options) {
     requireNonNull(readers);
     requireNonNull(options);
+    for (final JsonReader reader : readers) {
+      requireNonNull(reader);
+    }
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    final String[] names = new String[readers.size()];
+    final String[] names = resolveResourceNames(readers.size());
+    for (int i = 0; i < names.length; i++) {
+      createAndWriteResource(names[i], readers.get(i), resourceOptions);
+    }
+  }
+
+  @Override
+  public void addAllFromUris(final List<String> uris, final Object options) {
+    requireNonNull(uris);
+    requireNonNull(options);
+    for (final String uri : uris) {
+      requireNonNull(uri);
+    }
+    final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+    final String[] names = resolveResourceNames(uris.size());
+    for (int i = 0; i < names.length; i++) {
+      try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(uris.get(i))))) {
+        createAndWriteResource(names[i], reader, resourceOptions);
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }
+  }
+
+  private String[] resolveResourceNames(final int count) {
+    final String[] names = new String[count];
     synchronized (database.getDatabaseConfig()) {
       final Set<String> resources = new HashSet<>();
       for (final Path resource : database.listResources()) {
@@ -279,7 +308,6 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       }
       final int initialSize = resources.size();
       for (int i = 0; i < names.length; i++) {
-        requireNonNull(readers.get(i));
         final String requested = "resource" + (initialSize + i);
         final String resolved = resources.contains(requested)
             ? requested + "1"
@@ -288,12 +316,15 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
         names[i] = resolved;
         resources.add(resolved);
       }
-      for (final String resourceName : names) {
-        prepareResource(resourceName, resourceOptions);
-      }
     }
-    for (int i = 0; i < names.length; i++) {
-      writeResource(names[i], readers.get(i), resourceOptions);
+    return names;
+  }
+
+  private JsonDBItem createAndWriteResource(final String resourceName, final JsonReader reader,
+      final Options resourceOptions) {
+    try (var gate = MutationGate.acquireResource(databaseDirectory(), resourceName)) {
+      prepareResource(resourceName, resourceOptions);
+      return writeResource(resourceName, reader, resourceOptions);
     }
   }
 
@@ -310,11 +341,9 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
    * </p>
    */
   private void prepareResource(final String resourceName, final Options resourceOptions) {
-    try (var gate = MutationGate.acquireResource(databaseDirectory(), resourceName)) {
-      MutationAuthorization.requireStore(name, resourceName, database.existsResource(resourceName));
-      if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
-        MutationAuthorization.requireStore(name, resourceName, true);
-      }
+    MutationAuthorization.requireStore(name, resourceName, database.existsResource(resourceName));
+    if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
+      MutationAuthorization.requireStore(name, resourceName, true);
     }
   }
 
@@ -416,9 +445,8 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
     synchronized (database.getDatabaseConfig()) {
       resourceName = "resource" + (database.listResources().size() + 1);
-      prepareResource(resourceName, resourceOptions);
     }
-    return writeResource(resourceName, reader, resourceOptions);
+    return createAndWriteResource(resourceName, reader, resourceOptions);
   }
 
   @Override

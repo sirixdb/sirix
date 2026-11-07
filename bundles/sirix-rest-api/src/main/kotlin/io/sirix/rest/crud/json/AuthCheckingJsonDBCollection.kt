@@ -49,6 +49,11 @@ class AuthCheckingJsonDBCollection(
         MutationAuthorization.where(mutationAuthorizer).run { wrapped.addAll(readers, options) }
     }
 
+    override fun addAllFromUris(uris: List<String>, options: Object) {
+        Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
+        MutationAuthorization.where(mutationAuthorizer).run { wrapped.addAllFromUris(uris, options) }
+    }
+
     override fun add(resourceName: String, reader: JsonReader, options: Object): JsonDBItem {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
         return MutationAuthorization.where(mutationAuthorizer).call<JsonDBItem, RuntimeException> { wrapped.add(resourceName, reader, options) }

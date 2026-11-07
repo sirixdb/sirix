@@ -8,6 +8,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceAccessScope;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.access.Databases;
+import io.sirix.access.MutationGate;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -323,7 +324,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
   @Override
   public XmlDBCollection create(final String name) {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
-    try {
+    try (var gate = MutationGate.acquireDatabase(dbConf.getDatabaseFile())) {
       if (!Databases.createXmlDatabase(dbConf)) {
         if (Databases.existsDatabase(dbConf.getDatabaseFile())) {
           throw new DocumentException("Document with name %s exists!", name);
@@ -368,7 +369,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       final NodeSubtreeParser parser, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
       createDatabase(collName, dbConf);
       final var database = Databases.openXmlDatabase(dbPath);
       databases.add(database);
@@ -402,7 +403,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
       createDatabase(collName, dbConf);
       final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
       databases.add(database);
@@ -482,22 +483,24 @@ public final class BasicXmlDBStore implements XmlDBStore {
   }
 
   private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
-    if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
-      MutationAuthorization.requireDelete(name);
-      try {
-        final Predicate<Database<XmlResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
-            || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+    try (var gate = MutationGate.acquireDatabase(dbConfig.getDatabaseFile())) {
+      if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
+        MutationAuthorization.requireDelete(name);
+        try {
+          final Predicate<Database<XmlResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
+              || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
-        databases.removeIf(databasePredicate);
-        collections.keySet().removeIf(databasePredicate);
-        Databases.removeDatabase(dbConfig.getDatabaseFile());
-      } catch (final SirixRuntimeException e) {
-        throw new DocumentException(e);
+          databases.removeIf(databasePredicate);
+          collections.keySet().removeIf(databasePredicate);
+          Databases.removeDatabase(dbConfig.getDatabaseFile());
+        } catch (final SirixRuntimeException e) {
+          throw new DocumentException(e);
+        }
+        return true;
       }
-      return true;
-    }
 
-    return false;
+      return false;
+    }
   }
 
   @Override

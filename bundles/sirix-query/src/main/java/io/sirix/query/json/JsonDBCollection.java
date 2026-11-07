@@ -76,6 +76,8 @@ public interface JsonDBCollection extends TemporalJsonCollection<JsonDBItem>, Au
 
   void addAll(List<JsonReader> readers, Object options);
 
+  void addAllFromUris(List<String> uris, Object options);
+
   @Override
   void close();
 }

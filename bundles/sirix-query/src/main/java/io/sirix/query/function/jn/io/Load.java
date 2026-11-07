@@ -171,22 +171,14 @@ public final class Load extends AbstractFunction {
         throw new QueryException(e, new QNm(e.getMessage()));
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
-      final List<JsonReader> readers = new ArrayList<>();
+      final List<String> uris = new ArrayList<>();
       try (final Iter iter = seq.iterate()) {
         for (Item item; (item = iter.next()) != null;) {
-          readers.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
+          uris.add(((Str) item).stringValue());
         }
-        collection.addAll(readers, options);
+        collection.addAllFromUris(uris, options);
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
-      } finally {
-        for (final JsonReader reader : readers) {
-          try {
-            reader.close();
-          } catch (final IOException e) {
-            throw new UncheckedIOException(e);
-          }
-        }
       }
     }
   }

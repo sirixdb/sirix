@@ -13,6 +13,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceAccessScope;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.access.Databases;
+import io.sirix.access.MutationGate;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.JsonIndexController;
@@ -722,7 +723,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final @Nullable ProjectionSpec projection) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
       createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbPath);
       databases.add(database);
@@ -860,7 +861,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   public JsonDBCollection create(String collName, Set<JsonReader> jsonReaders, Object options) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
       createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
@@ -970,7 +971,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
       createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
@@ -1019,7 +1020,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
       createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
@@ -1099,32 +1100,34 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
-    if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
-      MutationAuthorization.requireDelete(name);
-      try {
-        final var statisticsCatalog = StatisticsCatalog.getInstance();
-        statisticsCatalog.invalidateDatabase(name);
-        collectionPaths.removeIf(collectionPath -> {
-          if (collectionPath.path().equals(dbConfig.getDatabaseFile())) {
-            statisticsCatalog.invalidateDatabase(collectionPath.name());
-            return true;
-          }
-          return false;
-        });
+    try (var gate = MutationGate.acquireDatabase(dbConfig.getDatabaseFile())) {
+      if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
+        MutationAuthorization.requireDelete(name);
+        try {
+          final var statisticsCatalog = StatisticsCatalog.getInstance();
+          statisticsCatalog.invalidateDatabase(name);
+          collectionPaths.removeIf(collectionPath -> {
+            if (collectionPath.path().equals(dbConfig.getDatabaseFile())) {
+              statisticsCatalog.invalidateDatabase(collectionPath.name());
+              return true;
+            }
+            return false;
+          });
 
-        final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
-            || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+          final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
+              || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
 
-        databases.removeIf(databasePredicate);
-        removeCollections(databasePredicate);
-        Databases.removeDatabase(dbConfig.getDatabaseFile());
-      } catch (final SirixRuntimeException e) {
-        throw new DocumentException(e);
+          databases.removeIf(databasePredicate);
+          removeCollections(databasePredicate);
+          Databases.removeDatabase(dbConfig.getDatabaseFile());
+        } catch (final SirixRuntimeException e) {
+          throw new DocumentException(e);
+        }
+        return true;
       }
-      return true;
-    }
 
-    return false;
+      return false;
+    }
   }
 
   @Override

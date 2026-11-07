@@ -237,7 +237,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         if (existing != null) {
           resourceSessions.removeObject(path, existing);
         }
-        removeResource(name);
+        removeResourceInternal(name);
       }
     }
     final ResourceConfiguration.Builder builder =
@@ -421,7 +421,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   @Override
-  public synchronized Database<T> removeResource(final String name) {
+  public Database<T> removeResource(final String name) {
+    final String canonicalName = canonicalResourceName(name);
+    try (var gate = MutationGate.acquireResource(dbConfig.getDatabaseFile(), canonicalName)) {
+      return removeResourceInternal(canonicalName);
+    }
+  }
+
+  private synchronized Database<T> removeResourceInternal(final String name) {
     ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), canonicalResourceName(name), true);
     assertNotClosed();
     final String canonicalName = canonicalResourceName(name);
@@ -494,7 +501,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final String derivedName = resourceFile.getFileName() + DerivedIndexMaintainer.SUFFIX;
     if (!DerivedIndexMaintainer.isDerivedResourceName(canonicalName)
         && Files.exists(resourceFile.resolveSibling(derivedName))) {
-      removeResource(derivedName);
+      removeResourceInternal(derivedName);
     }
     return this;
   }
