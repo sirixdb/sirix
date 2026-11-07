@@ -101,6 +101,14 @@ public interface MemorySegmentAllocator {
   }
 
   /**
+   * Bytes of released slabs an implementation keeps mapped for reuse (none are live), included in
+   * {@link #getPhysicalMemoryBytes()} and returned to the budget under pressure.
+   */
+  default long getRecycledSlabBytes() {
+    return 0L;
+  }
+
+  /**
    * Physical off-heap bytes currently committed by this allocator. Used by metrics; implementations
    * that don't track physical commitment return 0.
    *

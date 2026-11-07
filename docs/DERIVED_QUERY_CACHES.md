@@ -115,6 +115,17 @@ its winners are materialized (every arm emits an `ItemSequence` over copied accu
 strings, so nothing downstream reads a slice); the slab is charged to the allocator's physical
 budget like every other, and a refusal falls back to heap arrays and counts a declined slab fill.
 
+**Query-local slabs are recycled.** A view that is not cached, a group route's masked lanes and an uncached
+join side decode into a slab that lives for one query. Mapping, zero-faulting and unmapping such a slab
+on every query measured as +10 % on a 50 ms query once the kernels read the lanes in place, so
+`FrameSlotAllocator.releaseSlab` keeps released slabs mapped for the next slab of the same page-rounded
+size (`getRecycledSlabBytes`, bounded by `sirix.allocator.slabRecycleBytes`, by default one sixteenth
+of the allocator budget and at most 512 MiB). Their pages stay committed and dirty: a consumer never
+assumes zeroed slab memory (the test seam `sirix.allocator.poisonRecycledSlabs` fills a reused slab with
+`0x5A`), the recycled bytes stay in the allocator's committed total, any commitment that does not fit
+the budget unmaps them first, and shutdown unmaps them all. A reuse hands out a fresh global-scope
+segment over the same pages, so the instance released before cannot release the new owner's slab.
+
 ## Allowance
 
 `DerivedCacheBudget` derives one combined allowance `D = A / 8` from the allocator's effective
