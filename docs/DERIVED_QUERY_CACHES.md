@@ -23,6 +23,16 @@ hoisted once per leaf, eight bytes per row at linear offsets (`SegmentAccess`), 
 to the heap once and counts it (`NumericLane.materializedCount`), the seam that keeps a consumer
 not yet converted working — a converted kernel never calls it, and the integration step deletes it.
 
+**One kernel per operation.** A consumer reaches a value only through the slice's lane, so each
+operation has exactly one kernel rather than an array form and a segment form to keep in step: the
+column-sliced predicate masks (`ProjectionColumnScan.evaluateMask` and the predicate-tree arm), the
+record-key membership walk (`ProjectionRecordKeySet.andMembership`, `filterMembership`), the bounded
+top-k heap (`TopKHeap.bindLeaf` hoists each sort key's lane once per leaf), the conjunctive numeric
+aggregates and the field-value emission all read `(segment, base)`. Producers that still decode to
+the heap — the windowed leaf access's recycled slice arrays (`SliceArrayPool`) and the KEYS chain —
+reach those same kernels as heap segments (`MemorySegment.ofArray`), which is a representation
+difference, not a second code path.
+
 **Reading a lane in a group fold.** A group fold's row index comes out of
 `Long.numberOfTrailingZeros` over the selection word, so its loop is not counted over linear offsets
 and no compiler hoists the segment's bounds check out of it: every surviving row would pay its own.

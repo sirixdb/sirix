@@ -3,12 +3,14 @@
  */
 package io.sirix.index.projection;
 
+import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.IntToLongFunction;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
@@ -157,10 +159,16 @@ public final class ProjectionRecordKeySet {
         continue;
       }
       final ColumnSlice slice = slices[leaf];
-      final long[] lane = Objects.requireNonNull(slice.numericValues(), "membership requires an integral column");
+      if (!slice.hasNumericLane()) {
+        throw new IllegalArgumentException("membership requires an integral column, leaf " + leaf + " has none");
+      }
+      // Hoisted ONCE per leaf: the lane's slab (or, for a producer still on the heap, its array as a
+      // segment) and the byte offset of row 0. The row walk below reads linear offsets off these.
+      final MemorySegment lane = slice.laneSegment();
+      final long laneBase = slice.laneBase();
       final long[] presence = slice.presenceWords();
       final long[] mask = new long[selected.length];
-      if (filterMembershipWords(selected, lane, presence, values, anti, mask)) {
+      if (filterMembershipWords(selected, lane, laneBase, presence, values, anti, mask)) {
         byFirstKey.put(keys[leaf][0], mask);
         slots.add(physicalSlot.applyAsLong(leaf));
       }
@@ -168,17 +176,24 @@ public final class ProjectionRecordKeySet {
     return new Masks(byFirstKey, slots);
   }
 
-  private static boolean filterMembershipWords(final long[] selected, final long[] lane, final long[] presence,
-      final LongOpenHashSet values, final boolean anti, final long[] mask) {
+  private static boolean filterMembershipWords(final long[] selected, final MemorySegment lane, final long laneBase,
+      final long[] presence, final LongOpenHashSet values, final boolean anti, final long[] mask) {
     long any = 0;
     for (int word = 0; word < selected.length; word++) {
-      long candidates = selected[word];
-      long kept = 0;
+      final long selectedWord = selected[word];
+      final long presentWord = presence[word];
+      // A selected row with no cell is a non-member, so only the ANTI form keeps it. Deciding that
+      // whole class with one word operation leaves the row walk only the rows that have a value to
+      // test, instead of a presence bit test per selected row.
+      long kept = anti
+          ? selectedWord & ~presentWord
+          : 0L;
+      long candidates = selectedWord & presentWord;
+      final long wordBase = laneBase + ((long) (word << 6) << 3);
       while (candidates != 0) {
         final int bit = Long.numberOfTrailingZeros(candidates);
         candidates &= candidates - 1;
-        final int row = (word << 6) + bit;
-        final boolean member = (presence[word] & 1L << bit) != 0 && values.contains(lane[row]);
+        final boolean member = values.contains(SegmentAccess.getLong(lane, wordBase + ((long) bit << 3)));
         if (anti != member) {
           kept |= 1L << bit;
         }
@@ -247,17 +262,24 @@ public final class ProjectionRecordKeySet {
 
   /**
    * AND the membership of each row's record key into {@code mask}: bit {@code row} stays set iff it
-   * was set and {@code keys[row]} is in the set. Only the first {@code ceil(rowCount/64)} words are
-   * touched; tail bits beyond {@code rowCount} are left as the caller had them (every caller fills
-   * the tail clear).
+   * was set and the key of {@code row} is in the set. Only the first {@code ceil(rowCount/64)} words
+   * are touched; tail bits beyond {@code rowCount} are left as the caller had them (every caller
+   * fills the tail clear).
    *
-   * @param keys the leaf's record keys in physical row order ({@code keys.length >= rowCount})
+   * <p>
+   * The keys are read IN PLACE off {@code keyLane}: the slab lane of a key column, or a heap key
+   * array viewed as a segment while the KEYS chain is still on the heap. The caller hoists the
+   * segment and the base once per leaf; this loop only adds row offsets to them.
+   *
+   * @param keyLane segment holding the leaf's record keys in physical row order
+   * @param keyBase byte offset of row 0 within {@code keyLane} ({@code rowCount} keys readable)
    * @param rowCount rows of the leaf
    * @param sortedKeys the set, strictly ascending
    * @param mask the conjunctive mask, updated in place
    * @return how many rows of the leaf are members (independent of the incoming mask)
    */
-  public static int andMembership(final long[] keys, final int rowCount, final long[] sortedKeys, final long[] mask) {
+  public static int andMembership(final MemorySegment keyLane, final long keyBase, final int rowCount,
+      final long[] sortedKeys, final long[] mask) {
     final int stride = (rowCount + 63) >>> 6;
     final int setSize = sortedKeys.length;
     if (setSize == 0) {
@@ -266,7 +288,7 @@ public final class ProjectionRecordKeySet {
     }
     int cursor = rowCount == 0
         ? 0
-        : lowerBound(sortedKeys, keys[0]);
+        : lowerBound(sortedKeys, SegmentAccess.getLong(keyLane, keyBase));
     long previous = Long.MIN_VALUE;
     int members = 0;
     for (int w = 0; w < stride; w++) {
@@ -274,7 +296,7 @@ public final class ProjectionRecordKeySet {
       final int rowBase = w << 6;
       final int rowEnd = Math.min(rowBase + 64, rowCount);
       for (int row = rowBase; row < rowEnd; row++) {
-        final long key = keys[row];
+        final long key = SegmentAccess.getLong(keyLane, keyBase + ((long) row << 3));
         final boolean member;
         if (key >= previous) {
           // The ascending run: advance the set cursor monotonically.
