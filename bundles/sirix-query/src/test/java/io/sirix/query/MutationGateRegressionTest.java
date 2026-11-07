@@ -15,10 +15,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 final class MutationGateRegressionTest {
@@ -26,6 +28,29 @@ final class MutationGateRegressionTest {
 
   @TempDir
   Path directory;
+
+  @ParameterizedTest
+  @CsvSource({"fresh, ./fresh", "./fresh, fresh", "fresh, fresh//", "fresh//, fresh",
+      "fresh, unused/../fresh", "unused/../fresh, fresh", "././fresh, fresh/.", "fresh/., ././fresh"})
+  void resourceAliasesShareOneHold(final String firstName, final String secondName) throws Exception {
+    assertEquals("fresh", ResourceConfiguration.newBuilder(firstName).build().getName());
+    assertEquals("fresh", ResourceConfiguration.newBuilder(secondName).build().getName());
+    final Path database = directory.resolve("aliases");
+    final AtomicBoolean firstInside = new AtomicBoolean(true);
+    final FutureTask<Boolean> contender = new FutureTask<>(() -> {
+      try (var gate = MutationGate.acquireResource(database, secondName)) {
+        return firstInside.get();
+      }
+    });
+    try (var gate = MutationGate.acquireResource(database, firstName)) {
+      final Thread waiting = Thread.ofPlatform().daemon().start(contender);
+      awaitWaiting(waiting);
+      assertFalse(contender.isDone(), "aliases of one resource must wait on the same hold");
+      firstInside.set(false);
+    }
+    assertFalse(contender.get(TIMEOUT_SECONDS, TimeUnit.SECONDS),
+        "the second alias must enter only after the first alias releases its hold");
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})

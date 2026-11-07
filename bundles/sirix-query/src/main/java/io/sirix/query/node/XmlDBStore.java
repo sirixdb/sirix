@@ -31,8 +31,6 @@ import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.node.NodeStore;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 
-import io.sirix.access.MutationGate;
-import java.nio.file.Path;
 import java.time.Instant;
 
 /**
@@ -41,19 +39,6 @@ import java.time.Instant;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public interface XmlDBStore extends NodeStore, AutoCloseable {
-
-  /**
-   * The database directory {@code name} resolves to, or {@code null} when this store cannot name one.
-   *
-   * <p>
-   * A guarded mutation holds {@link DatabaseMutationGate} on this path across its authorization check
-   * and its write, so a concurrent create, replace or remove cannot come between them. A store that
-   * answers {@code null} is not participating in that ordering.
-   * </p>
-   */
-  default Path databaseDirectory(final String name) {
-    return null;
-  }
 
   @Override
   XmlDBCollection lookup(String name);

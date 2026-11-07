@@ -101,7 +101,7 @@ public final class MutationGate {
   public static Handle acquireResource(final Path databaseFile, final String resourceName) {
     Objects.requireNonNull(resourceName, "resourceName");
     final Path path = key(databaseFile);
-    final Path resourcePath = path.resolve(resourceName);
+    final Path resourcePath = path.resolve(ResourceConfiguration.canonicalResourceName(resourceName)).normalize();
     final var entry = retain(DATABASES, path, ReentrantReadWriteLock::new);
     final var database = entry.lock.readLock();
     database.lock();
