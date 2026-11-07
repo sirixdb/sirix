@@ -10,7 +10,6 @@ import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.access.DatabaseConfiguration;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceAccessScope;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.access.Databases;
@@ -43,7 +42,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Optional;
@@ -520,14 +518,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
   public JsonDBCollection create(final String name) {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
-      final var database = Databases.createAndOpenJsonDatabase(dbConf);
-      if (database == null) {
+      if (!Databases.createJsonDatabase(dbConf)) {
         if (Databases.existsDatabase(dbConf.getDatabaseFile())) {
           throw new DocumentException("Document with name %s exists!", name);
         }
         throw new DocumentException("Could not create document with name %s", name);
       }
 
+      final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(name, database, this);
@@ -725,7 +723,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      final var database = createDatabase(collName, dbConf);
+      createDatabase(collName, dbConf);
+      final var database = Databases.openJsonDatabase(dbPath);
       databases.add(database);
 
       final String resourceName;
@@ -747,9 +746,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         resourceName = "resource" + (database.listResources().size() + 1);
       }
 
-      final Options resourceOptions = OptionsFactory.createOptions(options, options());
-      final JsonResourceSession preparedSession = MutationAuthorization.prepareResources(database, collName,
-          List.of(ResourceConfigurations.create(resourceName, resourceOptions))).getFirst();
+      final var resourceOptions = createResource(options, database, resourceName);
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       addDatabase(collection, database);
@@ -757,10 +754,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
       if (loader == null) {
         // Even without initial data, persist the valid-time interval index definition so the
         // change listener maintains the index for all subsequent insertions.
-        try (preparedSession) {
-          if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-            createValidTimeIndexInOwnRevision(database, resourceName, collName, resourceOptions);
-          }
+        if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+          createValidTimeIndexInOwnRevision(database, resourceName, collName, resourceOptions);
         }
         return collection;
       }
@@ -779,7 +774,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
           : projection.expectedRows();
       ProjectionBulkLoad projectionBulkLoad = null;
       try {
-        try (final JsonResourceSession resourceSession = preparedSession;
+        try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
             final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
           if (projectionDef != null) {
             // BEFORE the shred: the definition has to be catalogued and its listener bound while the
@@ -839,6 +834,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
     throw (T) failure;
   }
 
+  private Options createResource(final Object options, final Database<JsonResourceSession> database,
+      final String resourceName) {
+    final Options resourceOptions = OptionsFactory.createOptions(options, options());
+    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
+    return resourceOptions;
+  }
+
   /**
    * Create the valid-time interval index for an already-committed resource in a follow-up revision:
    * used when the data commit is out of the caller's hands (parallel shredder) or when there is no
@@ -856,56 +858,30 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, Set<JsonReader> jsonReaders, Object options) {
-    final List<Callable<JsonReader>> sources = new ArrayList<>(jsonReaders.size());
-    for (final JsonReader reader : jsonReaders) {
-      sources.add(() -> reader);
-    }
-    return createFromSources(collName, sources, options);
-  }
-
-  @Override
-  public JsonDBCollection createFromSources(final String collName,
-      final List<? extends Callable<JsonReader>> sources, final Object options) {
-    requireNonNull(sources);
-    requireNonNull(collName);
-    requireNonNull(options);
-    for (final Callable<JsonReader> source : sources) {
-      requireNonNull(source);
-    }
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      final var database = createDatabase(collName, dbConf);
+      createDatabase(collName, dbConf);
+      final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       final Options resourceOptions = OptionsFactory.createOptions(options, options());
-      final List<JsonResourceSession> sessions;
-      synchronized (database) {
-        synchronized (database.getResourceLifecycleLock()) {
-          final int initialSize = database.listResources().size();
-          final List<ResourceConfiguration> configurations = new ArrayList<>(sources.size());
-          for (int i = 0; i < sources.size(); i++) {
-            final String resourceName = "resource" + (initialSize + i + 1);
-            if (database.existsResource(resourceName)) {
-              throw new IllegalStateException("Resource already exists: " + resourceName);
-            }
-            configurations.add(ResourceConfigurations.create(resourceName, resourceOptions));
-          }
-          sessions = MutationAuthorization.prepareResources(database, collName, configurations);
-        }
+      int numberOfResources = database.listResources().size();
+      final var resourceNames = new ArrayList<String>(jsonReaders.size());
+      final var partitions = new ArrayList<Callable<JsonReader>>(jsonReaders.size());
+      for (final var jsonReader : jsonReaders) {
+        resourceNames.add("resource" + (++numberOfResources));
+        partitions.add(() -> jsonReader);
       }
-      ParallelJsonShredder.shredPrepared(database, sessions, sources, numberOfNodesBeforeAutoCommit, 0);
-      try {
-        if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-          for (final JsonResourceSession session : sessions) {
-            try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-              ValidTimeIndexes.createValidTimeIndexesIfConfigured(session, wtx, collName);
-              wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-            }
-          }
-        }
-      } finally {
-        for (final JsonResourceSession session : sessions) {
-          session.close();
+      // Hardened concurrent fan-out: all-or-nothing rollback + fail-fast collision check + bounded
+      // pool, shared with the single-resource parallel shredder. Replaces a raw CompletableFuture
+      // join that left a half-created database on any partition failure.
+      ParallelJsonShredder.shred(database, resourceNames, partitions,
+          name -> ResourceConfigurations.create(name, resourceOptions), numberOfNodesBeforeAutoCommit, 0);
+      // The parallel shredder commits internally, so the valid-time interval index is created in a
+      // follow-up revision per resource (builder pass over the shredded data + change listener).
+      if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+        for (final String resourceName : resourceNames) {
+          createValidTimeIndexInOwnRevision(database, resourceName, collName, resourceOptions);
         }
       }
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
@@ -991,56 +967,47 @@ public final class BasicJsonDBStore implements JsonDBStore {
     if (jsonStrings == null) {
       return null;
     }
-    final List<String> inputs = new ArrayList<>();
-    try (jsonStrings) {
-      Str string;
-      while ((string = jsonStrings.next()) != null) {
-        final String value = string.stringValue();
-        if (value != null && !value.isEmpty()) {
-          inputs.add(value);
-        }
-      }
-    }
+
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      final var database = createDatabase(collName, dbConf);
+      createDatabase(collName, dbConf);
+      final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
+      // Resolve the options ONCE for all resources of this call.
       final Options resourceOptions = OptionsFactory.createOptions(options, options());
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       addDatabase(collection, database);
-      final List<JsonResourceSession> sessions;
-      synchronized (database) {
-        synchronized (database.getResourceLifecycleLock()) {
-          final int initialSize = database.listResources().size();
-          final List<ResourceConfiguration> configurations = new ArrayList<>(inputs.size());
-          for (int i = 0; i < inputs.size(); i++) {
-            configurations.add(ResourceConfigurations.create("resource" + (initialSize + i + 1), resourceOptions));
+      int i = database.listResources().size() + 1;
+      try (jsonStrings) {
+        Str string;
+        while ((string = jsonStrings.next()) != null) {
+          final String currentString = string.stringValue();
+          if (currentString == null || currentString.isEmpty()) {
+            continue;
           }
-          sessions = MutationAuthorization.prepareResources(database, collName, configurations);
-        }
-      }
-      try {
-        for (int i = 0; i < inputs.size(); i++) {
-          try (final JsonReader reader = JsonShredder.createStringReader(inputs.get(i));
-              final JsonNodeTrx wtx = beginImportTrx(sessions.get(i))) {
-            wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-            if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-              ValidTimeIndexes.createValidTimeIndexesIfConfigured(sessions.get(i), wtx, collName);
-            }
-            wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-          }
-        }
-      } finally {
-        for (final JsonResourceSession session : sessions) {
-          session.close();
+          final String resourceName = "resource" + i;
+          createResource(collName, database, JsonShredder.createStringReader(currentString), resourceName,
+              resourceOptions);
+          i++;
         }
       }
       return collection;
-    } catch (final IOException e) {
-      throw new DocumentException(e);
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e.getCause());
+    }
+  }
+
+  private void createResource(String collName, final Database<JsonResourceSession> database, final JsonReader reader,
+      final String resourceName, final Options resourceOptions) {
+    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
+    try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+        final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
+      wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+      if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+        ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, collName);
+      }
+      wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
     }
   }
 
@@ -1049,15 +1016,41 @@ public final class BasicJsonDBStore implements JsonDBStore {
     if (paths == null) {
       return null;
     }
-    final List<Callable<JsonReader>> sources = new ArrayList<>();
-    try (paths) {
-      Path path;
-      while ((path = paths.next()) != null) {
-        final Path source = path;
-        sources.add(() -> JsonShredder.createFileReader(source));
+
+    final Path dbPath = resolveForCreate(location.resolve(collName));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
+    try {
+      createDatabase(collName, dbConf);
+      final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
+      databases.add(database);
+      int numberOfResources = database.listResources().size();
+      final var resourceNames = new ArrayList<String>();
+      final var partitions = new ArrayList<Callable<JsonReader>>();
+      try (paths) {
+        Path path;
+        while ((path = paths.next()) != null) {
+          final Path currentPath = path;
+          resourceNames.add("resource" + (++numberOfResources));
+          // Reader opened lazily on the worker thread and closed by the shredder.
+          partitions.add(() -> JsonShredder.createFileReader(currentPath));
+        }
       }
+      // Hardened concurrent fan-out: all-or-nothing rollback + bounded pool, shared with the
+      // single-resource parallel shredder. Replaces a raw CompletableFuture join that left a
+      // half-created database on any partition failure (and never closed the file readers).
+      final Options resourceOptions = options();
+      ParallelJsonShredder.shred(database, resourceNames, partitions,
+          name -> ResourceConfigurations.create(name, resourceOptions), numberOfNodesBeforeAutoCommit, 0);
+      final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
+      addDatabase(collection, database);
+      return collection;
+    } catch (final SirixRuntimeException e) {
+      throw new DocumentException(e.getCause());
+    } catch (final SirixException e) {
+      throw new DocumentException(e.getCause() != null
+          ? e.getCause()
+          : e);
     }
-    return createFromSources(collName, sources, new ArrayObject(new QNm[0], new Sequence[0]));
   }
 
   private Path databasePath(final String name) {
@@ -1091,16 +1084,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
-  private Database<JsonResourceSession> createDatabase(final String name, final DatabaseConfiguration configuration) {
-    Database<JsonResourceSession> database = Databases.createAndOpenJsonDatabase(configuration);
-    if (database == null) {
+  private void createDatabase(final String name, final DatabaseConfiguration configuration) {
+    if (!Databases.createJsonDatabase(configuration)) {
       removeIfExisting(name, configuration);
-      database = Databases.createAndOpenJsonDatabase(configuration);
-      if (database == null) {
+      if (!Databases.createJsonDatabase(configuration)) {
         throw new DocumentException("Could not create document with name %s", name);
       }
     }
-    return database;
   }
 
   private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {

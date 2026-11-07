@@ -27,9 +27,10 @@ import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
 
 /**
  * <p>
@@ -144,15 +145,22 @@ public final class Store extends AbstractFunction {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     } else if (nodes instanceof FunctionConversionSequence seq) {
-      final List<Callable<JsonReader>> sources = new ArrayList<>();
+      final List<JsonReader> readers = new ArrayList<>();
       try (final Iter iter = seq.iterate()) {
         for (Item item; (item = iter.next()) != null;) {
-          final String source = ((Str) item).stringValue();
-          sources.add(() -> JsonShredder.createStringReader(source));
+          readers.add(JsonShredder.createStringReader(((Str) item).stringValue()));
         }
-        collection.addAllSources(sources, options);
+        collection.addAll(readers, options);
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
+      } finally {
+        for (final JsonReader reader : readers) {
+          try {
+            reader.close();
+          } catch (final IOException e) {
+            throw new UncheckedIOException(e);
+          }
+        }
       }
     }
   }

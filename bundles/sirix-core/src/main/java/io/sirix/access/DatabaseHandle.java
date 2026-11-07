@@ -8,7 +8,6 @@ import io.sirix.api.Transaction;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
-import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -31,11 +30,6 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
       throw new IllegalStateException("Database handle is closing or already closed.");
     }
     return owner.database;
-  }
-
-  @Override
-  public Object getResourceLifecycleLock() {
-    return owner.localDatabase;
   }
 
   @Override
@@ -63,18 +57,6 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   public synchronized T beginResourceSession(final String resourceName) {
     database();
     return owner.localDatabase.beginUserResourceSession(resourceName, resourceStore);
-  }
-
-  @Override
-  public synchronized @Nullable T getOpenResourceSession(final String resourceName) {
-    database();
-    final String canonicalName = owner.localDatabase.canonicalResourceName(resourceName);
-    if (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
-      throw new SirixUsageException("Derived resources are internal: " + canonicalName);
-    }
-    final Path resourcePath = getDatabaseConfig().getDatabaseFile()
-        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
-    return resourceStore.getOpenResourceSession(resourcePath);
   }
 
   @Override

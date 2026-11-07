@@ -240,16 +240,6 @@ public final class Databases {
     return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.JSON));
   }
 
-  public static synchronized @Nullable Database<JsonResourceSession> createAndOpenJsonDatabase(
-      final DatabaseConfiguration configuration) {
-    return createJsonDatabase(configuration) ? openJsonDatabase(configuration.getDatabaseFile()) : null;
-  }
-
-  public static synchronized @Nullable Database<XmlResourceSession> createAndOpenXmlDatabase(
-      final DatabaseConfiguration configuration) {
-    return createXmlDatabase(configuration) ? openXmlDatabase(configuration.getDatabaseFile()) : null;
-  }
-
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     requireNonNull(dbConfig);
     ResourceAccessScope.checkDatabase(dbConfig.getDatabaseFile(), true);

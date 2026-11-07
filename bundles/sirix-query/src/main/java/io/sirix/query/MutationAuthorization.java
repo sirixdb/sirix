@@ -2,14 +2,6 @@ package io.sirix.query;
 
 import io.brackit.query.QueryContext;
 import io.brackit.query.jdm.Item;
-import io.brackit.query.jdm.DocumentException;
-import io.sirix.access.ResourceConfiguration;
-import io.sirix.api.Database;
-import io.sirix.api.ResourceSession;
-import io.sirix.api.NodeReadOnlyTrx;
-import io.sirix.api.NodeTrx;
-import java.util.ArrayList;
-import java.util.List;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.node.XmlDBNode;
 import java.util.Objects;
@@ -51,63 +43,6 @@ public final class MutationAuthorization {
         AUTHORIZER.get().authorizeWrite(databaseName, resourceName);
       } else {
         AUTHORIZER.get().authorizeCreate(databaseName, resourceName);
-      }
-    }
-  }
-
-  /**
-   * Resolve and authorize the entire resource set under the storage lifecycle monitor before
-   * creating anything. The returned sessions retain those identities through each caller's final
-   * commit, so removal cannot substitute another resource while an input is being read. Sessions
-   * belong to the database handle and must not be closed by callers borrowing an existing session.
-   */
-  public static <T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> List<T> prepareResources(
-      final Database<T> database, final String databaseName, final List<ResourceConfiguration> configurations) {
-    Objects.requireNonNull(database);
-    Objects.requireNonNull(databaseName);
-    Objects.requireNonNull(configurations);
-    synchronized (database) {
-      synchronized (database.getResourceLifecycleLock()) {
-        for (final ResourceConfiguration configuration : configurations) {
-          requireStore(databaseName, configuration.getName(), database.existsResource(configuration.getName()));
-        }
-        final List<T> sessions = new ArrayList<>(configurations.size());
-        final boolean[] acquired = new boolean[configurations.size()];
-        final List<String> created = new ArrayList<>(configurations.size());
-        try {
-          for (final ResourceConfiguration configuration : configurations) {
-            final String resourceName = configuration.getName();
-            if (!database.existsResource(resourceName)) {
-              if (!database.createResource(configuration)) {
-                throw new DocumentException("Could not create resource %s", resourceName);
-              }
-              created.add(resourceName);
-            }
-            final T existing = database.getOpenResourceSession(resourceName);
-            final T session = database.beginResourceSession(resourceName);
-            acquired[sessions.size()] = existing == null;
-            sessions.add(session);
-          }
-        } catch (final RuntimeException | Error failure) {
-          for (int i = sessions.size() - 1; i >= 0; i--) {
-            if (acquired[i]) {
-              try {
-                sessions.get(i).close();
-              } catch (final RuntimeException | Error closeFailure) {
-                failure.addSuppressed(closeFailure);
-              }
-            }
-          }
-          for (int i = created.size() - 1; i >= 0; i--) {
-            try {
-              database.removeResource(created.get(i));
-            } catch (final RuntimeException | Error removeFailure) {
-              failure.addSuppressed(removeFailure);
-            }
-          }
-          throw failure;
-        }
-        return sessions;
       }
     }
   }

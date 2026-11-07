@@ -5,7 +5,6 @@ import io.brackit.query.jdm.Stream;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.DatabaseConfiguration;
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceAccessScope;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.access.Databases;
@@ -26,7 +25,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -326,14 +324,14 @@ public final class BasicXmlDBStore implements XmlDBStore {
   public XmlDBCollection create(final String name) {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
     try {
-      final var database = Databases.createAndOpenXmlDatabase(dbConf);
-      if (database == null) {
+      if (!Databases.createXmlDatabase(dbConf)) {
         if (Databases.existsDatabase(dbConf.getDatabaseFile())) {
           throw new DocumentException("Document with name %s exists!", name);
         }
         throw new DocumentException("Could not create document with name %s", name);
       }
 
+      final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
       databases.add(database);
 
       final XmlDBCollection collection = new XmlDBCollectionImpl(name, database, resourceOptions);
@@ -371,17 +369,17 @@ public final class BasicXmlDBStore implements XmlDBStore {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      final var database = createDatabase(collName, dbConf);
+      createDatabase(collName, dbConf);
+      final var database = Databases.openXmlDatabase(dbPath);
       databases.add(database);
       final String resName = optResName != null
           ? optResName
           : "resource" + (database.listResources().size() + 1);
-      final XmlResourceSession preparedSession = MutationAuthorization.prepareResources(database, collName,
-          List.of(resourceOptions.create(resName, commitTimestamp))).getFirst();
+      database.createResource(resourceOptions.create(resName, commitTimestamp));
       final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database, resourceOptions);
       collections.put(database, collection);
 
-      try (final XmlResourceSession resourceSession = preparedSession;
+      try (final XmlResourceSession resourceSession = database.beginResourceSession(resName);
           final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
         wtx.commit(commitMessage, commitTimestamp);
@@ -402,35 +400,25 @@ public final class BasicXmlDBStore implements XmlDBStore {
     if (parsers == null) {
       return null;
     }
-    try (parsers) {
-      final List<NodeSubtreeParser> inputs = new ArrayList<>();
-      NodeSubtreeParser parser;
-      while ((parser = parsers.next()) != null) {
-        inputs.add(parser);
-      }
-      final Path dbPath = resolveForCreate(location.resolve(collName));
-      final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-      final var database = createDatabase(collName, dbConf);
+    final Path dbPath = resolveForCreate(location.resolve(collName));
+    final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
+    try {
+      createDatabase(collName, dbConf);
+      final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database, resourceOptions);
       final var imports = new ArrayList<Future<?>>();
-      final List<XmlResourceSession> sessions;
-      synchronized (database) {
-        synchronized (database.getResourceLifecycleLock()) {
-          final int initialSize = database.listResources().size();
-          final List<ResourceConfiguration> configurations = new ArrayList<>(inputs.size());
-          for (int i = 0; i < inputs.size(); i++) {
-            configurations.add(resourceOptions.create("resource" + (initialSize + i + 1), null));
-          }
-          sessions = MutationAuthorization.prepareResources(database, collName, configurations);
-        }
-      }
-      try (final ExecutorService importPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())) {
-        for (int i = 0; i < inputs.size(); i++) {
-          final NodeSubtreeParser nextParser = inputs.get(i);
-          final XmlResourceSession preparedSession = sessions.get(i);
+      int i = database.listResources().size() + 1;
+      // Resources close in reverse order: workers must finish before their source stream closes.
+      try (parsers;
+          final ExecutorService importPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())) {
+        NodeSubtreeParser parser;
+        while ((parser = parsers.next()) != null) {
+          final NodeSubtreeParser nextParser = parser;
+          final String resourceName = "resource" + i++;
           imports.add(importPool.submit(() -> {
-            try (final XmlResourceSession resourceSession = preparedSession;
+            database.createResource(resourceOptions.create(resourceName, null));
+            try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
                 final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
               nextParser.parse(
                   new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
@@ -447,10 +435,6 @@ public final class BasicXmlDBStore implements XmlDBStore {
           // Executor close observes this flag and interrupts the workers before draining them.
           Thread.currentThread().interrupt();
           throw new DocumentException(e);
-        }
-      } finally {
-        for (final XmlResourceSession session : sessions) {
-          session.close();
         }
       }
       collections.put(database, collection);
@@ -483,16 +467,13 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
   }
 
-  private Database<XmlResourceSession> createDatabase(final String name, final DatabaseConfiguration configuration) {
-    Database<XmlResourceSession> database = Databases.createAndOpenXmlDatabase(configuration);
-    if (database == null) {
+  private void createDatabase(final String name, final DatabaseConfiguration configuration) {
+    if (!Databases.createXmlDatabase(configuration)) {
       removeIfExisting(name, configuration);
-      database = Databases.createAndOpenXmlDatabase(configuration);
-      if (database == null) {
+      if (!Databases.createXmlDatabase(configuration)) {
         throw new DocumentException("Could not create document with name %s", name);
       }
     }
-    return database;
   }
 
   private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {

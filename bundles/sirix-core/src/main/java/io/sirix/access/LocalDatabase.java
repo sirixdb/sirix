@@ -141,20 +141,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   @Override
-  public Object getResourceLifecycleLock() {
-    return this;
-  }
-
-  @Override
-  public synchronized @Nullable T getOpenResourceSession(final String resourceName) {
-    assertNotClosed();
-    final String canonicalName = canonicalResourceName(resourceName);
-    final Path resourcePath = dbConfig.getDatabaseFile()
-        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
-    return resourceStore.getOpenResourceSession(resourcePath);
-  }
-
-  @Override
   public synchronized T beginResourceSession(final String resourceName) {
     assertNotClosed();
     final String canonicalName = canonicalResourceName(resourceName);

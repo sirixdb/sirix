@@ -25,7 +25,6 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
-import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -53,9 +52,6 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
    * @return {@code true}, if it's open, {@code false} otherwise
    */
   boolean isOpen();
-
-  /** The storage monitor used by resource removal. Acquire the database handle before this monitor. */
-  Object getResourceLifecycleLock();
 
   /**
    * Creation of a resource. Since databases can consist out of several resources, those can be
@@ -96,8 +92,6 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
    * @throws SirixException if can't open resource session
    */
   T beginResourceSession(String resourceName);
-
-  @Nullable T getOpenResourceSession(String resourceName);
 
   /**
    * Truncating a resource. This includes the removal of all data stored within this resource.

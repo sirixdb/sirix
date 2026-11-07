@@ -2,10 +2,6 @@ package io.sirix.query.json;
 
 import com.google.gson.stream.JsonReader;
 import io.brackit.query.node.stream.ArrayStream;
-import io.brackit.query.atomic.QNm;
-import io.brackit.query.jdm.Sequence;
-import io.brackit.query.jsonitem.object.ArrayObject;
-import io.sirix.service.json.serialize.JsonSerializer;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.access.DatabaseConfiguration;
@@ -17,7 +13,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.jspecify.annotations.Nullable;
 
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -33,15 +28,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -179,73 +171,6 @@ class BasicJsonDBStoreTest {
     assertEquals(2, collection.getDatabase().listResources().size());
     assertEquals(Set.of("[1,2,3]", "{\"k\":\"v\"}"),
         Set.of(serialize(collection, "resource1"), serialize(collection, "resource2")));
-  }
-
-  @Test
-  void timedOutParallelLoadRetainsItsLiveWorkersSessions() throws Exception {
-    final BasicJsonDBStore store = builder.build();
-    this.store = store;
-    final CountDownLatch reading = new CountDownLatch(1);
-    final CountDownLatch cancelled = new CountDownLatch(1);
-    final CountDownLatch release = new CountDownLatch(1);
-    final CountDownLatch readerClosed = new CountDownLatch(1);
-    final AtomicReference<Throwable> failure = new AtomicReference<>();
-    final AtomicBoolean interrupted = new AtomicBoolean();
-    final Thread caller = new Thread(() -> {
-      try {
-        store.createFromSources("blocked", List.of(() -> new JsonReader(new StringReader("[1]") {
-          @Override
-          public int read(final char[] buffer, final int offset, final int length) throws IOException {
-            reading.countDown();
-            boolean released = false;
-            while (!released) {
-              try {
-                release.await();
-                released = true;
-              } catch (final InterruptedException ignored) {
-                cancelled.countDown();
-              }
-            }
-            return super.read(buffer, offset, length);
-          }
-
-          @Override
-          public void close() {
-            super.close();
-            readerClosed.countDown();
-          }
-        }), () -> new JsonReader(new StringReader("[2]"))), new ArrayObject(new QNm[0], new Sequence[0]));
-      } catch (final Throwable error) {
-        failure.set(error);
-      } finally {
-        interrupted.set(Thread.currentThread().isInterrupted());
-      }
-    }, "blocked-parallel-store");
-    caller.start();
-    try {
-      assertTrue(reading.await(10, TimeUnit.SECONDS));
-      caller.interrupt();
-      assertTrue(cancelled.await(10, TimeUnit.SECONDS));
-      caller.join(TimeUnit.SECONDS.toMillis(75));
-      assertFalse(caller.isAlive(), "bounded shutdown must return while the input remains blocked");
-      assertInstanceOf(RuntimeException.class, failure.get());
-      assertTrue(interrupted.get());
-      try (final var observer = Databases.openJsonDatabase(jsonTestDir.resolve("blocked"))) {
-        assertTrue(observer.existsResource("resource1"));
-        assertThrows(IllegalStateException.class, () -> observer.removeResource("resource1"));
-      }
-    } finally {
-      release.countDown();
-      caller.join(TimeUnit.SECONDS.toMillis(10));
-      assertTrue(readerClosed.await(10, TimeUnit.SECONDS));
-    }
-    try (final var observer = Databases.openJsonDatabase(jsonTestDir.resolve("blocked"));
-        final var session = observer.beginResourceSession("resource1")) {
-      final StringWriter output = new StringWriter();
-      new JsonSerializer.Builder(session, output).build().call();
-      assertEquals("[1]", output.toString());
-      assertEquals(1, session.getMostRecentRevisionNumber());
-    }
   }
 
   private static String serialize(JsonDBCollection collection, String resourceName) {
