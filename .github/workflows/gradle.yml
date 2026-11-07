@@ -204,7 +204,9 @@ jobs:
     name: Test sirix-rest-api + Python client
     needs: Build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30 rather than 20 minutes: this job now also runs the module's own JVM test suite, which
+    # brings up its Keycloak container before the Python client brings up its own.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -224,6 +226,22 @@ jobs:
           path: |
             **/build
           key: build-${{ github.run_id }}
+      # Before these steps no CI job ran this module's JVM tests at all: `Build` only compiles its
+      # test classes, this job only exercised the packaged server through the Python client,
+      # sonarqube.yml passes `-x :sirix-rest-api:test`, and the cross-platform lanes exclude the
+      # module. A stale assertion in PermissionCheckingQueryTest therefore survived #1297 — which
+      # moved temporal aggregate columns into the hidden derived resource — for 40 commits.
+      # `test` gates the whole module and tears its own compose project down before the Python step starts
+      # the root one (both publish Keycloak on host port 8080, so they must not overlap).
+      - name: Test sirix-rest-api (Keycloak via Docker Compose)
+        run: ./gradlew :sirix-rest-api:test --info --stacktrace
+      - name: Upload REST API test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-sirix-rest-api
+          path: 'bundles/sirix-rest-api/build/reports/tests'
+          retention-days: 14
       - name: Checkout Python client
         uses: actions/checkout@v4
         with:
