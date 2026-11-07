@@ -27,7 +27,10 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
             return ctx.currentRoute()
         }
 
-        ctx.request().pause()
+        // A BodyHandler may already have consumed a POST query before authentication runs.
+        // Vert.x rejects pausing an ended request; only streaming bodies need pausing here.
+        val pauseRequest = !ctx.request().isEnded
+        if (pauseRequest) ctx.request().pause()
         val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
 
         if (token == null || !token.regionMatches(0, BEARER_PREFIX, 0, BEARER_PREFIX.length, ignoreCase = true)) {
@@ -60,7 +63,7 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
 
         ctx.put("user", user)
 
-        ctx.request().resume()
+        if (pauseRequest) ctx.request().resume()
         return ctx.currentRoute()
     }
 

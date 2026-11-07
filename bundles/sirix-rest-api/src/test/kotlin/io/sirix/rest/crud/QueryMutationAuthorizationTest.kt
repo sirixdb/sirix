@@ -19,6 +19,7 @@ import io.sirix.index.IndexType
 import io.sirix.index.aggregate.TemporalAggregateDeclarations
 import io.sirix.index.projection.ProjectionIndexHOTStorage
 import io.sirix.io.StorageType
+import io.sirix.query.JsonDBSerializer
 import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.BasicJsonDBStore
@@ -27,6 +28,7 @@ import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.sirix.service.json.shredder.JsonShredder
 import io.vertx.core.Future
+import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.Authorization
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -109,7 +111,8 @@ class QueryMutationAuthorizationTest {
                 if (indexType == IndexType.PROJECTION && delta == -1) {
                     expected[IndexType.TEMPORAL_AGGREGATE] = 0
                 }
-                run(fixture, query, keycloak)
+                val results = JsonObject(run(fixture, query, keycloak)).getJsonArray("rest")
+                assertEquals(1, results.size(), "An authorized DDL call must return its JSON result: $query")
                 session.nodeTrx.orElseThrow().use { writer ->
                     val after = session.getWtxIndexController<JsonIndexController>(writer.revisionNumber).indexes
                     for (type in IndexType.entries) {
@@ -285,19 +288,13 @@ class QueryMutationAuthorizationTest {
     }
 
     /**
-     * A mutation is refused in one of two shapes, both of which the REST layer maps to a status
-     * code: the store decorator throws [HttpException] 403, and [PermissionCheckingQuery]'s
-     * updating-expression check throws [IllegalStateException] naming 401. Either is a refusal; a
-     * query exception from the function's own validation is not.
+     * Both the store decorator and [PermissionCheckingQuery]'s updating-expression check refuse
+     * mutations with [HttpException] 403. A query validation error is not an authorization refusal.
      */
     private fun refusalOrNull(throwable: Throwable): String? {
         var cause: Throwable? = throwable
         while (cause != null) {
             if (cause is HttpException && cause.statusCode == 403) return "HttpException 403"
-            val message = cause.message
-            if (cause is IllegalStateException && message != null && message.contains("not allowed to modify")) {
-                return "IllegalStateException 401"
-            }
             cause = cause.cause
         }
         return null
@@ -439,11 +436,9 @@ class QueryMutationAuthorizationTest {
     }
 
     private fun run(fixture: Fixture, query: String, keycloak: OAuth2Auth): String {
-        val output = StringWriter()
-        val writer = PrintWriter(output)
+        val output = StringBuilder()
         val checked = PermissionCheckingQuery(fixture.chain, query, keycloak, fixture.user, fixture.authz)
-        StringSerializer(writer).use { it.serialize(checked.execute(fixture.context)) }
-        writer.flush()
+        checked.serialize(fixture.context, JsonDBSerializer(output, false))
         return output.toString().trim()
     }
 }

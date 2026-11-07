@@ -28,6 +28,7 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.handler.HttpException
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
@@ -83,10 +84,10 @@ class PermissionCheckingQueryTest {
                             if (modify) {
                                 run(mode, chain, context, query, keycloak, authz, user)
                             } else {
-                                val failure = assertThrows(IllegalStateException::class.java) {
+                                val failure = assertThrows(HttpException::class.java) {
                                     run(mode, chain, context, query, keycloak, authz, user)
                                 }
-                                assertTrue(failure.message!!.contains("not allowed to modify"))
+                                assertEquals(403, failure.statusCode)
                                 // The aggregate columns the refused DDL would have touched, unchanged.
                                 if (before != null) {
                                     assertArrayEquals(before, DerivedAggregateWitness.header(session))
@@ -185,10 +186,10 @@ class PermissionCheckingQueryTest {
                             if (!wrapped) writer.commit()
                             writer.close()
                         } else {
-                            val failure = assertThrows(IllegalStateException::class.java) {
+                            val failure = assertThrows(HttpException::class.java) {
                                 run(mode, chain, context, query, keycloak, authz, user)
                             }
-                            assertTrue(failure.message!!.contains("not allowed to modify"))
+                            assertEquals(403, failure.statusCode)
                             assertTrue(session.nodeTrx.isEmpty)
                             assertEquals(1, session.mostRecentRevisionNumber)
                         }
