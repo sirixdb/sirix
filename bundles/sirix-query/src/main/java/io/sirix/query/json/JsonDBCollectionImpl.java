@@ -10,6 +10,7 @@ import io.brackit.query.jsonitem.AbstractJsonItemCollection;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.node.stream.ArrayStream;
 import io.sirix.api.Database;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -24,6 +25,8 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.Objects.requireNonNull;
@@ -251,19 +254,53 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   }
 
   public JsonDBItem add(final String resourceName, final JsonReader reader, final Object options) {
-    try {
-      String resName = resourceName;
+    final String resolvedName;
+    final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+    synchronized (database.getDatabaseConfig()) {
+      resolvedName = database.existsResource(resourceName) ? resourceName + "1" : resourceName;
+      prepareResource(resolvedName, resourceOptions);
+    }
+    return writeResource(resolvedName, reader, resourceOptions);
+  }
+
+  @Override
+  public void addAll(final List<JsonReader> readers, final Object options) {
+    requireNonNull(readers);
+    requireNonNull(options);
+    final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+    final String[] names = new String[readers.size()];
+    synchronized (database.getDatabaseConfig()) {
+      final Set<String> resources = new HashSet<>();
       for (final Path resource : database.listResources()) {
-        final String existingResourceName = resource.getFileName().toString();
-        if (existingResourceName.equals(resourceName)) {
-          resName = existingResourceName + "1";
-          break;
-        }
+        resources.add(resource.getFileName().toString());
       }
+      final int initialSize = resources.size();
+      for (int i = 0; i < names.length; i++) {
+        requireNonNull(readers.get(i));
+        final String requested = "resource" + (initialSize + i);
+        final String resolved = resources.contains(requested) ? requested + "1" : requested;
+        MutationAuthorization.requireStore(name, resolved, resources.contains(resolved));
+        names[i] = resolved;
+        resources.add(resolved);
+      }
+      for (final String resourceName : names) {
+        prepareResource(resourceName, resourceOptions);
+      }
+    }
+    for (int i = 0; i < names.length; i++) {
+      writeResource(names[i], readers.get(i), resourceOptions);
+    }
+  }
 
-      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+  private void prepareResource(final String resourceName, final Options resourceOptions) {
+    MutationAuthorization.requireStore(name, resourceName, database.existsResource(resourceName));
+    if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
+      MutationAuthorization.requireStore(name, resourceName, true);
+    }
+  }
 
-      database.createResource(ResourceConfigurations.create(resName, resourceOptions));
+  private JsonDBItem writeResource(final String resName, final JsonReader reader, final Options resourceOptions) {
+    try {
       final JsonResourceSession resourceSession = database.beginResourceSession(resName);
       try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
@@ -350,37 +387,14 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
     return add(JsonShredder.createStringReader(json), new ArrayObject(new QNm[0], new Sequence[0]));
   }
 
-  @SuppressWarnings("SameParameterValue")
   private JsonDBItem add(final JsonReader reader, final Object options) {
-    try {
-
-      final String resourceName = "resource" + (database.listResources().size() + 1);
-      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-
-      database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
-      final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-      try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-          ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, name);
-        }
-        wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-      } catch (final Exception e) {
-        resourceSession.close();
-        throw e;
-      }
-
-      try {
-        final JsonNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx();
-        return getItem(rtx);
-      } catch (final Exception e) {
-        resourceSession.close();
-        throw e;
-      }
-    } catch (final SirixException e) {
-      LOG_WRAPPER.error(e.getMessage(), e);
-      return null;
+    final String resourceName;
+    final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+    synchronized (database.getDatabaseConfig()) {
+      resourceName = "resource" + (database.listResources().size() + 1);
+      prepareResource(resourceName, resourceOptions);
     }
+    return writeResource(resourceName, reader, resourceOptions);
   }
 
   @Override

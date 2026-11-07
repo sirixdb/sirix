@@ -91,9 +91,10 @@ internal fun routerFailureHandler(): Handler<RoutingContext> = Handler { failure
     // (only HttpException carries its own code), so a blanket "statusCode > 0 wins" rule made
     // the type-based client-error branches below unreachable and every QueryException /
     // IllegalArgumentException surfaced as a 500. An explicit non-500 code still wins.
+    val httpFailure = generateSequence(failure) { it.cause }.filterIsInstance<HttpException>().firstOrNull()
     val resolvedStatus = when {
         statusCode > 0 && statusCode != HttpResponseStatus.INTERNAL_SERVER_ERROR.code() -> statusCode
-        failure is HttpException -> failure.statusCode
+        httpFailure != null -> httpFailure.statusCode
         // A query evaluation/type error (err:XPTY..., err:XQDY..., FO...) is a CLIENT
         // error: the query came from the request. Masking it as a generic 500 hid the
         // actionable message (e.g. "array() expected" for an object-rooted resource).
@@ -108,7 +109,7 @@ internal fun routerFailureHandler(): Handler<RoutingContext> = Handler { failure
 
     // Return a safe error message without internal details
     val safeMessage = when {
-        failure is HttpException && failure.payload != null -> failure.payload
+        httpFailure != null -> httpFailure.payload ?: HttpResponseStatus.valueOf(resolvedStatus).reasonPhrase()
         failure is QueryException -> failure.message ?: "Query error"
         failure is IllegalArgumentException -> failure.message ?: "Bad request"
         resolvedStatus == 404 -> "Not found"

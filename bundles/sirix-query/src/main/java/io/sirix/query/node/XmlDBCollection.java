@@ -8,6 +8,7 @@ import io.sirix.api.Database;
 import io.sirix.api.xml.XmlResourceSession;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * An XML database collection backed by a Sirix {@link Database}.
@@ -86,6 +87,8 @@ public interface XmlDBCollection extends TemporalNodeCollection<AbstractTemporal
 
   @Override
   XmlDBNode add(NodeSubtreeParser parser);
+
+  void addAll(List<NodeSubtreeParser> parsers);
 
   @Override
   void close();

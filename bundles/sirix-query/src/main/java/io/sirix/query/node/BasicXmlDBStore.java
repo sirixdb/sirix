@@ -6,6 +6,7 @@ import io.brackit.query.node.parser.NodeSubtreeParser;
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceAccessScope;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.access.Databases;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
@@ -368,8 +369,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
-      Databases.createXmlDatabase(dbConf);
+      createDatabase(collName, dbConf);
       final var database = Databases.openXmlDatabase(dbPath);
       databases.add(database);
       final String resName = optResName != null
@@ -403,8 +403,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(dbConf);
-      Databases.createXmlDatabase(dbConf);
+      createDatabase(collName, dbConf);
       final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database, resourceOptions);
@@ -463,13 +462,23 @@ public final class BasicXmlDBStore implements XmlDBStore {
   public void drop(final String name) {
     final Path dbPath = databasePath(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
-    if (!removeIfExisting(dbConfig)) {
+    if (!removeIfExisting(name, dbConfig)) {
       throw new DocumentException("No collection with the specified name found!");
     }
   }
 
-  private boolean removeIfExisting(final DatabaseConfiguration dbConfig) {
+  private void createDatabase(final String name, final DatabaseConfiguration configuration) {
+    if (!Databases.createXmlDatabase(configuration)) {
+      removeIfExisting(name, configuration);
+      if (!Databases.createXmlDatabase(configuration)) {
+        throw new DocumentException("Could not create document with name %s", name);
+      }
+    }
+  }
+
+  private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
     if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
+      MutationAuthorization.requireDelete(name);
       try {
         final Predicate<Database<XmlResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
             || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());

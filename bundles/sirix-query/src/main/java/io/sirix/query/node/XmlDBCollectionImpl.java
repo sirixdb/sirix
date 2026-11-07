@@ -11,6 +11,7 @@ import io.brackit.query.node.stream.ArrayStream;
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.Databases;
 import io.sirix.api.Database;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
@@ -26,6 +27,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -289,9 +292,48 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
     }
   }
 
-  private XmlDBNode createResource(NodeSubtreeParser parser, final String resourceName, final String commitMessage,
-      final Instant commitTimestamp) {
-    database.createResource(resourceOptions.create(resourceName, commitTimestamp));
+  @Override
+  public void addAll(final List<NodeSubtreeParser> parsers) {
+    requireNonNull(parsers);
+    final String[] names = new String[parsers.size()];
+    synchronized (database.getDatabaseConfig()) {
+      final Set<String> resources = new HashSet<>();
+      for (final Path resource : database.listResources()) {
+        resources.add(resource.getFileName().toString());
+      }
+      for (int i = 0; i < names.length; i++) {
+        requireNonNull(parsers.get(i));
+        final String resourceName = "resource" + (resources.size() + 1);
+        MutationAuthorization.requireStore(getName(), resourceName, resources.contains(resourceName));
+        names[i] = resourceName;
+        resources.add(resourceName);
+      }
+      for (final String resourceName : names) {
+        prepareResource(resourceName, null);
+      }
+    }
+    for (int i = 0; i < names.length; i++) {
+      writeResource(parsers.get(i), names[i], null, null).getTrx().close();
+    }
+  }
+
+  private void prepareResource(final String resourceName, final Instant commitTimestamp) {
+    MutationAuthorization.requireStore(getName(), resourceName, database.existsResource(resourceName));
+    if (!database.createResource(resourceOptions.create(resourceName, commitTimestamp))) {
+      MutationAuthorization.requireStore(getName(), resourceName, true);
+    }
+  }
+
+  private XmlDBNode createResource(final NodeSubtreeParser parser, final String resourceName,
+      final String commitMessage, final Instant commitTimestamp) {
+    synchronized (database.getDatabaseConfig()) {
+      prepareResource(resourceName, commitTimestamp);
+    }
+    return writeResource(parser, resourceName, commitMessage, commitTimestamp);
+  }
+
+  private XmlDBNode writeResource(NodeSubtreeParser parser, final String resourceName,
+      final String commitMessage, final Instant commitTimestamp) {
     final XmlResourceSession resource = database.beginResourceSession(resourceName);
     final XmlNodeTrx wtx;
     try {

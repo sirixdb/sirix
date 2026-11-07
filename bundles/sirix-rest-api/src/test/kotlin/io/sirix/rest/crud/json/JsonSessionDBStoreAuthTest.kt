@@ -2,6 +2,12 @@ package io.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import io.brackit.query.atomic.Str
+import io.brackit.query.node.stream.ArrayStream
+import io.brackit.query.jsonitem.`object`.ArrayObject
+import io.brackit.query.atomic.QNm
+import io.brackit.query.jdm.Sequence
+import io.sirix.query.json.BasicJsonDBStore
+import io.sirix.io.StorageType
 import io.brackit.query.jdm.Stream
 import io.brackit.query.jdm.json.Object
 import io.sirix.query.json.JsonDBCollection
@@ -21,6 +27,8 @@ import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito
 import java.nio.file.Path
+import java.nio.file.Files
+import org.junit.jupiter.api.io.TempDir
 
 /**
  * Offline regression tests for #1070: the REST query endpoint runs under the VIEW role and injects
@@ -35,6 +43,9 @@ import java.nio.file.Path
 @Tag("offline")
 @DisplayName("JSON REST session store rejects a VIEW token on every write path (#1070)")
 class JsonSessionDBStoreAuthTest {
+    @TempDir
+    lateinit var directory: Path
+
 
     private companion object {
         const val DB = "mydb"
@@ -99,38 +110,37 @@ class JsonSessionDBStoreAuthTest {
 
     @Test
     fun createTokenCannotReachAnyDatabaseReplacementWithoutDelete() {
-        val delegate = Mockito.mock(JsonDBStore::class.java)
         val ctx = Mockito.mock(RoutingContext::class.java)
         val authz = Mockito.mock(AuthorizationProvider::class.java)
         val reader = Mockito.mock(JsonReader::class.java)
-        val options = Mockito.mock(Object::class.java)
-        val path = Mockito.mock(Path::class.java)
-        @Suppress("UNCHECKED_CAST")
-        val pathStream = Mockito.mock(Stream::class.java) as Stream<Path>
-        @Suppress("UNCHECKED_CAST")
-        val strStream = Mockito.mock(Stream::class.java) as Stream<Str>
-        val existing = stubCollection()
-        Mockito.`when`(delegate.lookup(DB)).thenReturn(existing)
-        val store = JsonSessionDBStore(ctx, delegate, userWith("$DB-view", "$DB-create"), authz)
+        val options = ArrayObject(emptyArray<QNm>(), emptyArray<Sequence>())
+        val path = Files.writeString(directory.resolve("source.json"), "{}")
+        val pathStream = ArrayStream(arrayOf(path))
+        val strStream = ArrayStream(arrayOf(Str("{}")))
+        BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build().use { delegate ->
+            delegate.create(DB, "records", "{\"preserved\":true}")
+            val store = JsonSessionDBStore(ctx, delegate, userWith("$DB-view", "$DB-create"), authz)
+            assertForbidden { store.create(DB, "{}") }
+            assertForbidden { store.create(DB, "{}", options) }
+            assertForbidden { store.create(DB, path) }
+            assertForbidden { store.create(DB, path, options) }
+            assertForbidden { store.createFromPaths(DB, pathStream) }
+            assertForbidden { store.create(DB, "res", path) }
+            assertForbidden { store.create(DB, "res", path, options) }
+            assertForbidden { store.create(DB, "res", "{}") }
+            assertForbidden { store.create(DB, "res", "{}", options) }
+            assertForbidden { store.create(DB, "res", reader) }
+            assertForbidden { store.create(DB, "res", reader, options) }
+            assertForbidden { store.create(DB, setOf(reader)) }
+            assertForbidden { store.create(DB, setOf(reader), options) }
+            assertForbidden { store.createFromJsonStrings(DB, strStream) }
+            assertForbidden { store.createFromJsonStrings(DB, strStream, options) }
 
-        assertForbidden { store.create(DB, "path") }
-        assertForbidden { store.create(DB, "path", options) }
-        assertForbidden { store.create(DB, path) }
-        assertForbidden { store.create(DB, path, options) }
-        assertForbidden { store.createFromPaths(DB, pathStream) }
-        assertForbidden { store.create(DB, "res", path) }
-        assertForbidden { store.create(DB, "res", path, options) }
-        assertForbidden { store.create(DB, "res", "{}") }
-        assertForbidden { store.create(DB, "res", "{}", options) }
-        assertForbidden { store.create(DB, "res", reader) }
-        assertForbidden { store.create(DB, "res", reader, options) }
-        assertForbidden { store.create(DB, setOf(reader)) }
-        assertForbidden { store.create(DB, setOf(reader), options) }
-        assertForbidden { store.createFromJsonStrings(DB, strStream) }
-        assertForbidden { store.createFromJsonStrings(DB, strStream, options) }
-
-        Mockito.verify(delegate, Mockito.times(15)).lookup(DB)
-        Mockito.verifyNoMoreInteractions(delegate)
+            assertEquals(setOf("records"), delegate.lookup(DB)!!.database.listResources().map { it.fileName.toString() }.toSet())
+            delegate.lookup(DB)!!.database.beginResourceSession("records").use { session ->
+                assertEquals(1, session.mostRecentRevisionNumber)
+            }
+        }
     }
 
     @Test

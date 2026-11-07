@@ -9,7 +9,6 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
-import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
@@ -34,6 +33,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -122,17 +123,16 @@ public final class Load extends AbstractFunction {
       // Before the store is touched and before any input is read: storing and loading mutate but
       // are not updating expressions, so this is the only check standing between a caller
       // without write permission and the write.
-      MutationAuthorization.requireStorable(ctx, store, collectionName, resourceName, createIfNotExists);
+      MutationAuthorization.requireCreate(ctx, collectionName, resourceName);
 
       if (createIfNotExists) {
         collection = create(store, collectionName, resourceName, resources, options);
       } else {
-        try {
-          collection = store.lookup(collectionName);
-          add(collection, resourceName, resources, options);
-        } catch (final DocumentException e) {
-          // collection does not exist
+        collection = store.lookup(collectionName);
+        if (collection == null) {
           collection = create(store, collectionName, resourceName, resources, options);
+        } else {
+          add(collection, resourceName, resources, options);
         }
       }
 
@@ -156,14 +156,20 @@ public final class Load extends AbstractFunction {
         throw new QueryException(e, new QNm(e.getMessage()));
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
+      final List<JsonReader> readers = new ArrayList<>();
       try (final Iter iter = seq.iterate()) {
-        int size = collection.getDatabase().listResources().size();
         for (Item item; (item = iter.next()) != null;) {
-          try (final JsonReader reader =
-              new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
-            collection.add("resource" + size++, reader, options);
-          } catch (final Exception e) {
-            throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
+          readers.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
+        }
+        collection.addAll(readers, options);
+      } catch (final Exception e) {
+        throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
+      } finally {
+        for (final JsonReader reader : readers) {
+          try {
+            reader.close();
+          } catch (final IOException e) {
+            throw new UncheckedIOException(e);
           }
         }
       }
@@ -183,15 +189,14 @@ public final class Load extends AbstractFunction {
       try (final Iter iter = seq.iterate()) {
         final Set<JsonReader> jsonReaders = new HashSet<>();
 
-        for (Item item; (item = iter.next()) != null;) {
-          jsonReaders.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
+        try {
+          for (Item item; (item = iter.next()) != null;) {
+            jsonReaders.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
+          }
+          return store.create(collectionName, jsonReaders, options);
+        } finally {
+          jsonReaders.forEach(this::closeReader);
         }
-
-        final JsonDBCollection collection = store.create(collectionName, jsonReaders, options);
-
-        jsonReaders.forEach(this::closeReader);
-
-        return collection;
       }
     }
 

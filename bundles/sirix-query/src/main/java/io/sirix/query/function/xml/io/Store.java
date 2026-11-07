@@ -32,6 +32,8 @@ import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBStore;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * <p>
@@ -119,18 +121,17 @@ public final class Store extends AbstractFunction {
       if (createNew) {
         create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
       } else {
-        try {
-          final XmlDBCollection coll = store.lookup(collName);
-          add(coll, resName, nodes, commitMessage, commitTimesstamp);
-        } catch (final DocumentException e) {
-          // collection does not exist
+        final XmlDBCollection coll = store.lookup(collName);
+        if (coll == null) {
           create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
+        } else {
+          add(coll, resName, nodes, commitMessage, commitTimesstamp);
         }
       }
 
       return null;
     } catch (final Exception e) {
-      throw new QueryException(new QNm(e.getMessage()), e);
+      throw new QueryException(e, new QNm(e.getMessage()));
     }
   }
 
@@ -140,9 +141,11 @@ public final class Store extends AbstractFunction {
       coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp);
     } else {
       try (ParserStream parsers = new ParserStream(nodes)) {
+        final List<NodeSubtreeParser> inputs = new ArrayList<>();
         for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-          coll.add(parser);
+          inputs.add(parser);
         }
+        coll.addAll(inputs);
       }
     }
   }

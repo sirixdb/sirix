@@ -33,6 +33,8 @@ public interface MutationAuthorizer {
    */
   void authorizeWrite(String databaseName, String resourceName);
 
+  void authorizeDelete(String databaseName);
+
   /**
    * Authorize creating {@code resourceName} in {@code databaseName}, which must happen before the
    * resource or its database is created and before any input is read.

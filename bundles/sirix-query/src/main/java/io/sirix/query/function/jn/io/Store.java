@@ -7,7 +7,6 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
-import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
@@ -28,6 +27,8 @@ import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -113,17 +114,16 @@ public final class Store extends AbstractFunction {
       // Before the store is touched and before any input is read: storing and loading mutate but
       // are not updating expressions, so this is the only check standing between a caller
       // without write permission and the write.
-      MutationAuthorization.requireStorable(ctx, store, collectionName, resourceName, createIfNotExists);
+      MutationAuthorization.requireCreate(ctx, collectionName, resourceName);
 
       if (createIfNotExists) {
         create(store, collectionName, resourceName, nodes, options);
       } else {
-        try {
-          final JsonDBCollection collection = store.lookup(collectionName);
-          add(collection, resourceName, nodes, options);
-        } catch (final DocumentException e) {
-          // collection does not exist
+        final JsonDBCollection collection = store.lookup(collectionName);
+        if (collection == null) {
           create(store, collectionName, resourceName, nodes, options);
+        } else {
+          add(collection, resourceName, nodes, options);
         }
       }
 
@@ -144,15 +144,21 @@ public final class Store extends AbstractFunction {
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
-    } else if (nodes instanceof final FunctionConversionSequence seq) {
+    } else if (nodes instanceof FunctionConversionSequence seq) {
+      final List<JsonReader> readers = new ArrayList<>();
       try (final Iter iter = seq.iterate()) {
-        int size = collection.getDatabase().listResources().size();
         for (Item item; (item = iter.next()) != null;) {
-          // TODO: use item shredder
-          try (final JsonReader reader = JsonShredder.createStringReader(((Str) item).stringValue())) {
-            collection.add("resource" + size++, reader, options);
-          } catch (final Exception e) {
-            throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
+          readers.add(JsonShredder.createStringReader(((Str) item).stringValue()));
+        }
+        collection.addAll(readers, options);
+      } catch (final Exception e) {
+        throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
+      } finally {
+        for (final JsonReader reader : readers) {
+          try {
+            reader.close();
+          } catch (final IOException e) {
+            throw new UncheckedIOException(e);
           }
         }
       }

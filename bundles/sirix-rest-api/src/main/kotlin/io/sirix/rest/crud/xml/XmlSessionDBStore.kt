@@ -1,5 +1,7 @@
 package io.sirix.rest.crud.xml
 
+import io.sirix.query.MutationAuthorization
+import io.sirix.rest.crud.SessionMutationAuthorizer
 import io.sirix.query.MutationAuthorizer
 import io.sirix.query.node.XmlDBCollection
 import io.sirix.query.node.XmlDBStore
@@ -17,26 +19,7 @@ class XmlSessionDBStore(
     private val dbStore: XmlDBStore,
     private val user: User,
     private val authz: AuthorizationProvider
-) : XmlDBStore by dbStore, MutationAuthorizer {
-
-    /**
-     * Bind [MutationAuthorizer]'s guard to the request identity using the full collection name.
-     */
-    override fun authorizeWrite(databaseName: String, resourceName: String) {
-        Auth.checkIfAuthorized(user, databaseName, AuthRole.MODIFY, authz)
-    }
-
-    /**
-     * Authorize creating a resource a query is about to store or load into.
-     *
-     * `jn:store` and `jn:load` create a resource that does not exist yet, so the permission is
-     * CREATE rather than MODIFY - the same role the HTTP PUT routes and the store's own `create`
-     * overloads require. Which of the two applies is decided by the target's existence, in
-     * [io.sirix.query.MutationAuthorization].
-     */
-    override fun authorizeCreate(databaseName: String, resourceName: String?) {
-        Auth.checkIfAuthorized(user, databaseName, AuthRole.CREATE, authz)
-    }
+) : XmlDBStore by dbStore, MutationAuthorizer by SessionMutationAuthorizer(user, authz) {
 
     /**
      * Wrap a collection so that every mutating operation performed through it re-checks the
@@ -59,13 +42,13 @@ class XmlSessionDBStore(
     override fun create(name: String): XmlDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name))
+        return MutationAuthorization.where(this).call<XmlDBCollection, RuntimeException> { wrap(dbStore.create(name)) }
     }
 
     override fun create(name: String, parser: NodeSubtreeParser): XmlDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, parser))
+        return MutationAuthorization.where(this).call<XmlDBCollection, RuntimeException> { wrap(dbStore.create(name, parser)) }
     }
 
     override fun create(
@@ -76,19 +59,19 @@ class XmlSessionDBStore(
     ): XmlDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, parser, commitMessage, commitTimestamp))
+        return MutationAuthorization.where(this).call<XmlDBCollection, RuntimeException> { wrap(dbStore.create(name, parser, commitMessage, commitTimestamp)) }
     }
 
     override fun create(name: String, parsers: Stream<NodeSubtreeParser>): XmlDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, parsers))
+        return MutationAuthorization.where(this).call<XmlDBCollection, RuntimeException> { wrap(dbStore.create(name, parsers)) }
     }
 
     override fun create(dbName: String, resourceName: String, parsers: NodeSubtreeParser): XmlDBCollection {
         Auth.checkIfAuthorized(user, dbName, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(dbName, resourceName, parsers))
+        return MutationAuthorization.where(this).call<XmlDBCollection, RuntimeException> { wrap(dbStore.create(dbName, resourceName, parsers)) }
     }
 
     override fun create(
@@ -97,7 +80,7 @@ class XmlSessionDBStore(
     ): XmlDBCollection {
         Auth.checkIfAuthorized(user, dbName, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(dbName, resourceName, parser, commitMessage, commitTimestamp))
+        return MutationAuthorization.where(this).call<XmlDBCollection, RuntimeException> { wrap(dbStore.create(dbName, resourceName, parser, commitMessage, commitTimestamp)) }
     }
 
     override fun drop(name: String) {

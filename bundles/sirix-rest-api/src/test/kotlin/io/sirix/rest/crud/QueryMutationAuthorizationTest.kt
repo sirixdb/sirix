@@ -23,11 +23,14 @@ import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.BasicJsonDBStore
 import io.sirix.query.node.BasicXmlDBStore
+import io.sirix.rest.routerFailureHandler
 import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.sirix.service.json.serialize.JsonSerializer
 import io.sirix.service.json.shredder.JsonShredder
 import io.vertx.core.Future
+import io.vertx.core.http.HttpServerRequest
+import io.vertx.core.http.HttpServerResponse
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.Authorization
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -290,21 +293,16 @@ class QueryMutationAuthorizationTest {
      * Both the store decorator and [PermissionCheckingQuery]'s updating-expression check refuse
      * mutations with [HttpException] 403. A query validation error is not an authorization refusal.
      */
-    private fun refusalOrNull(throwable: Throwable): String? {
-        var cause: Throwable? = throwable
-        while (cause != null) {
-            if (cause is HttpException && cause.statusCode == 403) return "HttpException 403"
-            cause = cause.cause
-        }
-        return null
-    }
-
     private fun assertRefused(query: String, body: () -> Unit) {
         val thrown = assertThrows(RuntimeException::class.java, body)
-        assertNotNull(
-            refusalOrNull(thrown),
-            "A VIEW-only caller must be refused, but got ${thrown::class.java.name}: ${thrown.message}; query: $query"
-        )
+        val routing = Mockito.mock(RoutingContext::class.java)
+        val response = Mockito.mock(HttpServerResponse::class.java, Mockito.RETURNS_SELF)
+        Mockito.`when`(routing.statusCode()).thenReturn(500)
+        Mockito.`when`(routing.failure()).thenReturn(thrown)
+        Mockito.`when`(routing.request()).thenReturn(Mockito.mock(HttpServerRequest::class.java))
+        Mockito.`when`(routing.response()).thenReturn(response)
+        routerFailureHandler().handle(routing)
+        Mockito.verify(response, Mockito.description(query)).setStatusCode(403)
     }
 
     /** Everything a refused mutation could have touched, captured as comparable bytes. */
@@ -358,15 +356,15 @@ class QueryMutationAuthorizationTest {
      * test has something to create or drop, and so both the projection metadata blob and the
      * derived aggregate header exist as witnesses.
      */
-    private fun createDatabase(databaseName: String = "auth") {
+    private fun createDatabase(databaseName: String = "auth", resourceName: String = "records") {
         val path = directory.resolve(databaseName)
         Databases.createJsonDatabase(DatabaseConfiguration(path))
         Databases.openJsonDatabase(path).use { database ->
             database.createResource(
-                ResourceConfiguration.newBuilder("records").validTimePaths("lo", "hi")
+                ResourceConfiguration.newBuilder(resourceName).validTimePaths("lo", "hi")
                     .storageType(StorageType.FILE_CHANNEL).customCommitTimestamps(true).storeDiffs(false).build()
             )
-            database.beginResourceSession("records").use { session ->
+            database.beginResourceSession(resourceName).use { session ->
                 session.beginNodeTrx().use { writer ->
                     writer.insertSubtreeAsFirstChild(
                         JsonShredder.createStringReader(
@@ -409,11 +407,14 @@ class QueryMutationAuthorizationTest {
     @ParameterizedTest
     @CsvSource("store,true", "store,false", "load,true", "load,false")
     fun createRoleAloneCannotOverwriteAnExistingResource(function: String, createNew: Boolean) {
-        createDatabase()
+        createDatabase(resourceName = "records1")
+        Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
+            database.createResource(ResourceConfiguration.newBuilder("records").storageType(StorageType.FILE_CHANNEL).build())
+        }
         val keycloak = Mockito.mock(OAuth2Auth::class.java)
         val query = storeOrLoad(function, "records", createNew)
         withRoles("auth-view", "create") { fixture ->
-            fixture.store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
+            fixture.store.lookup("auth")!!.database.beginResourceSession("records1").use { session ->
                 val before = witness(session)
                 assertRefused(query) { run(fixture, query, keycloak) }
                 assertTrue(session.nodeTrx.isEmpty, "A refused store/load must leave no write transaction open")
@@ -459,6 +460,42 @@ class QueryMutationAuthorizationTest {
                 else -> error(target)
             }
             assertEquals(expected, database.listResources().map { it.fileName.toString() }.toSet())
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource("store,0", "store,1", "load,0", "load,1")
+    fun generatedAppendCannotOverwriteAnyResolvedTarget(function: String, position: Int) {
+        val target = if (position == 0) "resource21" else "resource41"
+        createDatabase(resourceName = target)
+        Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
+            database.createResource(ResourceConfiguration.newBuilder("resource2").storageType(StorageType.FILE_CHANNEL).build())
+            if (position == 1) {
+                database.createResource(ResourceConfiguration.newBuilder("resource4").storageType(StorageType.FILE_CHANNEL).build())
+            }
+        }
+        val input = if (function == "store") "'{}'" else {
+            val source = Files.writeString(directory.resolve("append.json"), "{}")
+            "'${source.toUri()}'"
+        }
+        val query = "jn:$function('auth','fresh',($input,$input),false())"
+        withRoles("auth-view", "create") { fixture ->
+            val database = fixture.store.lookup("auth")!!.database
+            val resources = database.listResources().toSet()
+            database.beginResourceSession(target).use { session ->
+                val before = witness(session)
+                assertRefused(query) { run(fixture, query, Mockito.mock(OAuth2Auth::class.java)) }
+                assertEquals(resources, database.listResources().toSet(), "An earlier batch input must not create a resource")
+                assertWitnessUnchanged(before, witness(session), query)
+            }
+        }
+        withRoles("auth-view", "create", "modify") { fixture ->
+            val database = fixture.store.lookup("auth")!!.database
+            database.beginResourceSession(target).use { session ->
+                val revision = session.mostRecentRevisionNumber
+                run(fixture, query, Mockito.mock(OAuth2Auth::class.java))
+                assertEquals(revision + 1, session.mostRecentRevisionNumber)
+            }
         }
     }
 

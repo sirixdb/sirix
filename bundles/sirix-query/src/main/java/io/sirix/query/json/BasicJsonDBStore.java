@@ -11,6 +11,7 @@ import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceAccessScope;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.access.Databases;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
@@ -722,8 +723,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(collName, dbConf);
-      Databases.createJsonDatabase(dbConf);
+      createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbPath);
       databases.add(database);
 
@@ -861,8 +861,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(collName, dbConf);
-      Databases.createJsonDatabase(dbConf);
+      createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       final Options resourceOptions = OptionsFactory.createOptions(options, options());
@@ -972,8 +971,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(collName, dbConf);
-      Databases.createJsonDatabase(dbConf);
+      createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       // Resolve the options ONCE for all resources of this call.
@@ -1022,8 +1020,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
-      removeIfExisting(collName, dbConf);
-      Databases.createJsonDatabase(dbConf);
+      createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       int numberOfResources = database.listResources().size();
@@ -1087,8 +1084,18 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
+  private void createDatabase(final String name, final DatabaseConfiguration configuration) {
+    if (!Databases.createJsonDatabase(configuration)) {
+      removeIfExisting(name, configuration);
+      if (!Databases.createJsonDatabase(configuration)) {
+        throw new DocumentException("Could not create document with name %s", name);
+      }
+    }
+  }
+
   private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
     if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
+      MutationAuthorization.requireDelete(name);
       try {
         final var statisticsCatalog = StatisticsCatalog.getInstance();
         statisticsCatalog.invalidateDatabase(name);

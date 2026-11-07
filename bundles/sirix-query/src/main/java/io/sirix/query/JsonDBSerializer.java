@@ -37,7 +37,6 @@ import io.brackit.query.jdm.json.Object;
 import io.brackit.query.util.serialize.Serializer;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
-import io.sirix.query.json.JsonDBItem;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.serialize.StringValue;
 import org.jspecify.annotations.Nullable;
@@ -111,7 +110,8 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               if (item == null || !ColumnarJsonWriter.isBatchRecord(item)) {
                 columnarWriter.drain();
               }
-            } else if (item instanceof final JsonDBItem node) {
+            } else if (item instanceof StructuredDBItem) {
+              final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
               trxSet.add(node.getTrx());
 
               var serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceSession(), out,
@@ -133,7 +133,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               }
 
               item = printCommaIfNextItemExists(it);
-            } else {
+            } else if ((item instanceof Array) || (item instanceof Object)) {
               if (columnarWriter != null) {
                 columnarWriter.drain();
               }

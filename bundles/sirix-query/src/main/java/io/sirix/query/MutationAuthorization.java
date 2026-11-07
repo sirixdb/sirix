@@ -1,11 +1,8 @@
 package io.sirix.query;
 
 import io.brackit.query.QueryContext;
-import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Item;
-import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
-import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.node.XmlDBNode;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
@@ -28,6 +25,27 @@ import org.jspecify.annotations.Nullable;
  * @author Johannes Lichtenberger
  */
 public final class MutationAuthorization {
+  private static final ScopedValue<MutationAuthorizer> AUTHORIZER = ScopedValue.newInstance();
+
+  public static ScopedValue.Carrier where(final MutationAuthorizer authorizer) {
+    return ScopedValue.where(AUTHORIZER, Objects.requireNonNull(authorizer));
+  }
+
+  public static void requireDelete(final String databaseName) {
+    if (AUTHORIZER.isBound()) {
+      AUTHORIZER.get().authorizeDelete(databaseName);
+    }
+  }
+
+  public static void requireStore(final String databaseName, final String resourceName, final boolean exists) {
+    if (AUTHORIZER.isBound()) {
+      if (exists) {
+        AUTHORIZER.get().authorizeWrite(databaseName, resourceName);
+      } else {
+        AUTHORIZER.get().authorizeCreate(databaseName, resourceName);
+      }
+    }
+  }
 
   private MutationAuthorization() {
     throw new AssertionError("No instances");
@@ -65,36 +83,13 @@ public final class MutationAuthorization {
     }
   }
 
-  public static void requireStorable(final QueryContext ctx, final JsonDBStore store, final String databaseName,
-      final @Nullable String resourceName, final boolean replaceDatabase) {
+  public static void requireCreate(final QueryContext ctx, final String databaseName,
+      final @Nullable String resourceName) {
     Objects.requireNonNull(ctx, "ctx");
-    Objects.requireNonNull(store, "store");
     Objects.requireNonNull(databaseName, "databaseName");
     final MutationAuthorizer authorizer = authorizerOf(ctx);
-    if (authorizer == null) {
-      return;
-    }
-    if (!replaceDatabase && existingResource(store, databaseName, resourceName)) {
-      authorizer.authorizeWrite(databaseName, resourceName);
-    } else {
+    if (authorizer != null) {
       authorizer.authorizeCreate(databaseName, resourceName);
-    }
-  }
-
-  /**
-   * Whether the store already holds {@code resourceName} in {@code databaseName}. A generated name is
-   * always new, and an absent collection holds nothing.
-   */
-  private static boolean existingResource(final JsonDBStore store, final String databaseName,
-      final @Nullable String resourceName) {
-    if (resourceName == null) {
-      return false;
-    }
-    try {
-      final JsonDBCollection collection = store.lookup(databaseName);
-      return collection != null && collection.getDatabase().existsResource(resourceName);
-    } catch (final DocumentException absent) {
-      return false;
     }
   }
 

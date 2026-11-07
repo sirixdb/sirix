@@ -9,6 +9,8 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.RoutingContext
 import io.sirix.rest.Auth
 import io.sirix.rest.AuthRole
+import io.sirix.query.MutationAuthorization
+import io.sirix.rest.crud.SessionMutationAuthorizer
 import io.sirix.query.MutationAuthorizer
 import io.sirix.query.json.JsonDBCollection
 import io.sirix.query.json.JsonDBStore
@@ -19,26 +21,7 @@ class JsonSessionDBStore(
     private val dbStore: JsonDBStore,
     private val user: User,
     private val authz: AuthorizationProvider
-) : JsonDBStore by dbStore, MutationAuthorizer {
-
-    /**
-     * Bind [MutationAuthorizer]'s guard to the request identity using the full collection name.
-     */
-    override fun authorizeWrite(databaseName: String, resourceName: String) {
-        Auth.checkIfAuthorized(user, databaseName, AuthRole.MODIFY, authz)
-    }
-
-    /**
-     * Authorize creating a resource a query is about to store or load into.
-     *
-     * `jn:store` and `jn:load` create a resource that does not exist yet, so the permission is
-     * CREATE rather than MODIFY - the same role the HTTP PUT routes and the store's own `create`
-     * overloads require. Which of the two applies is decided by the target's existence, in
-     * [io.sirix.query.MutationAuthorization].
-     */
-    override fun authorizeCreate(databaseName: String, resourceName: String?) {
-        Auth.checkIfAuthorized(user, databaseName, AuthRole.CREATE, authz)
-    }
+) : JsonDBStore by dbStore, MutationAuthorizer by SessionMutationAuthorizer(user, authz) {
 
     /**
      * Wrap a collection so that every mutating operation performed through it re-checks the
@@ -61,69 +44,69 @@ class JsonSessionDBStore(
     override fun create(name: String): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name)) }
     }
 
     override fun create(name: String, path: String): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, path))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, path)) }
     }
 
     override fun create(name: String, path: String, options: Object): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, path, options))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, path, options)) }
     }
 
     override fun create(name: String, path: Path): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, path))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, path)) }
     }
 
     override fun create(name: String, path: Path, options: Object): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, path, options))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, path, options)) }
     }
 
     override fun createFromPaths(name: String, paths: Stream<Path>): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.createFromPaths(name, paths))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.createFromPaths(name, paths)) }
     }
 
     override fun create(name: String, resourceName: String?, path: Path): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, resourceName, path))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, resourceName, path)) }
     }
 
     override fun create(name: String, resourceName: String?, path: Path, options: Object): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, resourceName, path, options))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, resourceName, path, options)) }
     }
 
     override fun create(name: String, resourceName: String?, json: String?): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, resourceName, json))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, resourceName, json)) }
     }
 
     override fun create(
         name: String, resourceName: String?, json: String?, options: Object
     ): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, resourceName, json, options))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, resourceName, json, options)) }
     }
 
     override fun create(name: String, resourceName: String?, json: JsonReader): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, resourceName, json))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, resourceName, json)) }
     }
 
     override fun create(
@@ -132,40 +115,33 @@ class JsonSessionDBStore(
         json: JsonReader,
         options: Object
     ): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, resourceName, json, options))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, resourceName, json, options)) }
     }
 
     override fun create(name: String, jsonReaders: Set<JsonReader>): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, jsonReaders))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, jsonReaders)) }
     }
 
     override fun create(name: String, jsonReaders: Set<JsonReader>, options: Object): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.create(name, jsonReaders, options))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, jsonReaders, options)) }
     }
 
     override fun createFromJsonStrings(name: String, jsons: Stream<Str>): JsonDBCollection {
-        authorizeReplacement(name)
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return wrap(dbStore.createFromJsonStrings(name, jsons))
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.createFromJsonStrings(name, jsons)) }
     }
 
     override fun createFromJsonStrings(name: String, jsons: Stream<Str>, options: Object): JsonDBCollection {
-        authorizeReplacement(name)
-
-        return wrap(dbStore.createFromJsonStrings(name, jsons, options))
-    }
-
-    private fun authorizeReplacement(name: String) {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
-        if (dbStore.lookup(name) != null) {
-            Auth.checkIfAuthorized(user, name, AuthRole.DELETE, authz)
-        }
+
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.createFromJsonStrings(name, jsons, options)) }
     }
 
     override fun drop(name: String) {

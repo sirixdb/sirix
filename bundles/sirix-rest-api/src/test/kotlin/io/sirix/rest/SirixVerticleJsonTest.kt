@@ -17,7 +17,11 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import org.junit.jupiter.api.*
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.RepeatedTest
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.extension.ExtendWith
@@ -77,6 +81,48 @@ class SirixVerticleJsonTest {
         GlobalScope.launch(vertx.dispatcher()) {
             testContext.verifyCoroutine {
                 testDeleteResource(testContext)
+            }
+        }
+    }
+
+    @Test
+    @Timeout(value = 100, timeUnit = TimeUnit.SECONDS)
+    fun refusedStoreAndLoadReturn403ThroughRest(vertx: Vertx, testContext: VertxTestContext) {
+        GlobalScope.launch(vertx.dispatcher()) {
+            testContext.verifyCoroutine {
+                val admin = client.postAbs("$server/token")
+                    .sendJsonObject(JsonObject().put("username", "admin").put("password", "admin")).coAwait()
+                assertEquals(200, admin.statusCode())
+                accessToken = admin.bodyAsJsonObject().getString("access_token")
+                val created = client.putAbs("$server$serverPath")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
+                    .putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
+                    .sendBuffer(Buffer.buffer("{\"preserved\":true}")).coAwait()
+                assertEquals(200, created.statusCode())
+                val before = client.getAbs("$server$serverPath")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").send().coAwait()
+                assertEquals(200, before.statusCode())
+                val viewer = client.postAbs("$server/token")
+                    .sendJsonObject(JsonObject().put("username", "viewer").put("password", "viewer")).coAwait()
+                assertEquals(200, viewer.statusCode())
+                val viewerToken = viewer.bodyAsJsonObject().getString("access_token")
+                for (query in listOf(
+                    "jn:store('database','fresh','{}')",
+                    "jn:load('database','fresh','file:///unreadable.json')",
+                    "xn:store('database','fresh',<root/>)"
+                )) {
+                    val refused = client.postAbs(server)
+                        .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $viewerToken")
+                        .putHeader(HttpHeaders.ACCEPT.toString(), "application/xml")
+                        .sendJsonObject(JsonObject().put("query", query)).coAwait()
+                    assertEquals(403, refused.statusCode(), refused.bodyAsString())
+                    assertEquals(403, refused.bodyAsJsonObject().getInteger("statusCode"))
+                }
+                val after = client.getAbs("$server$serverPath")
+                    .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken").send().coAwait()
+                assertEquals(200, after.statusCode())
+                assertEquals(before.bodyAsString(), after.bodyAsString())
+                testContext.completeNow()
             }
         }
     }
