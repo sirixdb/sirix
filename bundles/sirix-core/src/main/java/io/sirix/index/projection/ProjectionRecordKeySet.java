@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.atomic.LongAdder;
@@ -13,6 +14,7 @@ import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The index-routed row source: membership of a leaf's record keys in a SORTED key set, the
@@ -26,6 +28,9 @@ public final class ProjectionRecordKeySet {
   private static final LongAdder LOOKUP_DESCRIPTORS = new LongAdder();
   private static final LongAdder LOOKUP_KEY_SEGMENTS = new LongAdder();
   private static final LongAdder DENSE_ROWS = new LongAdder();
+  private static final LongAdder MEMBERSHIP_STAGED_LEAVES = new LongAdder();
+  private static final LongAdder MEMBERSHIP_GATHERED_WORDS = new LongAdder();
+  private static final LongAdder MEMBERSHIP_IN_PLACE_WORDS = new LongAdder();
 
   public record Masks(Long2ObjectOpenHashMap<long[]> byFirstKey, LongOpenHashSet physicalSlots) {
   }
@@ -46,6 +51,24 @@ public final class ProjectionRecordKeySet {
 
   public static long denseRowsVisited() {
     return DENSE_ROWS.sum();
+  }
+
+  /**
+   * Leaves whose value lane {@link #filterMembership} staged with one counted copy. Read by the tests
+   * that pin which read form a given candidate density reaches; a counter, not a budget.
+   */
+  public static long membershipStagedLeaves() {
+    return MEMBERSHIP_STAGED_LEAVES.sum();
+  }
+
+  /** Words {@link #filterMembership} gathered into its 512-byte window. */
+  public static long membershipGatheredWords() {
+    return MEMBERSHIP_GATHERED_WORDS.sum();
+  }
+
+  /** Words {@link #filterMembership} read in place, one checked lane read per candidate row. */
+  public static long membershipInPlaceWords() {
+    return MEMBERSHIP_IN_PLACE_WORDS.sum();
   }
 
   static Masks map(final long[] sortedKeys, final ProjectionPersistedRecordLookup lookup) {
@@ -150,6 +173,9 @@ public final class ProjectionRecordKeySet {
     }
     final Long2ObjectOpenHashMap<long[]> byFirstKey = new Long2ObjectOpenHashMap<>(keptLeaves);
     final LongOpenHashSet slots = new LongOpenHashSet(keptLeaves);
+    // One read scratch for the whole pass, reused by every leaf: nothing is allocated per leaf or
+    // per word.
+    final MembershipScratch scratch = new MembershipScratch();
     for (int leaf = 0; leaf < keys.length; leaf++) {
       if (keys[leaf].length == 0) {
         continue;
@@ -168,7 +194,7 @@ public final class ProjectionRecordKeySet {
       final long laneBase = slice.laneBase();
       final long[] presence = slice.presenceWords();
       final long[] mask = new long[selected.length];
-      if (filterMembershipWords(selected, lane, laneBase, presence, values, anti, mask)) {
+      if (filterMembershipWords(selected, lane, laneBase, presence, values, anti, mask, slice.rowCount(), scratch)) {
         byFirstKey.put(keys[leaf][0], mask);
         slots.add(physicalSlot.applyAsLong(leaf));
       }
@@ -176,32 +202,191 @@ public final class ProjectionRecordKeySet {
     return new Masks(byFirstKey, slots);
   }
 
+  /**
+   * The membership verdict of every selected row of one leaf, over the leaf's value lane.
+   *
+   * <p>
+   * The lane is a slab the column store owns (or, for a producer still on the heap, its array seen as
+   * a segment), so HOW the rows are read decides the cost: a {@link Long#numberOfTrailingZeros} walk
+   * indexes by bit, so the loop is not counted over linear offsets and no compiler lifts the
+   * segment's bounds and alignment checks out of it — every candidate row pays its own. One counted
+   * copy pays one check per vector instead, so the form is chosen per leaf and per word, never per
+   * row:
+   * </p>
+   *
+   * <ol>
+   * <li>a leaf that has a candidate in more than one row in eight stages its whole lane with ONE
+   * counted copy and the walks index the staged array — the same bytes the per-word form would move,
+   * in a sixteenth of the calls (a 1024-row leaf is 16 words);</li>
+   * <li>otherwise a word above {@link ProjectionVectorKernels#FOLD_WALK_MAX_BITS} candidates is
+   * gathered into a reused 512-byte window, the crossover the fold kernels already dispatch on;</li>
+   * <li>otherwise the few candidates of the word are read in place.</li>
+   * </ol>
+   */
   private static boolean filterMembershipWords(final long[] selected, final MemorySegment lane, final long laneBase,
-      final long[] presence, final LongOpenHashSet values, final boolean anti, final long[] mask) {
+      final long[] presence, final LongOpenHashSet values, final boolean anti, final long[] mask, final int rowCount,
+      final MembershipScratch scratch) {
+    final int words = selected.length;
+    final long[] candidateWords = scratch.candidates(words);
+    // ONE SIZING PASS over the words, before any value is read: it costs one word operation per 64
+    // rows, it is the AND the walk would do anyway, and it is what lets the read form be decided per
+    // leaf instead of per row.
+    int candidateBits = 0;
+    for (int word = 0; word < words; word++) {
+      final long candidates = selected[word] & presence[word];
+      candidateWords[word] = candidates;
+      candidateBits += Long.bitCount(candidates);
+    }
+    final long @Nullable [] staged = candidateBits > 0 && candidateBits << STAGE_MIN_DENSITY_SHIFT >= rowCount
+        ? scratch.stage(lane, laneBase, rowCount) // null for a leaf wider than a row group may be
+        : null;
+    final long @Nullable [] window = staged == null
+        ? scratch.window()
+        : null;
+    int gatheredWords = 0;
+    int inPlaceWords = 0;
     long any = 0;
-    for (int word = 0; word < selected.length; word++) {
-      final long selectedWord = selected[word];
-      final long presentWord = presence[word];
+    for (int word = 0; word < words; word++) {
       // A selected row with no cell is a non-member, so only the ANTI form keeps it. Deciding that
       // whole class with one word operation leaves the row walk only the rows that have a value to
       // test, instead of a presence bit test per selected row.
       long kept = anti
-          ? selectedWord & ~presentWord
+          ? selected[word] & ~presence[word]
           : 0L;
-      long candidates = selectedWord & presentWord;
-      final long wordBase = laneBase + ((long) (word << 6) << 3);
-      while (candidates != 0) {
-        final int bit = Long.numberOfTrailingZeros(candidates);
-        candidates &= candidates - 1;
-        final boolean member = values.contains(SegmentAccess.getLong(lane, wordBase + ((long) bit << 3)));
-        if (anti != member) {
-          kept |= 1L << bit;
+      final long candidates = candidateWords[word];
+      if (candidates != 0L) {
+        final int rowBase = word << 6;
+        if (staged != null) {
+          kept |= walkStaged(candidates, staged, rowBase, values, anti);
+        } else if (Long.bitCount(candidates) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS) {
+          final long[] into = Objects.requireNonNull(window, "a leaf that does not stage has a window");
+          // Clamped to the leaf's own rows: the lane holds rowCount values and a partial last word
+          // must not read past them.
+          MemorySegment.copy(lane, ValueLayout.JAVA_LONG_UNALIGNED, laneBase + ((long) rowBase << 3), into, 0,
+              Math.min(ProjectionColumnGroupScan.WINDOW_ROWS, rowCount - rowBase));
+          kept |= walkStaged(candidates, into, 0, values, anti);
+          gatheredWords++;
+        } else {
+          kept |= walkLane(candidates, lane, laneBase + ((long) rowBase << 3), values, anti);
+          inPlaceWords++;
         }
       }
       mask[word] = kept;
       any |= kept;
     }
+    // Counted once per leaf, never per word or per row: three adds on a path that moved thousands of
+    // values.
+    if (staged != null) {
+      MEMBERSHIP_STAGED_LEAVES.increment();
+    }
+    if (gatheredWords != 0) {
+      MEMBERSHIP_GATHERED_WORDS.add(gatheredWords);
+    }
+    if (inPlaceWords != 0) {
+      MEMBERSHIP_IN_PLACE_WORDS.add(inPlaceWords);
+    }
     return any != 0;
+  }
+
+  /**
+   * The kept bits of one word, reading the word's values from {@code staged} at {@code offset + bit}.
+   * Its own method so that it stays small enough to inline into all three dispatch arms (a kernel
+   * grown to carry every walk stops inlining its per-row callee).
+   */
+  private static long walkStaged(final long candidates, final long[] staged, final int offset,
+      final LongOpenHashSet values, final boolean anti) {
+    long kept = 0L;
+    long bits = candidates;
+    while (bits != 0L) {
+      final int bit = Long.numberOfTrailingZeros(bits);
+      bits &= bits - 1L;
+      if (anti != values.contains(staged[offset + bit])) {
+        kept |= 1L << bit;
+      }
+    }
+    return kept;
+  }
+
+  /** {@link #walkStaged} reading the lane in place — the cheaper side below the gather crossover. */
+  private static long walkLane(final long candidates, final MemorySegment lane, final long wordBase,
+      final LongOpenHashSet values, final boolean anti) {
+    long kept = 0L;
+    long bits = candidates;
+    while (bits != 0L) {
+      final int bit = Long.numberOfTrailingZeros(bits);
+      bits &= bits - 1L;
+      if (anti != values.contains(SegmentAccess.getLong(lane, wordBase + ((long) bit << 3)))) {
+        kept |= 1L << bit;
+      }
+    }
+    return kept;
+  }
+
+  /**
+   * Above this candidate density a leaf stages its whole lane:
+   * {@code candidateBits << 3 >= rowCount}, i.e. one row in eight. At that density the per-word form
+   * already copies every word ({@code 64 / 8 == 8} candidates per full word is the gather crossover),
+   * so staging moves the same bytes in one call instead of one per word; below it the per-word form
+   * copies strictly less.
+   */
+  private static final int STAGE_MIN_DENSITY_SHIFT = 3;
+
+  /**
+   * The read scratch of one {@link #filterMembership} pass: the candidate words of the leaf being
+   * walked, the per-word gather window, and the per-leaf staging buffer allocated once the first
+   * dense leaf asks for it. A projection leaf holds at most
+   * {@link ProjectionIndexRowGroupPage#MAX_ROWS} rows, which bounds both buffers.
+   */
+  private static final class MembershipScratch {
+    private static final int MAX_WORDS = (ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6;
+
+    private long[] candidateWords = new long[MAX_WORDS];
+
+    private long @Nullable [] window;
+
+    private long @Nullable [] leaf;
+
+    /**
+     * The candidate-word buffer for a mask of {@code words} words. A projection leaf's mask is at most
+     * {@link #MAX_WORDS} words, so the buffer is sized for that up front and only a caller outside that
+     * contract ever grows it — which is a resize, not a refusal, because the sizing pass is an
+     * optimisation and must not be the thing that fails a scan.
+     */
+    long[] candidates(final int words) {
+      long[] buffer = candidateWords;
+      if (buffer.length < words) {
+        buffer = new long[words];
+        candidateWords = buffer;
+      }
+      return buffer;
+    }
+
+    long[] window() {
+      long[] buffer = window;
+      if (buffer == null) {
+        buffer = new long[ProjectionColumnGroupScan.WINDOW_ROWS];
+        window = buffer;
+      }
+      return buffer;
+    }
+
+    /**
+     * The whole lane of a leaf of {@code rows} rows, staged with one counted copy, or {@code null} when
+     * the leaf is wider than a row group may be — then the caller reads per word, which has no such
+     * bound.
+     */
+    long @Nullable [] stage(final MemorySegment lane, final long laneBase, final int rows) {
+      if (rows > ProjectionIndexRowGroupPage.MAX_ROWS) {
+        return null;
+      }
+      long[] buffer = leaf;
+      if (buffer == null) {
+        buffer = new long[ProjectionIndexRowGroupPage.MAX_ROWS];
+        leaf = buffer;
+      }
+      MemorySegment.copy(lane, ValueLayout.JAVA_LONG_UNALIGNED, laneBase, buffer, 0, rows);
+      return buffer;
+    }
   }
 
   /** Include the selected row bits, not only the original source keys, in predicate memo identity. */
