@@ -893,8 +893,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
           sessions = MutationAuthorization.prepareResources(database, collName, configurations);
         }
       }
+      ParallelJsonShredder.shredPrepared(database, sessions, sources, numberOfNodesBeforeAutoCommit, 0);
       try {
-        ParallelJsonShredder.shredPrepared(database, sessions, sources, numberOfNodesBeforeAutoCommit, 0);
         if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
           for (final JsonResourceSession session : sessions) {
             try (final JsonNodeTrx wtx = session.beginNodeTrx()) {

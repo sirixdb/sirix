@@ -25,6 +25,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -95,6 +96,8 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
    * @throws SirixException if can't open resource session
    */
   T beginResourceSession(String resourceName);
+
+  @Nullable T getOpenResourceSession(String resourceName);
 
   /**
    * Truncating a resource. This includes the removal of all data stored within this resource.

@@ -207,7 +207,7 @@ public final class ParallelJsonShredder {
     return List.copyOf(names);
   }
 
-  /** Write newly created, caller-retained sessions. The caller closes them after follow-up commits. */
+  /** Own prepared sessions until worker termination; return them to the caller only on success. */
   public static void shredPrepared(final Database<JsonResourceSession> database,
       final List<JsonResourceSession> sessions, final List<? extends Callable<JsonReader>> partitions,
       final int autoCommitNodeCount, final int maxConcurrency) {
@@ -359,8 +359,6 @@ public final class ParallelJsonShredder {
             final SirixException shutdownFailure =
                 new SirixException("parallel-shred pool did not terminate after all workers completed for database '"
                     + database.getName() + "'");
-            closeSessions(sessions, shutdownFailure);
-            rollback(database, created, shutdownFailure);
             throw shutdownFailure;
           }
         }

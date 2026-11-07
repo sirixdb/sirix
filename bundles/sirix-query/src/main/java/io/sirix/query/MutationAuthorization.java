@@ -72,12 +72,40 @@ public final class MutationAuthorization {
           requireStore(databaseName, configuration.getName(), database.existsResource(configuration.getName()));
         }
         final List<T> sessions = new ArrayList<>(configurations.size());
-        for (final ResourceConfiguration configuration : configurations) {
-          final String resourceName = configuration.getName();
-          if (!database.existsResource(resourceName) && !database.createResource(configuration)) {
-            throw new DocumentException("Could not create resource %s", resourceName);
+        final boolean[] acquired = new boolean[configurations.size()];
+        final List<String> created = new ArrayList<>(configurations.size());
+        try {
+          for (final ResourceConfiguration configuration : configurations) {
+            final String resourceName = configuration.getName();
+            if (!database.existsResource(resourceName)) {
+              if (!database.createResource(configuration)) {
+                throw new DocumentException("Could not create resource %s", resourceName);
+              }
+              created.add(resourceName);
+            }
+            final T existing = database.getOpenResourceSession(resourceName);
+            final T session = database.beginResourceSession(resourceName);
+            acquired[sessions.size()] = existing == null;
+            sessions.add(session);
           }
-          sessions.add(database.beginResourceSession(resourceName));
+        } catch (final RuntimeException | Error failure) {
+          for (int i = sessions.size() - 1; i >= 0; i--) {
+            if (acquired[i]) {
+              try {
+                sessions.get(i).close();
+              } catch (final RuntimeException | Error closeFailure) {
+                failure.addSuppressed(closeFailure);
+              }
+            }
+          }
+          for (int i = created.size() - 1; i >= 0; i--) {
+            try {
+              database.removeResource(created.get(i));
+            } catch (final RuntimeException | Error removeFailure) {
+              failure.addSuppressed(removeFailure);
+            }
+          }
+          throw failure;
         }
         return sessions;
       }
