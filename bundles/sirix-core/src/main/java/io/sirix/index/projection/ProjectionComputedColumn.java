@@ -113,12 +113,9 @@ public final class ProjectionComputedColumn {
     }
     final int stride = (rowCount + 63) >>> 6;
     final long[] presence = new long[stride];
-    final long[] values = new long[rowCount];
-    long min = Long.MAX_VALUE;
-    long max = Long.MIN_VALUE;
     // ONE PRESENCE PASS FIRST, for the whole leaf: presence of the derived value is every operand
     // present (the interpreter's empty arithmetic), and how many rows that leaves decides the read
-    // form below. The pass costs one word per 64 rows and saves deciding per word.
+    // form. The pass costs one word per 64 rows and saves deciding per word.
     int present = 0;
     for (int w = 0; w < stride; w++) {
       long word = -1L;
@@ -132,49 +129,79 @@ public final class ProjectionComputedColumn {
       presence[w] = word;
       present += Long.bitCount(word);
     }
-    // No row carries every operand. The zone map stays inverted (min > max), which is how every
-    // evaluator reads "this leaf holds no derived value".
     if (present == 0) {
-      return new ColumnSlice(rowCount, (byte) 0, min, max, presence, values, null, null, null, null);
+      // No row carries every operand. The zone map stays inverted (min > max), which is how every
+      // evaluator reads "this leaf holds no derived value".
+      return new ColumnSlice(rowCount, (byte) 0, Long.MAX_VALUE, Long.MIN_VALUE, presence, new long[rowCount], null,
+          null, null, null);
     }
     // EVERY ROW SURVIVES — the shape of every measured route, where a kept leaf is dense because the
     // group kernel's own per-row mask decides later which values count. Then the rows to read are the
     // leaf's own, consecutive, so ONE counted copy per operand stages the whole lane into a buffer
-    // reused for the pass and the walk below is counted too. Per word the same bytes move in 64-row
-    // pieces, which is 16 times the copy calls for one leaf of this size: measured on the t250k
-    // anti-join group route the per-word calls, not their bytes, were what the gather still cost.
+    // reused for the pass and the walk is counted too. Per word the same bytes move in 64-row pieces,
+    // which is 16 times the copy calls for one leaf of this size: measured on the t250k anti-join
+    // group route the per-word calls, not their bytes, were what the gather still cost. A leaf the
+    // row mask thins keeps the per-word form, which wastes nothing on a sparse selection.
     final long[] staged = present == rowCount
         ? scratch.stage(operandSeg, operandBase, operandCount, rowCount)
         : null;
-    if (staged != null) {
-      for (int row = 0; row < rowCount; row++) {
-        for (int c = 0, slot = row; c < operandCount; c++, slot += rowCount) {
-          operandValues[c] = staged[slot];
-        }
-        final long v = run(code, consts, operandValues, stack);
-        values[row] = v;
-        if (v < min) {
-          min = v;
-        }
-        if (v > max) {
-          max = v;
-        }
+    // The two walks are their own methods and stay small on purpose: the program interpreter is
+    // called once per row, and a caller it cannot be inlined into pays that call 468,000 times on the
+    // measured route. Folding both walks into this method cost 17% of the interpreter's samples.
+    return staged != null
+        ? evaluateStagedRows(code, consts, stack, operandValues, operandCount, rowCount, presence, staged)
+        : evaluateKeptRows(code, consts, stack, operandValues, operandSeg, operandBase, operandCount, rowCount, stride,
+            presence, scratch.window);
+  }
+
+  /**
+   * Every row of the leaf carries every operand and its operand lanes are staged, so the walk is a
+   * counted loop over the leaf's rows and operand {@code c} of row {@code row} is
+   * {@code staged[c * rowCount + row]}.
+   */
+  private static ColumnSlice evaluateStagedRows(final int[] code, final long[] consts, final long[] stack,
+      final long[] operandValues, final int operandCount, final int rowCount, final long[] presence,
+      final long[] staged) {
+    final long[] values = new long[rowCount];
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (int row = 0; row < rowCount; row++) {
+      for (int c = 0, slot = row; c < operandCount; c++, slot += rowCount) {
+        operandValues[c] = staged[slot];
       }
-      return new ColumnSlice(rowCount, (byte) 0, min, max, presence, values, null, null, null, null);
+      final long v = run(code, consts, operandValues, stack);
+      values[row] = v;
+      if (v < min) {
+        min = v;
+      }
+      if (v > max) {
+        max = v;
+      }
     }
-    final long[] window = scratch.window;
+    return new ColumnSlice(rowCount, (byte) 0, min, max, presence, values, null, null, null, null);
+  }
+
+  /**
+   * Some row of the leaf lacks an operand, so the walk is by presence word, with one read-form
+   * decision per word taken before the walk consumes it. The crossover is the one the group folds
+   * already dispatch on ({@link ProjectionColumnGroupScan#gatherPays}), so the area keeps a single
+   * crossover: a bit walk's row index comes out of {@code numberOfTrailingZeros}, the loop is
+   * therefore not counted over linear offsets and no compiler lifts a segment's bounds and alignment
+   * checks out of it, so every surviving row would pay its own. Above the crossover one counted,
+   * intrinsified copy per operand pays one check per vector instead.
+   */
+  private static ColumnSlice evaluateKeptRows(final int[] code, final long[] consts, final long[] stack,
+      final long[] operandValues, final MemorySegment[] operandSeg, final long[] operandBase, final int operandCount,
+      final int rowCount, final int stride, final long[] presence, final long[] window) {
+    final long[] values = new long[rowCount];
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
     for (int w = 0; w < stride; w++) {
       long word = presence[w];
       if (word == 0L) {
         continue; // no row of this word has every operand: nothing to read and nothing to gather
       }
       final int rowBase = w << 6;
-      // ONE READ-FORM DECISION PER WORD, before the walk consumes it, on the crossover the group
-      // folds already dispatch on ({@link ProjectionColumnGroupScan#gatherPays}), so the area keeps
-      // one crossover: a bit walk's row index comes out of numberOfTrailingZeros, the loop is
-      // therefore not counted over linear offsets and no compiler lifts a segment's bounds and
-      // alignment checks out of it, so every surviving row would pay its own. Above the crossover
-      // one counted, intrinsified copy per operand pays one check per vector instead.
       final boolean gathered = ProjectionColumnGroupScan.gatherPays(word);
       if (gathered) {
         gatherOperands(operandSeg, operandBase, operandCount, rowBase, Math.min(WINDOW_ROWS, rowCount - rowBase),
