@@ -15,6 +15,7 @@ import io.sirix.query.MutationAuthorizer
 import io.sirix.query.json.JsonDBCollection
 import io.sirix.query.json.JsonDBStore
 import java.nio.file.Path
+import java.util.concurrent.Callable
 
 class JsonSessionDBStore(
     private val ctx: RoutingContext,
@@ -142,6 +143,13 @@ class JsonSessionDBStore(
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
         return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.createFromJsonStrings(name, jsons, options)) }
+    }
+
+    override fun createFromSources(name: String, sources: List<Callable<JsonReader>>, options: Object): JsonDBCollection {
+        Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
+        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> {
+            wrap(dbStore.createFromSources(name, sources, options))
+        }
     }
 
     override fun drop(name: String) {

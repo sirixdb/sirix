@@ -141,6 +141,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   @Override
+  public Object getResourceLifecycleLock() {
+    return this;
+  }
+
+  @Override
   public synchronized T beginResourceSession(final String resourceName) {
     assertNotClosed();
     final String canonicalName = canonicalResourceName(resourceName);

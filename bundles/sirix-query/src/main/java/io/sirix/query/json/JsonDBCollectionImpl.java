@@ -10,6 +10,7 @@ import io.brackit.query.jsonitem.AbstractJsonItemCollection;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.node.stream.ArrayStream;
 import io.sirix.api.Database;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -25,6 +26,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -254,54 +256,55 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   }
 
   public JsonDBItem add(final String resourceName, final JsonReader reader, final Object options) {
-    final String resolvedName;
+    final JsonResourceSession session;
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    synchronized (database.getDatabaseConfig()) {
-      resolvedName = database.existsResource(resourceName) ? resourceName + "1" : resourceName;
-      prepareResource(resolvedName, resourceOptions);
+    synchronized (database) {
+      synchronized (database.getResourceLifecycleLock()) {
+        final String resolvedName = database.existsResource(resourceName) ? resourceName + "1" : resourceName;
+        session = prepareResource(resolvedName, resourceOptions);
+      }
     }
-    return writeResource(resolvedName, reader, resourceOptions);
+    return writeResource(session, reader, resourceOptions);
   }
 
   @Override
-  public void addAll(final List<JsonReader> readers, final Object options) {
-    requireNonNull(readers);
+  public void addAllSources(final List<? extends Callable<JsonReader>> sources, final Object options) throws Exception {
+    requireNonNull(sources);
     requireNonNull(options);
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    final String[] names = new String[readers.size()];
-    synchronized (database.getDatabaseConfig()) {
-      final Set<String> resources = new HashSet<>();
-      for (final Path resource : database.listResources()) {
-        resources.add(resource.getFileName().toString());
-      }
-      final int initialSize = resources.size();
-      for (int i = 0; i < names.length; i++) {
-        requireNonNull(readers.get(i));
-        final String requested = "resource" + (initialSize + i);
-        final String resolved = resources.contains(requested) ? requested + "1" : requested;
-        MutationAuthorization.requireStore(name, resolved, resources.contains(resolved));
-        names[i] = resolved;
-        resources.add(resolved);
-      }
-      for (final String resourceName : names) {
-        prepareResource(resourceName, resourceOptions);
+    final List<JsonResourceSession> sessions;
+    synchronized (database) {
+      synchronized (database.getResourceLifecycleLock()) {
+        final Set<String> resources = new HashSet<>();
+        for (final Path resource : database.listResources()) {
+          resources.add(resource.getFileName().toString());
+        }
+        final int initialSize = resources.size();
+        final List<ResourceConfiguration> configurations = new ArrayList<>(sources.size());
+        for (int i = 0; i < sources.size(); i++) {
+          requireNonNull(sources.get(i));
+          final String requested = "resource" + (initialSize + i);
+          final String resolved = resources.contains(requested) ? requested + "1" : requested;
+          configurations.add(ResourceConfigurations.create(resolved, resourceOptions));
+          resources.add(resolved);
+        }
+        sessions = MutationAuthorization.prepareResources(database, name, configurations);
       }
     }
-    for (int i = 0; i < names.length; i++) {
-      writeResource(names[i], readers.get(i), resourceOptions);
-    }
-  }
-
-  private void prepareResource(final String resourceName, final Options resourceOptions) {
-    MutationAuthorization.requireStore(name, resourceName, database.existsResource(resourceName));
-    if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
-      MutationAuthorization.requireStore(name, resourceName, true);
+    for (int i = 0; i < sessions.size(); i++) {
+      try (final JsonReader reader = sources.get(i).call()) {
+        writeResource(sessions.get(i), reader, resourceOptions);
+      }
     }
   }
 
-  private JsonDBItem writeResource(final String resName, final JsonReader reader, final Options resourceOptions) {
+  private JsonResourceSession prepareResource(final String resourceName, final Options resourceOptions) {
+    return MutationAuthorization.prepareResources(database, name,
+        List.of(ResourceConfigurations.create(resourceName, resourceOptions))).getFirst();
+  }
+
+  private JsonDBItem writeResource(final JsonResourceSession resourceSession, final JsonReader reader, final Options resourceOptions) {
     try {
-      final JsonResourceSession resourceSession = database.beginResourceSession(resName);
       try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
@@ -388,13 +391,15 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   }
 
   private JsonDBItem add(final JsonReader reader, final Object options) {
-    final String resourceName;
+    final JsonResourceSession session;
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    synchronized (database.getDatabaseConfig()) {
-      resourceName = "resource" + (database.listResources().size() + 1);
-      prepareResource(resourceName, resourceOptions);
+    synchronized (database) {
+      synchronized (database.getResourceLifecycleLock()) {
+        final String resourceName = "resource" + (database.listResources().size() + 1);
+        session = prepareResource(resourceName, resourceOptions);
+      }
     }
-    return writeResource(resourceName, reader, resourceOptions);
+    return writeResource(session, reader, resourceOptions);
   }
 
   @Override

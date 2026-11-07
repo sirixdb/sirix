@@ -12,6 +12,7 @@ import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import java.io.InputStream
 import java.nio.file.Path
+import java.util.concurrent.Callable
 
 /**
  * A [JsonDBCollection] decorator that enforces per-request authorization on every mutating
@@ -44,9 +45,9 @@ class AuthCheckingJsonDBCollection(
         wrapped.remove(documentID)
     }
 
-    override fun addAll(readers: List<JsonReader>, options: Object) {
+    override fun addAllSources(sources: List<Callable<JsonReader>>, options: Object) {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        MutationAuthorization.where(mutationAuthorizer).run { wrapped.addAll(readers, options) }
+        MutationAuthorization.where(mutationAuthorizer).run { wrapped.addAllSources(sources, options) }
     }
 
     override fun add(resourceName: String, reader: JsonReader, options: Object): JsonDBItem {

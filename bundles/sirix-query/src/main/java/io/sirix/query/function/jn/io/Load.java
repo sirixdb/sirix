@@ -29,14 +29,11 @@ import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 
-import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.UncheckedIOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.concurrent.Callable;
 
 /**
  * <p>
@@ -156,28 +153,21 @@ public final class Load extends AbstractFunction {
         throw new QueryException(e, new QNm(e.getMessage()));
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
-      final List<JsonReader> readers = new ArrayList<>();
+      final List<Callable<JsonReader>> sources = new ArrayList<>();
       try (final Iter iter = seq.iterate()) {
         for (Item item; (item = iter.next()) != null;) {
-          readers.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
+          final String source = ((Str) item).stringValue();
+          sources.add(() -> new JsonReader(new InputStreamReader(URIHandler.getInputStream(source))));
         }
-        collection.addAll(readers, options);
+        collection.addAllSources(sources, options);
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
-      } finally {
-        for (final JsonReader reader : readers) {
-          try {
-            reader.close();
-          } catch (final IOException e) {
-            throw new UncheckedIOException(e);
-          }
-        }
       }
     }
   }
 
   private JsonDBCollection create(final JsonDBStore store, final String collectionName, final String resourceName,
-      final Sequence resources, final Object options) throws IOException {
+      final Sequence resources, final Object options) {
     if (resources instanceof Atomic atomic) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(atomic.stringValue())))) {
@@ -186,28 +176,17 @@ public final class Load extends AbstractFunction {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
+      final List<Callable<JsonReader>> sources = new ArrayList<>();
       try (final Iter iter = seq.iterate()) {
-        final Set<JsonReader> jsonReaders = new HashSet<>();
-
-        try {
-          for (Item item; (item = iter.next()) != null;) {
-            jsonReaders.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
-          }
-          return store.create(collectionName, jsonReaders, options);
-        } finally {
-          jsonReaders.forEach(this::closeReader);
+        for (Item item; (item = iter.next()) != null;) {
+          final String source = ((Str) item).stringValue();
+          sources.add(() -> new JsonReader(new InputStreamReader(URIHandler.getInputStream(source))));
         }
+        return store.createFromSources(collectionName, sources, options);
       }
     }
 
     return null;
   }
 
-  private void closeReader(JsonReader reader) {
-    try {
-      reader.close();
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
 }

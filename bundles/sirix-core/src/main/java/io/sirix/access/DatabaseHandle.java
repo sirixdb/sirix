@@ -33,6 +33,11 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   }
 
   @Override
+  public Object getResourceLifecycleLock() {
+    return owner.localDatabase;
+  }
+
+  @Override
   public boolean isOpen() {
     return !closed && owner.database.isOpen();
   }

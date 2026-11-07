@@ -194,10 +194,39 @@ public final class ParallelJsonShredder {
       return List.of();
     }
     final List<String> names = validatedNames(resourceNames, partitions);
-    assertNoCollisions(database, names);
-    final List<String> created = createResources(database, names, resourceConfigFactory);
-    shredAllInParallel(database, names, partitions, autoCommitNodeCount, maxConcurrency, created, afterCommitState);
+    final List<JsonResourceSession> sessions = new ArrayList<>(names.size());
+    final List<String> created;
+    synchronized (database) {
+      synchronized (database.getResourceLifecycleLock()) {
+        assertNoCollisions(database, names);
+        created = createResources(database, names, resourceConfigFactory, sessions);
+      }
+    }
+    shredAllInParallel(database, names, partitions, autoCommitNodeCount, maxConcurrency, created, afterCommitState,
+        sessions, true);
     return List.copyOf(names);
+  }
+
+  /** Write newly created, caller-retained sessions. The caller closes them after follow-up commits. */
+  public static void shredPrepared(final Database<JsonResourceSession> database,
+      final List<JsonResourceSession> sessions, final List<? extends Callable<JsonReader>> partitions,
+      final int autoCommitNodeCount, final int maxConcurrency) {
+    Objects.requireNonNull(database);
+    Objects.requireNonNull(sessions);
+    Objects.requireNonNull(partitions);
+    if (sessions.size() != partitions.size()) {
+      throw new IllegalArgumentException("One source is required per prepared resource");
+    }
+    if (sessions.isEmpty()) {
+      return;
+    }
+    final List<String> names = new ArrayList<>(sessions.size());
+    for (int i = 0; i < sessions.size(); i++) {
+      Objects.requireNonNull(partitions.get(i));
+      names.add(Objects.requireNonNull(sessions.get(i)).getResourceConfig().getName());
+    }
+    shredAllInParallel(database, names, partitions, autoCommitNodeCount, maxConcurrency, names,
+        AfterCommitState.KEEP_OPEN, sessions, false);
   }
 
   /**
@@ -232,7 +261,7 @@ public final class ParallelJsonShredder {
    * rolled back and the failure is rethrown.
    */
   private static List<String> createResources(final Database<JsonResourceSession> database, final List<String> names,
-      final Function<String, ResourceConfiguration> resourceConfigFactory) {
+      final Function<String, ResourceConfiguration> resourceConfigFactory, final List<JsonResourceSession> sessions) {
     final List<String> created = new ArrayList<>(names.size());
     try {
       for (final String name : names) {
@@ -250,8 +279,10 @@ public final class ParallelJsonShredder {
           throw new SirixException("failed to create resource '" + name + "'");
         }
         created.add(name);
+        sessions.add(database.beginResourceSession(name));
       }
     } catch (final RuntimeException | Error e) {
+      closeSessions(sessions, e);
       rollback(database, created, e);
       throw e;
     }
@@ -266,7 +297,8 @@ public final class ParallelJsonShredder {
    */
   private static void shredAllInParallel(final Database<JsonResourceSession> database, final List<String> names,
       final List<? extends Callable<JsonReader>> partitions, final int autoCommitNodeCount, final int maxConcurrency,
-      final List<String> created, final AfterCommitState afterCommitState) {
+      final List<String> created, final AfterCommitState afterCommitState, final List<JsonResourceSession> sessions,
+      final boolean closeSessionsOnSuccess) {
     final int n = names.size();
     final int concurrency = Math.min(n, maxConcurrency <= 0
         ? Runtime.getRuntime().availableProcessors()
@@ -275,6 +307,7 @@ public final class ParallelJsonShredder {
     try {
       pool = Executors.newFixedThreadPool(concurrency, namedDaemonFactory());
     } catch (final RuntimeException | Error poolFailure) {
+      closeSessions(sessions, poolFailure);
       rollback(database, created, poolFailure);
       throw poolFailure;
     }
@@ -285,9 +318,10 @@ public final class ParallelJsonShredder {
     try {
       for (int i = 0; i < n; i++) {
         final String name = names.get(i);
+        final JsonResourceSession session = sessions.get(i);
         final Callable<JsonReader> partition = partitions.get(i);
         futures.add(pool.submit(() -> {
-          shredOne(database, name, partition, autoCommitNodeCount, afterCommitState);
+          shredOne(session, name, partition, autoCommitNodeCount, afterCommitState);
           return null;
         }));
       }
@@ -307,24 +341,29 @@ public final class ParallelJsonShredder {
     final ShutdownOutcome shutdown = shutDownPool(pool, database);
     interrupted |= shutdown.interrupted();
     try {
-      if (firstFailure != null) {
-        if (shutdown.terminated()) {
-          rollback(database, created, firstFailure);
-        } else {
-          firstFailure.addSuppressed(new SirixException("rollback skipped for database '" + database.getName()
-              + "' because the parallel-shred pool still has live workers after the shutdown timeout"));
+      synchronized (database) {
+        synchronized (database.getResourceLifecycleLock()) {
+          if (shutdown.terminated() && (firstFailure != null || closeSessionsOnSuccess)) {
+            firstFailure = closeSessions(sessions, firstFailure);
+          }
+          if (firstFailure != null) {
+            if (shutdown.terminated()) {
+              rollback(database, created, firstFailure);
+            } else {
+              firstFailure.addSuppressed(new SirixException("rollback skipped for database '" + database.getName()
+                  + "' because the parallel-shred pool still has live workers after the shutdown timeout"));
+            }
+            throwShredFailure(database, firstFailure);
+          }
+          if (!shutdown.terminated()) {
+            final SirixException shutdownFailure =
+                new SirixException("parallel-shred pool did not terminate after all workers completed for database '"
+                    + database.getName() + "'");
+            closeSessions(sessions, shutdownFailure);
+            rollback(database, created, shutdownFailure);
+            throw shutdownFailure;
+          }
         }
-        throwShredFailure(database, firstFailure);
-      }
-
-      if (!shutdown.terminated()) {
-        final SirixException shutdownFailure =
-            new SirixException("parallel-shred pool did not terminate after all workers completed for database '"
-                + database.getName() + "'");
-        // Every Future completed normally, so no worker owns a resource even if an executor thread has
-        // failed to terminate. Rollback is safe and preserves the all-or-nothing success contract.
-        rollback(database, created, shutdownFailure);
-        throw shutdownFailure;
       }
     } finally {
       // Keep the flag consumed through database cleanup: lock acquisition/removal is allowed to react
@@ -426,7 +465,7 @@ public final class ParallelJsonShredder {
   }
 
   /** Shred a single partition into its resource: open session + write trx, insert subtree, commit. */
-  private static void shredOne(final Database<JsonResourceSession> database, final String resourceName,
+  private static void shredOne(final JsonResourceSession session, final String resourceName,
       final Callable<JsonReader> partition, final int autoCommitNodeCount, final AfterCommitState afterCommitState)
       throws Exception {
     JsonReader reader = null;
@@ -453,8 +492,7 @@ public final class ParallelJsonShredder {
       // An earlier comment here claimed async modes regress in the parallel path. That was measured
       // for async commit with auto-commit disabled on a 25 MB input, where the whole shard sits in
       // one transaction; it does not hold once auto-commit bounds the epoch.
-      try (final JsonResourceSession session = database.beginResourceSession(resourceName);
-          final JsonNodeTrx wtx = autoCommitNodeCount > 0
+      try (final JsonNodeTrx wtx = autoCommitNodeCount > 0
               ? session.beginNodeTrx(autoCommitNodeCount, afterCommitState)
               : session.beginNodeTrx(afterCommitState)) {
         // Commit.NO: the explicit commit below is the single durable commit point for this shard.
@@ -486,6 +524,17 @@ public final class ParallelJsonShredder {
   }
 
   /** Best-effort removal of every resource this call created; cleanup errors attach as suppressed. */
+  private static Throwable closeSessions(final List<JsonResourceSession> sessions, Throwable failure) {
+    for (final JsonResourceSession session : sessions) {
+      try {
+        session.close();
+      } catch (final RuntimeException | Error closeFailure) {
+        failure = combine(failure, closeFailure);
+      }
+    }
+    return failure;
+  }
+
   private static void rollback(final Database<JsonResourceSession> database, final List<String> created,
       final Throwable primary) {
     for (final String name : created) {

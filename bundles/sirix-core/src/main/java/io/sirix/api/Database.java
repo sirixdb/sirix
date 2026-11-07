@@ -53,6 +53,9 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
    */
   boolean isOpen();
 
+  /** The storage monitor used by resource removal. Acquire the database handle before this monitor. */
+  Object getResourceLifecycleLock();
+
   /**
    * Creation of a resource. Since databases can consist out of several resources, those can be
    * created within this method. This includes the creation of a suitable folder structure as well as

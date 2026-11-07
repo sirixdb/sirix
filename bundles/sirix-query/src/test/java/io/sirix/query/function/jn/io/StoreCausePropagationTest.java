@@ -18,6 +18,8 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.List;
+import java.util.concurrent.Callable;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -211,6 +213,12 @@ final class StoreCausePropagationTest {
 
     @Override
     public JsonDBCollection createFromJsonStrings(final String collName, final Stream<Str> jsons) {
+      throw unsupported();
+    }
+
+    @Override
+    public JsonDBCollection createFromSources(final String name,
+        final List<? extends Callable<JsonReader>> sources, final Object options) {
       throw unsupported();
     }
 

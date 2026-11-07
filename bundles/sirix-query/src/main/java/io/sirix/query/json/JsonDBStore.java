@@ -10,6 +10,8 @@ import io.sirix.api.json.JsonResourceSession;
 
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.List;
+import java.util.concurrent.Callable;
 
 /**
  * Database store.
@@ -71,6 +73,8 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
   default JsonDBCollection createFromJsonStrings(String collName, Stream<Str> jsons, Object options) {
     return createFromJsonStrings(collName, jsons);
   }
+
+  JsonDBCollection createFromSources(String name, List<? extends Callable<JsonReader>> sources, Object options);
 
   @Override
   void drop(String name);

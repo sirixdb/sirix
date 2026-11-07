@@ -7,6 +7,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 
 import java.util.List;
+import java.util.concurrent.Callable;
 
 /**
  * A JSON database collection backed by a Sirix {@link Database}.
@@ -72,7 +73,7 @@ public interface JsonDBCollection extends TemporalJsonCollection<JsonDBItem>, Au
    */
   JsonDBItem add(String resourceName, JsonReader reader);
 
-  void addAll(List<JsonReader> readers, Object options);
+  void addAllSources(List<? extends Callable<JsonReader>> sources, Object options) throws Exception;
 
   @Override
   void close();
