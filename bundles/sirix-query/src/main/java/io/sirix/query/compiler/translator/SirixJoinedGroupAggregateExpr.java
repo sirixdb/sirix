@@ -372,7 +372,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       if ((revision >= 0 && executor.getRevision() != revision) || !executor.canExecute(ctx)) {
         return null;
       }
-      return executor.maskedColumns(ARRAY_MEMBERS, keys, sideFields[side]);
+      // A join side is the selection's only reader: its lanes go into one slab, keys or not.
+      return executor.maskedColumns(ARRAY_MEMBERS, keys, sideFields[side], true);
     }
   }
 
@@ -625,7 +626,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * leaf, eight bytes per row; when every lane of the side lives in one segment (a selection decoded
    * into its own slab, the common case) the row read goes through that one segment, so its bounds and
    * scope are loaded once per row rather than once per field ({@link #readNumericRow}). A sparse side
-   * reads through the view's per-row accessors. One representation, one loop.
+   * reads through the view's per-row accessors. One representation, one loop. A row-output join reads
+   * the probe record key from the key lane per emitted pair.
    */
   private int probeRows(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
       final int probeSide, final boolean[] stringKeys, final boolean[] timestampKeys, final BuildRows buildRows,
@@ -690,22 +692,21 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           } else {
             readProbeRow(probeColumns, leaf, row, probeFieldCount, probeValues, probePresent);
           }
-          final long probeRecordKey = emitsRows
-              ? (long) SLAB_LONG.get(keySeg, keyBase + 8L * row)
-              : 0L;
           for (; at >= 0; at = nextRow[at]) {
             if (!matchesResidual(buildRows, at, buildSide, probeValues, probePresent, residualStack, allPresent)) {
               continue;
             }
+            // The probe record key is read per emitted pair, not per matched row: most rows emit nothing.
             if (rowOrder != null) {
               emitRowPrimitive(keyCount, buildSide, buildFieldCount, buildRows, at, probeValues, stringKeys,
-                  timestampKeys, buildColumns, probeRecordKey, rowOrder);
+                  timestampKeys, buildColumns, (long) SLAB_LONG.get(keySeg, keyBase + 8L * row), rowOrder);
               emittedRows++;
               continue;
             }
             if (rowOrdering != null) {
               emitRow(keyCount, buildSide, probeSide, buildFieldCount, buildRows, at, probeValues, probePresent,
-                  stringKeys, timestampKeys, buildColumns, probeRecordKey, rowOrdering, rowColumns);
+                  stringKeys, timestampKeys, buildColumns, (long) SLAB_LONG.get(keySeg, keyBase + 8L * row),
+                  rowOrdering, rowColumns);
               emittedRows++;
               continue;
             }

@@ -102,7 +102,10 @@ side built from a one-off selection is reaped once that identity is unreachable.
 
 Admission is reservation-first and copies no column. The executor lays out the surviving leaves'
 lanes of every non-resident long-lane field of the selection and, behind them, the surviving
-leaves' record keys in one slab (`maskedLaneLayout`, `KeyLanes.layout`), reserves it from the
+leaves' record keys in one slab (`maskedLaneLayout`, `KeyLanes.layout`); a routed selection whose
+keys prune no leaf keeps every leaf explicitly rather than reading the store's whole columns
+(which would fill them resident, one slab each, and spread the side's lanes over several
+segments). It reserves the slab from the
 numeric share (`NumericMaskedColumnCache.reserve`), decodes the lanes straight into it, moves the
 keys in once from the store's decoded KEYS arrays (`KeyLanes.copyInto`, eight bytes per row, the
 arrays are not retained), and publishes the view as the entry (`publish`); fields the store already
