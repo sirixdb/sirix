@@ -231,12 +231,8 @@ jobs:
       # sonarqube.yml passes `-x :sirix-rest-api:test`, and the cross-platform lanes exclude the
       # module. A stale assertion in PermissionCheckingQueryTest therefore survived #1297 — which
       # moved temporal aggregate columns into the hidden derived resource — for 40 commits.
-      # `offlineTest` gates the tag-selected suite that needs no Docker or Keycloak first, so an
-      # authorization-guard regression is reported before any container has to come up; `test` then
-      # gates the whole module and tears its own compose project down before the Python step starts
+      # `test` gates the whole module and tears its own compose project down before the Python step starts
       # the root one (both publish Keycloak on host port 8080, so they must not overlap).
-      - name: Test sirix-rest-api (no Docker required)
-        run: ./gradlew :sirix-rest-api:offlineTest --info --stacktrace
       - name: Test sirix-rest-api (Keycloak via Docker Compose)
         run: ./gradlew :sirix-rest-api:test --info --stacktrace
       - name: Upload REST API test reports
