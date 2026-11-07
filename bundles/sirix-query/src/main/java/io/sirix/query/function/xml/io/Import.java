@@ -18,7 +18,7 @@ import io.sirix.diff.service.FMSEImport;
 import io.sirix.utils.SirixFiles;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.xml.XMLFun;
-import io.sirix.query.node.XmlDBStore;
+import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBNode;
 
@@ -64,7 +64,7 @@ public final class Import extends AbstractFunction {
       throw new QueryException(new QNm("No valid arguments specified!"));
     }
 
-    final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
+    final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getNodeStore();
     final XmlDBCollection coll = store.lookup(((Str) args[0]).stringValue());
 
     if (coll == null) {

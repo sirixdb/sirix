@@ -48,6 +48,7 @@ import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.Mockito
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
 
@@ -194,8 +195,7 @@ class QueryMutationAuthorizationTest {
         "sdb:rollback(xn:doc('tenant-b/orders','resource1'))",
         "xn:create-name-index(xn:doc('tenant-b/orders','resource1'),())",
         "xn:create-path-index(xn:doc('tenant-b/orders','resource1'),'/root')",
-        "xn:create-cas-index(xn:doc('tenant-b/orders','resource1'),'xs:string','/root')",
-        "xn:import('tenant-b/orders','resource1','unused.xml')"
+        "xn:create-cas-index(xn:doc('tenant-b/orders','resource1'),'xs:string','/root')"
     ])
     fun basenameModifyRoleCannotMutateNestedXmlDatabase(query: String) {
         val user = userWith("view", "orders-modify")
@@ -221,6 +221,40 @@ class QueryMutationAuthorizationTest {
                             assertEquals("pending", writer.value)
                             assertEquals(before, session.mostRecentRevisionNumber)
                             writer.rollback()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun restModifyRoleCannotImportServerFile() {
+        val source = Files.writeString(directory.resolve("server.xml"), "<root>private</root>")
+        val user = userWith("view", "modify")
+        val authz = authorizations()
+        val keycloak = Mockito.mock(OAuth2Auth::class.java)
+        BasicXmlDBStore.newBuilder().location(directory).build().use { store ->
+            store.create("auth", DocumentParser("<root>1</root>"))
+            val guarded = XmlSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
+            SirixQueryContext.createWithNodeStore(guarded).use { context ->
+                SirixCompileChain.createWithNodeStore(guarded).use { chain ->
+                    guarded.lookup("auth").database.beginResourceSession("resource1").use { session ->
+                        val before = session.mostRecentRevisionNumber
+                        val output = StringWriter()
+                        val checked = PermissionCheckingQuery(
+                            chain, "xn:import('auth','resource1','$source')", keycloak, user, authz
+                        )
+                        assertThrows(ClassCastException::class.java) {
+                            checked.serialize(context, PrintWriter(output))
+                        }
+                        assertEquals("", output.toString())
+                        assertEquals(before, session.mostRecentRevisionNumber)
+                        assertTrue(session.nodeTrx.isEmpty)
+                        session.beginNodeReadOnlyTrx().use { reader ->
+                            reader.moveToFirstChild()
+                            reader.moveToFirstChild()
+                            assertEquals("1", reader.value)
                         }
                     }
                 }
