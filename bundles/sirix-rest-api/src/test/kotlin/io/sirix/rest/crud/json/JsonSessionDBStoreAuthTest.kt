@@ -108,7 +108,7 @@ class JsonSessionDBStoreAuthTest {
 
         val store = JsonSessionDBStore(ctx, delegate, userWith("$DB-view"), authz)
 
-        val collection = assertDoesNotThrow<JsonDBCollection> { store.lookup(DB) }
+        val collection = assertDoesNotThrow<JsonDBCollection?> { store.lookup(DB) }
         assertInstanceOf(AuthCheckingJsonDBCollection::class.java, collection)
     }
 

@@ -89,7 +89,7 @@ class XmlSessionDBStoreAuthTest {
 
         val store = XmlSessionDBStore(ctx, delegate, userWith("$DB-view"), authz)
 
-        val collection = assertDoesNotThrow<XmlDBCollection> { store.lookup(DB) }
+        val collection = assertDoesNotThrow<XmlDBCollection?> { store.lookup(DB) }
         assertInstanceOf(AuthCheckingXmlDBCollection::class.java, collection)
     }
 

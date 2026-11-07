@@ -38,6 +38,7 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.HttpException
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -93,7 +94,7 @@ class QueryMutationAuthorizationTest {
         val keycloak = Mockito.mock(OAuth2Auth::class.java)
 
         withStore { fixture ->
-            fixture.store.lookup("auth").database.beginResourceSession("records").use { session ->
+            fixture.store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
                 val before = witness(session)
                 assertRefused(query) { run(fixture, query, keycloak) }
                 assertTrue(session.nodeTrx.isEmpty, "A refused mutation must leave no write transaction open")
@@ -103,7 +104,7 @@ class QueryMutationAuthorizationTest {
 
         Databases.clearGlobalCaches()
         withStore(modify = true) { fixture ->
-            fixture.store.lookup("auth").database.beginResourceSession("records").use { session ->
+            fixture.store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
                 val before = session.getRtxIndexController<JsonIndexController>(session.mostRecentRevisionNumber).indexes
                 val expected = IndexType.entries.associateWith {
                     before.getNrOfIndexDefsWithType(it) + if (it == indexType) delta else 0
@@ -136,7 +137,7 @@ class QueryMutationAuthorizationTest {
         val keycloak = Mockito.mock(OAuth2Auth::class.java)
 
         withStore { fixture ->
-            fixture.store.lookup("auth").database.beginResourceSession("records").use { session ->
+            fixture.store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
                 val before = witness(session)
                 session.beginNodeTrx().use { writer ->
                     numberField(writer)
@@ -165,7 +166,7 @@ class QueryMutationAuthorizationTest {
         createDatabase("tenant-b/orders")
         val keycloak = Mockito.mock(OAuth2Auth::class.java)
         withStore(modify = true, databaseName = "tenant-b/orders", modifyRole = "orders-modify") { fixture ->
-            fixture.store.lookup("tenant-b/orders").database.beginResourceSession("records").use { session ->
+            fixture.store.lookup("tenant-b/orders")!!.database.beginResourceSession("records").use { session ->
                 val before = witness(session)
                 session.beginNodeTrx().use { writer ->
                     numberField(writer)
@@ -184,7 +185,7 @@ class QueryMutationAuthorizationTest {
     fun nestedDatabaseModifyRoleCanPublishRevision() {
         createDatabase("tenant-b/orders")
         withStore(modify = true, databaseName = "tenant-b/orders", modifyRole = "tenant-b/orders-modify") { fixture ->
-            fixture.store.lookup("tenant-b/orders").database.beginResourceSession("records").use { session ->
+            fixture.store.lookup("tenant-b/orders")!!.database.beginResourceSession("records").use { session ->
                 val before = session.mostRecentRevisionNumber
                 run(fixture, "sdb:commit(jn:doc('tenant-b/orders','records'))", Mockito.mock(OAuth2Auth::class.java))
                 assertEquals(before + 1, session.mostRecentRevisionNumber)
@@ -209,7 +210,7 @@ class QueryMutationAuthorizationTest {
             val guarded = XmlSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
             SirixQueryContext.createWithNodeStore(guarded).use { context ->
                 SirixCompileChain.createWithNodeStore(guarded).use { chain ->
-                    guarded.lookup("tenant-b/orders").database.beginResourceSession("resource1").use { session ->
+                    guarded.lookup("tenant-b/orders")!!.database.beginResourceSession("resource1").use { session ->
                         val before = session.mostRecentRevisionNumber
                         session.beginNodeTrx().use { writer ->
                             writer.moveToDocumentRoot()
@@ -242,7 +243,7 @@ class QueryMutationAuthorizationTest {
             val guarded = XmlSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
             SirixQueryContext.createWithNodeStore(guarded).use { context ->
                 SirixCompileChain.createWithNodeStore(guarded).use { chain ->
-                    guarded.lookup("auth").database.beginResourceSession("resource1").use { session ->
+                    guarded.lookup("auth")!!.database.beginResourceSession("resource1").use { session ->
                         val before = session.mostRecentRevisionNumber
                         val output = StringWriter()
                         val checked = PermissionCheckingQuery(
@@ -274,7 +275,7 @@ class QueryMutationAuthorizationTest {
             val guarded = XmlSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
             SirixQueryContext.createWithNodeStore(guarded).use { context ->
                 SirixCompileChain.createWithNodeStore(guarded).use { chain ->
-                    guarded.lookup("tenant-b/orders").database.beginResourceSession("resource1").use { session ->
+                    guarded.lookup("tenant-b/orders")!!.database.beginResourceSession("resource1").use { session ->
                         val before = session.mostRecentRevisionNumber
                         val query = "sdb:commit(xn:doc('tenant-b/orders','resource1'))"
                         StringSerializer(PrintWriter(StringWriter())).use {
@@ -392,6 +393,92 @@ class QueryMutationAuthorizationTest {
      * The query context and compile chain outlive every query a case runs: closing them also closes
      * the resource sessions they registered, which would close the session the assertions read.
      */
+    /**
+     * Writing into a resource that already exists is a modification, so CREATE alone must not reach
+     * it. Both functions previously ended at the store's and collection's CREATE-checked entry
+     * points only, which let a caller holding CREATE but not MODIFY overwrite existing data — the
+     * create-new flag does not decide this, because the create path shreds into a resource that is
+     * already there instead of refusing it.
+     */
+    @ParameterizedTest
+    @CsvSource("store,true", "store,false", "load,true", "load,false")
+    fun createRoleAloneCannotOverwriteAnExistingResource(function: String, createNew: Boolean) {
+        createDatabase()
+        val keycloak = Mockito.mock(OAuth2Auth::class.java)
+        val query = storeOrLoad(function, "records", createNew)
+        withRoles("auth-view", "create") { fixture ->
+            fixture.store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
+                val before = witness(session)
+                assertRefused(query) { run(fixture, query, keycloak) }
+                assertTrue(session.nodeTrx.isEmpty, "A refused store/load must leave no write transaction open")
+                assertWitnessUnchanged(before, witness(session), query)
+            }
+        }
+    }
+
+    /** Creating a resource needs CREATE, so MODIFY alone must not bring one into existence. */
+    @ParameterizedTest
+    @CsvSource("store,true", "store,false", "load,true", "load,false")
+    fun modifyRoleAloneCannotCreateAResource(function: String, createNew: Boolean) {
+        createDatabase()
+        val keycloak = Mockito.mock(OAuth2Auth::class.java)
+        val query = storeOrLoad(function, "fresh", createNew)
+        withRoles("auth-view", "modify") { fixture ->
+            assertRefused(query) { run(fixture, query, keycloak) }
+        }
+        assertFalse(resourceExists("fresh"), "A refused store/load must not create the resource: $query")
+    }
+
+    /**
+     * The allowed arms, so a refusal above cannot be mistaken for a broken function: the same calls
+     * write when the caller holds the permission the operation needs.
+     */
+    @ParameterizedTest
+    @CsvSource("store,true", "store,false", "load,true", "load,false")
+    fun authorizedStoreAndLoadStillWrite(function: String, createNew: Boolean) {
+        createDatabase()
+        val keycloak = Mockito.mock(OAuth2Auth::class.java)
+        withRoles("auth-view", "create", "modify") { fixture ->
+            run(fixture, storeOrLoad(function, "fresh", createNew), keycloak)
+        }
+        assertTrue(resourceExists("fresh"), "An authorized store/load must create the resource")
+    }
+
+    /** `jn:store` takes its fragment inline; `jn:load` reads it from a URI the test writes. */
+    private fun storeOrLoad(function: String, resourceName: String, createNew: Boolean): String {
+        val flag = if (createNew) ",true()" else ",false()"
+        return when (function) {
+            "store" -> "jn:store('auth','$resourceName','[{\"n\":1}]'$flag)"
+            "load" -> {
+                val source = directory.resolve("$resourceName-source.json")
+                if (!Files.exists(source)) Files.writeString(source, "[{\"n\":1}]")
+                "jn:load('auth','$resourceName','${source.toUri()}'$flag)"
+            }
+            else -> error(function)
+        }
+    }
+
+    private fun resourceExists(resourceName: String): Boolean {
+        Databases.clearGlobalCaches()
+        Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
+            return database.existsResource(resourceName)
+        }
+    }
+
+    /** A fixture whose caller holds exactly [roles], for asserting one permission at a time. */
+    private fun withRoles(vararg roles: String, body: (Fixture) -> Unit) {
+        val user = userWith(*roles)
+        val authz = authorizations()
+        BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build().use { store ->
+            val guarded = JsonSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
+            SirixQueryContext.createWithJsonStore(guarded).use { context ->
+                SirixCompileChain.createWithJsonStore(guarded).use { chain ->
+                    body(Fixture(guarded, user, authz, context, chain))
+                }
+            }
+        }
+    }
+
     private fun withStore(
         modify: Boolean = false,
         databaseName: String = "auth",

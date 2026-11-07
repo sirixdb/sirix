@@ -29,6 +29,18 @@ class JsonSessionDBStore(
     }
 
     /**
+     * Authorize creating a resource a query is about to store or load into.
+     *
+     * `jn:store` and `jn:load` create a resource that does not exist yet, so the permission is
+     * CREATE rather than MODIFY - the same role the HTTP PUT routes and the store's own `create`
+     * overloads require. Which of the two applies is decided by the target's existence, in
+     * [io.sirix.query.MutationAuthorization].
+     */
+    override fun authorizeCreate(databaseName: String, resourceName: String?) {
+        Auth.checkIfAuthorized(user, databaseName, AuthRole.CREATE, authz)
+    }
+
+    /**
      * Wrap a collection so that every mutating operation performed through it re-checks the
      * caller's authorization. Without this the store-level checks are bypassable: a VIEW token can
      * [lookup] a collection (a read) and then call `add`/`remove`/`delete` directly on it.
@@ -36,10 +48,14 @@ class JsonSessionDBStore(
     private fun wrap(collection: JsonDBCollection): JsonDBCollection =
         AuthCheckingJsonDBCollection(collection, user, authz)
 
-    override fun lookup(name: String): JsonDBCollection {
+    override fun lookup(name: String): JsonDBCollection? {
         Auth.checkIfAuthorized(user, name, AuthRole.VIEW, authz)
 
-        return wrap(dbStore.lookup(name))
+        // The undecorated store answers null for a database that does not exist. Decorating null
+        // threw NullPointerException from the decorator's own initialiser, so absence must pass
+        // through: a caller asking whether a target exists is entitled to the answer "it does not".
+        val collection = dbStore.lookup(name) ?: return null
+        return wrap(collection)
     }
 
     override fun create(name: String): JsonDBCollection {

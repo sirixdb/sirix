@@ -1,5 +1,7 @@
 package io.sirix.query;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Authorizes a mutation that a query is about to perform on one resource.
  *
@@ -30,4 +32,20 @@ public interface MutationAuthorizer {
    * @throws RuntimeException if the caller may not mutate it; the implementation chooses the type
    */
   void authorizeWrite(String databaseName, String resourceName);
+
+  /**
+   * Authorize creating {@code resourceName} in {@code databaseName}, which must happen before the
+   * resource or its database is created and before any input is read.
+   *
+   * <p>
+   * Separate from {@link #authorizeWrite}, because storing and loading reach both operations:
+   * {@code jn:store} and {@code jn:load} create a resource that does not exist yet and write into one
+   * that does, and those are different permissions.
+   * </p>
+   *
+   * @param databaseName the target's full collection name used for REST roles, never a path basename
+   * @param resourceName the resource to create, or {@code null} when the store generates the name
+   * @throws RuntimeException if the caller may not create it; the implementation chooses the type
+   */
+  void authorizeCreate(String databaseName, @Nullable String resourceName);
 }

@@ -67,7 +67,7 @@ class PermissionCheckingQueryTest {
             val guarded = JsonSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
             SirixQueryContext.createWithJsonStore(guarded).use { context ->
                 SirixCompileChain.createWithJsonStore(guarded).use { chain ->
-                    store.lookup("auth").database.beginResourceSession("records").use { session ->
+                    store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
                         session.beginNodeTrx().use { writer ->
                             numberField(writer, first)
                             writer.setNumberValue(99)
@@ -128,7 +128,7 @@ class PermissionCheckingQueryTest {
                 SirixCompileChain.createWithJsonStore(guarded).use { chain ->
                     assertEquals("1", run(mode, chain, context, "sum(jn:doc('auth','records')[].n)", keycloak, authz, user))
                     Mockito.verifyNoInteractions(authz)
-                    store.lookup("auth").database.beginResourceSession("records").use { session ->
+                    store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
                         assertTrue(session.nodeTrx.isEmpty)
                         assertEquals(1, session.mostRecentRevisionNumber)
                     }
@@ -162,7 +162,7 @@ class PermissionCheckingQueryTest {
             val guarded = JsonSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
             SirixQueryContext.createWithJsonStore(guarded).use { context ->
                 SirixCompileChain.createWithJsonStore(guarded).use { chain ->
-                    store.lookup("auth").database.beginResourceSession("records").use { session ->
+                    store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
                         session.beginNodeReadOnlyTrx().use { reader ->
                             beforeProjection = ProjectionIndexHOTStorage.readMetadataBlob(reader.storageEngineReader, 0)!!
                         }

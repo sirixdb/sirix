@@ -22,6 +22,7 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.node.stream.ArrayStream;
 import io.brackit.query.sequence.FunctionConversionSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
@@ -108,6 +109,11 @@ public final class Store extends AbstractFunction {
       } else {
         options = new ArrayObject(new QNm[0], new Sequence[0]);
       }
+
+      // Before the store is touched and before any input is read: storing and loading mutate but
+      // are not updating expressions, so this is the only check standing between a caller
+      // without write permission and the write.
+      MutationAuthorization.requireStorable(ctx, store, collectionName, resourceName);
 
       if (createIfNotExists) {
         create(store, collectionName, resourceName, nodes, options);

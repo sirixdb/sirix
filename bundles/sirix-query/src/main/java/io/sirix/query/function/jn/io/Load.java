@@ -24,6 +24,7 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.FunctionConversionSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.brackit.query.util.io.URIHandler;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
@@ -118,6 +119,11 @@ public final class Load extends AbstractFunction {
 
       JsonDBCollection collection;
 
+      // Before the store is touched and before any input is read: storing and loading mutate but
+      // are not updating expressions, so this is the only check standing between a caller
+      // without write permission and the write.
+      MutationAuthorization.requireStorable(ctx, store, collectionName, resourceName);
+
       if (createIfNotExists) {
         collection = create(store, collectionName, resourceName, resources, options);
       } else {
@@ -132,7 +138,11 @@ public final class Load extends AbstractFunction {
 
       return collection;
     } catch (final Exception e) {
-      throw new QueryException(new QNm(e.getMessage()), e);
+      // (Throwable, QNm) is the cause-attaching overload. The (QNm, Object) one this used to bind to
+      // renders the throwable into the message and drops it, so an authorization refusal reached the
+      // caller with no HttpException in its chain and the REST failure handler could not map it to a
+      // status code. Store.java carries the same fix.
+      throw new QueryException(e, new QNm(e.getMessage()));
     }
   }
 
@@ -143,7 +153,7 @@ public final class Load extends AbstractFunction {
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(res.stringValue())))) {
         collection.add(resourceName, reader, options);
       } catch (final Exception e) {
-        throw new QueryException(new QNm(e.getMessage()), e);
+        throw new QueryException(e, new QNm(e.getMessage()));
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
@@ -153,7 +163,7 @@ public final class Load extends AbstractFunction {
               new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
             collection.add("resource" + size++, reader, options);
           } catch (final Exception e) {
-            throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
+            throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
           }
         }
       }
@@ -167,7 +177,7 @@ public final class Load extends AbstractFunction {
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(atomic.stringValue())))) {
         return store.create(collectionName, resourceName, reader, options);
       } catch (final Exception e) {
-        throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
+        throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
