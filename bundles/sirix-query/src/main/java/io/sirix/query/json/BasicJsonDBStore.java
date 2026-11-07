@@ -877,6 +877,11 @@ public final class BasicJsonDBStore implements JsonDBStore {
     final var partitions = new ArrayList<Callable<JsonReader>>(uris.size());
     for (final String uri : uris) {
       requireNonNull(uri);
+      try {
+        URIHandler.getInputStream(uri).close();
+      } catch (final IOException failure) {
+        throw new UncheckedIOException(failure);
+      }
       partitions.add(() -> new JsonReader(new InputStreamReader(URIHandler.getInputStream(uri))));
     }
     return createCollection(collName, partitions, options);

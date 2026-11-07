@@ -22,6 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,10 +39,20 @@ final class LoadReaderOwnershipTest {
     final CountDownLatch releaseSources = new CountDownLatch(1);
     final CountDownLatch responsesFinished = new CountDownLatch(2);
     final AtomicBoolean interruptRestored = new AtomicBoolean();
+    final AtomicInteger sourceRequests = new AtomicInteger();
     final HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     try (final ExecutorService requests = Executors.newFixedThreadPool(2)) {
       server.setExecutor(requests);
       server.createContext("/input", exchange -> {
+        if (sourceRequests.getAndIncrement() < 2) {
+          exchange.sendResponseHeaders(200, 2);
+          try (var body = exchange.getResponseBody()) {
+            body.write("{}".getBytes(StandardCharsets.UTF_8));
+          } finally {
+            exchange.close();
+          }
+          return;
+        }
         try {
           exchange.sendResponseHeaders(200, 0);
           try (var body = exchange.getResponseBody()) {

@@ -2,8 +2,10 @@ package io.sirix.rest.crud
 
 import io.brackit.query.Query
 import io.brackit.query.atomic.QNm
+import io.brackit.query.jdm.Sequence
 import io.brackit.query.jdm.Type
 import io.brackit.query.node.parser.DocumentParser
+import io.brackit.query.jsonitem.`object`.ArrayObject
 import io.brackit.query.util.path.Path as QueryPath
 import io.brackit.query.util.path.PathParser
 import io.brackit.query.util.serialize.StringSerializer
@@ -52,6 +54,7 @@ import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.Mockito
 import java.io.PrintWriter
+import java.io.IOException
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
@@ -437,6 +440,39 @@ class QueryMutationAuthorizationTest {
         }
         val after = databaseWitness()
         assertEquals(before.first, after.first, "A refused replacement changed the database resources")
+        assertWitnessUnchanged(before.second, after.second, query)
+    }
+
+    @ParameterizedTest
+    @CsvSource("query,false", "query,true", "store,false", "store,true")
+    fun unavailableLoadSourcesPreserveExistingDatabase(entryPoint: String, validFirst: Boolean) {
+        createDatabase()
+        val before = databaseWitness()
+        val first = if (validFirst) {
+            Files.writeString(directory.resolve("available.json"), "{}").toUri().toString()
+        } else {
+            directory.resolve("missing-a.json").toUri().toString()
+        }
+        val second = directory.resolve("missing-b.json").toUri().toString()
+        val sources = listOf(first, second)
+        val query = "jn:load('auth',(),('$first','$second'))"
+        withRoles("auth-view", "create", "delete") { fixture ->
+            val failure = assertThrows(RuntimeException::class.java) {
+                when (entryPoint) {
+                    "query" -> run(fixture, query, Mockito.mock(OAuth2Auth::class.java))
+                    "store" -> fixture.store.createFromUris("auth", sources,
+                        ArrayObject(emptyArray<QNm>(), emptyArray<Sequence>()))
+                    else -> error(entryPoint)
+                }
+            }
+            assertTrue(generateSequence<Throwable>(failure) { it.cause }.any { it is IOException },
+                "The load must fail because a declared source cannot be opened")
+        }
+        Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
+            assertEquals(before.first, database.listResources().map { it.fileName.toString() }.toSet(),
+                "A source acquisition failure must preserve every existing resource")
+        }
+        val after = databaseWitness()
         assertWitnessUnchanged(before.second, after.second, query)
     }
 
