@@ -67,10 +67,16 @@ public final class ProjectionComputedColumn {
     final long[] stack = new long[MAX_STACK];
     final long[] operandValues = new long[operands.length];
     // Hoisted once for the whole pass and refilled per leaf: the operand lanes are read where the
-    // store decoded them, so no operand is ever copied to the heap.
+    // store decoded them, so no operand lane is ever materialized on the heap.
     final MemorySegment[] operandSeg = new MemorySegment[operands.length];
     final long[] operandBase = new long[operands.length];
     final long[][] operandPresence = new long[operands.length][];
+    // One 64-row value window per operand, allocated once for the whole pass (512 bytes each) and
+    // refilled per selection word by evaluateLeaf: nothing is allocated per leaf or per row.
+    final long[][] window = new long[operands.length][];
+    for (int c = 0; c < window.length; c++) {
+      window[c] = new long[ProjectionColumnGroupScan.WINDOW_ROWS];
+    }
     for (int leaf = 0; leaf < leaves; leaf++) {
       final boolean kept =
           keepWords == null || ((leaf >>> 6) < keepWords.length && (keepWords[leaf >>> 6] & 1L << (leaf & 63)) != 0L);
@@ -78,15 +84,15 @@ public final class ProjectionComputedColumn {
         out[leaf] = ProjectionColumnStore.prunedSlice();
         continue;
       }
-      out[leaf] =
-          evaluateLeaf(operands, leaf, code, consts, stack, operandValues, operandSeg, operandBase, operandPresence);
+      out[leaf] = evaluateLeaf(operands, leaf, code, consts, stack, operandValues, operandSeg, operandBase,
+          operandPresence, window);
     }
     return out;
   }
 
   private static ColumnSlice evaluateLeaf(final ColumnSlice[][] operands, final int leaf, final int[] code,
       final long[] consts, final long[] stack, final long[] operandValues, final MemorySegment[] operandSeg,
-      final long[] operandBase, final long[][] operandPresence) {
+      final long[] operandBase, final long[][] operandPresence, final long[][] window) {
     final int operandCount = operands.length;
     int rowCount = -1;
     for (int c = 0; c < operandCount; c++) {
@@ -122,14 +128,34 @@ public final class ProjectionComputedColumn {
         word &= (1L << tailBits) - 1L;
       }
       presence[w] = word;
+      if (word == 0L) {
+        continue; // no row of this word has every operand: nothing to read and nothing to gather
+      }
       final int rowBase = w << 6;
+      // ONE DECISION PER WORD, before the walk consumes it, on the crossover the group folds already
+      // dispatch on ({@link ProjectionColumnGroupScan#gatherPays}). This is the densest walk in the
+      // area — a kept leaf is evaluated in full, because the kernel's own per-row mask decides later
+      // which values count — so the gathered side is normally the one taken, and it is what keeps the
+      // operand reads off the critical path: a group fold's row index comes out of
+      // numberOfTrailingZeros, so no compiler hoists a segment's bounds and alignment checks out of
+      // the walk and every row would pay its own. Gathering gathers them in one counted,
+      // intrinsified copy per operand per word instead.
+      final long[][] win = ProjectionColumnGroupScan.gatherPays(word)
+          ? ProjectionColumnGroupScan.gatherWindow(operandSeg, operandBase, operandCount, w, rowCount, window)
+          : null;
       while (word != 0L) {
         final int bit = Long.numberOfTrailingZeros(word);
         word &= word - 1L;
         final int row = rowBase + bit;
-        final long at = (long) row << 3;
-        for (int c = 0; c < operandCount; c++) {
-          operandValues[c] = SegmentAccess.getLong(operandSeg[c], operandBase[c] + at);
+        if (win != null) {
+          for (int c = 0; c < operandCount; c++) {
+            operandValues[c] = win[c][bit];
+          }
+        } else {
+          final long at = (long) row << 3;
+          for (int c = 0; c < operandCount; c++) {
+            operandValues[c] = SegmentAccess.getLong(operandSeg[c], operandBase[c] + at);
+          }
         }
         final long v = run(code, consts, operandValues, stack);
         values[row] = v;
