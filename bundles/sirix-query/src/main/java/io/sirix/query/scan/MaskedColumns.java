@@ -15,11 +15,13 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.ref.Cleaner;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.LongAdder;
 
 /**
  * A projection's columns under a row mask: the leaves and rows an index-routed row source admits,
@@ -47,6 +49,46 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </p>
  */
 public final class MaskedColumns implements AutoCloseable {
+
+  /** Rows per selection word, hence rows per gathered read window. */
+  private static final int LANE_WINDOW_ROWS = 64;
+
+  private static final LongAdder VALUE_STAGED_LEAVES = new LongAdder();
+  private static final LongAdder VALUE_GATHERED_WORDS = new LongAdder();
+  private static final LongAdder VALUE_IN_PLACE_WORDS = new LongAdder();
+
+  /**
+   * Above this many set bits in a word, gathering the word beats a checked read per row — the
+   * crossover the projection fold kernels already dispatch on
+   * ({@code ProjectionVectorKernels.FOLD_WALK_MAX_BITS}, package-private to the projection package).
+   */
+  private static final int LANE_GATHER_MIN_BITS = 8;
+
+  /**
+   * Above this row density a leaf stages its whole lane with one copy instead of one per word:
+   * {@code bits << 3 >= rowCount}, one row in eight, where the per-word form already copies every
+   * word.
+   */
+  private static final int LANE_STAGE_DENSITY_SHIFT = 3;
+
+  /**
+   * Leaves whose value lane {@link #presentLongValues} staged with one counted copy. Read by the
+   * tests that pin which read form a given density reaches; a counter, not a budget.
+   */
+  public static long valueStagedLeaves() {
+    return VALUE_STAGED_LEAVES.sum();
+  }
+
+  /** Words {@link #presentLongValues} gathered into its 512-byte window. */
+  public static long valueGatheredWords() {
+    return VALUE_GATHERED_WORDS.sum();
+  }
+
+  /** Words {@link #presentLongValues} read in place, one checked lane read per present row. */
+  public static long valueInPlaceWords() {
+    return VALUE_IN_PLACE_WORDS.sum();
+  }
+
 
   /** Backstop for a view that was never closed: the release action, never the view, is registered. */
   private static final Cleaner CLEANER = Cleaner.create();
@@ -458,39 +500,103 @@ public final class MaskedColumns implements AutoCloseable {
   public LongOpenHashSet presentLongValues(final int field) {
     final LongOpenHashSet values = new LongOpenHashSet();
     final ColumnSlice[] fieldSlices = slices[field];
+    // ONE read scratch for the whole pass, reused by every leaf: the staging buffer for a dense leaf
+    // and the 512-byte window for a word above the gather crossover. Nothing is allocated per leaf.
+    long[] staged = null;
+    long[] window = null;
     for (int leaf = 0; leaf < rowMasks.length; leaf++) {
       final long[] mask = rowMasks[leaf];
       if (mask == null) {
         continue;
       }
       final ColumnSlice slice = fieldSlices[leaf];
-      if (slice.rowCount() <= 0) {
+      final int rowCount = slice.rowCount();
+      if (rowCount <= 0) {
         continue;
       }
       final long[] presence = slice.presenceWords();
       final MemorySegment lane = slice.laneSegment();
       final long laneBase = slice.laneBase();
+      // ONE SIZING PASS, before any value is read: the AND the walk would do anyway, popcounted, so
+      // the read form is decided per leaf rather than per row. A numberOfTrailingZeros walk indexes
+      // by bit, so no compiler lifts the segment's bounds and alignment checks out of it and every
+      // row read in place pays its own; one counted copy pays one check per vector.
+      int presentBits = 0;
+      for (int w = 0; w < mask.length; w++) {
+        presentBits += Long.bitCount(mask[w] & presence[w]);
+      }
+      if (presentBits == 0) {
+        continue;
+      }
+      // A leaf wider than a row group may be has no staging bound, so it reads per word.
+      final boolean stage =
+          presentBits << LANE_STAGE_DENSITY_SHIFT >= rowCount && rowCount <= ProjectionIndexRowGroupPage.MAX_ROWS;
+      if (stage) {
+        // The whole lane with ONE counted copy: the bytes the per-word form would move anyway, in a
+        // sixteenth of the calls on a 1024-row leaf.
+        if (staged == null) {
+          staged = new long[ProjectionIndexRowGroupPage.MAX_ROWS];
+        }
+        MemorySegment.copy(lane, ValueLayout.JAVA_LONG_UNALIGNED, laneBase, staged, 0, rowCount);
+      } else if (window == null) {
+        window = new long[LANE_WINDOW_ROWS];
+      }
+      int gatheredWords = 0;
+      int inPlaceWords = 0;
       for (int w = 0; w < mask.length; w++) {
         final long word = mask[w] & presence[w];
         if (word == 0L) {
           continue;
         }
-        final long wordBase = laneBase + ((long) w << 9);
-        if (word == -1L) {
-          for (int r = 0; r < 64; r++) {
-            values.add(SegmentAccess.getLong(lane, wordBase + ((long) r << 3)));
-          }
+        final int rowBase = w << 6;
+        if (stage) {
+          addStaged(values, word, staged, rowBase);
+        } else if (Long.bitCount(word) > LANE_GATHER_MIN_BITS) {
+          MemorySegment.copy(lane, ValueLayout.JAVA_LONG_UNALIGNED, laneBase + ((long) rowBase << 3), window, 0,
+              Math.min(LANE_WINDOW_ROWS, rowCount - rowBase));
+          addStaged(values, word, window, 0);
+          gatheredWords++;
         } else {
-          long bits = word;
-          while (bits != 0L) {
-            final int bit = Long.numberOfTrailingZeros(bits);
-            bits &= bits - 1L;
-            values.add(SegmentAccess.getLong(lane, wordBase + ((long) bit << 3)));
-          }
+          addLane(values, word, lane, laneBase + ((long) rowBase << 3));
+          inPlaceWords++;
         }
+      }
+      // Counted once per leaf, never per word or per row.
+      if (stage) {
+        VALUE_STAGED_LEAVES.increment();
+      }
+      if (gatheredWords != 0) {
+        VALUE_GATHERED_WORDS.add(gatheredWords);
+      }
+      if (inPlaceWords != 0) {
+        VALUE_IN_PLACE_WORDS.add(inPlaceWords);
       }
     }
     return values;
+  }
+
+  /**
+   * Add the values of {@code word}'s set rows from {@code buffer} at {@code offset + bit}. Its own
+   * method so that it stays small enough to inline into every dispatch arm.
+   */
+  private static void addStaged(final LongOpenHashSet values, final long word, final long[] buffer, final int offset) {
+    long bits = word;
+    while (bits != 0L) {
+      final int bit = Long.numberOfTrailingZeros(bits);
+      bits &= bits - 1L;
+      values.add(buffer[offset + bit]);
+    }
+  }
+
+  /** {@link #addStaged} reading the lane in place — the cheaper side below the gather crossover. */
+  private static void addLane(final LongOpenHashSet values, final long word, final MemorySegment lane,
+      final long wordBase) {
+    long bits = word;
+    while (bits != 0L) {
+      final int bit = Long.numberOfTrailingZeros(bits);
+      bits &= bits - 1L;
+      values.add(SegmentAccess.getLong(lane, wordBase + ((long) bit << 3)));
+    }
   }
 
   /**

@@ -70,6 +70,26 @@ that call for every row of the query. `ComputedColumnLaneEquivalenceTest` pins t
 independent oracle at every density and program width, over slab lanes and over the heap-array lanes
 an unconverted producer still hands out.
 
+**Reading a lane in a membership filter.** The two sides of a semi/anti join over an equality walk
+their lanes by bit for the same reason a group fold does, and at a density that is the opposite of the
+fold's: `MaskedColumns.presentLongValues` interns the build side's values and
+`ProjectionRecordKeySet.filterMembership` tests the probe side's, and on the measured anti-join route
+each reads about a quarter of a million rows per query with nine words in ten carrying more than the
+crossover's eight. Both therefore decide a read form from ONE sizing pass per leaf — the
+selection-AND-presence the walk would do anyway, popcounted — and have three. A leaf with a row to
+read in more than one row in eight stages its whole lane with one counted copy and the walks index the
+staged array: a projection leaf is sixteen words, so the per-word form would move the same bytes and
+pay sixteen times the `MemorySegment.copy` calls, the same accounting the derived column's staging
+rests on. Otherwise a word above the `FOLD_WALK_MAX_BITS` crossover is gathered into a reused
+512-byte window, and a word at or below it is read in place. Nothing is allocated per leaf or per
+word: one scratch per pass, the staging buffer at the row-group row bound taken when the first dense
+leaf asks for it, and a leaf above that bound reads per word. Each walk is its own small method so
+every dispatch arm keeps inlining it. `membershipStagedLeaves()`, `membershipGatheredWords()`,
+`membershipInPlaceWords()` and the matching `MaskedColumns.value*` counters report which form ran;
+`MembershipLaneReadFormsTest` and `MembershipValueSetReadFormsTest` pin all three to an independent
+oracle, over slab lanes and over the heap-array lanes an unconverted producer still hands out, and
+pin the gather's clamp on a partly valid last word.
+
 **Ownership.** The slab belongs to the store and the column (`ColumnSlabs`). It is charged to the
 store's residency ledger exactly as a heap fill was (`decodedColumnResidentBytes` prices a long lane
 at eight bytes per row), so the fill doors, the catalog weigher and the headroom share keep one
