@@ -52,7 +52,7 @@ jobs:
         # project execution avoids concurrent forks exhausting the 16 GB runner.
         run: >-
           ./gradlew build jacocoTestReport --info --stacktrace --no-parallel --max-workers=2
-          -x :sirix-rest-api:test -x :sirix-rest-api:jacocoTestReport
+          -x :sirix-rest-api:test
           '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=1g'
       - name: Analyze and check quality gate
         env:

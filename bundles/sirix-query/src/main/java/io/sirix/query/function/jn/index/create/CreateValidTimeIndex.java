@@ -21,6 +21,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.ValidTimeIndexes;
 
@@ -75,6 +76,7 @@ public final class CreateValidTimeIndex extends AbstractFunction {
     final JsonDBItem document = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonResourceSession resourceSession = rtx.getResourceSession();
+    MutationAuthorization.requireWritable(ctx, document);
 
     final ValidTimeConfig validTimeConfig = resourceSession.getResourceConfig().getValidTimeConfig();
     if (validTimeConfig == null) {

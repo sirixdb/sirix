@@ -39,6 +39,7 @@ import java.time.Instant;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public interface XmlDBStore extends NodeStore, AutoCloseable {
+
   @Override
   XmlDBCollection lookup(String name);
 

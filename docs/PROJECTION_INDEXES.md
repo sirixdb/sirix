@@ -193,12 +193,13 @@ revisions committed before it keep being served; projection tree ids are never r
 physical reference exists, so a later same-shape creation gets a new, empty tree and cannot mistake
 unmaintained pre-drop columns for current data.
 
-Both projection DROP signatures are updating functions and require MODIFY permission over REST
-before evaluation. To persist a drop in one query, use
+For REST mutation permissions, see the authentication contract in the
+[OpenAPI specification](../bundles/sirix-rest-api/src/main/resources/openapi.yaml).
+To persist a drop in one query, use
 `sdb:commit(jn:drop-projection-index($doc, $idx-no))`, or omit the id to drop all projections.
-The commit expression retains the DROP's updating classification, including when a message or
-custom timestamp is supplied. A dropped projection also removes its dependent temporal aggregate
-declarations from the new revision's catalogue; historical revisions retain both indexes.
+The commit accepts an optional message and custom timestamp. A dropped projection also removes
+its dependent temporal aggregate declarations from the new revision's catalogue; historical
+revisions retain both indexes.
 
 ## REST serving
 

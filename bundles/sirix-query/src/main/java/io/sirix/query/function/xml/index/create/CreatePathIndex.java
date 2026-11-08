@@ -18,6 +18,7 @@ import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBNode;
@@ -60,6 +61,7 @@ public final class CreatePathIndex extends AbstractFunction {
     final XmlDBNode doc = ((XmlDBNode) args[0]);
     final XmlNodeReadOnlyTrx rtx = doc.getTrx();
     final XmlResourceSession resourceSession = rtx.getResourceSession();
+    MutationAuthorization.requireWritable(ctx, doc);
 
     final Optional<XmlNodeTrx> optionalWriteTrx = resourceSession.getNodeTrx();
     final XmlNodeTrx wtx = optionalWriteTrx.orElseGet(() -> resourceSession.beginNodeTrx());

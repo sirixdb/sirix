@@ -4,6 +4,8 @@ import io.brackit.query.node.parser.NodeSubtreeParser
 import io.sirix.query.node.XmlDBCollection
 import io.sirix.query.node.XmlDBNode
 import io.sirix.rest.Auth
+import io.sirix.query.MutationAuthorization
+import io.sirix.rest.crud.SessionMutationAuthorizer
 import io.sirix.rest.AuthRole
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -26,6 +28,8 @@ class AuthCheckingXmlDBCollection(
     private val authz: AuthorizationProvider
 ) : XmlDBCollection by wrapped {
 
+    private val mutationAuthorizer = SessionMutationAuthorizer(user, authz)
+
     private val collectionName: String = wrapped.getName()
 
     override fun delete() {
@@ -38,9 +42,14 @@ class AuthCheckingXmlDBCollection(
         wrapped.remove(documentID)
     }
 
+    override fun addAll(parsers: List<NodeSubtreeParser>) {
+        Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
+        MutationAuthorization.where(mutationAuthorizer).run { wrapped.addAll(parsers) }
+    }
+
     override fun add(resourceName: String, parser: NodeSubtreeParser): XmlDBNode {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        return wrapped.add(resourceName, parser)
+        return MutationAuthorization.where(mutationAuthorizer).call<XmlDBNode, RuntimeException> { wrapped.add(resourceName, parser) }
     }
 
     override fun add(
@@ -50,12 +59,12 @@ class AuthCheckingXmlDBCollection(
         commitTimestamp: Instant?
     ): XmlDBNode {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        return wrapped.add(resourceName, parser, commitMessage, commitTimestamp)
+        return MutationAuthorization.where(mutationAuthorizer).call<XmlDBNode, RuntimeException> { wrapped.add(resourceName, parser, commitMessage, commitTimestamp) }
     }
 
     override fun add(parser: NodeSubtreeParser): XmlDBNode {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        return wrapped.add(parser)
+        return MutationAuthorization.where(mutationAuthorizer).call<XmlDBNode, RuntimeException> { wrapped.add(parser) }
     }
 
     // Interface delegation does not forward Object methods; key equality on the underlying

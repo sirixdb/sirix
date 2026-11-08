@@ -16,6 +16,7 @@ import io.sirix.diff.algorithm.fmse.DefaultNodeComparisonFactory;
 import io.sirix.diff.algorithm.fmse.FMSE;
 import io.sirix.diff.service.FMSEImport;
 import io.sirix.utils.SirixFiles;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBCollection;
@@ -78,6 +79,8 @@ public final class Import extends AbstractFunction {
 
     try {
       doc = coll.getDocument(resName);
+
+      MutationAuthorization.requireWritable(ctx, doc);
 
       try (final XmlNodeTrx wtx =
           doc.getTrx().getResourceSession().getNodeTrx().orElse(doc.getTrx().getResourceSession().beginNodeTrx())) {

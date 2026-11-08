@@ -223,7 +223,7 @@ public final class Databases {
    * @throws SirixIOException if something odd happens within the creation process.
    * @throws SirixDatabaseLockException if another process is creating the database
    */
-  public static synchronized boolean createXmlDatabase(final DatabaseConfiguration dbConfig) {
+  public static boolean createXmlDatabase(final DatabaseConfiguration dbConfig) {
     return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.XML));
   }
 
@@ -236,13 +236,37 @@ public final class Databases {
    * @throws SirixIOException if something odd happens within the creation process.
    * @throws SirixDatabaseLockException if another process is creating the database
    */
-  public static synchronized boolean createJsonDatabase(final DatabaseConfiguration dbConfig) {
+  public static boolean createJsonDatabase(final DatabaseConfiguration dbConfig) {
     return createTheDatabase(dbConfig.setDatabaseType(DatabaseType.JSON));
   }
 
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     requireNonNull(dbConfig);
     ResourceAccessScope.checkDatabase(dbConfig.getDatabaseFile(), true);
+    // Preserve fail-fast lifecycle admission before waiting, without holding the monitor at the gate.
+    synchronized (Databases.class) {
+      final Path path = dbConfig.getDatabaseFile();
+      if (Files.exists(path)) {
+        try {
+          if (hasDatabaseContents(path)) {
+            return false;
+          }
+        } catch (final IOException e) {
+          return false;
+        }
+        checkNotRemoving(canonicalDatabasePath(path));
+      }
+    }
+    // Creation replaces an existing database on some paths, so it takes the exclusive database hold
+    // and is ordered against removal and against every resource operation in that database.
+    try (var gate = MutationGate.acquireDatabase(dbConfig.getDatabaseFile())) {
+      synchronized (Databases.class) {
+        return createTheDatabaseUnderGate(dbConfig);
+      }
+    }
+  }
+
+  private static boolean createTheDatabaseUnderGate(final DatabaseConfiguration dbConfig) {
     initAllocator(dbConfig.getMaxSegmentAllocationSize());
 
     final Path databaseFile = dbConfig.getDatabaseFile();
@@ -318,6 +342,21 @@ public final class Databases {
   public static void removeDatabase(final Path dbFile) {
     requireNonNull(dbFile);
     ResourceAccessScope.checkDatabase(dbFile, true);
+    synchronized (Databases.class) {
+      if (!Files.exists(dbFile)) {
+        return;
+      }
+      checkNotRemoving(canonicalDatabasePath(dbFile));
+    }
+    // Removing a whole database takes the exclusive database hold, so it waits for every resource
+    // operation in it: a store or load authorized against one of its resources must not have the
+    // database removed between its check and its write.
+    try (var gate = MutationGate.acquireDatabase(dbFile)) {
+      removeDatabaseUnderGate(dbFile);
+    }
+  }
+
+  private static void removeDatabaseUnderGate(final Path dbFile) {
     final Path path;
     final @Nullable OpenDatabase<?> owner;
     final Set<Database<?>> handles;

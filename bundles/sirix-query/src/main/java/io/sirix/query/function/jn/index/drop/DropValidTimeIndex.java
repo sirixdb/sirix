@@ -15,6 +15,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.compiler.optimizer.PlanCache;
 import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.json.JsonDBItem;
@@ -64,6 +65,7 @@ public final class DropValidTimeIndex extends AbstractFunction {
     final JsonDBItem document = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonResourceSession resourceSession = rtx.getResourceSession();
+    MutationAuthorization.requireWritable(ctx, document);
 
     final var optionalWriteTrx = resourceSession.getNodeTrx();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);

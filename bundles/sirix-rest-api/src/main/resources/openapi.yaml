@@ -30,10 +30,27 @@ info:
     All `/`-rooted data endpoints require a Keycloak-issued JWT
     (`Authorization: Bearer <token>`, obtainable via `POST /token`). Required
     realm roles per operation: `view` (reads/queries), `create` (PUT),
-    `modify` (POST updates), `delete` (DELETE). Per-database roles of the form
+    `modify` (mutations), `delete` (DELETE). Per-database roles of the form
     `{database}-view`, `{database}-create`, … are honored as an alternative to
     the global roles. `/health`, `/metrics` and `/openapi.yaml` are
     unauthenticated.
+
+    Queries classified as XQuery Update expressions require the global
+    `modify` role before evaluation. Index creation/deletion, `sdb:commit`
+    and `sdb:rollback` also check permission at the mutation itself, before
+    opening, reverting or committing a write transaction, even when the query
+    is not classified as updating. These checks accept global `modify` or
+    `{database}-modify` for the target document's full collection name:
+    `orders-modify` does not authorize a mutation of `tenant-b/orders`.
+    Missing mutation permission returns 403 and leaves pending work intact.
+
+    `jn:store`, `jn:load` and `xn:store` require `create` permission.
+    Replacing an existing database additionally requires `delete`, even when
+    the requested resource does not exist. When appending, `modify` is also
+    required if the resolved resource target already exists; generated or
+    adjusted resource names are checked against their actual targets. These
+    checks accept global roles or the corresponding `{database}-<role>` for
+    the full collection name.
 
     Local development only: starting the server with `auth.mode=none` (or
     `SIRIX_AUTH_MODE=none`) disables authentication entirely — every request
@@ -1129,10 +1146,10 @@ components:
       type: object
       description: |
         JSON query results: the result-sequence items in serialization order.
-        Document nodes are serialized from storage (annotated with
+        JSON document nodes are serialized from storage (annotated with
         `revisionNumber`/`revisionTimestamp` when they stem from a versioned
-        resource); atomics are serialized as JSON scalars. Updating queries
-        and queries with no result produce an EMPTY response body instead of
+        resource). Atomics are serialized as JSON scalars. Updating queries and queries with no result produce
+        an EMPTY response body instead of
         this envelope.
       required: [rest]
       properties:

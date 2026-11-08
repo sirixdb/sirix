@@ -100,8 +100,11 @@ dockerCompose {
 
    // removeImages = "com.avast.gradle.dockercompose.RemoveImages.None" // Other accepted values are: "All" and "Local"
 
-    composeLogToFile = project.file('sirix-logs.txt') // redirect output of composeUp and composeDown tasks to this file; default is null (ouput is not redirected)
-    containerLogToDir = project.file('logs') // directory where composeLogs task stores output of the containers; default: build/containers-logs
+    // Compose output belongs in the build directory. The project-relative paths appended container
+    // output to a tracked file and wrote a sibling `logs/` directory, so every run of this module's
+    // tests - which CI now does on each pull request - left the working tree dirty.
+    composeLogToFile = layout.buildDirectory.file('compose/sirix-logs.txt').get().asFile
+    containerLogToDir = layout.buildDirectory.dir('compose/containers-logs').get().asFile
 
     projectName = 'sirix-test'
 }
@@ -123,6 +126,18 @@ tasks.register('offlineTest', Test) {
         '--add-modules', 'jdk.incubator.vector',
         '--enable-native-access=ALL-UNNAMED'
     ]
+}
+
+// Sonar skips the Docker-backed test task, but these tests exercise both the REST
+// permission checks and the query module's mutation guards. Report their probes in both modules.
+final def offlineTests = tasks.named('offlineTest')
+tasks.named('jacocoTestReport') {
+    dependsOn offlineTests
+    executionData offlineTests.get()
+}
+project(':sirix-query').tasks.named('jacocoTestReport') {
+    dependsOn offlineTests
+    executionData offlineTests.get()
 }
 
 // Task to run only native-image smoke tests on JVM (for validation before native compilation)

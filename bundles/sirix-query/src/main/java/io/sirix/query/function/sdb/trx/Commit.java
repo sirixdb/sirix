@@ -10,6 +10,7 @@ import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.StructuredDBItem;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
@@ -49,6 +50,7 @@ public final class Commit extends AbstractFunction {
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
+    MutationAuthorization.requireWritable(ctx, document);
 
     final String commitMessage = args.length >= 2
         ? FunUtil.getString(args, 1, "commitMessage", null, null, false)

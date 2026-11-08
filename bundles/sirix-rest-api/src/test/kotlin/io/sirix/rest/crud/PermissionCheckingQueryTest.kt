@@ -14,8 +14,6 @@ import io.sirix.index.IndexDef
 import io.sirix.index.IndexDefs
 import io.sirix.index.IndexType
 import io.sirix.index.aggregate.TemporalAggregateDeclarations
-import io.sirix.index.aggregate.TemporalAggregateIndexes
-import io.sirix.index.aggregate.TemporalAggregateStorage
 import io.sirix.index.projection.ProjectionIndexHOTStorage
 import io.sirix.io.StorageType
 import io.sirix.query.SirixCompileChain
@@ -30,6 +28,7 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.handler.HttpException
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
@@ -68,13 +67,15 @@ class PermissionCheckingQueryTest {
             val guarded = JsonSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
             SirixQueryContext.createWithJsonStore(guarded).use { context ->
                 SirixCompileChain.createWithJsonStore(guarded).use { chain ->
-                    store.lookup("auth").database.beginResourceSession("records").use { session ->
+                    store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
                         session.beginNodeTrx().use { writer ->
                             numberField(writer, first)
                             writer.setNumberValue(99)
                             val represented = writer.storageEngineWriter.revisionToRepresent
                             val revision = session.mostRecentRevisionNumber
-                            val before = aggregateHeader(writer)
+                            // Only the drop fixture declares an aggregate; for the create cases the
+                            // witness that nothing appeared is the catalogue count asserted below.
+                            val before = if (action == "drop") DerivedAggregateWitness.header(session) else null
                             val query = if (action == "create") {
                                 "jn:create-temporal-aggregate-index(jn:doc('auth','records'),'/[]','g','sum(n)')"
                             } else {
@@ -83,11 +84,14 @@ class PermissionCheckingQueryTest {
                             if (modify) {
                                 run(mode, chain, context, query, keycloak, authz, user)
                             } else {
-                                val failure = assertThrows(IllegalStateException::class.java) {
+                                val failure = assertThrows(HttpException::class.java) {
                                     run(mode, chain, context, query, keycloak, authz, user)
                                 }
-                                assertTrue(failure.message!!.contains("not allowed to modify"))
-                                assertArrayEquals(before, aggregateHeader(writer))
+                                assertEquals(403, failure.statusCode)
+                                // The aggregate columns the refused DDL would have touched, unchanged.
+                                if (before != null) {
+                                    assertArrayEquals(before, DerivedAggregateWitness.header(session))
+                                }
                             }
                             val expected = if (modify) {
                                 if (action == "create") 1 else 0
@@ -124,7 +128,7 @@ class PermissionCheckingQueryTest {
                 SirixCompileChain.createWithJsonStore(guarded).use { chain ->
                     assertEquals("1", run(mode, chain, context, "sum(jn:doc('auth','records')[].n)", keycloak, authz, user))
                     Mockito.verifyNoInteractions(authz)
-                    store.lookup("auth").database.beginResourceSession("records").use { session ->
+                    store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
                         assertTrue(session.nodeTrx.isEmpty)
                         assertEquals(1, session.mostRecentRevisionNumber)
                     }
@@ -158,13 +162,11 @@ class PermissionCheckingQueryTest {
             val guarded = JsonSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authz)
             SirixQueryContext.createWithJsonStore(guarded).use { context ->
                 SirixCompileChain.createWithJsonStore(guarded).use { chain ->
-                    store.lookup("auth").database.beginResourceSession("records").use { session ->
+                    store.lookup("auth")!!.database.beginResourceSession("records").use { session ->
                         session.beginNodeReadOnlyTrx().use { reader ->
                             beforeProjection = ProjectionIndexHOTStorage.readMetadataBlob(reader.storageEngineReader, 0)!!
-                            beforeAggregate = TemporalAggregateStorage.Reader(reader.storageEngineReader, 0).use {
-                                it.get(TemporalAggregateIndexes.headerKey())!!
-                            }
                         }
+                        beforeAggregate = DerivedAggregateWitness.header(session)
                         val drop = "jn:drop-projection-index(jn:doc('auth','records')${if (withId) ",0" else ""})"
                         val wrapped = commitArguments != 0
                         val query = when (commitArguments) {
@@ -184,10 +186,10 @@ class PermissionCheckingQueryTest {
                             if (!wrapped) writer.commit()
                             writer.close()
                         } else {
-                            val failure = assertThrows(IllegalStateException::class.java) {
+                            val failure = assertThrows(HttpException::class.java) {
                                 run(mode, chain, context, query, keycloak, authz, user)
                             }
-                            assertTrue(failure.message!!.contains("not allowed to modify"))
+                            assertEquals(403, failure.statusCode)
                             assertTrue(session.nodeTrx.isEmpty)
                             assertEquals(1, session.mostRecentRevisionNumber)
                         }
@@ -207,12 +209,15 @@ class PermissionCheckingQueryTest {
                     val expected = if (modify && revision == 2) 0 else 1
                     assertEquals(expected, catalogue.getNrOfIndexDefsWithType(IndexType.PROJECTION))
                     assertEquals(expected, catalogue.getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE))
+                    if (!modify) {
+                        // A refused drop leaves the aggregate columns byte-identical. After an
+                        // allowed drop the declaration is gone from the catalogue above, so there is
+                        // no aggregate left to read and the count is the assertion.
+                        assertArrayEquals(beforeAggregate, DerivedAggregateWitness.header(session, revision))
+                    }
                     session.beginNodeReadOnlyTrx(revision).use { reader ->
                         assertArrayEquals(beforeProjection,
                             ProjectionIndexHOTStorage.readMetadataBlob(reader.storageEngineReader, 0))
-                        TemporalAggregateStorage.Reader(reader.storageEngineReader, 0).use {
-                            assertArrayEquals(beforeAggregate, it.get(TemporalAggregateIndexes.headerKey()))
-                        }
                         reader.moveToDocumentRoot()
                         reader.moveToFirstChild()
                         reader.moveToFirstChild()
@@ -257,8 +262,6 @@ class PermissionCheckingQueryTest {
         }
     }
 
-    private fun aggregateHeader(writer: JsonNodeTrx): ByteArray? =
-        TemporalAggregateStorage.Reader(writer.storageEngineWriter, 0).use { it.get(TemporalAggregateIndexes.headerKey()) }
 
     private fun numberField(writer: JsonNodeTrx, record: Long) {
         writer.moveTo(record)

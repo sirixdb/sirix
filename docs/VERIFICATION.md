@@ -18,6 +18,7 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Crash injection / soak | Durability across simulated crashes; leak-free long-running bitemporal workloads | `crash/CrashRecoveryInjectionTest`, `stress/BitemporalSoakStressTest`, `stress.yml` workflow |
 | Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/*WorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
+| REST authorization guards | Refused mutations through query entry points (execute/evaluate/serialize/paginate) and function calls preserve revision counts, pending edits, index catalogues, projection metadata and derived aggregate headers. Database-scoped roles use the full collection name; the permission contract is in the [OpenAPI specification](../bundles/sirix-rest-api/src/main/resources/openapi.yaml) | `sirix-rest-api/src/test/kotlin/io/sirix/rest/**` (`QueryMutationAuthorizationTest`, `PermissionCheckingQueryTest`); `:sirix-rest-api:offlineTest` selects tests needing no Docker or Keycloak, and `gradle.yml`'s `TestRestApi` job gates `:sirix-rest-api:test` |
 | JUnit framework consistency | Query test classes do not mix standard JUnit 4 and Jupiter annotation markers, including inherited fixtures | `sirix-query/src/test/java/io/sirix/query/JUnitFrameworkConsistencyTest.java` (owns the guard's scope) |
 | Error Prone + NullAway | Compile-time rejection of bug patterns and nullness-contract violations in `@NullMarked` code | Main CI, release, stress and deep verification; local `-PerrorProne` |
 | SonarCloud / Checkstyle | Static analysis and style rules | [SonarCloud analysis](#sonarcloud-analysis), `checkstyle.xml` |
@@ -112,7 +113,8 @@ The required quality-gate policy is **no new bugs or vulnerabilities on new code
 configure its conditions in SonarCloud.
 PR analysis uses GitHub Actions' automatic PR parameters and the source commit with full history.
 Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
-The REST integration suite remains outside this job, as before.
+The REST integration suite remains outside this job. The offline REST authorization tests run
+without Docker or Keycloak, and their JaCoCo execution data feeds both the REST and query reports.
 
 The core XML report includes the isolated test forks' execution data. Their agent-handling
 safety invariant is documented beside the fork-option copy in

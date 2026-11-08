@@ -5,16 +5,32 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.JsonStore;
 import io.brackit.query.jdm.json.Object;
+import io.sirix.access.MutationGate;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 /**
  * Database store.
  */
 public interface JsonDBStore extends JsonStore, AutoCloseable {
+
+  /**
+   * The database directory {@code name} resolves to, or {@code null} when this store cannot name one.
+   *
+   * <p>
+   * A guarded mutation holds {@link MutationGate} on this path across its authorization check and its
+   * write, so a concurrent create, replace or remove cannot come between them. A store that answers
+   * {@code null} is not participating in that ordering.
+   * </p>
+   */
+  default Path databaseDirectory(final String name) {
+    return null;
+  }
+
   JsonDBStore addDatabase(JsonDBCollection jsonDBCollection, Database<JsonResourceSession> database);
 
   JsonDBStore removeDatabase(Database<JsonResourceSession> database);
@@ -55,6 +71,8 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
   JsonDBCollection create(String collName, Set<JsonReader> json);
 
   JsonDBCollection create(String collName, Set<JsonReader> json, Object options);
+
+  JsonDBCollection createFromUris(String collName, List<String> uris, Object options);
 
   @Override
   JsonDBCollection createFromJsonStrings(String collName, Stream<Str> jsons);
