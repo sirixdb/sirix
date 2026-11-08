@@ -55,6 +55,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
@@ -876,20 +877,49 @@ public final class BasicJsonDBStore implements JsonDBStore {
     requireNonNull(collName);
     requireNonNull(uris);
     requireNonNull(options);
-    final var partitions = new ArrayList<Callable<JsonReader>>(uris.size());
-    for (final String uri : uris) {
-      requireNonNull(uri);
-      try {
-        URIHandler.getInputStream(uri).close();
-      } catch (final IOException failure) {
-        throw new UncheckedIOException(failure);
+    final var partitions = new ArrayList<AcquiredJsonReader>(uris.size());
+    try {
+      for (final String uri : uris) {
+        requireNonNull(uri);
+        partitions.add(new AcquiredJsonReader(new JsonReader(new InputStreamReader(URIHandler.getInputStream(uri)))));
       }
-      partitions.add(() -> new JsonReader(new InputStreamReader(URIHandler.getInputStream(uri))));
+      return createCollection(collName, partitions, options);
+    } catch (final IOException failure) {
+      throw new UncheckedIOException(failure);
+    } finally {
+      for (final AcquiredJsonReader partition : partitions) {
+        partition.close();
+      }
     }
-    return createCollection(collName, partitions, options);
   }
 
-  private JsonDBCollection createCollection(final String collName, final List<Callable<JsonReader>> partitions,
+  private static final class AcquiredJsonReader implements Callable<JsonReader>, AutoCloseable {
+    private final AtomicReference<JsonReader> reader;
+
+    private AcquiredJsonReader(final JsonReader reader) {
+      this.reader = new AtomicReference<>(reader);
+    }
+
+    @Override
+    public JsonReader call() {
+      // Taking ownership is atomic with caller cleanup, even if a cancelled worker is still live.
+      return requireNonNull(reader.getAndSet(null));
+    }
+
+    @Override
+    public void close() {
+      final JsonReader unclaimed = reader.getAndSet(null);
+      if (unclaimed != null) {
+        try {
+          unclaimed.close();
+        } catch (final IOException failure) {
+          LOGGER.debug("closing unclaimed load input failed", failure);
+        }
+      }
+    }
+  }
+
+  private JsonDBCollection createCollection(final String collName, final List<? extends Callable<JsonReader>> partitions,
       final Object options) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
