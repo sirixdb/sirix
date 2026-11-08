@@ -99,7 +99,7 @@ public final class Store extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-      final String resName = FunUtil.getString(args, 1, "resName", null, null, false);
+      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
       final Sequence nodes = args[2];
       if (nodes == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
@@ -138,8 +138,7 @@ public final class Store extends AbstractFunction {
   private static void add(final XmlDBCollection coll, final String resName, final Sequence nodes,
       final String commitMessage, final Instant commitTimestamp) throws DocumentException {
     if (nodes instanceof Node<?> n) {
-      final String resourceName = resName == null ? "resource" + (coll.getDocumentCount() + 1) : resName;
-      coll.add(resourceName, new StoreParser(n), commitMessage, commitTimestamp);
+      coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp);
     } else {
       try (ParserStream parsers = new ParserStream(nodes)) {
         final List<NodeSubtreeParser> inputs = new ArrayList<>();

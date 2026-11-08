@@ -1,6 +1,7 @@
 package io.sirix.query.function.xml.io;
 
 import io.brackit.query.Query;
+import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
@@ -15,6 +16,9 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ImportIntegrationTest {
   @TempDir
@@ -42,6 +46,39 @@ class ImportIntegrationTest {
       assertEquals("3", ((Str) new Query(chain, "string(xn:doc('versions','doc')/root/changed)").evaluate(context)).stringValue());
     }
   }
+
+  @Test
+  void rejectsMissingResourcesWithoutMutation() {
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        final var context = SirixQueryContext.createWithNodeStore(store);
+        final var chain = SirixCompileChain.createWithNodeStore(store)) {
+      final var collection = store.create("versions", "doc", new DocumentParser("<root/>"));
+      final QueryException missing = assertThrows(QueryException.class,
+          () -> new Query(chain, "xn:import('versions','missing','<root/>')").evaluate(context));
+      assertTrue(missing.getMessage().contains("missing"));
+      assertFalse(collection.getDatabase().existsResource("missing"));
+      assertEquals(1, collection.getDocument("doc").getTrx().getResourceSession().getMostRecentRevisionNumber());
+    }
+  }
+
+  @Test
+  void omittedStoreResourceNameRemainsResourceForCreateAndAppend() {
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        final var context = SirixQueryContext.createWithNodeStore(store);
+        final var chain = SirixCompileChain.createWithNodeStore(store)) {
+      new Query(chain, "xn:store('created',(),<root/>)").evaluate(context);
+      final var created = store.lookup("created");
+      assertTrue(created.getDatabase().existsResource("resource"));
+      assertEquals(1, created.getDocumentCount());
+      store.create("appended", "existing", new DocumentParser("<root/>"));
+      new Query(chain, "xn:store('appended',(),<added/>,false())").evaluate(context);
+      final var appended = store.lookup("appended");
+      assertTrue(appended.getDatabase().existsResource("resource"));
+      assertTrue(appended.getDatabase().existsResource("existing"));
+      assertEquals(2, appended.getDocumentCount());
+    }
+  }
+
   private static XmlDBNode node(final Sequence result) {
     if (result instanceof XmlDBNode node) {
       return node;

@@ -214,8 +214,8 @@ addition reports the import error without replacing the collection or its existi
 `jn:import($database, $resource, $new-version)` is the JSON counterpart of
 `xn:import`: it compares a full new document against the latest stored revision with FMSE,
 applies the tree edit, and commits exactly one new revision. Unchanged nodes retain their
-node keys, and earlier revisions remain available. The database must exist; importing a new
-resource creates its first revision. JSON accepts serialized content or a JSON item; XML accepts
+node keys, and earlier revisions remain available. The database and resource must already exist.
+JSON accepts serialized content or a JSON item; XML accepts
 serialized XML content. Both return the imported document.
 
 ```xquery
@@ -231,7 +231,7 @@ as invalid content with HTTP 400, using the query endpoint's existing `QueryExce
 This policy also applies when authentication is disabled. Embedded `jn:load`/`xn:load` keep
 URI loading, and embedded `xn:import` and the Java FMSE import services retain file imports.
 
-REST imports require `modify` for an existing resource and `create` for a new resource.
+REST imports require `modify` for the existing resource.
 Loads require `create`, plus `modify` when their resolved target already exists and `delete`
 when replacing a database. Global roles and roles scoped to the full database name work the
 same way as other writing functions; missing permission returns HTTP 403 before writing.

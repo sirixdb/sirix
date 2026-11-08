@@ -86,7 +86,7 @@ final class JsonLeafNodeComparator implements NodeComparator<Long> {
       case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
           oldRtx.getBooleanValue() == newRtx.getBooleanValue() ? 1.0 : 0.0;
       case NUMBER_VALUE, OBJECT_NAMED_NUMBER ->
-          oldRtx.getNumberValue().doubleValue() == newRtx.getNumberValue().doubleValue() ? 1.0 : 0.0;
+          oldRtx.getNumberValue().equals(newRtx.getNumberValue()) ? 1.0 : 0.0;
       case STRING_VALUE, OBJECT_NAMED_STRING ->
           JsonFMSENodeComparisonUtils.calculateRatio(oldRtx.getValue(), newRtx.getValue());
       default -> 0.0;

@@ -95,7 +95,7 @@ class ContentImportAuthorizationTest {
 
     @ParameterizedTest
     @ValueSource(strings = ["jn:import", "xn:import"])
-    fun importRequiresModifyForExistingAndCreateForNewResources(function: String) {
+    fun importRequiresModifyAndAnExistingResource(function: String) {
         val json = function.startsWith("jn:")
         val content = if (json) "{\"stable\":1,\"value\":2}" else "<root><stable>1</stable><value>2</value></root>"
         withStore(json, arrayOf("auth-view")) { fixture ->
@@ -106,14 +106,14 @@ class ContentImportAuthorizationTest {
         withStore(json, arrayOf("auth-view", "auth-modify"), initialize = false) { fixture ->
             fixture.run(call(function, "doc", content))
             assertEquals(2, fixture.revision())
-            assertStatus(403) { fixture.run(call(function, "fresh", content)) }
-            assertFalse(fixture.resources().contains("fresh"))
+            assertStatus(400) { fixture.run(call(function, "fresh", content)) }
+            assertEquals(setOf("doc"), fixture.resources())
         }
         withStore(json, arrayOf("auth-view", "auth-create"), initialize = false) { fixture ->
             assertStatus(403) { fixture.run(call(function, "doc", content)) }
-            fixture.run(call(function, "fresh", content))
-            assertTrue(fixture.resources().contains("fresh"))
-            assertEquals(1, fixture.revision("fresh"))
+            assertStatus(400) { fixture.run(call(function, "fresh", content)) }
+            assertEquals(setOf("doc"), fixture.resources())
+            assertFalse(fixture.hasWriter())
         }
     }
 

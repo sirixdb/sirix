@@ -67,10 +67,10 @@ public final class JsonFMSENodeComparisonUtils {
     }
 
     return switch (oldRtx.getKind()) {
-      case NULL_VALUE, OBJECT_NAMED_NULL -> true;
+      case NULL_VALUE -> true;
       case BOOLEAN_VALUE -> oldRtx.getBooleanValue() == newRtx.getBooleanValue();
       case NUMBER_VALUE ->
-          oldRtx.getNumberValue().doubleValue() == newRtx.getNumberValue().doubleValue();
+          oldRtx.getNumberValue().equals(newRtx.getNumberValue());
       case STRING_VALUE -> oldRtx.getValue().equals(newRtx.getValue());
       // Fused OBJECT_NAMED_* — equal iff BOTH name AND inline primitive value match.
       case OBJECT_NAMED_NUMBER -> {
@@ -78,7 +78,7 @@ public final class JsonFMSENodeComparisonUtils {
         final var newName = newRtx.getName();
         yield oldName != null && newName != null
             && oldName.getLocalName().equals(newName.getLocalName())
-            && oldRtx.getNumberValue().doubleValue() == newRtx.getNumberValue().doubleValue();
+            && oldRtx.getNumberValue().equals(newRtx.getNumberValue());
       }
       case OBJECT_NAMED_STRING -> {
         final var oldName = oldRtx.getName();
@@ -94,8 +94,7 @@ public final class JsonFMSENodeComparisonUtils {
             && oldName.getLocalName().equals(newName.getLocalName())
             && oldRtx.getBooleanValue() == newRtx.getBooleanValue();
       }
-      // P2 fused-structural — equal iff names match. Subtree comparison happens via FMSE recursion.
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> {
+      case OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> {
         final var oldName = oldRtx.getName();
         final var newName = newRtx.getName();
         yield oldName != null && newName != null

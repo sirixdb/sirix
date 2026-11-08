@@ -55,8 +55,7 @@ info:
     `jn:import(database, resource, new-version)` imports a full JSON string or
     JSON item using FMSE, preserving unchanged node identities and committing
     one new revision. `xn:import` does the same for an XML content string.
-    The database must exist. Importing into an existing resource requires
-    `modify`; creating a resource requires `create`.
+    The database and resource must already exist. Imports require `modify`.
 
     Over REST, `jn:import`, `xn:import`, `jn:load` and `xn:load` accept inline
     content only. Loads accept document strings or sequences of strings with

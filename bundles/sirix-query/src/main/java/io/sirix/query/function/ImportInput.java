@@ -1,5 +1,6 @@
 package io.sirix.query.function;
 
+import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonToken;
@@ -11,6 +12,7 @@ import io.brackit.query.jdm.Iter;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.query.json.JsonDBItem;
 import io.sirix.service.xml.shredder.XmlShredder;
 import java.util.ArrayList;
 import java.util.List;
@@ -52,7 +54,7 @@ public final class ImportInput {
   public static String json(final Sequence input) {
     final String content;
     if (input instanceof Str string) {
-      content = string.stringValue();
+      content = input instanceof JsonDBItem ? new JsonPrimitive(string.stringValue()).toString() : string.stringValue();
     } else {
       final StringWriter output = new StringWriter();
       try (final StringSerializer serializer = new StringSerializer(new PrintWriter(output))) {

@@ -30,8 +30,6 @@ public final class Import extends AbstractFunction {
   public static final QNm IMPORT = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "import");
 
   public Import(final QNm name, final Signature signature) {
-    // Self-committing function: authorization uses the resolved resource, including CREATE
-    // for a missing resource, rather than the query-level global MODIFY precheck.
     super(name, signature, true);
   }
 
@@ -52,11 +50,7 @@ public final class Import extends AbstractFunction {
         throw new QueryException(new QNm("Database does not exist"));
       }
       if (!collection.getDatabase().existsResource(resourceName)) {
-        MutationAuthorization.requireCreate(ctx, databaseName, resourceName);
-        final String content = ImportInput.json(args[2]);
-        try (final JsonReader reader = JsonShredder.createStringReader(content)) {
-          return collection.add(resourceName, reader);
-        }
+        throw new QueryException(new QNm("ResourceNotFound"), "Resource '%s' does not exist", resourceName);
       }
       final JsonDBItem document = collection.getDocument(resourceName);
       try {
