@@ -40,15 +40,11 @@ import static java.util.Objects.requireNonNull;
  */
 public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
 
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(JsonFMSE.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonFMSE.class));
 
   private static final String NAME = "Fast Matching / Edit Script (JSON)";
 
-  /**
-   * Tracks which nodes have already been inserted (for subtree insertions — prevents double
-   * insertion).
-   */
+  /** Tracks new-revision keys to prevent inserting the same node twice. */
   private Long2BooleanOpenHashMap alreadyInserted;
 
   /** The total matching M' between nodes as described in the paper. */
@@ -89,8 +85,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /** Start key in new revision. */
   private long newStartKey;
 
-  private JsonFMSE() {
-  }
+  private JsonFMSE() {}
 
   /**
    * Creates a new JsonFMSE instance.
@@ -108,8 +103,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     oldStartKey = this.wtx.getNodeKey();
     newStartKey = this.rtx.getNodeKey();
 
-    final int capacity = (int) Math.min(
-        Math.max(this.wtx.getMaxNodeKey(), this.rtx.getMaxNodeKey()), 1 << 20);
+    final int capacity = (int) Math.min(Math.max(this.wtx.getMaxNodeKey(), this.rtx.getMaxNodeKey()), 1 << 20);
     descendantsOldRev = new Long2LongOpenHashMap(capacity);
     descendantsNewRev = new Long2LongOpenHashMap(capacity);
     inOrderOldRev = new Long2BooleanOpenHashMap(capacity);
@@ -135,8 +129,8 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   // ==================== Initialization ====================
 
   /**
-   * Performs a post-order traversal, visiting each descendant and then the root node itself.
-   * Used for both initialization and label collection.
+   * Performs a post-order traversal, visiting each descendant and then the root node itself. Used for
+   * both initialization and label collection.
    */
   private static void postOrderVisit(final JsonNodeReadOnlyTrx rtx, final JsonNodeVisitor visitor) {
     assert rtx != null;
@@ -162,8 +156,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     assert wtx != null;
     assert rtx != null;
 
-    final var comparisonUtils =
-        new JsonFMSENodeComparisonUtils(oldStartKey, newStartKey, this.wtx, this.rtx);
+    final var comparisonUtils = new JsonFMSENodeComparisonUtils(oldStartKey, newStartKey, this.wtx, this.rtx);
 
     // Chain all nodes with a given label together.
     postOrderVisit(wtx, labelOldRevVisitor);
@@ -172,11 +165,9 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     // Do the matching job on the leaf nodes.
     final var matching = new JsonMatching(wtx, rtx);
     matching.reset();
-    final NodeComparator<Long> leafComparator =
-        new JsonLeafNodeComparator(this.wtx, this.rtx, comparisonUtils);
-    FMSEAlgorithm.match(
-        labelOldRevVisitor.getLeafLabels(), labelNewRevVisitor.getLeafLabels(),
-        matching::add, leafComparator);
+    final NodeComparator<Long> leafComparator = new JsonLeafNodeComparator(this.wtx, this.rtx, comparisonUtils);
+    FMSEAlgorithm.match(labelOldRevVisitor.getLeafLabels(), labelNewRevVisitor.getLeafLabels(), matching::add,
+        leafComparator);
 
     // Remove roots from labels and add them to matching.
     final Map<NodeKind, List<Long>> oldLabels = labelOldRevVisitor.getLabels();
@@ -190,12 +181,12 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     rtx.moveToParent();
     matching.add(wtx.getNodeKey(), rtx.getNodeKey());
 
-    // A same-kind document container is the corresponding root even when most descendants
-    // changed. Inserting it wholesale would discard already matched, unchanged subtrees.
+    // Pair same-kind document containers independently of descendant overlap so the root
+    // keeps its identity even when most descendants changed.
     wtx.moveTo(oldStartKey);
     rtx.moveTo(newStartKey);
-    if (wtx.getKind() == NodeKind.JSON_DOCUMENT && rtx.getKind() == NodeKind.JSON_DOCUMENT
-        && wtx.moveToFirstChild() && rtx.moveToFirstChild() && wtx.getKind() == rtx.getKind()
+    if (wtx.getKind() == NodeKind.JSON_DOCUMENT && rtx.getKind() == NodeKind.JSON_DOCUMENT && wtx.moveToFirstChild()
+        && rtx.moveToFirstChild() && wtx.getKind() == rtx.getKind()
         && (wtx.getKind() == NodeKind.OBJECT || wtx.getKind() == NodeKind.ARRAY)) {
       final long oldRoot = wtx.getNodeKey();
       final long newRoot = rtx.getNodeKey();
@@ -206,9 +197,8 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     wtx.moveTo(oldStartKey);
     rtx.moveTo(newStartKey);
 
-    final NodeComparator<Long> innerComparator =
-        new JsonInnerNodeComparator(matching, this.wtx, this.rtx, comparisonUtils,
-            descendantsOldRev, descendantsNewRev);
+    final NodeComparator<Long> innerComparator = new JsonInnerNodeComparator(matching, this.wtx, this.rtx,
+        comparisonUtils, descendantsOldRev, descendantsNewRev);
 
     FMSEAlgorithm.match(oldLabels, newLabels, matching::add, innerComparator);
 
@@ -227,8 +217,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     wtx.moveTo(oldStartKey);
     rtx.moveTo(newStartKey);
 
-    for (final Axis axis =
-        new LevelOrderAxis.Builder(rtx).includeSelf().build(); axis.hasNext();) {
+    for (final Axis axis = new LevelOrderAxis.Builder(rtx).includeSelf().build(); axis.hasNext();) {
       axis.nextLong();
       final long nodeKey = rtx.getNodeKey();
       doFirstFSMEStep(wtx, rtx);
@@ -290,8 +279,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /**
    * Second step of the edit script algorithm. This is the delete phase.
    */
-  private void secondFMESStep(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx)
-      throws SirixException {
+  private void secondFMESStep(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) throws SirixException {
     assert wtx != null;
     assert rtx != null;
     wtx.moveTo(oldStartKey);
@@ -299,11 +287,8 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     for (@SuppressWarnings("unused")
     final long nodeKey : VisitorDescendantAxis.newBuilder(wtx)
                                               .includeSelf()
-                                              .visitor(
-                                                  new DeleteJsonFMSEVisitor(wtx, totalMatching,
-                                                      oldStartKey))
-                                              .build())
-      ;
+                                              .visitor(new DeleteJsonFMSEVisitor(wtx, totalMatching, oldStartKey))
+                                              .build());
   }
 
   // ==================== Align Children ====================
@@ -311,8 +296,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /**
    * Aligns the children of node w (old tree) according to the children of node x (new tree).
    */
-  private void alignChildren(final long w, final long x, final JsonNodeTrx wtx,
-      final JsonNodeReadOnlyTrx rtx) {
+  private void alignChildren(final long w, final long x, final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
     assert w >= 0;
     assert x >= 0;
     assert wtx != null;
@@ -331,8 +315,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
 
     // 3 && 4
     final List<Pair<Long, Long>> s =
-        Util.longestCommonSubsequence(first, second,
-            (pX, pY) -> totalMatching.contains(pX, pY));
+        Util.longestCommonSubsequence(first, second, (pX, pY) -> totalMatching.contains(pX, pY));
 
     // 5
     final Long2LongOpenHashMap seen = new Long2LongOpenHashMap(s.size());
@@ -350,8 +333,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
       final long aKey = a;
       wtx.moveTo(aKey);
       final long b = totalMatching.partner(aKey);
-      if (seen.get(aKey) == JsonMatching.NO_PARTNER
-          && b != JsonMatching.NO_PARTNER && rtx.moveTo(b)) {
+      if (seen.get(aKey) == JsonMatching.NO_PARTNER && b != JsonMatching.NO_PARTNER && rtx.moveTo(b)) {
         inOrderOldRev.put(aKey, true);
         inOrderNewRev.put(b, true);
         final int k = findPos(b, wtx, rtx);
@@ -364,8 +346,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /**
    * Mark children out of order.
    */
-  private static void markOutOfOrder(final JsonNodeReadOnlyTrx rtx,
-      final Long2BooleanOpenHashMap inOrder) {
+  private static void markOutOfOrder(final JsonNodeReadOnlyTrx rtx, final Long2BooleanOpenHashMap inOrder) {
     for (final Axis axis = new ChildAxis(rtx); axis.hasNext();) {
       axis.nextLong();
       inOrder.put(rtx.getNodeKey(), false);
@@ -373,12 +354,10 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   }
 
   /**
-   * The sequence of children of n whose partners are children of o. This is used by
-   * alignChildren().
+   * The sequence of children of n whose partners are children of o. This is used by alignChildren().
    */
-  private List<Long> commonChildren(final long n, final long o,
-      final JsonNodeReadOnlyTrx firstRtx, final JsonNodeReadOnlyTrx secondRtx,
-      final boolean reverse) {
+  private List<Long> commonChildren(final long n, final long o, final JsonNodeReadOnlyTrx firstRtx,
+      final JsonNodeReadOnlyTrx secondRtx, final boolean reverse) {
     assert n >= 0;
     assert o >= 0;
     assert firstRtx != null;
@@ -502,11 +481,10 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   }
 
   /**
-   * When two fused OBJECT_NAMED_* records were matched but have different key names, rename
-   * the wtx-side record to match rtx. A no-op if both sides already carry the same name.
+   * When two fused OBJECT_NAMED_* records were matched but have different key names, rename the
+   * wtx-side record to match rtx. A no-op if both sides already carry the same name.
    */
-  private static void updateFusedNameIfChanged(final JsonNodeTrx wtx,
-      final JsonNodeReadOnlyTrx rtx) {
+  private static void updateFusedNameIfChanged(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
     final var oldName = wtx.getName();
     final var newName = rtx.getName();
     if (oldName == null || newName == null) {
@@ -524,14 +502,13 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /**
    * Emit an insert operation.
    */
-  private long emitInsert(final long child, final long parent, final int pos,
-      final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
+  private long emitInsert(final long child, final long parent, final int pos, final JsonNodeTrx wtx,
+      final JsonNodeReadOnlyTrx rtx) {
     assert child >= 0;
     assert parent >= 0;
     assert wtx != null;
     assert rtx != null;
 
-    // Determines if node has been already inserted (for subtrees).
     // Return the old-revision key (not the new-revision key "child") since the caller
     // uses this return value as an old-revision key (e.g., in alignChildren(w, x, wtx, rtx)).
     if (alreadyInserted.containsKey(child) && alreadyInserted.get(child)) {
@@ -561,7 +538,6 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     // can move already matched nodes here instead of copying them and discarding their identity.
     process(oldKey, child);
 
-    // Return the key of the inserted subtree root, not the last descendant.
     return oldKey;
   }
 
@@ -572,22 +548,18 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     return switch (rtx.getKind()) {
       case OBJECT -> wtx.insertObjectAsFirstChild().getNodeKey();
       case ARRAY -> wtx.insertArrayAsFirstChild().getNodeKey();
-      case OBJECT_NAMED_OBJECT -> wtx.insertObjectRecordAsFirstChild(
-          rtx.getName().getLocalName(), ObjectValue.INSTANCE).getNodeKey();
-      case OBJECT_NAMED_ARRAY -> wtx.insertObjectRecordAsFirstChild(
-          rtx.getName().getLocalName(), ArrayValue.INSTANCE).getNodeKey();
+      case OBJECT_NAMED_OBJECT ->
+        wtx.insertObjectRecordAsFirstChild(rtx.getName().getLocalName(), ObjectValue.INSTANCE).getNodeKey();
+      case OBJECT_NAMED_ARRAY ->
+        wtx.insertObjectRecordAsFirstChild(rtx.getName().getLocalName(), ArrayValue.INSTANCE).getNodeKey();
       case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         primitiveValue.bind(rtx);
         yield wtx.insertObjectRecordAsFirstChild(rtx.getName().getLocalName(), primitiveValue).getNodeKey();
       }
-      case STRING_VALUE ->
-          wtx.insertStringValueAsFirstChild(rtx.getValue()).getNodeKey();
-      case NUMBER_VALUE ->
-          wtx.insertNumberValueAsFirstChild(rtx.getNumberValue()).getNodeKey();
-      case BOOLEAN_VALUE ->
-          wtx.insertBooleanValueAsFirstChild(rtx.getBooleanValue()).getNodeKey();
-      case NULL_VALUE ->
-          wtx.insertNullValueAsFirstChild().getNodeKey();
+      case STRING_VALUE -> wtx.insertStringValueAsFirstChild(rtx.getValue()).getNodeKey();
+      case NUMBER_VALUE -> wtx.insertNumberValueAsFirstChild(rtx.getNumberValue()).getNodeKey();
+      case BOOLEAN_VALUE -> wtx.insertBooleanValueAsFirstChild(rtx.getBooleanValue()).getNodeKey();
+      case NULL_VALUE -> wtx.insertNullValueAsFirstChild().getNodeKey();
       default -> throw new IllegalStateException("Unexpected node kind: " + rtx.getKind());
     };
   }
@@ -595,27 +567,22 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /**
    * Insert a node as the right sibling of the current wtx position.
    */
-  private long insertAsRightSibling(final JsonNodeTrx wtx,
-      final JsonNodeReadOnlyTrx rtx) {
+  private long insertAsRightSibling(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
     return switch (rtx.getKind()) {
       case OBJECT -> wtx.insertObjectAsRightSibling().getNodeKey();
       case ARRAY -> wtx.insertArrayAsRightSibling().getNodeKey();
-      case OBJECT_NAMED_OBJECT -> wtx.insertObjectRecordAsRightSibling(
-          rtx.getName().getLocalName(), ObjectValue.INSTANCE).getNodeKey();
-      case OBJECT_NAMED_ARRAY -> wtx.insertObjectRecordAsRightSibling(
-          rtx.getName().getLocalName(), ArrayValue.INSTANCE).getNodeKey();
+      case OBJECT_NAMED_OBJECT ->
+        wtx.insertObjectRecordAsRightSibling(rtx.getName().getLocalName(), ObjectValue.INSTANCE).getNodeKey();
+      case OBJECT_NAMED_ARRAY ->
+        wtx.insertObjectRecordAsRightSibling(rtx.getName().getLocalName(), ArrayValue.INSTANCE).getNodeKey();
       case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         primitiveValue.bind(rtx);
         yield wtx.insertObjectRecordAsRightSibling(rtx.getName().getLocalName(), primitiveValue).getNodeKey();
       }
-      case STRING_VALUE ->
-          wtx.insertStringValueAsRightSibling(rtx.getValue()).getNodeKey();
-      case NUMBER_VALUE ->
-          wtx.insertNumberValueAsRightSibling(rtx.getNumberValue()).getNodeKey();
-      case BOOLEAN_VALUE ->
-          wtx.insertBooleanValueAsRightSibling(rtx.getBooleanValue()).getNodeKey();
-      case NULL_VALUE ->
-          wtx.insertNullValueAsRightSibling().getNodeKey();
+      case STRING_VALUE -> wtx.insertStringValueAsRightSibling(rtx.getValue()).getNodeKey();
+      case NUMBER_VALUE -> wtx.insertNumberValueAsRightSibling(rtx.getNumberValue()).getNodeKey();
+      case BOOLEAN_VALUE -> wtx.insertBooleanValueAsRightSibling(rtx.getBooleanValue()).getNodeKey();
+      case NULL_VALUE -> wtx.insertNullValueAsRightSibling().getNodeKey();
       default -> throw new IllegalStateException("Unexpected node kind: " + rtx.getKind());
     };
   }
@@ -656,7 +623,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /**
    * The position of node x in the destination tree (tree2).
    *
-   * @param x   a node in the second (new) document
+   * @param x a node in the second (new) document
    * @param wtx write transaction on old revision
    * @param rtx read-only transaction on new revision
    * @return its position, with respect to already inserted/deleted nodes

@@ -25,14 +25,13 @@ import static java.util.Objects.requireNonNull;
  */
 public final class JsonFMSEImport {
 
-  private static final LogWrapper LOGWRAPPER =
-      new LogWrapper(LoggerFactory.getLogger(JsonFMSEImport.class));
+  private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(JsonFMSEImport.class));
 
   /**
    * Shred new JSON revision as a temporal resource.
    *
    * @param resNewRev path to the new JSON file
-   * @param newRev    path for the temporary SirixDB database
+   * @param newRev path for the temporary SirixDB database
    * @throws SirixIOException if sirix fails to shred the file
    */
   public void shredder(final Path resNewRev, final Path newRev) {
@@ -53,15 +52,10 @@ public final class JsonFMSEImport {
     Databases.createJsonDatabase(conf);
 
     try (final var db = Databases.openJsonDatabase(newRev)) {
-      db.createResource(
-          new ResourceConfiguration.Builder("shredded")
-              .buildPathSummary(true)
-              .useDeweyIDs(true)
-              .build());
-      try (final var resMgr = db.beginResourceSession("shredded");
-          final var wtx = resMgr.beginNodeTrx()) {
-        final var shredder = new JsonShredder.Builder(wtx, reader,
-            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+      db.createResource(new ResourceConfiguration.Builder("shredded").buildPathSummary(true).useDeweyIDs(true).build());
+      try (final var resMgr = db.beginResourceSession("shredded"); final var wtx = resMgr.beginNodeTrx()) {
+        final var shredder =
+            new JsonShredder.Builder(wtx, reader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }
     }

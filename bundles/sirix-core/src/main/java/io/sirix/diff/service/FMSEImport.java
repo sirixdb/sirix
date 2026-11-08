@@ -87,8 +87,7 @@ public final class FMSEImport {
     Databases.createXmlDatabase(conf);
     try (final var db = Databases.openXmlDatabase(newRev)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").buildPathSummary(true).useDeweyIDs(true).build());
-      try (final var session = db.beginResourceSession("shredded");
-          final var writer = session.beginNodeTrx()) {
+      try (final var session = db.beginResourceSession("shredded"); final var writer = session.beginNodeTrx()) {
         new XmlShredder.Builder(writer, reader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
       }
     }

@@ -215,8 +215,9 @@ addition reports the import error without replacing the collection or its existi
 `xn:import`: it compares a full new document against the latest stored revision with FMSE,
 applies the tree edit, and commits exactly one new revision. Unchanged nodes retain their
 node keys, and earlier revisions remain available. The database and resource must already exist.
-JSON accepts serialized content or a JSON item; XML accepts
-serialized XML content. Both return the imported document.
+JSON accepts serialized content or a JSON item; a stored JSON string item retains its
+string value rather than being parsed as serialized content. XML accepts serialized XML
+content. Both return the imported document.
 
 ```xquery
 jn:import('versions', 'orders', '{"orders":[{"id":1,"status":"shipped"}]}')
@@ -225,16 +226,10 @@ xn:import('versions', 'orders', '<orders><order id="1">delivered</order></orders
 ```
 
 Over REST, `jn:load` and `xn:load` also take inline document strings (or sequences of strings),
-with their existing resource, create-new and options arguments. None of these four functions
-reads a server file or URL through a REST session store. Paths, URLs and XML DTDs are rejected
-as invalid content with HTTP 400, using the query endpoint's existing `QueryException` mapping.
-This policy also applies when authentication is disabled. Embedded `jn:load`/`xn:load` keep
-URI loading, and embedded `xn:import` and the Java FMSE import services retain file imports.
-
-REST imports require `modify` for the existing resource.
-Loads require `create`, plus `modify` when their resolved target already exists and `delete`
-when replacing a database. Global roles and roles scoped to the full database name work the
-same way as other writing functions; missing permission returns HTTP 403 before writing.
+with their existing resource, create-new and options arguments. The
+[REST query contract](bundles/sirix-rest-api/src/main/resources/openapi.yaml) defines
+content restrictions, mutation permissions and error responses. Embedded `jn:load`/`xn:load`
+keep URI loading, and embedded `xn:import` and the Java FMSE import services retain file imports.
 
 XML serialization escapes default and prefixed namespace declaration values, attribute values,
 and text at output; stored values and query namespace scopes remain decoded. For example, the

@@ -26,8 +26,7 @@ import javax.xml.stream.XMLStreamConstants;
 
 /** Content validation before a load can create, replace or write its target. */
 public final class ImportInput {
-  private ImportInput() {
-  }
+  private ImportInput() {}
 
   public static QueryException invalidContent(final String format) {
     return new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
@@ -48,13 +47,17 @@ public final class ImportInput {
         contents.add(new Str(content));
       }
     }
-    return contents.size() == 1 ? contents.getFirst() : new ItemSequence(contents.toArray(new Str[0]));
+    return contents.size() == 1
+        ? contents.getFirst()
+        : new ItemSequence(contents.toArray(new Str[0]));
   }
 
   public static String json(final Sequence input) {
     final String content;
     if (input instanceof Str string) {
-      content = input instanceof JsonDBItem ? new JsonPrimitive(string.stringValue()).toString() : string.stringValue();
+      content = input instanceof JsonDBItem
+          ? new JsonPrimitive(string.stringValue()).toString()
+          : string.stringValue();
     } else {
       final StringWriter output = new StringWriter();
       try (final StringSerializer serializer = new StringSerializer(new PrintWriter(output))) {

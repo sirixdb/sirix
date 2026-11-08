@@ -89,8 +89,7 @@ public final class MutationAuthorization {
     }
   }
 
-  public static void requireWritable(final QueryContext ctx, final String databaseName,
-      final String resourceName) {
+  public static void requireWritable(final QueryContext ctx, final String databaseName, final String resourceName) {
     Objects.requireNonNull(ctx, "ctx");
     Objects.requireNonNull(databaseName, "databaseName");
     Objects.requireNonNull(resourceName, "resourceName");

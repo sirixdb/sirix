@@ -46,16 +46,15 @@ final class JsonLeafNodeComparator implements NodeComparator<Long> {
         final var oldName = oldRtx.getName();
         final var newName = newRtx.getName();
         if (oldName != null && newName != null) {
-          ratio = JsonFMSENodeComparisonUtils.calculateRatio(
-              oldName.getLocalName(), newName.getLocalName());
+          ratio = JsonFMSENodeComparisonUtils.calculateRatio(oldName.getLocalName(), newName.getLocalName());
         }
       } else if (oldRtx.hasParent() && newRtx.hasParent()) {
         oldRtx.moveToParent();
         newRtx.moveToParent();
 
         if (oldRtx.getKind().playsObjectKeyRole() && newRtx.getKind().playsObjectKeyRole()) {
-          ratio = JsonFMSENodeComparisonUtils.calculateRatio(
-              oldRtx.getName().getLocalName(), newRtx.getName().getLocalName());
+          ratio = JsonFMSENodeComparisonUtils.calculateRatio(oldRtx.getName().getLocalName(),
+              newRtx.getName().getLocalName());
         }
       }
 
@@ -83,12 +82,14 @@ final class JsonLeafNodeComparator implements NodeComparator<Long> {
     final NodeKind kind = oldRtx.getKind();
     return switch (kind) {
       case NULL_VALUE, OBJECT_NAMED_NULL -> 1.0;
-      case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
-          oldRtx.getBooleanValue() == newRtx.getBooleanValue() ? 1.0 : 0.0;
-      case NUMBER_VALUE, OBJECT_NAMED_NUMBER ->
-          oldRtx.getNumberValue().equals(newRtx.getNumberValue()) ? 1.0 : 0.0;
+      case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN -> oldRtx.getBooleanValue() == newRtx.getBooleanValue()
+          ? 1.0
+          : 0.0;
+      case NUMBER_VALUE, OBJECT_NAMED_NUMBER -> oldRtx.getNumberValue().equals(newRtx.getNumberValue())
+          ? 1.0
+          : 0.0;
       case STRING_VALUE, OBJECT_NAMED_STRING ->
-          JsonFMSENodeComparisonUtils.calculateRatio(oldRtx.getValue(), newRtx.getValue());
+        JsonFMSENodeComparisonUtils.calculateRatio(oldRtx.getValue(), newRtx.getValue());
       default -> 0.0;
     };
   }

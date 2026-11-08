@@ -40,8 +40,8 @@ import java.time.Instant;
 import java.nio.file.Path;
 
 /**
- * Loads XML documents addressed by URI strings into a collection/database. See {@link XMLFun} for
- * the registered overloads and the repository README for collection import semantics.
+ * Loads XML documents into a collection/database. See {@link XMLFun} for the registered overloads
+ * and the repository README for content sources and collection import semantics.
  *
  * @author Johannes Lichtenberger
  */
@@ -120,10 +120,14 @@ public final class Load extends AbstractFunction {
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       MutationAuthorization.requireCreate(ctx, collName, resName);
       final boolean contentOnly = store instanceof ContentOnlyStore;
-      final Sequence inputs = contentOnly ? ImportInput.strings(resources, true) : resources;
+      final Sequence inputs = contentOnly
+          ? ImportInput.strings(resources, true)
+          : resources;
       final Path databasePath = store.databaseDirectory(collName);
       final boolean mayReplace = createNew || store.lookup(collName) == null;
-      try (var gate = databasePath == null || !mayReplace ? null : MutationGate.acquireDatabase(databasePath)) {
+      try (var gate = databasePath == null || !mayReplace
+          ? null
+          : MutationGate.acquireDatabase(databasePath)) {
         XmlDBCollection coll;
         if (createNew) {
           coll = create(store, collName, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
@@ -161,9 +165,8 @@ public final class Load extends AbstractFunction {
     return coll;
   }
 
-  private static XmlDBCollection create(final XmlDBStore store, final String collName,
-      final @Nullable String resName, final Sequence resources, final @Nullable String commitMessage,
-      final @Nullable Instant commitTimestamp,
+  private static XmlDBCollection create(final XmlDBStore store, final String collName, final @Nullable String resName,
+      final Sequence resources, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp,
       final boolean contentOnly) {
     if (resources instanceof Atomic res) {
       return store.create(collName, resName, parser(res, contentOnly), commitMessage, commitTimestamp);
