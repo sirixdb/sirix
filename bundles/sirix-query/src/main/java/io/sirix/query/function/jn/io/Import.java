@@ -54,12 +54,14 @@ public final class Import extends AbstractFunction {
       final var targetSession = collection.getDatabase().beginResourceSession(resourceName);
       MutationAuthorization.requireWritable(ctx, collection.getName(), targetSession.getResourceConfig().getName());
       final String content = ImportInput.json(args[2]);
-      final Path temporary = Files.createTempDirectory("sirix-json-import-");
+      // Keep the private parent intact while the shredder replaces its database directory.
+      final Path temporary = Files.createTempDirectory(databasePath, ".sirix-json-import-");
+      final Path stagedDatabase = temporary.resolve("database");
       try {
         try (final JsonReader reader = JsonShredder.createStringReader(content)) {
-          new JsonFMSEImport().shredder(reader, temporary);
+          new JsonFMSEImport().shredder(reader, stagedDatabase);
         }
-        try (final var database = Databases.openJsonDatabase(temporary);
+        try (final var database = Databases.openJsonDatabase(stagedDatabase);
             final var session = database.beginResourceSession("shredded");
             final var reader = session.beginNodeReadOnlyTrx();
             final var writer = targetSession.beginNodeTrx();

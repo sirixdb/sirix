@@ -60,19 +60,21 @@ public final class Import extends AbstractFunction {
       if (!fileSource) {
         ImportInput.validateXml(source);
       }
-      final Path temporary = Files.createTempDirectory("sirix-xml-import-");
+      // Keep the private parent intact while the shredder replaces its database directory.
+      final Path temporary = Files.createTempDirectory(databasePath, ".sirix-xml-import-");
+      final Path stagedDatabase = temporary.resolve("database");
       try {
         if (fileSource) {
-          new FMSEImport().shredder(Path.of(source), temporary);
+          new FMSEImport().shredder(Path.of(source), stagedDatabase);
         } else {
           final XMLEventReader input = XmlShredder.createStringReader(source);
           try {
-            new FMSEImport().shredder(input, temporary);
+            new FMSEImport().shredder(input, stagedDatabase);
           } finally {
             input.close();
           }
         }
-        try (final var database = Databases.openXmlDatabase(temporary);
+        try (final var database = Databases.openXmlDatabase(stagedDatabase);
             final var session = database.beginResourceSession("shredded");
             final var reader = session.beginNodeReadOnlyTrx();
             final var writer = targetSession.beginNodeTrx();

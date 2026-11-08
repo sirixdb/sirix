@@ -357,6 +357,10 @@ gradle.projectsEvaluated {
     validTimeDisabledLookupCacheTest.configure {
         systemProperty 'sirix.hotLookupCache.maxEntries', '0'
     }
+    dictionaryReadViewAllocationTest.configure {
+        // Finish warmup compilations before measuring allocations, including on slower CI runners.
+        jvmArgs '-Xbatch'
+    }
     storageEpochStoreIdentityTest.configure {
         systemProperty 'sirix.codecBakeoff.probeInterval', '1'
     }

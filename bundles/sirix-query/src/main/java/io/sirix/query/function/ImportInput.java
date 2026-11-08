@@ -21,7 +21,6 @@ import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
 import javax.xml.stream.XMLEventReader;
-import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamConstants;
 
 /** Content validation before a load can create, replace or write its target. */
@@ -80,7 +79,7 @@ public final class ImportInput {
       if (reader.peek() != JsonToken.END_DOCUMENT) {
         throw invalidContent("JSON");
       }
-    } catch (final IOException | IllegalStateException failure) {
+    } catch (final IOException | IllegalStateException _) {
       throw invalidContent("JSON");
     }
   }
@@ -89,10 +88,10 @@ public final class ImportInput {
     final XMLEventReader reader;
     try {
       reader = XmlShredder.createStringReader(content);
-    } catch (final RuntimeException failure) {
+    } catch (final RuntimeException _) {
       throw invalidContent("XML");
     }
-    try {
+    try (final AutoCloseable _ = reader::close) {
       while (reader.hasNext()) {
         // Reject declarations rather than forwarding them to another parser. No entity resolver
         // may turn inline XML into an indirect server-file or network read.
@@ -100,14 +99,10 @@ public final class ImportInput {
           throw invalidContent("XML without a DTD");
         }
       }
-    } catch (final XMLStreamException failure) {
+    } catch (final QueryException failure) {
+      throw failure;
+    } catch (final Exception _) {
       throw invalidContent("XML");
-    } finally {
-      try {
-        reader.close();
-      } catch (final XMLStreamException failure) {
-        throw invalidContent("XML");
-      }
     }
   }
 }
