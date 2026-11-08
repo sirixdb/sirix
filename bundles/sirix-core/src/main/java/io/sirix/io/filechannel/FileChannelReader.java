@@ -60,9 +60,12 @@ import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * File Reader. Used for {@link StorageEngineReader} to provide read only access on a
@@ -154,72 +157,269 @@ public final class FileChannelReader extends AbstractReader {
    * during acquisition and return. No buffer is shared while a reader decompresses or deserializes.
    *
    * <p>
-   * Retained buffers are bounded by POOL_SIZE, independent of platform or virtual thread count. An
-   * exhausted pool permits a transient allocation; returns to a full pool are discarded. A successful
-   * borrow/return allocates nothing and retains no per-thread state.
+   * Retained buffers are bounded by POOL_SIZE and by {@link #POOLED_BUFFER_BYTES_LIMIT}, independent
+   * of platform or virtual thread count. An exhausted pool permits a transient allocation. The pool
+   * is size-aware: a borrower names the capacity it needs and receives the smallest pooled buffer
+   * that fits, and a buffer returned to a full pool displaces a smaller pooled one, so the pool
+   * converges on the capacities the reads use. Before that, a coalesced run of several MiB missed the
+   * 128 KiB buffers on every read, allocated a fresh direct buffer and dropped it on return: 17 MB of
+   * direct allocation per query on a 50 ms query, re-faulted after every GC cycle.
    */
   private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
-  private static final BufferPool BUF_POOL =
-      new BufferPool(POOL_SIZE, Boolean.parseBoolean(System.getProperty("sirix.filechannel.lockFreeBuffers", "true")));
+  private static final BufferPool BUF_POOL;
 
-  /** Bounded unordered pool: FIFO ordering is unnecessary for exclusive scratch-buffer ownership. */
+  /** Fresh direct buffers allocated because no pooled buffer fit; diagnostics and tests. */
+  private static final LongAdder POOL_MISSES = new LongAdder();
+
+  /**
+   * Bounded unordered pool: FIFO ordering is unnecessary for exclusive scratch-buffer ownership. The
+   * retained-bytes bound is best-effort under contention (a concurrent return may exceed it by one
+   * buffer transiently) and never a correctness boundary.
+   */
   static final class BufferPool {
     // Four-byte references leave at least two cache lines between active slots. The sparse
     // array is small (two slots per processor); separate workers normally reuse separate slots.
     private static final int SLOT_STRIDE = 32;
     private static final VarHandle SLOTS = MethodHandles.arrayElementVarHandle(ByteBuffer[].class);
     private final int capacity;
+    private final int slotCount;
+    private final long maxRetainedBytes;
+    private final AtomicLong retainedBytes = new AtomicLong();
     private final ByteBuffer @Nullable [] slots;
     private final @Nullable ArrayBlockingQueue<ByteBuffer> queue;
 
     BufferPool(final int capacity, final boolean lockFree) {
+      this(capacity, lockFree, Long.MAX_VALUE);
+    }
+
+    /**
+     * @param capacity the number of buffers the pool keeps at most
+     * @param lockFree atomic slots ({@code true}) or a bounded queue
+     * @param maxRetainedBytes the bytes of pooled buffers the pool keeps at most
+     */
+    BufferPool(final int capacity, final boolean lockFree, final long maxRetainedBytes) {
       if (capacity < 1 || capacity > Integer.MAX_VALUE / SLOT_STRIDE) {
         throw new IllegalArgumentException("invalid buffer pool capacity: " + capacity);
       }
+      if (maxRetainedBytes < 1) {
+        throw new IllegalArgumentException("invalid buffer pool byte bound: " + maxRetainedBytes);
+      }
       this.capacity = capacity;
+      this.slotCount = capacity * SLOT_STRIDE;
+      this.maxRetainedBytes = maxRetainedBytes;
       this.slots = lockFree
-          ? new ByteBuffer[capacity * SLOT_STRIDE]
+          ? new ByteBuffer[slotCount]
           : null;
       this.queue = lockFree
           ? null
           : new ArrayBlockingQueue<>(capacity);
     }
 
+    /** Bytes of the pooled buffers (approximate while borrowers and returns race). */
+    long retainedBytes() {
+      return retainedBytes.get();
+    }
+
+    /** Any pooled buffer, or {@code null} when the pool is empty. */
     @Nullable
     ByteBuffer poll() {
+      return poll(0);
+    }
+
+    /**
+     * The smallest pooled buffer whose capacity is at least {@code minCapacity}, or {@code null} when
+     * none fits; a buffer too small for this read stays pooled for the reads it does fit.
+     */
+    @Nullable
+    ByteBuffer poll(final int minCapacity) {
       if (queue != null) {
-        return queue.poll();
+        return pollQueued(minCapacity);
       }
-      int slot = (int) (Thread.currentThread().threadId() % capacity) * SLOT_STRIDE;
+      for (int attempt = 0; attempt < 2; attempt++) {
+        int best = -1;
+        int bestCapacity = Integer.MAX_VALUE;
+        int slot = start();
+        for (int remaining = capacity; remaining > 0; remaining--) {
+          final ByteBuffer buffer = (ByteBuffer) SLOTS.getAcquire(slots, slot);
+          if (buffer != null && buffer.capacity() >= minCapacity && buffer.capacity() < bestCapacity) {
+            best = slot;
+            bestCapacity = buffer.capacity();
+          }
+          slot = next(slot);
+        }
+        if (best < 0) {
+          return null;
+        }
+        final ByteBuffer chosen = (ByteBuffer) SLOTS.getAcquire(slots, best);
+        if (chosen != null && chosen.capacity() >= minCapacity && SLOTS.compareAndSet(slots, best, chosen, null)) {
+          retainedBytes.addAndGet(-chosen.capacity());
+          return chosen;
+        }
+      }
+      // Lost the race for the smallest fit twice: the first buffer that fits.
+      int slot = start();
       for (int remaining = capacity; remaining > 0; remaining--) {
         final ByteBuffer buffer = (ByteBuffer) SLOTS.getAcquire(slots, slot);
-        if (buffer != null && SLOTS.compareAndSet(slots, slot, buffer, null)) {
+        if (buffer != null && buffer.capacity() >= minCapacity && SLOTS.compareAndSet(slots, slot, buffer, null)) {
+          retainedBytes.addAndGet(-buffer.capacity());
           return buffer;
         }
-        slot += SLOT_STRIDE;
-        if (slot == slots.length) {
-          slot = 0;
-        }
+        slot = next(slot);
       }
       return null;
     }
 
+    /**
+     * Pool {@code buffer}: into an empty slot, or in place of the smallest pooled buffer with a lower
+     * capacity when every slot is taken (the displaced buffer is dropped for the GC); never beyond the
+     * retained-bytes bound.
+     *
+     * @return whether the buffer is pooled now; on {@code false} the caller drops it
+     */
     boolean offer(final ByteBuffer buffer) {
       Objects.requireNonNull(buffer, "buffer");
+      final int bytes = buffer.capacity();
       if (queue != null) {
-        return queue.offer(buffer);
+        return offerQueued(buffer);
       }
-      int slot = (int) (Thread.currentThread().threadId() % capacity) * SLOT_STRIDE;
+      int slot = start();
       for (int remaining = capacity; remaining > 0; remaining--) {
-        if (SLOTS.getOpaque(slots, slot) == null && SLOTS.compareAndSet(slots, slot, null, buffer)) {
+        if (SLOTS.getOpaque(slots, slot) == null) {
+          if (!reserve(bytes)) {
+            return false;
+          }
+          if (SLOTS.compareAndSet(slots, slot, null, buffer)) {
+            return true;
+          }
+          retainedBytes.addAndGet(-bytes);
+        }
+        slot = next(slot);
+      }
+      // Full: displace the smallest pooled buffer that is smaller than this one.
+      for (int attempt = 0; attempt < 2; attempt++) {
+        int victimSlot = -1;
+        ByteBuffer victim = null;
+        slot = start();
+        for (int remaining = capacity; remaining > 0; remaining--) {
+          final ByteBuffer pooled = (ByteBuffer) SLOTS.getAcquire(slots, slot);
+          if (pooled != null && pooled.capacity() < bytes
+              && (victim == null || pooled.capacity() < victim.capacity())) {
+            victimSlot = slot;
+            victim = pooled;
+          }
+          slot = next(slot);
+        }
+        if (victim == null) {
+          return false;
+        }
+        final long growth = bytes - (long) victim.capacity();
+        if (!reserve(growth)) {
+          return false;
+        }
+        if (SLOTS.compareAndSet(slots, victimSlot, victim, buffer)) {
           return true;
         }
-        slot += SLOT_STRIDE;
-        if (slot == slots.length) {
-          slot = 0;
-        }
+        retainedBytes.addAndGet(-growth);
       }
       return false;
+    }
+
+    private boolean reserve(final long delta) {
+      for (;;) {
+        final long current = retainedBytes.get();
+        if (current + delta > maxRetainedBytes) {
+          return false;
+        }
+        if (retainedBytes.compareAndSet(current, current + delta)) {
+          return true;
+        }
+      }
+    }
+
+    private int start() {
+      return (int) (Thread.currentThread().threadId() % capacity) * SLOT_STRIDE;
+    }
+
+    private int next(final int slot) {
+      final int following = slot + SLOT_STRIDE;
+      return following == slotCount
+          ? 0
+          : following;
+    }
+
+    /**
+     * Queue variant: the queue holds no order worth keeping, so a borrow drains it, takes the smallest
+     * buffer that fits and gives the rest back.
+     */
+    @Nullable
+    private ByteBuffer pollQueued(final int minCapacity) {
+      final ArrayBlockingQueue<ByteBuffer> pooled = Objects.requireNonNull(queue);
+      final List<ByteBuffer> drained = new ArrayList<>(capacity);
+      pooled.drainTo(drained, capacity);
+      int best = -1;
+      for (int i = 0; i < drained.size(); i++) {
+        final int bytes = drained.get(i).capacity();
+        if (bytes >= minCapacity && (best < 0 || bytes < drained.get(best).capacity())) {
+          best = i;
+        }
+      }
+      final ByteBuffer chosen = best < 0
+          ? null
+          : drained.remove(best);
+      if (chosen != null) {
+        retainedBytes.addAndGet(-chosen.capacity());
+      }
+      restoreQueued(pooled, drained, null);
+      return chosen;
+    }
+
+    /** Queue variant of {@link #offer}: the smallest smaller buffer is displaced within the bound. */
+    private boolean offerQueued(final ByteBuffer buffer) {
+      final ArrayBlockingQueue<ByteBuffer> pooled = Objects.requireNonNull(queue);
+      final int bytes = buffer.capacity();
+      if (reserve(bytes)) {
+        if (pooled.offer(buffer)) {
+          return true;
+        }
+        retainedBytes.addAndGet(-bytes);
+      }
+      final List<ByteBuffer> drained = new ArrayList<>(capacity);
+      pooled.drainTo(drained, capacity);
+      int victim = -1;
+      for (int i = 0; i < drained.size(); i++) {
+        final int pooledBytes = drained.get(i).capacity();
+        if (pooledBytes < bytes && (victim < 0 || pooledBytes < drained.get(victim).capacity())) {
+          victim = i;
+        }
+      }
+      // The victim leaves only once the larger buffer is reserved in its place.
+      final boolean kept = victim >= 0 && reserve(bytes - (long) drained.get(victim).capacity());
+      if (kept) {
+        drained.set(victim, buffer);
+      }
+      return restoreQueued(pooled, drained, kept
+          ? buffer
+          : null);
+    }
+
+    /**
+     * Give drained buffers back to the queue; one a concurrent return crowded out is dropped and
+     * uncounted.
+     *
+     * @return whether {@code watched} (when given) is pooled afterwards
+     */
+    private boolean restoreQueued(final ArrayBlockingQueue<ByteBuffer> pooled, final List<ByteBuffer> drained,
+        final @Nullable ByteBuffer watched) {
+      boolean watchedPooled = watched != null;
+      for (final ByteBuffer buffer : drained) {
+        if (!pooled.offer(buffer)) {
+          retainedBytes.addAndGet(-buffer.capacity());
+          if (buffer == watched) {
+            watchedPooled = false;
+          }
+        }
+      }
+      return watchedPooled;
     }
   }
 
@@ -241,7 +441,18 @@ public final class FileChannelReader extends AbstractReader {
   private static final int PAGE_PREFIX_BYTES =
       Math.max(Integer.BYTES, Math.min(64 * 1024, Integer.getInteger("sirix.filechannel.pagePrefixBytes", 1024)));
 
+  /**
+   * Bound on the direct memory the pool retains: {@code -Dsirix.filechannel.pooledBufferBytes}
+   * (default 64 MiB; at least the initial population, at most 1 GiB). Coalesced runs are bounded by
+   * {@code sirix.filechannel.coalesceSpanBytes} (8 MiB), so the pool's upgrades stay within it.
+   */
+  private static final long POOLED_BUFFER_BYTES_LIMIT = Math.max((long) POOL_SIZE * BUFFER_BYTES,
+      Math.min(1L << 30, Long.getLong("sirix.filechannel.pooledBufferBytes", 64L << 20)));
+
   static {
+    BUF_POOL =
+        new BufferPool(POOL_SIZE, Boolean.parseBoolean(System.getProperty("sirix.filechannel.lockFreeBuffers", "true")),
+            POOLED_BUFFER_BYTES_LIMIT);
     for (int i = 0; i < POOL_SIZE; i++) {
       BUF_POOL.offer(ByteBuffer.allocateDirect(BUFFER_BYTES).order(ByteOrder.LITTLE_ENDIAN));
     }
@@ -257,24 +468,33 @@ public final class FileChannelReader extends AbstractReader {
    * cheaper than that serialization.
    */
   private static ByteBuffer acquireBuffer(final int minCapacity) {
-    ByteBuffer b = BUF_POOL.poll();
-    if (b == null || b.capacity() < minCapacity) {
-      if (b != null) {
-        // Pooled buffer too small for this page — drop it (direct memory GC'd) and
-        // allocate replacement sized to current page. Pool capacity is maintained.
-        BUF_POOL.offer(b);
-      }
-      final int cap = Math.max(minCapacity, BUFFER_BYTES);
-      b = ByteBuffer.allocateDirect(cap).order(ByteOrder.LITTLE_ENDIAN);
+    final ByteBuffer pooled = BUF_POOL.poll(minCapacity);
+    if (pooled != null) {
+      return pooled;
     }
-    return b;
+    POOL_MISSES.increment();
+    final int cap = Math.max(minCapacity, BUFFER_BYTES);
+    return ByteBuffer.allocateDirect(cap).order(ByteOrder.LITTLE_ENDIAN);
   }
 
-  /** Return a buffer to the pool. If pool is full (transient extras), drop the reference. */
+  /**
+   * Return a buffer to the pool, which keeps it in an empty slot or in place of a smaller buffer; a
+   * buffer the pool does not keep is dropped for the GC.
+   */
   private static void releaseBuffer(final ByteBuffer b) {
     if (b == null)
       return;
     BUF_POOL.offer(b);
+  }
+
+  /** Fresh direct buffers allocated because no pooled buffer fit, since class load. */
+  static long bufferPoolMisses() {
+    return POOL_MISSES.sum();
+  }
+
+  /** Bytes the buffer pool retains now (approximate while borrowers and returns race). */
+  static long pooledBufferBytes() {
+    return BUF_POOL.retainedBytes();
   }
 
   /**
