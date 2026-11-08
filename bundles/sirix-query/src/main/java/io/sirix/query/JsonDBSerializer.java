@@ -27,6 +27,8 @@
  */
 package io.sirix.query;
 
+import io.brackit.query.ErrorCode;
+import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
@@ -110,12 +112,12 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               if (item == null || !ColumnarJsonWriter.isBatchRecord(item)) {
                 columnarWriter.drain();
               }
-            } else if (item instanceof StructuredDBItem) {
-              final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
-              trxSet.add(node.getTrx());
+            } else if (item instanceof StructuredDBItem<?> node && node.getTrx() instanceof JsonNodeReadOnlyTrx trx) {
+              trxSet.add(trx);
 
-              var serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceSession(), out,
-                  node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
+              var serializerBuilder =
+                  new JsonSerializer.Builder(trx.getResourceSession(), out, trx.getRevisionNumber()).serializeTimestamp(
+                      true).isXQueryResultSequence();
               if (prettyPrint) {
                 serializerBuilder.prettyPrint().withInitialIndent();
               }
@@ -143,6 +145,10 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
               }
 
               item = printCommaIfNextItemExists(it);
+            } else {
+              // Every iteration must advance or fail: XML nodes and function items cannot be JSON values.
+              throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
+                  "Cannot serialize this item as JSON. Use application/xml for XML results.");
             }
           }
         } finally {
