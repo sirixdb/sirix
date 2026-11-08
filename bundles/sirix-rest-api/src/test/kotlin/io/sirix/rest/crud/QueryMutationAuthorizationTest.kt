@@ -1,6 +1,7 @@
 package io.sirix.rest.crud
 
 import io.brackit.query.Query
+import io.brackit.query.QueryException
 import io.brackit.query.atomic.QNm
 import io.brackit.query.atomic.Str
 import io.brackit.query.jdm.Sequence
@@ -57,7 +58,6 @@ import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.Mockito
 import org.mockito.stubbing.Answer
 import java.io.PrintWriter
-import java.io.IOException
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
@@ -257,7 +257,7 @@ class QueryMutationAuthorizationTest {
                         val checked = PermissionCheckingQuery(
                             chain, "xn:import('auth','resource1','$source')", keycloak, user, authz
                         )
-                        assertThrows(ClassCastException::class.java) {
+                        assertThrows(QueryException::class.java) {
                             checked.serialize(context, PrintWriter(output))
                         }
                         assertEquals("", output.toString())
@@ -449,11 +449,11 @@ class QueryMutationAuthorizationTest {
 
     @ParameterizedTest
     @CsvSource("query,false", "query,true", "store,false", "store,true")
-    fun unavailableLoadSourcesPreserveExistingDatabase(entryPoint: String, validFirst: Boolean) {
+    fun serverSideLoadSourcesPreserveExistingDatabase(entryPoint: String, validFirst: Boolean) {
         createDatabase()
         val before = databaseWitness()
         val first = if (validFirst) {
-            Files.writeString(directory.resolve("available.json"), "{}").toUri().toString()
+            "{}"
         } else {
             directory.resolve("missing-a.json").toUri().toString()
         }
@@ -469,8 +469,8 @@ class QueryMutationAuthorizationTest {
                     else -> error(entryPoint)
                 }
             }
-            assertTrue(generateSequence<Throwable>(failure) { it.cause }.any { it is IOException },
-                "The load must fail because a declared source cannot be opened")
+            assertTrue(generateSequence<Throwable>(failure) { it.cause }.any { it is QueryException },
+                "The REST load must reject server-side sources as invalid content")
         }
         Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
             assertEquals(before.first, database.listResources().map { it.fileName.toString() }.toSet(),
@@ -547,10 +547,7 @@ class QueryMutationAuthorizationTest {
                 database.createResource(ResourceConfiguration.newBuilder("resource4").storageType(StorageType.FILE_CHANNEL).build())
             }
         }
-        val input = if (function == "store") "'{}'" else {
-            val source = Files.writeString(directory.resolve("append.json"), "{}")
-            "'${source.toUri()}'"
-        }
+        val input = "'{}'"
         val query = "jn:$function('auth','fresh',($input,$input),false())"
         withRoles("auth-view", "create") { fixture ->
             val database = fixture.store.lookup("auth")!!.database
@@ -581,8 +578,7 @@ class QueryMutationAuthorizationTest {
         val input = when (function) {
             "store" -> "'{}'"
             "load" -> {
-                val source = Files.writeString(directory.resolve("replacement.json"), "{}")
-                "'${source.toUri()}'"
+                "'{}'"
             }
             else -> error(function)
         }
@@ -629,16 +625,12 @@ class QueryMutationAuthorizationTest {
         assertTrue(resourceExists("fresh"), "An authorized store/load must create the resource")
     }
 
-    /** `jn:store` takes its fragment inline; `jn:load` reads it from a URI the test writes. */
+    /** Both REST functions take inline content; local URI loading is tested in sirix-query. */
     private fun storeOrLoad(function: String, resourceName: String, createNew: Boolean): String {
         val flag = if (createNew) ",true()" else ",false()"
         return when (function) {
             "store" -> "jn:store('auth','$resourceName','[{\"n\":1}]'$flag)"
-            "load" -> {
-                val source = directory.resolve("$resourceName-source.json")
-                if (!Files.exists(source)) Files.writeString(source, "[{\"n\":1}]")
-                "jn:load('auth','$resourceName','${source.toUri()}'$flag)"
-            }
+            "load" -> "jn:load('auth','$resourceName','[{\"n\":1}]'$flag)"
             else -> error(function)
         }
     }
@@ -707,10 +699,10 @@ class QueryMutationAuthorizationTest {
         writer.moveToFirstChild()
     }
 
-    private fun run(fixture: Fixture, query: String, keycloak: OAuth2Auth): String {
-        val output = StringWriter()
+    private fun run(fixture: Fixture, query: String, keycloak: OAuth2Auth) {
         val checked = PermissionCheckingQuery(fixture.chain, query, keycloak, fixture.user, fixture.authz)
-        checked.serialize(fixture.context, PrintWriter(output))
-        return output.toString().trim()
+        // State witnesses below use the core serializer. Eager evaluation exercises authorization
+        // without invoking the separately tracked indexed JsonDBSerializer hang on load's collection.
+        checked.evaluate(fixture.context)
     }
 }

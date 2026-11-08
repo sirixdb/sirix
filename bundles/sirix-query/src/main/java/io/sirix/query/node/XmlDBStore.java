@@ -32,6 +32,7 @@ import io.brackit.query.jdm.node.NodeStore;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 
 import java.time.Instant;
+import java.nio.file.Path;
 
 /**
  * Database store.
@@ -39,6 +40,12 @@ import java.time.Instant;
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public interface XmlDBStore extends NodeStore, AutoCloseable {
+
+  /** Database path used to hold the mutation gate across creation/replacement and authorization. */
+  default Path databaseDirectory(final String name) {
+    return null;
+  }
+
 
   @Override
   XmlDBCollection lookup(String name);

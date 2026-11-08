@@ -1,6 +1,7 @@
 package io.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
+import io.brackit.query.QueryException
 import io.brackit.query.atomic.Str
 import io.brackit.query.node.stream.ArrayStream
 import io.brackit.query.jsonitem.`object`.ArrayObject
@@ -123,18 +124,18 @@ class JsonSessionDBStoreAuthTest {
             val store = JsonSessionDBStore(ctx, delegate, userWith("$DB-view", "$DB-create"), authz)
             assertForbidden { store.create(DB, "{}") }
             assertForbidden { store.create(DB, "{}", options) }
-            assertForbidden { store.create(DB, path) }
-            assertForbidden { store.create(DB, path, options) }
-            assertForbidden { store.createFromPaths(DB, pathStream) }
-            assertForbidden { store.create(DB, "res", path) }
-            assertForbidden { store.create(DB, "res", path, options) }
+            assertThrows(QueryException::class.java) { store.create(DB, path) }
+            assertThrows(QueryException::class.java) { store.create(DB, path, options) }
+            assertThrows(QueryException::class.java) { store.createFromPaths(DB, pathStream) }
+            assertThrows(QueryException::class.java) { store.create(DB, "res", path) }
+            assertThrows(QueryException::class.java) { store.create(DB, "res", path, options) }
             assertForbidden { store.create(DB, "res", "{}") }
             assertForbidden { store.create(DB, "res", "{}", options) }
             assertForbidden { store.create(DB, "res", reader) }
             assertForbidden { store.create(DB, "res", reader, options) }
             assertForbidden { store.create(DB, setOf(reader)) }
             assertForbidden { store.create(DB, setOf(reader), options) }
-            assertForbidden { store.createFromUris(DB, listOf(path.toUri().toString()), options) }
+            assertThrows(QueryException::class.java) { store.createFromUris(DB, listOf(path.toUri().toString()), options) }
             assertForbidden { store.createFromJsonStrings(DB, strStream) }
             assertForbidden { store.createFromJsonStrings(DB, strStream, options) }
 
@@ -144,7 +145,6 @@ class JsonSessionDBStoreAuthTest {
             }
         }
     }
-
     @Test
     @DisplayName("lookup is allowed for a VIEW token and returns an authorization-checking collection")
     fun viewTokenMayLookUpButGetsGuardedCollection() {

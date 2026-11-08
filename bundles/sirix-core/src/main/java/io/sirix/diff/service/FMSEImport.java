@@ -20,6 +20,8 @@
  */
 package io.sirix.diff.service;
 
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLStreamException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -63,23 +65,31 @@ public final class FMSEImport {
    * @throws NullPointerException if {@code resNewRev} or {@code newRev} is {@code null}
    */
   public void shredder(final Path resNewRev, final Path newRev) {
-    assert resNewRev != null;
-    assert newRev != null;
+    requireNonNull(resNewRev, "resNewRev");
+    try (final var input = new FileInputStream(resNewRev.toFile())) {
+      final XMLEventReader reader = XmlShredder.createFileReader(input);
+      try {
+        shredder(reader, newRev);
+      } finally {
+        reader.close();
+      }
+    } catch (final IOException | XMLStreamException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
+  /** Shred caller-owned XML content into a temporary database; does not close the reader. */
+  public void shredder(final XMLEventReader reader, final Path newRev) {
+    requireNonNull(reader, "reader");
+    requireNonNull(newRev, "newRev");
     final var conf = new DatabaseConfiguration(newRev);
     Databases.removeDatabase(newRev);
     Databases.createXmlDatabase(conf);
-
     try (final var db = Databases.openXmlDatabase(newRev)) {
       db.createResource(new ResourceConfiguration.Builder("shredded").buildPathSummary(true).useDeweyIDs(true).build());
-      try (final var resMgr = db.beginResourceSession("shredded");
-          final var wtx = resMgr.beginNodeTrx();
-          final var fis = new FileInputStream(resNewRev.toFile())) {
-        final var fileReader = XmlShredder.createFileReader(fis);
-        final var shredder =
-            new XmlShredder.Builder(wtx, fileReader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
-        shredder.call();
-      } catch (final IOException e) {
-        throw new SirixIOException(e.getCause());
+      try (final var session = db.beginResourceSession("shredded");
+          final var writer = session.beginNodeTrx()) {
+        new XmlShredder.Builder(writer, reader, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
       }
     }
   }

@@ -96,8 +96,9 @@ class StoreMutationBoundaryTest {
             assertEquals(before, xmlWitness(delegate))
             val allowed = XmlSessionDBStore(context(), delegate, user("view", "create", "delete"), authorizations())
             replaceXml(allowed, overload)
-            val after = xmlWitness(delegate)
-            assertEquals(setOf("resource1"), after.resources)
+            val resourceName = if (overload >= 4) "fresh" else "resource1"
+            val after = xmlWitness(delegate, resourceName)
+            assertEquals(setOf(resourceName), after.resources)
             assertEquals(1, after.revisions)
             assertEquals("<root>replacement</root>", after.document)
         }

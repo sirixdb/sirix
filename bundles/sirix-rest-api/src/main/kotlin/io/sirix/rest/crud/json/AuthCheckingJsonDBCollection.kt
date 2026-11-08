@@ -2,6 +2,7 @@ package io.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import io.brackit.query.jdm.json.Object
+import io.sirix.query.function.ImportInput
 import io.sirix.query.json.JsonDBCollection
 import io.sirix.query.json.JsonDBItem
 import io.sirix.rest.Auth
@@ -51,7 +52,7 @@ class AuthCheckingJsonDBCollection(
 
     override fun addAllFromUris(uris: List<String>, options: Object) {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        MutationAuthorization.where(mutationAuthorizer).run { wrapped.addAllFromUris(uris, options) }
+        throw ImportInput.invalidContent("JSON")
     }
 
     override fun add(resourceName: String, reader: JsonReader, options: Object): JsonDBItem {
@@ -71,7 +72,7 @@ class AuthCheckingJsonDBCollection(
 
     override fun add(file: Path): JsonDBItem {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        return MutationAuthorization.where(mutationAuthorizer).call<JsonDBItem, RuntimeException> { wrapped.add(file) }
+        throw ImportInput.invalidContent("JSON")
     }
 
     override fun add(inputStream: InputStream): JsonDBItem {

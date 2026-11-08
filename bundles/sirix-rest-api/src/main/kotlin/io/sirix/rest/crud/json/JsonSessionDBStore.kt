@@ -9,6 +9,8 @@ import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.RoutingContext
 import io.sirix.rest.Auth
 import io.sirix.rest.AuthRole
+import io.sirix.query.function.ImportInput
+import io.sirix.query.ContentOnlyStore
 import io.sirix.query.MutationAuthorization
 import io.sirix.rest.crud.SessionMutationAuthorizer
 import io.sirix.query.MutationAuthorizer
@@ -21,7 +23,7 @@ class JsonSessionDBStore(
     private val dbStore: JsonDBStore,
     private val user: User,
     private val authz: AuthorizationProvider
-) : JsonDBStore by dbStore, MutationAuthorizer by SessionMutationAuthorizer(user, authz) {
+) : JsonDBStore by dbStore, MutationAuthorizer by SessionMutationAuthorizer(user, authz), ContentOnlyStore {
 
     /**
      * Wrap a collection so that every mutating operation performed through it re-checks the
@@ -62,31 +64,31 @@ class JsonSessionDBStore(
     override fun create(name: String, path: Path): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, path)) }
+        throw ImportInput.invalidContent("JSON")
     }
 
     override fun create(name: String, path: Path, options: Object): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, path, options)) }
+        throw ImportInput.invalidContent("JSON")
     }
 
     override fun createFromPaths(name: String, paths: Stream<Path>): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.createFromPaths(name, paths)) }
+        throw ImportInput.invalidContent("JSON")
     }
 
     override fun create(name: String, resourceName: String?, path: Path): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, resourceName, path)) }
+        throw ImportInput.invalidContent("JSON")
     }
 
     override fun create(name: String, resourceName: String?, path: Path, options: Object): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.create(name, resourceName, path, options)) }
+        throw ImportInput.invalidContent("JSON")
     }
 
     override fun create(name: String, resourceName: String?, json: String?): JsonDBCollection {
@@ -135,7 +137,7 @@ class JsonSessionDBStore(
     override fun createFromUris(name: String, uris: List<String>, options: Object): JsonDBCollection {
         Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
-        return MutationAuthorization.where(this).call<JsonDBCollection, RuntimeException> { wrap(dbStore.createFromUris(name, uris, options)) }
+        throw ImportInput.invalidContent("JSON")
     }
 
     override fun createFromJsonStrings(name: String, jsons: Stream<Str>): JsonDBCollection {

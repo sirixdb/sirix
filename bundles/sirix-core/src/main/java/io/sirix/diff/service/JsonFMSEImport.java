@@ -1,5 +1,6 @@
 package io.sirix.diff.service;
 
+import com.google.gson.stream.JsonReader;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -35,9 +36,18 @@ public final class JsonFMSEImport {
    * @throws SirixIOException if sirix fails to shred the file
    */
   public void shredder(final Path resNewRev, final Path newRev) {
-    assert resNewRev != null;
-    assert newRev != null;
+    requireNonNull(resNewRev, "resNewRev");
+    try (final JsonReader reader = JsonShredder.createFileReader(resNewRev)) {
+      shredder(reader, newRev);
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
 
+  /** Shred caller-owned JSON content into a temporary database; does not close the reader. */
+  public void shredder(final JsonReader reader, final Path newRev) {
+    requireNonNull(reader, "reader");
+    requireNonNull(newRev, "newRev");
     final var conf = new DatabaseConfiguration(newRev);
     Databases.removeDatabase(newRev);
     Databases.createJsonDatabase(conf);
@@ -50,8 +60,7 @@ public final class JsonFMSEImport {
               .build());
       try (final var resMgr = db.beginResourceSession("shredded");
           final var wtx = resMgr.beginNodeTrx()) {
-        final var jsonReader = JsonShredder.createFileReader(resNewRev);
-        final var shredder = new JsonShredder.Builder(wtx, jsonReader,
+        final var shredder = new JsonShredder.Builder(wtx, reader,
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
       }

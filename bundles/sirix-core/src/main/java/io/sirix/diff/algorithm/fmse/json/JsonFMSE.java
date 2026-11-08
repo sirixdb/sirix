@@ -1,6 +1,8 @@
 package io.sirix.diff.algorithm.fmse.json;
 
 import io.sirix.api.Axis;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.visitor.JsonNodeVisitor;
@@ -184,6 +186,22 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     wtx.moveToParent();
     rtx.moveToParent();
     matching.add(wtx.getNodeKey(), rtx.getNodeKey());
+
+    // A same-kind document container is the corresponding root even when most descendants
+    // changed. Inserting it wholesale would discard already matched, unchanged subtrees.
+    wtx.moveTo(oldStartKey);
+    rtx.moveTo(newStartKey);
+    if (wtx.getKind() == NodeKind.JSON_DOCUMENT && rtx.getKind() == NodeKind.JSON_DOCUMENT
+        && wtx.moveToFirstChild() && rtx.moveToFirstChild() && wtx.getKind() == rtx.getKind()
+        && (wtx.getKind() == NodeKind.OBJECT || wtx.getKind() == NodeKind.ARRAY)) {
+      final long oldRoot = wtx.getNodeKey();
+      final long newRoot = rtx.getNodeKey();
+      matching.add(oldRoot, newRoot);
+      oldLabels.get(wtx.getKind()).remove(Long.valueOf(oldRoot));
+      newLabels.get(rtx.getKind()).remove(Long.valueOf(newRoot));
+    }
+    wtx.moveTo(oldStartKey);
+    rtx.moveTo(newStartKey);
 
     final NodeComparator<Long> innerComparator =
         new JsonInnerNodeComparator(matching, this.wtx, this.rtx, comparisonUtils,
@@ -536,16 +554,9 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
       oldKey = insertAsRightSibling(wtx, rtx);
     }
 
-    // Mark all nodes in subtree as inserted.
-    wtx.moveTo(oldKey);
-    rtx.moveTo(child);
-    for (final Axis oldAxis = new DescendantAxis(wtx, IncludeSelf.YES),
-        newAxis = new DescendantAxis(rtx, IncludeSelf.YES);
-        oldAxis.hasNext() && newAxis.hasNext();) {
-      oldAxis.nextLong();
-      newAxis.nextLong();
-      process(wtx.getNodeKey(), rtx.getNodeKey());
-    }
+    // Insert only this node. Descendants are processed by the level-order edit pass, which
+    // can move already matched nodes here instead of copying them and discarding their identity.
+    process(oldKey, child);
 
     // Return the key of the inserted subtree root, not the last descendant.
     return oldKey;
@@ -556,13 +567,13 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
    */
   private static long insertAsFirstChild(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
     return switch (rtx.getKind()) {
-      case OBJECT, ARRAY -> wtx.copySubtreeAsFirstChild(rtx).getNodeKey();
-      // Fused OBJECT_NAMED_* records structurally play the OBJECT_KEY role. The primitive
-      // leaves carry an inline primitive payload; the structural variants (OBJECT_NAMED_OBJECT,
-      // OBJECT_NAMED_ARRAY) carry a name + nested subtree. Both delegate to copySubtree which
-      // resolves the right copy strategy via copyNode().
-      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL,
-           OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY ->
+      case OBJECT -> wtx.insertObjectAsFirstChild().getNodeKey();
+      case ARRAY -> wtx.insertArrayAsFirstChild().getNodeKey();
+      case OBJECT_NAMED_OBJECT -> wtx.insertObjectRecordAsFirstChild(
+          rtx.getName().getLocalName(), ObjectValue.INSTANCE).getNodeKey();
+      case OBJECT_NAMED_ARRAY -> wtx.insertObjectRecordAsFirstChild(
+          rtx.getName().getLocalName(), ArrayValue.INSTANCE).getNodeKey();
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL ->
           wtx.copySubtreeAsFirstChild(rtx).getNodeKey();
       case STRING_VALUE ->
           wtx.insertStringValueAsFirstChild(rtx.getValue()).getNodeKey();
@@ -582,10 +593,13 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   private static long insertAsRightSibling(final JsonNodeTrx wtx,
       final JsonNodeReadOnlyTrx rtx) {
     return switch (rtx.getKind()) {
-      case OBJECT, ARRAY -> wtx.copySubtreeAsRightSibling(rtx).getNodeKey();
-      // Fused OBJECT_NAMED_* — see insertAsFirstChild.
-      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL,
-           OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY ->
+      case OBJECT -> wtx.insertObjectAsRightSibling().getNodeKey();
+      case ARRAY -> wtx.insertArrayAsRightSibling().getNodeKey();
+      case OBJECT_NAMED_OBJECT -> wtx.insertObjectRecordAsRightSibling(
+          rtx.getName().getLocalName(), ObjectValue.INSTANCE).getNodeKey();
+      case OBJECT_NAMED_ARRAY -> wtx.insertObjectRecordAsRightSibling(
+          rtx.getName().getLocalName(), ArrayValue.INSTANCE).getNodeKey();
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL ->
           wtx.copySubtreeAsRightSibling(rtx).getNodeKey();
       case STRING_VALUE ->
           wtx.insertStringValueAsRightSibling(rtx.getValue()).getNodeKey();

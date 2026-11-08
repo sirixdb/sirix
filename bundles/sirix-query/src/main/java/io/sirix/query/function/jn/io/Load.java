@@ -24,6 +24,8 @@ import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.brackit.query.util.io.URIHandler;
 import io.sirix.access.MutationGate;
 import io.sirix.query.MutationAuthorization;
+import io.sirix.query.ContentOnlyStore;
+import io.sirix.query.function.ImportInput;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
@@ -119,6 +121,13 @@ public final class Load extends AbstractFunction {
       // Store/load are ordinary function calls, so require CREATE before touching the store or
       // reading input; the query-level updating-expression check does not cover them.
       MutationAuthorization.requireCreate(ctx, collectionName, resourceName);
+
+      if (store instanceof ContentOnlyStore) {
+        final Sequence[] contentArgs = args.clone();
+        contentArgs[2] = ImportInput.strings(resources, false);
+        new Store(false).execute(sctx, ctx, contentArgs);
+        return store.lookup(collectionName);
+      }
 
       // Only the create path can replace the whole database, so only it takes the exclusive
       // database hold. Appending into an existing collection takes nothing here: each target's

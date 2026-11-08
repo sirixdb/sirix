@@ -44,13 +44,25 @@ info:
     `orders-modify` does not authorize a mutation of `tenant-b/orders`.
     Missing mutation permission returns 403 and leaves pending work intact.
 
-    `jn:store`, `jn:load` and `xn:store` require `create` permission.
+    `jn:store`, `jn:load`, `xn:store` and `xn:load` require `create` permission.
     Replacing an existing database additionally requires `delete`, even when
     the requested resource does not exist. When appending, `modify` is also
     required if the resolved resource target already exists; generated or
     adjusted resource names are checked against their actual targets. These
     checks accept global roles or the corresponding `{database}-<role>` for
     the full collection name.
+
+    `jn:import(database, resource, new-version)` imports a full JSON string or
+    JSON item using FMSE, preserving unchanged node identities and committing
+    one new revision. `xn:import` does the same for an XML content string.
+    The database must exist. Importing into an existing resource requires
+    `modify`; creating a resource requires `create`.
+
+    Over REST, `jn:import`, `xn:import`, `jn:load` and `xn:load` accept inline
+    content only. Loads accept document strings or sequences of strings with
+    their existing arguments. Server file paths, URLs and XML DTDs are refused
+    with 400 (invalid query content); missing mutation permission returns 403.
+    Embedded Java/CLI stores retain their local file/URI import entry points.
 
     Local development only: starting the server with `auth.mode=none` (or
     `SIRIX_AUTH_MODE=none`) disables authentication entirely — every request

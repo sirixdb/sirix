@@ -205,11 +205,36 @@ xn:store('names', (), <root>
 </root>)
 ```
 
-`xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
+For embedded Java/CLI queries, `xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
 `xn:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
 documents to an existing collection, or creates it if absent. An empty resource-name argument
 assigns names starting at `resource` followed by the current document count plus one. A failed
 addition reports the import error without replacing the collection or its existing documents.
+
+`jn:import($database, $resource, $new-version)` is the JSON counterpart of
+`xn:import`: it compares a full new document against the latest stored revision with FMSE,
+applies the tree edit, and commits exactly one new revision. Unchanged nodes retain their
+node keys, and earlier revisions remain available. The database must exist; importing a new
+resource creates its first revision. JSON accepts serialized content or a JSON item; XML accepts
+serialized XML content. Both return the imported document.
+
+```xquery
+jn:import('versions', 'orders', '{"orders":[{"id":1,"status":"shipped"}]}')
+jn:import('versions', 'orders', {"orders":[{"id":1,"status":"delivered"}]})
+xn:import('versions', 'orders', '<orders><order id="1">delivered</order></orders>')
+```
+
+Over REST, `jn:load` and `xn:load` also take inline document strings (or sequences of strings),
+with their existing resource, create-new and options arguments. None of these four functions
+reads a server file or URL through a REST session store. Paths, URLs and XML DTDs are rejected
+as invalid content with HTTP 400, using the query endpoint's existing `QueryException` mapping.
+This policy also applies when authentication is disabled. Embedded `jn:load`/`xn:load` keep
+URI loading, and embedded `xn:import` and the Java FMSE import services retain file imports.
+
+REST imports require `modify` for an existing resource and `create` for a new resource.
+Loads require `create`, plus `modify` when their resolved target already exists and `delete`
+when replacing a database. Global roles and roles scoped to the full database name work the
+same way as other writing functions; missing permission returns HTTP 403 before writing.
 
 XML serialization escapes default and prefixed namespace declaration values, attribute values,
 and text at output; stored values and query namespace scopes remain decoded. For example, the
