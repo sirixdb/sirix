@@ -3,7 +3,6 @@ package io.sirix.diff.algorithm.fmse.json;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.diff.algorithm.fmse.Levenshtein;
 import io.sirix.diff.algorithm.fmse.Util;
-import io.sirix.node.NodeKind;
 
 /**
  * JSON-specific node comparison utilities for the FMSE algorithm. Provides typed value extraction,

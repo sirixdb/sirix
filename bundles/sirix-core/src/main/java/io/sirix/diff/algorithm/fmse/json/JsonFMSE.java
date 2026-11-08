@@ -8,8 +8,6 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.axis.ChildAxis;
-import io.sirix.axis.DescendantAxis;
-import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.LevelOrderAxis;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.axis.visitor.DeleteJsonFMSEVisitor;
