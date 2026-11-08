@@ -62,10 +62,9 @@ final class LoadReaderOwnershipTest {
         }
       });
       server.start();
-      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-          .location(directory)
-          .storageType(StorageType.IN_MEMORY)
-          .build();
+      try (
+          final BasicJsonDBStore store =
+              BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.IN_MEMORY).build();
           final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
           final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
         final String uri = "http://127.0.0.1:" + server.getAddress().getPort() + "/input?";

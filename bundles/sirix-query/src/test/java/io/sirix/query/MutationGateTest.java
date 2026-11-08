@@ -8,6 +8,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.MutationGate;
 import io.sirix.access.Databases;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -63,8 +64,7 @@ final class MutationGateTest {
     assertTrue(inside.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "the first operation never entered the gate");
     remover.start();
     // The second thread is now blocked on the gate. Give it the chance to be wrong before releasing.
-    assertFalse(remover.join(java.time.Duration.ofMillis(250)),
-        "the second operation entered while the first held the gate");
+    assertFalse(remover.join(Duration.ofMillis(250)), "the second operation entered while the first held the gate");
     mayFinish.countDown();
     writer.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
     remover.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
@@ -120,7 +120,7 @@ final class MutationGateTest {
       remover.start();
       assertTrue(removerStarted.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "the remover never started");
       // It is blocked on the gate; a removal completing here would prove the path ignores it.
-      assertFalse(remover.join(java.time.Duration.ofMillis(500)), "removeDatabase ignored the mutation gate");
+      assertFalse(remover.join(Duration.ofMillis(500)), "removeDatabase ignored the mutation gate");
       removedWhileHeld.set(!Databases.existsDatabase(database));
     }
     remover.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
@@ -187,7 +187,7 @@ final class MutationGateTest {
     first.start();
     assertTrue(inside.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "the first caller never entered");
     second.start();
-    assertFalse(second.join(java.time.Duration.ofMillis(250)), "both callers held the same resource name");
+    assertFalse(second.join(Duration.ofMillis(250)), "both callers held the same resource name");
     mayFinish.countDown();
     first.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
     second.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));
@@ -221,7 +221,7 @@ final class MutationGateTest {
     creator.start();
     assertTrue(resourceHeld.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "the resource was never held");
     remover.start();
-    assertFalse(remover.join(java.time.Duration.ofMillis(250)),
+    assertFalse(remover.join(Duration.ofMillis(250)),
         "a whole-database operation entered while a resource of it was held");
     mayFinish.countDown();
     creator.join(TimeUnit.SECONDS.toMillis(TIMEOUT_SECONDS));

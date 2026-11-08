@@ -35,9 +35,11 @@ final class MutationGateRegressionTest {
   void restResourceCreationWaitsForStoreResourceHold(final boolean xml) throws Exception {
     final Path path = directory.resolve("database");
     assertTrue(create(path, xml));
-    try (var database = xml ? Databases.openXmlDatabase(path) : Databases.openJsonDatabase(path)) {
-      final FutureTask<Boolean> put = new FutureTask<>(
-          () -> database.createResource(ResourceConfiguration.newBuilder("./records").build()));
+    try (var database = xml
+        ? Databases.openXmlDatabase(path)
+        : Databases.openJsonDatabase(path)) {
+      final FutureTask<Boolean> put =
+          new FutureTask<>(() -> database.createResource(ResourceConfiguration.newBuilder("./records").build()));
       try (var gate = MutationGate.acquireResource(path, "records")) {
         final Thread waiting = Thread.ofPlatform().daemon().start(put);
         awaitWaiting(waiting);
@@ -109,8 +111,8 @@ final class MutationGateRegressionTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"fresh, ./fresh", "./fresh, fresh", "fresh, fresh//", "fresh//, fresh",
-      "fresh, unused/../fresh", "unused/../fresh, fresh", "././fresh, fresh/.", "fresh/., ././fresh"})
+  @CsvSource({"fresh, ./fresh", "./fresh, fresh", "fresh, fresh//", "fresh//, fresh", "fresh, unused/../fresh",
+      "unused/../fresh, fresh", "././fresh, fresh/.", "fresh/., ././fresh"})
   void resourceAliasesShareOneHold(final String firstName, final String secondName) throws Exception {
     assertEquals("fresh", ResourceConfiguration.newBuilder(firstName).build().getName());
     assertEquals("fresh", ResourceConfiguration.newBuilder(secondName).build().getName());
@@ -156,7 +158,9 @@ final class MutationGateRegressionTest {
   void resourceRemovalWaitsWithoutBlockingOtherResources(final boolean xml) throws Exception {
     final Path path = directory.resolve("database");
     assertTrue(create(path, xml));
-    try (var database = xml ? Databases.openXmlDatabase(path) : Databases.openJsonDatabase(path)) {
+    try (var database = xml
+        ? Databases.openXmlDatabase(path)
+        : Databases.openJsonDatabase(path)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("held").build()));
       final FutureTask<Void> removal = new FutureTask<>(() -> {
         database.removeResource("held");
@@ -225,11 +229,13 @@ final class MutationGateRegressionTest {
 
   private static boolean create(final Path path, final boolean xml) {
     final DatabaseConfiguration configuration = new DatabaseConfiguration(path);
-    return xml ? Databases.createXmlDatabase(configuration) : Databases.createJsonDatabase(configuration);
+    return xml
+        ? Databases.createXmlDatabase(configuration)
+        : Databases.createJsonDatabase(configuration);
   }
 
-  private static void assertDatabaseAliasesSerialize(final Path physical, final Path alias,
-      final boolean resource) throws Exception {
+  private static void assertDatabaseAliasesSerialize(final Path physical, final Path alias, final boolean resource)
+      throws Exception {
     final AtomicBoolean firstInside = new AtomicBoolean(true);
     final FutureTask<Boolean> contender = new FutureTask<>(() -> {
       try (var gate = resource

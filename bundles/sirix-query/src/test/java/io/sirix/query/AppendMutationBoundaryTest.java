@@ -46,8 +46,7 @@ final class AppendMutationBoundaryTest {
     }
 
     @Override
-    public void authorizeCreate(final String database, final String resource) {
-    }
+    public void authorizeCreate(final String database, final String resource) {}
   };
 
   @TempDir
@@ -82,8 +81,8 @@ final class AppendMutationBoundaryTest {
       try (final JsonReader firstReader = new JsonReader(first);
           final JsonReader secondReader = new JsonReader(new StringReader("{}"))) {
         final IllegalStateException refused = assertThrows(IllegalStateException.class,
-            () -> MutationAuthorization.where(CREATE_ONLY).run(
-                () -> collection.addAll(List.of(firstReader, secondReader), options)));
+            () -> MutationAuthorization.where(CREATE_ONLY)
+                                       .run(() -> collection.addAll(List.of(firstReader, secondReader), options)));
         assertEquals("MODIFY refused", refused.getMessage());
       }
       assertTrue(replaced.get());
@@ -113,8 +112,8 @@ final class AppendMutationBoundaryTest {
         new DocumentParser("<first/>").parse(handler);
       };
       final IllegalStateException refused = assertThrows(IllegalStateException.class,
-          () -> MutationAuthorization.where(CREATE_ONLY).run(
-              () -> collection.addAll(List.of(first, new DocumentParser("<second/>")))));
+          () -> MutationAuthorization.where(CREATE_ONLY)
+                                     .run(() -> collection.addAll(List.of(first, new DocumentParser("<second/>")))));
       assertEquals("MODIFY refused", refused.getMessage());
       try (var database = Databases.openXmlDatabase(directory.resolve("database"));
           final XmlResourceSession session = database.beginResourceSession("resource3")) {

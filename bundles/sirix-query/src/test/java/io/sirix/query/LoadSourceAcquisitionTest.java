@@ -30,11 +30,17 @@ final class LoadSourceAcquisitionTest {
     final HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext("/input", exchange -> {
       final boolean first = exchange.getRequestURI().getQuery().equals("first");
-      final int request = (first ? firstRequests : secondRequests).incrementAndGet();
-      final byte[] body = (first ? "{\"value\":\"first\"}" : "{\"value\":\"second\"}").getBytes(StandardCharsets.UTF_8);
+      final int request = (first
+          ? firstRequests
+          : secondRequests).incrementAndGet();
+      final byte[] body = (first
+          ? "{\"value\":\"first\"}"
+          : "{\"value\":\"second\"}").getBytes(StandardCharsets.UTF_8);
       try {
         // One-shot sources are valid inputs: reopening them must not lose the original response.
-        exchange.sendResponseHeaders(request == 1 ? 200 : 404, body.length);
+        exchange.sendResponseHeaders(request == 1
+            ? 200
+            : 404, body.length);
         try (var response = exchange.getResponseBody()) {
           response.write(body);
         }
@@ -85,8 +91,8 @@ final class LoadSourceAcquisitionTest {
       store.create("database", "keep", "{\"value\":\"original\"}");
       final String uri = "http://127.0.0.1:" + server.getAddress().getPort();
       assertThrows(QueryException.class,
-          () -> new Query(chain, "jn:load('database',(),('" + uri + "/available','" + uri + "/missing'))")
-              .execute(context));
+          () -> new Query(chain, "jn:load('database',(),('" + uri + "/available','" + uri + "/missing'))").execute(
+              context));
       final var database = store.lookup("database").getDatabase();
       assertEquals(1, database.listResources().size(), "failed acquisition must leave the old database intact");
       try (var session = database.beginResourceSession("keep"); var trx = session.beginNodeReadOnlyTrx()) {
