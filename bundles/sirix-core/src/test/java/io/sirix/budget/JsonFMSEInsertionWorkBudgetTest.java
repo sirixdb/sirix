@@ -100,8 +100,11 @@ final class JsonFMSEInsertionWorkBudgetTest {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     try (final var database = Databases.openJsonDatabase(path)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("doc")
-          .storageType(StorageType.FILE_CHANNEL).hashKind(HashType.NONE).buildPathSummary(false)
-          .useDeweyIDs(false).build()));
+                                                              .storageType(StorageType.FILE_CHANNEL)
+                                                              .hashKind(HashType.NONE)
+                                                              .buildPathSummary(false)
+                                                              .useDeweyIDs(false)
+                                                              .build()));
       try (final var session = database.beginResourceSession("doc");
           final var writer = session.beginNodeTrx();
           final JsonReader reader = JsonShredder.createStringReader(content)) {

@@ -29,15 +29,17 @@ class ImportIntegrationTest {
 
   @Test
   void stringAndItemImportsPreserveIdentityAndHistory() {
-    try (final var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       store.create("versions", "doc", "{\"stable\":{\"id\":1},\"changed\":1,\"removed\":true}");
       final JsonDBItem stable = (JsonDBItem) new Query(chain, "jn:doc('versions','doc').stable").evaluate(context);
       final long key = stable.getNodeKey();
       final String next = "{\"stable\":{\"id\":1},\"changed\":2,\"added\":[1,2]}";
-      final JsonDBItem imported = (JsonDBItem) new Query(chain,
-          "jn:import('versions','doc','" + next + "')").evaluate(context);
+      final JsonDBItem imported =
+          (JsonDBItem) new Query(chain, "jn:import('versions','doc','" + next + "')").evaluate(context);
       final var session = imported.getResourceSession();
       assertEquals(2, session.getMostRecentRevisionNumber());
       assertJson(next, session, 2);
@@ -53,15 +55,19 @@ class ImportIntegrationTest {
 
   @Test
   void unchangedDescendantSurvivesReplacementOfItsUnmatchedParent() {
-    try (final var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       store.create("versions", "doc", "{\"outer\":{\"stable\":{\"id\":1},\"a\":2,\"b\":3}}");
-      final JsonDBItem stable = (JsonDBItem) new Query(chain, "jn:doc('versions','doc').outer.stable").evaluate(context);
+      final JsonDBItem stable =
+          (JsonDBItem) new Query(chain, "jn:doc('versions','doc').outer.stable").evaluate(context);
       final long key = stable.getNodeKey();
       final String next = "{\"outer\":{\"stable\":{\"id\":1},\"x\":4,\"y\":5,\"z\":6}}";
       new Query(chain, "jn:import('versions','doc','" + next + "')").evaluate(context);
-      final JsonDBItem unchanged = (JsonDBItem) new Query(chain, "jn:doc('versions','doc').outer.stable").evaluate(context);
+      final JsonDBItem unchanged =
+          (JsonDBItem) new Query(chain, "jn:doc('versions','doc').outer.stable").evaluate(context);
       assertEquals(key, unchanged.getNodeKey());
       assertJson(next, unchanged.getResourceSession(), 2);
     }
@@ -69,7 +75,9 @@ class ImportIntegrationTest {
 
   @Test
   void rejectsMissingResourcesAndInvalidContentWithoutMutation() {
-    try (final var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var collection = store.create("versions", "doc", "[1,2,3]");
@@ -89,20 +97,19 @@ class ImportIntegrationTest {
   }
 
   @ParameterizedTest
-  @CsvSource({
-      "9007199254740992,9007199254740993",
-      "18446744073709551616,18446744073709551617",
-      "0.12345678901234567890,0.12345678901234567891"
-  })
+  @CsvSource({"9007199254740992,9007199254740993", "18446744073709551616,18446744073709551617",
+      "0.12345678901234567890,0.12345678901234567891"})
   void importsExactNumericPayloads(final String oldNumber, final String newNumber) {
-    try (final var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final String oldContent = "{\"n\":" + oldNumber + ",\"array\":[" + oldNumber + "]}";
       final String newContent = "{\"n\":" + newNumber + ",\"array\":[" + newNumber + "]}";
       store.create("versions", "doc", oldContent);
-      final JsonDBItem imported = (JsonDBItem) new Query(chain,
-          "jn:import('versions','doc','" + newContent + "')").evaluate(context);
+      final JsonDBItem imported =
+          (JsonDBItem) new Query(chain, "jn:import('versions','doc','" + newContent + "')").evaluate(context);
       assertJsonText(newContent, imported.getResourceSession(), 2);
       assertJsonText(oldContent, imported.getResourceSession(), 1);
     }
@@ -110,12 +117,14 @@ class ImportIntegrationTest {
 
   @Test
   void renamesNullValuedFields() {
-    try (final var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       store.create("versions", "doc", "{\"field\":null}");
-      final JsonDBItem imported = (JsonDBItem) new Query(chain,
-          "jn:import('versions','doc','{\"fields\":null}')").evaluate(context);
+      final JsonDBItem imported =
+          (JsonDBItem) new Query(chain, "jn:import('versions','doc','{\"fields\":null}')").evaluate(context);
       assertJsonText("{\"fields\":null}", imported.getResourceSession(), 2);
       assertJsonText("{\"field\":null}", imported.getResourceSession(), 1);
     }
@@ -124,19 +133,22 @@ class ImportIntegrationTest {
   @ParameterizedTest
   @ValueSource(strings = {"\"123\"", "\"hello\"", "\"a\\\"b\\nc\\\\d\""})
   void storedStringItemsRemainJsonStrings(final String content) {
-    try (final var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var collection = store.create("versions", "doc", "{}");
-      collection.getDatabase().createResource(ResourceConfiguration.newBuilder("source")
-          .storageType(StorageType.FILE_CHANNEL).build());
+      collection.getDatabase()
+                .createResource(
+                    ResourceConfiguration.newBuilder("source").storageType(StorageType.FILE_CHANNEL).build());
       try (final var session = collection.getDatabase().beginResourceSession("source");
           final var writer = session.beginNodeTrx()) {
         writer.insertStringValueAsFirstChild(JsonParser.parseString(content).getAsString());
         writer.commit();
       }
-      final JsonDBItem imported = (JsonDBItem) new Query(chain,
-          "jn:import('versions','doc',jn:doc('versions','source'))").evaluate(context);
+      final JsonDBItem imported =
+          (JsonDBItem) new Query(chain, "jn:import('versions','doc',jn:doc('versions','source'))").evaluate(context);
       assertJsonText(content, imported.getResourceSession(), 2);
       assertJsonText("{}", imported.getResourceSession(), 1);
     }
@@ -145,7 +157,9 @@ class ImportIntegrationTest {
   @ParameterizedTest
   @ValueSource(strings = {"'{\"value\":1}'", "{\"value\":1}"})
   void importsIntoAnExistingEmptyResource(final String input) {
-    try (final var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithJsonStore(store);
         final var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('versions','doc','')").evaluate(context);
@@ -153,8 +167,8 @@ class ImportIntegrationTest {
       final int initialRevision = session.getMostRecentRevisionNumber();
       try (final var borrowedReader = session.beginNodeReadOnlyTrx()) {
         assertFalse(borrowedReader.hasFirstChild());
-        final JsonDBItem imported = (JsonDBItem) new Query(chain,
-            "jn:import('versions','doc'," + input + ")").evaluate(context);
+        final JsonDBItem imported =
+            (JsonDBItem) new Query(chain, "jn:import('versions','doc'," + input + ")").evaluate(context);
         assertSame(session, imported.getResourceSession());
         assertFalse(session.isClosed());
         assertFalse(borrowedReader.isClosed());
@@ -169,15 +183,13 @@ class ImportIntegrationTest {
     }
   }
 
-  private static void assertJsonText(final String expected, final JsonResourceSession session,
-      final int revision) {
+  private static void assertJsonText(final String expected, final JsonResourceSession session, final int revision) {
     final StringBuilder output = new StringBuilder();
     new JsonSerializer.Builder(session, output, revision).build().call();
     assertEquals(expected, output.toString());
   }
 
-  private static void assertJson(final String expected, final JsonResourceSession session,
-      final int revision) {
+  private static void assertJson(final String expected, final JsonResourceSession session, final int revision) {
     final StringBuilder output = new StringBuilder();
     new JsonSerializer.Builder(session, output, revision).build().call();
     assertEquals(JsonParser.parseString(expected), JsonParser.parseString(output.toString()));

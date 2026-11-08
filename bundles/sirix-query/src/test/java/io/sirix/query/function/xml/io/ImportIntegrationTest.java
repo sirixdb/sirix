@@ -31,7 +31,9 @@ class ImportIntegrationTest {
 
   @Test
   void inlineAndLocalFileImportsPreserveIdentityAndHistory() throws Exception {
-    try (final var store = BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithNodeStore(store);
         final var chain = SirixCompileChain.createWithNodeStore(store)) {
       store.create("versions", "doc", new DocumentParser("<root><stable>same</stable><changed>1</changed></root>"));
@@ -43,18 +45,24 @@ class ImportIntegrationTest {
       assertEquals(2, session.getMostRecentRevisionNumber());
       final XmlDBNode unchanged = node(new Query(chain, "xn:doc('versions','doc')/root/stable").evaluate(context));
       assertEquals(key, unchanged.getNodeKey());
-      assertEquals("1", ((Str) new Query(chain, "string(xn:doc('versions','doc',1)/root/changed)").evaluate(context)).stringValue());
-      assertEquals("2", ((Str) new Query(chain, "string(xn:doc('versions','doc')/root/changed)").evaluate(context)).stringValue());
-      final Path source = Files.writeString(directory.resolve("next.xml"), "<root><stable>same</stable><changed>3</changed></root>");
+      assertEquals("1",
+          ((Str) new Query(chain, "string(xn:doc('versions','doc',1)/root/changed)").evaluate(context)).stringValue());
+      assertEquals("2",
+          ((Str) new Query(chain, "string(xn:doc('versions','doc')/root/changed)").evaluate(context)).stringValue());
+      final Path source =
+          Files.writeString(directory.resolve("next.xml"), "<root><stable>same</stable><changed>3</changed></root>");
       new Query(chain, "xn:import('versions','doc','" + source + "')").evaluate(context);
       assertEquals(3, session.getMostRecentRevisionNumber());
-      assertEquals("3", ((Str) new Query(chain, "string(xn:doc('versions','doc')/root/changed)").evaluate(context)).stringValue());
+      assertEquals("3",
+          ((Str) new Query(chain, "string(xn:doc('versions','doc')/root/changed)").evaluate(context)).stringValue());
     }
   }
 
   @Test
   void rejectsMissingResourcesWithoutMutation() {
-    try (final var store = BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithNodeStore(store);
         final var chain = SirixCompileChain.createWithNodeStore(store)) {
       final var collection = store.create("versions", "doc", new DocumentParser("<root/>"));
@@ -68,7 +76,9 @@ class ImportIntegrationTest {
 
   @Test
   void omittedStoreResourceNamesPreserveCreateAndAppendBehavior() {
-    try (final var store = BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithNodeStore(store);
         final var chain = SirixCompileChain.createWithNodeStore(store)) {
       new Query(chain, "xn:store('created',(),<root/>)").evaluate(context);
@@ -90,18 +100,21 @@ class ImportIntegrationTest {
 
   @Test
   void importsIntoAnExistingEmptyResourceWithoutClosingBorrowedReaders() {
-    try (final var store = BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+    try (
+        final var store =
+            BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithNodeStore(store);
         final var chain = SirixCompileChain.createWithNodeStore(store)) {
       final var collection = store.create("versions");
-      assertTrue(collection.getDatabase().createResource(ResourceConfiguration.newBuilder("doc")
-          .storageType(StorageType.FILE_CHANNEL).build()));
+      assertTrue(collection.getDatabase()
+                           .createResource(
+                               ResourceConfiguration.newBuilder("doc").storageType(StorageType.FILE_CHANNEL).build()));
       final var session = collection.getDatabase().beginResourceSession("doc");
       final int initialRevision = session.getMostRecentRevisionNumber();
       try (final var borrowedReader = session.beginNodeReadOnlyTrx()) {
         assertFalse(borrowedReader.hasFirstChild());
-        final XmlDBNode imported = (XmlDBNode) new Query(chain,
-            "xn:import('versions','doc','<root>imported</root>')").evaluate(context);
+        final XmlDBNode imported =
+            (XmlDBNode) new Query(chain, "xn:import('versions','doc','<root>imported</root>')").evaluate(context);
         assertSame(session, imported.getTrx().getResourceSession());
         assertFalse(session.isClosed());
         assertFalse(borrowedReader.isClosed());
