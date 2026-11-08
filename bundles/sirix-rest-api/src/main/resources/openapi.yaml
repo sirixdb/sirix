@@ -1151,6 +1151,11 @@ components:
         resource). Atomics are serialized as JSON scalars. Updating queries and queries with no result produce
         an EMPTY response body instead of
         this envelope.
+
+        XML nodes (including index-definition nodes returned by index-creation
+        queries), function items and other unsupported result items cause a
+        400 error instead of a result envelope. For XML results, request
+        `Accept: application/xml`.
       required: [rest]
       properties:
         rest:
