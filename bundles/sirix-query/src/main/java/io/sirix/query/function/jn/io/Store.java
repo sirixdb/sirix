@@ -28,8 +28,8 @@ import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
 
+import java.io.Closeable;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -158,22 +158,32 @@ public final class Store extends AbstractFunction {
       }
     } else if (nodes instanceof FunctionConversionSequence seq) {
       final List<JsonReader> readers = new ArrayList<>();
-      try (final Iter iter = seq.iterate()) {
+      try (final Closeable inputs = () -> closeReaders(readers); final Iter iter = seq.iterate()) {
         for (Item item; (item = iter.next()) != null;) {
           readers.add(JsonShredder.createStringReader(((Str) item).stringValue()));
         }
         collection.addAll(readers, options);
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
-      } finally {
-        for (final JsonReader reader : readers) {
-          try {
-            reader.close();
-          } catch (final IOException e) {
-            throw new UncheckedIOException(e);
-          }
+      }
+    }
+  }
+
+  private static void closeReaders(final List<JsonReader> readers) throws IOException {
+    IOException failure = null;
+    for (final JsonReader reader : readers) {
+      try {
+        reader.close();
+      } catch (final IOException closeFailure) {
+        if (failure == null) {
+          failure = closeFailure;
+        } else {
+          failure.addSuppressed(closeFailure);
         }
       }
+    }
+    if (failure != null) {
+      throw failure;
     }
   }
 

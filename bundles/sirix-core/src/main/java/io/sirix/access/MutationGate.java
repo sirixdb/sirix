@@ -82,6 +82,8 @@ public final class MutationGate {
    * @param databaseFile the database directory being replaced or removed
    * @return a handle whose {@code close} releases the hold
    */
+  // Ownership transfers to Handle.close(). Releasing here would reopen the authorization race.
+  @SuppressWarnings("java:S2222")
   public static Handle acquireDatabase(final Path databaseFile) {
     final Path path = key(databaseFile);
     final var entry = retain(DATABASES, path, ReentrantReadWriteLock::new);
@@ -102,6 +104,8 @@ public final class MutationGate {
    * @param resourceName the resource being created or written
    * @return a handle whose {@code close} releases both holds
    */
+  // Both holds transfer to Handle.close(), which releases the resource before the database.
+  @SuppressWarnings("java:S2222")
   public static Handle acquireResource(final Path databaseFile, final String resourceName) {
     Objects.requireNonNull(resourceName, "resourceName");
     final Path path = key(databaseFile);
