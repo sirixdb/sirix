@@ -155,7 +155,7 @@ public final class Load extends AbstractFunction {
         final String resourceName = resName == null
             ? "resource" + resourceNumber++
             : resName;
-        coll.add(resourceName, parser, commitMessage, commitTimestamp);
+        coll.add(resourceName, parser, commitMessage, commitTimestamp).getTrx().close();
       }
     }
     return coll;

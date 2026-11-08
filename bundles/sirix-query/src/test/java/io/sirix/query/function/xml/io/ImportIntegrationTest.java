@@ -62,19 +62,23 @@ class ImportIntegrationTest {
   }
 
   @Test
-  void omittedStoreResourceNameRemainsResourceForCreateAndAppend() {
+  void omittedStoreResourceNamesPreserveCreateAndAppendBehavior() {
     try (final var store = BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
         final var context = SirixQueryContext.createWithNodeStore(store);
         final var chain = SirixCompileChain.createWithNodeStore(store)) {
       new Query(chain, "xn:store('created',(),<root/>)").evaluate(context);
       final var created = store.lookup("created");
-      assertTrue(created.getDatabase().existsResource("resource"));
+      assertTrue(created.getDatabase().existsResource("resource1"));
       assertEquals(1, created.getDocumentCount());
       store.create("appended", "existing", new DocumentParser("<root/>"));
       new Query(chain, "xn:store('appended',(),<added/>,false())").evaluate(context);
       final var appended = store.lookup("appended");
       assertTrue(appended.getDatabase().existsResource("resource"));
       assertTrue(appended.getDatabase().existsResource("existing"));
+      assertEquals(2, appended.getDocumentCount());
+      assertFalse(appended.getDatabase().beginResourceSession("resource").getNodeTrx().isPresent());
+      new Query(chain, "xn:store('appended',(),<again/>,false())").evaluate(context);
+      assertEquals(2, appended.getDatabase().beginResourceSession("resource").getMostRecentRevisionNumber());
       assertEquals(2, appended.getDocumentCount());
     }
   }

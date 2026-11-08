@@ -3,6 +3,7 @@ package io.sirix.diff.algorithm.fmse.json;
 import io.sirix.api.Axis;
 import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.visitor.JsonNodeVisitor;
@@ -79,6 +80,8 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
 
   /** Read-only transaction on new revision. */
   private JsonNodeReadOnlyTrx rtx;
+
+  private final PrimitiveValue primitiveValue = new PrimitiveValue();
 
   /** Start key in old revision. */
   private long oldStartKey;
@@ -565,7 +568,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /**
    * Insert a node as the first child of the current wtx position.
    */
-  private static long insertAsFirstChild(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
+  private long insertAsFirstChild(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
     return switch (rtx.getKind()) {
       case OBJECT -> wtx.insertObjectAsFirstChild().getNodeKey();
       case ARRAY -> wtx.insertArrayAsFirstChild().getNodeKey();
@@ -573,8 +576,10 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
           rtx.getName().getLocalName(), ObjectValue.INSTANCE).getNodeKey();
       case OBJECT_NAMED_ARRAY -> wtx.insertObjectRecordAsFirstChild(
           rtx.getName().getLocalName(), ArrayValue.INSTANCE).getNodeKey();
-      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL ->
-          wtx.copySubtreeAsFirstChild(rtx).getNodeKey();
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
+        primitiveValue.bind(rtx);
+        yield wtx.insertObjectRecordAsFirstChild(rtx.getName().getLocalName(), primitiveValue).getNodeKey();
+      }
       case STRING_VALUE ->
           wtx.insertStringValueAsFirstChild(rtx.getValue()).getNodeKey();
       case NUMBER_VALUE ->
@@ -590,7 +595,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   /**
    * Insert a node as the right sibling of the current wtx position.
    */
-  private static long insertAsRightSibling(final JsonNodeTrx wtx,
+  private long insertAsRightSibling(final JsonNodeTrx wtx,
       final JsonNodeReadOnlyTrx rtx) {
     return switch (rtx.getKind()) {
       case OBJECT -> wtx.insertObjectAsRightSibling().getNodeKey();
@@ -599,8 +604,10 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
           rtx.getName().getLocalName(), ObjectValue.INSTANCE).getNodeKey();
       case OBJECT_NAMED_ARRAY -> wtx.insertObjectRecordAsRightSibling(
           rtx.getName().getLocalName(), ArrayValue.INSTANCE).getNodeKey();
-      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL ->
-          wtx.copySubtreeAsRightSibling(rtx).getNodeKey();
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
+        primitiveValue.bind(rtx);
+        yield wtx.insertObjectRecordAsRightSibling(rtx.getName().getLocalName(), primitiveValue).getNodeKey();
+      }
       case STRING_VALUE ->
           wtx.insertStringValueAsRightSibling(rtx.getValue()).getNodeKey();
       case NUMBER_VALUE ->
@@ -611,6 +618,37 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
           wtx.insertNullValueAsRightSibling().getNodeKey();
       default -> throw new IllegalStateException("Unexpected node kind: " + rtx.getKind());
     };
+  }
+
+  private static final class PrimitiveValue implements ObjectRecordValue<Object> {
+    private NodeKind kind;
+    private Object value;
+
+    private void bind(final JsonNodeReadOnlyTrx reader) {
+      kind = switch (reader.getKind()) {
+        case OBJECT_NAMED_BOOLEAN -> NodeKind.BOOLEAN_VALUE;
+        case OBJECT_NAMED_NUMBER -> NodeKind.NUMBER_VALUE;
+        case OBJECT_NAMED_STRING -> NodeKind.STRING_VALUE;
+        case OBJECT_NAMED_NULL -> NodeKind.NULL_VALUE;
+        default -> throw new IllegalArgumentException("Expected a primitive object record");
+      };
+      value = switch (kind) {
+        case BOOLEAN_VALUE -> Boolean.valueOf(reader.getBooleanValue());
+        case NUMBER_VALUE -> reader.getNumberValue();
+        case STRING_VALUE -> reader.getValue();
+        default -> null;
+      };
+    }
+
+    @Override
+    public NodeKind getKind() {
+      return kind;
+    }
+
+    @Override
+    public Object getValue() {
+      return value;
+    }
   }
 
   // ==================== Find Position ====================

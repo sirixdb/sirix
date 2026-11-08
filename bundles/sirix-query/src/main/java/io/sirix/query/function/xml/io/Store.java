@@ -119,11 +119,11 @@ public final class Store extends AbstractFunction {
 
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {
-        create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
+        create(store, collName, nodes, commitMessage, commitTimesstamp);
       } else {
         final XmlDBCollection coll = store.lookup(collName);
         if (coll == null) {
-          create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
+          create(store, collName, nodes, commitMessage, commitTimesstamp);
         } else {
           add(coll, resName, nodes, commitMessage, commitTimesstamp);
         }
@@ -138,7 +138,7 @@ public final class Store extends AbstractFunction {
   private static void add(final XmlDBCollection coll, final String resName, final Sequence nodes,
       final String commitMessage, final Instant commitTimestamp) throws DocumentException {
     if (nodes instanceof Node<?> n) {
-      coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp);
+      coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp).getTrx().close();
     } else {
       try (ParserStream parsers = new ParserStream(nodes)) {
         final List<NodeSubtreeParser> inputs = new ArrayList<>();
@@ -150,10 +150,10 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void create(final XmlDBStore store, final String collName, final String resName, final Sequence nodes,
+  private static void create(final XmlDBStore store, final String collName, final Sequence nodes,
       final String commitMessage, final Instant commitTimestamp) throws DocumentException {
     if (nodes instanceof Node<?> n) {
-      store.create(collName, resName, new StoreParser(n), commitMessage, commitTimestamp);
+      store.create(collName, new StoreParser(n), commitMessage, commitTimestamp);
     } else {
       store.create(collName, new ParserStream(nodes));
     }

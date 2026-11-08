@@ -1,6 +1,7 @@
 package io.sirix.rest.crud
 
 import com.sun.net.httpserver.HttpServer
+import io.brackit.query.atomic.Str
 import io.brackit.query.node.parser.DocumentParser
 import io.sirix.io.StorageType
 import io.sirix.query.SirixCompileChain
@@ -144,6 +145,30 @@ class ContentImportAuthorizationTest {
         withStore(false, arrayOf("view", "create", "modify"), initialize = false) { fixture ->
             fixture.run(query)
             assertEquals(2, fixture.revision())
+        }
+    }
+
+    @Test
+    fun repeatedXmlLoadInputsCloseEachWriter() {
+        withStore(false, arrayOf("view", "create", "modify")) { fixture ->
+            fixture.run("xn:load('auth','doc',('<a/>','<b/>'),false())")
+            assertEquals(3, fixture.revision())
+            assertFalse(fixture.hasWriter())
+            val names = fixture.run("string-join(for ${'$'}child in xn:doc('auth','doc')/* return local-name(${'$'}child),',')") as Str
+            assertEquals("b,a,root", names.stringValue())
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["doc", "fresh"])
+    fun xmlLoadThenImportCanReuseTheSameContext(resource: String) {
+        withStore(false, arrayOf("view", "create", "modify")) { fixture ->
+            fixture.run(call("xn:load", resource, "<loaded/>"))
+            fixture.run(call("xn:import", resource, "<imported/>"))
+            assertEquals(if (resource == "doc") 3 else 2, fixture.revision(resource))
+            val name = fixture.run("local-name(xn:doc('auth','$resource')/*)") as Str
+            assertEquals("imported", name.stringValue())
+            assertFalse(fixture.hasWriter())
         }
     }
 
