@@ -17,10 +17,26 @@ import org.jspecify.annotations.Nullable;
  * The kernels of the dense extrema join ({@link SirixJoinedGroupAggregateExpr}): one side's lanes
  * captured per leaf, the counting sort that packs a side by join key into one allocator slab, the
  * flat fold of overlapping pairs, the merge of two packed sides and the chained fold of streamed
- * lanes against a packed build side. Every read is a segment read through the typed handle at a
- * base hoisted once per leaf or per bucket plus a linear offset, never a heap copy; a full mask
- * word (64 admitted rows) is read as a counted run so the compiler hoists the segment checks, a
- * partial word walks its bits.
+ * lanes against a packed build side. Every read is a segment read through the typed handle
+ * {@link #SLAB_LONG} at a base hoisted once per leaf or per bucket plus a linear offset, never a
+ * heap copy; a full mask word (64 admitted rows) is read as a counted run so the compiler hoists
+ * the segment checks, a partial word walks its bits.
+ *
+ * <p>
+ * The handle is invoked directly at every read site, and this class is listed for build-time
+ * initialization in the query module's {@code native-image.properties}, for two compilers' reasons.
+ * HotSpot C2 compiles an inlined helper method ({@code SegmentAccess.getLong}) with the helper's
+ * process-wide type profile, which heap-array segment reads elsewhere make bimorphic, so the
+ * kernel's reads carry a type switch and an out-of-line call for the heap case (t250k warm Q10 +60
+ * % against the direct invocation, whose own bytecode's profile is monomorphic for the slab). The
+ * native image folds a {@code VarHandle} into a plain load only when it is a static final of a
+ * class initialized at build time; a handle held, or aliased, by a class the image initializes at
+ * run time is invoked through the generic method-handle path with a boxed allocation on every read
+ * (105 ns against 2.3 ns, which cost t1M warm Q4 44 % and Q9 39 % natively while C2, which trusts
+ * every static final, showed a win). Hence: this class holds the handle and nothing else, callers
+ * name it as {@code JoinKernels.SLAB_LONG} (never an alias of their own), and
+ * {@code SegmentHandleConstantsTest} keeps every other segment handle out of these packages and
+ * this class in the configuration.
  *
  * <p>
  * Package-private so the kernel benchmark and the exactness test invoke the shipped code.
@@ -28,9 +44,11 @@ import org.jspecify.annotations.Nullable;
 final class JoinKernels {
 
   /**
-   * The slab's long handle, invoked at each read site of the kernels rather than through a helper
-   * method, so the access intrinsifies into the kernel that performs it; the layout is unaligned
-   * because the slab aligns every value by construction.
+   * The slab's long handle (native order; the unaligned layout because the slab aligns every value by
+   * construction, so the aligned handle's check would only repeat per access). Invoked directly at
+   * every read site of the kernels and of {@code SirixJoinedGroupAggregateExpr}, always as
+   * {@code JoinKernels.SLAB_LONG}, never through a helper method or a static alias in another class:
+   * see the class comment for the two compilers' reasons.
    */
   static final VarHandle SLAB_LONG = ValueLayout.JAVA_LONG_UNALIGNED.varHandle();
 

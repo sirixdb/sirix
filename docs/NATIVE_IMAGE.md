@@ -208,6 +208,40 @@ them before quoting them for a stable GraalVM. This intrinsification is a
 separate matter from the build-time downcall-handle support that the next
 section depends on.
 
+## Segment handles are build-time constants
+
+A `VarHandle` read compiles to a plain load only where the compiler sees the handle as a constant.
+HotSpot C2 trusts every static final, so on the JVM a segment handle may live in any class. The image
+builder folds only the static finals of classes initialized at build time: by configuration
+(`--initialize-at-build-time`, which `native-image.properties` sets for `io.sirix.node.SegmentAccess`)
+or by its simulation of the class initializer, which a logger, a counter or a system-property read
+in the same class silently turns off. A segment handle held, or aliased, by a class the image
+initializes at run time is invoked through the generic method-handle path on every read.
+
+Measured on Oracle GraalVM 25 (`-O3 -march=native`, G1), one unaligned long read per row of a native
+slab: 2.3 ns through a constant handle (own or aliased from a build-time-initialized class), 105 ns
+and a boxed allocation per read through the alias of that same handle held by a run-time-initialized
+class; HotSpot C2 reads every form at 0.5 ns. In the derived-cache campaign the dense join loops of
+`SirixJoinedGroupAggregateExpr` (a run-time-initialized class) read their lanes through such an
+alias and the native PGO image lost 44 % on t1M warm Q4 and 39 % on Q9 while the same classes won
+36-41 % on C2; the kernels of `JoinKernels`, whose handle the builder had simulated into a constant,
+won 8x natively on Q10 in the same image. The allocation showed first: twice main's heap per query
+natively and less than main's on C2.
+
+The rule: a segment `VarHandle` lives only in a class that a shared `native-image.properties` lists
+for build-time initialization and that holds nothing else (`io.sirix.node.SegmentAccess`, the general
+helpers; `io.sirix.query.compiler.translator.JoinKernels`, the join kernels' handle), and a hot
+kernel invokes such a handle directly at its own bytecode (`JoinKernels.SLAB_LONG.get(...)`) rather
+than through a helper method or a static alias of its own. The direct invocation matters on HotSpot
+too: C2 compiles an inlined helper with the helper's process-wide type profile, which heap-array
+segment reads elsewhere make bimorphic, so the kernel's reads carry a type switch and an out-of-line
+call for the heap case (the helper form cost t250k warm Q10 60 % on C2 against the direct one).
+`SegmentHandleConstantsTest` (`:sirix-query:test`) scans the query and projection packages for static
+handles whose first coordinate is a `MemorySegment` outside those classes, and checks that each of
+them is in the configuration and holds only final handles. The build report
+(`-H:BuildOutputJSONFile`, `--emit build-report`) shows the kind per class: a compiled `<clinit>`
+means run-time initialization.
+
 ## Optional constant FFM adapters for optimized builds
 
 The portable configuration initializes FFM downcall adapters at run time, because the GraalVM

@@ -37,7 +37,6 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.invoke.VarHandle;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -677,7 +676,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             continue;
           }
           final long joinKey = denseProbe
-              ? (long) SLAB_LONG.get(joinLane, laneOff[0] + 8L * row)
+              ? (long) JoinKernels.SLAB_LONG.get(joinLane, laneOff[0] + 8L * row)
               : probeColumns.longValue(0, leaf, row);
           int at = firstMatch(joinKey, buildRows, denseHeads, firstRow);
           if (at < 0) {
@@ -695,13 +694,13 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             // The probe record key is read per emitted pair, not per matched row: most rows emit nothing.
             if (rowOrder != null) {
               emitRowPrimitive(keyCount, buildSide, buildFieldCount, buildRows, at, probeValues, stringKeys,
-                  timestampKeys, buildColumns, (long) SLAB_LONG.get(keySeg, keyBase + 8L * row), rowOrder);
+                  timestampKeys, buildColumns, (long) JoinKernels.SLAB_LONG.get(keySeg, keyBase + 8L * row), rowOrder);
               emittedRows++;
               continue;
             }
             if (rowOrdering != null) {
               emitRow(keyCount, buildSide, probeSide, buildFieldCount, buildRows, at, probeValues, probePresent,
-                  stringKeys, timestampKeys, buildColumns, (long) SLAB_LONG.get(keySeg, keyBase + 8L * row),
+                  stringKeys, timestampKeys, buildColumns, (long) JoinKernels.SLAB_LONG.get(keySeg, keyBase + 8L * row),
                   rowOrdering, rowColumns);
               emittedRows++;
               continue;
@@ -826,9 +825,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         || code[0] >= progSlots[0].length || code[1] >= progSlots[0].length
         || progOperandSides[0][code[0]] == progOperandSides[0][code[1]]);
   }
-
-  /** The slab handle of the kernels, invoked inline at the build and probe read sites. */
-  private static final VarHandle SLAB_LONG = JoinKernels.SLAB_LONG;
 
   /**
    * A packed side held by the query: a leased cache entry, or a query-owned slab when the cache
@@ -1221,14 +1217,14 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     values[0] = joinKey;
     if (shared != null) {
       for (int field = 1; field < bases.length; field++) {
-        final long value = (long) SLAB_LONG.get(shared, bases[field] + at);
+        final long value = (long) JoinKernels.SLAB_LONG.get(shared, bases[field] + at);
         values[field] = timestamps[field]
             ? Math.multiplyExact(value, 1000L)
             : value;
       }
     } else {
       for (int field = 1; field < bases.length; field++) {
-        final long value = (long) SLAB_LONG.get(lanes[field], bases[field] + at);
+        final long value = (long) JoinKernels.SLAB_LONG.get(lanes[field], bases[field] + at);
         values[field] = timestamps[field]
             ? Math.multiplyExact(value, 1000L)
             : value;
@@ -1642,9 +1638,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             continue; // a missing join key matches nothing
           }
           final long joinKey = denseNumeric
-              ? (long) SLAB_LONG.get(joinLane, laneOff[0] + 8L * row)
+              ? (long) JoinKernels.SLAB_LONG.get(joinLane, laneOff[0] + 8L * row)
               : buildColumns.longValue(0, leaf, row);
-          final int at = buildRows.addKeyed(joinKey, (long) SLAB_LONG.get(keySeg, keyBase + 8L * row));
+          final int at = buildRows.addKeyed(joinKey, (long) JoinKernels.SLAB_LONG.get(keySeg, keyBase + 8L * row));
           if (denseNumeric) {
             readNumericRow(shared, laneSeg, laneOff, timestamps, row, joinKey, values);
             System.arraycopy(values, 0, buildRows.values, at * buildFieldCount, buildFieldCount);
@@ -1675,11 +1671,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         final int bit = Long.numberOfTrailingZeros(word);
         word &= word - 1L;
         final long at = 8L * (rowBase + bit);
-        final long joinKey = (long) SLAB_LONG.get(lane, joinBase + at);
-        final long recordKey = (long) SLAB_LONG.get(lane, keyBase + at);
+        final long joinKey = (long) JoinKernels.SLAB_LONG.get(lane, joinBase + at);
+        final long recordKey = (long) JoinKernels.SLAB_LONG.get(lane, keyBase + at);
         values[0] = joinKey;
         for (int field = 1; field < fieldCount; field++) {
-          final long value = (long) SLAB_LONG.get(lane, bases[field] + at);
+          final long value = (long) JoinKernels.SLAB_LONG.get(lane, bases[field] + at);
           values[field] = timestamps[field]
               ? Math.multiplyExact(value, 1000L)
               : value;

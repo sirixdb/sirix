@@ -230,7 +230,16 @@ dense build and probe, the packed merge and chained fold, the membership filters
 per kernel reading the lane through the typed slab handle at a base offset hoisted once per leaf
 plus eight bytes per row (`SegmentAccess`, native order, the unaligned layout because the slab is
 aligned by construction and the alignment check would only repeat per access); the record keys of
-a build row and of an emitted probe row come from the key lanes the same way. The dense build and
+a build row and of an emitted probe row come from the key lanes the same way. The join kernels'
+handle is `JoinKernels.SLAB_LONG`, invoked directly at every read site (C2 compiles an inlined
+`SegmentAccess.getLong` with that helper's process-wide, heap-polluted type profile: +60 % on t250k
+warm Q10), and `JoinKernels` is listed for build-time initialization and holds nothing else: a
+native image folds a `VarHandle` into a plain load only when it is a static final of a class
+initialized at build time, and a handle held or aliased by a class the image initializes at run
+time is invoked through the generic method-handle path on every read, 105 ns and a boxed
+allocation against 2.3 ns, which cost the t1M warm joins Q4 44 % and Q9 39 % natively while C2,
+which trusts every static final, showed a win (`SegmentHandleConstantsTest` guards both halves; see
+`docs/NATIVE_IMAGE.md`, "Segment handles are build-time constants"). The dense build and
 probe loops read a row's fields through the one segment the side's lanes share when the selection
 was decoded into its own slab (bounds and scope loaded once per row, not once per field), each
 lane's own segment otherwise; the packed merge is build-major: each build record of a bucket
