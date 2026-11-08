@@ -537,7 +537,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       addDatabase(collection, database);
       return collection;
     } catch (final SirixRuntimeException e) {
-      throw new DocumentException(e.getCause());
+      throw new DocumentException(e, "Could not create document with name %s", name);
     }
   }
 

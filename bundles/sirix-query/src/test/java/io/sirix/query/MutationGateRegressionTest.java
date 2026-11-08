@@ -85,9 +85,12 @@ final class MutationGateRegressionTest {
   void parentSegmentsAfterSymlinksFollowPhysicalIdentity(final boolean resource) throws Exception {
     final Path physicalParent = Files.createDirectories(directory.resolve("physical"));
     final Path child = Files.createDirectory(physicalParent.resolve("child"));
-    final Path physical = Files.createDirectory(physicalParent.resolve("orders"));
+    Files.createDirectory(physicalParent.resolve("orders"));
+    Files.createDirectory(directory.resolve("orders"));
     final Path alias = Files.createSymbolicLink(directory.resolve("alias"), child);
-    assertDatabaseAliasesSerialize(physical, alias.resolve("../orders"), resource);
+    final Path target = alias.resolve("../orders");
+    // Windows and POSIX resolve symlink/.. differently; storage uses the host filesystem's identity.
+    assertDatabaseAliasesSerialize(target.toRealPath(), target, resource);
   }
 
   @ParameterizedTest

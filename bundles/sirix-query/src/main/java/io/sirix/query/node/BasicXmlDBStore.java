@@ -339,7 +339,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
-      throw new DocumentException(e.getCause());
+      throw new DocumentException(e, "Could not create document with name %s", name);
     }
   }
 

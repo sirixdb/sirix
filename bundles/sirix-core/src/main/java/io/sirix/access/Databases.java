@@ -243,6 +243,20 @@ public final class Databases {
   private static boolean createTheDatabase(final DatabaseConfiguration dbConfig) {
     requireNonNull(dbConfig);
     ResourceAccessScope.checkDatabase(dbConfig.getDatabaseFile(), true);
+    // Preserve fail-fast lifecycle admission before waiting, without holding the monitor at the gate.
+    synchronized (Databases.class) {
+      final Path path = dbConfig.getDatabaseFile();
+      if (Files.exists(path)) {
+        try {
+          if (hasDatabaseContents(path)) {
+            return false;
+          }
+        } catch (final IOException e) {
+          return false;
+        }
+        checkNotRemoving(canonicalDatabasePath(path));
+      }
+    }
     // Creation replaces an existing database on some paths, so it takes the exclusive database hold
     // and is ordered against removal and against every resource operation in that database.
     try (var gate = MutationGate.acquireDatabase(dbConfig.getDatabaseFile())) {
@@ -328,6 +342,12 @@ public final class Databases {
   public static void removeDatabase(final Path dbFile) {
     requireNonNull(dbFile);
     ResourceAccessScope.checkDatabase(dbFile, true);
+    synchronized (Databases.class) {
+      if (!Files.exists(dbFile)) {
+        return;
+      }
+      checkNotRemoving(canonicalDatabasePath(dbFile));
+    }
     // Removing a whole database takes the exclusive database hold, so it waits for every resource
     // operation in it: a store or load authorized against one of its resources must not have the
     // database removed between its check and its write.

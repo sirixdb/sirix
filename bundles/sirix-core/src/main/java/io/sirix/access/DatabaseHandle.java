@@ -41,6 +41,8 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   @Override
   public boolean createResource(final ResourceConfiguration config) {
     Objects.requireNonNull(config, "config");
+    // A cleanup callback must fail before waiting on the remover's database hold.
+    database();
     try (var gate = MutationGate.acquireResource(owner.path, config.getName())) {
       synchronized (this) {
         database();
