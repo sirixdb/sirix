@@ -4,10 +4,20 @@
 package io.sirix.cache;
 
 import io.sirix.node.SegmentAccess;
+import io.sirix.utils.OS;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -20,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Cache-owned slabs: charged to the physical budget before mapping, global-scope views, refunded
@@ -235,5 +246,142 @@ final class FrameSlotAllocatorSlabTest {
     } finally {
       allocator.shutdown();
     }
+  }
+
+  /** Budget for the page-preparation tests: several MiB slabs beside the recycle bound. */
+  private static final long PAGE_BUDGET = 64L << 20;
+
+  private static final String PAGE_PREPARATION_LOCK = "sirix.allocator.slabPagePreparation";
+
+  @Test
+  @ResourceLock(PAGE_PREPARATION_LOCK)
+  void aFreshSlabIsPopulatedAndOnlyALargeOneIsAdvisedHugePages() throws IOException {
+    assumeLinuxWithPopulate();
+    final boolean[] previous = FrameSlotAllocator.setSlabPagePreparationForTesting(true, true);
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(PAGE_BUDGET);
+    try {
+      final MemorySegment large = allocator.allocateSlab(4L << 20);
+      assertNotNull(large);
+      final Map<String, String> largeMapping = smapsOf(large.address());
+      assertTrue(kilobytes(largeMapping, "Rss") >= 4096,
+          "a populated slab is resident before its first write: " + largeMapping);
+      assertTrue(hasFlag(largeMapping, "hg"),
+          "a slab of 2 MiB or more carries the huge-page advice: " + largeMapping.get("VmFlags"));
+      assertEquals(4L << 20, allocator.getPopulatedSlabBytes());
+
+      final MemorySegment small = allocator.allocateSlab(64L << 10);
+      assertNotNull(small);
+      final Map<String, String> smallMapping = smapsOf(small.address());
+      assertTrue(kilobytes(smallMapping, "Rss") >= 64, "a small slab is populated too: " + smallMapping);
+      assertFalse(hasFlag(smallMapping, "hg"), "a slab below 2 MiB is not advised huge pages");
+      assertEquals((4L << 20) + (64L << 10), allocator.getPopulatedSlabBytes());
+
+      assertTrue(allocator.releaseSlab(small));
+      assertTrue(allocator.releaseSlab(large));
+    } finally {
+      FrameSlotAllocator.setSlabPagePreparationForTesting(previous[0], previous[1]);
+      allocator.shutdown();
+    }
+  }
+
+  @Test
+  @ResourceLock(PAGE_PREPARATION_LOCK)
+  void theDefaultPopulatesFreshSlabsWithoutHugePageAdvice() {
+    final boolean[] defaults = FrameSlotAllocator.setSlabPagePreparationForTesting(true, true);
+    try {
+      assertTrue(defaults[0], "fresh slabs are populated by default");
+      assertFalse(defaults[1], "huge-page advice is opt-in: synchronous compaction stalls measured");
+    } finally {
+      FrameSlotAllocator.setSlabPagePreparationForTesting(defaults[0], defaults[1]);
+    }
+  }
+
+  @Test
+  @ResourceLock(PAGE_PREPARATION_LOCK)
+  void aRecycledSlabIsNotPopulatedAgain() {
+    assumeLinuxWithPopulate();
+    final boolean[] previous = FrameSlotAllocator.setSlabPagePreparationForTesting(true, true);
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(PAGE_BUDGET);
+    try {
+      final MemorySegment first = allocator.allocateSlab(1L << 20);
+      assertNotNull(first);
+      assertEquals(1L << 20, allocator.getPopulatedSlabBytes());
+      assertTrue(allocator.releaseSlab(first));
+      assertEquals(1L << 20, allocator.getRecycledSlabBytes(), "the slab is recycled, not unmapped");
+      final MemorySegment second = allocator.allocateSlab(1L << 20);
+      assertNotNull(second);
+      assertEquals(first.address(), second.address(), "the recycled slab is reused");
+      assertEquals(1L << 20, allocator.getPopulatedSlabBytes(), "resident pages are not populated twice");
+      assertTrue(allocator.releaseSlab(second));
+    } finally {
+      FrameSlotAllocator.setSlabPagePreparationForTesting(previous[0], previous[1]);
+      allocator.shutdown();
+    }
+  }
+
+  @Test
+  @ResourceLock(PAGE_PREPARATION_LOCK)
+  void pagePreparationCanBeSwitchedOff() throws IOException {
+    assumeLinuxWithPopulate();
+    final boolean[] previous = FrameSlotAllocator.setSlabPagePreparationForTesting(false, false);
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(PAGE_BUDGET);
+    try {
+      final MemorySegment slab = allocator.allocateSlab(4L << 20);
+      assertNotNull(slab);
+      assertEquals(0L, allocator.getPopulatedSlabBytes());
+      assertFalse(hasFlag(smapsOf(slab.address()), "hg"));
+      assertTrue(allocator.releaseSlab(slab));
+    } finally {
+      FrameSlotAllocator.setSlabPagePreparationForTesting(previous[0], previous[1]);
+      allocator.shutdown();
+    }
+  }
+
+  private static void assumeLinuxWithPopulate() {
+    assumeTrue(OS.isLinux() && Files.isReadable(Path.of("/proc/self/smaps")), "Linux with /proc/self/smaps");
+    try (Arena arena = Arena.ofConfined()) {
+      assumeTrue(VirtualMemory.forCurrentPlatform().populate(arena.allocate(4096, 4096)),
+          "the kernel offers MADV_POPULATE_WRITE (Linux 5.14+)");
+    }
+  }
+
+  private static final Pattern MAPPING_HEADER = Pattern.compile("^([0-9a-f]+)-([0-9a-f]+) .*");
+
+  /**
+   * The {@code /proc/self/smaps} record of the mapping holding {@code address}: field name to value.
+   */
+  private static Map<String, String> smapsOf(final long address) throws IOException {
+    final List<String> lines = Files.readAllLines(Path.of("/proc/self/smaps"));
+    Map<String, String> current = null;
+    for (final String line : lines) {
+      final Matcher header = MAPPING_HEADER.matcher(line);
+      if (header.matches()) {
+        final long start = Long.parseUnsignedLong(header.group(1), 16);
+        final long end = Long.parseUnsignedLong(header.group(2), 16);
+        if (current != null) {
+          return current;
+        }
+        current = Long.compareUnsigned(start, address) <= 0 && Long.compareUnsigned(address, end) < 0
+            ? new HashMap<>()
+            : null;
+      } else if (current != null) {
+        final int colon = line.indexOf(':');
+        current.put(line.substring(0, colon), line.substring(colon + 1).trim());
+      }
+    }
+    assertNotNull(current, "no mapping holds 0x" + Long.toHexString(address));
+    return current;
+  }
+
+  private static boolean hasFlag(final Map<String, String> mapping, final String flag) {
+    final String flags = mapping.get("VmFlags");
+    assertNotNull(flags, "VmFlags in " + mapping);
+    return (" " + flags + " ").contains(" " + flag + " ");
+  }
+
+  private static long kilobytes(final Map<String, String> mapping, final String field) {
+    final String value = mapping.get(field);
+    assertNotNull(value, field + " in " + mapping);
+    return Long.parseLong(value.substring(0, value.indexOf(' ')));
   }
 }

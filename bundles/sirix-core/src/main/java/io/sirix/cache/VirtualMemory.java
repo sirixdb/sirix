@@ -53,6 +53,29 @@ public interface VirtualMemory {
    */
   boolean release(MemorySegment region);
 
+  /**
+   * Advise that {@code segment} be backed by transparent huge pages where the kernel can (Linux
+   * {@code MADV_HUGEPAGE}); a hint for large slabs, never a requirement.
+   *
+   * @return {@code true} when the advice was applied
+   */
+  default boolean adviseHugePages(final MemorySegment segment) {
+    return false;
+  }
+
+  /**
+   * Pre-fault {@code segment}'s pages writable in one call (Linux {@code MADV_POPULATE_WRITE}), for a
+   * consumer that writes the whole segment anyway, such as a slab of decoded lanes: one call instead
+   * of one fault per 4 KiB page (2.4 us each measured, half the cost of a lane fill's first touch).
+   *
+   * @return {@code true} when the pages were populated; {@code false} when the platform or kernel has
+   *         no such call and the pages fault lazily on first touch
+   * @throws OutOfMemoryError when the kernel reports it cannot back the pages ({@code ENOMEM})
+   */
+  default boolean populate(final MemorySegment segment) {
+    return false;
+  }
+
   /** The backend for the OS this JVM runs on. */
   static VirtualMemory forCurrentPlatform() {
     return OS.isWindows()

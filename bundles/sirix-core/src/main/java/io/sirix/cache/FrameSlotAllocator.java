@@ -400,6 +400,53 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   public static final String SLAB_RECYCLE_BYTES_PROPERTY = "sirix.allocator.slabRecycleBytes";
 
   /**
+   * Pre-fault a fresh slab's pages in one call ({@link VirtualMemory#populate}) instead of taking one
+   * fault per 4 KiB page on the lane fill's first touch (the first-run admission of 180 MiB of join
+   * lanes paid 44k faults, 2.4 us each); {@code false} turns it off. A recycled slab is resident
+   * already and is never populated again.
+   */
+  public static final String SLAB_POPULATE_PROPERTY = "sirix.allocator.slabPopulate";
+
+  /**
+   * Advise transparent huge pages ({@link VirtualMemory#adviseHugePages}) for fresh slabs of at least
+   * {@link #SLAB_HUGE_PAGE_BYTES}; OFF by default. With the kernel's THP defrag mode {@code madvise}
+   * the advice makes every huge-page fault compact memory synchronously, and on a fragmented machine
+   * that fails every time: a cold t1M join measured 138-261 compaction stalls, none successful, every
+   * huge-page fault falling back to base pages, and +0.4 s of system time per process. Only for a
+   * host whose THP settings are known to be free of direct compaction.
+   */
+  public static final String SLAB_HUGE_PAGES_PROPERTY = "sirix.allocator.slabHugePages";
+
+  /** Slabs at least this large are advised huge pages; the x86-64 and arm64 huge page is 2 MiB. */
+  static final long SLAB_HUGE_PAGE_BYTES = 2L << 20;
+
+  private static volatile boolean populateSlabs =
+      !"false".equalsIgnoreCase(System.getProperty(SLAB_POPULATE_PROPERTY, "true"));
+
+  private static volatile boolean hugePageSlabs = Boolean.getBoolean(SLAB_HUGE_PAGES_PROPERTY);
+
+  /**
+   * Bytes of fresh slabs whose pages were populated on allocation; recycled reuses are not counted.
+   */
+  private final AtomicLong populatedSlabBytes = new AtomicLong();
+
+  /**
+   * Test seam for the page preparation of fresh slabs; returns the previous {@code {populate,
+   * hugePages}} pair. Process-wide, like the properties it overrides.
+   */
+  static boolean[] setSlabPagePreparationForTesting(final boolean populate, final boolean hugePages) {
+    final boolean[] previous = {populateSlabs, hugePageSlabs};
+    populateSlabs = populate;
+    hugePageSlabs = hugePages;
+    return previous;
+  }
+
+  /** Bytes of fresh slabs populated on allocation; see {@link #SLAB_POPULATE_PROPERTY}. */
+  long getPopulatedSlabBytes() {
+    return populatedSlabBytes.get();
+  }
+
+  /**
    * Test seam: fill a recycled slab with {@code 0x5A} before handing it out, so a consumer that
    * assumes zeroed memory fails instead of passing on a lucky layout. Never on in production.
    */
@@ -514,6 +561,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     try {
       VM.commitFresh(segment);
+      if (!prepareSlabPages(segment, mapped)) {
+        // The kernel cannot back the pages: reported like a budget refusal, never thrown.
+        VM.release(segment);
+        committedBytes.addAndGet(-mapped);
+        return null;
+      }
       publishSlab(segment, mapped);
     } catch (final RuntimeException | Error failure) {
       VM.release(segment);
@@ -522,6 +575,31 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     HftBoundaryTelemetry.nativeAllocation();
     return segment;
+  }
+
+  /**
+   * Prepare a fresh slab's pages: huge-page advice for a large slab when it is switched on, then
+   * population in one call, so the lane fill that follows writes resident pages instead of taking one
+   * fault per page.
+   *
+   * @return {@code false} when the kernel cannot back the slab's pages; the caller releases the slab
+   */
+  private boolean prepareSlabPages(final MemorySegment segment, final long mapped) {
+    if (hugePageSlabs && mapped >= SLAB_HUGE_PAGE_BYTES) {
+      VM.adviseHugePages(segment);
+    }
+    if (!populateSlabs) {
+      return true;
+    }
+    try {
+      if (VM.populate(segment)) {
+        populatedSlabBytes.addAndGet(mapped);
+      }
+      return true;
+    } catch (final OutOfMemoryError refused) {
+      LOGGER.debug("slab of {} bytes refused while populating its pages: {}", mapped, refused.getMessage());
+      return false;
+    }
   }
 
   @Override

@@ -8,6 +8,15 @@ allocator's physical budget before it is mapped and refunded exactly once when i
 heap envelope (`HeapCacheBudget`) therefore takes no share for derived data; see the table below.
 A released slab is unmapped (`VM.release`), so every reader of a slab must be provably finished
 before its release: this document names the proof for each owner.
+A fresh slab's pages are populated in one `madvise(MADV_POPULATE_WRITE)` call
+(`sirix.allocator.slabPopulate`, on by default; Linux only, a kernel without the call falls back to
+lazy faults), so the lane fill that follows writes resident pages instead of taking one fault per
+4 KiB page: the first-run admission of 180 MiB of join lanes paid 44k faults at 2.4 µs each, and
+population halves that cost. Huge-page advice for slabs from 2 MiB exists behind
+`sirix.allocator.slabHugePages` but is off: with THP defrag in `madvise` mode every huge-page fault
+compacts memory synchronously, and on a fragmented machine every attempt failed (261 stalls, 0
+successes, +0.4 s system time on one cold join). A recycled slab (below) is resident already and is
+never populated again.
 
 ## Column lanes
 
