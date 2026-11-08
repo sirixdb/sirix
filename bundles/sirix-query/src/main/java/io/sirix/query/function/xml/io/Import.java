@@ -18,7 +18,6 @@ import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.ImportInput;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBCollection;
-import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.node.XmlDBStore;
 import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.utils.SirixFiles;
@@ -40,7 +39,6 @@ public final class Import extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final String databaseName = ((Str) args[0]).stringValue();
     final String resourceName = ((Str) args[1]).stringValue();
-    final String source = ((Str) args[2]).stringValue();
     final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
     final XmlDBCollection initial = store.lookup(databaseName);
     if (initial == null) {
@@ -55,37 +53,34 @@ public final class Import extends AbstractFunction {
       if (!collection.getDatabase().existsResource(resourceName)) {
         throw new QueryException(new QNm("ResourceNotFound"), "Resource '%s' does not exist", resourceName);
       }
-      final XmlDBNode document = collection.getDocument(resourceName);
+      final var targetSession = collection.getDatabase().beginResourceSession(resourceName);
+      MutationAuthorization.requireWritable(ctx, collection.getName(), targetSession.getResourceConfig().getName());
+      final String source = ((Str) args[2]).stringValue();
+      final boolean fileSource = !(store instanceof ContentOnlyStore) && !source.stripLeading().startsWith("<");
+      if (!fileSource) {
+        ImportInput.validateXml(source);
+      }
+      final Path temporary = Files.createTempDirectory("sirix-xml-import-");
       try {
-        MutationAuthorization.requireWritable(ctx, document);
-        final boolean fileSource = !(store instanceof ContentOnlyStore) && !source.stripLeading().startsWith("<");
-        if (!fileSource) {
-          ImportInput.validateXml(source);
+        if (fileSource) {
+          new FMSEImport().shredder(Path.of(source), temporary);
+        } else {
+          final XMLEventReader input = XmlShredder.createStringReader(source);
+          try {
+            new FMSEImport().shredder(input, temporary);
+          } finally {
+            input.close();
+          }
         }
-        final Path temporary = Files.createTempDirectory("sirix-xml-import-");
-        try {
-          if (fileSource) {
-            new FMSEImport().shredder(Path.of(source), temporary);
-          } else {
-            final XMLEventReader input = XmlShredder.createStringReader(source);
-            try {
-              new FMSEImport().shredder(input, temporary);
-            } finally {
-              input.close();
-            }
-          }
-          try (final var database = Databases.openXmlDatabase(temporary);
-              final var session = database.beginResourceSession("shredded");
-              final var reader = session.beginNodeReadOnlyTrx();
-              final var writer = document.getTrx().getResourceSession().beginNodeTrx();
-              final var diff = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
-            diff.diff(writer, reader);
-          }
-        } finally {
-          SirixFiles.recursiveRemove(temporary);
+        try (final var database = Databases.openXmlDatabase(temporary);
+            final var session = database.beginResourceSession("shredded");
+            final var reader = session.beginNodeReadOnlyTrx();
+            final var writer = targetSession.beginNodeTrx();
+            final var diff = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
+          diff.diff(writer, reader);
         }
       } finally {
-        document.getTrx().close();
+        SirixFiles.recursiveRemove(temporary);
       }
       return collection.getDocument(resourceName);
     } catch (final IOException | XMLStreamException failure) {

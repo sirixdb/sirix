@@ -17,7 +17,6 @@ import io.sirix.diff.service.JsonFMSEImport;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.ImportInput;
 import io.sirix.query.json.JsonDBCollection;
-import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.utils.SirixFiles;
@@ -52,27 +51,23 @@ public final class Import extends AbstractFunction {
       if (!collection.getDatabase().existsResource(resourceName)) {
         throw new QueryException(new QNm("ResourceNotFound"), "Resource '%s' does not exist", resourceName);
       }
-      final JsonDBItem document = collection.getDocument(resourceName);
+      final var targetSession = collection.getDatabase().beginResourceSession(resourceName);
+      MutationAuthorization.requireWritable(ctx, collection.getName(), targetSession.getResourceConfig().getName());
+      final String content = ImportInput.json(args[2]);
+      final Path temporary = Files.createTempDirectory("sirix-json-import-");
       try {
-        MutationAuthorization.requireWritable(ctx, document);
-        final String content = ImportInput.json(args[2]);
-        final Path temporary = Files.createTempDirectory("sirix-json-import-");
-        try {
-          try (final JsonReader reader = JsonShredder.createStringReader(content)) {
-            new JsonFMSEImport().shredder(reader, temporary);
-          }
-          try (final var database = Databases.openJsonDatabase(temporary);
-              final var session = database.beginResourceSession("shredded");
-              final var reader = session.beginNodeReadOnlyTrx();
-              final var writer = document.getResourceSession().beginNodeTrx();
-              final var diff = JsonFMSE.createInstance()) {
-            diff.diff(writer, reader);
-          }
-        } finally {
-          SirixFiles.recursiveRemove(temporary);
+        try (final JsonReader reader = JsonShredder.createStringReader(content)) {
+          new JsonFMSEImport().shredder(reader, temporary);
+        }
+        try (final var database = Databases.openJsonDatabase(temporary);
+            final var session = database.beginResourceSession("shredded");
+            final var reader = session.beginNodeReadOnlyTrx();
+            final var writer = targetSession.beginNodeTrx();
+            final var diff = JsonFMSE.createInstance()) {
+          diff.diff(writer, reader);
         }
       } finally {
-        document.getTrx().close();
+        SirixFiles.recursiveRemove(temporary);
       }
       return collection.getDocument(resourceName);
     } catch (final IOException failure) {

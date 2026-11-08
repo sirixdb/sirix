@@ -6,7 +6,11 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.node.parser.DocumentParser;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.io.StorageType;
+import io.sirix.service.xml.serialize.XmlSerializer;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.node.BasicXmlDBStore;
@@ -17,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -80,6 +85,36 @@ class ImportIntegrationTest {
       new Query(chain, "xn:store('appended',(),<again/>,false())").evaluate(context);
       assertEquals(2, appended.getDatabase().beginResourceSession("resource").getMostRecentRevisionNumber());
       assertEquals(2, appended.getDocumentCount());
+    }
+  }
+
+  @Test
+  void importsIntoAnExistingEmptyResourceWithoutClosingBorrowedReaders() {
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        final var context = SirixQueryContext.createWithNodeStore(store);
+        final var chain = SirixCompileChain.createWithNodeStore(store)) {
+      final var collection = store.create("versions");
+      assertTrue(collection.getDatabase().createResource(ResourceConfiguration.newBuilder("doc")
+          .storageType(StorageType.FILE_CHANNEL).build()));
+      final var session = collection.getDatabase().beginResourceSession("doc");
+      final int initialRevision = session.getMostRecentRevisionNumber();
+      try (final var borrowedReader = session.beginNodeReadOnlyTrx()) {
+        assertFalse(borrowedReader.hasFirstChild());
+        final XmlDBNode imported = (XmlDBNode) new Query(chain,
+            "xn:import('versions','doc','<root>imported</root>')").evaluate(context);
+        assertSame(session, imported.getTrx().getResourceSession());
+        assertFalse(session.isClosed());
+        assertFalse(borrowedReader.isClosed());
+        assertFalse(borrowedReader.hasFirstChild());
+        assertFalse(session.getNodeTrx().isPresent());
+        assertEquals(initialRevision + 1, session.getMostRecentRevisionNumber());
+        final ByteArrayOutputStream output = new ByteArrayOutputStream();
+        XmlSerializer.newBuilder(session, output, initialRevision + 1).build().call();
+        assertEquals("<root>imported</root>", output.toString(StandardCharsets.UTF_8));
+        try (final var historic = session.beginNodeReadOnlyTrx(initialRevision)) {
+          assertFalse(historic.hasFirstChild());
+        }
+      }
     }
   }
 

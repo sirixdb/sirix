@@ -19,6 +19,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -138,6 +139,33 @@ class ImportIntegrationTest {
           "jn:import('versions','doc',jn:doc('versions','source'))").evaluate(context);
       assertJsonText(content, imported.getResourceSession(), 2);
       assertJsonText("{}", imported.getResourceSession(), 1);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"'{\"value\":1}'", "{\"value\":1}"})
+  void importsIntoAnExistingEmptyResource(final String input) {
+    try (final var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        final var context = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "jn:store('versions','doc','')").evaluate(context);
+      final var session = store.lookup("versions").getDatabase().beginResourceSession("doc");
+      final int initialRevision = session.getMostRecentRevisionNumber();
+      try (final var borrowedReader = session.beginNodeReadOnlyTrx()) {
+        assertFalse(borrowedReader.hasFirstChild());
+        final JsonDBItem imported = (JsonDBItem) new Query(chain,
+            "jn:import('versions','doc'," + input + ")").evaluate(context);
+        assertSame(session, imported.getResourceSession());
+        assertFalse(session.isClosed());
+        assertFalse(borrowedReader.isClosed());
+        assertFalse(borrowedReader.hasFirstChild());
+        assertFalse(session.getNodeTrx().isPresent());
+        assertEquals(initialRevision + 1, session.getMostRecentRevisionNumber());
+        assertJsonText("{\"value\":1}", session, initialRevision + 1);
+        try (final var historic = session.beginNodeReadOnlyTrx(initialRevision)) {
+          assertFalse(historic.hasFirstChild());
+        }
+      }
     }
   }
 

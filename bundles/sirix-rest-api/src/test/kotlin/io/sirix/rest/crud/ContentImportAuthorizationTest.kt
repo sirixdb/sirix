@@ -3,11 +3,16 @@ package io.sirix.rest.crud
 import com.sun.net.httpserver.HttpServer
 import io.brackit.query.atomic.Str
 import io.brackit.query.node.parser.DocumentParser
+import io.sirix.access.ResourceConfiguration
 import io.sirix.io.StorageType
 import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
 import io.sirix.query.json.BasicJsonDBStore
+import io.sirix.query.json.JsonDBItem
 import io.sirix.query.node.BasicXmlDBStore
+import io.sirix.query.node.XmlDBNode
+import io.sirix.service.json.serialize.JsonSerializer
+import io.sirix.service.xml.serialize.XmlSerializer
 import io.sirix.rest.crud.json.JsonSessionDBStore
 import io.sirix.rest.crud.xml.XmlSessionDBStore
 import io.sirix.rest.routerFailureHandler
@@ -29,6 +34,8 @@ import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.io.ByteArrayOutputStream
+import java.nio.charset.StandardCharsets
 import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
@@ -119,6 +126,47 @@ class ContentImportAuthorizationTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = ["jn:import", "xn:import"])
+    fun emptyExistingResourcesRequireModifyBeforeInputProcessing(function: String) {
+        val json = function.startsWith("jn:")
+        val content = if (json) "{\"value\":1}" else "<root>imported</root>"
+        val invalid = if (json) "{broken" else "<broken"
+        withStore(json, arrayOf("auth-view"), empty = true) { fixture ->
+            assertStatus(403) { fixture.run(call(function, "doc", content)) }
+            assertStatus(403) { fixture.run(call(function, "doc", invalid)) }
+            assertEquals(0, fixture.revision())
+            assertEquals(setOf("doc"), fixture.resources())
+            assertFalse(fixture.hasWriter())
+        }
+        withStore(json, arrayOf("auth-view", "auth-create"), initialize = false) { fixture ->
+            assertStatus(403) { fixture.run(call(function, "doc", content)) }
+            assertStatus(403) { fixture.run(call(function, "doc", invalid)) }
+            assertEquals(0, fixture.revision())
+            assertEquals(setOf("doc"), fixture.resources())
+            assertFalse(fixture.hasWriter())
+        }
+        withStore(json, arrayOf("auth-view", "auth-modify"), initialize = false) { fixture ->
+            val imported = fixture.run(call(function, "doc", content))
+            assertEquals(1, fixture.revision())
+            assertEquals(setOf("doc"), fixture.resources())
+            assertFalse(fixture.hasWriter())
+            if (json) {
+                val session = (imported as JsonDBItem).resourceSession
+                val output = StringBuilder()
+                JsonSerializer.Builder(session, output, 1).build().call()
+                assertEquals(content, output.toString())
+                session.beginNodeReadOnlyTrx(0).use { assertFalse(it.hasFirstChild()) }
+            } else {
+                val session = (imported as XmlDBNode).trx.resourceSession
+                val output = ByteArrayOutputStream()
+                XmlSerializer.newBuilder(session, output, 1).build().call()
+                assertEquals(content, output.toString(StandardCharsets.UTF_8))
+                session.beginNodeReadOnlyTrx(0).use { assertFalse(it.hasFirstChild()) }
+            }
+        }
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = ["jn:load", "xn:load"])
     fun loadsAcceptInlineContentAndRequireCreate(function: String) {
         val json = function.startsWith("jn:")
@@ -203,7 +251,7 @@ class ContentImportAuthorizationTest {
         fun hasWriter() = writer()
     }
 
-    private fun withStore(json: Boolean, roles: Array<String>, initialize: Boolean = true, body: (Fixture) -> Unit) {
+    private fun withStore(json: Boolean, roles: Array<String>, initialize: Boolean = true, empty: Boolean = false, body: (Fixture) -> Unit) {
         val user = User.fromName("import-test")
         user.authorizations().put("test", roles.map { RoleBasedAuthorization.create(it) }.toSet())
         val authz = Mockito.mock(AuthorizationProvider::class.java)
@@ -211,7 +259,14 @@ class ContentImportAuthorizationTest {
         val routing = Mockito.mock(RoutingContext::class.java)
         if (json) {
             BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build().use { store ->
-                if (initialize) store.create("auth", "doc", "{\"stable\":1,\"value\":1}")
+                if (initialize) {
+                    if (empty) {
+                        store.create("auth").database.createResource(ResourceConfiguration.newBuilder("doc")
+                            .storageType(StorageType.FILE_CHANNEL).build())
+                    } else {
+                        store.create("auth", "doc", "{\"stable\":1,\"value\":1}")
+                    }
+                }
                 val guarded = JsonSessionDBStore(routing, store, user, authz)
                 SirixQueryContext.createWithJsonStore(guarded).use { context ->
                     SirixCompileChain.createWithJsonStore(guarded).use { chain ->
@@ -225,7 +280,14 @@ class ContentImportAuthorizationTest {
             }
         } else {
             BasicXmlDBStore.newBuilder().location(directory).build().use { store ->
-                if (initialize) store.create("auth", "doc", DocumentParser("<root><stable>1</stable><value>1</value></root>"))
+                if (initialize) {
+                    if (empty) {
+                        store.create("auth").database.createResource(ResourceConfiguration.newBuilder("doc")
+                            .storageType(StorageType.FILE_CHANNEL).build())
+                    } else {
+                        store.create("auth", "doc", DocumentParser("<root><stable>1</stable><value>1</value></root>"))
+                    }
+                }
                 val guarded = XmlSessionDBStore(routing, store, user, authz)
                 SirixQueryContext.createWithNodeStore(guarded).use { context ->
                     SirixCompileChain.createWithNodeStore(guarded).use { chain ->
