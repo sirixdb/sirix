@@ -356,13 +356,13 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection create(final String collName, final String optResName, final NodeSubtreeParser parser) {
-    return createCollection(collName, null, parser, null, null);
+    return createCollection(collName, optResName, parser, null, null);
   }
 
   @Override
   public XmlDBCollection create(final String collName, final @Nullable String optResName,
       final NodeSubtreeParser parser, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
-    return createCollection(collName, null, parser, commitMessage, commitTimestamp);
+    return createCollection(collName, optResName, parser, commitMessage, commitTimestamp);
   }
 
   private XmlDBCollection createCollection(final String collName, final @Nullable String optResName,
@@ -449,6 +449,11 @@ public final class BasicXmlDBStore implements XmlDBStore {
     } catch (final SirixRuntimeException e) {
       throw new DocumentException(e);
     }
+  }
+
+  @Override
+  public Path databaseDirectory(final String name) {
+    return resolveForCreate(location.resolve(name));
   }
 
   private Path databasePath(final String name) {

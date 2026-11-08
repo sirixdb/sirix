@@ -20,6 +20,7 @@ import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.node.stream.ArrayStream;
 import io.brackit.query.sequence.FunctionConversionSequence;
+import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.sirix.access.MutationGate;
 import io.sirix.query.MutationAuthorization;
@@ -156,9 +157,9 @@ public final class Store extends AbstractFunction {
       } catch (final Exception e) {
         throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
-    } else if (nodes instanceof FunctionConversionSequence seq) {
+    } else if (nodes instanceof FunctionConversionSequence || nodes instanceof ItemSequence) {
       final List<JsonReader> readers = new ArrayList<>();
-      try (final Closeable inputs = () -> closeReaders(readers); final Iter iter = seq.iterate()) {
+      try (final Closeable inputs = () -> closeReaders(readers); final Iter iter = nodes.iterate()) {
         for (Item item; (item = iter.next()) != null;) {
           readers.add(JsonShredder.createStringReader(((Str) item).stringValue()));
         }
@@ -199,8 +200,8 @@ public final class Store extends AbstractFunction {
           throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
         }
       }
-    } else if (nodes instanceof final FunctionConversionSequence seq) {
-      try (final Iter iter = seq.iterate()) {
+    } else if (nodes instanceof FunctionConversionSequence || nodes instanceof ItemSequence) {
+      try (final Iter iter = nodes.iterate()) {
         final List<Str> list = new ArrayList<>();
 
         for (Item item; (item = iter.next()) != null;) {

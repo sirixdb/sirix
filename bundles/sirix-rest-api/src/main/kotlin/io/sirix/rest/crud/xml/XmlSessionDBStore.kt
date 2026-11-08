@@ -1,5 +1,6 @@
 package io.sirix.rest.crud.xml
 
+import io.sirix.query.ContentOnlyStore
 import io.sirix.query.MutationAuthorization
 import io.sirix.rest.crud.SessionMutationAuthorizer
 import io.sirix.query.MutationAuthorizer
@@ -19,7 +20,7 @@ class XmlSessionDBStore(
     private val dbStore: XmlDBStore,
     private val user: User,
     private val authz: AuthorizationProvider
-) : XmlDBStore by dbStore, MutationAuthorizer by SessionMutationAuthorizer(user, authz) {
+) : XmlDBStore by dbStore, MutationAuthorizer by SessionMutationAuthorizer(user, authz), ContentOnlyStore {
 
     /**
      * Wrap a collection so that every mutating operation performed through it re-checks the

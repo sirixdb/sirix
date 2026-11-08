@@ -26,17 +26,22 @@ import io.brackit.query.util.io.URIHandler;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.xml.XMLFun;
-import io.sirix.query.node.BasicXmlDBStore;
+import io.sirix.query.node.XmlDBStore;
+import io.sirix.query.ContentOnlyStore;
+import io.sirix.query.MutationAuthorization;
+import io.sirix.access.MutationGate;
+import io.sirix.query.function.ImportInput;
 import io.sirix.query.node.XmlDBCollection;
 import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
+import java.nio.file.Path;
 
 /**
- * Loads XML documents addressed by URI strings into a collection/database. See {@link XMLFun} for
- * the registered overloads and the repository README for collection import semantics.
+ * Loads XML documents into a collection/database. See {@link XMLFun} for the registered overloads
+ * and the repository README for content sources and collection import semantics.
  *
  * @author Johannes Lichtenberger
  */
@@ -112,29 +117,41 @@ public final class Load extends AbstractFunction {
           ? dateTimeToInstant.convert(dateTime)
           : null;
 
-      final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getNodeStore();
-      XmlDBCollection coll;
-      if (createNew) {
-        coll = create(store, collName, resName, resources, commitMessage, commitTimesstamp);
-      } else {
-        coll = store.lookup(collName);
-        if (coll == null) {
-          coll = create(store, collName, resName, resources, commitMessage, commitTimesstamp);
+      final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
+      MutationAuthorization.requireCreate(ctx, collName, resName);
+      final boolean contentOnly = store instanceof ContentOnlyStore;
+      final Sequence inputs = contentOnly
+          ? ImportInput.strings(resources, true)
+          : resources;
+      final Path databasePath = store.databaseDirectory(collName);
+      final boolean mayReplace = createNew || store.lookup(collName) == null;
+      try (var gate = databasePath == null || !mayReplace
+          ? null
+          : MutationGate.acquireDatabase(databasePath)) {
+        XmlDBCollection coll;
+        if (createNew) {
+          coll = create(store, collName, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
         } else {
-          add(coll, resName, resources, commitMessage, commitTimesstamp);
+          coll = store.lookup(collName);
+          if (coll == null) {
+            coll = create(store, collName, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
+          } else {
+            add(coll, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
+          }
         }
-      }
 
-      return coll;
+        return coll;
+      }
     } catch (final Exception e) {
-      throw new QueryException(new QNm(e.getMessage()), e);
+      throw new QueryException(e, new QNm(e.getMessage()));
     }
   }
 
   @SuppressWarnings("NullAway") // XmlDBCollection's legacy signature omits nullable commit metadata.
   private static TemporalNodeCollection<?> add(final XmlDBCollection coll, final @Nullable String resName,
-      final Sequence resources, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
-    try (final ParserStream parsers = new ParserStream(resources)) {
+      final Sequence resources, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp,
+      final boolean contentOnly) {
+    try (final ParserStream parsers = new ParserStream(resources, contentOnly)) {
       long resourceNumber = resName == null
           ? coll.getDocumentCount() + 1
           : 0;
@@ -142,23 +159,26 @@ public final class Load extends AbstractFunction {
         final String resourceName = resName == null
             ? "resource" + resourceNumber++
             : resName;
-        coll.add(resourceName, parser, commitMessage, commitTimestamp);
+        coll.add(resourceName, parser, commitMessage, commitTimestamp).getTrx().close();
       }
     }
     return coll;
   }
 
-  private static XmlDBCollection create(final BasicXmlDBStore store, final String collName,
-      final @Nullable String resName, final Sequence resources, final @Nullable String commitMessage,
-      final @Nullable Instant commitTimestamp) {
+  private static XmlDBCollection create(final XmlDBStore store, final String collName, final @Nullable String resName,
+      final Sequence resources, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp,
+      final boolean contentOnly) {
     if (resources instanceof Atomic res) {
-      return store.create(collName, resName, parser(res), commitMessage, commitTimestamp);
+      return store.create(collName, resName, parser(res, contentOnly), commitMessage, commitTimestamp);
     } else {
-      return store.create(collName, new ParserStream(resources));
+      return store.create(collName, new ParserStream(resources, contentOnly));
     }
   }
 
-  private static NodeSubtreeParser parser(final Atomic resource) {
+  private static NodeSubtreeParser parser(final Atomic resource, final boolean contentOnly) {
+    if (contentOnly) {
+      return new DocumentParser(resource.stringValue());
+    }
     final String uri = resource.stringValue();
     return handler -> {
       try (final InputStream input = URIHandler.getInputStream(uri)) {
@@ -171,9 +191,11 @@ public final class Load extends AbstractFunction {
 
   private static class ParserStream implements Stream<NodeSubtreeParser> {
     private final Iter it;
+    private final boolean contentOnly;
 
-    public ParserStream(final Sequence locs) {
+    public ParserStream(final Sequence locs, final boolean contentOnly) {
       it = locs.iterate();
+      this.contentOnly = contentOnly;
     }
 
     @Override
@@ -184,7 +206,7 @@ public final class Load extends AbstractFunction {
           return null;
         }
         if (i instanceof Atomic resource) {
-          return parser(resource);
+          return parser(resource, contentOnly);
         } else {
           throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
               "Cannot create subtree parser for item of type: %s", i.itemType());

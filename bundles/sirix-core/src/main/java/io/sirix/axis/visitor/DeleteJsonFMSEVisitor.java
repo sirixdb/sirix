@@ -14,6 +14,8 @@ import io.sirix.node.immutable.json.ImmutableObjectNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
 import io.sirix.node.json.ObjectNamedNullNode;
 import io.sirix.node.json.ObjectNamedNumberNode;
 import io.sirix.node.json.ObjectNamedStringNode;
@@ -51,6 +53,16 @@ public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
 
   @Override
   public VisitResult visit(final ImmutableArrayNode node) {
+    return deleteIfUnmatched(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedObjectNode node) {
+    return deleteIfUnmatched(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedArrayNode node) {
     return deleteIfUnmatched(node);
   }
 

@@ -79,13 +79,23 @@ public final class MutationAuthorization {
       return;
     }
     if (document instanceof JsonDBItem jsonItem) {
-      authorizer.authorizeWrite(jsonItem.getCollection().getName(),
+      requireWritable(ctx, jsonItem.getCollection().getName(),
           jsonItem.getResourceSession().getResourceConfig().getName());
     } else if (document instanceof XmlDBNode xmlNode) {
-      authorizer.authorizeWrite(xmlNode.getCollection().getName(),
+      requireWritable(ctx, xmlNode.getCollection().getName(),
           xmlNode.getTrx().getResourceSession().getResourceConfig().getName());
     } else {
       throw new IllegalArgumentException("Cannot authorize an item without a collection name");
+    }
+  }
+
+  public static void requireWritable(final QueryContext ctx, final String databaseName, final String resourceName) {
+    Objects.requireNonNull(ctx, "ctx");
+    Objects.requireNonNull(databaseName, "databaseName");
+    Objects.requireNonNull(resourceName, "resourceName");
+    final MutationAuthorizer authorizer = authorizerOf(ctx);
+    if (authorizer != null) {
+      authorizer.authorizeWrite(databaseName, resourceName);
     }
   }
 
