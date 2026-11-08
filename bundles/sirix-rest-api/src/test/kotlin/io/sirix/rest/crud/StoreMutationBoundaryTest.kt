@@ -1,12 +1,16 @@
 package io.sirix.rest.crud
 
+import io.brackit.query.atomic.QNm
 import io.brackit.query.node.parser.DocumentParser
 import io.brackit.query.node.parser.NodeSubtreeParser
 import io.brackit.query.node.stream.ArrayStream
 import io.brackit.query.util.serialize.StringSerializer
 import io.sirix.access.Databases
+import io.sirix.access.ResourceConfiguration
 import io.sirix.access.trx.node.xml.XmlIndexController
 import io.sirix.io.StorageType
+import io.sirix.index.IndexDef
+import io.sirix.index.IndexDefs
 import io.sirix.query.json.BasicJsonDBStore
 import io.sirix.query.node.BasicXmlDBStore
 import io.sirix.rest.crud.json.JsonSessionDBStore
@@ -20,11 +24,13 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.HttpException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.Mockito
+import org.mockito.stubbing.Answer
 import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -32,11 +38,52 @@ import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 @Tag("offline")
 class StoreMutationBoundaryTest {
     @TempDir
     lateinit var directory: Path
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun xmlCreationCollisionRequiresModify(streaming: Boolean) {
+        val putCreated = AtomicBoolean()
+        lateinit var before: XmlWitness
+        BasicXmlDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build().use { delegate ->
+            val store = XmlSessionDBStore(context(), delegate, user("view", "create"), authorizations())
+            val putAtCreation = Answer<Any?> { invocation ->
+                if (invocation.method.name == "newBuilder" && invocation.getArgument<String>(0) == "resource1"
+                    && putCreated.compareAndSet(false, true)) {
+                    Databases.openXmlDatabase(directory.resolve("auth")).use { database ->
+                        assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource1")
+                            .storageType(StorageType.FILE_CHANNEL).build()))
+                        database.beginResourceSession("resource1").use { session ->
+                            session.beginNodeTrx().use { writer ->
+                                writer.insertElementAsFirstChild(QNm("root"))
+                                writer.insertTextAsFirstChild("preserved")
+                                session.getWtxIndexController<XmlIndexController>(writer.revisionNumber)
+                                    .createIndexes(setOf(IndexDefs.createNameIdxDef(0, IndexDef.DbType.XML)), writer)
+                                writer.commit()
+                            }
+                        }
+                    }
+                    before = xmlWitness(delegate)
+                }
+                invocation.callRealMethod()
+            }
+            Mockito.mockStatic(ResourceConfiguration::class.java, putAtCreation).use {
+                val failure = runCatching {
+                    val parser = DocumentParser("<root>replacement</root>")
+                    if (streaming) store.create("auth", ArrayStream(arrayOf<NodeSubtreeParser>(parser)))
+                    else store.create("auth", parser)
+                }.exceptionOrNull()
+                assertTrue(putCreated.get(), "The authorized PUT must create the resolved target before store creation")
+                assertEquals(before, xmlWitness(delegate), "A collision must preserve the resource created by PUT")
+                assertEquals(403, assertThrows(HttpException::class.java) { failure?.let { throw it } }.statusCode)
+            }
+        }
+    }
 
     @ParameterizedTest
     @ValueSource(ints = [1, 2, 3, 4, 5])

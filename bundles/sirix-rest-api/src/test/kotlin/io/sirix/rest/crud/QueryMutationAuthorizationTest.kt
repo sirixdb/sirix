@@ -2,9 +2,11 @@ package io.sirix.rest.crud
 
 import io.brackit.query.Query
 import io.brackit.query.atomic.QNm
+import io.brackit.query.atomic.Str
 import io.brackit.query.jdm.Sequence
 import io.brackit.query.jdm.Type
 import io.brackit.query.node.parser.DocumentParser
+import io.brackit.query.node.stream.ArrayStream
 import io.brackit.query.jsonitem.`object`.ArrayObject
 import io.brackit.query.util.path.Path as QueryPath
 import io.brackit.query.util.path.PathParser
@@ -53,12 +55,14 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.Mockito
+import org.mockito.stubbing.Answer
 import java.io.PrintWriter
 import java.io.IOException
 import java.io.StringWriter
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * A query mutates through more than XQuery Update expressions. Index DDL, `sdb:commit` and
@@ -477,6 +481,39 @@ class QueryMutationAuthorizationTest {
     }
 
     @ParameterizedTest
+    @CsvSource("query,records", "named,records", "generated,resource1", "strings,resource1")
+    fun storeCreationCollisionRequiresModify(entryPoint: String, resourceName: String) {
+        val putCreated = AtomicBoolean()
+        lateinit var before: Pair<Set<String>, Witness>
+        val putAtCreation = Answer<Any?> { invocation ->
+            if (invocation.method.name == "newBuilder" && invocation.getArgument<String>(0) == resourceName
+                && putCreated.compareAndSet(false, true)) {
+                createDatabase(resourceName = resourceName)
+                before = databaseWitness(resourceName)
+            }
+            invocation.callRealMethod()
+        }
+        withRoles("auth-view", "create") { fixture ->
+            Mockito.mockStatic(ResourceConfiguration::class.java, putAtCreation).use {
+                val failure = runCatching {
+                    when (entryPoint) {
+                        "query" -> run(fixture, "jn:store('auth','records','{}')", Mockito.mock(OAuth2Auth::class.java))
+                        "named" -> fixture.store.create("auth", resourceName, "{}")
+                        "generated" -> fixture.store.create("auth", null, "{}")
+                        "strings" -> fixture.store.createFromJsonStrings("auth", ArrayStream(arrayOf(Str("{}"))))
+                        else -> error(entryPoint)
+                    }
+                }.exceptionOrNull()
+                assertTrue(putCreated.get(), "The authorized PUT must create the resolved target before store creation")
+                val after = databaseWitness(resourceName)
+                assertEquals(before.first, after.first, "A collision must preserve the resource set")
+                assertWitnessUnchanged(before.second, after.second, entryPoint)
+                assertRefused(entryPoint) { failure?.let { throw it } }
+            }
+        }
+    }
+
+    @ParameterizedTest
     @CsvSource(
         "store,named", "store,existing", "store,generated", "store,multiple",
         "load,named", "load,existing", "load,generated", "load,multiple"
@@ -553,10 +590,10 @@ class QueryMutationAuthorizationTest {
         return "jn:$function('auth',$resource,$inputs)"
     }
 
-    private fun databaseWitness(): Pair<Set<String>, Witness> {
+    private fun databaseWitness(resourceName: String = "records"): Pair<Set<String>, Witness> {
         Databases.clearGlobalCaches()
         Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
-            database.beginResourceSession("records").use { session ->
+            database.beginResourceSession(resourceName).use { session ->
                 val state = witness(session)
                 assertNotNull(state.projectionMetadata, "The fixture must contain projection metadata")
                 return database.listResources().map { it.fileName.toString() }.toSet() to state

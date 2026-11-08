@@ -376,7 +376,9 @@ public final class BasicXmlDBStore implements XmlDBStore {
       final String resName = optResName != null
           ? optResName
           : "resource" + (database.listResources().size() + 1);
-      database.createResource(resourceOptions.create(resName, commitTimestamp));
+      if (!database.createResource(resourceOptions.create(resName, commitTimestamp))) {
+        MutationAuthorization.requireStore(collName, resName, true);
+      }
       final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database, resourceOptions);
       collections.put(database, collection);
 
@@ -417,8 +419,10 @@ public final class BasicXmlDBStore implements XmlDBStore {
         while ((parser = parsers.next()) != null) {
           final NodeSubtreeParser nextParser = parser;
           final String resourceName = "resource" + i++;
+          if (!database.createResource(resourceOptions.create(resourceName, null))) {
+            MutationAuthorization.requireStore(collName, resourceName, true);
+          }
           imports.add(importPool.submit(() -> {
-            database.createResource(resourceOptions.create(resourceName, null));
             try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
                 final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
               nextParser.parse(

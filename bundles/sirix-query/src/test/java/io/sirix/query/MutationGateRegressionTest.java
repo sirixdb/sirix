@@ -32,6 +32,29 @@ final class MutationGateRegressionTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
+  void restResourceCreationWaitsForStoreResourceHold(final boolean xml) throws Exception {
+    final Path path = directory.resolve("database");
+    assertTrue(create(path, xml));
+    try (var database = xml ? Databases.openXmlDatabase(path) : Databases.openJsonDatabase(path)) {
+      final FutureTask<Boolean> put = new FutureTask<>(
+          () -> database.createResource(ResourceConfiguration.newBuilder("./records").build()));
+      try (var gate = MutationGate.acquireResource(path, "records")) {
+        final Thread waiting = Thread.ofPlatform().daemon().start(put);
+        awaitWaiting(waiting);
+        assertFalse(put.isDone(), "REST creation must wait for a store operation on the same resource");
+        assertFalse(database.existsResource("records"), "PUT must not create a resource inside the store's hold");
+        assertTrue(database.createResource(ResourceConfiguration.newBuilder("independent").build()));
+        assertTrue(database.createResource(ResourceConfiguration.newBuilder("records").build()));
+      }
+      assertFalse(put.get(TIMEOUT_SECONDS, TimeUnit.SECONDS), "PUT must report the collision after the store releases");
+      assertTrue(database.existsResource("records"));
+      assertTrue(database.existsResource("independent"));
+    }
+    Databases.removeDatabase(path);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
   void existingDatabaseSymlinkSharesOneHold(final boolean resource) throws Exception {
     final Path physical = Files.createDirectories(directory.resolve("orders"));
     final Path alias = Files.createSymbolicLink(directory.resolve("alias"), physical);

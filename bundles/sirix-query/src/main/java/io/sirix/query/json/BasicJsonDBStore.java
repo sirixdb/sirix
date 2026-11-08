@@ -750,7 +750,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         resourceName = "resource" + (database.listResources().size() + 1);
       }
 
-      final var resourceOptions = createResource(options, database, resourceName);
+      final var resourceOptions = createResource(collName, options, database, resourceName);
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       addDatabase(collection, database);
@@ -838,10 +838,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
     throw (T) failure;
   }
 
-  private Options createResource(final Object options, final Database<JsonResourceSession> database,
-      final String resourceName) {
+  private Options createResource(final String collName, final Object options,
+      final Database<JsonResourceSession> database, final String resourceName) {
     final Options resourceOptions = OptionsFactory.createOptions(options, options());
-    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
+    if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
+      MutationAuthorization.requireStore(collName, resourceName, true);
+    }
     return resourceOptions;
   }
 
@@ -1029,7 +1031,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   private void createResource(String collName, final Database<JsonResourceSession> database, final JsonReader reader,
       final String resourceName, final Options resourceOptions) {
-    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
+    if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
+      MutationAuthorization.requireStore(collName, resourceName, true);
+    }
     try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
         final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
       wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
