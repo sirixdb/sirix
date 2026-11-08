@@ -86,8 +86,10 @@ final class JsonDBSerializerTest {
   }
 
   @ParameterizedTest
-  @CsvSource(delimiter = '|', value = {"()|[]", "1|[1]", "(1,true(),null,\"text\")|[1,true,null,\"text\"]",
-      "[1,2]|[[1,2]]", "{\"g\":[1,true(),null]}|[{\"g\":[1,true,null]}]"})
+  @CsvSource(delimiter = '|',
+      value = {"()|[]", "1|[1]", "(1,true(),null,\"text\")|[1,true,null,\"text\"]", "[1,2]|[[1,2]]",
+          "{\"g\":[1,true(),null]}|[{\"g\":[1,true,null]}]",
+          "({\"g\":1},\"text\",[2],{\"g\":[3]},{\"g\":4})|[{\"g\":1},\"text\",[2],{\"g\":[3]},{\"g\":4}]"})
   void supportedResultsRemainValidJson(final String query, final String expected) {
     final Sequence result = new Query(query).execute(new BrackitQueryContext());
     final StringBuilder output = new StringBuilder();
