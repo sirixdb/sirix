@@ -113,17 +113,14 @@ public final class Store extends AbstractFunction {
         options = new ArrayObject(new QNm[0], new Sequence[0]);
       }
 
-      // Before the store is touched and before any input is read: storing and loading mutate but
-      // are not updating expressions, so this is the only check standing between a caller
-      // without write permission and the write.
+      // Store/load are ordinary function calls, so require CREATE before touching the store or
+      // reading input; the query-level updating-expression check does not cover them.
       MutationAuthorization.requireCreate(ctx, collectionName, resourceName);
 
       // Only the create path can replace the whole database, so only it takes the exclusive
       // database hold. Appending into an existing collection takes nothing here: each target's
       // check and write are ordered on that resource's own hold, inside the collection, so two
-      // callers writing different resources of one database never wait on each other. The gate
-      // orders operations; it does not take ownership of sessions or sources, so the streaming
-      // lifecycle and its cleanup are untouched.
+      // callers writing different resources of one database never wait on each other.
       final Path databaseDirectory = store.databaseDirectory(collectionName);
       final boolean mayReplaceDatabase = createIfNotExists || store.lookup(collectionName) == null;
       try (var gate = databaseDirectory == null || !mayReplaceDatabase

@@ -3,7 +3,7 @@ package io.sirix.query;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Authorizes a mutation that a query is about to perform on one resource.
+ * Authorizes a mutation that a query is about to perform on a database or one of its resources.
  *
  * <p>
  * A query store implements this when the caller's identity decides whether a mutation may happen at

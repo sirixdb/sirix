@@ -22,7 +22,7 @@ import java.util.List;
  * The brackit {@link TemporalJsonCollection} supertype already declares the standard collection
  * operations ({@code getDocument*}, {@code getDocuments}, {@code getDocumentCount}, {@code add},
  * {@code delete}, {@code remove}, {@code getName}); this interface only adds the Sirix-specific
- * accessors and the resource-named {@code add} overloads.
+ * accessors, resource-named {@code add} overloads and batch append operations.
  */
 public interface JsonDBCollection extends TemporalJsonCollection<JsonDBItem>, AutoCloseable {
 

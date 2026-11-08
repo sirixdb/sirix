@@ -919,8 +919,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
-  private JsonDBCollection createCollection(final String collName, final List<? extends Callable<JsonReader>> partitions,
-      final Object options) {
+  private JsonDBCollection createCollection(final String collName,
+      final List<? extends Callable<JsonReader>> partitions, final Object options) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try (var gate = MutationGate.acquireDatabase(dbPath)) {

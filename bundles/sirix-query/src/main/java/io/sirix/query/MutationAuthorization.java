@@ -8,14 +8,20 @@ import java.util.Objects;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Resolves the {@link MutationAuthorizer} a query context was built with, and asks it to authorize
- * a mutation before that mutation takes effect.
+ * Resolves and propagates the caller's {@link MutationAuthorizer} to authorize a mutation before it
+ * takes effect.
  *
  * <p>
- * The authorizer is looked up on the context's store rather than on the item being mutated: a store
- * decorator carrying the caller's identity reaches a query through the context, while the
- * collection and item a decorator hands out delegate {@code getJsonDBStore()} straight to the
- * undecorated store, so an item cannot name the caller.
+ * Document mutation guards look up the authorizer on the context's store rather than on the item
+ * being mutated: a store decorator carrying the caller's identity reaches a query through the
+ * context, while the collection and item a decorator hands out delegate {@code getJsonDBStore()}
+ * straight to the undecorated store, so an item cannot name the caller.
+ * </p>
+ *
+ * <p>
+ * REST store and collection decorators bind the same authorizer with {@link #where}, so shared
+ * lifecycle code can check the actual creation, replacement or write target without a query
+ * context.
  * </p>
  *
  * <p>

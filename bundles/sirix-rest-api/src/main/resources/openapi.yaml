@@ -44,6 +44,14 @@ info:
     `orders-modify` does not authorize a mutation of `tenant-b/orders`.
     Missing mutation permission returns 403 and leaves pending work intact.
 
+    `jn:store`, `jn:load` and `xn:store` require `create` permission.
+    Replacing an existing database additionally requires `delete`, even when
+    the requested resource does not exist. When appending, `modify` is also
+    required if the resolved resource target already exists; generated or
+    adjusted resource names are checked against their actual targets. These
+    checks accept global roles or the corresponding `{database}-<role>` for
+    the full collection name.
+
     Local development only: starting the server with `auth.mode=none` (or
     `SIRIX_AUTH_MODE=none`) disables authentication entirely — every request
     then runs with all permissions and no `Authorization` header is required.

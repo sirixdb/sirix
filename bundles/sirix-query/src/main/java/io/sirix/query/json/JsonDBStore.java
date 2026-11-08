@@ -22,9 +22,9 @@ public interface JsonDBStore extends JsonStore, AutoCloseable {
    * The database directory {@code name} resolves to, or {@code null} when this store cannot name one.
    *
    * <p>
-   * A guarded mutation holds {@link DatabaseMutationGate} on this path across its authorization check
-   * and its write, so a concurrent create, replace or remove cannot come between them. A store that
-   * answers {@code null} is not participating in that ordering.
+   * A guarded mutation holds {@link MutationGate} on this path across its authorization check and its
+   * write, so a concurrent create, replace or remove cannot come between them. A store that answers
+   * {@code null} is not participating in that ordering.
    * </p>
    */
   default Path databaseDirectory(final String name) {

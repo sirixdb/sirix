@@ -125,17 +125,20 @@ public final class MutationGate {
     }
   }
 
-  private static <L> Entry<L> retain(final Map<Path, Entry<L>> registry, final Path path,
-      final Supplier<L> factory) {
+  private static <L> Entry<L> retain(final Map<Path, Entry<L>> registry, final Path path, final Supplier<L> factory) {
     return registry.compute(path, (key, current) -> {
-      final Entry<L> entry = current == null ? new Entry<>(factory.get()) : current;
+      final Entry<L> entry = current == null
+          ? new Entry<>(factory.get())
+          : current;
       entry.users++;
       return entry;
     });
   }
 
   private static <L> void release(final Map<Path, Entry<L>> registry, final Path path) {
-    registry.computeIfPresent(path, (key, entry) -> --entry.users == 0 ? null : entry);
+    registry.computeIfPresent(path, (key, entry) -> --entry.users == 0
+        ? null
+        : entry);
   }
 
   private static final class Entry<L> {
