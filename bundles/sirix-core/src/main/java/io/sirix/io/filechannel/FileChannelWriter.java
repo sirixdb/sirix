@@ -673,9 +673,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       final int pageAlignmentPadding = offset % PAGE_FRAGMENT_BYTE_ALIGN != 0
           ? (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)))
           : 0;
-      if (pageAlignmentPadding > 0) {
-        bufferedBytes.writePosition(bufferedBytes.writePosition() + pageAlignmentPadding);
-      }
+      writeAlignmentPadding(bufferedBytes, pageAlignmentPadding);
       bufferedBytes.writeInt(length);
       bufferedBytes.writeSegment(MemorySegment.ofArray(scratch), 0, length);
       if (bufferedBytes.writePosition() > FLUSH_SIZE) {
@@ -1071,6 +1069,20 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     return hftDataAllocationGrowNanos;
   }
 
+  /**
+   * Write the alignment padding in front of a page frame as zeros. The padding used to be skipped,
+   * which left whatever the append buffer held at those offsets: zeros in a fresh heap buffer, the
+   * previous flush's bytes in a reused one. The append buffer is borrowed allocator scratch now, so a
+   * skip would write its previous borrower's bytes (another resource's page, a read buffer) into the
+   * data file and make the file's bytes depend on what else the process did. At most
+   * {@link #PAGE_FRAGMENT_BYTE_ALIGN}{@code  - 1} bytes.
+   */
+  private static void writeAlignmentPadding(final BytesOut<?> bufferedBytes, final int padding) {
+    for (int i = 0; i < padding; i++) {
+      bufferedBytes.writeByte((byte) 0);
+    }
+  }
+
   private static void writeToBufferedBytes(BytesOut<?> bufferedBytes, byte[] serializedPageBytes,
       MemorySegment serializedPageSegment, int serializedPageLength) {
     if (serializedPageSegment != null) {
@@ -1354,8 +1366,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         pageHash = pageOwnedFrame
             ? XXH3_PAGE_HASH.hashMemory(serializedPageSegment.address(), serializedPageSegment.byteSize())
             : PageHasher.computeLong(serializedPageSegment, PageHasher.DEFAULT_ALGORITHM);
-        if (!(page instanceof UberPage) && offsetToAdd > 0) {
-          bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
+        if (!(page instanceof UberPage)) {
+          writeAlignmentPadding(bufferedBytes, offsetToAdd);
         }
         bufferedBytes.writeInt(serializedPageLength);
         writeToBufferedBytes(bufferedBytes, serializedPageBytes, serializedPageSegment, serializedPageLength);
@@ -1372,8 +1384,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
 
     if (!payloadBuffered) {
-      if (!(page instanceof UberPage) && offsetToAdd > 0) {
-        bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
+      if (!(page instanceof UberPage)) {
+        writeAlignmentPadding(bufferedBytes, offsetToAdd);
       }
       bufferedBytes.writeInt(serializedPageLength);
       writeToBufferedBytes(bufferedBytes, serializedPageBytes, serializedPageSegment, serializedPageLength);

@@ -39,12 +39,14 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.PageGuard;
+import io.sirix.cache.ScratchUse;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.io.IOStorage;
 import io.sirix.io.SharedArenas;
 import io.sirix.io.filechannel.FileChannelWriter;
+import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.PooledBytesOut;
 import io.sirix.node.PooledGrowingSegment;
 import io.sirix.index.IndexType;
@@ -1145,7 +1147,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         System.identityHashCode(log), log);
     LEAK_CLEANER.register(this, leakDetectorState);
     // Acquire native scratch only after every fallible heap initialization has completed.
-    bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
+    bufferBytes = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE * 2L, ScratchUse.COMMIT_FLUSH);
     storageEngineReader.bindTransactionView(this);
   }
 
@@ -1286,14 +1288,31 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public BytesOut<?> newBufferedBytesInstance() {
-    // The previous buffer is finished the moment a new one is handed out, so recycle it instead of
-    // dropping it: this ran once per COMMIT, allocating a fresh off-heap segment each time and
-    // leaving the old one for the arena to reclaim eventually. recycleOrRelease keeps it only if it
-    // is small enough, so a commit that grew the segment releases rather than pins it.
-    Bytes.recycleOrRelease(bufferBytes);
-    bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+    // The previous buffer is finished the moment a new one is handed out, and this writer is its
+    // only user, so the next commit continues in the same borrowed scratch, cleared. Only a buffer
+    // that one commit grew past MAX_RETAINED_FLUSH_BUFFER_BYTES is exchanged: it goes back to the
+    // allocator, which may keep it resident for whoever needs that capacity next, instead of
+    // staying borrowed by this writer for as long as it lives.
+    final BytesOut<?> previous = bufferBytes;
+    if (previous instanceof MemorySegmentBytesOut flushBuffer
+        && flushBuffer.capacity() <= MAX_RETAINED_FLUSH_BUFFER_BYTES) {
+      flushBuffer.clear();
+      return flushBuffer;
+    }
+    bufferBytes = null;
+    if (previous != null) {
+      previous.close();
+    }
+    bufferBytes = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
     return bufferBytes;
   }
+
+  /**
+   * Largest flush buffer this writer keeps borrowed from one commit to the next. A commit that
+   * serialized an unusually large page tail leaves a correspondingly large buffer; anything above
+   * this is returned to the allocator instead.
+   */
+  private static final long MAX_RETAINED_FLUSH_BUFFER_BYTES = 4L * 1024 * 1024;
 
   @Override
   public int getRevisionToRepresent() {
@@ -3214,7 +3233,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (ownsRetainedAppendBuffer) {
         BytesOut<?> retained = retainedAppendBuffer;
         if (retained == null) {
-          retained = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+          retained = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
           retainedAppendBuffer = retained;
         }
         // Clear on ACQUIRE, not only on release: a previous epoch that failed mid-append must not
@@ -3222,7 +3241,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         retained.clear();
         bgBuffer = retained;
       } else {
-        bgBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+        bgBuffer = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
       }
       final PageReference shadowRef = new PageReference();
       try {
@@ -5417,12 +5436,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     }
 
-    // Detach first: even if pool release itself fails, this writer must not retain the off-heap root.
+    // Detach first: even if the return itself fails, this writer must not retain the off-heap root.
     final BytesOut<?> closeBuffer = bufferBytes;
     bufferBytes = null;
     if (closeBuffer != null) {
       try {
-        Bytes.recycleOrRelease(closeBuffer);
+        closeBuffer.close();
         injectAsyncFlushFault("close-after-buffer-release");
       } catch (final Throwable t) {
         teardownFailure = retainFirstFailure(teardownFailure, t);
@@ -6427,13 +6446,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile long flushEpoch;
 
   /**
-   * Whether the sole append owner reuses one off-heap append buffer across flush epochs instead of
-   * allocating a {@link Writer#FLUSH_SIZE} buffer per epoch.
+   * Whether the sole append owner keeps one append buffer borrowed across flush epochs instead of
+   * borrowing a {@link Writer#FLUSH_SIZE} buffer per epoch.
    *
    * <p>
-   * The allocation profile put 0.40 GB per 1M-row load on this one statement — a fresh buffer for
-   * every epoch, on a lane that by construction has exactly ONE owner at a time. Kill switch
-   * {@code -Dsirix.flush.retainAppendBuffer=false} restores the per-epoch allocation.
+   * The allocation profile put 0.40 GB per 1M-row load on this one statement — a fresh heap buffer
+   * for every epoch, on a lane that by construction has exactly ONE owner at a time. The buffer is
+   * allocator scratch now, so an epoch that borrows its own reuses a resident one; keeping the borrow
+   * still saves the borrow and its wrapper per epoch. Kill switch
+   * {@code -Dsirix.flush.retainAppendBuffer=false} restores the per-epoch borrow.
    * </p>
    */
   private static final boolean RETAIN_APPEND_BUFFER =

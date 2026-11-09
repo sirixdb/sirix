@@ -21,6 +21,7 @@ import static org.mockito.Mockito.when;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.ScratchUse;
 import io.sirix.io.IOStorage;
 import io.sirix.io.IOTestHelper;
 import io.sirix.io.PageHasher;
@@ -91,6 +92,51 @@ final class FileChannelWriterEmptyPipelineTest {
       append.clear();
       writer.write(config, new PageReference(), fresh, append);
       assertBufferedFrame(append.toByteArray(), 0, expected);
+    } finally {
+      storage.close();
+    }
+  }
+
+  @Test
+  void alignmentPaddingIsZeroWhateverTheBorrowedAppendBufferHeldBefore(@TempDir final Path tempDir) {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    final byte[] firstBody = serialize(config, new OverflowPage(patternedBytes(257, 17)));
+    final byte[] secondBody = serialize(config, new OverflowPage(patternedBytes(733, 91)));
+    final byte[] thirdBody = serialize(config, new OverflowPage(patternedBytes(64, 5)));
+    final PageReference firstReference = new PageReference();
+    final PageReference secondReference = new PageReference();
+    final PageReference thirdReference = new PageReference();
+    final FileChannelStorage storage = createStorage(config);
+    try (MemorySegmentBytesOut append = MemorySegmentBytesOut.ofScratch(16 * 1024, ScratchUse.COMMIT_FLUSH);
+        Writer writer = storage.createWriter()) {
+      // Scratch is not zeroed: leave the bytes a previous borrower would have left.
+      final byte[] residue = new byte[Math.toIntExact(append.capacity())];
+      Arrays.fill(residue, (byte) 0x5A);
+      append.write(residue);
+      append.clear();
+
+      writer.write(config, firstReference, new OverflowPage(patternedBytes(257, 17)), append);
+      writer.write(config, secondReference, new OverflowPage(patternedBytes(733, 91)), append);
+      writer.write(config, thirdReference, new OverflowPage(patternedBytes(64, 5)), append);
+
+      final byte[] buffered = append.toByteArray();
+      final long base = firstReference.getKey();
+      final PageReference[] references = {firstReference, secondReference, thirdReference};
+      final byte[][] bodies = {firstBody, secondBody, thirdBody};
+      int paddingBytes = 0;
+      int frameEnd = 0;
+      for (int i = 0; i < references.length; i++) {
+        final int frameStart = Math.toIntExact(references[i].getKey() - base);
+        assertEquals(0, references[i].getKey() % Writer.PAGE_FRAGMENT_BYTE_ALIGN, "frames are aligned");
+        for (int offset = frameEnd; offset < frameStart; offset++) {
+          assertEquals(0, buffered[offset], "padding byte at " + offset + " carries the buffer's previous contents");
+          paddingBytes++;
+        }
+        assertBufferedFrame(buffered, frameStart, bodies[i]);
+        frameEnd = frameStart + Integer.BYTES + bodies[i].length;
+      }
+      assertEquals(frameEnd, buffered.length, "nothing follows the last frame");
+      assertTrue(paddingBytes > 0, "the fixture's frame lengths must leave alignment gaps, or this checks nothing");
     } finally {
       storage.close();
     }

@@ -4,6 +4,9 @@
 package io.sirix.budget;
 
 import io.sirix.access.trx.node.AbstractResourceSession;
+import io.sirix.cache.Allocators;
+import io.sirix.cache.ScratchStats;
+import io.sirix.cache.ScratchUse;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.PageCache;
 import io.sirix.io.filechannel.FileChannelReader;
@@ -24,6 +27,7 @@ import io.sirix.settings.VersioningType;
 import io.sirix.utils.ReplayWorkDiagnostics;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.function.LongSupplier;
 
 /**
@@ -41,6 +45,54 @@ public final class EngineWorkCounters {
   private EngineWorkCounters() {
     throw new AssertionError("no instances");
   }
+
+  private static ScratchStats scratch() {
+    return Allocators.getInstance().scratchStats();
+  }
+
+  private static WorkCounter scratchBorrows(final ScratchUse use, final String what) {
+    return WorkCounter.alwaysOn("scratch.borrows." + use.name().toLowerCase(Locale.ROOT),
+        "scratch buffers borrowed from the allocator for " + what, () -> scratch().acquisitions(use));
+  }
+
+  /** Borrows for the bytes a page, run, region or revision read lands in. */
+  public static final WorkCounter SCRATCH_READ_BORROWS = scratchBorrows(ScratchUse.READ, "a read to land in");
+
+  /** Borrows for page serialization, one per page plus one per growth. */
+  public static final WorkCounter SCRATCH_SERIALIZATION_BORROWS =
+      scratchBorrows(ScratchUse.SERIALIZATION, "a page to be serialized into");
+
+  /** Borrows for a storage writer's flush and append buffers. */
+  public static final WorkCounter SCRATCH_COMMIT_FLUSH_BORROWS =
+      scratchBorrows(ScratchUse.COMMIT_FLUSH, "a storage writer's flush or append buffer");
+
+  /**
+   * Scratch buffers given fresh backing because no resident buffer of their capacity was idle. Zero
+   * over a warm path: the allocator kept what the path returned before.
+   */
+  public static final WorkCounter SCRATCH_BUFFERS_CREATED = WorkCounter.alwaysOn("scratch.created",
+      "scratch buffers the allocator gave fresh backing instead of lending a resident one",
+      () -> scratch().totalCreated());
+
+  /**
+   * Scratch buffers a lease holds. A gauge: over a capture it reads how many more buffers are lent
+   * after the captured work than before it, so zero means the work returned everything it borrowed.
+   */
+  public static final WorkCounter SCRATCH_BUFFERS_LENT = WorkCounter.alwaysOn("scratch.lent",
+      "scratch buffers lent now; over a capture, the buffers it left lent", () -> scratch().totalLentBuffers());
+
+  /** Borrows refused because the allocator's budget had no room. */
+  public static final WorkCounter SCRATCH_REFUSALS = WorkCounter.alwaysOn("scratch.refusals",
+      "scratch borrows the allocator's budget had no room for", () -> scratch().refusals());
+
+  /** Returns rejected because the buffer had been returned already: a double release somewhere. */
+  public static final WorkCounter SCRATCH_STALE_RETURNS = WorkCounter.alwaysOn("scratch.staleReturns",
+      "scratch returns rejected as stale or repeated", () -> scratch().staleReleases());
+
+  /** Every scratch counter, for a capture that guards how a path uses the allocator's buffers. */
+  public static final List<WorkCounter> SCRATCH =
+      List.of(SCRATCH_READ_BORROWS, SCRATCH_SERIALIZATION_BORROWS, SCRATCH_COMMIT_FLUSH_BORROWS,
+          SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
 
   public static final WorkCounter TEMPORAL_GROUP_HEADS_VISITED = WorkCounter.gated("temporal.groupHeadsVisited",
       "one dictionary head counted during admission", TemporalAggregateStorage::groupHeadsVisited,

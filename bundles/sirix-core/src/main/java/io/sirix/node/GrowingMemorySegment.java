@@ -1,5 +1,9 @@
 package io.sirix.node;
 
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
+import org.jspecify.annotations.Nullable;
+
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -8,9 +12,16 @@ import java.util.Arrays;
 /**
  * A wrapper around MemorySegment that automatically grows when writes exceed the current capacity.
  * <p>
- * <b>Memory Management:</b> Uses heap-backed MemorySegments (via MemorySegment.ofArray) for
- * temporary buffers. This avoids Arena.ofAuto() proliferation while ensuring memory is properly
- * reclaimed by GC when the segment is no longer referenced.
+ * <b>Memory Management:</b> three backings, chosen at construction.
+ * <ul>
+ * <li><b>Heap</b> (the default): a {@code byte[]} behind {@link MemorySegment#ofArray}, for small
+ * temporary encodes. Reclaimed by the GC; {@link #close()} does nothing.</li>
+ * <li><b>Allocator scratch</b> ({@link #ofScratch}): native memory borrowed through a
+ * {@link ScratchLease}, for buffers that are large or written to a file. Growth borrows the next
+ * capacity, carries the written prefix over and returns the smaller buffer; {@link #close()}
+ * returns the borrow, and nothing read from the segment may be used after it.</li>
+ * <li><b>Arena</b>: native memory of an arena the caller manages.</li>
+ * </ul>
  * <p>
  * All node classes use UNALIGNED ValueLayouts, so heap-backed segments work correctly without
  * alignment requirements.
@@ -29,6 +40,12 @@ public class GrowingMemorySegment {
   private static final int SMALL_USED_VIEW_CACHE_LIMIT = 16;
 
   private final Arena arena;
+
+  /**
+   * Holds the borrowed buffer of a scratch-backed segment; {@code null} for heap and arena backing.
+   */
+  private final @Nullable ScratchLease lease;
+
   private MemorySegment segment;
   private long position;
   private long capacity;
@@ -65,6 +82,7 @@ public class GrowingMemorySegment {
    */
   public GrowingMemorySegment(int initialCapacity) {
     this.arena = null; // No arena needed for heap-backed segments
+    this.lease = null;
     this.heapBacked = true;
     this.capacity = initialCapacity;
     // Use heap-backed segment - no Arena needed, GC handles cleanup
@@ -81,6 +99,7 @@ public class GrowingMemorySegment {
    */
   public GrowingMemorySegment(Arena arena, int initialCapacity) {
     this.arena = arena;
+    this.lease = null;
     this.heapBacked = false;
     this.capacity = initialCapacity;
     // Allocate with explicit 8-byte alignment for optimal performance
@@ -101,6 +120,7 @@ public class GrowingMemorySegment {
     }
 
     this.arena = null;
+    this.lease = null;
     this.heapBacked = true;
     this.capacity = size;
     // Use heap-backed segment
@@ -109,6 +129,28 @@ public class GrowingMemorySegment {
 
     // Copy data from existing segment
     MemorySegment.copy(existingSegment, 0, this.segment, 0, size);
+  }
+
+  private GrowingMemorySegment(final ScratchLease lease) {
+    this.arena = null;
+    this.lease = lease;
+    this.heapBacked = false;
+    this.segment = lease.segment();
+    this.capacity = segment.byteSize();
+    this.position = 0;
+  }
+
+  /**
+   * Create a GrowingMemorySegment in allocator scratch of at least {@code initialCapacity} bytes. The
+   * memory is charged to the allocator's budget and must be returned with {@link #close()}.
+   *
+   * @param initialCapacity the bytes to borrow up front; positive
+   * @param use what the buffer is borrowed for
+   * @return the segment
+   * @throws OutOfMemoryError when the allocator's budget cannot serve the borrow
+   */
+  public static GrowingMemorySegment ofScratch(final long initialCapacity, final ScratchUse use) {
+    return new GrowingMemorySegment(new ScratchLease().acquire(initialCapacity, use));
   }
 
   /**
@@ -140,6 +182,19 @@ public class GrowingMemorySegment {
       newCapacity = Integer.MAX_VALUE;
     }
 
+    // Existing data to carry over (up to current position)
+    long bytesToCopy = Math.min(position, capacity);
+
+    if (lease != null) {
+      // The lease borrows the larger buffer, copies the prefix, then returns the smaller one. A
+      // closed segment has no lease to grow and fails here.
+      lease.grow(newCapacity, bytesToCopy);
+      this.segment = lease.segment();
+      this.capacity = segment.byteSize();
+      invalidateUsedViews();
+      return;
+    }
+
     // Allocate new larger segment
     MemorySegment newSegment;
     if (heapBacked) {
@@ -150,8 +205,6 @@ public class GrowingMemorySegment {
       newSegment = arena.allocate(newCapacity, ALIGNMENT);
     }
 
-    // Copy existing data to new segment (copy up to current position)
-    long bytesToCopy = Math.min(position, capacity);
     if (bytesToCopy > 0) {
       MemorySegment.copy(segment, 0, newSegment, 0, bytesToCopy);
     }
@@ -537,12 +590,18 @@ public class GrowingMemorySegment {
   }
 
   /**
-   * No-op close method for compatibility. Since this uses Arena.ofAuto(), memory is automatically
-   * released by the garbage collector when the GrowingMemorySegment is no longer reachable. Explicit
-   * closing is not possible with automatic arenas.
+   * Return a scratch-backed segment's borrow to the allocator; idempotent. The segment is empty
+   * afterwards and a write to it fails. Heap memory is reclaimed by the garbage collector and an
+   * arena by its owner, so for those this does nothing.
    */
   public void close() {
-    // No-op: Arena.ofAuto() is managed by GC
+    if (lease != null) {
+      lease.close();
+      this.segment = EMPTY_SEGMENT;
+      this.capacity = 0;
+      this.position = 0;
+      invalidateUsedViews();
+    }
   }
 
   /**
@@ -555,6 +614,9 @@ public class GrowingMemorySegment {
     if (heapBacked) {
       // Heap-backed segments are always alive while reachable
       return true;
+    }
+    if (lease != null) {
+      return lease.isHeld();
     }
     return arena.scope().isAlive();
   }
