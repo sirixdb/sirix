@@ -1252,8 +1252,8 @@ evidence shows `groupDense=0` and `sortedGroupBys=1`.
 `io/filechannel/FileChannelReader.java`:
 
 - **Single read** (`:363-420`): one pread of `sirix.filechannel.pagePrefixBytes` (1024) → u32 length → if the body fits,
-  no second pread → checksum → deserialize from the pooled direct buffer (2 × CPUs buffers of 128 KiB, lock-free CAS
-  slots, `:153-263`).
+  no second pread → checksum → deserialize from the borrowed scratch buffer (a `ScratchLease` on the allocator:
+  a 128 KiB frame slot for an ordinary page, kept resident between reads; the reader pools nothing itself).
 - **Batched read** (`:576-690`, `:867-939`):
   1. sort the batch into file order (the comment cites 5× re-coverage with zig-zag order);
   2. snapshot the file size once (`sirix.filechannel.batchFileSize`);
@@ -1939,8 +1939,9 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 | `sirix.filechannel.coalesceGapBytes` | 64 KiB | largest gap merged into one ranged read | `:557` |
 | `sirix.filechannel.coalesceSpanBytes` | 8 MiB | largest coalesced span | `:560` |
 | `sirix.filechannel.pagePrefixBytes` | 1024 (4..64 KiB) | first speculative pread size | `:233-234` |
-| `sirix.filechannel.bufferBytes` | 128 KiB (64 KiB..16 MiB) | pooled direct read buffer size | `:229-230` |
-| `sirix.filechannel.lockFreeBuffers` | T | CAS-slot buffer pool | `:155` |
+| `sirix.filechannel.bufferBytes` | 128 KiB (64 KiB..16 MiB) | floor of every read's scratch-buffer request | `FileChannelReader.BUFFER_BYTES` |
+| `sirix.allocator.scratchIdleBuffers` | 2 × CPUs within 8..64 | idle scratch buffers the allocator keeps resident per capacity | `cache/FrameScratch.java` |
+| `sirix.allocator.scratchReserveBytes` | a quarter of the oversized headroom, ≤ 256 MiB | end of the allocator budget only scratch buffers may commit | `cache/FrameSlotAllocator.java` |
 | `sirix.filechannel.batchFileSize` | T | snapshot file size once per batch | `:563` |
 | `sirix.filechannel.borrowBatchInput` | value of `sirix.io.borrowOverflowInput` (so on, every runtime) | decode run members from span slices; an explicit value wins | `:80`; `io/AbstractReader.java:49-58`, `:60-73` |
 | `sirix.io.borrowOverflowInput` | on, every runtime | decode overflow pages from the borrowed read segment; also the default for the batch switch above | `io/AbstractReader.java:49-58`, `:64-65` |

@@ -245,7 +245,7 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.filechannel.prefetchBatch` | `32` | References per advisory `prefetch` batch, clamped to 0–1,024; 0 disables the advisory route. |
 | `sirix.projection.reuseWorkerProofCache` | `true` | Retain worker proof caches across subchunks; false restores invocation-local caches. |
 | `sirix.filechannel.batchFileSize` | `true` | Reuse one allocation bound within each batch. |
-| `sirix.filechannel.lockFreeBuffers` | `true` | Use atomic buffer slots; false restores the bounded queue. |
+| `sirix.filechannel.bufferBytes` | `131072` | Floor of every read's scratch-buffer request, clamped to 64 KiB–16 MiB, so ordinary page reads share one allocator capacity. |
 | `sirix.io.borrowOverflowInput` | `true` | Borrow overflow input only for an empty byte pipeline; false restores the owned temporary frame and, unless the batch switch is set, owned batch input. |
 | `sirix.filechannel.borrowBatchInput` | value of `sirix.io.borrowOverflowInput` | Decode coalesced page views while the read buffer remains exclusively owned; an explicit value overrides the overflow switch. |
 | `sirix.projection.batchPhysicalOrder` | `true` | Batch fence reads for bounded, dense committed physical orders. |
@@ -280,8 +280,12 @@ Build and write controls apply while a projection is built or a load flushes pag
 ## Validation entry points
 
 `FileChannelReaderBatchBoundsTest` checks body boundaries, checksum rejection, buffer reuse,
-append/truncation visibility, and stream-handler compatibility. `FileChannelBufferPoolTest` checks
-bounded retention, concurrent ownership, and memory publication with heap and direct buffers.
+append/truncation visibility, and stream-handler compatibility. The reader keeps no buffers of its
+own: every read borrows allocator scratch through a `ScratchLease`. `ScratchLeaseTest` checks the
+capacities, the budget and its scratch reserve, bounded resident reuse, exact-once return and
+concurrent ownership; `FileChannelReadScratchTest` checks that page, region and coalesced reads
+reuse resident buffers, return them on every failure path, and fall back to page reads when a span
+is refused.
 `FileChannelReadAheadTest` exercises real files, caller order across advisory windows, appends,
 corruption and truncation, plus unsupported-channel and invalid-hint handling.
 `ProjectionStringIdentityRegistryTest` forces fingerprint collisions, including after cache reuse

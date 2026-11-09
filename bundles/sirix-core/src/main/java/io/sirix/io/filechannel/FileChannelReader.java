@@ -25,6 +25,9 @@ import com.github.benmanes.caffeine.cache.Cache;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import io.sirix.HftBoundaryTelemetry;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractReader;
@@ -53,19 +56,13 @@ import java.util.concurrent.atomic.LongAdder;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * File Reader. Used for {@link StorageEngineReader} to provide read only access on a
@@ -153,285 +150,12 @@ public final class FileChannelReader extends AbstractReader {
   private final AtomicBoolean closed = new AtomicBoolean();
 
   /**
-   * Direct-ByteBuffer pool for page reads. Atomic slot ownership avoids a common queue lock both
-   * during acquisition and return. No buffer is shared while a reader decompresses or deserializes.
-   *
-   * <p>
-   * Retained buffers are bounded by POOL_SIZE and by {@link #POOLED_BUFFER_BYTES_LIMIT}, independent
-   * of platform or virtual thread count. An exhausted pool permits a transient allocation. The pool
-   * is size-aware: a borrower names the capacity it needs and receives the smallest pooled buffer
-   * that fits, and a buffer returned to a full pool displaces a smaller pooled one, so the pool
-   * converges on the capacities the reads use. Before that, a coalesced run of several MiB missed the
-   * 128 KiB buffers on every read, allocated a fresh direct buffer and dropped it on return: 17 MB of
-   * direct allocation per query on a 50 ms query, re-faulted after every GC cycle.
-   */
-  private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
-  private static final BufferPool BUF_POOL;
-
-  /** Fresh direct buffers allocated because no pooled buffer fit; diagnostics and tests. */
-  private static final LongAdder POOL_MISSES = new LongAdder();
-
-  /**
-   * Bounded unordered pool: FIFO ordering is unnecessary for exclusive scratch-buffer ownership. The
-   * retained-bytes bound is best-effort under contention (a concurrent return may exceed it by one
-   * buffer transiently) and never a correctness boundary.
-   */
-  static final class BufferPool {
-    // Four-byte references leave at least two cache lines between active slots. The sparse
-    // array is small (two slots per processor); separate workers normally reuse separate slots.
-    private static final int SLOT_STRIDE = 32;
-    private static final VarHandle SLOTS = MethodHandles.arrayElementVarHandle(ByteBuffer[].class);
-    private final int capacity;
-    private final int slotCount;
-    private final long maxRetainedBytes;
-    private final AtomicLong retainedBytes = new AtomicLong();
-    private final ByteBuffer @Nullable [] slots;
-    private final @Nullable ArrayBlockingQueue<ByteBuffer> queue;
-
-    BufferPool(final int capacity, final boolean lockFree) {
-      this(capacity, lockFree, Long.MAX_VALUE);
-    }
-
-    /**
-     * @param capacity the number of buffers the pool keeps at most
-     * @param lockFree atomic slots ({@code true}) or a bounded queue
-     * @param maxRetainedBytes the bytes of pooled buffers the pool keeps at most
-     */
-    BufferPool(final int capacity, final boolean lockFree, final long maxRetainedBytes) {
-      if (capacity < 1 || capacity > Integer.MAX_VALUE / SLOT_STRIDE) {
-        throw new IllegalArgumentException("invalid buffer pool capacity: " + capacity);
-      }
-      if (maxRetainedBytes < 1) {
-        throw new IllegalArgumentException("invalid buffer pool byte bound: " + maxRetainedBytes);
-      }
-      this.capacity = capacity;
-      this.slotCount = capacity * SLOT_STRIDE;
-      this.maxRetainedBytes = maxRetainedBytes;
-      this.slots = lockFree
-          ? new ByteBuffer[slotCount]
-          : null;
-      this.queue = lockFree
-          ? null
-          : new ArrayBlockingQueue<>(capacity);
-    }
-
-    /** Bytes of the pooled buffers (approximate while borrowers and returns race). */
-    long retainedBytes() {
-      return retainedBytes.get();
-    }
-
-    /** Any pooled buffer, or {@code null} when the pool is empty. */
-    @Nullable
-    ByteBuffer poll() {
-      return poll(0);
-    }
-
-    /**
-     * The smallest pooled buffer whose capacity is at least {@code minCapacity}, or {@code null} when
-     * none fits; a buffer too small for this read stays pooled for the reads it does fit.
-     */
-    @Nullable
-    ByteBuffer poll(final int minCapacity) {
-      if (queue != null) {
-        return pollQueued(minCapacity);
-      }
-      for (int attempt = 0; attempt < 2; attempt++) {
-        int best = -1;
-        int bestCapacity = Integer.MAX_VALUE;
-        int slot = start();
-        for (int remaining = capacity; remaining > 0; remaining--) {
-          final ByteBuffer buffer = (ByteBuffer) SLOTS.getAcquire(slots, slot);
-          if (buffer != null && buffer.capacity() >= minCapacity && buffer.capacity() < bestCapacity) {
-            best = slot;
-            bestCapacity = buffer.capacity();
-            // An exact fit cannot be improved by scanning the remaining slots.
-            if (bestCapacity == minCapacity) {
-              break;
-            }
-          }
-          slot = next(slot);
-        }
-        if (best < 0) {
-          return null;
-        }
-        final ByteBuffer chosen = (ByteBuffer) SLOTS.getAcquire(slots, best);
-        if (chosen != null && chosen.capacity() >= minCapacity && SLOTS.compareAndSet(slots, best, chosen, null)) {
-          retainedBytes.addAndGet(-chosen.capacity());
-          return chosen;
-        }
-      }
-      // Lost the race for the smallest fit twice: the first buffer that fits.
-      int slot = start();
-      for (int remaining = capacity; remaining > 0; remaining--) {
-        final ByteBuffer buffer = (ByteBuffer) SLOTS.getAcquire(slots, slot);
-        if (buffer != null && buffer.capacity() >= minCapacity && SLOTS.compareAndSet(slots, slot, buffer, null)) {
-          retainedBytes.addAndGet(-buffer.capacity());
-          return buffer;
-        }
-        slot = next(slot);
-      }
-      return null;
-    }
-
-    /**
-     * Pool {@code buffer}: into an empty slot, or in place of the smallest pooled buffer with a lower
-     * capacity when every slot is taken (the displaced buffer is dropped for the GC); never beyond the
-     * retained-bytes bound.
-     *
-     * @return whether the buffer is pooled now; on {@code false} the caller drops it
-     */
-    boolean offer(final ByteBuffer buffer) {
-      Objects.requireNonNull(buffer, "buffer");
-      final int bytes = buffer.capacity();
-      if (queue != null) {
-        return offerQueued(buffer);
-      }
-      int slot = start();
-      for (int remaining = capacity; remaining > 0; remaining--) {
-        if (SLOTS.getOpaque(slots, slot) == null) {
-          if (!reserve(bytes)) {
-            return false;
-          }
-          if (SLOTS.compareAndSet(slots, slot, null, buffer)) {
-            return true;
-          }
-          retainedBytes.addAndGet(-bytes);
-        }
-        slot = next(slot);
-      }
-      // Full: displace the smallest pooled buffer that is smaller than this one.
-      for (int attempt = 0; attempt < 2; attempt++) {
-        int victimSlot = -1;
-        ByteBuffer victim = null;
-        slot = start();
-        for (int remaining = capacity; remaining > 0; remaining--) {
-          final ByteBuffer pooled = (ByteBuffer) SLOTS.getAcquire(slots, slot);
-          if (pooled != null && pooled.capacity() < bytes
-              && (victim == null || pooled.capacity() < victim.capacity())) {
-            victimSlot = slot;
-            victim = pooled;
-          }
-          slot = next(slot);
-        }
-        if (victim == null) {
-          return false;
-        }
-        final long growth = bytes - (long) victim.capacity();
-        if (!reserve(growth)) {
-          return false;
-        }
-        if (SLOTS.compareAndSet(slots, victimSlot, victim, buffer)) {
-          return true;
-        }
-        retainedBytes.addAndGet(-growth);
-      }
-      return false;
-    }
-
-    private boolean reserve(final long delta) {
-      for (;;) {
-        final long current = retainedBytes.get();
-        if (current + delta > maxRetainedBytes) {
-          return false;
-        }
-        if (retainedBytes.compareAndSet(current, current + delta)) {
-          return true;
-        }
-      }
-    }
-
-    private int start() {
-      return (int) (Thread.currentThread().threadId() % capacity) * SLOT_STRIDE;
-    }
-
-    private int next(final int slot) {
-      final int following = slot + SLOT_STRIDE;
-      return following == slotCount
-          ? 0
-          : following;
-    }
-
-    /**
-     * Queue variant: the queue holds no order worth keeping, so a borrow drains it, takes the smallest
-     * buffer that fits and gives the rest back.
-     */
-    @Nullable
-    private ByteBuffer pollQueued(final int minCapacity) {
-      final ArrayBlockingQueue<ByteBuffer> pooled = Objects.requireNonNull(queue);
-      final List<ByteBuffer> drained = new ArrayList<>(capacity);
-      pooled.drainTo(drained, capacity);
-      int best = -1;
-      for (int i = 0; i < drained.size(); i++) {
-        final int bytes = drained.get(i).capacity();
-        if (bytes >= minCapacity && (best < 0 || bytes < drained.get(best).capacity())) {
-          best = i;
-        }
-      }
-      final ByteBuffer chosen = best < 0
-          ? null
-          : drained.remove(best);
-      if (chosen != null) {
-        retainedBytes.addAndGet(-chosen.capacity());
-      }
-      restoreQueued(pooled, drained, null);
-      return chosen;
-    }
-
-    /** Queue variant of {@link #offer}: the smallest smaller buffer is displaced within the bound. */
-    private boolean offerQueued(final ByteBuffer buffer) {
-      final ArrayBlockingQueue<ByteBuffer> pooled = Objects.requireNonNull(queue);
-      final int bytes = buffer.capacity();
-      if (reserve(bytes)) {
-        if (pooled.offer(buffer)) {
-          return true;
-        }
-        retainedBytes.addAndGet(-bytes);
-      }
-      final List<ByteBuffer> drained = new ArrayList<>(capacity);
-      pooled.drainTo(drained, capacity);
-      int victim = -1;
-      for (int i = 0; i < drained.size(); i++) {
-        final int pooledBytes = drained.get(i).capacity();
-        if (pooledBytes < bytes && (victim < 0 || pooledBytes < drained.get(victim).capacity())) {
-          victim = i;
-        }
-      }
-      // The victim leaves only once the larger buffer is reserved in its place.
-      final boolean kept = victim >= 0 && reserve(bytes - (long) drained.get(victim).capacity());
-      if (kept) {
-        drained.set(victim, buffer);
-      }
-      return restoreQueued(pooled, drained, kept
-          ? buffer
-          : null);
-    }
-
-    /**
-     * Give drained buffers back to the queue; one a concurrent return crowded out is dropped and
-     * uncounted.
-     *
-     * @return whether {@code watched} (when given) is pooled afterwards
-     */
-    private boolean restoreQueued(final ArrayBlockingQueue<ByteBuffer> pooled, final List<ByteBuffer> drained,
-        final @Nullable ByteBuffer watched) {
-      boolean watchedPooled = watched != null;
-      for (final ByteBuffer buffer : drained) {
-        if (!pooled.offer(buffer)) {
-          retainedBytes.addAndGet(-buffer.capacity());
-          if (buffer == watched) {
-            watchedPooled = false;
-          }
-        }
-      }
-      return watchedPooled;
-    }
-  }
-
-  /**
-   * Per-pool-buffer capacity. Kept at 128 KiB because measurement at cold 100 M showed that enlarging
-   * to 1 MiB didn't help wall-time (the pool-growth path is hit rarely enough to not matter) but
-   * increased FS-input by 20% — apparently {@code FileChannel.read(buffer, pos)} with a 1 MiB-limit
-   * buffer on a 200 KiB page triggers extra readahead we don't benefit from.
+   * Floor of every read's buffer request, so that all ordinary page reads ask the allocator for the
+   * same capacity and a thread keeps finding the buffer it returned last. Kept at 128 KiB because
+   * measurement at cold 100 M showed that enlarging to 1 MiB didn't help wall-time (the growth path
+   * is hit rarely enough to not matter) but increased FS-input by 20% — apparently
+   * {@code FileChannel.read(buffer, pos)} with a 1 MiB-limit buffer on a 200 KiB page triggers extra
+   * readahead we don't benefit from.
    *
    * <p>
    * Override with {@code -Dsirix.filechannel.bufferBytes=<N>} (N = bytes, clamped to [64 KiB, 16
@@ -446,61 +170,51 @@ public final class FileChannelReader extends AbstractReader {
       Math.max(Integer.BYTES, Math.min(64 * 1024, Integer.getInteger("sirix.filechannel.pagePrefixBytes", 1024)));
 
   /**
-   * Bound on the direct memory the pool retains: {@code -Dsirix.filechannel.pooledBufferBytes}
-   * (default 64 MiB; at least the initial population, at most 1 GiB). Coalesced runs are bounded by
-   * {@code sirix.filechannel.coalesceSpanBytes} (8 MiB), so the pool's upgrades stay within it.
-   */
-  private static final long POOLED_BUFFER_BYTES_LIMIT = Math.max((long) POOL_SIZE * BUFFER_BYTES,
-      Math.min(1L << 30, Long.getLong("sirix.filechannel.pooledBufferBytes", 64L << 20)));
-
-  static {
-    BUF_POOL =
-        new BufferPool(POOL_SIZE, Boolean.parseBoolean(System.getProperty("sirix.filechannel.lockFreeBuffers", "true")),
-            POOLED_BUFFER_BYTES_LIMIT);
-    for (int i = 0; i < POOL_SIZE; i++) {
-      BUF_POOL.offer(ByteBuffer.allocateDirect(BUFFER_BYTES).order(ByteOrder.LITTLE_ENDIAN));
-    }
-  }
-
-  /**
-   * Acquire a direct ByteBuffer from the pool, or — rare — allocate a fresh one if the pool is
-   * temporarily drained. Always pair with {@link #releaseBuffer}.
+   * Borrow the buffer a read lands in: allocator scratch of at least {@code minCapacity} bytes, held
+   * by the returned lease until it is closed. The reader keeps no buffers of its own; the allocator
+   * keeps the returned ones resident, so a warm read reuses mapped, committed memory and a coalesced
+   * run of several MiB reuses its region instead of allocating one per read (which was 17 MB of
+   * direct allocation per query on a 50 ms query, re-faulted after every GC cycle).
    *
    * <p>
-   * We do not block on {@code take()} here: a drained pool means every worker is already servicing a
-   * read in parallel; adding queue-wait on top would serialize them again. One extra allocation is
-   * cheaper than that serialization.
+   * The borrow is mandatory: a read cannot proceed without its buffer. Nothing decoded from the
+   * buffer may refer to it after the lease closes; every deserializer copies what it keeps.
    */
-  private static ByteBuffer acquireBuffer(final int minCapacity) {
-    // Every buffer we allocate has at least BUFFER_BYTES: make that lower bound visible to the
-    // exact-fit search so a small page read does not scan the entire pool of ordinary buffers.
-    final int cap = Math.max(minCapacity, BUFFER_BYTES);
-    final ByteBuffer pooled = BUF_POOL.poll(cap);
-    if (pooled != null) {
-      return pooled;
-    }
-    POOL_MISSES.increment();
-    return ByteBuffer.allocateDirect(cap).order(ByteOrder.LITTLE_ENDIAN);
+  private static ScratchLease borrow(final int minCapacity) {
+    return ScratchLease.of(Math.max(minCapacity, BUFFER_BYTES), ScratchUse.READ);
   }
 
   /**
-   * Return a buffer to the pool, which keeps it in an empty slot or in place of a smaller buffer; a
-   * buffer the pool does not keep is dropped for the GC.
+   * Exchange the lease's buffer for one of at least {@code minCapacity} bytes; the old contents are
+   * given up, so the old buffer is returned first and only one is charged.
    */
-  private static void releaseBuffer(final ByteBuffer b) {
-    if (b == null)
-      return;
-    BUF_POOL.offer(b);
+  private static ByteBuffer reborrow(final ScratchLease lease, final int minCapacity) {
+    lease.close();
+    return lease.acquire(Math.max(minCapacity, BUFFER_BYTES), ScratchUse.READ).buffer();
   }
 
-  /** Fresh direct buffers allocated because no pooled buffer fit, since class load. */
-  static long bufferPoolMisses() {
-    return POOL_MISSES.sum();
+  /**
+   * Coalesced spans up to this size are borrowed like any page read. A larger span is a mapped region
+   * and optional: when the budget has no room for it the run is read page by page instead.
+   */
+  private static final int MANDATORY_SPAN_BYTES = MemorySegmentAllocator.TWO_FIFTYSIX_KB;
+
+  /** Coalesced runs read page by page because the budget had no room for their span. */
+  private static final LongAdder RUN_SCRATCH_REFUSALS = new LongAdder();
+
+  /** Test seam: refuse every optional span borrow, as an exhausted budget would. */
+  private static volatile boolean refuseSpanScratch;
+
+  /** Test seam for {@link #refuseSpanScratch}; returns the previous setting. */
+  static boolean setRefuseSpanScratchForTesting(final boolean refuse) {
+    final boolean previous = refuseSpanScratch;
+    refuseSpanScratch = refuse;
+    return previous;
   }
 
-  /** Bytes the buffer pool retains now (approximate while borrowers and returns race). */
-  static long pooledBufferBytes() {
-    return BUF_POOL.retainedBytes();
+  /** Coalesced runs read page by page because the budget had no room for their span. */
+  public static long runScratchRefusals() {
+    return RUN_SCRATCH_REFUSALS.sum();
   }
 
   /**
@@ -538,11 +252,11 @@ public final class FileChannelReader extends AbstractReader {
 
   /**
    * Validate a page's declared data-length header before it is used to size an allocation
-   * ({@link #acquireBuffer} / {@code new byte[dataLength]}). The length is read straight from the
-   * file, so a corrupt or garbled beacon/page can present any 32-bit value; a large positive one
-   * (e.g. random bytes read as ~2 GiB) would trigger a multi-gigabyte allocation that OOMs or stalls
-   * the JVM in GC instead of failing fast — the cause of {@code UberPageCorruptionTest} flakiness. A
-   * page can never be longer than the file that contains it, so bound it accordingly.
+   * ({@link #borrow} / {@code new byte[dataLength]}). The length is read straight from the file, so a
+   * corrupt or garbled beacon/page can present any 32-bit value; a large positive one (e.g. random
+   * bytes read as ~2 GiB) would trigger a multi-gigabyte allocation that OOMs or stalls the JVM in GC
+   * instead of failing fast — the cause of {@code UberPageCorruptionTest} flakiness. A page can never
+   * be longer than the file that contains it, so bound it accordingly.
    */
   private void checkDataLength(final int dataLength) throws IOException {
     checkDataLength(dataLength, -1L);
@@ -614,9 +328,8 @@ public final class FileChannelReader extends AbstractReader {
     if (!byteHandler.supportsMemorySegments()) {
       return null;
     }
-    ByteBuffer buffer = null;
-    try {
-      buffer = readPageImage(reference, -1L);
+    try (ScratchLease lease = readPageImage(reference, -1L)) {
+      final ByteBuffer buffer = lease.buffer();
       if (retainImage && byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty()
           && buffer.remaining() <= HOTProjectionImage.MAX_BYTES
           && buffer.get(buffer.position()) == PageKind.HOT_LEAF_PAGE.getID()) {
@@ -632,10 +345,6 @@ public final class FileChannelReader extends AbstractReader {
           retainImage);
     } catch (final IOException e) {
       throw new SirixIOException(e);
-    } finally {
-      if (buffer != null) {
-        releaseBuffer(buffer);
-      }
     }
   }
 
@@ -667,10 +376,16 @@ public final class FileChannelReader extends AbstractReader {
     return read(reference, resourceConfiguration, lazyRecordPage, batchFileSize, false);
   }
 
-  /** Borrow exactly one framed page body, with the ordinary bounded-prefix/EOF checks. */
-  private ByteBuffer readPageImage(final PageReference reference, final long batchFileSize) throws IOException {
-    ByteBuffer buffer = acquireBuffer(PAGE_PREFIX_BYTES);
+  /**
+   * Borrow exactly one framed page body, with the ordinary bounded-prefix/EOF checks.
+   *
+   * @return the lease holding the page; its {@link ScratchLease#buffer()} spans exactly the declared
+   *         body. The caller closes it once the page is decoded.
+   */
+  private ScratchLease readPageImage(final PageReference reference, final long batchFileSize) throws IOException {
+    ScratchLease lease = borrow(PAGE_PREFIX_BYTES);
     try {
+      ByteBuffer buffer = lease.buffer();
       final long key = reference.getKey();
       final boolean spilled = IOStorage.isSpillKey(key);
       final FileChannel channel = spilled
@@ -702,10 +417,16 @@ public final class FileChannelReader extends AbstractReader {
         buffer.limit(buffer.position() + dataLength);
       } else {
         if (buffer.capacity() < dataLength) {
-          final ByteBuffer grown = acquireBuffer(dataLength);
-          grown.clear().put(buffer);
-          releaseBuffer(buffer);
-          buffer = grown;
+          // The body's first bytes are already here: borrow the larger buffer first, carry them
+          // over, then return the small one. Both are charged while they overlap.
+          final ScratchLease prefix = lease;
+          lease = borrow(dataLength);
+          try {
+            lease.buffer().put(buffer);
+          } finally {
+            prefix.close();
+          }
+          buffer = lease.buffer();
         } else {
           buffer.compact();
         }
@@ -714,20 +435,19 @@ public final class FileChannelReader extends AbstractReader {
         buffer.flip();
       }
 
-      return buffer;
+      return lease;
     } catch (final IOException | RuntimeException | Error failure) {
-      releaseBuffer(buffer);
+      lease.close();
       throw failure;
     }
   }
 
   private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
       final boolean lazyRecordPage, final long batchFileSize, final boolean compactHOTFragment) {
-    ByteBuffer buffer = null;
-    try {
-      buffer = readPageImage(reference, batchFileSize);
+    try (ScratchLease lease = readPageImage(reference, batchFileSize)) {
+      final ByteBuffer buffer = lease.buffer();
       // Deserialize while this thread exclusively owns `buffer`. No shared monitor.
-      // The buffer is released in finally — this is safe because deserialize either
+      // The lease is closed on the way out — this is safe because deserialize either
       // returns a Page with no reference back to the buffer, or copies the bytes
       // into a page-owned allocation before returning.
       if (byteHandler.supportsMemorySegments()) {
@@ -744,10 +464,6 @@ public final class FileChannelReader extends AbstractReader {
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);
-    } finally {
-      if (buffer != null) {
-        releaseBuffer(buffer);
-      }
     }
   }
 
@@ -767,13 +483,12 @@ public final class FileChannelReader extends AbstractReader {
         return chunked;
       }
     }
-    ByteBuffer buffer = acquireBuffer(4);
-    try {
-      final long position = reference.getKey();
-      if (IOStorage.isSpillKey(position)) {
-        return null; // a spilled page is read through the full path, which knows the spill file
-      }
-
+    final long position = reference.getKey();
+    if (IOStorage.isSpillKey(position)) {
+      return null; // a spilled page is read through the full path, which knows the spill file
+    }
+    try (ScratchLease lease = borrow(4)) {
+      ByteBuffer buffer = lease.buffer();
       buffer.clear().limit(4);
       readFully(buffer, position, "page length header");
       buffer.flip();
@@ -781,9 +496,7 @@ public final class FileChannelReader extends AbstractReader {
       checkDataLength(dataLength);
 
       if (buffer.capacity() < dataLength) {
-        final ByteBuffer grown = acquireBuffer(dataLength);
-        releaseBuffer(buffer);
-        buffer = grown;
+        buffer = reborrow(lease, dataLength);
       }
 
       buffer.clear().limit(dataLength);
@@ -798,8 +511,6 @@ public final class FileChannelReader extends AbstractReader {
       return deserializeRegionsOnlyFromSegment(resourceConfiguration, segment, regionKindMask, regionDeferMask);
     } catch (final IOException e) {
       throw new SirixIOException(e);
-    } finally {
-      releaseBuffer(buffer);
     }
   }
 
@@ -820,13 +531,16 @@ public final class FileChannelReader extends AbstractReader {
    */
   private RegionsOnlyPage readRegionsFromChunk(final PageReference reference,
       final ResourceConfiguration resourceConfiguration, final int regionKindMask, final int regionDeferMask) {
-    ByteBuffer header = acquireBuffer(4 + REGION_PROBE_BYTES);
+    // One lease for both bounded reads: the header's buffer is returned before the chunk's is
+    // borrowed, and with the common request floor it is the same buffer again.
+    final ScratchLease lease = borrow(4 + REGION_PROBE_BYTES);
     final long position = reference.getKey();
     final int dataLength;
     final long regionOffset;
     final long[] probe = PROBE_OUT.get();
     final long[] bitmap = PROBE_BITMAP.get();
     try {
+      final ByteBuffer header = lease.buffer();
       header.clear().limit(4 + REGION_PROBE_BYTES);
       readAtMost(header, position);
       header.flip();
@@ -842,7 +556,7 @@ public final class FileChannelReader extends AbstractReader {
     } catch (final IndexOutOfBoundsException | IllegalStateException e) {
       return null; // header did not fit the probe window, or is not a record page
     } finally {
-      releaseBuffer(header);
+      lease.close();
     }
     if (regionOffset < 0 || regionOffset >= dataLength) {
       return null;
@@ -855,8 +569,8 @@ public final class FileChannelReader extends AbstractReader {
     }
 
     final int want = (int) Math.min(REGION_CHUNK_BYTES, dataLength - regionOffset);
-    ByteBuffer chunk = acquireBuffer(want);
     try {
+      final ByteBuffer chunk = reborrow(lease, want);
       chunk.clear().limit(want);
       readAtMost(chunk, position + 4 + regionOffset);
       chunk.flip();
@@ -869,7 +583,7 @@ public final class FileChannelReader extends AbstractReader {
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {
-      releaseBuffer(chunk);
+      lease.close();
     }
   }
 
@@ -1248,10 +962,24 @@ public final class FileChannelReader extends AbstractReader {
     final long start = references[order[from]].getKey();
     final long lastOffset = references[order[to]].getKey();
     final int spanLen = (int) (lastOffset + 4 - start);
+    final int spanBytes = Math.max(spanLen, BUFFER_BYTES);
+    final ScratchLease lease = new ScratchLease();
+    if (spanBytes <= MANDATORY_SPAN_BYTES) {
+      lease.acquire(spanBytes, ScratchUse.READ);
+    } else if (refuseSpanScratch || !lease.tryAcquire(spanBytes, ScratchUse.READ)) {
+      // Coalescing is an optimization: with no room for the span the members are read one by one,
+      // each through its own small buffer, instead of waiting for memory while holding none.
+      RUN_SCRATCH_REFUSALS.increment();
+      for (int k = from; k <= to; k++) {
+        RUN_FALLBACKS.increment();
+        pages[order[k]] = read(references[order[k]], resourceConfiguration, false, batchFileSize, compactHOTFragments);
+      }
+      return;
+    }
     RUN_COUNT.increment();
     RUN_SPAN_BYTES.add(spanLen);
-    ByteBuffer buffer = acquireBuffer(spanLen);
     try {
+      ByteBuffer buffer = lease.buffer();
       buffer.clear().limit(spanLen);
       readFully(buffer, start, "coalesced page span");
       buffer.flip();
@@ -1298,9 +1026,8 @@ public final class FileChannelReader extends AbstractReader {
       final int lastLength = buffer.getInt(spanLen - 4);
       checkDataLength(lastLength, batchFileSize);
       if (buffer.capacity() < lastLength) {
-        final ByteBuffer grown = acquireBuffer(lastLength);
-        releaseBuffer(buffer);
-        buffer = grown;
+        // Every member before the last is decoded and owns its bytes: the span is given up.
+        buffer = reborrow(lease, lastLength);
       }
       buffer.clear().limit(lastLength);
       readFully(buffer, lastOffset + 4, "coalesced last page body");
@@ -1321,14 +1048,14 @@ public final class FileChannelReader extends AbstractReader {
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {
-      releaseBuffer(buffer);
+      lease.close();
     }
   }
 
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
-    ByteBuffer buffer = acquireBuffer(4);
-    try {
+    try (ScratchLease lease = borrow(4)) {
+      ByteBuffer buffer = lease.buffer();
       // The cached record carries (offset, timestamp, pageHash) — reuse it so we neither re-read
       // the revisions record nor lose the page hash needed to integrity-check the body below.
       final RevisionFileData revisionFileData = cache.get(revision, (unused) -> getRevisionFileData(revision));
@@ -1342,9 +1069,7 @@ public final class FileChannelReader extends AbstractReader {
       checkDataLength(dataLength);
 
       if (buffer.capacity() < dataLength) {
-        final ByteBuffer grown = acquireBuffer(dataLength);
-        releaseBuffer(buffer);
-        buffer = grown;
+        buffer = reborrow(lease, dataLength);
       }
 
       buffer.clear().limit(dataLength);
@@ -1370,8 +1095,6 @@ public final class FileChannelReader extends AbstractReader {
       }
     } catch (IOException e) {
       throw new SirixIOException(e);
-    } finally {
-      releaseBuffer(buffer);
     }
   }
 
@@ -1410,15 +1133,14 @@ public final class FileChannelReader extends AbstractReader {
       return new RevisionFileData[0];
     }
     final int byteCount = count * IOStorage.REVISIONS_FILE_RECORD_SIZE;
-    // One bulk pread + one pooled buffer for the whole range. The previous one-record-per-call
+    // One bulk pread + one borrowed buffer for the whole range. The previous one-record-per-call
     // loop issued one syscall AND one ByteBuffer.allocateDirect per revision — allocateDirect
     // registers with a JVM-global synchronized Cleaner list, so concurrent readers rebuilding
     // the revision index serialized on it and storage opens became linear in revision count.
-    final ByteBuffer buffer = acquireBuffer(byteCount);
-    try {
+    try (ScratchLease lease = borrow(byteCount)) {
+      final ByteBuffer buffer = lease.buffer();
       final long fileOffset = IOStorage.revisionsFileOffset(fromRevision);
       buffer.clear().limit(byteCount);
-      buffer.order(ByteOrder.LITTLE_ENDIAN);
       int bytesRead = 0;
       while (buffer.hasRemaining()) {
         final int read = readAt(revisionsOffsetFileChannel, buffer, fileOffset + bytesRead);
@@ -1477,9 +1199,6 @@ public final class FileChannelReader extends AbstractReader {
       return result;
     } catch (IOException e) {
       throw new SirixIOException(e);
-    } finally {
-      buffer.order(ByteOrder.LITTLE_ENDIAN);
-      releaseBuffer(buffer);
     }
   }
 
