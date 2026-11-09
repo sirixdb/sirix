@@ -41,7 +41,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * Measured on this fixture (FILE_CHANNEL, one small object appended per commit, sixteen commits in
  * one transaction): 17 flush-buffer borrows (the transaction's writer and the one each commit
- * re-instantiates), 243 read borrows, no buffer created, none left lent. A read of the cached
+ * re-instantiates), 243 read borrows, 48 borrows for the writers' own file I/O (per commit: the
+ * window the frontier is validated through, the revision record, the revision-record ring for both
+ * beacon slots; 64 with a buffer per slot), no buffer created, none left lent. A read of the cached
  * resource borrows nothing; a cold read of it borrows 4 read buffers. With the writer's close no
  * longer returning its flush buffer the transaction leaves 17 buffers lent. Asking a writer for a
  * new flush buffer borrows nothing (it clears the one it holds); with the buffer exchanged instead,
@@ -95,6 +97,10 @@ final class ScratchBufferWorkBudgetTest {
                        "warm commits made the allocator back fresh buffers instead of reusing the resident ones")
                    .assertAtLeast(EngineWorkCounters.SCRATCH_READ_BORROWS, 1,
                        "a commit reads through allocator scratch; a zero here means the counter is not connected")
+                   .assertExactly(EngineWorkCounters.SCRATCH_WRITE_IO_BORROWS, 3L * COMMITS,
+                       "a commit's writer borrows one window to validate the frontier it appends at, one buffer "
+                           + "for its revision record and one for the revision-record ring it writes to both "
+                           + "beacon slots; more means a buffer per slot, per write or per hash refill")
                    .assertZero(EngineWorkCounters.SCRATCH_REFUSALS, "the budget refused a commit's buffer")
                    .assertZero(EngineWorkCounters.SCRATCH_STALE_RETURNS, "a buffer was returned twice");
       }

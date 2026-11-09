@@ -79,6 +79,14 @@ public final class EngineWorkCounters {
   public static final WorkCounter SCRATCH_PAGE_BORROWS = scratchBorrows(ScratchUse.PAGE, "page-internal staging");
 
   /**
+   * Borrows for a storage writer's own file I/O: a revision record, the revision-record ring written
+   * to the beacon slots, the block of zeros a preallocated range is filled with, a spilled page's
+   * copy, a revision root's validation window.
+   */
+  public static final WorkCounter SCRATCH_WRITE_IO_BORROWS =
+      scratchBorrows(ScratchUse.WRITE_IO, "a storage writer's own file I/O");
+
+  /**
    * Scratch buffers given fresh backing because no resident buffer of their capacity was idle. Zero
    * over a warm path: the allocator kept what the path returned before.
    */
@@ -102,9 +110,9 @@ public final class EngineWorkCounters {
       "scratch returns rejected as stale or repeated", () -> scratch().staleReleases());
 
   /** Every scratch counter, for a capture that guards how a path uses the allocator's buffers. */
-  public static final List<WorkCounter> SCRATCH =
-      List.of(SCRATCH_READ_BORROWS, SCRATCH_SERIALIZATION_BORROWS, SCRATCH_COMMIT_FLUSH_BORROWS, SCRATCH_CODEC_BORROWS,
-          SCRATCH_PAGE_BORROWS, SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
+  public static final List<WorkCounter> SCRATCH = List.of(SCRATCH_READ_BORROWS, SCRATCH_SERIALIZATION_BORROWS,
+      SCRATCH_COMMIT_FLUSH_BORROWS, SCRATCH_CODEC_BORROWS, SCRATCH_PAGE_BORROWS, SCRATCH_WRITE_IO_BORROWS,
+      SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
 
   public static final WorkCounter TEMPORAL_GROUP_HEADS_VISITED = WorkCounter.gated("temporal.groupHeadsVisited",
       "one dictionary head counted during admission", TemporalAggregateStorage::groupHeadsVisited,
