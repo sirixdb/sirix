@@ -109,6 +109,14 @@ public interface MemorySegmentAllocator {
   }
 
   /**
+   * What this allocator's scratch buffers ({@link ScratchLease}) were asked for, hold and refused.
+   * Implementations that serve scratch without keeping counters report {@link ScratchStats#EMPTY}.
+   */
+  default ScratchStats scratchStats() {
+    return ScratchStats.EMPTY;
+  }
+
+  /**
    * Physical off-heap bytes currently committed by this allocator. Used by metrics; implementations
    * that don't track physical commitment return 0.
    *

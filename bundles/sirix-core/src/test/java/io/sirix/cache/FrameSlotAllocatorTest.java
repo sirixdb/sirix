@@ -692,10 +692,16 @@ class FrameSlotAllocatorTest {
     assertTrue(allocator.reserveSlabCommittedBytes(budget - headroom));
     assertFalse(allocator.reserveSlabCommittedBytes(1), "slab commitment must stop short of the oversized headroom");
     // …while the oversized arm still admits inside the headroom — the retry that could never say
-    // yes after a slab peak now can.
-    assertTrue(allocator.reserveCommittedBytes(headroom),
+    // yes after a slab peak now can. It stops at the scratch reserve, the last quarter of the
+    // headroom: oversized and slab commitment returns when released, but a reader must not have to
+    // wait for that to get the buffer its read lands in.
+    final long scratchReserve = allocator.scratchReserveBytes();
+    assertEquals(headroom / 4, scratchReserve, "default scratch reserve is a quarter of the headroom");
+    assertTrue(allocator.reserveCommittedBytes(headroom - scratchReserve),
         "an oversized reservation must succeed inside the headroom at slab peak");
-    assertFalse(allocator.reserveCommittedBytes(1), "the full budget is then exhausted");
+    assertFalse(allocator.reserveCommittedBytes(1), "oversized commitment must stop short of the scratch reserve");
+    assertTrue(allocator.reserveScratchCommittedBytes(scratchReserve), "scratch alone commits the reserve");
+    assertFalse(allocator.reserveScratchCommittedBytes(1), "the full budget is then exhausted");
   }
 
 }

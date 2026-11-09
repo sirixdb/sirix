@@ -14,9 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Contract tests for the {@link SirixMetricsRegistry} SPI. The registry is a
- * process-wide static singleton, so these tests do not isolate the global state — they
- * verify behaviours that hold regardless of what other tests have registered.
+ * Contract tests for the {@link SirixMetricsRegistry} SPI. The registry is a process-wide static
+ * singleton, so these tests do not isolate the global state — they verify behaviours that hold
+ * regardless of what other tests have registered.
  */
 final class SirixMetricsRegistryTest {
 
@@ -37,8 +37,7 @@ final class SirixMetricsRegistryTest {
   @Test
   void builtInGauges_areRegisteredAtStaticInit() {
     final List<String> names = SirixMetricsRegistry.registeredGaugeNames();
-    assertTrue(names.contains("sirix_record_page_cache_hits_total"),
-        "expected built-in cache-hit gauge; got " + names);
+    assertTrue(names.contains("sirix_record_page_cache_hits_total"), "expected built-in cache-hit gauge; got " + names);
     assertTrue(names.contains("sirix_record_page_cache_misses_total"),
         "expected built-in cache-miss gauge; got " + names);
     assertTrue(names.contains("sirix_record_page_cache_evictions_total"),
@@ -65,6 +64,14 @@ final class SirixMetricsRegistryTest {
         "expected built-in HOT-leaf cache max gauge; got " + names);
     assertTrue(names.contains("sirix_allocator_physical_memory_bytes"),
         "expected built-in allocator physical memory gauge; got " + names);
+    for (final String scratchGauge : List.of("sirix_allocator_scratch_lent_bytes", "sirix_allocator_scratch_idle_bytes",
+        "sirix_allocator_scratch_requested_bytes_total", "sirix_allocator_scratch_rounded_bytes_total",
+        "sirix_allocator_scratch_acquisitions_total", "sirix_allocator_scratch_created_total",
+        "sirix_allocator_scratch_reclaimed_total", "sirix_allocator_scratch_refused_total",
+        "sirix_allocator_scratch_refused_bytes_total")) {
+      assertTrue(names.contains(scratchGauge),
+          "expected built-in scratch-buffer gauge " + scratchGauge + "; got " + names);
+    }
   }
 
   @Test
@@ -109,12 +116,9 @@ final class SirixMetricsRegistryTest {
 
   @Test
   void registerGauge_rejectsNullArguments() {
-    assertThrows(NullPointerException.class,
-        () -> SirixMetricsRegistry.registerGauge(null, "h", () -> 0L));
-    assertThrows(NullPointerException.class,
-        () -> SirixMetricsRegistry.registerGauge("n", null, () -> 0L));
-    assertThrows(NullPointerException.class,
-        () -> SirixMetricsRegistry.registerGauge("n", "h", null));
+    assertThrows(NullPointerException.class, () -> SirixMetricsRegistry.registerGauge(null, "h", () -> 0L));
+    assertThrows(NullPointerException.class, () -> SirixMetricsRegistry.registerGauge("n", null, () -> 0L));
+    assertThrows(NullPointerException.class, () -> SirixMetricsRegistry.registerGauge("n", "h", null));
   }
 
   @Test
