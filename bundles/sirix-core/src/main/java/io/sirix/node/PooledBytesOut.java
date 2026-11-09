@@ -10,27 +10,24 @@ import net.openhft.hashing.LongHashFunction;
 
 /**
  * A BytesOut implementation backed by a PooledGrowingSegment.
- * 
+ *
  * <p>
- * This class is designed for use with {@link io.sirix.io.SerializationBufferPool} to enable
- * efficient buffer reuse during parallel page serialization. Unlike MemorySegmentBytesOut which
- * creates new Arena.ofAuto() instances, this class reuses pooled buffers.
+ * Used for page serialization during a commit: the bytes are written into scratch borrowed from the
+ * allocator, which is returned when the {@link PooledGrowingSegment} is closed, instead of into a
+ * fresh {@code Arena.ofAuto()} per page as {@link MemorySegmentBytesOut} would.
  * </p>
- * 
+ *
  * <p>
  * Usage pattern:
  * </p>
- * 
+ *
  * <pre>{@code
- * var pooledSeg = SerializationBufferPool.INSTANCE.acquire();
- * try {
+ * try (PooledGrowingSegment pooledSeg = PooledGrowingSegment.forPage()) {
  *   var bytes = new PooledBytesOut(pooledSeg);
- *   // ... write data ...
- * } finally {
- *   SerializationBufferPool.INSTANCE.release(pooledSeg);
+ *   // ... write data, copy what must outlive the scratch ...
  * }
  * }</pre>
- * 
+ *
  * @author Johannes Lichtenberger
  */
 public final class PooledBytesOut implements BytesOut<MemorySegment> {
@@ -39,10 +36,10 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
    * Ownership contract for an empty byte-handler pipeline's identity result.
    *
    * <p>
-   * The default requires the page serializer to retain an owned copy, because this writer's pooled
-   * segment is reused as soon as serialization returns. The alternate policy is deliberately explicit
-   * and narrow: its caller must copy the exact written prefix into owned storage before returning
-   * this writer to the pool.
+   * The default requires the page serializer to retain an owned copy, because this writer's borrowed
+   * scratch is reused as soon as serialization returns. The alternate policy is deliberately explicit
+   * and narrow: its caller must copy the exact written prefix into owned storage before closing the
+   * writer's segment.
    * </p>
    */
   public enum IdentityCachePolicy {
@@ -52,6 +49,9 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
   private final PooledGrowingSegment segment;
 
   private final IdentityCachePolicy identityCachePolicy;
+
+  /** Whether {@link #close()} closes the segment: only for the writer that created it. */
+  private final boolean ownsSegment;
 
   /**
    * Create a new PooledBytesOut wrapping a PooledGrowingSegment.
@@ -71,12 +71,13 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
   public PooledBytesOut(final PooledGrowingSegment segment, final IdentityCachePolicy identityCachePolicy) {
     this.segment = Objects.requireNonNull(segment);
     this.identityCachePolicy = Objects.requireNonNull(identityCachePolicy);
+    this.ownsSegment = false;
   }
 
   /**
-   * Create a new PooledBytesOut with its own heap-backed segment. Uses heap memory for efficient GC
-   * reclamation.
-   * 
+   * Create a new PooledBytesOut that starts in a heap buffer of its own and borrows allocator scratch
+   * only if it outgrows it. {@link #close()} returns that scratch.
+   *
    * @param initialCapacity the initial capacity in bytes
    */
   public PooledBytesOut(int initialCapacity) {
@@ -87,6 +88,7 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
     MemorySegment buffer = MemorySegment.ofArray(new byte[initialCapacity]);
     this.segment = new PooledGrowingSegment(buffer);
     this.identityCachePolicy = IdentityCachePolicy.RETAIN_OWNED_COPY;
+    this.ownsSegment = true;
   }
 
   /**
@@ -328,11 +330,13 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
   }
 
   /**
-   * Close is a no-op for PooledBytesOut. The underlying segment is managed by the
-   * SerializationBufferPool.
+   * A writer over a segment handed to it leaves that segment to whoever borrowed it; a writer that
+   * created its own segment returns the scratch it may have grown into.
    */
   @Override
   public void close() {
-    // No-op: pool manages segment lifecycle
+    if (ownsSegment) {
+      segment.close();
+    }
   }
 }

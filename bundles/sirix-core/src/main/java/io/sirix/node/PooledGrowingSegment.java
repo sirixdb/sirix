@@ -1,91 +1,150 @@
 package io.sirix.node;
 
-import java.lang.foreign.Arena;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
+import org.jspecify.annotations.Nullable;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 /**
- * A resettable MemorySegment wrapper for pooled buffers. Unlike GrowingMemorySegment, this does NOT
- * own the Arena - the pool does. Supports reset() for reuse without reallocation.
- * 
+ * A growing, resettable sink for page serialization whose storage is borrowed, never owned: the
+ * bytes live in allocator scratch ({@link ScratchLease}) and go back to the allocator when the
+ * writer is closed. Nothing is kept between two serializations; the allocator keeps the returned
+ * buffer resident for the next one.
+ *
  * <p>
- * Design: Keeps reference to original pooled buffer. On overflow, allocates from a confined arena.
- * On reset(), closes overflow arena and restores original buffer pointer.
+ * Two forms:
  * </p>
- * 
+ * <ul>
+ * <li>{@link #ofScratch(long)}: the writer borrows its buffer and grows by borrowing the next
+ * capacity, carrying the written prefix over and returning the smaller buffer. This is the form a
+ * commit uses.</li>
+ * <li>{@link #PooledGrowingSegment(MemorySegment)}: the writer starts in a buffer the caller owns
+ * and borrows scratch only when it outgrows that buffer.</li>
+ * </ul>
+ *
  * <p>
- * This class is designed for use with {@link io.sirix.io.SerializationBufferPool} to enable
- * efficient buffer reuse during parallel page serialization.
+ * Growth is charged to the allocator's budget like every other scratch buffer; there is no arena of
+ * the writer's own. Whatever must outlive the writer (an encoded page image a page caches) has to
+ * be copied into storage its owner owns <em>before</em> {@link #close()}: the next borrower
+ * overwrites the bytes. One thread writes at a time.
  * </p>
- * 
+ *
  * @author Johannes Lichtenberger
  */
-public final class PooledGrowingSegment {
+public final class PooledGrowingSegment implements AutoCloseable {
 
-  private static final long ALIGNMENT = 8; // 8-byte alignment for long fields
+  /** Initial borrow of a page serialization: 128 KiB holds most pages without growing. */
+  public static final long PAGE_BUFFER_BYTES = 128L * 1024;
 
-  private final MemorySegment originalBuffer; // Never changes - the pooled buffer
-  private MemorySegment currentSegment; // May point to overflow
-  private long position;
-
-  // Overflow arena for when buffer is too small (rare case)
-  private Arena overflowArena;
+  private static final MemorySegment CLOSED = MemorySegment.ofArray(new byte[0]);
 
   /**
-   * Create a new PooledGrowingSegment wrapping a pooled buffer.
-   * 
-   * @param pooledBuffer the pre-allocated buffer from the pool
+   * The caller's buffer this writer starts in and returns to on {@link #reset()}, or {@code null}.
    */
-  public PooledGrowingSegment(MemorySegment pooledBuffer) {
-    this.originalBuffer = pooledBuffer;
-    this.currentSegment = pooledBuffer;
-    this.position = 0;
+  private final @Nullable MemorySegment base;
+
+  /**
+   * Holds the borrowed buffer: from the start for {@link #ofScratch}, else once the base is outgrown.
+   */
+  private final ScratchLease lease = new ScratchLease();
+
+  private MemorySegment currentSegment;
+  private long position;
+  private boolean closed;
+
+  /**
+   * A writer over a buffer the caller owns; it borrows allocator scratch when it outgrows the buffer.
+   *
+   * @param buffer the caller's buffer, written from offset 0
+   */
+  public PooledGrowingSegment(final MemorySegment buffer) {
+    this.base = Objects.requireNonNull(buffer, "buffer");
+    this.currentSegment = buffer;
+  }
+
+  private PooledGrowingSegment(final long initialBytes) {
+    this.base = null;
+    this.currentSegment = lease.acquire(initialBytes, ScratchUse.SERIALIZATION).segment();
   }
 
   /**
-   * Ensure the segment has at least the specified capacity. If the current segment is too small,
-   * allocates from an overflow arena.
-   * 
+   * A writer over borrowed allocator scratch of at least {@code initialBytes}. Close it to return the
+   * buffer.
+   *
+   * @param initialBytes the bytes to borrow up front; positive
+   * @return the writer
+   * @throws OutOfMemoryError when the allocator's budget cannot serve the borrow
+   */
+  public static PooledGrowingSegment ofScratch(final long initialBytes) {
+    return new PooledGrowingSegment(initialBytes);
+  }
+
+  /** A writer for one page serialization: {@link #ofScratch(long)} of {@link #PAGE_BUFFER_BYTES}. */
+  public static PooledGrowingSegment forPage() {
+    return new PooledGrowingSegment(PAGE_BUFFER_BYTES);
+  }
+
+  /**
+   * Ensure the segment has at least the specified capacity. If the current segment is too small, the
+   * next capacity is borrowed from the allocator and the written prefix carried over.
+   *
    * @param required the required capacity in bytes
    */
-  public void ensureCapacity(long required) {
+  public void ensureCapacity(final long required) {
     if (required > currentSegment.byteSize()) {
-      // Buffer too small - allocate overflow (rare, ~1% of cases)
-      if (overflowArena == null) {
-        overflowArena = Arena.ofConfined();
-      }
-      long newSize = Math.max(required, currentSegment.byteSize() * 2);
-      MemorySegment newSeg = overflowArena.allocate(newSize, ALIGNMENT);
-      if (position > 0) {
-        MemorySegment.copy(currentSegment, 0, newSeg, 0, position);
-      }
-      currentSegment = newSeg;
+      grow(required);
     }
   }
 
+  /** Kept out of line: growth is rare (about one page in a hundred) and the check above is hot. */
+  private void grow(final long required) {
+    if (closed) {
+      throw new IllegalStateException("this serialization buffer was closed and its scratch returned");
+    }
+    final long newSize = Math.max(required, currentSegment.byteSize() * 2);
+    if (lease.isHeld()) {
+      // Borrows the larger buffer, copies the prefix, then returns the smaller one.
+      lease.grow(newSize, position);
+    } else {
+      lease.acquire(newSize, ScratchUse.SERIALIZATION);
+      if (position > 0) {
+        MemorySegment.copy(currentSegment, 0, lease.segment(), 0, position);
+      }
+    }
+    currentSegment = lease.segment();
+  }
+
   /**
-   * Reset this segment for reuse. Closes any overflow arena and restores the pointer to the original
-   * pooled buffer.
+   * Reset this writer for reuse: the position returns to zero, and a writer over a caller's buffer
+   * returns the scratch it grew into and continues in that buffer.
    */
   public void reset() {
-    // Close overflow arena if we used it
-    if (overflowArena != null) {
-      overflowArena.close();
-      overflowArena = null;
+    if (base != null) {
+      lease.close();
+      currentSegment = base;
     }
-    // Restore pointer to original pooled buffer
-    currentSegment = originalBuffer;
     position = 0;
   }
 
   /**
-   * Get the underlying pooled buffer. This is always the original buffer, not any overflow
-   * allocation. Used when returning to the pool.
-   * 
-   * @return the original pooled buffer
+   * Return the borrowed scratch. The bytes handed out by {@link #getCurrentSegment()} and
+   * {@link #getWrittenSlice()} must not be read afterwards; a writer over a caller's buffer may be
+   * {@linkplain #reset() reset} and used again, a scratch writer may not.
    */
-  public MemorySegment getUnderlyingSegment() {
-    return originalBuffer;
+  @Override
+  public void close() {
+    lease.close();
+    position = 0;
+    if (base != null) {
+      currentSegment = base;
+    } else {
+      currentSegment = CLOSED;
+      closed = true;
+    }
   }
 
   /**
@@ -282,7 +341,7 @@ public final class PooledGrowingSegment {
       writeInt(-1);
       return;
     }
-    byte[] bytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
     writeInt(bytes.length);
     write(bytes);
   }

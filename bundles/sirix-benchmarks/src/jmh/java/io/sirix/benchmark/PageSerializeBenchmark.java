@@ -28,7 +28,6 @@ package io.sirix.benchmark;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
-import io.sirix.io.SerializationBufferPool;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -174,16 +173,13 @@ public class PageSerializeBenchmark {
 
   /** Drop the serialization cache and encode, returning the body after the page-kind id. */
   private byte[] encodeOnce() {
-    final PooledGrowingSegment pooled = SerializationBufferPool.INSTANCE.acquire();
-    try {
+    try (PooledGrowingSegment pooled = PooledGrowingSegment.forPage()) {
       final BytesOut<?> sink = encodeInto(pooled);
       final BytesIn<?> src = sink.bytesForRead();
       src.readByte(); // pageKind id, consumed by the caller in production too
       final byte[] body = new byte[(int) (sink.writePosition() - 1)];
       src.read(body);
       return body;
-    } finally {
-      SerializationBufferPool.INSTANCE.release(pooled);
     }
   }
 
@@ -198,16 +194,13 @@ public class PageSerializeBenchmark {
    * The write path: everything {@code writeEncodedBody} does, plus the page envelope.
    *
    * <p>Sink and buffer lifecycle mirror {@code NodeStorageEngineWriter.serializeKeyValuePage},
-   * pooled segment included — an elastic buffer would fold its own growth and off-heap allocation
-   * into every measurement, and neither happens during a commit.
+   * borrowed scratch segment included — an elastic buffer would fold its own growth and off-heap
+   * allocation into every measurement, and neither happens during a commit.
    */
   @Benchmark
   public void serialize(final Blackhole blackhole) {
-    final PooledGrowingSegment pooled = SerializationBufferPool.INSTANCE.acquire();
-    try {
+    try (PooledGrowingSegment pooled = PooledGrowingSegment.forPage()) {
       blackhole.consume(encodeInto(pooled).writePosition());
-    } finally {
-      SerializationBufferPool.INSTANCE.release(pooled);
     }
   }
 

@@ -43,10 +43,10 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.io.IOStorage;
-import io.sirix.io.SerializationBufferPool;
 import io.sirix.io.SharedArenas;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.node.PooledBytesOut;
+import io.sirix.node.PooledGrowingSegment;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.io.Writer;
@@ -3847,11 +3847,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * already owns.
    *
    * <p>
-   * The empty pipeline is the canonical ingestion path. Its pooled sink is borrowed, so the copy into
-   * the page frame must complete before {@link SerializationBufferPool#release} resets or closes that
-   * sink. {@link PageKind} deliberately leaves the cache unpublished for this policy and first
-   * finishes {@link KeyValueLeafPage#clearRecordsForGC()}, whose flyweight unbinds still read the
-   * logical frame. Only then is it safe to overwrite the disposable copy's frame.
+   * The empty pipeline is the canonical ingestion path. Its sink is borrowed allocator scratch, so
+   * the copy into the page frame must complete before {@link PooledGrowingSegment#close()} returns
+   * that scratch to the allocator and its next borrower. {@link PageKind} deliberately leaves the
+   * cache unpublished for this policy and first finishes
+   * {@link KeyValueLeafPage#clearRecordsForGC()}, whose flyweight unbinds still read the logical
+   * frame. Only then is it safe to overwrite the disposable copy's frame.
    * </p>
    *
    * <p>
@@ -3882,8 +3883,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     requireNonNull(resourceConfig);
     requireNonNull(page);
     final boolean directIdentity = resourceConfig.byteHandlePipeline.isEmpty();
-    final var pooledSegment = SerializationBufferPool.INSTANCE.acquire();
-    try {
+    try (PooledGrowingSegment pooledSegment = PooledGrowingSegment.forPage()) {
       final PooledBytesOut.IdentityCachePolicy identityCachePolicy = directIdentity
           ? PooledBytesOut.IdentityCachePolicy.CALLER_COPIES_BEFORE_RELEASE
           : PooledBytesOut.IdentityCachePolicy.RETAIN_OWNED_COPY;
@@ -3921,8 +3921,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       MemorySegment.copy(pooledSegment.getCurrentSegment(), 0L, frame, 0L, encodedLength);
       page.setCompressedSegment(frame.asSlice(0L, encodedLength).asReadOnly(), Math.toIntExact(encodedLength));
       return true;
-    } finally {
-      SerializationBufferPool.INSTANCE.release(pooledSegment);
     }
   }
 
@@ -5028,8 +5026,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return false;
     }
 
-    final var pooledSeg = SerializationBufferPool.INSTANCE.acquire();
-    try {
+    try (PooledGrowingSegment pooledSeg = PooledGrowingSegment.forPage()) {
       final var bytes = new PooledBytesOut(pooledSeg);
       PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
       final KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
@@ -5039,8 +5036,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         throw re;
       }
       throw new SirixIOException(e);
-    } finally {
-      SerializationBufferPool.INSTANCE.release(pooledSeg);
     }
   }
 
