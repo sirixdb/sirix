@@ -67,6 +67,18 @@ public final class EngineWorkCounters {
       scratchBorrows(ScratchUse.COMMIT_FLUSH, "a storage writer's flush or append buffer");
 
   /**
+   * Borrows for codec staging: the blob a page body is assembled in or decompressed into, a lazily
+   * read chunk's expansion, a decoder's landing area, LZ4's native copies.
+   */
+  public static final WorkCounter SCRATCH_CODEC_BORROWS = scratchBorrows(ScratchUse.CODEC, "codec staging");
+
+  /**
+   * Borrows for page-internal staging: the buffer a page's records are serialized through when they
+   * are placed, a side-slot image, an off-frame field resize.
+   */
+  public static final WorkCounter SCRATCH_PAGE_BORROWS = scratchBorrows(ScratchUse.PAGE, "page-internal staging");
+
+  /**
    * Scratch buffers given fresh backing because no resident buffer of their capacity was idle. Zero
    * over a warm path: the allocator kept what the path returned before.
    */
@@ -91,8 +103,8 @@ public final class EngineWorkCounters {
 
   /** Every scratch counter, for a capture that guards how a path uses the allocator's buffers. */
   public static final List<WorkCounter> SCRATCH =
-      List.of(SCRATCH_READ_BORROWS, SCRATCH_SERIALIZATION_BORROWS, SCRATCH_COMMIT_FLUSH_BORROWS,
-          SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
+      List.of(SCRATCH_READ_BORROWS, SCRATCH_SERIALIZATION_BORROWS, SCRATCH_COMMIT_FLUSH_BORROWS, SCRATCH_CODEC_BORROWS,
+          SCRATCH_PAGE_BORROWS, SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
 
   public static final WorkCounter TEMPORAL_GROUP_HEADS_VISITED = WorkCounter.gated("temporal.groupHeadsVisited",
       "one dictionary head counted during admission", TemporalAggregateStorage::groupHeadsVisited,

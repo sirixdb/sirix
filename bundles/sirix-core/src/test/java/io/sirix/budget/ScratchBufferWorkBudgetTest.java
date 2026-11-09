@@ -48,6 +48,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the request returns a different buffer. A publication of 16,384 objects under the import bound
  * rotates 6 storage epochs and borrows 3 flush buffers (the writer's, its one append buffer, the
  * successor writer's) and 91 serialization buffers; with an append buffer per epoch it borrows 8.
+ * Writing 24 objects whose strings exceed the record limit and widening their numbers borrows 30
+ * page workspaces and 22 codec stagings and leaves none lent; reading the resource cold borrows 3
+ * codec stagings (one per record page decoded) and leaves none lent. With the decoder's workspace
+ * no longer returning its buffers at the end of a page, the thread keeps them from its first page
+ * on and the cold read borrows 0.
  */
 @Isolated
 final class ScratchBufferWorkBudgetTest {
@@ -167,6 +172,62 @@ final class ScratchBufferWorkBudgetTest {
       }
     } finally {
       StorageEpochTestSupport.setPlainTransactionBound(0);
+    }
+  }
+
+  @Test
+  void overflowCarriersAndFieldResizesBorrowTheirWorkspaces() throws Exception {
+    final Path databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(StorageType.FILE_CHANNEL).build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+        final String large = "x".repeat(6_000);
+        final WorkReport write = CAPTURE.run(() -> {
+          try (final JsonNodeTrx trx = session.beginNodeTrx()) {
+            final long arrayKey = trx.insertArrayAsFirstChild().getNodeKey();
+            for (int i = 0; i < 24; i++) {
+              assertTrue(trx.moveTo(arrayKey));
+              trx.insertSubtreeAsLastChild(
+                  JsonShredder.createStringReader("{\"s\":\"" + large + i + "\",\"n\":" + i + "}"),
+                  JsonNodeTrx.Commit.NO);
+            }
+            trx.commit();
+            // Widen every number so its field no longer fits where it was written.
+            assertTrue(trx.moveTo(arrayKey) && trx.moveToFirstChild());
+            do {
+              final long object = trx.getNodeKey();
+              assertTrue(trx.moveToLastChild(), "the number field");
+              trx.setNumberValue(1_000_000_000_000L + object);
+              assertTrue(trx.moveTo(object));
+            } while (trx.moveToRightSibling());
+            trx.commit();
+          }
+        });
+        write.assertAtLeast(EngineWorkCounters.SCRATCH_PAGE_BORROWS, 24,
+            "each of the 24 strings beyond the record limit is installed through a borrowed side-image "
+                + "workspace; fewer means the fixture no longer reaches that path")
+             .assertAtLeast(EngineWorkCounters.SCRATCH_CODEC_BORROWS, 1,
+                 "a commit assembles its page bodies in borrowed staging")
+             .assertZero(EngineWorkCounters.SCRATCH_BUFFERS_LENT,
+                 "the transaction left scratch lent: a side image, a resize workspace, a placement buffer or a "
+                     + "body staging was not returned")
+             .assertZero(EngineWorkCounters.SCRATCH_REFUSALS, "the budget refused a workspace")
+             .assertZero(EngineWorkCounters.SCRATCH_STALE_RETURNS, "a workspace was returned twice");
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath);
+        final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final WorkReport coldRead = CAPTURE.run(() -> assertEquals(24, countObjects(session)));
+      coldRead.assertBetween(EngineWorkCounters.SCRATCH_CODEC_BORROWS, 1, 8,
+          "decoding a record page borrows its body staging once; more means staging is borrowed per record "
+              + "or per section")
+              .assertZero(EngineWorkCounters.SCRATCH_BUFFERS_LENT,
+                  "a decoded page kept its staging: the thread that read it still holds allocator memory")
+              .assertZero(EngineWorkCounters.SCRATCH_BUFFERS_CREATED,
+                  "the cold read made the allocator back a fresh buffer although the commits left resident ones")
+              .assertZero(EngineWorkCounters.SCRATCH_STALE_RETURNS, "a staging buffer was returned twice");
     }
   }
 

@@ -3,7 +3,8 @@
  */
 package io.sirix.page;
 
-import java.lang.foreign.Arena;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
@@ -195,13 +196,13 @@ public final class SirixLZ77Codec {
   private static final ThreadLocal<EncodeScratch> ENCODE_SCRATCH = ThreadLocal.withInitial(EncodeScratch::new);
 
   /**
-   * Per-thread decode scratch for an output without tail slack: the decoder writes the decompressed
-   * stream here with its 8-byte stride, then one {@code MemorySegment.copy} delivers it to the
-   * caller's output. Native (an automatic arena, freed with the thread-local), never a heap segment,
-   * for the reason given at {@link #ARRAY_LE_INT}. Starts at 128 KiB and grows as needed.
+   * Per-thread handle for the decode scratch of an output without tail slack: the decoder writes the
+   * decompressed stream into borrowed allocator scratch with its 8-byte stride, then one
+   * {@code MemorySegment.copy} delivers it to the caller's output. Native, never a heap segment, for
+   * the reason given at {@link #ARRAY_LE_INT}. The handle is reused so a decode allocates nothing; it
+   * holds no memory between decodes, the buffer goes back to the allocator with each one.
    */
-  private static final ThreadLocal<MemorySegment> DECODE_SCRATCH =
-      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(128 * 1024));
+  private static final ThreadLocal<ScratchLease> DECODE_LEASE = ThreadLocal.withInitial(ScratchLease::new);
 
   /**
    * Enable lazy-matching strategy: after finding a match at position ip, probe position ip+1. If ip+1
@@ -613,16 +614,16 @@ public final class SirixLZ77Codec {
     if (fastPath) {
       produced = decodeCore(input, inPos, inEnd, output, outputOff, uncompressed);
     } else {
-      // Rare slow path: caller-provided segment has no tail slack. Use per-thread
+      // Rare slow path: caller-provided segment has no tail slack. Use borrowed
       // scratch (oversized for wildCopy overshoot) + single bulk copy at the end.
-      MemorySegment scratch = DECODE_SCRATCH.get();
-      final long needed = (long) uncompressed + 16L;
-      if (scratch.byteSize() < needed) {
-        scratch = Arena.ofAuto().allocate(Math.max(needed, scratch.byteSize() * 2L));
-        DECODE_SCRATCH.set(scratch);
+      final ScratchLease lease = DECODE_LEASE.get().acquire((long) uncompressed + 16L, ScratchUse.CODEC);
+      try {
+        final MemorySegment scratch = lease.segment();
+        produced = decodeCore(input, inPos, inEnd, scratch, 0L, uncompressed);
+        MemorySegment.copy(scratch, 0L, output, outputOff, uncompressed);
+      } finally {
+        lease.close();
       }
-      produced = decodeCore(input, inPos, inEnd, scratch, 0L, uncompressed);
-      MemorySegment.copy(scratch, 0L, output, outputOff, uncompressed);
     }
     if (produced != uncompressed) {
       throw new IllegalStateException("SirixLZ77Codec: decoded " + produced + " bytes, expected " + uncompressed);

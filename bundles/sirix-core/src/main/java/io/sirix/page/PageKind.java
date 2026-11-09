@@ -28,6 +28,8 @@
 
 package io.sirix.page;
 
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafEntry;
 import io.sirix.index.hot.page.HOTLeafPage;
@@ -48,7 +50,6 @@ import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.JavaLz4BlockDecoder;
 import io.sirix.exception.SirixIOException;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import io.sirix.node.Utils;
@@ -412,7 +413,22 @@ public enum PageKind {
       }
     }
 
+    /**
+     * Decode one record page inside its thread's {@link BodyScratch}: whatever the decode borrows to
+     * stage the body goes back to the allocator when it returns or throws.
+     */
     private Page deserializeSlottedPage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final boolean chunkedBody, final boolean hasOverflowSlotSidecar, final boolean lazyChunks) {
+      final BodyScratch bodyScratch = BODY_SCRATCH.get();
+      bodyScratch.enter();
+      try {
+        return decodeSlottedPage(resourceConfig, source, chunkedBody, hasOverflowSlotSidecar, lazyChunks);
+      } finally {
+        bodyScratch.exit();
+      }
+    }
+
+    private Page decodeSlottedPage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final boolean chunkedBody, final boolean hasOverflowSlotSidecar, final boolean lazyChunks) {
       // The offset-table template dedup (and the compressed heap codec) is
       // always active on the KVL on-disk wire format. A page with a
@@ -624,8 +640,7 @@ public enum PageKind {
           validateCompactDirectory(recordPageKey, compactDir, populatedCount, onDiskHeapSize, false, chunkedBody);
           // Stash the staging blob and the heap offset (compactDirBytes) so
           // the record-expansion loop below consumes from the correct spot.
-          BLOB_HEAP_OFFSET_HOLDER.set((long) compactDirBytes);
-          BLOB_STAGING_HOLDER.set(blobStaging);
+          BODY_SCRATCH.get().stashBlob(blobStaging, compactDirBytes);
         } else {
           // Dedup path. Read the structural-flags byte + the compressed blob
           // header (length + codec) and decompress into the staging buffer.
@@ -1142,8 +1157,7 @@ public enum PageKind {
 
           // Expose the blob-heap offset so the record-expansion loop below can
           // consume from the correct position.
-          BLOB_HEAP_OFFSET_HOLDER.set(blobPos);
-          BLOB_STAGING_HOLDER.set(blobStaging);
+          BODY_SCRATCH.get().stashBlob(blobStaging, blobPos);
         }
       } else {
         templateCount = 0;
@@ -1273,10 +1287,10 @@ public enum PageKind {
           // 8a'. Inline path (dedup failed) — the heap bytes live inside the
           // decompressed blob that the templateCount==0 branch above staged.
           // Copy them into the slotted page's heap region.
-          final MemorySegment stagingSeg = BLOB_STAGING_HOLDER.get();
-          final long heapBase = BLOB_HEAP_OFFSET_HOLDER.get();
-          BLOB_STAGING_HOLDER.set(null);
-          BLOB_HEAP_OFFSET_HOLDER.set(0L);
+          final BodyScratch stashed = BODY_SCRATCH.get();
+          final MemorySegment stagingSeg = stashed.blob;
+          final long heapBase = stashed.blobHeapOffset;
+          stashed.clearBlob();
           // Lazily, the staging holds the META section and nothing behind it: the records are still
           // sitting in their chunks, and each chunk copies its own run of them in when first read.
           if (!lazyChunks) {
@@ -1341,13 +1355,12 @@ public enum PageKind {
         // The reinject strategy interleaves copies of on-disk bytes with the
         // three insertion ranges, walking both cursors in parallel.
         if (offsetTableDedup && templateCount > 0 && !lazyChunks) {
-          final MemorySegment stagingSeg = BLOB_STAGING_HOLDER.get();
-          final long heapBase = BLOB_HEAP_OFFSET_HOLDER.get();
-          // Release the thread-local holders so subsequent pages on this thread
-          // start from a clean slate. v1StagingScratch still retains the buffer
-          // so this is a pure reference clear.
-          BLOB_STAGING_HOLDER.set(null);
-          BLOB_HEAP_OFFSET_HOLDER.set(0L);
+          final BodyScratch stashed = BODY_SCRATCH.get();
+          final MemorySegment stagingSeg = stashed.blob;
+          final long heapBase = stashed.blobHeapOffset;
+          // Drop the stash so nothing later in this decode reads it by accident. The staging buffer
+          // itself stays borrowed until the decode ends; this is a pure reference clear.
+          stashed.clearBlob();
 
           final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
           long onDiskPos = 0;
@@ -1378,8 +1391,7 @@ public enum PageKind {
         final int[] chunkHeapFrom;
         final int[] chunkHeapTo;
         if (lazyChunks) {
-          BLOB_STAGING_HOLDER.set(null);
-          BLOB_HEAP_OFFSET_HOLDER.set(0L);
+          BODY_SCRATCH.get().clearBlob();
           final ChunkTable table = READ_CHUNK_TABLE.get();
           slotOfEntry = new short[populatedCount];
           int entryIdx3 = 0;
@@ -2339,6 +2351,24 @@ public enum PageKind {
         final int[] slotDataLens, final short[] slotBits, final int[] slotRegionAbsIdx, final boolean deweyIdsStored,
         final boolean chunkedBody, final long fsstDictId, final boolean nameKeyRegionPresent, final byte indexTypeId,
         final RegionTable regionTable) {
+      // The staging the sections are assembled in is borrowed for this one page and goes back to the
+      // allocator when the body is written or the encode fails.
+      final BodyScratch bodyScratch = BODY_SCRATCH.get();
+      bodyScratch.enter();
+      try {
+        encodeBody(sink, slottedPage, populatedCount, slotKindIds, slotFieldCounts, slotHeapOffs, slotDataLens,
+            slotBits, slotRegionAbsIdx, deweyIdsStored, chunkedBody, fsstDictId, nameKeyRegionPresent, indexTypeId,
+            regionTable);
+      } finally {
+        bodyScratch.exit();
+      }
+    }
+
+    private static void encodeBody(final BytesOut<?> sink, final MemorySegment slottedPage, final int populatedCount,
+        final int[] slotKindIds, final byte[] slotFieldCounts, final int[] slotHeapOffs, final int[] slotDataLens,
+        final short[] slotBits, final int[] slotRegionAbsIdx, final boolean deweyIdsStored, final boolean chunkedBody,
+        final long fsstDictId, final boolean nameKeyRegionPresent, final byte indexTypeId,
+        final RegionTable regionTable) {
       final boolean finerDiag = PAGE_SECTION_DIAG;
       final long diagS0 = finerDiag
           ? sink.writePosition()
@@ -3277,22 +3307,31 @@ public enum PageKind {
     private static void gatherAndRecordHeapClass(final MemorySegment staging, final long heapStart,
         final int populatedCount, final int[] slotKindIds, final int[] slotOnDiskLens, final int codec,
         final int heapClass, final int section) {
-      final MemorySegment gather = diagGatherScratch(sumOnDiskLengths(populatedCount, slotOnDiskLens));
-      long gathered = 0;
-      long heapOffset = heapStart;
-      for (int i = 0; i < populatedCount; i++) {
-        final int length = slotOnDiskLens[i];
-        if (heapClassOf(slotKindIds[i]) == heapClass) {
-          MemorySegment.copy(staging, heapOffset, gather, gathered, length);
-          gathered += length;
-        }
-        heapOffset += length;
-      }
-      if (gathered == 0) {
+      final int gatherBytes = sumOnDiskLengths(populatedCount, slotOnDiskLens);
+      if (gatherBytes <= 0) {
         return;
       }
-      PageSectionDiag.recordPostCodecSection(section, gathered,
-          encodedSizeWithCodec(codec, gather, 0L, Math.toIntExact(gathered)));
+      final ScratchLease lease = DIAG_GATHER_SCRATCH.get().acquire(gatherBytes, ScratchUse.CODEC);
+      try {
+        final MemorySegment gather = lease.segment();
+        long gathered = 0;
+        long heapOffset = heapStart;
+        for (int i = 0; i < populatedCount; i++) {
+          final int length = slotOnDiskLens[i];
+          if (heapClassOf(slotKindIds[i]) == heapClass) {
+            MemorySegment.copy(staging, heapOffset, gather, gathered, length);
+            gathered += length;
+          }
+          heapOffset += length;
+        }
+        if (gathered == 0) {
+          return;
+        }
+        PageSectionDiag.recordPostCodecSection(section, gathered,
+            encodedSizeWithCodec(codec, gather, 0L, Math.toIntExact(gathered)));
+      } finally {
+        lease.close();
+      }
     }
 
     private static int sumOnDiskLengths(final int populatedCount, final int[] slotOnDiskLens) {
@@ -3324,17 +3363,18 @@ public enum PageKind {
           return length;
         }
         final int bound = lz4.compressBound(length);
-        MemorySegment out = DIAG_LZ4_OUT_SCRATCH.get();
-        if (out.byteSize() < bound) {
-          out = Arena.ofAuto().allocate(Math.max((long) bound, out.byteSize() * 2L));
-          DIAG_LZ4_OUT_SCRATCH.set(out);
+        final ScratchLease lease = DIAG_LZ4_OUT_SCRATCH.get().acquire(Math.max(bound, 1), ScratchUse.CODEC);
+        try {
+          final MemorySegment out = lease.segment();
+          final int encoded = lz4.getCompressionMode() == FFILz4Compressor.CompressionMode.HIGH_COMPRESSION
+              ? lz4.compressSegmentHC(src.asSlice(off, length), out.asSlice(0, bound), HEAP_LZ4_HC_LEVEL)
+              : lz4.compressSegment(src.asSlice(off, length), out.asSlice(0, bound));
+          return encoded < 0
+              ? length
+              : encoded;
+        } finally {
+          lease.close();
         }
-        final int encoded = lz4.getCompressionMode() == FFILz4Compressor.CompressionMode.HIGH_COMPRESSION
-            ? lz4.compressSegmentHC(src.asSlice(off, length), out.asSlice(0, bound), HEAP_LZ4_HC_LEVEL)
-            : lz4.compressSegment(src.asSlice(off, length), out.asSlice(0, bound));
-        return encoded < 0
-            ? length
-            : encoded;
       }
       final int bound = switch (codec) {
         case 0 -> ZeroRunByteCodec.maxEncodedSize(length);
@@ -8032,29 +8072,23 @@ public enum PageKind {
   /** Diagnostic-only codec output, sized for whatever section the attribution is measuring. */
   private static final ThreadLocal<byte[]> DIAG_CODEC_OUT_SCRATCH = ThreadLocal.withInitial(() -> new byte[1]);
 
-  /** Diagnostic-only LZ4 output, for attributing a body the LZ4 arm wrote. */
-  private static final ThreadLocal<MemorySegment> DIAG_LZ4_OUT_SCRATCH =
-      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1));
+  /**
+   * Diagnostic-only handle for the LZ4 output of one attribution, for attributing a body the LZ4 arm
+   * wrote; the output is allocator scratch borrowed per call.
+   */
+  private static final ThreadLocal<ScratchLease> DIAG_LZ4_OUT_SCRATCH = ThreadLocal.withInitial(ScratchLease::new);
 
-  /** Diagnostic-only gather buffer for one class of the staged heap's records. */
-  private static final ThreadLocal<MemorySegment> DIAG_GATHER_SCRATCH =
-      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1));
+  /**
+   * Diagnostic-only handle for the gather buffer of one class of the staged heap's records; the
+   * buffer is allocator scratch borrowed per call.
+   */
+  private static final ThreadLocal<ScratchLease> DIAG_GATHER_SCRATCH = ThreadLocal.withInitial(ScratchLease::new);
 
   /** Per-template last record kind, for the compact directory's predictability count. */
   private static final ThreadLocal<int[]> DIAG_TEMPLATE_LAST_KIND = ThreadLocal.withInitial(() -> new int[256]);
 
   /** Per-template last on-disk record length. */
   private static final ThreadLocal<int[]> DIAG_TEMPLATE_LAST_LENGTH = ThreadLocal.withInitial(() -> new int[256]);
-
-  /** Grow (or re-allocate) the per-thread diagnostic gather segment. */
-  private static MemorySegment diagGatherScratch(final int needed) {
-    MemorySegment segment = DIAG_GATHER_SCRATCH.get();
-    if (segment.byteSize() < needed) {
-      segment = Arena.ofAuto().allocate(Math.max((long) needed, segment.byteSize() * 2L));
-      DIAG_GATHER_SCRATCH.set(segment);
-    }
-    return segment;
-  }
 
   /** Per-thread {@link ElisionDeriver} for the reader's metadata reconstruction. */
   private static final ThreadLocal<ElisionDeriver> READER_ELISION_DERIVER =
@@ -8592,13 +8626,12 @@ public enum PageKind {
    * </p>
    *
    * <p>
-   * {@link Arena#ofAuto()} rather than a confined or shared arena: the segment is reachable only from
-   * this thread-local, so it is freed when the thread and the local die, with no close() to get wrong
-   * on a serialization thread that outlives any one page.
+   * The landing area is allocator scratch borrowed for one payload and returned with it; this
+   * thread-local holds only the reusable handle, never memory, so a serialization thread that
+   * outlives any one page keeps nothing between pages.
    * </p>
    */
-  private static final ThreadLocal<MemorySegment> OVERFLOW_DECODE_NATIVE =
-      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1 << 16));
+  private static final ThreadLocal<ScratchLease> OVERFLOW_DECODE_NATIVE = ThreadLocal.withInitial(ScratchLease::new);
 
   /**
    * Exhaustive pick-smallest over the same three codecs the leaf body uses, plus STORED.
@@ -8702,19 +8735,22 @@ public enum PageKind {
       // NATIVE_OUTPUT_TAIL_SLACK, not the INPUT constant: the dispatch tests the OUTPUT against 64
       // bytes of slack and the input against 16. This read INPUT until it was measured, which left
       // the landing 48 bytes short and the native path silently declined — the detour was inert.
-      MemorySegment landing = OVERFLOW_DECODE_NATIVE.get();
-      final long needed = (long) decodedLength + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK;
-      if (landing.byteSize() < needed) {
-        landing = Arena.ofAuto().allocate(Math.max(needed, landing.byteSize() * 2));
-        OVERFLOW_DECODE_NATIVE.set(landing);
-      }
-      produced = switch (codec) {
-        case 2 -> ByteRunCodec.decode(in, 0, storedLength, landing, 0L);
-        case 3 -> SirixLZ77Codec.decode(in, 0, storedLength, landing, 0L);
-        default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);
-      };
-      if (produced == decodedLength) {
-        MemorySegment.copy(landing, ValueLayout.JAVA_BYTE, 0L, data, 0, decodedLength);
+      final ScratchLease lease =
+          OVERFLOW_DECODE_NATIVE.get()
+                                .acquire((long) decodedLength + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK,
+                                    ScratchUse.CODEC);
+      try {
+        final MemorySegment landing = lease.segment();
+        produced = switch (codec) {
+          case 2 -> ByteRunCodec.decode(in, 0, storedLength, landing, 0L);
+          case 3 -> SirixLZ77Codec.decode(in, 0, storedLength, landing, 0L);
+          default -> throw new IllegalStateException("Unknown OverflowPage payload codec " + codec);
+        };
+        if (produced == decodedLength) {
+          MemorySegment.copy(landing, ValueLayout.JAVA_BYTE, 0L, data, 0, decodedLength);
+        }
+      } finally {
+        lease.close();
       }
     }
     if (produced != decodedLength) {
@@ -8867,51 +8903,96 @@ public enum PageKind {
   }
 
   /**
-   * Per-thread compressed-output scratch for V1 heap LZ4. Sized for the LZ4 worst case (slightly
-   * larger than input).
+   * One thread's workspace for encoding or decoding a record page's body: the staging blob the
+   * sections are assembled in or decompressed into, and the LZ4 arm's output or input.
+   *
+   * <p>
+   * The memory is allocator scratch, borrowed for one page and returned with it: {@link #enter()} and
+   * {@link #exit()} bracket the operation, the first use of a buffer borrows it, and the last exit
+   * returns both. Between pages the workspace holds two unbound handles and nothing else, so a pool
+   * or virtual thread that once touched a page keeps no native memory for it; the buffers used to be
+   * thread-local segments of an automatic arena, one pair per thread for as long as the thread lived
+   * and outside every budget.
+   *
+   * <p>
+   * Native, so the codecs read and write through {@link MemorySegment} and LZ4's FFI call needs no
+   * copy. Nothing decoded from the staging may outlive the operation: a decoder copies the records
+   * into the page's own frame, an encoder writes the frames to its sink.
    */
-  private static final ThreadLocal<MemorySegment> V1_HEAP_LZ4_OUT = ThreadLocal.withInitial(() -> {
-    // Start at 128 KiB; {@link #lz4OutScratch} grows it as needed.
-    return Arena.ofAuto().allocate(128 * 1024);
-  });
+  private static final class BodyScratch {
 
-  /**
-   * Per-thread staging MemorySegment (native-backed) for the pre-LZ4 heap. Native-backed so LZ4's FFI
-   * call works without JNI round-trips.
-   */
-  private static final ThreadLocal<MemorySegment> V1_HEAP_LZ4_STAGING =
-      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(128 * 1024));
+    /** Floor of both borrows: one capacity for every ordinary page, shared with reads and sinks. */
+    private static final long MIN_BYTES = 128L * 1024;
 
-  /**
-   * Per-thread pointer to the decompressed body blob and its heap-section offset. Bridges the
-   * compactDir/templatePool parse pass and the per-record expansion pass so we don't re-decompress or
-   * walk the blob twice.
-   */
-  private static final ThreadLocal<MemorySegment> BLOB_STAGING_HOLDER = new ThreadLocal<>();
-  private static final ThreadLocal<Long> BLOB_HEAP_OFFSET_HOLDER = ThreadLocal.withInitial(() -> 0L);
+    private final ScratchLease staging = new ScratchLease();
+    private final ScratchLease lz4 = new ScratchLease();
 
-  /**
-   * Grow (or re-allocate) the per-thread V1 staging segment to at least {@code needed} bytes. Uses
-   * {@link java.lang.foreign.Arena#ofAuto} so the previous segment's memory is GC'd when no longer
-   * referenced.
-   */
-  private static MemorySegment v1StagingScratch(final int needed) {
-    MemorySegment s = V1_HEAP_LZ4_STAGING.get();
-    if (s.byteSize() < needed) {
-      s = Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
-      V1_HEAP_LZ4_STAGING.set(s);
+    /** Operations of this thread inside {@link #enter()}/{@link #exit()}; the buffers go back at 0. */
+    private int depth;
+
+    /**
+     * The decompressed body blob and its heap-section offset: bridges the compactDir/templatePool parse
+     * pass and the per-record expansion pass of one decode, so the blob is neither decompressed nor
+     * walked twice.
+     */
+    private @Nullable MemorySegment blob;
+    private long blobHeapOffset;
+
+    void enter() {
+      depth++;
     }
-    return s;
+
+    void exit() {
+      if (--depth == 0) {
+        blob = null;
+        blobHeapOffset = 0L;
+        staging.close();
+        lz4.close();
+      }
+    }
+
+    /** The staging blob, at least {@code needed} bytes; its previous contents are not kept. */
+    MemorySegment staging(final int needed) {
+      return atLeast(staging, needed);
+    }
+
+    /** The LZ4 arm's buffer, at least {@code needed} bytes; its previous contents are not kept. */
+    MemorySegment lz4(final int needed) {
+      return atLeast(lz4, needed);
+    }
+
+    void stashBlob(final MemorySegment stagedBlob, final long heapOffset) {
+      blob = stagedBlob;
+      blobHeapOffset = heapOffset;
+    }
+
+    void clearBlob() {
+      blob = null;
+      blobHeapOffset = 0L;
+    }
+
+    private static MemorySegment atLeast(final ScratchLease lease, final int needed) {
+      if (lease.isHeld()) {
+        if (lease.capacity() >= needed) {
+          return lease.segment();
+        }
+        // Too small for this page: the old contents are not needed, so return it first.
+        lease.close();
+      }
+      return lease.acquire(Math.max(needed, MIN_BYTES), ScratchUse.CODEC).segment();
+    }
   }
 
-  /** Grow (or re-allocate) the per-thread LZ4 output segment. */
+  private static final ThreadLocal<BodyScratch> BODY_SCRATCH = ThreadLocal.withInitial(BodyScratch::new);
+
+  /** The calling thread's staging blob for the page body it is encoding or decoding. */
+  private static MemorySegment v1StagingScratch(final int needed) {
+    return BODY_SCRATCH.get().staging(needed);
+  }
+
+  /** The calling thread's LZ4 buffer for the page body it is encoding or decoding. */
   private static MemorySegment v1Lz4OutScratch(final int needed) {
-    MemorySegment s = V1_HEAP_LZ4_OUT.get();
-    if (s.byteSize() < needed) {
-      s = Arena.ofAuto().allocate(Math.max((long) needed, s.byteSize() * 2L));
-      V1_HEAP_LZ4_OUT.set(s);
-    }
-    return s;
+    return BODY_SCRATCH.get().lz4(needed);
   }
 
   static {

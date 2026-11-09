@@ -1,6 +1,8 @@
 package io.sirix.io.bytepipe;
 
 import io.sirix.cache.Allocators;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import io.sirix.cache.MemorySegmentAllocator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,9 +25,9 @@ import static java.lang.foreign.ValueLayout.*;
 public final class FFILz4Compressor implements ByteHandler {
 
   /**
-   * Upper bound for a single page's decompressed size (a page can never legitimately be this
-   * large — KeyValueLeafPages cap far below; 256 MiB leaves generous headroom for future growth
-   * while making a corrupt header fail fast instead of OOM-ing).
+   * Upper bound for a single page's decompressed size (a page can never legitimately be this large —
+   * KeyValueLeafPages cap far below; 256 MiB leaves generous headroom for future growth while making
+   * a corrupt header fail fast instead of OOM-ing).
    */
   private static final long MAX_DECOMPRESSED_SIZE = 256L * 1024 * 1024;
 
@@ -102,11 +104,10 @@ public final class FFILz4Compressor implements ByteHandler {
   private static final int MIN_COMPRESSION_SIZE = 64;
 
   /**
-   * The 4-byte decompressed-size frame header is on-disk format — pinned little-endian like
-   * every other persisted scalar (the native-order accessors made it host-defined).
+   * The 4-byte decompressed-size frame header is on-disk format — pinned little-endian like every
+   * other persisted scalar (the native-order accessors made it host-defined).
    */
-  private static final OfInt LE_HEADER_INT =
-      JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  private static final OfInt LE_HEADER_INT = JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
 
   /**
    * The compression mode for this instance.
@@ -115,26 +116,6 @@ public final class FFILz4Compressor implements ByteHandler {
 
   // Memory segment allocator for decompression buffers
   private static final MemorySegmentAllocator ALLOCATOR = Allocators.getInstance();
-
-  /**
-   * Default initial size for decompression buffer (128KB - typical page size after decompression).
-   */
-  private static final int DEFAULT_DECOMPRESS_BUFFER_SIZE = 128 * 1024;
-
-  /**
-   * Bounded pool of decompression buffers - Loom-friendly.
-   * 
-   * <p>
-   * Unlike ThreadLocal which creates one buffer per thread (memory explosion with millions of virtual
-   * threads), this pool has a fixed size of 2×CPU cores.
-   * 
-   * <p>
-   * When all buffers are in use, a new one is allocated (not pooled). This ensures progress under
-   * high concurrency while keeping memory bounded for typical loads.
-   */
-  private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
-  private static final java.util.concurrent.ArrayBlockingQueue<MemorySegment> BUFFER_POOL =
-      new java.util.concurrent.ArrayBlockingQueue<>(POOL_SIZE);
 
   static {
     boolean available = false;
@@ -402,8 +383,8 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Compress data and return a new MemorySegment with compressed data. Uses a confined Arena for
-   * temporary compression buffer.
+   * Compress data and return a new MemorySegment with compressed data. The temporary compression
+   * buffer is allocator scratch borrowed for the call.
    * 
    * <p>
    * Compression strategy depends on the configured {@link CompressionMode}:
@@ -441,20 +422,23 @@ public final class FFILz4Compressor implements ByteHandler {
 
     int maxDstSize = compressBound(srcSize);
 
-    // Use Arena for temporary compression buffer
-    try (Arena arena = Arena.ofConfined()) {
-      // FFI requires native memory - copy heap segments to native
-      MemorySegment nativeSource;
-      if (source.isNative()) {
+    // The FFI call needs native memory on both sides. Both stagings are allocator scratch borrowed
+    // for this call: a native copy of a heap source, and the worst-case output with header space.
+    final ScratchLease sourceLease = source.isNative()
+        ? null
+        : ScratchLease.of(srcSize, ScratchUse.CODEC);
+    try (ScratchLease outputLease = ScratchLease.of(maxDstSize + 4L, ScratchUse.CODEC)) {
+      final MemorySegment nativeSource;
+      if (sourceLease == null) {
         nativeSource = source;
       } else {
-        // Copy heap segment to native memory for FFI call
-        nativeSource = arena.allocate(srcSize);
+        // The compressors take the source's size as the input length: an exact view, not the
+        // borrowed buffer's capacity.
+        nativeSource = sourceLease.segment().asSlice(0, srcSize);
         MemorySegment.copy(source, 0, nativeSource, 0, srcSize);
       }
 
-      // Allocate temporary buffer with header space
-      MemorySegment tempCompressed = arena.allocate(maxDstSize + 4);
+      final MemorySegment tempCompressed = outputLease.segment().asSlice(0, maxDstSize + 4L);
 
       // Write decompressed size header (for decompression)
       tempCompressed.set(LE_HEADER_INT, 0, srcSize);
@@ -498,6 +482,10 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment result = Arena.ofAuto().allocate(totalCompressedSize);
       MemorySegment.copy(tempCompressed, 0, result, 0, totalCompressedSize);
       return result;
+    } finally {
+      if (sourceLease != null) {
+        sourceLease.close();
+      }
     }
   }
 
@@ -564,8 +552,7 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
 
       final MemorySegment backingBuffer = buffer;
-      return new DecompressionResult(buffer, backingBuffer,
-          () -> ALLOCATOR.release(backingBuffer),
+      return new DecompressionResult(buffer, backingBuffer, () -> ALLOCATOR.release(backingBuffer),
           new java.util.concurrent.atomic.AtomicBoolean(false));
     }
 
@@ -573,13 +560,20 @@ public final class FFILz4Compressor implements ByteHandler {
 
     MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
 
-    MemorySegment nativeCompressed;
-    Arena tempArena = null;
+    // A heap input is copied into borrowed scratch for the FFI call; the decompressors take the
+    // input length from the view, so it is cut to the payload's exact size.
+    final MemorySegment nativeCompressed;
+    ScratchLease inputLease = null;
     if (compressed.isNative()) {
       nativeCompressed = compressed;
     } else {
-      tempArena = Arena.ofConfined();
-      nativeCompressed = tempArena.allocate(compressed.byteSize());
+      try {
+        inputLease = ScratchLease.of(compressed.byteSize(), ScratchUse.CODEC);
+      } catch (final RuntimeException | Error failure) {
+        ALLOCATOR.release(buffer);
+        throw failure;
+      }
+      nativeCompressed = inputLease.segment().asSlice(0, compressed.byteSize());
       MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
     }
 
@@ -612,35 +606,17 @@ public final class FFILz4Compressor implements ByteHandler {
 
       final MemorySegment backingBuffer = buffer;
       final DecompressionResult result = new DecompressionResult(buffer.asSlice(0, actualSize), backingBuffer,
-          () -> ALLOCATOR.release(backingBuffer),
-          new java.util.concurrent.atomic.AtomicBoolean(false));
+          () -> ALLOCATOR.release(backingBuffer), new java.util.concurrent.atomic.AtomicBoolean(false));
       ownershipTransferred = true;
       return result;
     } finally {
       if (!ownershipTransferred) {
         ALLOCATOR.release(buffer);
       }
-      if (tempArena != null) {
-        tempArena.close();
+      if (inputLease != null) {
+        inputLease.close();
       }
     }
-  }
-
-  /**
-   * Clear all buffers from the pool. Call this when shutting down or when memory needs to be
-   * reclaimed.
-   */
-  public static void clearPool() {
-    BUFFER_POOL.clear();
-  }
-
-  /**
-   * Get current pool statistics for monitoring.
-   * 
-   * @return number of buffers currently in pool
-   */
-  public static int getPoolSize() {
-    return BUFFER_POOL.size();
   }
 
   /**
