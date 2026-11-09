@@ -244,6 +244,10 @@ public final class FileChannelReader extends AbstractReader {
           if (buffer != null && buffer.capacity() >= minCapacity && buffer.capacity() < bestCapacity) {
             best = slot;
             bestCapacity = buffer.capacity();
+            // An exact fit cannot be improved by scanning the remaining slots.
+            if (bestCapacity == minCapacity) {
+              break;
+            }
           }
           slot = next(slot);
         }
@@ -468,12 +472,14 @@ public final class FileChannelReader extends AbstractReader {
    * cheaper than that serialization.
    */
   private static ByteBuffer acquireBuffer(final int minCapacity) {
-    final ByteBuffer pooled = BUF_POOL.poll(minCapacity);
+    // Every buffer we allocate has at least BUFFER_BYTES: make that lower bound visible to the
+    // exact-fit search so a small page read does not scan the entire pool of ordinary buffers.
+    final int cap = Math.max(minCapacity, BUFFER_BYTES);
+    final ByteBuffer pooled = BUF_POOL.poll(cap);
     if (pooled != null) {
       return pooled;
     }
     POOL_MISSES.increment();
-    final int cap = Math.max(minCapacity, BUFFER_BYTES);
     return ByteBuffer.allocateDirect(cap).order(ByteOrder.LITTLE_ENDIAN);
   }
 

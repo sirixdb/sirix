@@ -74,7 +74,11 @@ final class FileChannelBufferPoolTest {
           start.await();
           for (int iteration = 0; iteration < 5000; iteration++) {
             ByteBuffer buffer;
-            while ((buffer = pool.poll()) == null) {
+            // Exercise both the exact-fit exit and the general scan under contention.
+            final int requested = (iteration & 1) == 0
+                ? 16
+                : 1;
+            while ((buffer = pool.poll(requested)) == null) {
               if (Thread.currentThread().isInterrupted()) {
                 return null;
               }
@@ -142,6 +146,26 @@ final class FileChannelBufferPoolTest {
     assertSame(large, pool.poll(0));
     assertNull(pool.poll(0));
     assertEquals(0, pool.retainedBytes());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void exactFitPreservesOtherBuffersAndRetainedBytes(final boolean lockFree) {
+    final BufferPool pool = new BufferPool(3, lockFree);
+    final ByteBuffer large = ByteBuffer.allocate(1024);
+    final ByteBuffer exact = ByteBuffer.allocate(64);
+    final ByteBuffer small = ByteBuffer.allocate(8);
+    assertTrue(pool.offer(large));
+    assertTrue(pool.offer(exact));
+    assertTrue(pool.offer(small));
+
+    assertSame(exact, pool.poll(64));
+    assertEquals(1024 + 8, pool.retainedBytes());
+    assertSame(large, pool.poll(65));
+    assertEquals(8, pool.retainedBytes());
+    assertSame(small, pool.poll(8));
+    assertEquals(0, pool.retainedBytes());
+    assertNull(pool.poll(8));
   }
 
   @ParameterizedTest
