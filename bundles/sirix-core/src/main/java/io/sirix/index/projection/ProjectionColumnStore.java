@@ -5,6 +5,8 @@ package io.sirix.index.projection;
 
 import io.sirix.cache.Allocators;
 import io.sirix.cache.HeapCacheBudget;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import io.sirix.node.SegmentAccess;
 import java.lang.foreign.MemorySegment;
 import java.lang.ref.Cleaner;
@@ -19,6 +21,7 @@ import org.jspecify.annotations.Nullable;
 import java.nio.charset.StandardCharsets;
 import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -4726,7 +4729,7 @@ public final class ProjectionColumnStore {
    * column at 100M rows, ~8 GB of per-leaf dictionaries) still serves the kernel exactly, at a
    * bounded working set. Single-threaded by contract: the kernels that take it run on one thread.
    */
-  public interface LeafColumnAccess {
+  public interface LeafColumnAccess extends AutoCloseable {
     /**
      * The slice of {@code col} on {@code leaf}, never masked — sort keys, best-first and zone reads.
      */
@@ -4743,6 +4746,13 @@ public final class ProjectionColumnStore {
 
     /** Whether leaves are decoded per window instead of held resident. */
     boolean windowed();
+
+    /**
+     * Ends the access. An access whose windows borrow their lanes from the allocator returns them here,
+     * and no slice it handed out may be read afterwards; every other access holds nothing to return.
+     */
+    @Override
+    default void close() {}
   }
 
   private static final boolean SEGMENT_DIAG = Boolean.getBoolean("sirix.projection.segmentDiag");
@@ -4849,22 +4859,20 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * The windowed access with, when {@code recycleSlices}, the long-lane arrays of an EVICTED slice
-   * recycled into the next window's decode. That makes a slice's arrays valid only while the slice is
-   * in the access's cache, so it is for callers whose consumers finish with a window before the
-   * access moves {@code cacheLeaves} past it — the sliced group kernels' fill / kernel / release
-   * discipline ({@link WindowedSliceArrays}). A caller that keeps slices across windows (a top-k heap
-   * resolving old entries) must not ask for it.
+   * The windowed access with, when {@code borrowLanes}, the long lanes of each decoded window written
+   * into one buffer of allocator scratch ({@link ScratchUse#PROJECTION}) instead of a heap array per
+   * leaf. The buffer goes back to the allocator when the window's last slice leaves the access's
+   * cache, and whatever is still borrowed when the access is {@linkplain LeafColumnAccess#close()
+   * closed}. That makes a slice's lane valid only while the slice is in the cache, so it is for
+   * callers whose consumers finish with a window before the access moves {@code cacheLeaves} past it
+   * — the sliced group kernels' fill / kernel / release discipline ({@link WindowedSliceArrays}) —
+   * and who close the access. A caller that keeps slices across windows (a top-k heap resolving old
+   * entries) must not ask for it.
    */
   public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
-      final int windowLeaves, final int cacheLeaves, final boolean recycleSlices) {
+      final int windowLeaves, final int cacheLeaves, final boolean borrowLanes) {
     WINDOWED_LEAF_ACCESSES.increment();
-    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, recycleSlices);
-  }
-
-  /** Test observability: presence/value arrays a windowed access reused instead of allocating. */
-  public static long recycledSliceArraysCount() {
-    return SliceArrayPool.reusedCount();
+    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, borrowLanes);
   }
 
   /**
@@ -5015,16 +5023,6 @@ public final class ProjectionColumnStore {
    */
   private ColumnSlice[] decodeLeafSlices(final int col, final int @Nullable [] leaves, final int base, final int len,
       final ColumnSegmentFetcher fetcher) {
-    return decodeLeafSlices(col, leaves, base, len, fetcher, null);
-  }
-
-  /**
-   * {@link #decodeLeafSlices(int, int[], int, int, ColumnSegmentFetcher)} with the long-lane arrays
-   * of the body-only kinds taken from {@code pool} — the windowed access's recycling seam; string
-   * kinds decode as before.
-   */
-  private ColumnSlice[] decodeLeafSlices(final int col, final int @Nullable [] leaves, final int base, final int len,
-      final ColumnSegmentFetcher fetcher, final @Nullable SliceArrayPool pool) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable");
     }
@@ -5051,7 +5049,39 @@ public final class ProjectionColumnStore {
           ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col)
           : string
               ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col)
-              : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col, pool);
+              : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col);
+    }
+    return decoded;
+  }
+
+  /** Bytes the long lanes of leaves {@code [base, base + len)} occupy back to back: eight per row. */
+  private long laneBytes(final int base, final int len) {
+    long rows = 0L;
+    for (int leaf = base; leaf < base + len; leaf++) {
+      rows += RowGroupDescriptor.rowCount(directories.get(leaf).descriptor());
+    }
+    return rows * Long.BYTES;
+  }
+
+  /**
+   * {@link #decodeLeafSlices} for a long-lane column over the leaves {@code [base, base + len)}, the
+   * values of every leaf written into {@code lanes} back to back in leaf order: each slice with rows
+   * carries a {@link NumericLane} over its part and no heap value array. Presence words stay on the
+   * heap, sixteen longs per full leaf.
+   *
+   * @param lanes at least {@link #laneBytes} bytes; the caller owns it and every lane handed out
+   */
+  private ColumnSlice[] decodeLeafLanesInto(final int col, final int base, final int len,
+      final ColumnSegmentFetcher fetcher, final MemorySegment lanes) {
+    final byte[][] bodies =
+        fetchLeafSegments(null, base, len, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
+            ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher);
+    final ColumnSlice[] decoded = new ColumnSlice[len];
+    long laneBase = 0L;
+    for (int i = 0; i < len; i++) {
+      final byte[] descriptor = directories.get(base + i).descriptor();
+      decoded[i] = ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, bodies[i], col, lanes, laneBase);
+      laneBase += (long) decoded[i].rowCount() * Long.BYTES;
     }
     return decoded;
   }
@@ -5225,11 +5255,26 @@ public final class ProjectionColumnStore {
     private final Int2ObjectLinkedOpenHashMap<ColumnSlice>[] leafCache =
         new Int2ObjectLinkedOpenHashMap[columnKinds.length];
     private final Int2ObjectLinkedOpenHashMap<long[]> keyCache = new Int2ObjectLinkedOpenHashMap<>();
-    /** Recycles an evicted slice's long-lane arrays into the next decode; {@code null} = allocate. */
-    private final @Nullable SliceArrayPool slicePool;
+
+    /**
+     * The borrowed lane buffers of the windows that still have a slice in the cache, by the segment the
+     * slices' lanes name; {@code null} = this access decodes into heap arrays the collector takes.
+     */
+    private final @Nullable Reference2ObjectOpenHashMap<MemorySegment, WindowLanes> windowLanes;
+
+    /** One window's lanes of one column: the borrow, and how many cached slices still read it. */
+    private static final class WindowLanes {
+      private final ScratchLease lease;
+      private int cachedSlices;
+
+      WindowLanes(final ScratchLease lease, final int cachedSlices) {
+        this.lease = lease;
+        this.cachedSlices = cachedSlices;
+      }
+    }
 
     WindowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int windowLeaves,
-        final int cacheLeaves, final boolean recycleSlices) {
+        final int cacheLeaves, final boolean borrowLanes) {
       if (windowLeaves <= 0) {
         throw new IllegalArgumentException("windowLeaves must be positive: " + windowLeaves);
       }
@@ -5240,8 +5285,8 @@ public final class ProjectionColumnStore {
       this.keepWords = keepWords;
       this.windowLeaves = windowLeaves;
       this.cacheLeaves = cacheLeaves;
-      this.slicePool = recycleSlices
-          ? new SliceArrayPool()
+      this.windowLanes = borrowLanes
+          ? new Reference2ObjectOpenHashMap<>()
           : null;
     }
 
@@ -5286,23 +5331,78 @@ public final class ProjectionColumnStore {
       final ColumnSlice[] decoded = decodeWindow(col, window);
       final int from = window * windowLeaves;
       for (int i = 0; i < decoded.length; i++) {
-        cache.putAndMoveToLast(from + i, decoded[i]);
+        // A window decoded again while some of its leaves were still cached replaces their slices.
+        leftCache(cache.putAndMoveToLast(from + i, decoded[i]));
       }
       while (cache.size() > cacheLeaves) {
-        // Eviction is the arrays' death under the windowed contract: a recycling access hands them to
-        // its pool here and the NEXT window's decode takes them back instead of allocating.
-        final ColumnSlice evicted = cache.removeFirst();
-        if (slicePool != null) {
-          slicePool.recycle(evicted);
-        }
+        // Leaving the cache is a slice's death under the windowed contract.
+        leftCache(cache.removeFirst());
       }
       return decoded[leaf - from];
     }
 
+    /**
+     * A slice left the cache. When it was the last cached slice of its window's borrowed lanes, the
+     * buffer goes back to the allocator: nothing may read those lanes any more.
+     */
+    private void leftCache(final @Nullable ColumnSlice slice) {
+      if (slice == null || windowLanes == null) {
+        return;
+      }
+      final NumericLane lane = slice.lane();
+      if (lane == null) {
+        return;
+      }
+      final WindowLanes lanes = windowLanes.get(lane.segment());
+      if (lanes != null && --lanes.cachedSlices == 0) {
+        windowLanes.remove(lane.segment());
+        lanes.lease.close();
+      }
+    }
+
     private ColumnSlice[] decodeWindow(final int col, final int window) {
       final int from = window * windowLeaves;
-      final int to = Math.min(from + windowLeaves, leafCount);
-      return decodeLeafSlices(col, null, from, to - from, fetcher, slicePool);
+      final int len = Math.min(from + windowLeaves, leafCount) - from;
+      if (windowLanes == null || !ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col])) {
+        return decodeLeafSlices(col, null, from, len, fetcher);
+      }
+      final long bytes = laneBytes(from, len);
+      if (bytes == 0L) {
+        return decodeLeafSlices(col, null, from, len, fetcher);
+      }
+      // One buffer for the window's lanes of this column, borrowed until its last slice is evicted.
+      final ScratchLease lease = ScratchLease.of(bytes, ScratchUse.PROJECTION);
+      try {
+        final ColumnSlice[] decoded = decodeLeafLanesInto(col, from, len, fetcher, lease.segment());
+        int withLane = 0;
+        for (final ColumnSlice slice : decoded) {
+          if (slice.lane() != null) {
+            withLane++;
+          }
+        }
+        windowLanes.put(lease.segment(), new WindowLanes(lease, withLane));
+        return decoded;
+      } catch (final Throwable failure) {
+        // A segment that fails to fetch, verify or decode: no slice of this window was handed out.
+        lease.close();
+        throw failure;
+      }
+    }
+
+    @Override
+    public void close() {
+      for (final Int2ObjectLinkedOpenHashMap<ColumnSlice> cache : leafCache) {
+        if (cache != null) {
+          cache.clear();
+        }
+      }
+      keyCache.clear();
+      if (windowLanes != null) {
+        for (final WindowLanes lanes : windowLanes.values()) {
+          lanes.lease.close();
+        }
+        windowLanes.clear();
+      }
     }
 
     @Override

@@ -90,6 +90,10 @@ public final class EngineWorkCounters {
   public static final WorkCounter SCRATCH_IMPORT_BORROWS =
       scratchBorrows(ScratchUse.IMPORT, "a slab of a bulk import's chunk");
 
+  /** Borrows for the lanes a windowed projection access decodes a window of one column into. */
+  public static final WorkCounter SCRATCH_PROJECTION_BORROWS =
+      scratchBorrows(ScratchUse.PROJECTION, "a window's lanes of one projection column");
+
   /**
    * Scratch buffers given fresh backing because no resident buffer of their capacity was idle. Zero
    * over a warm path: the allocator kept what the path returned before.
@@ -114,9 +118,10 @@ public final class EngineWorkCounters {
       "scratch returns rejected as stale or repeated", () -> scratch().staleReleases());
 
   /** Every scratch counter, for a capture that guards how a path uses the allocator's buffers. */
-  public static final List<WorkCounter> SCRATCH = List.of(SCRATCH_READ_BORROWS, SCRATCH_SERIALIZATION_BORROWS,
-      SCRATCH_COMMIT_FLUSH_BORROWS, SCRATCH_CODEC_BORROWS, SCRATCH_PAGE_BORROWS, SCRATCH_WRITE_IO_BORROWS,
-      SCRATCH_IMPORT_BORROWS, SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
+  public static final List<WorkCounter> SCRATCH =
+      List.of(SCRATCH_READ_BORROWS, SCRATCH_SERIALIZATION_BORROWS, SCRATCH_COMMIT_FLUSH_BORROWS, SCRATCH_CODEC_BORROWS,
+          SCRATCH_PAGE_BORROWS, SCRATCH_WRITE_IO_BORROWS, SCRATCH_IMPORT_BORROWS, SCRATCH_PROJECTION_BORROWS,
+          SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
 
   public static final WorkCounter TEMPORAL_GROUP_HEADS_VISITED = WorkCounter.gated("temporal.groupHeadsVisited",
       "one dictionary head counted during admission", TemporalAggregateStorage::groupHeadsVisited,

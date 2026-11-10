@@ -5,6 +5,9 @@ import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
+import io.sirix.cache.Allocators;
+import io.sirix.cache.ScratchStats;
+import io.sirix.cache.ScratchUse;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.ProjectionColumnStore;
@@ -24,14 +27,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * End-to-end witness for the windowed access's slice recycling: a store of 200 leaves (past the
- * two-window cache, so eviction — and therefore reuse — actually happens), a composite group-by
- * driven windowed by a one-byte fill budget and into several hash-range passes by a tight group
- * budget, so the same leaves are decoded into recycled arrays pass after pass. The answers must
- * equal the resident arm's and the interpreter's, and the recycling counter must have moved — a
- * pool that is wired to nothing passes every correctness check and this test alone would notice.
+ * End-to-end witness for the windowed access's borrowed lanes: a store of 200 leaves (past the
+ * two-window cache, so windows are evicted and their buffers returned while the pass runs), a
+ * composite group-by driven windowed by a one-byte fill budget and into several hash-range passes
+ * by a tight group budget, so the same leaves are decoded into borrowed buffers pass after pass.
+ * The answers must equal the resident arm's and the interpreter's, the allocator must have lent the
+ * windows their buffers — an access wired to nothing passes every correctness check and this test
+ * alone would notice — and none may still be lent when the query is done: every worker of every
+ * pass, also the passes the budget abandoned, closed its slice arrays.
  */
-final class WindowedSliceRecyclingQueryTest {
+final class WindowedSliceLanesQueryTest {
   private static final String DB = "slice-recycling-db";
   private static final String RES = "records.jn";
   private static final String DOC = "jn:doc('" + DB + "','" + RES + "')[]";
@@ -122,7 +127,7 @@ final class WindowedSliceRecyclingQueryTest {
   }
 
   @Test
-  void aMultiPassWindowedCompositeGroupByRecyclesItsSliceArraysAndAnswersExactly() throws Exception {
+  void aMultiPassWindowedCompositeGroupByBorrowsItsLanesReturnsThemAndAnswersExactly() throws Exception {
     final String query = "subsequence(for $h in " + DOC + " where $h.amount ge 100 "
         + "let $k := $h.k, $a := $h.a group by $k, $a let $c := count($h) " + "order by $c descending "
         + "return {\"k\": $k, \"a\": $a, \"c\": $c, \"sum\": sum($h.amount), \"m\": sum($h.m)}, 1, 25)";
@@ -133,19 +138,22 @@ final class WindowedSliceRecyclingQueryTest {
     previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
     previousGroupBudget = GroupTableSpill.setGroupBudgetForTesting(200L); // 640 groups → several passes
     final long windowedBefore = SirixVectorizedExecutor.groupWindowedSlicesCount();
-    final long recycledBefore = ProjectionColumnStore.recycledSliceArraysCount();
+    final ScratchStats scratchBefore = Allocators.getInstance().scratchStats();
     final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
     final String windowed = run(query, true);
     assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore, "not served by the group arm");
     assertTrue(SirixVectorizedExecutor.groupWindowedSlicesCount() > windowedBefore, "the windowed route never engaged");
-    final long recycled = ProjectionColumnStore.recycledSliceArraysCount() - recycledBefore;
-    // Five columns × 201 leaves per pass in 64-leaf windows against a two-window cache: the third and
-    // fourth
-    // window of every pass decode into the arrays the first two gave up — 73 leaves × 5 columns × 2
-    // arrays
-    // per pass, three passes.
-    assertTrue(recycled > 1_000L, "slice arrays recycled: " + recycled);
-    assertEquals(generic, windowed, "the recycling windowed arm diverges from the interpreter");
+    final ScratchStats scratchAfter = Allocators.getInstance().scratchStats();
+    final long borrowed =
+        scratchAfter.acquisitions(ScratchUse.PROJECTION) - scratchBefore.acquisitions(ScratchUse.PROJECTION);
+    // 201 leaves in 64-leaf windows are four windows, and four of the query's columns are long lanes:
+    // sixteen buffers for every pass that walks the store (48 measured, three passes). A pass the
+    // group budget abandons part-way borrows fewer, so the bound is one pass.
+    assertTrue(borrowed >= 4L * 4, "lane buffers borrowed for the windows: " + borrowed);
+    assertEquals(scratchBefore.totalLentBuffers(), scratchAfter.totalLentBuffers(),
+        "a worker left its windows' lanes borrowed after the query");
+    assertEquals(0, scratchAfter.staleReleases() - scratchBefore.staleReleases());
+    assertEquals(generic, windowed, "the windowed arm over borrowed lanes diverges from the interpreter");
   }
 
   private String run(final String query, final boolean vectorized) throws Exception {

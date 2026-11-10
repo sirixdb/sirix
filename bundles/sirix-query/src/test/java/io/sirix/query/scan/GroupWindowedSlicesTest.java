@@ -6,6 +6,9 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.cache.Allocators;
+import io.sirix.cache.ScratchStats;
+import io.sirix.cache.ScratchUse;
 import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.HeapHeadroom;
 import io.sirix.index.projection.ProjectionColumnScan;
@@ -117,6 +120,12 @@ final class GroupWindowedSlicesTest {
       "for $h in " + DOC + " where $h.amount ge 1500 let $k := $h.k40 group by $k order by $k "
           + "return {\"k40\": $k, \"c\": count($h), \"s\": sum($h.amount)}",
       "for $h in " + DOC + " let $k := $h.s group by $k order by $k return {\"s\": $k, \"c\": count($h)}",
+      // the legacy string leg and the packed substring key again, each with a numeric aggregate: the
+      // two arms whose shapes above read no long lane, so that their windows borrow lane buffers too
+      "for $h in " + DOC + " let $k := $h.s group by $k order by $k "
+          + "return {\"s\": $k, \"c\": count($h), \"sum\": sum($h.amount)}",
+      "subsequence(for $h in " + DOC + " let $m := substring($h.t, 1, 16) group by $m let $c := count($h) "
+          + "order by $c descending return {\"m\": $m, \"c\": $c, \"sum\": sum($h.amount)}, 1, 12)",
       // deferred string extrema (pass 2 over the winners' groups, windowed too), with a predicate
       "subsequence(for $h in " + DOC + " where $h.amount ge 1000 let $k := $h.s group by $k let $c := count($h) "
           + "order by $c descending return {\"s\": $k, \"c\": $c, \"w\": min($h.w), \"x\": max($h.w)}, 1, 12)");
@@ -250,10 +259,19 @@ final class GroupWindowedSlicesTest {
       final long windowedAccessBefore = ProjectionColumnStore.windowedLeafAccessCount();
       final long servedBefore = groupServes();
       previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
+      final ScratchStats scratchBefore = Allocators.getInstance().scratchStats();
       final String windowed = run(query, true);
+      final ScratchStats scratchAfter = Allocators.getInstance().scratchStats();
       ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
       previousBudget = -1L;
       assertTrue(groupServes() > servedBefore, "not served by a group arm under the one-byte budget: " + query);
+      // A windowed arm decodes its windows' long lanes into buffers borrowed from the allocator; every
+      // worker of every pass returns them, also a worker that leaves a pass the budget abandoned.
+      assertEquals(scratchBefore.totalLentBuffers(), scratchAfter.totalLentBuffers(),
+          "a windowed arm left lane buffers borrowed ("
+              + (scratchAfter.acquisitions(ScratchUse.PROJECTION) - scratchBefore.acquisitions(ScratchUse.PROJECTION))
+              + " borrowed) for: " + query);
+      assertEquals(0, scratchAfter.staleReleases() - scratchBefore.staleReleases(), "a lane buffer was returned twice");
       if (expectWindowed) {
         assertTrue(SirixVectorizedExecutor.groupWindowedSlicesCount() > windowedRoutesBefore,
             "the windowed-slice route never engaged for: " + query);

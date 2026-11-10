@@ -38,10 +38,12 @@ operation has exactly one kernel rather than an array form and a segment form to
 column-sliced predicate masks (`ProjectionColumnScan.evaluateMask` and the predicate-tree arm), the
 record-key membership walk (`ProjectionRecordKeySet.andMembership`, `filterMembership`), the bounded
 top-k heap (`TopKHeap.bindLeaf` hoists each sort key's lane once per leaf), the conjunctive numeric
-aggregates and the field-value emission all read `(segment, base)`. Producers that still decode to
-the heap — the windowed leaf access's recycled slice arrays (`SliceArrayPool`) and the KEYS chain —
-reach those same kernels as heap segments (`MemorySegment.ofArray`), which is a representation
-difference, not a second code path.
+aggregates and the field-value emission all read `(segment, base)`. The sliced group passes'
+windowed access decodes each window's lanes into one buffer borrowed from the allocator and
+returns it when the window's last slice leaves its cache, so those passes read native lanes too.
+Producers that still decode to the heap — a windowed leaf access that does not borrow (top-k
+resolution, one-leaf winner emission) and the KEYS chain — reach those same kernels as heap
+segments (`MemorySegment.ofArray`), which is a representation difference, not a second code path.
 
 **One segment class per process.** That representation difference is not free at the JIT level.
 Every read through a segment handle casts the segment to the JDK's abstract segment class and calls

@@ -215,7 +215,7 @@ maintains, so a budget quotes the same numbers an investigation would:
   the test wherever its gate is off.
 - `EngineWorkCounters.SCRATCH`: the allocator's scratch-buffer figures (`ScratchStats`, always on):
   borrows per use (`scratch.borrows.read`, `.serialization`, `.commit_flush`, `.codec`, `.page`,
-  `.write_io`, `.import`), buffers given fresh backing instead of a resident one
+  `.write_io`, `.import`, `.projection`), buffers given fresh backing instead of a resident one
   (`scratch.created`), refusals and stale returns. `scratch.lent` is a gauge, so over a capture it
   reads the buffers the captured work left lent; zero is the leak check every scratch budget
   carries. The counters are process-wide and other threads borrow too, so a scratch budget runs

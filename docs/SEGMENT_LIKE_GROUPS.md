@@ -196,7 +196,8 @@ slice's own presence words, borrowed as always.
 
 The shared arrays rest on one read-only contract, now stated on the public entry points: every
 consumer of a canonicalised lane reads it, and a shared zero lane belongs to the rewrite that made
-it — the returned `ColumnSlice` objects are fresh ones that never reach `SliceArrayPool.recycle`.
+it — the returned `ColumnSlice` objects are fresh ones that never enter a windowed access's cache,
+so the allocator buffer a window's lanes are borrowed in is never returned on their account.
 Tests exercise that contract through the consumer that actually reads these lanes:
 `ProjectionColumnGroupScan.aggregateByGroupNumericFlat`, the group-aggregate kernel q21 and q22
 feed. (The count-distinct kernels never see a canonicalised lane — the executor routes a

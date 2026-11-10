@@ -28,22 +28,24 @@ import static java.util.Objects.requireNonNull;
  * </p>
  *
  * <p>
- * <b>The arrays of a filled slice are valid until {@link #release}.</b> The sub-chunk constructor
- * asks the access to RECYCLE an evicted slice's presence and value arrays into the next window's
- * decode: a pass over 100M rows minted 3.2 GB of {@code long[1024]} per column set per pass
- * otherwise, every array dead two windows later. The cache holds two windows and a sub-chunk is at
- * most one, so a slice released by the kernel is evicted (and its arrays rewritten) no earlier than
- * the fill after next; a caller that reads a slice after releasing its range breaks that contract.
- * The one-leaf emission shape keeps allocating: its consumers resolve winners scattered across the
- * store in no window order.
+ * <b>The lanes of a filled slice are valid until {@link #release}.</b> The sub-chunk constructor
+ * asks the access to decode each window's long lanes into one buffer of allocator scratch, returned
+ * when the window's last slice is evicted: a pass over 100M rows minted 3.2 GB of
+ * {@code long[1024]} per column set per pass otherwise, every array dead two windows later. The
+ * cache holds two windows and a sub-chunk is at most one, so a slice released by the kernel is
+ * evicted (and its lane's buffer lent to someone else) no earlier than the fill after next; a
+ * caller that reads a slice after releasing its range breaks that contract. {@link #close()}
+ * returns the windows still cached, so whoever creates one of these closes it, also when its pass
+ * is abandoned. The one-leaf emission shape keeps decoding into heap arrays: its consumers resolve
+ * winners scattered across the store in no window order.
  * </p>
  */
-public final class WindowedSliceArrays {
+public final class WindowedSliceArrays implements AutoCloseable {
   private final LeafColumnAccess access;
   private final int leafCount;
   /**
-   * Longest fill range a recycling access can serve without evicting a slice of the range itself;
-   * unbounded when not recycling.
+   * Longest fill range an access with borrowed lanes can serve without evicting a slice of the range
+   * itself; unbounded when it decodes into heap arrays.
    */
   private final int maxFillLeaves;
   private final Int2ObjectOpenHashMap<ColumnSlice[]> arrays = new Int2ObjectOpenHashMap<>();
@@ -73,19 +75,20 @@ public final class WindowedSliceArrays {
   }
 
   /**
-   * @param recycleSlices recycle an evicted slice's long-lane arrays into the next decode — only for
-   *        the fill / kernel / release discipline described on the class
+   * @param borrowLanes decode each window's long lanes into borrowed allocator scratch — only for the
+   *        fill / kernel / release discipline described on the class
    */
   public WindowedSliceArrays(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
-      final int windowLeaves, final int cacheLeaves, final boolean recycleSlices) {
+      final int windowLeaves, final int cacheLeaves, final boolean borrowLanes) {
     requireNonNull(store, "store");
-    this.access = store.windowedLeafAccess(requireNonNull(fetcher, "fetcher"), keepWords, windowLeaves, cacheLeaves,
-        recycleSlices);
+    this.access =
+        store.windowedLeafAccess(requireNonNull(fetcher, "fetcher"), keepWords, windowLeaves, cacheLeaves, borrowLanes);
     this.leafCount = store.rowGroupCount();
     // A range of L leaves touches at most ceil((L - 1) / window) + 1 windows; the cache must hold them
-    // all, or filling the range's tail would evict (and rewrite) its head before the kernel runs.
-    this.maxFillLeaves = recycleSlices
+    // all, or filling the range's tail would evict its head (and return its lanes) before the kernel
+    // runs.
+    this.maxFillLeaves = borrowLanes
         ? cacheLeaves - windowLeaves + 1
         : Integer.MAX_VALUE;
   }
@@ -104,8 +107,8 @@ public final class WindowedSliceArrays {
       throw new IndexOutOfBoundsException("leaves [" + from + ", " + to + ") of " + leafCount);
     }
     if (to - from > maxFillLeaves) {
-      throw new IllegalArgumentException(
-          "fill of " + (to - from) + " leaves exceeds the " + maxFillLeaves + " a recycling access can hold at once");
+      throw new IllegalArgumentException("fill of " + (to - from) + " leaves exceeds the " + maxFillLeaves
+          + " an access with borrowed lanes can hold at once");
     }
   }
 
@@ -182,5 +185,15 @@ public final class WindowedSliceArrays {
       Arrays.fill(arrays.get(filled.getInt(i)), from, to, null);
     }
     filled.clear();
+  }
+
+  /**
+   * Returns the lanes of the windows still cached to the allocator. Nothing filled through this
+   * object may be read afterwards.
+   */
+  @Override
+  public void close() {
+    filled.clear();
+    access.close();
   }
 }

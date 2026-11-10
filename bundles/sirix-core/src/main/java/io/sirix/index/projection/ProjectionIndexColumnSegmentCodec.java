@@ -1646,22 +1646,11 @@ public final class ProjectionIndexColumnSegmentCodec {
    */
   static ProjectionColumnStore.ColumnSlice decodeBodySlice(final byte[] descriptor, final byte[] bodyColumnSegment,
       final int col) {
-    return decodeBodySlice(descriptor, bodyColumnSegment, col, null);
-  }
-
-  /**
-   * {@link #decodeBodySlice(byte[], byte[], int)} taking the presence and numeric value arrays from
-   * {@code pool} when one is given — the windowed accesses' recycling seam. The decoders overwrite
-   * every word of both arrays, so a recycled array is indistinguishable from a fresh one to the
-   * slice.
-   */
-  static ProjectionColumnStore.ColumnSlice decodeBodySlice(final byte[] descriptor, final byte[] bodyColumnSegment,
-      final int col, final @Nullable SliceArrayPool pool) {
-    return decodeBodySlice(descriptor, bodyColumnSegment, col, pool, false);
+    return decodeBodySlice(descriptor, bodyColumnSegment, col, false);
   }
 
   private static ProjectionColumnStore.ColumnSlice decodeBodySlice(final byte[] descriptor,
-      final byte[] bodyColumnSegment, final int col, final @Nullable SliceArrayPool pool, final boolean verified) {
+      final byte[] bodyColumnSegment, final int col, final boolean verified) {
     final int rowCount = RowGroupDescriptor.rowCount(descriptor);
     final byte kind = RowGroupDescriptor.kind(descriptor, col);
     final ProjectionIndexRowGroupCodec.Cursor body = openBodySlice(descriptor, bodyColumnSegment, col, verified);
@@ -1669,9 +1658,7 @@ public final class ProjectionIndexColumnSegmentCodec {
     final int presWords = rowCount > 0
         ? (rowCount + 63) >>> 6
         : 0;
-    final long[] presence = pool != null
-        ? pool.presence(presWords)
-        : new long[presWords];
+    final long[] presence = new long[presWords];
     if (rowCount == 0) {
       return new ProjectionColumnStore.ColumnSlice(0, flags, Long.MAX_VALUE, Long.MIN_VALUE, presence, null, null, null,
           null, null);
@@ -1683,9 +1670,7 @@ public final class ProjectionIndexColumnSegmentCodec {
       case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
           ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT,
           ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP, ProjectionIndexRowGroupPage.COLUMN_KIND_DATE -> {
-        final long[] values = pool != null
-            ? pool.values(rowCount)
-            : new long[rowCount];
+        final long[] values = new long[rowCount];
         ProjectionIndexRowGroupCodec.decodeForBitPackedColumnInto(body, rowCount, values);
         return new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence, values, null, null, null,
             null);
@@ -1839,7 +1824,7 @@ public final class ProjectionIndexColumnSegmentCodec {
         throw new IllegalArgumentException("numeric bucket views require an integral numeric column");
       }
       if (rows < 1 || rows > ProjectionIndexRowGroupPage.MAX_ROWS) {
-        return decodeBodySlice(descriptor, bytes, col, null, verified);
+        return decodeBodySlice(descriptor, bytes, col, verified);
       }
       final ProjectionIndexRowGroupCodec.Cursor body = openBodySlice(descriptor, bytes, col, verified);
       final byte flags = body.readByte();
@@ -1849,7 +1834,7 @@ public final class ProjectionIndexColumnSegmentCodec {
       final long high = max + offset;
       if (flags != 0 || min > max || ((min ^ low) & (offset ^ low)) < 0 || ((max ^ high) & (offset ^ high)) < 0
           || low / divisor != high / divisor) {
-        return decodeBodySlice(descriptor, bytes, col, null, true);
+        return decodeBodySlice(descriptor, bytes, col, true);
       }
       // Equal residues alone cannot prove constancy across a modulus cycle; compare quotients first.
       final long quotient = low / divisor;
@@ -1858,7 +1843,7 @@ public final class ProjectionIndexColumnSegmentCodec {
           : quotient % modulus;
       long[] values = representatives.get(bucket);
       if (values == null && representatives.size() == MAX_BUCKETS) {
-        return decodeBodySlice(descriptor, bytes, col, null, true);
+        return decodeBodySlice(descriptor, bytes, col, true);
       }
       if (values == null || values.length < rows) {
         final long representative = values == null
