@@ -10,6 +10,7 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.util.Deque;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
@@ -45,7 +46,8 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
     if (OS.isWindows()) {
       final SymbolLookup kernel32 = SymbolLookup.libraryLookup("kernel32.dll", Arena.global());
       alloc = linker.downcallHandle(
-          kernel32.find("VirtualAlloc").orElseThrow(() -> new RuntimeException("VirtualAlloc not found in kernel32.dll")),
+          kernel32.find("VirtualAlloc")
+                  .orElseThrow(() -> new RuntimeException("VirtualAlloc not found in kernel32.dll")),
           FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_LONG, JAVA_LONG));
       free = linker.downcallHandle(
           kernel32.find("VirtualFree").orElseThrow(() -> new RuntimeException("VirtualFree not found in kernel32.dll")),
@@ -56,7 +58,9 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   }
 
   private static final WindowsMemorySegmentAllocator INSTANCE = new WindowsMemorySegmentAllocator();
-  private AtomicLong maxBufferSize = new AtomicLong(Long.MAX_VALUE);
+  private final AtomicLong maxBufferSize = new AtomicLong(Long.MAX_VALUE);
+  private final AtomicLong committedBytes = new AtomicLong();
+  private final ConcurrentHashMap<Long, Long> allocations = new ConcurrentHashMap<>();
   private volatile boolean initialized = false;
 
   private WindowsMemorySegmentAllocator() {}
@@ -66,17 +70,22 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
   }
 
   @Override
-  public void init(long maxSegmentAllocationSize) {
+  public synchronized void init(long maxSegmentAllocationSize) {
     if (virtualAllocHandle == null) {
-      throw new IllegalStateException(
-          "WindowsMemorySegmentAllocator requires Windows (kernel32 VirtualAlloc)");
+      throw new IllegalStateException("WindowsMemorySegmentAllocator requires Windows (kernel32 VirtualAlloc)");
+    }
+    if (maxSegmentAllocationSize <= 0) {
+      throw new IllegalArgumentException("allocator budget must be positive");
+    }
+    if (initialized) {
+      return;
     }
     // Initialize Deques for each size class
     for (int i = 0; i < PAGE_SIZES.length; i++) {
       segmentPools[i] = new ConcurrentLinkedDeque<>();
     }
 
-    this.maxBufferSize.set(maxSegmentAllocationSize);
+    this.maxBufferSize.set(MemorySegmentAllocator.clampToPhysicalHeadroom(maxSegmentAllocationSize));
     this.initialized = true;
   }
 
@@ -124,11 +133,7 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
     long size = segment.byteSize();
     if (!isPoolable(size)) {
       // Oversized segments were VirtualAlloc'd outside the pool; free them immediately.
-      try {
-        virtualFreeHandle.invoke(segment, 0L, MEM_RELEASE);
-      } catch (Throwable t) {
-        throw new IllegalStateException("VirtualFree failed for oversized segment of size " + size, t);
-      }
+      free(segment);
       return;
     }
     int index = SegmentAllocators.getIndexForSize(size);
@@ -169,6 +174,9 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
    * @return The allocated MemorySegment.
    */
   public MemorySegment allocate(long size) {
+    if (!initialized) {
+      throw new IllegalStateException("allocator must be initialized before borrowing memory");
+    }
     // Reuse a released segment before VirtualAlloc'ing a new one: release() pools segments by size
     // class, but this method never polled that pool, so every allocation was a fresh VirtualAlloc
     // and every release parked a segment forever — native memory grew unbounded with read traffic.
@@ -176,29 +184,64 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
     // segment filed under the same rounded class); slice it to the requested size for the caller.
     // Oversized requests (e.g. large-value overflow decompression) bypass the size-class pool —
     // getIndexForSize rejects anything outside [4 KiB, 256 KiB], but VirtualAlloc has no such limit.
-    final int index = isPoolable(size) ? SegmentAllocators.getIndexForSize(size) : -1;
+    final int index = isPoolable(size)
+        ? SegmentAllocators.getIndexForSize(size)
+        : -1;
     if (index >= 0 && index < segmentPools.length) {
       final MemorySegment pooled = segmentPools[index].poll();
       if (pooled != null) {
         if (pooled.byteSize() >= size) {
-          return pooled.byteSize() == size ? pooled : pooled.asSlice(0, size);
+          return pooled.byteSize() == size
+              ? pooled
+              : pooled.asSlice(0, size);
         }
         // Too small to satisfy this request — hand it back and fall through to a fresh allocation.
         segmentPools[index].offer(pooled);
       }
     }
+    if (size <= 0 || size > Long.MAX_VALUE - 4095L) {
+      throw new IllegalArgumentException("invalid allocation size: " + size);
+    }
+    final long rounded = (size + 4095L) & -4096L;
+    final long limit = FallbackScratch.pageAllowance(maxBufferSize.get());
+    for (;;) {
+      final long committed = committedBytes.get();
+      if (rounded > limit - committed) {
+        throw new OutOfMemoryError("Windows allocator page commitment exceeds " + limit + " bytes");
+      }
+      if (committedBytes.compareAndSet(committed, committed + rounded)) {
+        break;
+      }
+    }
+    MemorySegment address = MemorySegment.NULL;
     try {
-      MemorySegment address =
+      address =
           (MemorySegment) virtualAllocHandle.invoke(MemorySegment.NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-
       if (address.equals(MemorySegment.NULL)) {
         throw new OutOfMemoryError("Failed to allocate memory segment of size " + size);
       }
-
-      return address.reinterpret(size);
-    } catch (Throwable e) {
-      throw new RuntimeException("Allocation failed", e);
+      final MemorySegment segment = address.reinterpret(size);
+      allocations.put(address.address(), rounded);
+      return segment;
+    } catch (Throwable failure) {
+      if (!address.equals(MemorySegment.NULL)) {
+        try {
+          virtualFreeHandle.invoke(address, 0L, MEM_RELEASE);
+        } catch (Throwable cleanup) {
+          failure.addSuppressed(cleanup);
+        }
+      }
+      committedBytes.addAndGet(-rounded);
+      if (failure instanceof Error error) {
+        throw error;
+      }
+      throw new IllegalStateException("Allocation failed", failure);
     }
+  }
+
+  @Override
+  public long getPhysicalMemoryBytes() {
+    return committedBytes.get() + FallbackScratch.of(this).mappedBytes();
   }
 
   /**
@@ -207,13 +250,20 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
    * @param segment The segment to free.
    */
   public void free(MemorySegment segment) {
+    final long address = segment.address();
+    final Long bytes = allocations.remove(address);
+    if (bytes == null) {
+      throw new IllegalArgumentException("segment is not owned by this allocator");
+    }
     try {
-      long result = (long) virtualFreeHandle.invoke(segment.address(), 0, MEM_RELEASE);
+      final long result = (long) virtualFreeHandle.invoke(segment, 0L, MEM_RELEASE);
       if (result == 0) {
         throw new IllegalStateException("Memory release failed");
       }
-    } catch (Throwable e) {
-      throw new RuntimeException("Memory release failed", e);
+      committedBytes.addAndGet(-bytes);
+    } catch (Throwable failure) {
+      allocations.put(address, bytes);
+      throw new IllegalStateException("Memory release failed", failure);
     }
   }
 }

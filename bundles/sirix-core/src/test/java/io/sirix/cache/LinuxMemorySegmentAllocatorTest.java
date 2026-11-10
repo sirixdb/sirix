@@ -410,8 +410,11 @@ public class LinuxMemorySegmentAllocatorTest {
    */
   @Test
   public void testConcurrentMemoryLimitEnforcement() throws InterruptedException {
-    // Use a smaller limit for this test
-    allocator.init(100 * 1024 * 1024); // 100MB limit
+    // The first effective allowance is immutable, like the frame allocator's: existing
+    // page commitments and exclusive execution grants must survive another init call.
+    final long effectiveBudget = allocator.getMaxBufferSize();
+    allocator.init(100 * 1024 * 1024);
+    assertEquals(effectiveBudget, allocator.getMaxBufferSize());
 
     final int threadCount = Runtime.getRuntime().availableProcessors();
     final int operationsPerThread = 500;
@@ -480,7 +483,7 @@ public class LinuxMemorySegmentAllocatorTest {
     LOGGER.info("Memory limit enforcement test completed: TotalAllocated={} MB, OOMEvents={}",
         totalAllocated.get() / (1024 * 1024), oomCount.get());
 
-    // Reset to larger limit for other tests
-    allocator.init(8L * 1024 * 1024 * 1024);
+    assertTrue(allocator.getPhysicalMemoryBytes() <= effectiveBudget,
+        "all native consumers fit the persisted allowance");
   }
 }

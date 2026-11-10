@@ -196,27 +196,51 @@ final class FrameScratch extends ScratchSource {
   @Override
   @Nullable
   ScratchCarrier acquire(final long minBytes, final ScratchUse use, final boolean mandatory) {
+    return acquireInternal(minBytes, use, mandatory, null);
+  }
+
+  @Override
+  ScratchCarrier acquireAggregation(final long minBytes, final AggregationGrant grant) {
+    final int capacityClass = classForSize(minBytes);
+    final long capacity = capacityClass == EXACT_CLASS
+        ? pageRounded(minBytes)
+        : capacityOf(capacityClass);
+    grant.claim(capacity);
+    try {
+      return acquireInternal(minBytes, ScratchUse.AGGREGATION, true, grant);
+    } catch (final RuntimeException | Error failure) {
+      grant.refund(capacity);
+      throw failure;
+    }
+  }
+
+  private @Nullable ScratchCarrier acquireInternal(final long minBytes, final ScratchUse use, final boolean mandatory,
+      final @Nullable AggregationGrant grant) {
     final int capacityClass = classForSize(minBytes);
     if (capacityClass == EXACT_CLASS) {
-      return lend(mapRegion(EXACT_CLASS, pageRounded(minBytes), minBytes, mandatory), minBytes, use);
+      return lend(mapRegion(EXACT_CLASS, pageRounded(minBytes), minBytes, mandatory, grant), minBytes, use);
     }
     final ScratchCarrier[] slots = idle[capacityClass];
     final int home = home();
     for (int probe = 0; probe <= idleMask; probe++) {
       final int index = ((home + probe) & idleMask) << IDLE_STRIDE_SHIFT;
       final ScratchCarrier carrier = (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, index);
-      if (carrier != null && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
-        if (capacityClass >= SLOT_CLASSES) {
+      if (carrier != null && (grant == null || carrier.slotIndex < 0)
+          && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
+        if (carrier.slotIndex < 0) {
           // An idle region counts against the recycle bound; a lent one does not.
           allocator.unreserveRecycledBytes(carrier.capacity);
+        }
+        if (grant != null) {
+          allocator.transferToAggregation(carrier.capacity);
+          carrier.aggregationGrant = grant;
         }
         return lend(carrier, minBytes, use);
       }
     }
-    return lend(capacityClass < SLOT_CLASSES
+    return lend(capacityClass < SLOT_CLASSES && grant == null
         ? takeSlot(capacityClass, minBytes, mandatory)
-        : mapRegion(capacityClass, REGION_CAPACITIES[capacityClass - SLOT_CLASSES], minBytes, mandatory), minBytes,
-        use);
+        : mapRegion(capacityClass, capacityOf(capacityClass), minBytes, mandatory, grant), minBytes, use);
   }
 
   /**
@@ -227,7 +251,7 @@ final class FrameScratch extends ScratchSource {
     if (carrier == null) {
       return null;
     }
-    if (carrier.capacityClass >= SLOT_CLASSES) {
+    if (carrier.slotIndex < 0) {
       // A slot buffer's bytes are active for as long as it owns its slot; a region's only while lent.
       lentRegionBytes.addAndGet(carrier.capacity);
       allocator.adjustActiveBytes(carrier.capacity);
@@ -269,10 +293,15 @@ final class FrameScratch extends ScratchSource {
 
   /** A fresh buffer on a mapped region of {@code bytes}, or {@code null} when refused. */
   private @Nullable ScratchCarrier mapRegion(final int capacityClass, final long bytes, final long minBytes,
-      final boolean mandatory) {
+      final boolean mandatory, final @Nullable AggregationGrant grant) {
     final boolean reserved;
     try {
-      reserved = allocator.reserveScratchCommittedBytes(bytes, mandatory);
+      if (grant != null) {
+        allocator.commitAggregationBytes(bytes);
+        reserved = true;
+      } else {
+        reserved = allocator.reserveScratchCommittedBytes(bytes, mandatory);
+      }
     } catch (final OutOfMemoryError exhausted) {
       refused(minBytes);
       throw exhausted;
@@ -288,15 +317,20 @@ final class FrameScratch extends ScratchSource {
       // its pages are left to the first touch and only the touched ones become resident.
       memory.commitFresh(region);
       final ScratchCarrier carrier = new ScratchCarrier(this, capacityClass, region, -1, 0L);
+      carrier.aggregationGrant = grant;
+      HftBoundaryTelemetry.nativeAllocation();
       register(carrier);
       regionBytes.addAndGet(bytes);
-      HftBoundaryTelemetry.nativeAllocation();
       return carrier;
     } catch (final RuntimeException | Error failure) {
       if (region != null) {
         memory.release(region);
       }
-      allocator.refundCommittedBytes(bytes);
+      if (grant == null) {
+        allocator.refundCommittedBytes(bytes);
+      } else {
+        allocator.refundAggregationBytes(bytes);
+      }
       throw failure;
     }
   }
@@ -317,10 +351,23 @@ final class FrameScratch extends ScratchSource {
       carrier.segment.fill((byte) 0x5A);
     }
     final int capacityClass = carrier.capacityClass;
-    final boolean region = capacityClass >= SLOT_CLASSES;
+    final boolean region = carrier.slotIndex < 0;
     if (region) {
       lentRegionBytes.addAndGet(-carrier.capacity);
       allocator.adjustActiveBytes(-carrier.capacity);
+    }
+    final AggregationGrant grant = carrier.aggregationGrant;
+    if (grant != null) {
+      carrier.aggregationGrant = null;
+      final boolean retained = allocator.transferFromAggregation(carrier.capacity);
+      try {
+        if (!retained) {
+          destroy(carrier, true);
+          return true;
+        }
+      } finally {
+        grant.refund(carrier.capacity);
+      }
     }
     if (capacityClass == EXACT_CLASS || allocator.isTerminated()) {
       destroy(carrier);
@@ -351,13 +398,21 @@ final class FrameScratch extends ScratchSource {
    * Return a buffer's backing to the allocator. The caller holds the buffer exclusively and idle.
    */
   private void destroy(final ScratchCarrier carrier) {
+    destroy(carrier, false);
+  }
+
+  private void destroy(final ScratchCarrier carrier, final boolean aggregation) {
     unregister(carrier);
-    if (carrier.capacityClass < SLOT_CLASSES) {
+    if (carrier.slotIndex >= 0) {
       allocator.releaseScratchSlot(carrier.capacityClass, carrier.slotIndex, carrier.slotVersion);
     } else {
       regionBytes.addAndGet(-carrier.capacity);
       memory.release(carrier.segment);
-      allocator.refundCommittedBytes(carrier.capacity);
+      if (aggregation) {
+        allocator.refundAggregationBytes(carrier.capacity);
+      } else {
+        allocator.refundCommittedBytes(carrier.capacity);
+      }
       HftBoundaryTelemetry.nativeRelease();
     }
   }
@@ -410,6 +465,9 @@ final class FrameScratch extends ScratchSource {
       final int index = slot << IDLE_STRIDE_SHIFT;
       final ScratchCarrier carrier = (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, index);
       if (carrier != null && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
+        if (carrier.slotIndex < 0) {
+          allocator.unreserveRecycledBytes(carrier.capacity);
+        }
         destroy(carrier);
         returned++;
       }
@@ -426,12 +484,13 @@ final class FrameScratch extends ScratchSource {
    */
   long reclaimIdleRegions(final long wanted) {
     long freed = 0L;
-    for (int capacityClass = CLASS_COUNT - 1; capacityClass >= SLOT_CLASSES && freed < wanted; capacityClass--) {
+    for (int capacityClass = CLASS_COUNT - 1; capacityClass >= 0 && freed < wanted; capacityClass--) {
       final ScratchCarrier[] slots = idle[capacityClass];
       for (int slot = 0; slot <= idleMask && freed < wanted; slot++) {
         final int index = slot << IDLE_STRIDE_SHIFT;
         final ScratchCarrier carrier = (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, index);
-        if (carrier != null && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
+        if (carrier != null && carrier.slotIndex < 0
+            && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
           allocator.unreserveRecycledBytes(carrier.capacity);
           freed += carrier.capacity;
           destroy(carrier);
@@ -456,7 +515,9 @@ final class FrameScratch extends ScratchSource {
       final ScratchCarrier[] slots = idle[capacityClass];
       final long capacity = FrameSlotAllocator.SIZE_CLASSES[capacityClass];
       for (int slot = 0; slot <= idleMask; slot++) {
-        if (ScratchHandles.IDLE_SLOT.getAcquire(slots, slot << IDLE_STRIDE_SHIFT) != null) {
+        final ScratchCarrier carrier =
+            (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, slot << IDLE_STRIDE_SHIFT);
+        if (carrier != null && carrier.slotIndex >= 0) {
           bytes += capacity;
         }
       }

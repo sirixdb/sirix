@@ -340,17 +340,15 @@ final class ScratchLeaseTest {
 
   @Test
   void anIdleSlotBufferGivesItsSlotToAPageFrameAndALentOneNever() {
-    // Room for exactly two 256 KiB slots, and no headroom: the smallest budget that shows the rule.
+    // After protecting the execution eighth, one 256 KiB slot fits; a second does not.
     final FrameSlotAllocator allocator = allocator(512 * KIB, IDLE);
     final AtomicInteger pressure = new AtomicInteger();
     final FrameSlotAllocator.PressureListener previous = FrameSlotAllocator.pressureListener();
     FrameSlotAllocator.setPressureListener(pressure::incrementAndGet);
     try {
-      assertEquals(0, allocator.scratchReserveBytes(), "a tiny budget reserves nothing");
+      assertEquals(0, allocator.scratchReserveBytes(), "no additional progress reserve for this tiny budget");
       final ScratchLease lease = new ScratchLease(allocator).acquire(256 * KIB, ScratchUse.SERIALIZATION);
       SegmentAccess.putLong(lease.segment(), 0L, 0x5EEDL);
-      final FrameSlotAllocator.FrameSlot one = allocator.allocateSlot(256 * KIB);
-      assertNotNull(one, "the second slot of the budget");
       assertNull(allocator.allocateSlot(256 * KIB), "the budget is committed and the scratch buffer is lent");
       assertEquals(0x5EEDL, SegmentAccess.getLong(lease.segment(), 0L), "a lent buffer is never reclaimed");
       assertEquals(0, allocator.scratchStats().totalReclaimed());
@@ -365,14 +363,13 @@ final class ScratchLeaseTest {
       assertEquals(1, stats.reclaimed()[SLOT_256K]);
       assertEquals(0, stats.totalIdleBuffers());
       assertEquals(0, pressure.get(), "no page was evicted to find that slot");
-      assertEquals(512 * KIB, allocator.getPhysicalMemoryBytes(), "nothing was committed beyond the budget");
+      assertEquals(256 * KIB, allocator.getPhysicalMemoryBytes(), "the execution floor remains protected");
 
       assertFalse(new ScratchLease(allocator).tryAcquire(256 * KIB, ScratchUse.READ),
-          "an optional borrow is refused while both slots hold frames");
+          "an optional borrow is refused while the committed slot holds a frame");
       assertEquals(1, allocator.scratchStats().refusals());
       assertEquals(256 * KIB, allocator.scratchStats().refusedBytes());
       assertEquals(0, pressure.get(), "an optional borrow never asks the caches for relief");
-      one.close();
       two.close();
       final ScratchLease reborrowed = new ScratchLease(allocator);
       assertTrue(reborrowed.tryAcquire(256 * KIB, ScratchUse.READ), "a released frame's slot serves scratch again");
@@ -395,8 +392,9 @@ final class ScratchLeaseTest {
       final long headroom = allocator.oversizedHeadroomBytes();
       final long reserve = allocator.scratchReserveBytes();
       assertEquals(BUDGET / 16, headroom);
-      assertEquals(headroom / 4, reserve, "a quarter of the headroom, so page frames commit what they did before");
-      assertTrue(allocator.reserveSlabCommittedBytes(BUDGET - headroom), "page frames stop at the headroom");
+      assertEquals(headroom / 4, reserve, "a quarter of the progress headroom, in addition to the execution floor");
+      assertTrue(allocator.reserveSlabCommittedBytes(BUDGET - BUDGET / 8 - headroom),
+          "page frames stop at the headroom");
       assertFalse(allocator.reserveSlabCommittedBytes(1));
       assertTrue(allocator.reserveCommittedBytes(headroom - reserve), "slabs and oversized stop at the reserve");
       assertFalse(allocator.reserveCommittedBytes(1));
@@ -411,7 +409,7 @@ final class ScratchLeaseTest {
       assertEquals(2 * MIB, allocator.scratchStats().refusedBytes());
       assertEquals(0, pressure.get(), "optional borrows ask nobody for relief");
       assertTrue(tooMuch.tryAcquire(MIB, ScratchUse.READ), "what still fits is served");
-      assertEquals(BUDGET - (MIB - 128 * KIB), allocator.getPhysicalMemoryBytes(),
+      assertEquals(BUDGET - BUDGET / 8 - (MIB - 128 * KIB), allocator.getPhysicalMemoryBytes(),
           "committed: everything but the 896 KiB of the reserve no borrow asked for");
       read.close();
       run.close();
@@ -464,7 +462,7 @@ final class ScratchLeaseTest {
     assertEquals(1, stats.totalReclaimed());
 
     // A slab that only fits once idle regions are unmapped is admitted, largest region first.
-    final long room = BUDGET - allocator.scratchReserveBytes() - allocator.getPhysicalMemoryBytes();
+    final long room = BUDGET - BUDGET / 8 - allocator.scratchReserveBytes() - allocator.getPhysicalMemoryBytes();
     final MemorySegment slab = allocator.allocateSlab(room + MIB);
     assertNotNull(slab, "idle scratch is given back before a commitment is refused");
     stats = allocator.scratchStats();

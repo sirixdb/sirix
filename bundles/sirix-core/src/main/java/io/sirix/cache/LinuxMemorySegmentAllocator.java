@@ -917,13 +917,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           requestedBufferSize / (1024 * 1024), maxBufferSize / (1024 * 1024));
     }
     if (isInitialized.get()) {
-      // Already initialized - just update max buffer size if needed
-      long currentBufferSize = this.maxBufferSize.get();
-      if (currentBufferSize != maxBufferSize) {
-        LOGGER.debug("Allocator already initialized - updating max buffer size from {} to {} MB",
-            currentBufferSize / (1024 * 1024), maxBufferSize / (1024 * 1024));
-        this.maxBufferSize.set(maxBufferSize);
-      }
+      // Like the frame allocator, the first effective allowance persists. Resizing underneath
+      // outstanding scratch/execution grants would invalidate their admission proof.
       return;
     }
 
@@ -1008,7 +1003,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
    */
   @Override
   public long getPhysicalMemoryBytes() {
-    return physicalMemoryBytes.get();
+    return physicalMemoryBytes.get() + FallbackScratch.of(this).mappedBytes();
   }
 
   @Override
@@ -1090,7 +1085,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // pathological workload fails in bounded time (~10 s) with a clean OOM
     // instead of hanging forever.
     long newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
-    if (newPhysical > maxBufferSize.get()) {
+    if (newPhysical > FallbackScratch.pageAllowance(maxBufferSize.get())) {
       physicalMemoryBytes.addAndGet(-actualSegmentSize);
 
       // Direct pressure hook: cache registers an eviction callback here, so
@@ -1105,13 +1100,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         }
       }
       newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
-      if (newPhysical <= maxBufferSize.get()) {
+      if (newPhysical <= FallbackScratch.pageAllowance(maxBufferSize.get())) {
         // Pressure hook freed enough; fall through to the normal success path.
       } else {
         physicalMemoryBytes.addAndGet(-actualSegmentSize);
       }
 
-      boolean reserved = newPhysical <= maxBufferSize.get();
+      boolean reserved = newPhysical <= FallbackScratch.pageAllowance(maxBufferSize.get());
       long parkNanos = 50_000L; // 50 µs initial park — tiny, in case the sweeper already freed something.
       long totalWaitedNanos = 0L;
       final long maxWaitNanos = 10_000_000_000L; // 10 s absolute ceiling.
@@ -1126,7 +1121,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           }
         }
         newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
-        if (newPhysical <= maxBufferSize.get()) {
+        if (newPhysical <= FallbackScratch.pageAllowance(maxBufferSize.get())) {
           reserved = true;
           break;
         }
@@ -1143,7 +1138,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
             maxBufferSize.get() / (1024 * 1024), totalWaitedNanos / 1_000_000L));
       }
     }
-    if (newPhysical > maxBufferSize.get() * 0.9) {
+    if (newPhysical > FallbackScratch.pageAllowance(maxBufferSize.get()) * 0.9) {
       final double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();
       LOGGER.warn("Physical memory at {:.1f}% of limit ({} MB / {} MB)", percentUsed, newPhysical / (1024 * 1024),
           maxBufferSize.get() / (1024 * 1024));

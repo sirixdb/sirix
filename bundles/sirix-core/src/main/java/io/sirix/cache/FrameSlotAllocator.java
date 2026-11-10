@@ -97,10 +97,13 @@ import java.util.concurrent.locks.LockSupport;
  * allocating thread.</li>
  * </ul>
  *
- * The budget is split by who may commit its last bytes, because slot commitment never returns:
- * fresh page-frame slots stop at {@code budget - oversizedHeadroom}; slabs and oversized
- * allocations stop at {@code budget - scratchReserve}; scratch may commit all of it. A reader or
- * serializer therefore still gets its buffer when frames and slabs have taken everything they may.
+ * The budget is split by who may commit its last bytes, because slot commitment never returns: one
+ * eighth is an execution floor, usable only through exclusive aggregation grants. Of the remaining
+ * seven eighths, fresh page frames leave {@code oversizedHeadroom}, and cache slabs and oversized
+ * allocations leave {@code scratchReserve}. Ordinary scratch may use those seven eighths. Thus
+ * caches cannot consume the execution floor or the read/serialization progress reserve, even when
+ * no scan is active. Idle aggregation regions must transfer their charge out of the execution floor
+ * before being retained for reuse.
  *
  * <h2>Sirix's persistent tree-of-tries, and why it fits this allocator</h2>
  *
@@ -353,6 +356,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    */
   private final AtomicLong committedBytes = new AtomicLong();
 
+  /** Non-execution commitment has its own ceiling; grant-backed regions never charge it. */
+  private final AtomicLong nonExecutionCommittedBytes = new AtomicLong();
+  private final AggregationBudget aggregationBudget = new AggregationBudget(this);
+
   /** Bytes currently owned by callers, distinct from retained committed capacity. */
   private final AtomicLong activeBytes = new AtomicLong();
 
@@ -569,7 +576,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       while (freed < wanted && (recycled = free.pollLast()) != null) {
         recycledSlabBytes.addAndGet(-recycled.bytes());
         VM.release(recycled.segment());
-        committedBytes.addAndGet(-recycled.bytes());
+        refundCommittedBytes(recycled.bytes());
         HftBoundaryTelemetry.nativeRelease();
         freed += recycled.bytes();
       }
@@ -658,7 +665,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     try {
       segment = VM.reserve(mapped);
     } catch (final RuntimeException | Error failure) {
-      committedBytes.addAndGet(-mapped);
+      refundCommittedBytes(mapped);
       throw failure;
     }
     try {
@@ -666,13 +673,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       if (!prepareSlabPages(segment, mapped)) {
         // The kernel cannot back the pages: reported like a budget refusal, never thrown.
         VM.release(segment);
-        committedBytes.addAndGet(-mapped);
+        refundCommittedBytes(mapped);
         return null;
       }
       publishSlab(segment, mapped);
     } catch (final RuntimeException | Error failure) {
       VM.release(segment);
-      committedBytes.addAndGet(-mapped);
+      refundCommittedBytes(mapped);
       throw failure;
     }
     HftBoundaryTelemetry.nativeAllocation();
@@ -727,7 +734,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       final long current = recycledSlabBytes.get();
       if (terminated.get() || current + bytes > limit) {
         final boolean released = VM.release(allocation.segment());
-        committedBytes.addAndGet(-bytes);
+        refundCommittedBytes(bytes);
         HftBoundaryTelemetry.nativeRelease();
         return released;
       }
@@ -920,6 +927,36 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   /** Return commitment taken with one of the {@code reserve…CommittedBytes} methods. */
   void refundCommittedBytes(final long bytes) {
     committedBytes.addAndGet(-bytes);
+    nonExecutionCommittedBytes.addAndGet(-bytes);
+  }
+
+  @Override
+  public AggregationBudget aggregationBudget() {
+    ensureInitialized();
+    return aggregationBudget;
+  }
+
+  /** Called only after the owning grant has charged the whole rounded region. */
+  void commitAggregationBytes(final long bytes) {
+    committedBytes.addAndGet(bytes);
+  }
+
+  void refundAggregationBytes(final long bytes) {
+    committedBytes.addAndGet(-bytes);
+  }
+
+  /** An idle mapped buffer becomes execution memory without remapping it. */
+  void transferToAggregation(final long bytes) {
+    nonExecutionCommittedBytes.addAndGet(-bytes);
+  }
+
+  /** Idle execution memory may be retained only if it fits outside the protected execution floor. */
+  boolean transferFromAggregation(final long bytes) {
+    return tryReserveNonExecutionBytes(bytes, budgetBytes - budgetBytes / AggregationBudget.DIVISOR);
+  }
+
+  public long nonExecutionCommittedBytes() {
+    return nonExecutionCommittedBytes.get();
   }
 
   @Override
@@ -1051,7 +1088,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     final int slotIdx = popFreshSlot(c);
     if (slotIdx < 0) {
-      committedBytes.addAndGet(-c.slotSize);
+      refundCommittedBytes(c.slotSize);
       return -1;
     }
     try {
@@ -1062,7 +1099,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     } catch (final RuntimeException | Error failure) {
       // The fresh index is intentionally stranded: on Windows a failed MEM_COMMIT slot is not
       // touch-safe and therefore must never enter the recycled set.
-      committedBytes.addAndGet(-c.slotSize);
+      refundCommittedBytes(c.slotSize);
       throw failure;
     }
     return slotIdx;
@@ -1073,7 +1110,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * oversized headroom but not the scratch reserve at the very end of the budget.
    */
   boolean reserveCommittedBytes(final long bytes) {
-    return reserveCommittedBytesUpTo(bytes, budgetBytes - scratchReserveBytes);
+    return reserveCommittedBytesUpTo(bytes,
+        budgetBytes - budgetBytes / AggregationBudget.DIVISOR - scratchReserveBytes);
   }
 
   /**
@@ -1082,14 +1120,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * Package-private so the witness test can drive the decision table directly.
    */
   boolean reserveSlabCommittedBytes(final long bytes) {
-    return reserveCommittedBytesUpTo(bytes, budgetBytes - oversizedHeadroomBytes);
+    return reserveCommittedBytesUpTo(bytes,
+        budgetBytes - budgetBytes / AggregationBudget.DIVISOR - oversizedHeadroomBytes);
   }
 
   /**
    * Commitment for a scratch buffer: the whole budget, including the reserve nothing else may commit.
    */
   boolean reserveScratchCommittedBytes(final long bytes) {
-    return reserveCommittedBytesUpTo(bytes, budgetBytes);
+    return reserveCommittedBytesUpTo(bytes, budgetBytes - budgetBytes / AggregationBudget.DIVISOR);
   }
 
   long oversizedHeadroomBytes() {
@@ -1223,7 +1262,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // request is short of before refusing anyone, and no more than that, so the rest stays resident
     // for its next borrower. The shortfall is re-read each round because other threads commit too.
     while (!tryReserveCommittedBytes(bytes, limit)) {
-      final long shortBy = bytes - Math.max(0L, limit - committedBytes.getAcquire());
+      final long shortBy = bytes - Math.max(0L, limit - nonExecutionCommittedBytes.getAcquire());
       if (shortBy <= 0L) {
         continue;
       }
@@ -1235,15 +1274,23 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   private boolean tryReserveCommittedBytes(final long bytes, final long limit) {
-    long current = committedBytes.getAcquire();
+    if (!tryReserveNonExecutionBytes(bytes, limit)) {
+      return false;
+    }
+    committedBytes.addAndGet(bytes);
+    return true;
+  }
+
+  private boolean tryReserveNonExecutionBytes(final long bytes, final long limit) {
+    long current = nonExecutionCommittedBytes.getAcquire();
     while (true) {
       if (current > limit || bytes > limit - current) {
         return false;
       }
-      if (committedBytes.compareAndSet(current, current + bytes)) {
+      if (nonExecutionCommittedBytes.compareAndSet(current, current + bytes)) {
         return true;
       }
-      current = committedBytes.getAcquire();
+      current = nonExecutionCommittedBytes.getAcquire();
     }
   }
 
@@ -1340,7 +1387,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
               }
             }
           }
-          committedBytes.addAndGet(-size);
+          refundCommittedBytes(size);
           throw failure;
         }
       } finally {
@@ -1420,7 +1467,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       }
       oversized.arena().close();
       activeBytes.addAndGet(-oversized.bytes());
-      committedBytes.addAndGet(-oversized.bytes());
+      refundCommittedBytes(oversized.bytes());
       HftBoundaryTelemetry.allocatorRelease();
       HftBoundaryTelemetry.nativeRelease();
     }
@@ -1879,6 +1926,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // handshake (terminal flag versus in-flight owner count); acquire/release-only accesses permit
     // the store-buffering outcome in which both sides miss the other's publication.
     terminated.set(true);
+    // A granted scan owns capacity even before its first mapping. Admission checks the terminal
+    // flag under the budget monitor; taking that monitor here completes the shutdown handshake.
+    final long liveAggregationCapacity = aggregationBudget.grantedBytes();
+    if (liveAggregationCapacity != 0L) {
+      terminated.set(false);
+      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveAggregationCapacity
+          + " bytes granted to aggregation; close the scans before shutdown");
+    }
     // Idle scratch buffers are read by nobody: give their slots and regions back first, so that only
     // memory somebody still holds can stop the shutdown below.
     final FrameScratch scratchBuffers = scratch;
@@ -1937,7 +1992,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           throw new IllegalStateException("oversized allocation ownership changed during shutdown at " + address);
         }
         activeBytes.addAndGet(-oversized.bytes());
-        committedBytes.addAndGet(-oversized.bytes());
+        refundCommittedBytes(oversized.bytes());
         HftBoundaryTelemetry.allocatorRelease();
         HftBoundaryTelemetry.nativeRelease();
       } catch (final RuntimeException | Error failure) {
@@ -1954,7 +2009,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (currentClasses != null) {
       for (final SizeClass c : currentClasses) {
         if (VM.release(c.region)) {
-          committedBytes.addAndGet(-c.committedBytes.getAndSet(0L));
+          refundCommittedBytes(c.committedBytes.getAndSet(0L));
           HftBoundaryTelemetry.nativeRelease();
         }
       }

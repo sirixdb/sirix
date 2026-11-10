@@ -111,21 +111,21 @@ final class FallbackScratchTest {
     final ScratchLease second = new ScratchLease(allocator);
     final ScratchLease third = new ScratchLease(allocator);
     try {
-      assertEquals(FallbackScratch.MIN_LARGE_LIMIT_BYTES, source.largeLimitBytes(),
-          "an eighth of a 64 MiB budget is below the floor");
-      first.acquire(20 * MIB + 1, ScratchUse.READ);
-      assertEquals(20 * MIB + 4 * KIB, first.capacity(), "whole pages");
-      assertEquals(20 * MIB + 4 * KIB, source.mappedBytes());
-      SegmentAccess.putLong(first.segment(), 20 * MIB, 5L);
-      assertEquals(5L, SegmentAccess.getLong(first.segment(), 20 * MIB));
-      assertTrue(second.tryAcquire(8 * MIB, ScratchUse.READ));
-      assertFalse(third.tryAcquire(8 * MIB, ScratchUse.READ), "20 MiB + 8 MiB + 8 MiB exceed the 32 MiB bound");
-      assertThrows(OutOfMemoryError.class, () -> third.acquire(8 * MIB, ScratchUse.READ),
+      assertEquals(8 * MIB, source.largeLimitBytes(),
+          "mapped scratch uses exactly its declared eighth, even for small budgets");
+      first.acquire(5 * MIB + 1, ScratchUse.READ);
+      assertEquals(5 * MIB + 4 * KIB, first.capacity(), "whole pages");
+      assertEquals(5 * MIB + 4 * KIB, source.mappedBytes());
+      SegmentAccess.putLong(first.segment(), 5 * MIB, 5L);
+      assertEquals(5L, SegmentAccess.getLong(first.segment(), 5 * MIB));
+      assertTrue(second.tryAcquire(2 * MIB, ScratchUse.READ));
+      assertFalse(third.tryAcquire(2 * MIB, ScratchUse.READ), "5 MiB + 2 MiB + 2 MiB exceed the 8 MiB bound");
+      assertThrows(OutOfMemoryError.class, () -> third.acquire(2 * MIB, ScratchUse.READ),
           "a mandatory borrow beyond the bound fails; it never falls back to unbounded memory");
       assertFalse(third.isHeld());
-      assertEquals(28 * MIB + 4 * KIB, source.mappedBytes(), "the refusals left nothing charged");
+      assertEquals(7 * MIB + 4 * KIB, source.mappedBytes(), "the refusals left nothing charged");
       first.close();
-      assertTrue(third.tryAcquire(8 * MIB, ScratchUse.READ), "a return makes room");
+      assertTrue(third.tryAcquire(2 * MIB, ScratchUse.READ), "a return makes room");
       second.close();
       third.close();
       assertEquals(0, source.mappedBytes());
@@ -142,6 +142,29 @@ final class FallbackScratchTest {
       third.close();
       frames.shutdown();
     }
+  }
+
+  @Test
+  void aLiveFallbackGrantKeepsTheSameAdmissionLedgerBeforeItsFirstBorrow() {
+    final FrameSlotAllocator frames = new FrameSlotAllocator(64 * MIB);
+    final CountingAllocator allocator = new CountingAllocator(frames, 64 * MIB);
+    final AggregationBudget budget = allocator.aggregationBudget();
+    try (AggregationGrant grant = budget.acquire(budget.capacity(), budget.capacity())) {
+      // The source is weakly indexed, so retaining the allocator alone would not keep it alive.
+      // A grant must anchor it even with no active carrier yet.
+      System.gc();
+      assertSame(budget, allocator.aggregationBudget());
+      assertEquals(grant.capacity(), allocator.aggregationBudget().grantedBytes());
+      try (ScratchLease lease = grant.borrow(4097)) {
+        assertEquals(8192, grant.usedBytes());
+        SegmentAccess.putLong(lease.segment(), 4096, 29L);
+        assertEquals(29L, SegmentAccess.getLong(lease.segment(), 4096));
+      }
+      assertEquals(0, grant.usedBytes());
+    } finally {
+      frames.shutdown();
+    }
+    assertEquals(0, budget.grantedBytes());
   }
 
   @Test

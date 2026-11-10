@@ -100,6 +100,17 @@ public final class ScratchLease implements AutoCloseable {
     return this;
   }
 
+  ScratchLease acquireAggregation(final long minBytes, final AggregationGrant grant) {
+    if (minBytes <= 0 || carrier != null) {
+      throw new IllegalArgumentException("aggregation borrow needs a positive size and an empty lease");
+    }
+    final ScratchCarrier lent = ScratchSource.of(allocator).acquireAggregation(minBytes, grant);
+    this.era = lent.era;
+    this.use = ScratchUse.AGGREGATION;
+    ScratchHandles.LEASE_CARRIER.setRelease(this, lent);
+    return this;
+  }
+
   /**
    * Borrow a buffer of at least {@code minBytes} if the budget has room right now. For work with a
    * cheaper fallback, such as a coalesced read that can be split into single-page reads: a refusal
@@ -195,7 +206,9 @@ public final class ScratchLease implements AutoCloseable {
       return false;
     }
     final ScratchSource source = ScratchSource.of(allocator);
-    final ScratchCarrier grown = Objects.requireNonNull(source.acquire(minBytes, use, true));
+    final ScratchCarrier grown = current.aggregationGrant == null
+        ? Objects.requireNonNull(source.acquire(minBytes, use, true))
+        : source.acquireAggregation(minBytes, current.aggregationGrant);
     if (preserveBytes > 0) {
       MemorySegment.copy(current.segment, 0L, grown.segment, 0L, preserveBytes);
     }

@@ -28,6 +28,8 @@ abstract class ScratchSource {
    */
   abstract @Nullable ScratchCarrier acquire(long minBytes, ScratchUse use, boolean mandatory);
 
+  abstract ScratchCarrier acquireAggregation(long minBytes, AggregationGrant grant);
+
   /**
    * Return a buffer lent by {@link #acquire}.
    *

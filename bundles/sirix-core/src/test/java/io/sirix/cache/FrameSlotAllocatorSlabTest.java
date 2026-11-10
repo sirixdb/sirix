@@ -217,8 +217,9 @@ final class FrameSlotAllocatorSlabTest {
       final MemorySegment first = allocator.allocateSlab(BUDGET / 2);
       assertNotNull(first);
       assertNull(allocator.allocateSlab(BUDGET / 2 + 4096), "retained plus request exceeds the budget");
-      final MemorySegment second = allocator.allocateSlab(BUDGET / 2);
-      assertNotNull(second, "exactly the remaining budget fits");
+      final MemorySegment second = allocator.allocateSlab(BUDGET / 2 - BUDGET / 8);
+      assertNotNull(second, "exactly the remaining non-execution budget fits");
+      assertNull(allocator.allocateSlab(4096), "the protected execution floor cannot be cached");
       assertEquals(0, pressure.get(), "slabs never evict persisted pages");
       assertTrue(allocator.releaseSlab(first));
       assertTrue(allocator.releaseSlab(second));

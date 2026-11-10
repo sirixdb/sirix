@@ -629,9 +629,11 @@ class FrameSlotAllocatorTest {
   @Test
   void oneSlotInterfaceAllocatorMakesBoundedProgressUnderContention() throws Exception {
     allocator.shutdown();
-    final int classIdx = FrameSlotAllocator.SIZE_CLASSES.length - 1;
+    final int classIdx = FrameSlotAllocator.SIZE_CLASSES.length - 2;
     final long slotSize = FrameSlotAllocator.SIZE_CLASSES[classIdx];
-    allocator = new FrameSlotAllocator(slotSize);
+    // Keep the original 256 KiB budget. Its execution floor leaves room for exactly
+    // one 128 KiB slot; two would consume that protected capacity.
+    allocator = new FrameSlotAllocator(slotSize * 2);
 
     final int workers = 4;
     final int iterations = 100;
@@ -689,7 +691,7 @@ class FrameSlotAllocatorTest {
     assertEquals(budget / 16, headroom, "default headroom is 1/16th of the budget");
     // Drive the slab arm to its cap: slab commitments are permanent until shutdown, so they must
     // refuse beyond budget − headroom…
-    assertTrue(allocator.reserveSlabCommittedBytes(budget - headroom));
+    assertTrue(allocator.reserveSlabCommittedBytes(budget - budget / 8 - headroom));
     assertFalse(allocator.reserveSlabCommittedBytes(1), "slab commitment must stop short of the oversized headroom");
     // …while the oversized arm still admits inside the headroom — the retry that could never say
     // yes after a slab peak now can. It stops at the scratch reserve, the last quarter of the
@@ -701,7 +703,7 @@ class FrameSlotAllocatorTest {
         "an oversized reservation must succeed inside the headroom at slab peak");
     assertFalse(allocator.reserveCommittedBytes(1), "oversized commitment must stop short of the scratch reserve");
     assertTrue(allocator.reserveScratchCommittedBytes(scratchReserve), "scratch alone commits the reserve");
-    assertFalse(allocator.reserveScratchCommittedBytes(1), "the full budget is then exhausted");
+    assertFalse(allocator.reserveScratchCommittedBytes(1), "the non-execution budget is then exhausted");
   }
 
 }

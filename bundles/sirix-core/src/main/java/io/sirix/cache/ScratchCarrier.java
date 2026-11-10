@@ -54,6 +54,10 @@ final class ScratchCarrier {
   /** Accessed through {@link ScratchHandles#ERA}. */
   long era;
 
+  /** Exclusive aggregation grant while lent; null for ordinary scratch and every idle buffer. */
+  @Nullable
+  AggregationGrant aggregationGrant;
+
   /** Accessed through {@link ScratchHandles#ACQUISITIONS}. */
   long acquisitions;
 

@@ -116,6 +116,14 @@ public interface MemorySegmentAllocator {
     return ScratchStats.EMPTY;
   }
 
+  /** Exclusive aggregation capacity, owned by this allocator. */
+  default AggregationBudget aggregationBudget() {
+    if (!isInitialized()) {
+      throw new IllegalStateException("allocator must be initialized before granting execution capacity");
+    }
+    return FallbackScratch.of(this).aggregationBudget();
+  }
+
   /**
    * Physical off-heap bytes currently committed by this allocator. Used by metrics; implementations
    * that don't track physical commitment return 0.
