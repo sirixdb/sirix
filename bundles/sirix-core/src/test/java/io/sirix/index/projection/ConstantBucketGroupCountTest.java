@@ -318,10 +318,10 @@ final class ConstantBucketGroupCountTest {
         hash = hash * ProjectionIndexByteScan.FNV_PRIME ^ component;
       }
       final int handle = table.acquireExact(hash, Long.MAX_VALUE, identity, 0);
-      final long[] storage = table.storageAtAccBase(handle);
+      final GroupBuffer storage = table.storageAtAccBase(handle);
       final int base = table.offsetAtAccBase(handle);
-      assertEquals(entry.getValue()[0], storage[base], "count for " + key);
-      assertEquals(entry.getValue()[1], storage[base + 1], "first selected row for " + key);
+      assertEquals(entry.getValue()[0], GroupLanes.get(storage, base), "count for " + key);
+      assertEquals(entry.getValue()[1], GroupLanes.get(storage, base + 1), "first selected row for " + key);
       assertEquals(entry.getValue()[1], table.auxAtAccBase(handle), "winner reference for " + key);
     }
     assertEquals(expected.size(), table.size(), "all expected groups already existed");

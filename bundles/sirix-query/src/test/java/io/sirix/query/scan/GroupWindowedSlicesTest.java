@@ -10,6 +10,8 @@ import io.sirix.cache.Allocators;
 import io.sirix.cache.ScratchStats;
 import io.sirix.cache.ScratchUse;
 import io.sirix.index.projection.GroupTableSpill;
+import io.sirix.index.projection.GroupWorkspace;
+import io.sirix.index.projection.NumericGroupAggTable;
 import io.sirix.index.projection.HeapHeadroom;
 import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
@@ -255,9 +257,12 @@ final class GroupWindowedSlicesTest {
       previousSubChunk = GroupTableSpill.setSubChunkLeavesForTesting(1);
     }
     try {
+      letDroppedWorkspacesReturn();
       final long windowedRoutesBefore = SirixVectorizedExecutor.groupWindowedSlicesCount();
       final long windowedAccessBefore = ProjectionColumnStore.windowedLeafAccessCount();
       final long servedBefore = groupServes();
+      final long privateWorkspacesBefore = NumericGroupAggTable.privateWorkspaceCount();
+      final long workspacesOpenBefore = GroupWorkspace.openedCount() - GroupWorkspace.closedCount();
       previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(1L);
       final ScratchStats scratchBefore = Allocators.getInstance().scratchStats();
       final String windowed = run(query, true);
@@ -266,11 +271,14 @@ final class GroupWindowedSlicesTest {
       previousBudget = -1L;
       assertTrue(groupServes() > servedBefore, "not served by a group arm under the one-byte budget: " + query);
       // A windowed arm decodes its windows' long lanes into buffers borrowed from the allocator; every
-      // worker of every pass returns them, also a worker that leaves a pass the budget abandoned.
+      // worker of every pass returns them, also a worker that leaves a pass the budget abandoned. Its
+      // group tables are borrowed regions too, returned when the arm closes the scan's workspace.
       assertEquals(scratchBefore.totalLentBuffers(), scratchAfter.totalLentBuffers(),
-          "a windowed arm left lane buffers borrowed ("
+          "a windowed arm left buffers borrowed (it borrowed "
               + (scratchAfter.acquisitions(ScratchUse.PROJECTION) - scratchBefore.acquisitions(ScratchUse.PROJECTION))
-              + " borrowed) for: " + query);
+              + " lane buffers and "
+              + (scratchAfter.acquisitions(ScratchUse.AGGREGATION) - scratchBefore.acquisitions(ScratchUse.AGGREGATION))
+              + " group-table regions) for: " + query);
       assertEquals(0, scratchAfter.staleReleases() - scratchBefore.staleReleases(), "a lane buffer was returned twice");
       if (expectWindowed) {
         assertTrue(SirixVectorizedExecutor.groupWindowedSlicesCount() > windowedRoutesBefore,
@@ -284,6 +292,15 @@ final class GroupWindowedSlicesTest {
       final long servedBeforeResident = groupServes();
       final String resident = run(query, true);
       assertTrue(groupServes() > servedBeforeResident, "not served by a group arm with the budget restored: " + query);
+      // A grouped scan's tables and accumulators are allocator memory in the scan's ONE workspace,
+      // which the arm closes when it returns: nothing stays borrowed, no workspace stays open, and no
+      // table of a query opens a workspace of its own (that one would be returned by a cleaner, late).
+      assertEquals(scratchBefore.totalLentBuffers(), Allocators.getInstance().scratchStats().totalLentBuffers(),
+          "a grouped scan left group-table memory borrowed for: " + query);
+      assertEquals(workspacesOpenBefore, GroupWorkspace.openedCount() - GroupWorkspace.closedCount(),
+          "a grouped scan left its workspace open for: " + query);
+      assertEquals(privateWorkspacesBefore, NumericGroupAggTable.privateWorkspaceCount(),
+          "a group table of a query took its memory from a workspace of its own for: " + query);
       final String generic = run(query, false);
       assertEquals(generic, windowed, "windowed slices diverge from the interpreter for: " + query);
       assertEquals(resident, windowed, "windowed slices diverge from the resident arm for: " + query);
@@ -293,6 +310,26 @@ final class GroupWindowedSlicesTest {
         GroupTableSpill.setFlushGroupsForTesting(previousThreshold);
         GroupTableSpill.setSubChunkLeavesForTesting(previousSubChunk);
       }
+    }
+  }
+
+  /**
+   * A table or a spill that an earlier test of this JVM built outside any scan took a self-returning
+   * workspace, which a cleaner thread returns whenever the collector finds it unreachable. Let that
+   * finish before the lent-buffer gauge and the workspace counters are read: collect until every
+   * workspace is back, or until collecting changes nothing any more.
+   */
+  private static void letDroppedWorkspacesReturn() throws InterruptedException {
+    int unchangedRounds = 0;
+    long closed = GroupWorkspace.closedCount();
+    while (GroupWorkspace.openedCount() != closed && unchangedRounds < 5) {
+      System.gc();
+      Thread.sleep(20);
+      final long now = GroupWorkspace.closedCount();
+      unchangedRounds = now == closed
+          ? unchangedRounds + 1
+          : 0;
+      closed = now;
     }
   }
 

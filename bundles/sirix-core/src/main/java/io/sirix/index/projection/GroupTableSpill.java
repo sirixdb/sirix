@@ -29,17 +29,14 @@ import static java.util.Objects.requireNonNull;
  * </p>
  *
  * <p>
- * Every table the spill hands out or creates shares one {@link LongChunkPool}: a flushed worker
- * table {@link NumericGroupAggTable#release releases} its chunks, a growing partition table
- * recycles the ones it outgrew, and the caller releases the merged tables once a pass has emitted
- * its candidates — so a pass allocates its storage once and G1 promotes it once, instead of copying
- * ≈ 9 GB of short-lived tables through the young generation per pass (the q32 profile at 100M).
- * Kill switch {@code -Dsirix.projection.groupTable.chunkPool=false}. Dense table indexes use a
- * separate recycler, retained across scans by default in native images and scan-local on the JVM.
- * When enabled, payload and index pools share the existing global retained-byte ceiling. The index
- * returns to scan-local recycling with
- * {@code -Dsirix.projection.groupTable.chunkPool.retainProbe=false}; {@code true} enables it on
- * either runtime. The group budget is unchanged.
+ * Every table the spill hands out or creates, and every stripe buffer, takes its chunks from one
+ * {@link GroupWorkspace}, the working memory of the grouped scan the pass belongs to
+ * ({@link #inWorkspace}): a flushed worker table {@link NumericGroupAggTable#release releases} its
+ * chunks to it, a growing partition table hands back the ones it outgrew, and the caller releases
+ * the merged tables once a pass has emitted its candidates. A pass therefore builds its tables from
+ * the chunks the previous one handed back, and the scan returns all of it to the allocator at once
+ * when it closes its workspace. The chunks used to be heap arrays in free lists that outlived the
+ * scan.
  * </p>
  *
  * <p>
@@ -176,42 +173,6 @@ public final class GroupTableSpill {
   /** Spills whose shared tables were dropped by {@link #releaseTables} (test observability). */
   public static long releaseCount() {
     return RELEASES.sum();
-  }
-
-  /** Recycle table chunks through a per-spill {@link LongChunkPool} (default on). */
-  public static final String CHUNK_POOL_PROPERTY = "sirix.projection.groupTable.chunkPool";
-  /** Retain dense index chunks across scans; defaults on in native images and off on the JVM. */
-  public static final String RETAIN_PROBE_PROPERTY = "sirix.projection.groupTable.chunkPool.retainProbe";
-  private static final boolean DEFAULT_RETAIN_PROBE = System.getProperty("org.graalvm.nativeimage.imagecode") != null;
-  private static volatile int chunkPoolForTesting = -1;
-
-  /** Runtime default with an explicit per-process override, independent of query shape and schema. */
-  static boolean retainProbeAcrossScans() {
-    final String configured = System.getProperty(RETAIN_PROBE_PROPERTY);
-    return configured == null
-        ? DEFAULT_RETAIN_PROBE
-        : Boolean.parseBoolean(configured);
-  }
-
-  /** Whether spills recycle their tables' chunks: the test override when set, else the property. */
-  public static boolean chunkPoolEnabled() {
-    final int testing = chunkPoolForTesting;
-    if (testing >= 0) {
-      return testing != 0;
-    }
-    return Boolean.parseBoolean(System.getProperty(CHUNK_POOL_PROPERTY, "true"));
-  }
-
-  /**
-   * Test seam for the chunk pool.
-   *
-   * @param value {@code 1} on, {@code 0} off, negative restores the property
-   * @return the previous override, for restoring in a finally block
-   */
-  public static int setChunkPoolForTesting(final int value) {
-    final int previous = chunkPoolForTesting;
-    chunkPoolForTesting = value;
-    return previous;
   }
 
   /** Start every flush's partition walk at a different partition (default on). */
@@ -372,11 +333,11 @@ public final class GroupTableSpill {
 
   /**
    * Append-only run of whole stripes for ONE partition: a stripe never crosses a chunk, and the
-   * chunks GROW from a handful of stripes to the spill's {@link LongChunkPool} length, so a shape
-   * with thousands of partitions and few groups costs stripes rather than chunks while a partition
-   * that fills recycles pooled chunks like the tables. Written under the partition's monitor, read by
-   * the one worker that builds the partition after the scan has joined — so it carries no
-   * synchronisation of its own.
+   * chunks GROW from a handful of stripes to the tables' full chunk length, so a shape with thousands
+   * of partitions and few groups costs stripes rather than chunks while a partition that fills reuses
+   * the chunks the scan's {@link GroupWorkspace} took back, like the tables. Written under the
+   * partition's monitor, read by the one worker that builds the partition after the scan has joined —
+   * so it carries no synchronisation of its own.
    *
    * <p>
    * Why a buffer and not the shared table it replaces: a flush that probes {@code flushGroups} groups
@@ -392,9 +353,9 @@ public final class GroupTableSpill {
     /** Stripes the FIRST chunk of a buffer holds; a partition that stays small costs only this. */
     private static final int FIRST_CHUNK_STRIPES = 8;
     private final int stride;
-    /** The pool's chunk length: the size every chunk past the growth ramp is allocated at. */
+    /** The tables' full chunk length: the size every chunk past the growth ramp is taken at. */
     private final int fullLanes;
-    private long[][] chunks = new long[4][];
+    private GroupBuffer[] chunks = new GroupBuffer[4];
     private int[] used = new int[4];
     private int chunkCount;
     private long stripes;
@@ -409,15 +370,15 @@ public final class GroupTableSpill {
 
     /**
      * Lanes the next chunk is allocated at: the previous chunk doubled, from
-     * {@value #FIRST_CHUNK_STRIPES} stripes up to the pool's chunk — so a partition holding a handful
-     * of groups costs a handful of stripes, and one holding millions still reaches the pooled size
-     * within a few chunks. Always a whole number of stripes.
+     * {@value #FIRST_CHUNK_STRIPES} stripes up to the full chunk — so a partition holding a handful of
+     * groups costs a handful of stripes, and one holding millions still reaches the full size within a
+     * few chunks. Always a whole number of stripes.
      */
     private int nextChunkLanes() {
       if (chunkCount == 0) {
         return Math.min(fullLanes, stride * FIRST_CHUNK_STRIPES);
       }
-      final int doubled = chunks[chunkCount - 1].length << 1;
+      final int doubled = GroupLanes.count(chunks[chunkCount - 1]) << 1;
       return doubled <= 0 || doubled >= fullLanes
           ? fullLanes
           : doubled - doubled % stride;
@@ -426,26 +387,23 @@ public final class GroupTableSpill {
     /**
      * Copy the stripe whose accumulator base is {@code accBase} of {@code src} (key lane at base − 1).
      */
-    void append(final long[] src, final int accBase, final LongChunkPool pool) {
+    void append(final GroupBuffer src, final int accBase, final GroupWorkspace workspace) {
       final int st = stride;
-      if (chunkCount == 0 || used[chunkCount - 1] + st > chunks[chunkCount - 1].length) {
+      if (chunkCount == 0 || used[chunkCount - 1] + st > GroupLanes.count(chunks[chunkCount - 1])) {
         if (chunkCount == chunks.length) {
-          final long[][] grown = new long[chunkCount << 1][];
+          final GroupBuffer[] grown = new GroupBuffer[chunkCount << 1];
           System.arraycopy(chunks, 0, grown, 0, chunkCount);
           chunks = grown;
           final int[] grownUsed = new int[chunkCount << 1];
           System.arraycopy(used, 0, grownUsed, 0, chunkCount);
           used = grownUsed;
         }
-        final int lanes = nextChunkLanes();
-        chunks[chunkCount] = pool != null && lanes == pool.chunkLanes()
-            ? pool.take()
-            : new long[lanes];
+        chunks[chunkCount] = workspace.takeChunk(nextChunkLanes());
         used[chunkCount] = 0;
         chunkCount++;
       }
       final int tail = chunkCount - 1;
-      System.arraycopy(src, accBase - 1, chunks[tail], used[tail], st);
+      GroupLanes.copy(src, accBase - 1, chunks[tail], used[tail], st);
       used[tail] += st;
       stripes++;
     }
@@ -458,7 +416,7 @@ public final class GroupTableSpill {
       return chunkCount;
     }
 
-    long[] chunk(final int index) {
+    GroupBuffer chunk(final int index) {
       return chunks[index];
     }
 
@@ -467,15 +425,10 @@ public final class GroupTableSpill {
       return used[index];
     }
 
-    /**
-     * Hand every chunk back and empty the buffer. Only chunks at the pool's length are kept by it
-     * ({@link LongChunkPool#give} refuses the others); the ramp's small chunks go to the collector.
-     */
-    void release(final LongChunkPool pool) {
+    /** Hand every chunk back to the scan's workspace and empty the buffer. */
+    void release(final GroupWorkspace workspace) {
       for (int i = 0; i < chunkCount; i++) {
-        if (pool != null) {
-          pool.give(chunks[i]);
-        }
+        workspace.giveChunk(chunks[i]);
         chunks[i] = null;
         used[i] = 0;
       }
@@ -515,11 +468,10 @@ public final class GroupTableSpill {
    * <p>
    * Hence the allowance is refused when IT ALONE crosses that boundary: at 100M rows a share of
    * 3,124,927 groups fits a 2^22-bucket table (grows at 3,145,728) and its 5 % allowance asked for
-   * 2^23 — every shared table of every pass doubled, 2.1 GB of fresh chunks per pass past the
-   * retained pool, and the hot tries ran SLOWER per pass than the cold one (q32: 1.5 → 1.8 s, gc 32 →
-   * 42). A partition's count deviates from its share by about its root, so the tighter hint keeps
-   * {@value #SHARED_HINT_TIGHT_ROOTS} roots of headroom and lets an estimate that is truly off pay
-   * one rehash instead.
+   * 2^23 — every shared table of every pass doubled, 2.1 GB of fresh chunks per pass, and the hot
+   * tries ran SLOWER per pass than the cold one (q32: 1.5 → 1.8 s). A partition's count deviates from
+   * its share by about its root, so the tighter hint keeps {@value #SHARED_HINT_TIGHT_ROOTS} roots of
+   * headroom and lets an estimate that is truly off pay one rehash instead.
    */
   static int sharedTableHint(final long expectedGroups, final int partitions, final int passLo, final int passHi,
       final long budget) {
@@ -541,79 +493,61 @@ public final class GroupTableSpill {
     return NumericGroupAggTable.capacityFor((int) Math.max(16L, Math.min(Integer.MAX_VALUE, hint)));
   }
 
-  /**
-   * Chunks a spill's pool keeps at most: twice the resident state of a pass — {@code budget} groups
-   * plus the workers' unflushed tables — at the table's 3/4 load factor. The pool never holds more
-   * than it was given, so this is a safety net against a runaway caller, not a tuning knob.
-   */
-  static int poolCapacityChunks(final long budget, final int threshold, final int stride, final int chunkLanes) {
-    final double groups = Math.min(budget, 1L << 32) + 64.0 * threshold;
-    final double lanes = groups * stride * (4.0 / 3.0) * 2.0;
-    return (int) Math.max(64, Math.min(1 << 22, Math.ceil(lanes / chunkLanes)));
-  }
-
-  /** Configured ceiling on resident groups per pass (default heap-derived). */
+  /** Configured ceiling on resident groups per pass, capped by the exclusive native grant. */
   public static final String GROUP_BUDGET_PROPERTY = "sirix.projection.groupTable.groupBudget";
-  /** Approximate heap bytes per resident group across stripe, aux, identity lanes and probe slack. */
+  /** Charge used by the legacy stride-free planning overloads. */
   private static final long BYTES_PER_GROUP = 128L;
 
-  /**
-   * Arms the STRIDE-AWARE per-group cost. Off restores the flat {@value #BYTES_PER_GROUP} bytes every
-   * shape used to be charged; it gates BEHAVIOUR (how many passes a plan takes), never a decoder, and
-   * a pass count can only ever cost time.
-   */
+  /** Legacy property name; disabling layout accounting cannot bypass the native byte grant. */
   public static final String STRIDE_BUDGET_PROPERTY = "sirix.projection.groupTable.strideBudget";
 
-  /**
-   * Capacity slack over the live group count: {@link NumericGroupAggTable} grows at 3/4 load and
-   * rounds its bucket count UP to a power of two, so a table holding {@code n} groups has between 4/3
-   * and 8/3 buckets per group. Two is the midpoint of that range and the figure the budget charges —
-   * the ceiling would forfeit a third of the heap share on every shape, and the floor would plan a
-   * pass that cannot hold what it planned for.
-   */
+  /** Dense source/destination stripe overlap while a partition is compacted. */
   private static final long CAPACITY_SLACK = 2L;
 
+  /** Maximum worker footprint through its next flush check, including a rehash in that batch. */
+  static long workerPeakBytes(final int strideLanes) {
+    final long batchRows = Math.multiplyExact((long) subChunkLeaves(), ProjectionIndexRowGroupPage.MAX_ROWS);
+    final long groups = Math.addExact(effectiveFlushThreshold() - 1L, batchRows);
+    if (groups > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("worker flush batch exceeds supported group capacity");
+    }
+    final long capacity =
+        Math.max(NumericGroupAggTable.capacityFor(workerTableHint()), NumericGroupAggTable.capacityFor((int) groups));
+    final long growingCapacity = capacity + capacity / 2;
+    return denseIndexEnabled(strideLanes)
+        ? Math.addExact(Math.multiplyExact(groups, (long) strideLanes * Long.BYTES), growingCapacity * Long.BYTES)
+        : Math.multiplyExact(growingCapacity, (long) strideLanes * Long.BYTES);
+  }
+
+  private static int effectiveFlushThreshold() {
+    return stripeSpillEnabled() && flushGroupsForTesting < 0 && Integer.getInteger(FLUSH_GROUPS_PROPERTY) == null
+        ? STRIPE_FLUSH_GROUPS
+        : flushGroups();
+  }
+
   /**
-   * Bytes one resident group costs a pass at {@code strideLanes} lanes per stripe — the stripe at
-   * {@link #CAPACITY_SLACK}, but never MORE than the flat {@value #BYTES_PER_GROUP} this budget
-   * charged before strides were consulted.
-   *
-   * <p>
-   * The clamp is the whole safety argument, and it is deliberately one-sided. A WIDE stripe (q32's
-   * two aggregate columns over a composite key occupy thirteen lanes, 208 B at the slack) costs more
-   * than the flat figure, and charging it honestly would hand that query MORE passes than the eight
-   * it runs today — a measured, working plan made worse by a sizing correction. A NARROW stripe is
-   * the case worth fixing: {@code GROUP BY x ORDER BY count(*)} occupies three lanes, 48 B, and has
-   * been charged 128 B and split into up to 2.67x the passes its memory required, each surplus pass a
-   * full rescan. So the stride may only ever LOWER the charge: no shape can take more passes than it
-   * takes today, and shapes that were over-charged take fewer. Wide stripes keep the flat figure and
-   * the abort machinery that has always covered them.
-   * </p>
-   *
-   * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
-   * @return bytes charged per resident group
-   * @throws IllegalArgumentException if {@code strideLanes} is not positive
+   * Peak resident charge for a group: its complete stripe plus three index lanes, doubled for
+   * rehash/merge overlap. Wide records are never capped at a fictitious 128 bytes. Fixed worker
+   * tables and chunk/region rounding are subtracted from the grant separately.
    */
   public static long bytesPerGroup(final int strideLanes) {
     if (strideLanes <= 0) {
       throw new IllegalArgumentException("strideLanes must be positive: " + strideLanes);
     }
-    if (!Boolean.parseBoolean(System.getProperty(STRIDE_BUDGET_PROPERTY, "true"))) {
-      return BYTES_PER_GROUP;
-    }
-    return Math.min(BYTES_PER_GROUP, (long) strideLanes * Long.BYTES * CAPACITY_SLACK);
+    final long densePeak = ((long) strideLanes + 3L) * CAPACITY_SLACK;
+    // At a 3/4-load rehash the old and doubled interleaved tables hold four stripes per
+    // live group; a still-live source stripe buffer adds one more during compaction.
+    final long interleavedPeak = (long) strideLanes * (stripeSpillEnabled()
+        ? 5L
+        : 4L);
+    return (denseIndexEnabled(strideLanes)
+        ? densePeak
+        : Math.max(densePeak, interleavedPeak)) * Long.BYTES;
   }
 
   private static volatile long groupBudgetForTesting = -1L;
 
-  /**
-   * The resident-group ceiling per pass: the property when set, else the smaller of an eighth of the
-   * heap and a quarter of the current {@link HeapHeadroom} at {@value #BYTES_PER_GROUP} bytes per
-   * group, floored at 2^20 and capped at 2^26 groups. The headroom term is what lets a query late in
-   * a leg — after earlier queries retained fills, fingerprints and windows — split into more passes
-   * instead of dying in a worker. The chunks the shared {@link LongChunkPool}s retain count as
-   * headroom here: they are the tables of the next pass, taken instead of allocated.
-   */
+  /** Resident-group ceiling from granted execution capacity; no minimum can create capacity. */
   public static long groupBudget() {
     return groupBudget(WIDEST_CHARGED_STRIDE);
   }
@@ -621,32 +555,47 @@ public final class GroupTableSpill {
   /**
    * The resident-group ceiling per pass for a shape whose stripe is {@code strideLanes} lanes wide —
    * {@link #groupBudget()} against {@link #bytesPerGroup(int)} rather than the flat figure. A pass
-   * planned this way holds the groups its heap share can actually carry, instead of the groups a
-   * 128-byte stripe could carry.
+   * planned this way holds the groups its share can actually carry, instead of the groups a 128-byte
+   * stripe could carry.
    *
    * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
    * @return resident groups admitted per pass
    */
   public static long groupBudget(final int strideLanes) {
-    final long testing = groupBudgetForTesting;
-    if (testing >= 0L) {
-      return testing;
-    }
-    final long configured = Long.getLong(GROUP_BUDGET_PROPERTY, -1L);
-    if (configured > 0L) {
-      return configured;
-    }
-    // The shared chunk pools' contents are live to every collector record and are exactly the memory
-    // the next pass's tables take without allocating: headroom for this budget, for no other.
-    return groupBudgetFor(Runtime.getRuntime().maxMemory(),
-        HeapHeadroom.headroomBytes() + LongChunkPool.retainedBytes(), strideLanes);
+    return groupBudget(strideLanes, null);
   }
 
   /**
-   * The derived budget for {@code maxMemory} and {@code headroom} bytes (pure, for tests) — the
-   * shared {@link HeapHeadroom#plannedShareBytes(long, long)} at {@value #BYTES_PER_GROUP} bytes per
-   * group. The share is NOT recomputed here: the residency budget and the distinct ceiling read the
-   * same figure, and a second copy of the arithmetic is how they would drift apart.
+   * {@link #groupBudget(int)} for a scan that already holds {@code workspace}: its capacity grant is
+   * already exclusive. The fixed planning overhead has been subtracted once by the workspace; only
+   * full per-group peak charges are applied here.
+   *
+   * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
+   * @param workspace the planning scan's workspace, or {@code null} before it has one
+   * @return resident groups admitted per pass
+   */
+  public static long groupBudget(final int strideLanes, final @Nullable GroupWorkspace workspace) {
+    final long capacity = workspace == null
+        ? AggregationShare.plannedBytes(AggregationShare.budgetBytes(), AggregationShare.headroomBytes(null))
+        : workspace.usableGroupBytes();
+    final long planned = Math.min(1L << 26, capacity / bytesPerGroup(strideLanes));
+    final long testing = groupBudgetForTesting;
+    if (testing >= 0L) {
+      return workspace == null
+          ? testing
+          : Math.min(testing, planned);
+    }
+    final long configured = Long.getLong(GROUP_BUDGET_PROPERTY, -1L);
+    return configured > 0L
+        ? Math.min(configured, planned)
+        : planned;
+  }
+
+  /**
+   * The derived budget for a memory budget of {@code maxMemory} and {@code headroom} bytes (pure, for
+   * tests) — {@link AggregationShare#plannedBytes(long, long)} at {@value #BYTES_PER_GROUP} bytes per
+   * group. The share is NOT recomputed here: a second copy of the arithmetic is how two planners
+   * would drift apart.
    */
   public static long groupBudgetFor(final long maxMemory, final long headroom) {
     return groupBudgetFor(maxMemory, headroom, WIDEST_CHARGED_STRIDE);
@@ -654,47 +603,38 @@ public final class GroupTableSpill {
 
   /**
    * The derived budget for {@code maxMemory}, {@code headroom} and a stripe of {@code strideLanes}
-   * lanes (pure, for tests) — the shared {@link HeapHeadroom#plannedShareBytes(long, long)} at
-   * {@link #bytesPerGroup(int)} per group, floored and capped exactly as the flat form is.
+   * lanes (pure, for tests) — {@link AggregationShare#plannedBytes(long, long)} at
+   * {@link #bytesPerGroup(int)} per group, capped exactly as the flat form is.
    *
+   * @param maxMemory the budget of the memory the tables live in: the allocator's
+   * @param headroom what of it is still available to the scan
    * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
    */
   public static long groupBudgetFor(final long maxMemory, final long headroom, final int strideLanes) {
-    final long planned = HeapHeadroom.plannedShareBytes(maxMemory, headroom) / bytesPerGroup(strideLanes);
-    return Math.max(1L << 20, Math.min(1L << 26, planned));
+    final long planned = AggregationShare.plannedBytes(maxMemory, headroom) / bytesPerGroup(strideLanes);
+    return Math.max(0L, Math.min(1L << 26, planned));
   }
 
   /**
-   * The stripe at which {@link #bytesPerGroup} reaches the flat {@value #BYTES_PER_GROUP} figure, so
-   * that the stride-free overloads keep the numbers they have always returned whatever the property
-   * says.
-   *
-   * <p>
-   * It is DERIVED, and public so that a caller planning without a stride charges the flat figure by
-   * construction rather than by repeating the number: a second copy would keep the old value if
-   * {@link #CAPACITY_SLACK} or {@value #BYTES_PER_GROUP} ever moved, and would silently plan a
-   * different number of passes than the stride-free overloads it is meant to match.
-   * </p>
+   * Default shape for the legacy stride-free overloads; five lanes cost 128 bytes with a dense index.
    */
-  public static final int WIDEST_CHARGED_STRIDE = (int) (BYTES_PER_GROUP / (Long.BYTES * CAPACITY_SLACK));
+  public static final int WIDEST_CHARGED_STRIDE = 5;
 
   /**
-   * The budget a CLEAN heap of this size yields — {@link #groupBudgetFor} at a headroom of the whole
-   * heap — or the fixed figure when the property or the test override sets one. A plan compares the
-   * budget it read against this to decide whether a collection could widen it: the two collector
-   * records a budget derives from are upper bounds on the live set, and right after a large grouped
-   * query both still count that query's dead tables (q32 at 100M planned at a sixth of the ceiling,
-   * and ran thirty-two passes where eight held).
+   * The budget an UNCOMMITTED allocator of this size yields — {@link #groupBudgetFor} at a headroom
+   * of the whole budget — or the fixed figure when the property or the test override sets one. A plan
+   * compares the budget it read against this to decide whether a re-read could widen it: only a
+   * budget below the ceiling can.
    */
   public static long groupBudgetCeiling() {
     return groupBudgetCeiling(WIDEST_CHARGED_STRIDE);
   }
 
   /**
-   * The clean-heap ceiling for a stripe of {@code strideLanes} lanes. A refresh compares the budget
-   * it planned against this, so the two must be charged the SAME bytes per group: a narrow shape
-   * whose budget was widened by its stride would otherwise be measured against a ceiling computed for
-   * a 128-byte stripe and look as though a collection could not help it.
+   * The uncommitted-allocator ceiling for a stripe of {@code strideLanes} lanes. A refresh compares
+   * the budget it planned against this, so the two must be charged the SAME bytes per group: a narrow
+   * shape whose budget was widened by its stride would otherwise be measured against a ceiling
+   * computed for a 128-byte stripe and look as though a re-read could not help it.
    *
    * @param strideLanes lanes per group stripe ({@link NumericGroupAggTable#strideFor})
    */
@@ -707,7 +647,7 @@ public final class GroupTableSpill {
     if (configured > 0L) {
       return configured;
     }
-    final long maxMemory = Runtime.getRuntime().maxMemory();
+    final long maxMemory = AggregationShare.budgetBytes();
     return groupBudgetFor(maxMemory, maxMemory, strideLanes);
   }
 
@@ -719,52 +659,34 @@ public final class GroupTableSpill {
         && Boolean.parseBoolean(System.getProperty(BOUNDED_BUDGET_PROPERTY, "true"));
   }
 
-  /**
-   * Charge a dense stripe once, plus three eight-byte index lanes. A power-of-two index growing at
-   * 3/4 load has fewer than 8/3 entries per live group; rounding that up leaves room for array
-   * headers. Buffers use the same payload stripe without an index. The remaining headroom reserve
-   * covers workers, chunk tails and overlapping partition merges. Interleaved or non-buffered tables
-   * retain their existing budget.
-   *
-   * @param strideLanes positive lanes per record
-   * @return bytes charged per resident group
-   */
+  /** Bounded output does not reduce the peak live footprint of a group while constructing it. */
   public static long boundedBytesPerGroup(final int strideLanes) {
-    if (strideLanes <= 0) {
-      throw new IllegalArgumentException("strideLanes must be positive: " + strideLanes);
-    }
-    return boundedBudgetEnabled(strideLanes)
-        ? ((long) strideLanes + 3L) * Long.BYTES
-        : bytesPerGroup(strideLanes);
+    return bytesPerGroup(strideLanes);
   }
 
   /**
    * Budget for a bounded aggregate whose completed partitions can be selected and released
    * independently. Callers must exclude grouped distinct state, key ordering and an unbounded
    * selection (a limit of none or of every group, under which each partition's winners are its whole
-   * table and nothing is released). This allowance belongs to the aggregation, not to the column-fill
-   * or distinct-set consumers of HeapHeadroom. The fixed operator budget and test override retain
-   * precedence.
+   * table and nothing is released). This allowance is the aggregation's own, in the allocator; the
+   * column-fill and distinct-set consumers plan against the heap. The fixed operator budget and test
+   * override retain precedence.
    */
   public static long boundedGroupBudget(final int strideLanes) {
-    if (!boundedBudgetEnabled(strideLanes)) {
-      return groupBudget(strideLanes);
-    }
-    final long testing = groupBudgetForTesting;
-    if (testing >= 0L) {
-      return testing;
-    }
-    final long configured = Long.getLong(GROUP_BUDGET_PROPERTY, -1L);
-    if (configured > 0L) {
-      return configured;
-    }
-    final long maxMemory = Runtime.getRuntime().maxMemory();
-    final long headroom = Math.min(maxMemory, HeapHeadroom.headroomBytes());
-    final long reusable = Math.min(maxMemory - headroom, LongChunkPool.retainedBytes());
-    return boundedGroupBudgetFor(maxMemory, headroom + reusable, strideLanes);
+    return boundedGroupBudget(strideLanes, null);
   }
 
-  /** Clean-heap counterpart of {@link #boundedGroupBudget}, for the same refresh decision. */
+  /**
+   * {@link #boundedGroupBudget(int)} for a scan that already holds {@code workspace}; see
+   * {@link #groupBudget(int, GroupWorkspace)}.
+   */
+  public static long boundedGroupBudget(final int strideLanes, final @Nullable GroupWorkspace workspace) {
+    return groupBudget(strideLanes, workspace);
+  }
+
+  /**
+   * Uncommitted-allocator counterpart of {@link #boundedGroupBudget}, for the same refresh decision.
+   */
   public static long boundedGroupBudgetCeiling(final int strideLanes) {
     if (!boundedBudgetEnabled(strideLanes)) {
       return groupBudgetCeiling(strideLanes);
@@ -777,33 +699,30 @@ public final class GroupTableSpill {
     if (configured > 0L) {
       return configured;
     }
-    final long maxMemory = Runtime.getRuntime().maxMemory();
+    final long maxMemory = AggregationShare.budgetBytes();
     return boundedGroupBudgetFor(maxMemory, maxMemory, strideLanes);
   }
 
   /**
-   * Pure bounded-aggregation budget: at most half the heap and three quarters of effective headroom,
-   * charged for the actual dense layout. Keep a quarter outside the allowance for scan workers,
-   * transient copies and the collector. A pass still aborts on excess cardinality or allocation
-   * failure; this is a planning allowance, not a reservation against concurrent queries.
+   * Pure bounded-aggregation budget: {@link AggregationShare#plannedBoundedBytes(long, long)} (at
+   * most the exclusive execution capacity), charged for the actual layout and growth peaks.
+   * Production acquires a grant before invoking the planner; this overload is the pure arithmetic.
    *
-   * @param maxMemory non-negative maximum heap bytes
+   * @param maxMemory non-negative budget of the memory the tables live in: the allocator's
    * @param headroom non-negative available bytes, including reusable table chunks
    * @param strideLanes positive lanes per record
-   * @return group allowance, with the existing floor and ceiling
+   * @return group allowance; no minimum may manufacture memory
    */
   public static long boundedGroupBudgetFor(final long maxMemory, final long headroom, final int strideLanes) {
     if (maxMemory < 0L || headroom < 0L || strideLanes <= 0) {
       throw new IllegalArgumentException(
-          "invalid heap, headroom or stride: " + maxMemory + ", " + headroom + ", " + strideLanes);
+          "invalid budget, headroom or stride: " + maxMemory + ", " + headroom + ", " + strideLanes);
     }
     if (!boundedBudgetEnabled(strideLanes)) {
       return groupBudgetFor(maxMemory, headroom, strideLanes);
     }
-    final long available = Math.min(maxMemory, headroom);
-    final long share = Math.min(maxMemory / 2L, available / 4L * 3L);
-    final long planned = share / boundedBytesPerGroup(strideLanes);
-    return Math.max(1L << 20, Math.min(1L << 26, planned));
+    final long planned = AggregationShare.plannedBoundedBytes(maxMemory, headroom) / boundedBytesPerGroup(strideLanes);
+    return Math.max(0L, Math.min(1L << 26, planned));
   }
 
   /**
@@ -960,9 +879,13 @@ public final class GroupTableSpill {
   private final long budget;
 
   private final boolean partialGroups;
-  /** Shared by every table of this spill, or {@code null} when the pool is switched off. */
-  private final LongChunkPool pool;
-  private final LongChunkPool probePool;
+  /**
+   * The grouped scan's working memory: every table this spill hands out or creates and every stripe
+   * buffer takes its chunks here. The scan attaches its own ({@link #inWorkspace}); a spill nobody
+   * attached one to opens a private one on first need.
+   */
+  private @Nullable GroupWorkspace workspace;
+  private boolean privateWorkspace;
   private final boolean denseIndex;
   private final LongAdder spilled = new LongAdder();
   /**
@@ -1046,9 +969,7 @@ public final class GroupTableSpill {
     final boolean stripeSpill = stripeSpillEnabled();
     // Under the stripe spill a flush is a sequential copy, so the worker table stays at the hint it
     // was created at (no rehash, a cache-sized probe) unless the property asks for more.
-    this.threshold = stripeSpill && flushGroupsForTesting < 0 && Integer.getInteger(FLUSH_GROUPS_PROPERTY) == null
-        ? STRIPE_FLUSH_GROUPS
-        : flushGroups();
+    this.threshold = effectiveFlushThreshold();
     // One probe table fixes the layout every table of this spill shares; it never holds a group.
     final int stride = factory.apply(workerTableHint()).stride();
     this.denseIndex = denseIndexEnabled(stride);
@@ -1069,30 +990,56 @@ public final class GroupTableSpill {
       this.stripeBuffers = null;
       this.compactAt = Long.MAX_VALUE;
     }
-    if (chunkPoolEnabled()) {
-      final int chunkLanes = NumericGroupAggTable.fullChunkLanes(stride);
-      final int capacity = poolCapacityChunks(budget, threshold, stride, chunkLanes);
-      // The shared pool outlives this pass: the chunks the previous pass (or the previous query)
-      // handed back are this pass's tables, and nothing is allocated for them.
-      final int probeChunks =
-          (int) Math.max(1L, Math.min(Integer.MAX_VALUE, budget / (NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES / 2L)));
-      final boolean retain = LongChunkPool.retainAcrossScans();
-      final boolean retainProbe = retain && denseIndex && retainProbeAcrossScans();
-      if (retainProbe) {
-        this.pool = LongChunkPool.sharedWithProbe(chunkLanes, capacity, NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES);
-        this.probePool =
-            LongChunkPool.sharedProbe(NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES, probeChunks, chunkLanes);
-      } else {
-        this.probePool = denseIndex
-            ? new LongChunkPool(NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES, probeChunks)
-            : null;
-        this.pool = retain
-            ? LongChunkPool.shared(chunkLanes, capacity)
-            : new LongChunkPool(chunkLanes, capacity);
-      }
-    } else {
-      this.pool = null;
-      this.probePool = null;
+  }
+
+  /**
+   * Take every chunk of this spill's tables and buffers from {@code workspace}, the working memory of
+   * the grouped scan this pass belongs to. A scan runs several passes and each pass has a spill of
+   * its own; sharing the scan's workspace is what lets a pass build its tables from the chunks the
+   * previous pass handed back. Only before the spill has handed out a table.
+   *
+   * @return this spill
+   * @throws IllegalStateException if the spill already has a workspace
+   */
+  public GroupTableSpill inWorkspace(final GroupWorkspace workspace) {
+    requireNonNull(workspace, "workspace");
+    if (this.workspace != null && this.workspace != workspace) {
+      throw new IllegalStateException("the spill already takes its memory from another workspace");
+    }
+    this.workspace = workspace;
+    return this;
+  }
+
+  /**
+   * The workspace this spill's tables and buffers take their memory from. A spill without one opens a
+   * PRIVATE workspace here (tests, tools), a {@linkplain GroupWorkspace#selfReturning()
+   * self-returning} one: {@link #close()} returns it, and so does dropping the spill together with
+   * every table it handed out. A query attaches its scan's workspace instead.
+   */
+  public synchronized GroupWorkspace workspace() {
+    GroupWorkspace own = workspace;
+    if (own == null) {
+      own = GroupWorkspace.selfReturning();
+      workspace = own;
+      privateWorkspace = true;
+    }
+    return own;
+  }
+
+  /**
+   * Releases this spill's tables and returns a private workspace to the allocator. Nothing built from
+   * this spill may be read afterwards.
+   */
+  public void close() {
+    releaseTables();
+    final GroupWorkspace own;
+    synchronized (this) {
+      own = privateWorkspace
+          ? workspace
+          : null;
+    }
+    if (own != null) {
+      own.close();
     }
   }
 
@@ -1112,30 +1059,12 @@ public final class GroupTableSpill {
     return table;
   }
 
-  /** The chunk pool every table of this spill draws from, or {@code null} when switched off. */
-  public LongChunkPool chunkPool() {
-    return pool;
-  }
-
-  /**
-   * The recycler for the dense layout's compact index chunks, or {@code null} when this spill's
-   * stripe stays interleaved or the pool is switched off (test observability).
-   */
-  public LongChunkPool probeChunkPool() {
-    return probePool;
-  }
-
-  /** Attach this spill's pool to a table that holds no group yet. */
+  /** Put a table that holds no group yet into this spill's workspace and layout. */
   private NumericGroupAggTable adopt(final NumericGroupAggTable table) {
     if (denseIndex) {
       table.useDenseIndex();
-      if (probePool != null) {
-        table.attachProbePool(probePool);
-      }
     }
-    return pool == null
-        ? table
-        : table.attachChunkPool(pool);
+    return table.attachWorkspace(workspace());
   }
 
   /** Whether this spill covers only part of the key space. */
@@ -1260,9 +1189,9 @@ public final class GroupTableSpill {
 
   /**
    * Merge every group of {@code local} into the shared partition tables, then
-   * {@link NumericGroupAggTable#release release} it: its chunks return to the pool for the caller's
-   * next {@link #freshLocal} (a fresh table is cheaper than a reset of a grown one). The caller must
-   * not touch {@code local} afterwards.
+   * {@link NumericGroupAggTable#release release} it: its chunks return to the workspace for the
+   * caller's next {@link #freshLocal} (a fresh table is cheaper than a reset of a grown one). The
+   * caller must not touch {@code local} afterwards.
    */
   public void flush(final NumericGroupAggTable local) {
     try {
@@ -1273,6 +1202,11 @@ public final class GroupTableSpill {
       // leaves the restart planned blind (nothing spilled, nothing abandoned).
       abandoned.add(local.size());
       throw failure;
+    } finally {
+      // A flush consumes the worker table even when a merge or allocation fails part way through.
+      if (!local.released()) {
+        local.release();
+      }
     }
   }
 
@@ -1330,6 +1264,7 @@ public final class GroupTableSpill {
    * batches against a partition table small enough to hold.
    */
   private void spillStripes(final NumericGroupAggTable local, final int[][] index) {
+    final GroupWorkspace chunks = workspace();
     final int start = flushOffset
         ? flushStart(flushOrdinal.getAndIncrement(), partitions)
         : 0;
@@ -1345,7 +1280,7 @@ public final class GroupTableSpill {
       }
       synchronized (locks[p]) {
         for (final int handle : handles) {
-          buffer.append(local.storageAtAccBase(handle), local.offsetAtAccBase(handle), pool);
+          buffer.append(local.storageAtAccBase(handle), local.offsetAtAccBase(handle), chunks);
         }
         buffered.add(handles.length);
         STRIPES_SPILLED.add(handles.length);
@@ -1406,7 +1341,7 @@ public final class GroupTableSpill {
     for (int c = 0; c < buffer.chunkCount(); c++) {
       target.mergeStripes(buffer.chunk(c), 0, buffer.usedLanes(c));
     }
-    buffer.release(pool);
+    buffer.release(workspace());
     buffered.add(-stripes);
     spilled.add(target.size() - before);
     COMPACTIONS.increment();
@@ -1528,15 +1463,10 @@ public final class GroupTableSpill {
 
   /**
    * Drop the shared partition tables of an ABORTED pass. The estimate and the pass recommendation
-   * need only the counters ({@link #groupsSpilled}, {@link #groupsAbandoned}, leaves scanned), but
-   * the tables stay reachable through this spill until the arm has re-planned — and a restart that
-   * refreshes the budget by a forced collection measures whatever is still REFERENCED, not what the
-   * arm intends to keep: at 100M (q32) the aborted pass's 16.6M spilled groups read as 3.9 GB of live
-   * heap, the budget FELL 11.5M → 7.9M and the restart ran 16 passes instead of 8. Call after the
-   * parallel section has joined and before re-planning; the spill is not reused. The pools are
-   * drained for the same reason: what they hold is retained by intent only, and the measurement must
-   * not count it. Drain LAST, therefore: a caller that owns tables of its own must release them
-   * BEFORE this call, or their chunks land in a pool this call has already emptied.
+   * need only the counters ({@link #groupsSpilled}, {@link #groupsAbandoned}, leaves scanned), which
+   * survive; the tables' chunks go back to the scan's workspace, where the restarted pass takes them
+   * from instead of borrowing fresh regions next to them. Call after the parallel section has joined
+   * and before re-planning; the spill is not reused.
    */
   public void releaseTables() {
     for (int p = 0; p < partitions; p++) {
@@ -1545,7 +1475,7 @@ public final class GroupTableSpill {
         if (table != null) {
           sharedRehashes.add(table.rehashes());
           shared[p] = null;
-          // Its storage is the restart's tables: hand it back instead of dropping it to the collector.
+          // Its storage is the restart's tables: hand it back to the workspace.
           table.release();
         }
         if (stripeBuffers != null && stripeBuffers[p] != null) {
@@ -1556,21 +1486,13 @@ public final class GroupTableSpill {
             buffered.add(-held);
             spilled.add(held);
           }
-          stripeBuffers[p].release(pool);
+          stripeBuffers[p].release(workspace());
         }
         if (p == 0 && zeroGroups != null) {
           zeroGroups.release();
           zeroGroups = null;
         }
       }
-    }
-    if (pool != null && !pool.isShared()) {
-      // A per-scan pool is invisible to the budget; a shared one is added back to the headroom.
-      pool.drain();
-    }
-    if (probePool != null && !probePool.isShared()) {
-      // Only retained index chunks are included in the global reusable-byte accounting.
-      probePool.drain();
     }
     RELEASES.increment();
   }

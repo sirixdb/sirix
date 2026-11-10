@@ -42,11 +42,13 @@ import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.ref.Reference;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -993,7 +995,12 @@ public class ProjectionFoldKernelBenchmark {
   /** Widest aggregate count the group-fold arms run, so the slot scratch is one fixed size. */
   private static final int MAX_GROUP_AGGS = 4;
 
-  /** See {@link GroupLanes#verifyArmsAgree()} — off by default so no fork sees a mixed profile. */
+  /** Lanes of the one accumulator stripe every arm folds into. */
+  private static final int SLOT_LANES = 2 + 4 * MAX_GROUP_AGGS;
+
+  /**
+   * See {@link GroupFoldLanes#verifyArmsAgree()} — off by default so no fork sees a mixed profile.
+   */
   private static final boolean VERIFY_ARMS = Boolean.getBoolean("sirix.bench.verifyArms");
 
   /** Every aggregate column's SUM lane is read, i.e. every sum folds exactly. */
@@ -1013,7 +1020,7 @@ public class ProjectionFoldKernelBenchmark {
    * reads to other work per row is as high as a group scan can make it.
    */
   @State(Scope.Benchmark)
-  public static class GroupLanes {
+  public static class GroupFoldLanes {
     @Param({"1", "4"})
     int aggCount;
 
@@ -1121,18 +1128,20 @@ public class ProjectionFoldKernelBenchmark {
 
     /** Verification-only pass: the same walk the benchmark arms run, over one repeated mask word. */
     private long[] foldWholePool(final long[] maskWords, final Arm arm, final Kernel kernel) {
-      final long[] slot = new long[2 + 4 * MAX_GROUP_AGGS];
-      final long[][] values = new long[MAX_GROUP_AGGS][];
-      final MemorySegment[] segments = new MemorySegment[MAX_GROUP_AGGS];
-      final long[] bases = new long[MAX_GROUP_AGGS];
-      final long[][] presenceWords = new long[MAX_GROUP_AGGS][];
-      resetSlot(slot, kernel);
-      for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
-        hoistLeaf(this, leaf, arm, values, segments, bases, presenceWords);
-        foldLeaf(maskWords, 0, aggCount, slot, values, segments, bases, presenceWords, arm, kernel,
-            new long[MAX_GROUP_AGGS][64]);
+      try (GroupWorkspace workspace = new GroupWorkspace()) {
+        final GroupBuffer slot = workspace.newBlock(SLOT_LANES);
+        final long[][] values = new long[MAX_GROUP_AGGS][];
+        final MemorySegment[] segments = new MemorySegment[MAX_GROUP_AGGS];
+        final long[] bases = new long[MAX_GROUP_AGGS];
+        final long[][] presenceWords = new long[MAX_GROUP_AGGS][];
+        resetSlot(slot, kernel);
+        for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
+          hoistLeaf(this, leaf, arm, values, segments, bases, presenceWords);
+          foldLeaf(maskWords, 0, aggCount, slot, values, segments, bases, presenceWords, arm, kernel,
+              new long[MAX_GROUP_AGGS][64]);
+        }
+        return GroupLanes.toArray(slot, 0, SLOT_LANES);
       }
-      return slot;
     }
   }
 
@@ -1166,10 +1175,15 @@ public class ProjectionFoldKernelBenchmark {
     SLICED, NUMERIC_PLAIN, SUMS
   }
 
-  /** Per-thread hoist scratch: the per-leaf arrays a group kernel's caller fills once per leaf. */
+  /**
+   * Per-thread hoist scratch: the per-leaf arrays a group kernel's caller fills once per leaf, and
+   * the accumulator stripe the kernels fold into — a block of a {@link GroupWorkspace}, the memory
+   * every group kernel's accumulators live in, held for the trial.
+   */
   @State(Scope.Thread)
   public static class GroupScratch {
-    final long[] slot = new long[2 + 4 * MAX_GROUP_AGGS];
+    private GroupWorkspace workspace;
+    GroupBuffer slot;
     final long[][] values = new long[MAX_GROUP_AGGS][];
     final MemorySegment[] segments = new MemorySegment[MAX_GROUP_AGGS];
     final long[] bases = new long[MAX_GROUP_AGGS];
@@ -1178,6 +1192,17 @@ public class ProjectionFoldKernelBenchmark {
     final int[][] lengthTables = new int[MAX_GROUP_AGGS][];
     /** 64 rows per column: the whole scratch is 2 KiB at the widest arm, reused for every word. */
     final long[][] gathered = new long[MAX_GROUP_AGGS][64];
+
+    @Setup
+    public void setUp() {
+      workspace = new GroupWorkspace();
+      slot = workspace.newBlock(SLOT_LANES);
+    }
+
+    @TearDown
+    public void tearDown() {
+      workspace.close();
+    }
   }
 
   /**
@@ -1186,20 +1211,20 @@ public class ProjectionFoldKernelBenchmark {
    * {@code [count, sum, min, max]} stripe keeps its MIN/MAX sentinels — planting those for a
    * sums-only run would add {@code Long.MAX_VALUE} to a count.
    */
-  private static void resetSlot(final long[] slot, final Kernel kernel) {
-    Arrays.fill(slot, 0L);
+  private static void resetSlot(final GroupBuffer slot, final Kernel kernel) {
+    GroupLanes.fill(slot, 0, SLOT_LANES, 0L);
     if (kernel == Kernel.SUMS) {
       return;
     }
     for (int a = 0; a < MAX_GROUP_AGGS; a++) {
       final int at = 2 + 4 * a;
-      slot[at + 2] = Long.MAX_VALUE;
-      slot[at + 3] = Long.MIN_VALUE;
+      GroupLanes.set(slot, at + 2, Long.MAX_VALUE);
+      GroupLanes.set(slot, at + 3, Long.MIN_VALUE);
     }
   }
 
   /** What a converted kernel's caller does once per leaf: resolve the lane of every column. */
-  private static void hoistLeaf(final GroupLanes s, final int leaf, final Arm arm, final long[][] values,
+  private static void hoistLeaf(final GroupFoldLanes s, final int leaf, final Arm arm, final long[][] values,
       final MemorySegment[] segments, final long[] bases, final long[][] presence) {
     for (int a = 0; a < s.aggCount; a++) {
       presence[a] = s.presence[leaf][a];
@@ -1232,10 +1257,16 @@ public class ProjectionFoldKernelBenchmark {
    * read path really do run the same code and a score difference between them is an effect, not a
    * difference in how this harness happened to inline.
    */
-  private static void foldLeaf(final long[] maskWords, final int wordBase, final int aggCount, final long[] slot,
+  private static void foldLeaf(final long[] maskWords, final int wordBase, final int aggCount, final GroupBuffer slot,
       final long[][] values, final MemorySegment[] segments, final long[] bases, final long[][] presence, final Arm arm,
       final Kernel kernel, final long[][] gathered) {
     final boolean arrays = readsArrays(arm);
+    // What a kernel does with an accumulator that never moves (its missing-key block): resolve it
+    // once, outside the row loop. A table's group is resolved per row by its acquisition instead,
+    // which GroupTableBenchmark measures.
+    final long record = slot.accumulator(0, aggCount, kernel == Kernel.SUMS
+        ? 2
+        : 4);
     for (int w = 0; w < WORDS_PER_BLOCK; w++) {
       final long word = maskWords[wordBase + w];
       if (word == 0L) {
@@ -1252,42 +1283,43 @@ public class ProjectionFoldKernelBenchmark {
         remaining &= remaining - 1L;
         if (gather) {
           // The gathered scratch is indexed by the bit position, so the row index IS the bit.
-          foldOneRow(kernel, slot, gathered, segments, bases, presence, aggCount, w, bit, bit, true);
+          foldOneRow(kernel, record, gathered, segments, bases, presence, aggCount, w, bit, bit, true);
         } else {
-          foldOneRow(kernel, slot, values, segments, bases, presence, aggCount, w, bit, (w << 6) + bit, arrays);
+          foldOneRow(kernel, record, values, segments, bases, presence, aggCount, w, bit, (w << 6) + bit, arrays);
         }
       }
     }
+    Reference.reachabilityFence(slot);
   }
 
   /** One row through the chosen kernel; {@code arrays} picks the array form over the lane form. */
-  private static void foldOneRow(final Kernel kernel, final long[] slot, final long[][] values,
+  private static void foldOneRow(final Kernel kernel, final long record, final long[][] values,
       final MemorySegment[] segments, final long[] bases, final long[][] presence, final int aggCount, final int w,
       final int bit, final int rowIdx, final boolean arrays) {
     switch (kernel) {
       case SLICED -> {
         if (arrays) {
-          ProjectionColumnGroupScan.foldSlicedWindow(slot, 0, values, presence, NO_IDS, null, null, aggCount, w, bit,
-              rowIdx, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, NO_LENGTH_TABLES);
+          ProjectionColumnGroupScan.foldSlicedWindow(record, values, presence, NO_IDS, null, null, aggCount, w, bit,
+              rowIdx, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, NO_LENGTH_TABLES, null, 0L);
         } else {
-          ProjectionColumnGroupScan.foldSlicedLane(slot, 0, segments, bases, presence, NO_IDS, null, null, aggCount, w,
+          ProjectionColumnGroupScan.foldSlicedLane(record, segments, bases, presence, NO_IDS, null, null, aggCount, w,
               bit, rowIdx, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, NO_LENGTH_TABLES, null, 0L);
         }
       }
       case NUMERIC_PLAIN -> {
         if (arrays) {
-          ProjectionColumnGroupScan.foldNumericPlainWindow(slot, 0, values, presence, aggCount, w, bit, rowIdx,
+          ProjectionColumnGroupScan.foldNumericPlainWindow(record, values, presence, aggCount, w, bit, rowIdx,
               ALL_SUMS_EXACT);
         } else {
-          ProjectionColumnGroupScan.foldNumericPlainLane(slot, 0, segments, bases, presence, aggCount, w, bit, rowIdx,
+          ProjectionColumnGroupScan.foldNumericPlainLane(record, segments, bases, presence, aggCount, w, bit, rowIdx,
               ALL_SUMS_EXACT);
         }
       }
       case SUMS -> {
         if (arrays) {
-          ProjectionColumnGroupScan.foldSumsWindow(slot, 0, values, presence, aggCount, w, bit, ALL_SUMS_EXACT);
+          ProjectionColumnGroupScan.foldSumsWindow(record, values, presence, aggCount, w, bit, ALL_SUMS_EXACT);
         } else {
-          ProjectionColumnGroupScan.foldSumsSlicedLane(slot, 0, segments, bases, presence, aggCount, w, bit, rowIdx,
+          ProjectionColumnGroupScan.foldSumsSlicedLane(record, segments, bases, presence, aggCount, w, bit, rowIdx,
               ALL_SUMS_EXACT);
         }
       }
@@ -1299,7 +1331,7 @@ public class ProjectionFoldKernelBenchmark {
 
   private static final int[][] NO_LENGTH_TABLES = new int[MAX_GROUP_AGGS][];
 
-  private static long runGroupFold(final GroupLanes s, final Masks m, final GroupScratch g, final Arm arm,
+  private static long runGroupFold(final GroupFoldLanes s, final Masks m, final GroupScratch g, final Arm arm,
       final Kernel kernel) {
     resetSlot(g.slot, kernel);
     for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
@@ -1307,18 +1339,20 @@ public class ProjectionFoldKernelBenchmark {
       foldLeaf(m.candidates, leaf * WORDS_PER_BLOCK, s.aggCount, g.slot, g.values, g.segments, g.bases, g.presence, arm,
           kernel, g.gathered);
     }
-    return g.slot[0] ^ g.slot[2] ^ g.slot[3] ^ g.slot[4] ^ g.slot[5];
+    final GroupBuffer slot = g.slot;
+    return GroupLanes.get(slot, 0) ^ GroupLanes.get(slot, 2) ^ GroupLanes.get(slot, 3) ^ GroupLanes.get(slot, 4)
+        ^ GroupLanes.get(slot, 5);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSlicedArray(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSlicedArray(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.ARRAY, Kernel.SLICED);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSlicedLaneSlab(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSlicedLaneSlab(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.SLAB, Kernel.SLICED);
   }
 
@@ -1330,75 +1364,75 @@ public class ProjectionFoldKernelBenchmark {
    */
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSlicedArrayAfterCopy(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSlicedArrayAfterCopy(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.ARRAY_AFTER_COPY, Kernel.SLICED);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSlicedLaneHeapSegment(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSlicedLaneHeapSegment(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.HEAP_SEGMENT, Kernel.SLICED);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldNumericPlainArray(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldNumericPlainArray(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.ARRAY, Kernel.NUMERIC_PLAIN);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldNumericPlainLaneSlab(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldNumericPlainLaneSlab(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.SLAB, Kernel.NUMERIC_PLAIN);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSumsArray(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSumsArray(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.ARRAY, Kernel.SUMS);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSumsLaneSlab(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSumsLaneSlab(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.SLAB, Kernel.SUMS);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSlicedLaneWordGather(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSlicedLaneWordGather(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.SLAB_WORD_GATHER, Kernel.SLICED);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSumsLaneWordGather(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSumsLaneWordGather(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.SLAB_WORD_GATHER, Kernel.SUMS);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldNumericPlainLaneWordGather(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldNumericPlainLaneWordGather(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.SLAB_WORD_GATHER, Kernel.NUMERIC_PLAIN);
   }
 
   /** {@link #groupFoldSlicedArrayAfterCopy} for the dense arm's plain numeric kernel. */
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldNumericPlainArrayAfterCopy(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldNumericPlainArrayAfterCopy(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.ARRAY_AFTER_COPY, Kernel.NUMERIC_PLAIN);
   }
 
   /** {@link #groupFoldSlicedArrayAfterCopy} for the sums-only kernel. */
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSumsArrayAfterCopy(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSumsArrayAfterCopy(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.ARRAY_AFTER_COPY, Kernel.SUMS);
   }
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
-  public long groupFoldSumsLaneHeapSegment(final GroupLanes s, final Masks m, final GroupScratch g) {
+  public long groupFoldSumsLaneHeapSegment(final GroupFoldLanes s, final Masks m, final GroupScratch g) {
     return runGroupFold(s, m, g, Arm.HEAP_SEGMENT, Kernel.SUMS);
   }
 }

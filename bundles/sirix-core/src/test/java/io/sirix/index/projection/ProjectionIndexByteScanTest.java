@@ -94,9 +94,13 @@ final class ProjectionIndexByteScanTest {
 
       final NumericGroupAggTable actual = new NumericGroupAggTable(0, 16);
       final int initialCapacity = actual.capacity();
-      final long[] actualMissing = new long[2];
-      ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(leaves, predicates, 0, new int[0], actual,
-          actualMissing, 17);
+      final long[] actualMissing;
+      try (GroupWorkspace workspace = new GroupWorkspace()) {
+        final GroupBuffer missingAcc = workspace.newBlock(2);
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(leaves, predicates, 0, new int[0], actual,
+            missingAcc, 17);
+        actualMissing = GroupLanes.toArray(missingAcc, 0, GroupLanes.count(missingAcc));
+      }
 
       assertTrue(actual.capacity() > initialCapacity, "the fold must cross table growth");
       assertTrue(expectedMissing[0] > 0, "the corpus must exercise the missing-key group");
@@ -105,13 +109,14 @@ final class ProjectionIndexByteScanTest {
       assertArrayEquals(expectedMissing, actualMissing);
       for (final Long2ObjectMap.Entry<long[]> entry : expected.long2ObjectEntrySet()) {
         if (entry.getLongKey() == 0L) {
-          assertArrayEquals(entry.getValue(), actual.zeroSlot());
+          final GroupBuffer zero = actual.zeroSlot();
+          assertArrayEquals(entry.getValue(), GroupLanes.toArray(zero, 0, GroupLanes.count(zero)));
         } else {
           final int handle = actual.handleOfProbeKey(entry.getLongKey());
-          final long[] storage = actual.storageAtAccBase(handle);
+          final GroupBuffer storage = actual.storageAtAccBase(handle);
           final int offset = actual.offsetAtAccBase(handle);
-          assertEquals(entry.getValue()[0], storage[offset], "group count");
-          assertEquals(entry.getValue()[1], storage[offset + 1], "first matching ordinal");
+          assertEquals(entry.getValue()[0], GroupLanes.get(storage, offset), "group count");
+          assertEquals(entry.getValue()[1], GroupLanes.get(storage, offset + 1), "first matching ordinal");
         }
       }
     }
@@ -147,10 +152,12 @@ final class ProjectionIndexByteScanTest {
       final GroupDistinctAccumulator distinct = new GroupDistinctAccumulator(1, Long.MAX_VALUE);
       final GroupDistinctAccumulator.Worker worker = distinct.worker(0);
       final NumericGroupAggTable groups = new NumericGroupAggTable(1, 16, true);
-      ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(query == 0
-          ? leaves
-          : leaves.reversed(), new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, groups,
-          ProjectionIndexByteScan.newGroupAggAcc(1, 0), 0, 0, worker, worker.missing(), null, null);
+      try (GroupWorkspace workspace = new GroupWorkspace()) {
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(query == 0
+            ? leaves
+            : leaves.reversed(), new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, groups,
+            ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, 0), 0, 0, worker, worker.missing(), null, null);
+      }
       distinct.finish();
       assertEquals(expectedMissing.size(), distinct.missingSize());
       assertEquals(expected.size(), distinct.groupSizes().size());

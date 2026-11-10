@@ -53,6 +53,19 @@ import org.junit.jupiter.api.Test;
  * </p>
  *
  * <p>
+ * {@code GroupLanes} is the third holder, and a helper by design: the group kernels reach their
+ * accumulators through its accessors. What polluted {@code SegmentAccess}'s profile was that heap
+ * and native segments both pass through it; {@code GroupLanes} is handed nothing but the native
+ * memory of a {@code GroupWorkspace}, so its one handle site sees one segment class for the whole
+ * process. That holds only while no caller passes it a heap array viewed as a segment. The
+ * package-private {@code GroupKernelLanes} additionally holds a constant zero-address segment, the
+ * mask every aggregation address is validated against, and a build-time debug switch for audited
+ * group-memory kernels. It cannot own an allocation. Its explicit build-time initialization is
+ * required even though the switch reads a system property. Its handle sites see that one segment
+ * and nothing else, so they have no profile for another caller to pollute.
+ * </p>
+ *
+ * <p>
  * The scan covers the derived-cache and query packages and loads the classes without initializing
  * them; only a class that declares a static {@code VarHandle} field is initialized, to read the
  * handle's coordinate types.
@@ -62,7 +75,8 @@ final class SegmentHandleConstantsTest {
 
   /** Classes whose segment handles are build-time constants by configuration. */
   private static final Set<String> BUILD_TIME_INITIALIZED =
-      Set.of("io.sirix.node.SegmentAccess", "io.sirix.query.compiler.translator.JoinKernels");
+      Set.of("io.sirix.node.SegmentAccess", "io.sirix.query.compiler.translator.JoinKernels",
+          "io.sirix.index.projection.GroupLanes", "io.sirix.index.projection.GroupKernelLanes");
 
   /** The shared native-image configurations that must list every class above. */
   private static final List<String> CONFIGURATIONS =
@@ -116,7 +130,7 @@ final class SegmentHandleConstantsTest {
   }
 
   @Test
-  void everyAllowedClassIsConfiguredForBuildTimeInitializationAndHoldsOnlyHandles() throws Exception {
+  void everyAllowedClassIsConfiguredForBuildTimeInitializationAndHoldsOnlyAccessMetadata() throws Exception {
     final ClassLoader loader = SegmentHandleConstantsTest.class.getClassLoader();
     final Set<String> configured = new HashSet<>();
     for (final String configuration : CONFIGURATIONS) {
@@ -138,14 +152,38 @@ final class SegmentHandleConstantsTest {
       assertTrue(configured.contains(name), name + " is allowed to hold segment handles but no shared "
           + "native-image.properties initializes it at build time: " + configured);
       // Build-time initialization captures the class's static state in the image heap, so the class
-      // may hold immutable access metadata only: every static field a final VarHandle.
+      // may hold immutable access metadata only. The internal aggregation holder also captures
+      // its build-time debug switch, a constant zero-address segment and the constant mask its
+      // addresses are validated against, with the two halves of that mask; no owned memory.
       for (final Field field : Class.forName(name, false, loader).getDeclaredFields()) {
         if (!Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
           continue;
         }
-        assertTrue(Modifier.isFinal(field.getModifiers()) && VarHandle.class.isAssignableFrom(field.getType()),
+        final boolean aggregationMetadata = name.equals("io.sirix.index.projection.GroupKernelLanes")
+            && ((field.getName().equals("DEBUG") && field.getType() == boolean.class)
+                || (field.getName().startsWith("ADDRESS_") && field.getType() == long.class)
+                || (field.getName().equals("ADDRESS_SPACE") && field.getType() == MemorySegment.class));
+        assertTrue(
+            Modifier.isFinal(field.getModifiers())
+                && (VarHandle.class.isAssignableFrom(field.getType()) || aggregationMetadata),
             name + "." + field.getName() + " is static state in a build-time-initialized class; only final "
-                + "VarHandles belong there");
+                + "access metadata belongs there");
+        if (aggregationMetadata && field.getType() == long.class) {
+          field.setAccessible(true);
+          final long mask = field.getLong(null);
+          // Lane-aligned, positive, and with room above it for the largest lane offset an int
+          // lane expresses: a masked record plus any lane stays inside the spanning segment. The
+          // mask's halves are subsets of it, so the same holds of each.
+          assertEquals(0L, mask & 7L);
+          assertTrue(mask > 0L && mask <= Long.MAX_VALUE - Long.BYTES - (0xFFFF_FFFFL << 3));
+        }
+        if (aggregationMetadata && field.getType() == MemorySegment.class) {
+          field.setAccessible(true);
+          final MemorySegment addressSpace = (MemorySegment) field.get(null);
+          assertEquals(0L, addressSpace.address());
+          assertEquals(Long.MAX_VALUE, addressSpace.byteSize());
+          assertTrue(addressSpace.scope().isAlive());
+        }
       }
     }
   }

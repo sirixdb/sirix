@@ -31,6 +31,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -608,6 +610,48 @@ final class SirixVectorizedExecutorLifecycleTest {
       }
     } finally {
       Databases.removeDatabase(databasePath);
+    }
+  }
+
+  @Test
+  void submissionErrorDrainsTheAcceptedPrefixBeforeReleasingQueryMemory() throws Exception {
+    final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 2);
+    final AtomicInteger submissions = new AtomicInteger();
+    final AtomicInteger joins = new AtomicInteger();
+    final OutOfMemoryError injected = new OutOfMemoryError("submission allocation refused");
+    final FutureTask<Void> accepted = new FutureTask<>(() -> null) {
+      @Override
+      public Void get() throws InterruptedException, ExecutionException {
+        joins.incrementAndGet();
+        return super.get();
+      }
+    };
+    accepted.run();
+    final ExecutorService pool = (ExecutorService) Proxy.newProxyInstance(ExecutorService.class.getClassLoader(),
+        new Class<?>[] {ExecutorService.class}, (proxy, method, args) -> switch (method.getName()) {
+          case "submit" -> {
+            if (submissions.getAndIncrement() == 0) {
+              yield accepted;
+            }
+            throw injected;
+          }
+          case "isShutdown" -> false;
+          case "isTerminated", "awaitTermination" -> true;
+          case "shutdown" -> null;
+          default -> throw new AssertionError("unexpected executor method: " + method.getName());
+        });
+    final Field field = SirixVectorizedExecutor.class.getDeclaredField("workerPool");
+    field.setAccessible(true);
+    final ExecutorService original = (ExecutorService) field.get(executor);
+    field.set(executor, pool);
+    try {
+      assertSame(injected, assertThrows(OutOfMemoryError.class, () -> executor.parallel(2, lane -> {
+      })));
+      assertEquals(2, submissions.get());
+      assertEquals(1, joins.get(), "even an Error must drain every accepted worker before memory is released");
+    } finally {
+      field.set(executor, original);
+      executor.close();
     }
   }
 

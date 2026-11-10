@@ -11,6 +11,7 @@ import io.sirix.settings.Constants;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -223,15 +224,17 @@ final class SegmentLengthLaneGroupScanTest {
     final ColumnSlice empty = aggCols[0][EMPTY_OPERAND_LEAF];
     assertTrue(empty.rowCount() > 0 && empty.min() > empty.max(),
         "the all-absent leaf must carry rows under inverted zone bounds, or the sentinel path is untested");
-    final NumericGroupAggTable out = new NumericGroupAggTable(1, 64);
-    final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(1, Long.MAX_VALUE);
-    ProjectionColumnGroupScan.aggregateByGroupNumericFlat(f.store(), none, predCols, null, null, groupCol, aggCols,
-        new byte[] {mode}, 0, f.store().rowGroupCount(), out, missing, -1, null, null, null, false, globalTables,
-        segmentTables);
-    return read(out, missing);
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final NumericGroupAggTable out = new NumericGroupAggTable(1, 64).attachWorkspace(workspace);
+      final GroupBuffer missing = ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE);
+      ProjectionColumnGroupScan.aggregateByGroupNumericFlat(f.store(), none, predCols, null, null, groupCol, aggCols,
+          new byte[] {mode}, 0, f.store().rowGroupCount(), out, missing, -1, null, null, null, false, globalTables,
+          segmentTables);
+      return read(out, missing);
+    }
   }
 
-  private static long[][] read(final NumericGroupAggTable out, final long[] missing) {
+  private static long[][] read(final NumericGroupAggTable out, final GroupBuffer missing) {
     final long[][] result = new long[MISSING + 1][];
     for (int bucket = 0, n = out.capacity(); bucket < n; bucket++) {
       final long key = out.keyAtBucket(bucket);
@@ -252,8 +255,9 @@ final class SegmentLengthLaneGroupScanTest {
   }
 
   /** {@code [rows, count, sum, min, max]} of the ONE aggregate lane behind {@code base}. */
-  private static long[] lanes(final long[] block, final int base) {
-    return new long[] {block[base], block[base + 2], block[base + 3], block[base + 4], block[base + 5]};
+  private static long[] lanes(final GroupBuffer block, final int base) {
+    return new long[] {GroupLanes.get(block, base), GroupLanes.get(block, base + 2), GroupLanes.get(block, base + 3),
+        GroupLanes.get(block, base + 4), GroupLanes.get(block, base + 5)};
   }
 
   private static void assertSameGroups(final long[][] expected, final long[][] actual, final String what) {
@@ -326,11 +330,14 @@ final class SegmentLengthLaneGroupScanTest {
     final ColumnSlice[] groupCol = f.store().column(GROUP_COL, f.fetcher());
     final ColumnSlice[][] aggCols = {f.store().column(OPERAND_COL, f.fetcher())};
     final int[][][] tables = f.lengthTables(SegmentLengthLaneGroupScanTest::utf8Length);
-    assertThrows(IllegalArgumentException.class,
-        () -> ProjectionColumnGroupScan.aggregateByGroupNumericFlat(f.store(), none, predCols, null, null, groupCol,
-            aggCols, null, 0, f.store().rowGroupCount(), new NumericGroupAggTable(1, 64),
-            ProjectionIndexByteScan.newGroupAggAcc(1, Long.MAX_VALUE), -1, null, null, null, false, null, tables),
-        "segment tables without a length mode per aggregate name no operand");
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final GroupBuffer missing = ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE);
+      assertThrows(IllegalArgumentException.class,
+          () -> ProjectionColumnGroupScan.aggregateByGroupNumericFlat(f.store(), none, predCols, null, null, groupCol,
+              aggCols, null, 0, f.store().rowGroupCount(), new NumericGroupAggTable(1, 64).attachWorkspace(workspace),
+              missing, -1, null, null, null, false, null, tables),
+          "segment tables without a length mode per aggregate name no operand");
+    }
   }
 
   @Test

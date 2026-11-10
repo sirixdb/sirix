@@ -87,10 +87,10 @@ final class CompositeGroupIdentityCollisionTest {
     final long[] idB = {0L, B0, b1};
 
     final int handleA = table.acquireExact(key, 100L, idA, 0);
-    table.storageAtAccBase(handleA)[table.offsetAtAccBase(handleA)] += 5;
+    GroupLanes.add(table.storageAtAccBase(handleA), table.offsetAtAccBase(handleA), 5);
 
     final int handleB = table.acquireExact(key, 200L, idB, 0);
-    table.storageAtAccBase(handleB)[table.offsetAtAccBase(handleB)] += 3;
+    GroupLanes.add(table.storageAtAccBase(handleB), table.offsetAtAccBase(handleB), 3);
 
     assertNotEquals(handleA, handleB, "colliding tuples must occupy two buckets");
     assertEquals(2, table.size(), "both tuples must exist as separate groups");
@@ -101,8 +101,8 @@ final class CompositeGroupIdentityCollisionTest {
     final int againB = table.acquireExact(key, 999L, idB, 0);
     assertEquals(handleA, againA);
     assertEquals(handleB, againB);
-    assertEquals(5L, table.storageAtAccBase(againA)[table.offsetAtAccBase(againA)]);
-    assertEquals(3L, table.storageAtAccBase(againB)[table.offsetAtAccBase(againB)]);
+    assertEquals(5L, GroupLanes.get(table.storageAtAccBase(againA), table.offsetAtAccBase(againA)));
+    assertEquals(3L, GroupLanes.get(table.storageAtAccBase(againB), table.offsetAtAccBase(againB)));
   }
 
   @Test
@@ -117,10 +117,10 @@ final class CompositeGroupIdentityCollisionTest {
 
     final long[] idA = {0L, A0, A1};
     final long[] idB = {0L, B0, b1};
-    table.storageAtAccBase(table.acquireExact(key, 1L, idA, 0))[table.offsetAtAccBase(
-        table.acquireExact(key, 1L, idA, 0))] += 7;
-    table.storageAtAccBase(table.acquireExact(key, 2L, idB, 0))[table.offsetAtAccBase(
-        table.acquireExact(key, 2L, idB, 0))] += 11;
+    GroupLanes.add(table.storageAtAccBase(table.acquireExact(key, 1L, idA, 0)),
+        table.offsetAtAccBase(table.acquireExact(key, 1L, idA, 0)), 7);
+    GroupLanes.add(table.storageAtAccBase(table.acquireExact(key, 2L, idB, 0)),
+        table.offsetAtAccBase(table.acquireExact(key, 2L, idB, 0)), 11);
 
     // Force several growths around the pair.
     final long[] filler = new long[width];
@@ -134,8 +134,10 @@ final class CompositeGroupIdentityCollisionTest {
     final int a = table.acquireExact(key, 3L, idA, 0);
     final int b = table.acquireExact(key, 4L, idB, 0);
     assertNotEquals(a, b);
-    assertEquals(7L, table.storageAtAccBase(a)[table.offsetAtAccBase(a)], "group A's count survived growth intact");
-    assertEquals(11L, table.storageAtAccBase(b)[table.offsetAtAccBase(b)], "group B's count survived growth intact");
+    assertEquals(7L, GroupLanes.get(table.storageAtAccBase(a), table.offsetAtAccBase(a)),
+        "group A's count survived growth intact");
+    assertEquals(11L, GroupLanes.get(table.storageAtAccBase(b), table.offsetAtAccBase(b)),
+        "group B's count survived growth intact");
     assertEquals(4_002, table.size());
   }
 
@@ -153,11 +155,11 @@ final class CompositeGroupIdentityCollisionTest {
     // Worker 1 saw only tuple A, worker 2 only tuple B — the merge is where they first meet.
     final NumericGroupAggTable one = new NumericGroupAggTable(0, 16, true, -1L, width);
     final int h1 = one.acquireExact(key, 10L, idA, 0);
-    one.storageAtAccBase(h1)[one.offsetAtAccBase(h1)] += 5;
+    GroupLanes.add(one.storageAtAccBase(h1), one.offsetAtAccBase(h1), 5);
 
     final NumericGroupAggTable two = new NumericGroupAggTable(0, 16, true, -1L, width);
     final int h2 = two.acquireExact(key, 20L, idB, 0);
-    two.storageAtAccBase(h2)[two.offsetAtAccBase(h2)] += 3;
+    GroupLanes.add(two.storageAtAccBase(h2), two.offsetAtAccBase(h2), 3);
 
     final NumericGroupAggTable into = new NumericGroupAggTable(0, 16, true, -1L, width);
     NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {one, two}, 0, 64, into);
@@ -165,8 +167,8 @@ final class CompositeGroupIdentityCollisionTest {
     assertEquals(2, into.size(), "the merge must not fold two identities into one group");
     final int mergedA = into.acquireExact(key, 0L, idA, 0);
     final int mergedB = into.acquireExact(key, 0L, idB, 0);
-    assertEquals(5L, into.storageAtAccBase(mergedA)[into.offsetAtAccBase(mergedA)]);
-    assertEquals(3L, into.storageAtAccBase(mergedB)[into.offsetAtAccBase(mergedB)]);
+    assertEquals(5L, GroupLanes.get(into.storageAtAccBase(mergedA), into.offsetAtAccBase(mergedA)));
+    assertEquals(3L, GroupLanes.get(into.storageAtAccBase(mergedB), into.offsetAtAccBase(mergedB)));
   }
 
   @Test

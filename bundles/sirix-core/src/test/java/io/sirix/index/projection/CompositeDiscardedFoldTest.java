@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +45,7 @@ final class CompositeDiscardedFoldTest {
     final int discard = NumericGroupAggTable.DISCARD_HANDLE;
     final int base = excluded.offsetAtAccBase(discard);
     assertArrayEquals(new long[excluded.slotWidth()],
-        Arrays.copyOfRange(excluded.storageAtAccBase(discard), base, base + excluded.slotWidth()));
+        GroupLanes.toArray(excluded.storageAtAccBase(discard), base, excluded.slotWidth()));
 
     final NumericGroupAggTable owner = table();
     owner.setPassRange(63, 0, 1);
@@ -117,7 +116,7 @@ final class CompositeDiscardedFoldTest {
     final int discard = NumericGroupAggTable.DISCARD_HANDLE;
     final int base = excluded.offsetAtAccBase(discard);
     assertArrayEquals(new long[excluded.slotWidth()],
-        Arrays.copyOfRange(excluded.storageAtAccBase(discard), base, base + excluded.slotWidth()));
+        GroupLanes.toArray(excluded.storageAtAccBase(discard), base, excluded.slotWidth()));
 
     final NumericGroupAggTable owner = table();
     owner.setPassRange(63, 0, 1);
@@ -208,14 +207,14 @@ final class CompositeDiscardedFoldTest {
   private static Map<Identity, long[]> snapshot(final NumericGroupAggTable table) {
     final Map<Identity, long[]> result = new HashMap<>();
     for (int c = 0; c < table.storageChunkCount(); c++) {
-      final long[] chunk = table.storageChunkOrNull(c);
+      final GroupBuffer chunk = table.storageChunkOrNull(c);
       if (chunk == null) {
         continue;
       }
-      for (int offset = 0; offset < chunk.length; offset += table.stride()) {
-        if (chunk[offset] != 0) {
-          result.put(new Identity(chunk[offset + 8], chunk[offset + 9], chunk[offset + 10]),
-              Arrays.copyOfRange(chunk, offset + 1, offset + 8));
+      for (int offset = 0; offset < GroupLanes.count(chunk); offset += table.stride()) {
+        if (GroupLanes.get(chunk, offset) != 0) {
+          result.put(new Identity(GroupLanes.get(chunk, offset + 8), GroupLanes.get(chunk, offset + 9),
+              GroupLanes.get(chunk, offset + 10)), GroupLanes.toArray(chunk, offset + 1, 7));
         }
       }
     }

@@ -174,21 +174,24 @@ final class GroupFoldLaneEquivalenceTest {
   void anOverflowingSumDeclinesOnBothForms() {
     final long[][] overflowing = {{Long.MAX_VALUE, 1L}};
     final long[][] bothPresent = {{3L}};
-    try (Arena arena = Arena.ofConfined()) {
+    try (Arena arena = Arena.ofConfined(); GroupWorkspace workspace = new GroupWorkspace()) {
       final MemorySegment slab = arena.allocate(16, 64);
       SegmentAccess.putLong(slab, 0, Long.MAX_VALUE);
       SegmentAccess.putLong(slab, 8, 1L);
-      final long[] fromWindow = new long[6];
-      final long[] fromLane = new long[6];
-      ProjectionColumnGroupScan.foldNumericPlainWindow(fromWindow, 0, overflowing, bothPresent, 1, 0, 0, 0,
-          ALL_SUMS_EXACT);
-      ProjectionColumnGroupScan.foldNumericPlainLane(fromLane, 0, new MemorySegment[] {slab}, new long[] {0L},
-          bothPresent, 1, 0, 0, 0, ALL_SUMS_EXACT);
-      assertArrayEquals(fromWindow, fromLane, "the first row folds identically on both forms");
-      assertThrows(ArithmeticException.class, () -> ProjectionColumnGroupScan.foldNumericPlainWindow(fromWindow, 0,
-          overflowing, bothPresent, 1, 0, 1, 1, ALL_SUMS_EXACT));
-      assertThrows(ArithmeticException.class, () -> ProjectionColumnGroupScan.foldNumericPlainLane(fromLane, 0,
-          new MemorySegment[] {slab}, new long[] {0L}, bothPresent, 1, 0, 1, 1, ALL_SUMS_EXACT));
+      final GroupBuffer fromWindow = workspace.newBlock(6);
+      final GroupBuffer fromLane = workspace.newBlock(6);
+      ProjectionColumnGroupScan.foldNumericPlainWindow(fromWindow.accumulator(0, 1, 4), overflowing, bothPresent, 1, 0,
+          0, 0, ALL_SUMS_EXACT);
+      ProjectionColumnGroupScan.foldNumericPlainLane(fromLane.accumulator(0, 1, 4), new MemorySegment[] {slab},
+          new long[] {0L}, bothPresent, 1, 0, 0, 0, ALL_SUMS_EXACT);
+      assertArrayEquals(GroupLanes.toArray(fromWindow, 0, 6), GroupLanes.toArray(fromLane, 0, 6),
+          "the first row folds identically on both forms");
+      assertThrows(ArithmeticException.class,
+          () -> ProjectionColumnGroupScan.foldNumericPlainWindow(fromWindow.accumulator(0, 1, 4), overflowing,
+              bothPresent, 1, 0, 1, 1, ALL_SUMS_EXACT));
+      assertThrows(ArithmeticException.class,
+          () -> ProjectionColumnGroupScan.foldNumericPlainLane(fromLane.accumulator(0, 1, 4),
+              new MemorySegment[] {slab}, new long[] {0L}, bothPresent, 1, 0, 1, 1, ALL_SUMS_EXACT));
     }
   }
 
@@ -219,45 +222,65 @@ final class GroupFoldLaneEquivalenceTest {
   }
 
   private long[] foldFull(final MemorySegment[] segs, final long[] bases, final boolean windowed) {
-    final long[] slot = new long[FULL_WIDTH];
-    resetFull(slot);
-    walk(segs, bases, windowed, (window, w, bit, row) -> {
-      if (window != null) {
-        ProjectionColumnGroupScan.foldSlicedWindow(slot, 0, window, presence, new int[AGGS][], null, null, AGGS, w, bit,
-            row, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, new int[AGGS][]);
-      } else {
-        ProjectionColumnGroupScan.foldSlicedLane(slot, 0, segs, bases, presence, new int[AGGS][], null, null, AGGS, w,
-            bit, row, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, new int[AGGS][], null, 0L);
-      }
-    });
-    return slot;
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final GroupBuffer slot = fullSlot(workspace);
+      // A block never moves: resolved once for the walk, as a kernel resolves its missing-key block.
+      final long record = slot.accumulator(0, AGGS, 4);
+      walk(segs, bases, windowed, (window, w, bit, row) -> {
+        if (window != null) {
+          ProjectionColumnGroupScan.foldSlicedWindow(record, window, presence, new int[AGGS][], null, null, AGGS, w,
+              bit, row, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, new int[AGGS][], null, 0L);
+        } else {
+          ProjectionColumnGroupScan.foldSlicedLane(record, segs, bases, presence, new int[AGGS][], null, null, AGGS, w,
+              bit, row, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, new int[AGGS][], null, 0L);
+        }
+      });
+      return GroupLanes.toArray(slot, 0, GroupLanes.count(slot));
+    }
   }
 
   private long[] foldPlain(final MemorySegment[] segs, final boolean windowed) {
-    final long[] slot = new long[FULL_WIDTH];
-    final long[] bases = new long[AGGS];
-    resetFull(slot);
-    walk(segs, bases, windowed, (window, w, bit, row) -> {
-      if (window != null) {
-        ProjectionColumnGroupScan.foldNumericPlainWindow(slot, 0, window, presence, AGGS, w, bit, row, ALL_SUMS_EXACT);
-      } else {
-        ProjectionColumnGroupScan.foldNumericPlainLane(slot, 0, segs, bases, presence, AGGS, w, bit, row,
-            ALL_SUMS_EXACT);
-      }
-    });
-    return slot;
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final GroupBuffer slot = fullSlot(workspace);
+      final long record = slot.accumulator(0, AGGS, 4);
+      final long[] bases = new long[AGGS];
+      walk(segs, bases, windowed, (window, w, bit, row) -> {
+        if (window != null) {
+          ProjectionColumnGroupScan.foldNumericPlainWindow(record, window, presence, AGGS, w, bit, row, ALL_SUMS_EXACT);
+        } else {
+          ProjectionColumnGroupScan.foldNumericPlainLane(record, segs, bases, presence, AGGS, w, bit, row,
+              ALL_SUMS_EXACT);
+        }
+      });
+      return GroupLanes.toArray(slot, 0, GroupLanes.count(slot));
+    }
   }
 
   private long[] foldSums(final MemorySegment[] segs, final boolean windowed) {
-    final long[] slot = new long[SUMS_WIDTH];
-    final long[] bases = new long[AGGS];
-    walk(segs, bases, windowed, (window, w, bit, row) -> {
-      if (window != null) {
-        ProjectionColumnGroupScan.foldSumsWindow(slot, 0, window, presence, AGGS, w, bit, ALL_SUMS_EXACT);
-      } else {
-        ProjectionColumnGroupScan.foldSumsSlicedLane(slot, 0, segs, bases, presence, AGGS, w, bit, row, ALL_SUMS_EXACT);
-      }
-    });
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final GroupBuffer slot = workspace.newBlock(SUMS_WIDTH);
+      final long record = slot.accumulator(0, AGGS, 2);
+      final long[] bases = new long[AGGS];
+      walk(segs, bases, windowed, (window, w, bit, row) -> {
+        if (window != null) {
+          ProjectionColumnGroupScan.foldSumsWindow(record, window, presence, AGGS, w, bit, ALL_SUMS_EXACT);
+        } else {
+          ProjectionColumnGroupScan.foldSumsSlicedLane(record, segs, bases, presence, AGGS, w, bit, row,
+              ALL_SUMS_EXACT);
+        }
+      });
+      return GroupLanes.toArray(slot, 0, GroupLanes.count(slot));
+    }
+  }
+
+  /**
+   * A full-width accumulator of {@code workspace} with the seeds {@link #resetFull} gives a heap one.
+   */
+  private static GroupBuffer fullSlot(final GroupWorkspace workspace) {
+    final long[] seeds = new long[FULL_WIDTH];
+    resetFull(seeds);
+    final GroupBuffer slot = workspace.newBlock(FULL_WIDTH);
+    GroupLanes.copy(seeds, 0, slot, 0, FULL_WIDTH);
     return slot;
   }
 

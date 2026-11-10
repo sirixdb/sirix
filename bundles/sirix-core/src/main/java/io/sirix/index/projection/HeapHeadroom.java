@@ -194,8 +194,7 @@ public final class HeapHeadroom {
     final long pools = liveAfterLastPoolCollection();
     final long live = liveAfterLastGc();
     return "liveMB=" + (live >> 20) + " latestGcMB=" + (latest >> 20) + " poolsGcMB=" + (pools >> 20) + " usedMB="
-        + (used >> 20) + " maxMB=" + (max >> 20) + " shareMB=" + (plannedShareBytes() >> 20) + " pooledMB="
-        + (LongChunkPool.retainedBytes() >> 20);
+        + (used >> 20) + " maxMB=" + (max >> 20) + " shareMB=" + (plannedShareBytes() >> 20);
   }
 
   /** {@code maxMemory - liveAfterLastGc()}, never negative; the test override when set. */
@@ -209,13 +208,10 @@ public final class HeapHeadroom {
 
   /**
    * Per-consumer execution share, bounded by the declared workspace reserve and a quarter of current
-   * headroom. Group tables and distinct sets plan against this figure. Retained column fills have a
-   * separate ceiling inside the projection cache share; when residency headroom is enabled, this
-   * figure can further reduce that ceiling without enlarging it.
-   *
-   * <p>
-   * The bounded top-k aggregate releases completed partitions one at a time and may use
-   * {@link GroupTableSpill#boundedGroupBudgetFor}, up to three quarters of observed headroom.
+   * headroom. Distinct sets plan against this figure; group tables live in allocator memory and plan
+   * against {@link AggregationShare} instead. Retained column fills have a separate ceiling inside
+   * the projection cache share; when residency headroom is enabled, this figure can further reduce
+   * that ceiling without enlarging it.
    *
    * @return the planned per-consumer share of the heap, in bytes
    */

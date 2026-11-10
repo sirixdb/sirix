@@ -832,6 +832,10 @@ graalvmNative {
         forTestTask(tasks.named("nativeImageSmokeTest"))
     }
     binaries {
+        configureEach {
+            // Group-kernel bounds mode is an image build choice; the final field is folded away.
+            buildArgs.add("-Dsirix.aggregation.debug=${System.getProperty('sirix.aggregation.debug', 'false')}")
+        }
         // Smoke test binary (compiled to native image via nativeSmokeTest task)
         smokeTest {
             // Preview features and vector API
