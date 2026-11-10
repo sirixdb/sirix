@@ -172,6 +172,53 @@ assumes zeroed slab memory (the test seam `sirix.allocator.poisonRecycledSlabs` 
 the budget unmaps them first, and shutdown unmaps them all. A reuse hands out a fresh global-scope
 segment over the same pages, so the instance released before cannot release the new owner's slab.
 
+**Group tables.** The accumulators a grouped aggregate folds into are allocator memory too. Each
+grouped scan opens one `GroupWorkspace` (`io.sirix.index.projection`), which borrows regions from the
+allocator's scratch facility (`ScratchUse.AGGREGATION`, 64 KiB doubling to 2 MiB) and carves them
+into zeroed chunks: the stripes and index chunks of every `NumericGroupAggTable` of the scan, the
+spill's stripe buffers, zero-key slots and the workers' standalone accumulators. A table that
+rehashes or is released hands its chunks back to the workspace, so the passes of a multi-pass scan
+reuse one another's memory; closing the workspace when the arm returns gives every region back, and
+nothing of a scan's group memory outlives it. Winners are copied to heap arrays before they are
+emitted, like the strings beside them. `GroupBuffer` retains its owning workspace and generation;
+public access through `GroupLanes` checks every lane against the buffer's liveness and bounds. The
+group kernels resolve a *record* instead: the buffer (`GroupBuffer.accumulator`) or the table
+(`NumericGroupAggTable.acquireAccumulator`, `accumulatorAt`) validates the complete footprint once
+and answers a primitive that names it, and `GroupKernelLanes` then reads and writes lanes relative
+to that record through the supported foreign-memory handle, with no check and no allocation per
+lane or per row. A table's probes read at addresses derived from its own chunk geometry. This access
+form is confined to aggregation working memory; persisted page and column decoding retain segment
+bounds checks. Set `-Dsirix.aggregation.debug=true` at JVM startup, or at **native-image build
+time**, to make a record a bounded view of exactly its footprint and to check every probe address
+against its chunk's segment and generation.
+
+What a row costs depends on the lookup of an existing group being compiled into the row loop, which
+HotSpot decides by method size. `NumericGroupAggTable` is therefore a leaf probe plus insertion and
+indexed-acquisition methods that are deliberately too large to inline, and the lane accessors stay
+within the size inlined at any call site; `GroupAccessorSizeTest` holds those sizes and the class
+comments explain them. A kernel that holds one record for its whole run (the plain kernels fold
+every row into the missing-key block) also depends on that record's pointer keeping a register. C2
+gives up the bare conversion of a `long` to a pointer before any other value in the loop, so those
+kernels use `GroupKernelLanes`' `held` operations, which add the record's address up from two
+masked halves and so make its pointer the result of an addition. The other kernels keep the single
+mask: the held form costs a per-row record one more mask and addition and about a hundred bytes of
+compiled code per kernel, enough to push a kernel past `-XX:InlineSmallCode`. The comment on
+`GroupKernelLanes.heldAt` has the measurements.
+
+An allocator-owned `AggregationBudget` protects one eighth of native capacity from caches, including
+cache-owned slabs. Each scan acquires an exclusive `AggregationGrant` before planning; contending
+scans wait interruptibly when their minimum working set cannot fit. Actual rounded region capacity
+is charged before allocation, including simultaneous old/new regions during growth. The planner
+subtracts fixed worker and rounding overhead once and charges each group's complete stripe and
+index/growth/merge peak; bounded top-k has the same limit. Closing a scan, after draining every
+accepted worker even on errors, returns its regions and then its grant. Returned regions may stay
+in the allocator's common scratch size classes only after moving their charge outside the protected
+execution floor, and within the recycle bound (`sirix.allocator.slabRecycleBytes`, one sixteenth of
+the budget by default): a scan returns its regions by the hundred, and the next scan would otherwise
+map every one of them again and fault it in page by page. `DenseGlobalGroupAggTable` and the map-based group kernels still use heap arrays.
+`AggregationGrantTest`, `GroupRecordBoundaryTest`, `GroupWorkspaceTest`, and the group differential
+and work-budget suites cover ownership, capacity, exact answers and cleanup.
+
 ## Allowance
 
 `DerivedCacheBudget` derives one combined allowance `D = A / 8` from the allocator's effective

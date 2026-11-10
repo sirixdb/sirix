@@ -145,6 +145,14 @@ and can be overridden via system properties.
 | `NamesCache` | 500 entries (fixed) | — | Interned QName / property-name strings |
 | `PathSummaryCache` | 20 entries (fixed) | — | Per-resource path-summary readers |
 
+The budget is not the caches' alone. Transient buffers (reads, serialization, commits, imports) and the
+working memory of grouped scans (their group tables) are borrowed from the same allocator and counted by the
+same budget; the `sirix_allocator_scratch_*` metrics report them. One eighth of the allocator budget is
+reserved for aggregation execution. Page and semantic caches cannot commit it. Each grouped scan acquires
+an exclusive capacity grant before planning its hash-range passes; when another scan holds the needed
+capacity, admission waits and can be interrupted. The planner subtracts worker and rounding overhead and
+charges the full group layout, index growth and merge overlap. Bounded top-k uses the same allowance.
+
 Set explicit byte counts when you know your working set:
 
 ```

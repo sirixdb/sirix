@@ -1052,10 +1052,19 @@ the load; that path is gone.
 | `ProjectionIndexScan` | whole deserialized leaves | defines `ColumnPredicate`, `Op`, `PredicateTree` (postfix, ≤ 64 leaves, NOT exact because missing = false); its count entry points have no production caller | `proj/ProjectionIndexScan.java:52-455` |
 
 Group tables: `NumericGroupAggTable` (hash-partitioned accumulators), `DenseGlobalGroupAggTable` (id-indexed,
-for STRING_GLOBAL keys), `GroupTableSpill` (partitioned spill and hash-range passes under a heap-derived group
+for STRING_GLOBAL keys), `GroupTableSpill` (partitioned spill and hash-range passes under a per-pass group
 budget), `GroupDistinctAccumulator`/`GroupDistinctBitmaps` (exact COUNT(DISTINCT)), `TopKHeap` (bounded max-heap
-with document-rank tie-break). All projection-side budgets derive from `HeapHeadroom`:
-`min(maxHeap/8, headroom/4)` with headroom = max heap − live after last GC (`proj/HeapHeadroom.java:200-247`).
+with document-rank tie-break).
+
+A `NumericGroupAggTable`'s stripes are allocator memory: each grouped scan opens a `GroupWorkspace`
+(`proj/GroupWorkspace.java`), every table, stripe buffer and standalone accumulator of the scan takes its chunks
+there, and closing it returns all of it to the allocator. The kernels resolve a record once and address its lanes
+through `GroupKernelLanes`, every other access is checked by `GroupLanes`; winners are copied to the heap before
+they are emitted. The per-pass group budget therefore derives from the allocator, by
+the one rule in `proj/AggregationShare.java`: `min(allocator budget/8, allocator headroom/4)`. The heap-side
+budgets (distinct sets, retained column fills) still derive from `HeapHeadroom`: `min(maxHeap/8, headroom/4)` with
+headroom = max heap − live after last GC. `DenseGlobalGroupAggTable` and the map-based group kernels keep heap
+arrays.
 
 ---
 
