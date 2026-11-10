@@ -18,10 +18,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The windowed access's borrowed lanes: a windowed group-by pass decoded every leaf of every column
@@ -180,6 +184,42 @@ final class WindowedSliceLanesTest {
     }
     assertEquals(before.totalLentBuffers(), stats().totalLentBuffers());
     assertEquals(0, stats().staleReleases() - before.staleReleases());
+  }
+
+  @Test
+  @DisplayName("presence words of evicted slices serve the leaves decoded next and carry nothing over")
+  void presenceWordsAreReusedWithinTheAccessAndCarryNoStaleBits() {
+    final Fixture f = build();
+    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE, true)) {
+      // Column 2 is present on even leaves and all-missing on odd ones, so an array that held a full
+      // leaf's bits is rewritten for an empty one and the other way round.
+      final Set<long[]> madeBeforeTheFirstEviction = Collections.newSetFromMap(new IdentityHashMap<>());
+      final Set<long[]> inUse = Collections.newSetFromMap(new IdentityHashMap<>());
+      for (int leaf = 0; leaf < LEAVES; leaf++) {
+        final ColumnSlice slice = borrowing.slice(2, leaf);
+        final long[] words = slice.presenceWords();
+        assertEquals(1, words.length, "64 rows and 37 rows are one presence word");
+        final long expected = (leaf & 1) == 1
+            ? 0L
+            : leaf == LEAVES - 1
+                ? (1L << SHORT_ROWS) - 1
+                : -1L;
+        assertEquals(expected, words[0], "presence of leaf " + leaf);
+        // Windows 0, 1 and 2 are decoded before any slice has left the cache of two windows; from
+        // window 3 on every leaf is decoded into the words of a slice evicted two windows earlier.
+        if (leaf < 3 * WINDOW) {
+          madeBeforeTheFirstEviction.add(words);
+        } else {
+          assertTrue(madeBeforeTheFirstEviction.contains(words),
+              "leaf " + leaf + " got presence words of its own although evicted slices had left theirs");
+        }
+        if (leaf % WINDOW == 0) {
+          inUse.clear();
+        }
+        assertTrue(inUse.add(words), "two leaves of one window share presence words");
+      }
+      assertEquals(3 * WINDOW, madeBeforeTheFirstEviction.size(), "one array per leaf until the first eviction");
+    }
   }
 
   @Test

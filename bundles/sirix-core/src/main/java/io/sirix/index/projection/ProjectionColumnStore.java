@@ -5067,12 +5067,12 @@ public final class ProjectionColumnStore {
    * {@link #decodeLeafSlices} for a long-lane column over the leaves {@code [base, base + len)}, the
    * values of every leaf written into {@code lanes} back to back in leaf order: each slice with rows
    * carries a {@link NumericLane} over its part and no heap value array. Presence words stay on the
-   * heap, sixteen longs per full leaf.
+   * heap, sixteen longs per full leaf, in the arrays {@code presence} has to spare.
    *
    * @param lanes at least {@link #laneBytes} bytes; the caller owns it and every lane handed out
    */
   private ColumnSlice[] decodeLeafLanesInto(final int col, final int base, final int len,
-      final ColumnSegmentFetcher fetcher, final MemorySegment lanes) {
+      final ColumnSegmentFetcher fetcher, final MemorySegment lanes, final SparePresenceWords presence) {
     final byte[][] bodies =
         fetchLeafSegments(null, base, len, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
             ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher);
@@ -5080,10 +5080,54 @@ public final class ProjectionColumnStore {
     long laneBase = 0L;
     for (int i = 0; i < len; i++) {
       final byte[] descriptor = directories.get(base + i).descriptor();
-      decoded[i] = ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, bodies[i], col, lanes, laneBase);
+      decoded[i] = ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, bodies[i], col, lanes, laneBase,
+          presence.take());
       laneBase += (long) decoded[i].rowCount() * Long.BYTES;
     }
     return decoded;
+  }
+
+  /**
+   * The presence-word arrays a windowed access took back from slices that left its cache, for the
+   * leaves it decodes next. A slice's values live in a lane the access borrows per window; its
+   * presence words are sixteen longs on the heap, because every kernel reads them as an array. Kept
+   * here they are typed scratch of their one owner: single-threaded like the access, never more
+   * arrays than the access caches leaves of one column, and gone with the access. Without it every
+   * decoded leaf of every column would allocate one, 144 bytes each, pass after pass.
+   *
+   * <p>
+   * {@link ProjectionIndexColumnSegmentCodec#decodeBodySliceInto} uses an array only for a leaf of
+   * exactly its length and fills every word, so nothing of a previous slice reaches the next.
+   */
+  private static final class SparePresenceWords {
+    private final long[][] spare;
+    private int count;
+
+    SparePresenceWords(final int capacity) {
+      this.spare = new long[capacity][];
+    }
+
+    /** An array no reader holds any more, or {@code null} when none is spare. */
+    long @Nullable [] take() {
+      if (count == 0) {
+        return null;
+      }
+      final long[] words = spare[--count];
+      spare[count] = null;
+      return words;
+    }
+
+    /** Take back the presence words of a slice that left its access's cache. */
+    void give(final long[] words) {
+      if (words.length > 0 && count < spare.length) {
+        spare[count++] = words;
+      }
+    }
+
+    /** Arrays held (tests). */
+    int held() {
+      return count;
+    }
   }
 
   /** Decode the record keys of a batch of leaves (addressed as in {@link #fetchLeafSegments}). */
@@ -5262,6 +5306,11 @@ public final class ProjectionColumnStore {
      */
     private final @Nullable Reference2ObjectOpenHashMap<MemorySegment, WindowLanes> windowLanes;
 
+    /**
+     * The presence words of evicted slices, for the leaves decoded next; used with borrowed lanes only.
+     */
+    private final SparePresenceWords sparePresence;
+
     /** One window's lanes of one column: the borrow, and how many cached slices still read it. */
     private static final class WindowLanes {
       private final ScratchLease lease;
@@ -5288,6 +5337,9 @@ public final class ProjectionColumnStore {
       this.windowLanes = borrowLanes
           ? new Reference2ObjectOpenHashMap<>()
           : null;
+      this.sparePresence = new SparePresenceWords(borrowLanes
+          ? cacheLeaves
+          : 0);
     }
 
     @Override
@@ -5353,6 +5405,9 @@ public final class ProjectionColumnStore {
       if (lane == null) {
         return;
       }
+      // The slice was decoded by this access and nothing reads it any more: its presence words serve
+      // a leaf decoded next.
+      sparePresence.give(slice.presenceWords());
       final WindowLanes lanes = windowLanes.get(lane.segment());
       if (lanes != null && --lanes.cachedSlices == 0) {
         windowLanes.remove(lane.segment());
@@ -5373,7 +5428,7 @@ public final class ProjectionColumnStore {
       // One buffer for the window's lanes of this column, borrowed until its last slice is evicted.
       final ScratchLease lease = ScratchLease.of(bytes, ScratchUse.PROJECTION);
       try {
-        final ColumnSlice[] decoded = decodeLeafLanesInto(col, from, len, fetcher, lease.segment());
+        final ColumnSlice[] decoded = decodeLeafLanesInto(col, from, len, fetcher, lease.segment(), sparePresence);
         int withLane = 0;
         for (final ColumnSlice slice : decoded) {
           if (slice.lane() != null) {

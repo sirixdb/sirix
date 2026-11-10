@@ -1703,6 +1703,20 @@ public final class ProjectionIndexColumnSegmentCodec {
    */
   static ProjectionColumnStore.ColumnSlice decodeBodySliceInto(final byte[] descriptor, final byte[] bodyColumnSegment,
       final int col, final MemorySegment slab, final long laneBase) {
+    return decodeBodySliceInto(descriptor, bodyColumnSegment, col, slab, laneBase, null);
+  }
+
+  /**
+   * {@link #decodeBodySliceInto(byte[], byte[], int, MemorySegment, long)} with the presence words
+   * written into the caller's {@code presenceToReuse} when it has exactly the words this leaf needs:
+   * consumers read the array's length, so an array of another length is ignored and a fresh one made.
+   * The presence decoder fills every word in every mode, so the array's previous contents never reach
+   * the slice.
+   *
+   * @param presenceToReuse an array the caller owns and no reader holds any more, or {@code null}
+   */
+  static ProjectionColumnStore.ColumnSlice decodeBodySliceInto(final byte[] descriptor, final byte[] bodyColumnSegment,
+      final int col, final MemorySegment slab, final long laneBase, final long @Nullable [] presenceToReuse) {
     final int rowCount = RowGroupDescriptor.rowCount(descriptor);
     final byte kind = RowGroupDescriptor.kind(descriptor, col);
     if (!bodyLongLane(kind)) {
@@ -1713,7 +1727,9 @@ public final class ProjectionIndexColumnSegmentCodec {
     final int presWords = rowCount > 0
         ? (rowCount + 63) >>> 6
         : 0;
-    final long[] presence = new long[presWords];
+    final long[] presence = presenceToReuse != null && presWords > 0 && presenceToReuse.length == presWords
+        ? presenceToReuse
+        : new long[presWords];
     if (rowCount == 0) {
       return new ProjectionColumnStore.ColumnSlice(0, flags, Long.MAX_VALUE, Long.MIN_VALUE, presence, null, null, null,
           null, null);
