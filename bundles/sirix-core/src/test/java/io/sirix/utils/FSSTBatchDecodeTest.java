@@ -18,13 +18,15 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
- * {@link FSSTCompressor#batchDecode} stages each row's page bytes in one array local to the call.
- * The class used to keep a synchronized free list of 64 KiB arrays for it, two per CPU, outside
- * every budget; a batch now allocates what its rows need and keeps nothing.
+ * {@link FSSTCompressor#batchDecode} stages each row's page bytes in an array its caller owns and
+ * keeps from batch to batch. The class used to keep a synchronized free list of 64 KiB arrays for
+ * it, two per CPU, outside every budget; a batch owner now holds one array sized by its own rows,
+ * and a batch allocates its strings and nothing else.
  *
  * <p>
  * Nothing here measures time: the allocation assertions are bytes allocated by this thread.
@@ -38,6 +40,8 @@ final class FSSTBatchDecodeTest {
     final List<byte[]> payloads = new ArrayList<>();
     final List<String> expected = new ArrayList<>();
     final List<Boolean> compressed = new ArrayList<>();
+    /** The staging array as a batch owner keeps it: what the last decode handed back. */
+    byte[] staging = new byte[0];
 
     void add(final String value, final byte[][] symbols) {
       final byte[] raw = value.getBytes(StandardCharsets.UTF_8);
@@ -79,8 +83,8 @@ final class FSSTBatchDecodeTest {
       for (int row = 0; row < rows; row++) {
         MemorySegment.copy(payloads.get(row), 0, pages[row & 1], ValueLayout.JAVA_BYTE, offsets[row], lengths[row]);
       }
-      FSSTCompressor.batchDecode(pages, pageIndices, offsets, lengths, isCompressed, selection, selection.length,
-          new byte[][][] {symbols, symbols}, output);
+      staging = FSSTCompressor.batchDecode(pages, pageIndices, offsets, lengths, isCompressed, selection,
+          selection.length, new byte[][][] {symbols, symbols}, output, staging);
       return output;
     }
   }
@@ -142,6 +146,36 @@ final class FSSTBatchDecodeTest {
     for (int row = 0; row < rows; row++) {
       assertEquals(batch.expected.get(row), output[row], "row " + row);
     }
+    assertTrue(batch.staging.length >= batch.payloads.get(rows - 2).length,
+        "the array the decode hands back holds the longest row it staged");
+
+    // The same batch again through the array it kept: nothing grows, and every row decodes the same.
+    final byte[] kept = batch.staging;
+    final String[] again = batch.decode(symbols, allRows(rows), new String[rows]);
+    assertSame(kept, batch.staging, "an array that fits is handed back as it came");
+    for (int row = 0; row < rows; row++) {
+      assertEquals(batch.expected.get(row), again[row], "row " + row + " through the kept array");
+    }
+  }
+
+  @Test
+  void aStagingArrayBeyondTheRetentionBoundIsNotHandedBack() {
+    final byte[][] noSymbols = new byte[0][];
+    final Batch batch = new Batch();
+    batch.add("short", noSymbols);
+    batch.decode(noSymbols, allRows(1), new String[1]);
+    final byte[] small = batch.staging;
+    assertEquals(4 * 1024, small.length, "the first batch makes the smallest staging array");
+
+    final String huge = "x".repeat(FSSTCompressor.MAX_RETAINED_BATCH_STAGING_BYTES + 1);
+    batch.add(huge, noSymbols);
+    final String[] output = batch.decode(noSymbols, allRows(2), new String[2]);
+    assertEquals("short", output[0]);
+    assertEquals(huge, output[1]);
+    assertSame(small, batch.staging,
+        "one value beyond the bound is staged in an array of its own, which the caller is not asked to keep");
+    assertThrows(NullPointerException.class, () -> FSSTCompressor.batchDecode(new MemorySegment[0], new int[0],
+        new int[0], new int[0], new boolean[0], new int[0], 0, new byte[0][][], new String[0], null));
   }
 
   @Test
@@ -164,7 +198,7 @@ final class FSSTBatchDecodeTest {
   }
 
   @Test
-  void aBatchOfShortRowsAllocatesItsStringsAndASmallStagingArray() {
+  void aBatchDecodedThroughAKeptStagingArrayAllocatesItsStringsOnly() {
     final var platformBean = ManagementFactory.getThreadMXBean();
     assumeTrue(platformBean instanceof ThreadMXBean);
     final ThreadMXBean bean = (ThreadMXBean) platformBean;
@@ -193,23 +227,34 @@ final class FSSTBatchDecodeTest {
     final String[] output = new String[rows];
 
     final long thread = Thread.currentThread().threadId();
+    // The first batch of an owner makes the array, once.
+    final long firstStart = bean.getThreadAllocatedBytes(thread);
+    byte[] staging = FSSTCompressor.batchDecode(pages, pageIndices, offsets, lengths, isCompressed, selection, rows,
+        symbolsByPage, output, new byte[0]);
+    final long firstAllocated = bean.getThreadAllocatedBytes(thread) - firstStart;
+    assertEquals(4 * 1024, staging.length);
+    assertTrue(firstAllocated >= 4 * 1024, "the first batch staged its rows without an array: " + firstAllocated);
+
     // The least of several batches: what a batch allocates it allocates every time, while the
     // virtual machine's own one-off events on this thread land in some batch at most.
     long leastAllocated = Long.MAX_VALUE;
     for (int round = 0; round < 8; round++) {
       Arrays.fill(output, null);
       final long start = bean.getThreadAllocatedBytes(thread);
-      FSSTCompressor.batchDecode(pages, pageIndices, offsets, lengths, isCompressed, selection, rows, symbolsByPage,
-          output);
+      final byte[] returned = FSSTCompressor.batchDecode(pages, pageIndices, offsets, lengths, isCompressed, selection,
+          rows, symbolsByPage, output, staging);
       leastAllocated = Math.min(leastAllocated, bean.getThreadAllocatedBytes(thread) - start);
+      assertSame(staging, returned);
+      staging = returned;
     }
     for (int row = 0; row < rows; row++) {
       assertEquals(batch.expected.get(row), output[row], "row " + row);
     }
-    // 64 strings of seven characters are 64 x (24 + 24) bytes; the staging array is 4 KiB. The free
-    // list this replaced handed a batch a 64 KiB array whenever the list was empty.
-    assertTrue(leastAllocated >= 4 * 1024, "the batch staged its rows without an array: " + leastAllocated);
-    assertTrue(leastAllocated <= 12 * 1024, "a batch of " + rows + " short rows allocated " + leastAllocated
-        + " bytes: its staging array is no longer " + "sized for the batch");
+    // 64 strings of seven characters: a String and its seven-byte array, 24 + 24 bytes each (3,072
+    // measured), and not a byte of staging. The free list this replaced handed a batch a 64 KiB array
+    // whenever the list was empty; a staging array per call would be 4 KiB more per batch.
+    assertTrue(leastAllocated >= rows * 40L, "the batch made no strings: " + leastAllocated);
+    assertTrue(leastAllocated < 4 * 1024, "a batch of " + rows + " short rows through a kept staging array allocated "
+        + leastAllocated + " bytes: more than its strings, so it staged them in an array of its own");
   }
 }
