@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -44,6 +45,16 @@ import java.util.concurrent.atomic.AtomicLong;
  * unmapped when a commitment does not fit the budget and counts against the allocator's recycle
  * bound together with the recycled cache slabs. A <em>lent</em> buffer is never reclaimed, evicted
  * or moved; only its lease returns it.
+ *
+ * <p>
+ * The idle arrays hold as many buffers per capacity as threads are likely to hold at once, which is
+ * the right population for a reader's or a serializer's buffer and far too few for a grouped scan:
+ * its workspace borrows regions by the hundred and returns them together. A region that finds its
+ * idle array full therefore stays resident on a spare stack of its capacity, bounded like every
+ * idle region by the recycle bound in bytes and by nothing else, and is lent again before a new
+ * region is mapped. Without it the next scan would map, and fault in page by page, nearly
+ * everything the last one returned. Slot buffers have no spare stack: an idle one holds a frame
+ * slot of its class.
  *
  * <h2>Budget</h2>
  *
@@ -110,6 +121,12 @@ final class FrameScratch extends ScratchSource {
   private final ScratchCarrier[][] idle;
   private final int idleMask;
 
+  /**
+   * Idle region-backed buffers that found the idle array of their capacity full, newest first; see
+   * the class comment. Each counts against the allocator's recycle bound while it is here.
+   */
+  private final ConcurrentLinkedDeque<ScratchCarrier>[] spareRegions;
+
   private final Object registryLock = new Object();
 
   // Guarded by registryLock: the list of live buffers (lent or idle), the counters of buffers that no
@@ -149,6 +166,12 @@ final class FrameScratch extends ScratchSource {
         : Integer.highestOneBit(idleBuffers) << 1;
     this.idleMask = slots - 1;
     this.idle = new ScratchCarrier[CLASS_COUNT][slots << IDLE_STRIDE_SHIFT];
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    final ConcurrentLinkedDeque<ScratchCarrier>[] spares = new ConcurrentLinkedDeque[CLASS_COUNT];
+    for (int capacityClass = 0; capacityClass < CLASS_COUNT; capacityClass++) {
+      spares[capacityClass] = new ConcurrentLinkedDeque<>();
+    }
+    this.spareRegions = spares;
   }
 
   /** The configured number of idle buffers per capacity. */
@@ -237,6 +260,15 @@ final class FrameScratch extends ScratchSource {
         }
         return lend(carrier, minBytes, use);
       }
+    }
+    final ScratchCarrier spare = spareRegions[capacityClass].pollFirst();
+    if (spare != null) {
+      allocator.unreserveRecycledBytes(spare.capacity);
+      if (grant != null) {
+        allocator.transferToAggregation(spare.capacity);
+        spare.aggregationGrant = grant;
+      }
+      return lend(spare, minBytes, use);
     }
     return lend(capacityClass < SLOT_CLASSES && grant == null
         ? takeSlot(capacityClass, minBytes, mandatory)
@@ -388,7 +420,10 @@ final class FrameScratch extends ScratchSource {
       }
     }
     if (region) {
-      allocator.unreserveRecycledBytes(carrier.capacity);
+      // The idle array is full: stay resident on the spare stack, inside the recycle bound reserved
+      // above. The carrier is the next borrower's from here on.
+      spareRegions[capacityClass].addFirst(carrier);
+      return true;
     }
     destroy(carrier);
     return true;
@@ -485,6 +520,13 @@ final class FrameScratch extends ScratchSource {
   long reclaimIdleRegions(final long wanted) {
     long freed = 0L;
     for (int capacityClass = CLASS_COUNT - 1; capacityClass >= 0 && freed < wanted; capacityClass--) {
+      final ConcurrentLinkedDeque<ScratchCarrier> spares = spareRegions[capacityClass];
+      // The spare stack first, oldest first: the buffers least likely to be borrowed next.
+      for (ScratchCarrier spare; freed < wanted && (spare = spares.pollLast()) != null;) {
+        allocator.unreserveRecycledBytes(spare.capacity);
+        freed += spare.capacity;
+        destroy(spare);
+      }
       final ScratchCarrier[] slots = idle[capacityClass];
       for (int slot = 0; slot <= idleMask && freed < wanted; slot++) {
         final int index = slot << IDLE_STRIDE_SHIFT;

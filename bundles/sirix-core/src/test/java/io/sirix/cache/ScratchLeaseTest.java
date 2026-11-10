@@ -15,7 +15,9 @@ import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -482,6 +484,48 @@ final class ScratchLeaseTest {
   }
 
   @Test
+  void regionsBeyondTheIdleArrayStayResidentUpToTheRecycleBound() {
+    // Two idle slots per capacity: the population of a reader, not of a grouped scan's workspace.
+    final FrameSlotAllocator allocator = allocator(BUDGET, 2);
+    allocator.setSlabRecycleLimitBytesForTesting(8 * MIB);
+    final long committedBefore = allocator.getPhysicalMemoryBytes();
+    final ScratchLease[] leases = new ScratchLease[10];
+    final Set<Long> addresses = new HashSet<>();
+    for (int i = 0; i < leases.length; i++) {
+      leases[i] = new ScratchLease(allocator).acquire(MIB, ScratchUse.READ);
+      addresses.add(leases[i].segment().address());
+    }
+    for (final ScratchLease lease : leases) {
+      lease.close();
+    }
+    ScratchStats stats = allocator.scratchStats();
+    assertEquals(8, stats.idleBuffers()[REGION_1M], "the bound in bytes decides, not the length of the idle array");
+    assertEquals(2, stats.reclaimed()[REGION_1M], "the two the bound turned away were unmapped");
+    assertEquals(8 * MIB, allocator.getRecycledSlabBytes());
+    assertEquals(committedBefore + 8 * MIB, allocator.getPhysicalMemoryBytes());
+
+    // The next scan is served by what stayed resident: nothing is mapped.
+    final long created = stats.totalCreated();
+    for (int i = 0; i < 8; i++) {
+      leases[i] = new ScratchLease(allocator).acquire(MIB, ScratchUse.READ);
+      assertTrue(addresses.contains(leases[i].segment().address()), "a region the last scan returned");
+    }
+    stats = allocator.scratchStats();
+    assertEquals(created, stats.totalCreated());
+    assertEquals(0, stats.idleBuffers()[REGION_1M]);
+    assertEquals(0, allocator.getRecycledSlabBytes(), "a lent region is not recyclable memory");
+    for (int i = 0; i < 8; i++) {
+      leases[i].close();
+    }
+    assertEquals(8 * MIB, allocator.getRecycledSlabBytes());
+
+    // Spare regions are given back like the idle array's: here, when the bound is lowered.
+    allocator.setSlabRecycleLimitBytesForTesting(0);
+    assertEquals(0, allocator.scratchStats().totalIdleBuffers());
+    assertEquals(committedBefore, allocator.getPhysicalMemoryBytes());
+  }
+
+  @Test
   void theIdleBoundPerCapacityIsExact() {
     final FrameSlotAllocator allocator = allocator(BUDGET, 2);
     assertEquals(2, allocator.scratch().idleBuffersPerCapacity());
@@ -606,7 +650,10 @@ final class ScratchLeaseTest {
       assertEquals(0, stats.refusals());
       assertEquals(stats.totalCreated() - stats.totalReclaimed(), stats.totalIdleBuffers(),
           "every buffer is either resident or given back, none lost");
-      assertTrue(stats.totalIdleBuffers() <= 3L * IDLE, "the idle bound held under contention");
+      assertTrue(stats.totalIdleBuffers() - stats.idleBuffers()[REGION_1M] <= 2L * IDLE,
+          "the idle arrays bounded the slot buffers under contention");
+      assertTrue(stats.idleBuffers()[REGION_1M] <= workers,
+          "regions are bounded in bytes: no more stay than were ever lent at once");
       assertEquals(0, allocator.getActiveMemoryBytes(), "nothing is lent");
       assertEquals(stats.idleBuffers()[REGION_1M] * MIB, allocator.getRecycledSlabBytes());
       assertEquals(0, allocator.liveSlotCount(FrameSlotAllocator.indexForSize(16 * KIB)));
