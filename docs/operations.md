@@ -103,8 +103,17 @@ before flipping it on.
 
 ### Direct memory
 
-`-XX:MaxDirectMemorySize` should be at least **1 GB**. Sirix uses direct buffers
-for FFI (LZ4), file-channel reads, and certain serialization paths.
+The storage engine allocates no direct `ByteBuffer`s of its own. The buffers
+file-channel reads land in, the storage writer's own file I/O, page
+serialization, commit flush buffers and codec staging (LZ4's native copies
+included) are borrowed from the off-heap allocator and count against its
+budget (`sirix.allocator.maxSize`, see *Cache budgets* below); the
+`sirix_allocator_scratch_*` metrics report them.
+
+`-XX:MaxDirectMemorySize` therefore only has to cover what the JDK and the
+HTTP server use: the JDK's per-thread temporary buffers for channel I/O on
+heap buffers, and Vert.x/Netty's buffers in the REST server. The **1 GB** this
+guide has always asked for remains a safe setting for the server.
 
 ### Other flags worth knowing
 
