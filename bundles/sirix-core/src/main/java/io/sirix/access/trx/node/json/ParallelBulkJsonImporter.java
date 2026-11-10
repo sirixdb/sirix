@@ -49,6 +49,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -604,7 +606,29 @@ public final class ParallelBulkJsonImporter {
 
   /** One dispatched chunk build in flight; adoption strictly in chunk order (tail-hold chain). */
   private record PendingBuild(Future<List<KeyValueLeafPage>> pages, WorkerPageBuilder builder, long lastKey,
-      long chunkLastMemberKey, long chunkMembers) {
+      long chunkLastMemberKey, long chunkMembers, FusedSliceAndScan.ChunkBuffer bytes) {
+  }
+
+  /**
+   * How long a failed load waits for its feeder and its builders to stop before it gives up on them.
+   */
+  private static final long UNWIND_WAIT_MILLIS = 5_000L;
+
+  /** See {@link #setChunkTakenHookForTesting}. */
+  private static volatile @Nullable Runnable chunkTakenHookForTesting;
+
+  /**
+   * Test seam: a hook the coordinator runs each time it has taken a chunk from the feeder, before the
+   * chunk is given to a build. That is the one point where the coordinator alone holds a chunk's
+   * bytes, and nothing a document contains makes a load fail there.
+   *
+   * @param hook the hook, or {@code null} for none
+   * @return the previous hook, for restoring in a finally block
+   */
+  public static @Nullable Runnable setChunkTakenHookForTesting(final @Nullable Runnable hook) {
+    final Runnable previous = chunkTakenHookForTesting;
+    chunkTakenHookForTesting = hook;
+    return previous;
   }
 
   /**
@@ -634,19 +658,24 @@ public final class ParallelBulkJsonImporter {
     // The FEEDER: scans + slices ahead on its own thread, fully writer-free — all shared-state
     // resolution (paths, names, reservation) happens HERE on the coordinator at chunk handoff.
     final BlockingQueue<Object> handoff = new ArrayBlockingQueue<>(4);
+    // Set by the coordinator when it stops taking chunks. A chunk's bytes are allocator scratch, so
+    // every chunk must reach someone who returns them: the feeder keeps what it can no longer hand
+    // over, and returns the chunk it was filling when it stops.
+    final AtomicBoolean abandoned = new AtomicBoolean();
     final Thread feeder = new Thread(() -> {
       try {
         FusedSliceAndScan.Chunk next;
         while ((next = fused.nextChunk()) != null) {
-          handoff.put(next);
+          if (!handOff(handoff, next, abandoned)) {
+            next.bytes().release();
+            return;
+          }
         }
-        handoff.put(FEEDER_DONE);
+        handOff(handoff, FEEDER_DONE, abandoned);
       } catch (final Throwable t) {
-        try {
-          handoff.put(t);
-        } catch (final InterruptedException e) {
-          Thread.currentThread().interrupt();
-        }
+        handOff(handoff, t, abandoned);
+      } finally {
+        fused.close();
       }
     }, "sirix-bulk-import-feeder");
     feeder.setDaemon(true);
@@ -661,6 +690,8 @@ public final class ParallelBulkJsonImporter {
     long totalMembers = 0;
     long lastMemberKey = NULL_KEY;
     long expectedNextReservation = rootArrayKey + 1;
+    // The bytes of the chunk the coordinator took and has not yet given to a build.
+    FusedSliceAndScan.ChunkBuffer inHand = null;
 
     try {
       while (true) {
@@ -684,10 +715,17 @@ public final class ParallelBulkJsonImporter {
           throw new IllegalStateException("feeder failed", failure);
         }
         final FusedSliceAndScan.Chunk chunk = (FusedSliceAndScan.Chunk) taken;
+        inHand = chunk.bytes();
+        final Runnable chunkTaken = chunkTakenHookForTesting;
+        if (chunkTaken != null) {
+          chunkTaken.run();
+        }
 
         final long chunkNodes = chunk.nodes();
         final long chunkMembers = chunk.members();
         if (chunkNodes == 0) {
+          inHand.release();
+          inHand = null;
           continue;
         }
         // --- Resolve this chunk's metadata on the coordinator, in document order ------------------
@@ -728,19 +766,25 @@ public final class ParallelBulkJsonImporter {
         final Long2ObjectOpenHashMap<Object2LongOpenHashMap<String>> memoSnapshot = copyMemo(masterPcrMemo);
 
         if (buildPool == null) {
-          final List<KeyValueLeafPage> builtPages = buildChunk(fused, builder, chunkBytes, chunkByteLength,
-              buildFirstKey, lastKey, rootArrayKey, rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
+          // The build returns the chunk's bytes, whatever its outcome.
+          inHand = null;
+          final List<KeyValueLeafPage> builtPages = buildChunk(builder, chunkBytes, chunkByteLength, buildFirstKey,
+              lastKey, rootArrayKey, rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
           drainIndexTuples(builder.indexTuples());
           drainPathStats(builder.pathStatsBatch());
           stitchAndAdopt(builtPages, lastKey);
         } else {
           final long submittedLastKey = lastKey;
-          inFlight.addLast(new PendingBuild(buildPool.submit(() -> {
+          final Future<List<KeyValueLeafPage>> build = buildPool.submit(() -> {
             // The chunk's own UTF-8 decode happens HERE, on the pool thread — the whole corpus
             // decode parallelizes across builders, into POOLED scratch (no per-chunk large arrays).
-            return buildChunk(fused, builder, chunkBytes, chunkByteLength, buildFirstKey, submittedLastKey,
-                rootArrayKey, rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
-          }), builder, lastKey, chunkLastMemberKey, chunkMembers));
+            return buildChunk(builder, chunkBytes, chunkByteLength, buildFirstKey, submittedLastKey, rootArrayKey,
+                rootArrayPcr, buildLastMemberBoundary, buildTrailing, memoSnapshot);
+          });
+          // The task returns the bytes when it has run; one that never runs is unwound through its
+          // pending entry, which is why the entry names them.
+          inFlight.addLast(new PendingBuild(build, builder, lastKey, chunkLastMemberKey, chunkMembers, chunkBytes));
+          inHand = null;
           // Admission control: never more than P+2 chunks of frames in flight; adoption is strictly
           // in chunk order, which the tail-hold stitch chain requires anyway.
           while (inFlight.size() >= maxInFlight) {
@@ -759,13 +803,18 @@ public final class ParallelBulkJsonImporter {
     } catch (final Throwable failure) {
       // Frames that never reached the intent log are the coordinator's to free: rollback cannot
       // see them, so without this every adoption failure leaked them for the process lifetime.
-      unwindInFlight(inFlight);
+      // The same holds for the bytes of chunks no build will read any more.
+      if (inHand != null) {
+        inHand.release();
+      }
+      unwindInFlight(inFlight, buildPool);
       retireHeldTailPage();
       throw failure;
     } finally {
       if (buildPool != null) {
         buildPool.shutdownNow();
       }
+      stopFeeder(feeder, handoff, abandoned);
     }
 
     if (heldTailPage != null) {
@@ -827,8 +876,58 @@ public final class ParallelBulkJsonImporter {
     }
   }
 
-  /** Runs one chunk build on the calling thread: pooled decode, run, verify, release buffers. */
-  private List<KeyValueLeafPage> buildChunk(final FusedSliceAndScan fused, final WorkerPageBuilder builder,
+  /**
+   * Hands one item to the coordinator, waiting for room in the queue.
+   *
+   * @return {@code false} when the coordinator stopped taking items (or the thread was interrupted):
+   *         the item was not handed over and is still the caller's
+   */
+  private static boolean handOff(final BlockingQueue<Object> handoff, final Object item,
+      final AtomicBoolean abandoned) {
+    try {
+      while (!abandoned.get()) {
+        if (handoff.offer(item, 50, TimeUnit.MILLISECONDS)) {
+          return true;
+        }
+      }
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    return false;
+  }
+
+  /**
+   * Ends the feed and returns the bytes of every chunk nobody took. After a completed load the feeder
+   * has handed over its end marker and is gone at once; after a failure it may be scanning, or
+   * waiting for room in the queue, and stops at its next handoff. A feeder blocked in the input
+   * stream for longer than the wait is left behind: it returns what it holds when the read returns.
+   */
+  private static void stopFeeder(final Thread feeder, final BlockingQueue<Object> handoff,
+      final AtomicBoolean abandoned) {
+    abandoned.set(true);
+    final long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(UNWIND_WAIT_MILLIS);
+    try {
+      while (feeder.isAlive() && System.nanoTime() - deadline < 0) {
+        releaseQueuedChunks(handoff);
+        feeder.join(10);
+      }
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    releaseQueuedChunks(handoff);
+  }
+
+  private static void releaseQueuedChunks(final BlockingQueue<Object> handoff) {
+    Object queued;
+    while ((queued = handoff.poll()) != null) {
+      if (queued instanceof FusedSliceAndScan.Chunk chunk) {
+        chunk.bytes().release();
+      }
+    }
+  }
+
+  /** Runs one chunk build on the calling thread: decode, run, verify, return the chunk's bytes. */
+  private List<KeyValueLeafPage> buildChunk(final WorkerPageBuilder builder,
       final FusedSliceAndScan.ChunkBuffer chunkBytes, final int chunkByteLength, final long firstKey,
       final long lastKey, final long rootArrayKey, final long rootArrayPcr, final long leftBoundaryKey,
       final long trailingSiblingKey, final Long2ObjectOpenHashMap<Object2LongOpenHashMap<String>> memoSnapshot)
@@ -848,7 +947,7 @@ public final class ParallelBulkJsonImporter {
       building.run();
       return builder.finish(lastKey);
     } finally {
-      fused.releaseChunkBuffer(chunkBytes);
+      chunkBytes.release();
     }
   }
 
@@ -858,12 +957,15 @@ public final class ParallelBulkJsonImporter {
    * dispositioned by the writer's own contract. Failures while unwinding are swallowed: the original
    * failure is what the caller must see.
    */
-  private static void unwindInFlight(final ArrayDeque<PendingBuild> inFlight) {
+  private static void unwindInFlight(final ArrayDeque<PendingBuild> inFlight,
+      final @Nullable ExecutorService buildPool) {
+    final ArrayList<FusedSliceAndScan.ChunkBuffer> cancelledBytes = new ArrayList<>(inFlight.size());
     PendingBuild pending;
     while ((pending = inFlight.pollFirst()) != null) {
       final Future<List<KeyValueLeafPage>> future = pending.pages();
       if (!future.isDone()) {
         future.cancel(true);
+        cancelledBytes.add(pending.bytes());
         continue;
       }
       try {
@@ -874,6 +976,25 @@ public final class ParallelBulkJsonImporter {
         Thread.currentThread().interrupt();
       } catch (final RuntimeException | ExecutionException ignored) {
         // The build itself failed or was cancelled: nothing of it survived to free.
+      }
+    }
+    if (buildPool == null || cancelledBytes.isEmpty()) {
+      return;
+    }
+    // A build that had started returns its chunk's bytes itself, when the interrupt reaches it; one
+    // that never started returns nothing. Which is which is known only once the pool has stopped,
+    // and only then is it safe to return bytes on a builder's behalf: before, it might still read
+    // them. The release is idempotent, so the bytes a builder did return are left alone.
+    buildPool.shutdownNow();
+    boolean stopped = false;
+    try {
+      stopped = buildPool.awaitTermination(UNWIND_WAIT_MILLIS, TimeUnit.MILLISECONDS);
+    } catch (final InterruptedException interrupted) {
+      Thread.currentThread().interrupt();
+    }
+    if (stopped) {
+      for (final FusedSliceAndScan.ChunkBuffer bytes : cancelledBytes) {
+        bytes.release();
       }
     }
   }

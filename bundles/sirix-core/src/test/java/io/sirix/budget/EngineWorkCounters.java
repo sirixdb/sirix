@@ -86,6 +86,10 @@ public final class EngineWorkCounters {
   public static final WorkCounter SCRATCH_WRITE_IO_BORROWS =
       scratchBorrows(ScratchUse.WRITE_IO, "a storage writer's own file I/O");
 
+  /** Borrows for the 256 KiB slabs a bulk import's chunks are handed to its builders in. */
+  public static final WorkCounter SCRATCH_IMPORT_BORROWS =
+      scratchBorrows(ScratchUse.IMPORT, "a slab of a bulk import's chunk");
+
   /**
    * Scratch buffers given fresh backing because no resident buffer of their capacity was idle. Zero
    * over a warm path: the allocator kept what the path returned before.
@@ -112,7 +116,7 @@ public final class EngineWorkCounters {
   /** Every scratch counter, for a capture that guards how a path uses the allocator's buffers. */
   public static final List<WorkCounter> SCRATCH = List.of(SCRATCH_READ_BORROWS, SCRATCH_SERIALIZATION_BORROWS,
       SCRATCH_COMMIT_FLUSH_BORROWS, SCRATCH_CODEC_BORROWS, SCRATCH_PAGE_BORROWS, SCRATCH_WRITE_IO_BORROWS,
-      SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
+      SCRATCH_IMPORT_BORROWS, SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
 
   public static final WorkCounter TEMPORAL_GROUP_HEADS_VISITED = WorkCounter.gated("temporal.groupHeadsVisited",
       "one dictionary head counted during admission", TemporalAggregateStorage::groupHeadsVisited,

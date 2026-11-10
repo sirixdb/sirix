@@ -7,6 +7,8 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.json.ParallelBulkJsonImporter;
 import io.sirix.access.trx.page.StorageEpochTestSupport;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineWriter;
@@ -21,10 +23,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -54,7 +60,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * page workspaces and 22 codec stagings and leaves none lent; reading the resource cold borrows 3
  * codec stagings (one per record page decoded) and leaves none lent. With the decoder's workspace
  * no longer returning its buffers at the end of a page, the thread keeps them from its first page
- * on and the cold read borrows 0.
+ * on and the cold read borrows 0. A parallel import of 24,000 records (5.6 MiB, 300 KiB chunks)
+ * borrows 37 slabs of 256 KiB, built inline or by three builders, and leaves none lent; so do three
+ * loads that fail (a member no builder can parse, input that ends inside the array, a coordinator
+ * that fails holding a chunk). Left lent when one owner stops returning: 37 by the builders, 10 by
+ * the coordinator's drain of the handoff queue, 2 by its unwinding of builds that never ran, 1 by
+ * the feeder for the chunk it was filling.
  */
 @Isolated
 final class ScratchBufferWorkBudgetTest {
@@ -235,6 +246,123 @@ final class ScratchBufferWorkBudgetTest {
                   "the cold read made the allocator back a fresh buffer although the commits left resident ones")
               .assertZero(EngineWorkCounters.SCRATCH_STALE_RETURNS, "a staging buffer was returned twice");
     }
+  }
+
+  @Test
+  void aParallelImportBorrowsItsChunksInSlabsAndReturnsThemAlsoWhenItFails() throws Exception {
+    final Path databasePath = JsonTestHelper.PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    final byte[] document = importDocument(-1);
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
+      // Inline (the coordinator builds each chunk itself) and through a pool of builders.
+      for (final int builders : new int[] {1, 3}) {
+        final String resource = RESOURCE + "-import-" + builders;
+        createImportResource(database, resource);
+        try (final JsonResourceSession session = database.beginResourceSession(resource)) {
+          final WorkReport load = CAPTURE.run(() -> {
+            try (final JsonNodeTrx trx = session.beginNodeTrx()) {
+              ParallelBulkJsonImporter.assembleBytes(trx, new ByteArrayInputStream(document), IMPORT_CHUNK_BYTES,
+                  builders);
+              trx.commit();
+            }
+          });
+          load.assertExactly(EngineWorkCounters.SCRATCH_IMPORT_BORROWS, IMPORT_SLABS,
+              "a chunk is handed to its builder in 256 KiB slabs, borrowed as the scanner fills it: this "
+                  + "document cuts into 18 chunks of two slabs and a last one of one; more means smaller slabs "
+                  + "or a second copy of the chunk")
+              .assertZero(EngineWorkCounters.SCRATCH_BUFFERS_LENT,
+                  "the import left scratch lent: a builder, the coordinator or the scanner kept a chunk's slabs")
+              .assertZero(EngineWorkCounters.SCRATCH_REFUSALS, "the budget refused a slab")
+              .assertZero(EngineWorkCounters.SCRATCH_STALE_RETURNS, "a slab was returned twice");
+          assertEquals(IMPORT_RECORDS, countObjects(session), builders + " builders");
+        }
+      }
+
+      // A member the scanner slices but no builder can parse: the load fails with chunks queued for
+      // the coordinator, chunks waiting for a builder and the scanner in the middle of the next one.
+      final byte[] unparsable = importDocument(IMPORT_RECORDS / 3);
+      // A document that ends inside its array: the scanner itself fails, holding the chunk it fills.
+      final byte[] truncated = Arrays.copyOf(document, document.length * 2 / 3);
+      // And a coordinator that fails on the chunk it has just taken, before any build has it.
+      final int[] chunksTaken = new int[1];
+      final Runnable failOnTheSixthChunk = () -> {
+        if (++chunksTaken[0] == 6) {
+          throw new IllegalStateException("the coordinator failed with a chunk in hand");
+        }
+      };
+      final byte[][] inputs = {unparsable, truncated, document};
+      final Runnable[] hooks = {null, null, failOnTheSixthChunk};
+      for (int failure = 0; failure < inputs.length; failure++) {
+        final byte[] input = inputs[failure];
+        final String resource = RESOURCE + "-import-failed-" + failure;
+        createImportResource(database, resource);
+        final Runnable previousHook = ParallelBulkJsonImporter.setChunkTakenHookForTesting(hooks[failure]);
+        try (final JsonResourceSession session = database.beginResourceSession(resource)) {
+          final WorkReport failed = CAPTURE.run(() -> {
+            try (final JsonNodeTrx trx = session.beginNodeTrx()) {
+              assertThrows(RuntimeException.class, () -> ParallelBulkJsonImporter.assembleBytes(trx,
+                  new ByteArrayInputStream(input), IMPORT_CHUNK_BYTES, 3));
+              trx.rollback();
+            }
+          });
+          failed.assertAtLeast(EngineWorkCounters.SCRATCH_IMPORT_BORROWS, 2,
+              "the failed load had borrowed slabs; a zero here means the fixture failed before it scanned")
+                .assertZero(EngineWorkCounters.SCRATCH_BUFFERS_LENT,
+                    "the failed load left scratch lent: the slabs of a chunk nobody built were not returned")
+                .assertZero(EngineWorkCounters.SCRATCH_STALE_RETURNS, "a slab was returned twice");
+        } finally {
+          ParallelBulkJsonImporter.setChunkTakenHookForTesting(previousHook);
+        }
+      }
+      assertEquals(6, chunksTaken[0], "the coordinator's own failure must have been the one that ended the last load");
+    }
+  }
+
+  private static final int IMPORT_RECORDS = 24_000;
+
+  /** Small enough that the document cuts into many chunks, large enough that a chunk is two slabs. */
+  private static final int IMPORT_CHUNK_BYTES = 300 << 10;
+
+  /**
+   * Measured: {@link #importDocument} is 5.6 MiB, which the scanner cuts at that budget into 18
+   * chunks of 300 KiB and the rest of one member (two slabs each) and a last chunk of 180 KiB (one
+   * slab).
+   */
+  private static final int IMPORT_SLABS = 18 * 2 + 1;
+
+  private static void createImportResource(final Database<JsonResourceSession> database, final String resource) {
+    database.createResource(ResourceConfiguration.newBuilder(resource)
+                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .useDeweyIDs(false)
+                                                 .hashKind(HashType.NONE)
+                                                 .storeNodeHistory(false)
+                                                 .build());
+  }
+
+  /**
+   * A top-level array of {@link #IMPORT_RECORDS} objects of 250 bytes each.
+   *
+   * @param unparsableRecord the record whose number is not JSON ({@code -1}: none). The scanner
+   *        slices by structure and passes it; the builder that tokenizes it refuses.
+   */
+  private static byte[] importDocument(final int unparsableRecord) {
+    final StringBuilder json = new StringBuilder(IMPORT_RECORDS * 256);
+    final String text = "t".repeat(200);
+    json.append('[');
+    for (int i = 0; i < IMPORT_RECORDS; i++) {
+      if (i > 0) {
+        json.append(',');
+      }
+      json.append("{\"id\":");
+      if (i == unparsableRecord) {
+        json.append("12x4567");
+      } else {
+        json.append(1_000_000 + i);
+      }
+      json.append(",\"text\":\"").append(text).append(i % 10).append("\",\"flag\":").append(i % 2 == 0).append('}');
+    }
+    json.append(']');
+    return json.toString().getBytes(StandardCharsets.UTF_8);
   }
 
   /**
