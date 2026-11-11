@@ -7,6 +7,7 @@ import com.sun.management.ThreadMXBean;
 import org.junit.jupiter.api.Test;
 
 import java.lang.management.ManagementFactory;
+import java.lang.foreign.MemorySegment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -30,13 +31,14 @@ final class GroupRecordAllocationTest {
     try (GroupWorkspace workspace = new GroupWorkspace()) {
       final NumericGroupAggTable table = new NumericGroupAggTable(1, 2048, false, -1L).attachWorkspace(workspace);
       table.useDenseIndex();
-      final long[][] values = {{7L}};
+      final MemorySegment[] values = {MemorySegment.ofArray(new long[] {7L})};
+      final long[] bases = {0L};
       final long[][] presence = {{1L}};
       for (int batch = 0; batch < 10; batch++) {
-        fold(table, values, presence);
+        fold(table, values, bases, presence);
       }
       final long start = bean.getThreadAllocatedBytes(thread);
-      fold(table, values, presence);
+      fold(table, values, bases, presence);
       final long allocated = bean.getThreadAllocatedBytes(thread) - start;
       // Allow fixed JVM bookkeeping, but not even one small wrapper per row (at least 1.6 MB).
       assertTrue(allocated <= 8192L, "steady group rows allocated " + allocated + " bytes");
@@ -47,7 +49,8 @@ final class GroupRecordAllocationTest {
     }
   }
 
-  private static void fold(final NumericGroupAggTable table, final long[][] values, final long[][] presence) {
+  private static void fold(final NumericGroupAggTable table, final MemorySegment[] values, final long[] bases,
+      final long[][] presence) {
     for (int row = 0; row < ROWS; row++) {
       final long key = (row & 1023) + 1L;
       final int handle = table.acquire(key, row);
@@ -60,7 +63,7 @@ final class GroupRecordAllocationTest {
         case 1 -> table.accumulatorAt(handle, 1, 4);
         default -> table.acquireAccumulator(key, row, 1, 4);
       };
-      ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, values, 0, presence, 1, 0, 1L, -1L);
+      ProjectionColumnGroupScan.foldNumericPlainWordLane(record, values, bases, presence, 1, 0, 1L, -1L);
     }
   }
 }

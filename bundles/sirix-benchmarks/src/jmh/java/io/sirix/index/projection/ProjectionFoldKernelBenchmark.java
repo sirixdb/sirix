@@ -1088,6 +1088,47 @@ public class ProjectionFoldKernelBenchmark {
      * {@code -jvmArgs -Dsirix.bench.verifyArms=true} when changing an arm.
      */
     private void verifyArmsAgree() {
+      final long[] selected = new long[WORDS_PER_BLOCK];
+      for (int mask = 0; mask < 2; mask++) {
+        for (int word = 0; word < WORDS_PER_BLOCK; word++) {
+          selected[word] = mask == 0
+              ? -1L
+              : 0x8102040810204081L >>> (word & 3);
+        }
+        final long[] expectedCounts = new long[aggCount];
+        final long[] expectedSums = new long[aggCount];
+        long expectedRows = 0L;
+        for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
+          for (int row = 0; row < BLOCK_VALUES; row++) {
+            if ((selected[row >>> 6] & 1L << (row & 63)) == 0L) {
+              continue;
+            }
+            expectedRows++;
+            for (int a = 0; a < aggCount; a++) {
+              if ((presence[leaf][a][row >>> 6] & 1L << (row & 63)) != 0L) {
+                expectedCounts[a]++;
+                expectedSums[a] += heapValues[leaf][a][row];
+              }
+            }
+          }
+        }
+        for (final Arm arm : Arm.values()) {
+          for (final Kernel kernel : Kernel.values()) {
+            final long[] actual = foldWholePool(selected, arm, kernel);
+            if (actual[0] != expectedRows) {
+              throw new AssertionError("row count disagrees with scalar oracle: " + arm + "/" + kernel);
+            }
+            final int stride = kernel == Kernel.SUMS
+                ? 2
+                : 4;
+            for (int a = 0; a < aggCount; a++) {
+              if (actual[2 + stride * a] != expectedCounts[a] || actual[3 + stride * a] != expectedSums[a]) {
+                throw new AssertionError("aggregate disagrees with scalar oracle: " + arm + "/" + kernel + "/" + a);
+              }
+            }
+          }
+        }
+      }
       final long[] full = new long[WORDS_PER_BLOCK];
       Arrays.fill(full, -1L);
       final long[] fromArrays = foldWholePool(full, Arm.ARRAY, Kernel.SLICED);
@@ -1145,6 +1186,15 @@ public class ProjectionFoldKernelBenchmark {
     }
   }
 
+  public static void main(final String[] args) {
+    for (final int columns : new int[] {1, 4}) {
+      final GroupFoldLanes state = new GroupFoldLanes();
+      state.aggCount = columns;
+      state.setUp();
+      state.verifyArmsAgree();
+    }
+  }
+
   /** Which representation the aggregate values are read from. */
   private enum Arm {
     /** Per-leaf heap arrays that were never off-heap: the shape before the lanes existed. */
@@ -1157,10 +1207,8 @@ public class ProjectionFoldKernelBenchmark {
     HEAP_SEGMENT,
     /**
      * The store's slab, gathered one 64-row word at a time into a reusable 512-byte scratch and then
-     * folded by the ARRAY kernels with the bit position as the row index — the shape
-     * {@code ProjectionColumnGroupScan.gatherPays} dispatches to above
-     * {@link ProjectionVectorKernels#FOLD_WALK_MAX_BITS} set bits, so the segment pays one bounds check
-     * per word instead of one per row, and nothing is allocated per leaf.
+     * folded by the ARRAY kernels with the bit position as the row index. The gather is used above
+     * {@link ProjectionVectorKernels#FOLD_WALK_MAX_BITS} set bits, and nothing is allocated per leaf.
      */
     SLAB_WORD_GATHER
   }
@@ -1273,19 +1321,18 @@ public class ProjectionFoldKernelBenchmark {
         continue;
       }
       // The dense arm's one decision per word, the same crossover ProjectionVectorKernels uses.
-      final boolean gather = arm == Arm.SLAB_WORD_GATHER && ProjectionColumnGroupScan.gatherPays(word);
+      final boolean gather =
+          arm == Arm.SLAB_WORD_GATHER && Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS;
       if (gather) {
-        ProjectionColumnGroupScan.gatherWindow(segments, bases, aggCount, w, POOL_VALUES, gathered);
+        gatherWindow(segments, bases, aggCount, w, gathered);
       }
       if (kernel == Kernel.NUMERIC_PLAIN) {
         // The plain kernels take a word's rows at once, as the dense arm hands them the rows of a
         // word that have no group key.
         if (gather) {
-          ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, gathered, 0, presence, aggCount, w, word,
-              ALL_SUMS_EXACT);
+          foldNumericPlainWordArray(record, gathered, 0, presence, aggCount, w, word, ALL_SUMS_EXACT);
         } else if (arrays) {
-          ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, values, w << 6, presence, aggCount, w, word,
-              ALL_SUMS_EXACT);
+          foldNumericPlainWordArray(record, values, w << 6, presence, aggCount, w, word, ALL_SUMS_EXACT);
         } else {
           ProjectionColumnGroupScan.foldNumericPlainWordLane(record, segments, bases, presence, aggCount, w, word,
               ALL_SUMS_EXACT);
@@ -1314,8 +1361,7 @@ public class ProjectionFoldKernelBenchmark {
     switch (kernel) {
       case SLICED -> {
         if (arrays) {
-          ProjectionColumnGroupScan.foldSlicedWindow(record, values, presence, NO_IDS, null, null, aggCount, w, bit,
-              rowIdx, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, NO_LENGTH_TABLES, null, 0L);
+          foldArrayRow(record, values, presence, aggCount, w, bit, rowIdx, false);
         } else {
           ProjectionColumnGroupScan.foldSlicedLane(record, segments, bases, presence, NO_IDS, null, null, aggCount, w,
               bit, rowIdx, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, NO_LENGTH_TABLES, null, 0L);
@@ -1324,12 +1370,82 @@ public class ProjectionFoldKernelBenchmark {
       case NUMERIC_PLAIN -> throw new AssertionError("the plain kernels fold a word at once, in foldLeaf");
       case SUMS -> {
         if (arrays) {
-          ProjectionColumnGroupScan.foldSumsWindow(record, values, presence, aggCount, w, bit, ALL_SUMS_EXACT);
+          foldArrayRow(record, values, presence, aggCount, w, bit, rowIdx, true);
         } else {
           ProjectionColumnGroupScan.foldSumsSlicedLane(record, segments, bases, presence, aggCount, w, bit, rowIdx,
               ALL_SUMS_EXACT);
         }
       }
+    }
+  }
+
+  private static void gatherWindow(final MemorySegment[] segments, final long[] bases, final int columns,
+      final int word, final long[][] gathered) {
+    final long byteOffset = (long) word << 9;
+    for (int a = 0; a < columns; a++) {
+      MemorySegment.copy(segments[a], ValueLayout.JAVA_LONG_UNALIGNED, bases[a] + byteOffset, gathered[a], 0, 64);
+    }
+  }
+
+  private static void foldArrayRow(final long record, final long[][] values, final long[][] presence, final int columns,
+      final int word, final int bit, final int row, final boolean sumsOnly) {
+    GroupKernelLanes.increment(record, 0);
+    final int stride = sumsOnly
+        ? 2
+        : 4;
+    for (int a = 0; a < columns; a++) {
+      if ((presence[a][word] & 1L << bit) == 0L) {
+        continue;
+      }
+      final long value = values[a][row];
+      final int at = 2 + stride * a;
+      GroupKernelLanes.increment(record, at);
+      GroupKernelLanes.set(record, at + 1, Math.addExact(GroupKernelLanes.get(record, at + 1), value));
+      if (!sumsOnly) {
+        GroupKernelLanes.min(record, at + 2, value);
+        GroupKernelLanes.max(record, at + 3, value);
+      }
+    }
+  }
+
+  private static void foldNumericPlainWordArray(final long record, final long[][] values, final int first,
+      final long[][] presence, final int columns, final int word, final long rows, final long sumExactMask) {
+    GroupKernelLanes.add(record, 0, Long.bitCount(rows));
+    for (int a = 0; a < columns; a++) {
+      long present = presence[a][word] & rows;
+      if (present == 0L) {
+        continue;
+      }
+      final int at = 2 + 4 * a;
+      final int count = Long.bitCount(present);
+      GroupKernelLanes.add(record, at, count);
+      final boolean exact = NumericGroupAggTable.sumsExact(sumExactMask, a);
+      if (count == 1) {
+        final long value = values[a][first + Long.numberOfTrailingZeros(present)];
+        if (exact) {
+          GroupKernelLanes.set(record, at + 1, Math.addExact(GroupKernelLanes.get(record, at + 1), value));
+        }
+        GroupKernelLanes.min(record, at + 2, value);
+        GroupKernelLanes.max(record, at + 3, value);
+        continue;
+      }
+      long sum = GroupKernelLanes.get(record, at + 1);
+      long min = GroupKernelLanes.get(record, at + 2);
+      long max = GroupKernelLanes.get(record, at + 3);
+      for (int i = 0; i < count; i++) {
+        final long value = values[a][first + Long.numberOfTrailingZeros(present)];
+        present &= present - 1L;
+        if (exact) {
+          sum = Math.addExact(sum, value);
+        }
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+      if (exact) {
+        GroupKernelLanes.set(record, at + 1, sum);
+      }
+      GroupKernelLanes.set(record, at + 2, min);
+      GroupKernelLanes.set(record, at + 3, max);
     }
   }
 

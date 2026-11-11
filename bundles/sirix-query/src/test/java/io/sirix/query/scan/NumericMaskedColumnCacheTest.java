@@ -1,5 +1,6 @@
 package io.sirix.query.scan;
 
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.projection.NumericLane;
@@ -22,6 +23,9 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -163,6 +167,151 @@ final class NumericMaskedColumnCacheTest {
   }
 
   @Test
+  void residentViewsOutliveTheExecutorWhenCachingIsDisabledOrRefused() throws Exception {
+    for (final long bytes : new long[] {0L, 8L}) {
+      final DerivedCacheBudget allowance = withNumericShare(bytes);
+      final DerivedCacheBudget previous = DerivedCacheBudget.setForTesting(allowance);
+      try {
+        for (final boolean ownLanes : new boolean[] {false, true}) {
+          final ProjectionColumnStore store = store();
+          final ProjectionColumnStore replacement = store(1, 2, KINDS[0], 100L);
+          MaskedColumns view = null;
+          try {
+            assertNotNull(store.column(0, NO_FETCH));
+            final LaneTarget target = new LaneTarget();
+            store.columnMaskedView(0, NO_FETCH, ownLanes
+                ? KEEP
+                : null, target);
+            assertTrue(target.resident());
+            view = executorView(store, KEYS, KINDS, ownLanes);
+            assertNotNull(view);
+            assertFalse(view.isCached());
+            assertEquals(1, store.residencyPins(0));
+            store.retire();
+            assertTrue(store.columnFilled(0));
+            assertNotNull(replacement.column(0, NO_FETCH));
+            assertEquals(1L, view.longValue(0, 0, 0));
+            assertEquals(2L, view.longValue(0, 0, 1));
+            assertEquals(11L, view.recordKey(0, 1));
+            assertEquals(0L, allowance.metrics().retainedBytes());
+            view.close();
+            view.close();
+            assertEquals(0, store.residencyPins(0));
+            assertFalse(store.columnFilled(0));
+          } finally {
+            if (view != null) {
+              view.close();
+            }
+            store.retire();
+            replacement.retire();
+          }
+        }
+      } finally {
+        allowance.numeric().clear();
+        allowance.packed().clear();
+        DerivedCacheBudget.setForTesting(previous);
+      }
+    }
+  }
+
+  @Test
+  void onlyNumericAndTimestampKindsAreSnapshotEligible() {
+    assertTrue(SirixVectorizedExecutor.numericSnapshotKinds(KINDS));
+    assertTrue(SirixVectorizedExecutor.numericSnapshotKinds(new byte[] {
+        ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_TIMESTAMP}));
+    for (final byte kind : new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_DATE, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL,
+        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SEGMENT}) {
+      assertFalse(SirixVectorizedExecutor.numericSnapshotKinds(new byte[] {KINDS[0], kind}));
+    }
+  }
+
+  @Test
+  void snapshotDensityRequiresAQuarterOfRowsAndThreeQuartersOfLeaves() {
+    final ProjectionColumnStore store = store(4, 16, KINDS[0]);
+    try {
+      assertTrue(SirixVectorizedExecutor.numericSnapshotDense(store, new long[][] {{31L}, {31L}, {63L}, null}, 16));
+      assertFalse(SirixVectorizedExecutor.numericSnapshotDense(store, new long[][] {{31L}, {31L}, {31L}, null}, 15));
+      assertFalse(
+          SirixVectorizedExecutor.numericSnapshotDense(store, new long[][] {{0xFFFFL}, {0xFFFFL}, null, null}, 32));
+    } finally {
+      store.retire();
+    }
+  }
+
+  @Test
+  void sparseNumericAndStringSelectionsStayQueryLocal() throws Exception {
+    final DerivedCacheBudget previous = DerivedCacheBudget.setForTesting(budget);
+    final ProjectionColumnStore sparse = store(4, 16, KINDS[0]);
+    final ProjectionColumnStore strings = store(1, 2, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT);
+    try {
+      final long[] sparseKeys = new long[16];
+      for (int row = 0; row < sparseKeys.length; row++) {
+        sparseKeys[row] = 10L + row;
+      }
+      try (MaskedColumns numeric = executorView(sparse, sparseKeys, KINDS, true);
+          MaskedColumns text =
+              executorView(strings, KEYS, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT}, true)) {
+        assertNotNull(numeric);
+        assertNotNull(text);
+        assertFalse(numeric.isCached());
+        assertFalse(text.isCached());
+        assertEquals(1L, numeric.longValue(0, 0, 0));
+        assertEquals(0L, budget.metrics().retainedBytes());
+        assertEquals(0, budget.metrics().numeric().entries());
+      }
+    } finally {
+      sparse.retire();
+      strings.retire();
+      budget.numeric().clear();
+      DerivedCacheBudget.setForTesting(previous);
+    }
+  }
+
+  @Test
+  void denseNumericExecutorSelectionsAreCached() throws Exception {
+    final DerivedCacheBudget previous = DerivedCacheBudget.setForTesting(budget);
+    final ProjectionColumnStore store = store();
+    try {
+      try (MaskedColumns columns = executorView(store, KEYS, KINDS, true)) {
+        assertNotNull(columns);
+        assertTrue(columns.isCached());
+        assertEquals(1L, columns.longValue(0, 0, 0));
+        assertEquals(2L, columns.longValue(0, 0, 1));
+        assertEquals(1, budget.metrics().numeric().entries());
+      }
+    } finally {
+      budget.numeric().clear();
+      store.retire();
+      DerivedCacheBudget.setForTesting(previous);
+    }
+  }
+
+  private static MaskedColumns executorView(final ProjectionColumnStore store, final long[] keys, final byte[] kinds,
+      final boolean ownLanes) throws Exception {
+    final JsonResourceSession session =
+        (JsonResourceSession) Proxy.newProxyInstance(JsonResourceSession.class.getClassLoader(),
+            new Class<?>[] {JsonResourceSession.class}, (proxy, method, args) -> null);
+    final Method read =
+        SirixVectorizedExecutor.class.getDeclaredMethod("readOrCacheMaskedColumns", ProjectionColumnStore.class,
+            ColumnSegmentFetcher.class, long[].class, String[].class, int[].class, byte[].class, boolean.class);
+    read.setAccessible(true);
+    final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, 1, 1);
+    try {
+      executor.enterExecution();
+      try {
+        return (MaskedColumns) read.invoke(executor, store, NO_FETCH, keys, FIELDS, new int[] {0}, kinds, ownLanes);
+      } finally {
+        executor.leaveExecution();
+      }
+    } finally {
+      executor.close();
+    }
+  }
+
+  @Test
   void aRefusedReservationLeavesTheSelectionUncachedAndUnpinned() {
     final ProjectionColumnStore store = store();
     assertNotNull(store.column(0, NO_FETCH));
@@ -183,8 +332,8 @@ final class NumericMaskedColumnCacheTest {
     final MemorySegment slab = Allocators.getInstance().allocateSlab(64);
     assertNotNull(slab);
     final MaskedColumns view = decodeInto(store, slab);
-    view.ownSlab(slab);
-    assertThrows(IllegalStateException.class, () -> view.ownSlab(slab), "a view owns one thing");
+    view.ownResources(slab, new int[0]);
+    assertThrows(IllegalStateException.class, () -> view.ownResources(slab, new int[0]), "a view owns one thing");
     assertFalse(view.isCached());
     assertEquals(2, view.longValue(0, 0, 1));
     assertTrue(Allocators.getInstance().getSlabBytes() > processSlabBytesBefore);
@@ -303,8 +452,8 @@ final class NumericMaskedColumnCacheTest {
   @Test
   void membershipPredicatesFilterCachedMasksWithoutChangingTheEntry() {
     final ProjectionColumnStore store = store();
-    final MaskedColumns heap = view(store, store.columnMaskedView(0, NO_FETCH, KEEP));
-    assertNull(heap.slices()[0][0].lane(), "the comparison view decodes to heap arrays");
+    final MaskedColumns heap = columns(store, 1, null);
+    assertNull(heap.slices()[0][0].lane(), "the comparison fixture holds heap values");
     publish(store);
     for (final boolean anti : new boolean[] {false, true}) {
       try (MaskedColumns cached = cache.lookup(store, FIELDS, KEYS)) {
@@ -589,4 +738,30 @@ final class NumericMaskedColumnCacheTest {
     return new ProjectionColumnStore(List.of(
         new RowGroupDirectory(1, encoded.descriptor(), encoded.columnSegmentIds(), offsets, encoded.segments())));
   }
+
+  private static ProjectionColumnStore store(final int leaves, final int rows, final byte kind) {
+    return store(leaves, rows, kind, 0L);
+  }
+
+  private static ProjectionColumnStore store(final int leaves, final int rows, final byte kind,
+      final long valueOffset) {
+    final List<RowGroupDirectory> directories = new ArrayList<>(leaves);
+    for (int leaf = 0; leaf < leaves; leaf++) {
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(new byte[] {kind});
+      for (int row = 0; row < rows; row++) {
+        page.appendRow(10L + (long) leaf * rows + row, new long[] {valueOffset + row + 1L}, new boolean[1],
+            new String[] {kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+                ? "value" + row
+                : null});
+      }
+      final EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(page.serialize());
+      assertNotNull(encoded);
+      final long[] offsets = new long[encoded.columnSegmentIds().length];
+      Arrays.fill(offsets, Constants.NULL_ID_LONG);
+      directories.add(new RowGroupDirectory(leaf + 1L, encoded.descriptor(), encoded.columnSegmentIds(), offsets,
+          encoded.segments()));
+    }
+    return new ProjectionColumnStore(directories);
+  }
+
 }

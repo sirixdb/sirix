@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.node.SegmentAccess;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -40,6 +41,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * operand columns.
  */
 final class ComputedColumnLaneEquivalenceTest {
+  private final Arena derivedArena = Arena.ofConfined();
+
+  @AfterEach
+  void closeDerivedLanes() {
+    derivedArena.close();
+  }
+
+  private ColumnSlice[] evaluate(final ColumnSlice[][] operands, final int[] code, final long[] consts,
+      final long[] keepWords) {
+    return ProjectionComputedColumn.evaluate(operands, code, consts, keepWords, derivedArena.allocate(65536, 64));
+  }
+
 
   /**
    * Not a multiple of 64, so the last word is partly invalid and the gather must clamp — and its 45
@@ -98,13 +111,12 @@ final class ComputedColumnLaneEquivalenceTest {
         mixedRows += Long.bitCount(mixed);
         assertTrue(mixed != fullMask, "word " + w + " of the mixed fixture must not be full");
         if ((w & 1) == 0) {
-          assertTrue(ProjectionColumnGroupScan.gatherPays(mixed), "the mixed fixture must gather word " + w);
+          assertTrue(GroupArrayReference.gatherPays(mixed), "the mixed fixture must gather word " + w);
         } else {
           assertTrue(mixed != 0L, "word " + w + " of the mixed fixture must keep rows");
-          assertFalse(ProjectionColumnGroupScan.gatherPays(mixed),
-              "the mixed fixture must read word " + w + " per row");
+          assertFalse(GroupArrayReference.gatherPays(mixed), "the mixed fixture must read word " + w + " per row");
         }
-        assertFalse(ProjectionColumnGroupScan.gatherPays(derivedWord(sparsePresence(operands), w, operands)),
+        assertFalse(GroupArrayReference.gatherPays(derivedWord(sparsePresence(operands), w, operands)),
             "the sparse fixture must read word " + w + " per row");
         assertEquals(0L, derivedWord(nonePresent(operands), w, operands),
             "the none-present fixture must keep no row of word " + w);
@@ -113,7 +125,7 @@ final class ComputedColumnLaneEquivalenceTest {
       assertTrue(mixedRows < ROWS, "the mixed fixture must not leave the leaf fully present");
       // The LAST word of the mixed fixture is a dense one, so the gather's clamp to the leaf's 45
       // remaining rows is exercised there; the all-present fixture stages the whole leaf instead.
-      assertTrue(ProjectionColumnGroupScan.gatherPays(derivedWord(mixedPresence(operands), WORDS - 1, operands)),
+      assertTrue(GroupArrayReference.gatherPays(derivedWord(mixedPresence(operands), WORDS - 1, operands)),
           "the mixed fixture must gather the partly valid tail word, which is where the clamp shows");
     }
   }
@@ -203,7 +215,7 @@ final class ComputedColumnLaneEquivalenceTest {
         // Leaf 1 would throw if it were evaluated: no lane at all.
         two[c][1] = new ColumnSlice(ROWS, (byte) 0, 0L, 0L, presence[c], null, null, null, null, null, null, null);
       }
-      final ColumnSlice[] out = ProjectionComputedColumn.evaluate(two, MUL, NO_CONSTS, new long[] {1L});
+      final ColumnSlice[] out = evaluate(two, MUL, NO_CONSTS, new long[] {1L});
       assertEquals(2, out.length, "one derived slice per leaf");
       assertDerived(oracle(presence, program), out[0], "the kept leaf");
       assertSame(ProjectionColumnStore.prunedSlice(), out[1], "the dropped leaf is the shared rowless sentinel");
@@ -231,8 +243,7 @@ final class ComputedColumnLaneEquivalenceTest {
             }
             operands[c][0] = new ColumnSlice(64, (byte) 0, 0L, 0L, presence[c], new NumericLane(slab, 0L, 64));
           }
-          assertThrows(ArithmeticException.class,
-              () -> ProjectionComputedColumn.evaluate(operands, program.code(), program.consts(), null),
+          assertThrows(ArithmeticException.class, () -> evaluate(operands, program.code(), program.consts(), null),
               "an exact " + program + " that overflows must decline, not wrap, at " + bits + " rows per word");
         }
       }
@@ -245,24 +256,20 @@ final class ComputedColumnLaneEquivalenceTest {
     final long[][] presence = allPresent(2);
     try (Arena arena = Arena.ofConfined()) {
       final ColumnSlice[][] operands = slabOperands(arena, presence, 2);
-      assertThrows(
-          IllegalArgumentException.class, () -> ProjectionComputedColumn.evaluate(operands,
-              new int[] {0, ProjectionIndexByteScan.COMPUTED_OP_MUL}, NO_CONSTS, null),
-          "a program that underflows its stack");
       assertThrows(IllegalArgumentException.class,
-          () -> ProjectionComputedColumn.evaluate(operands, new int[] {0, 1}, NO_CONSTS, null),
+          () -> evaluate(operands, new int[] {0, ProjectionIndexByteScan.COMPUTED_OP_MUL}, NO_CONSTS, null),
+          "a program that underflows its stack");
+      assertThrows(IllegalArgumentException.class, () -> evaluate(operands, new int[] {0, 1}, NO_CONSTS, null),
           "a program leaving two values");
       assertThrows(IllegalArgumentException.class,
-          () -> ProjectionComputedColumn.evaluate(new ColumnSlice[][] {operands[0]}, MUL, NO_CONSTS, null),
+          () -> evaluate(new ColumnSlice[][] {operands[0]}, MUL, NO_CONSTS, null),
           "a program pushing an operand that was not supplied");
       final ColumnSlice[][] shorter = {operands[0], {shortSlice(arena, presence[1])}};
-      assertThrows(IllegalArgumentException.class,
-          () -> ProjectionComputedColumn.evaluate(shorter, MUL, NO_CONSTS, null),
+      assertThrows(IllegalArgumentException.class, () -> evaluate(shorter, MUL, NO_CONSTS, null),
           "operands disagreeing on the row count of a leaf");
       final ColumnSlice[][] laneless = {operands[0],
           {new ColumnSlice(ROWS, (byte) 0, 0L, 0L, presence[1], null, null, null, null, null, null, null)}};
-      assertThrows(IllegalArgumentException.class,
-          () -> ProjectionComputedColumn.evaluate(laneless, MUL, NO_CONSTS, null),
+      assertThrows(IllegalArgumentException.class, () -> evaluate(laneless, MUL, NO_CONSTS, null),
           "an operand that is not a long-lane column");
     }
   }
@@ -398,7 +405,7 @@ final class ComputedColumnLaneEquivalenceTest {
   }
 
   private ColumnSlice evaluateOne(final ColumnSlice[][] operands, final Program program) {
-    final ColumnSlice[] out = ProjectionComputedColumn.evaluate(operands, program.code(), program.consts(), null);
+    final ColumnSlice[] out = evaluate(operands, program.code(), program.consts(), null);
     assertEquals(1, out.length, "one derived slice per leaf");
     return out[0];
   }
@@ -452,8 +459,8 @@ final class ComputedColumnLaneEquivalenceTest {
   private static void assertDerived(final ColumnSlice expected, final ColumnSlice actual, final String what) {
     assertEquals(expected.rowCount(), actual.rowCount(), what + ": row count");
     assertArrayEquals(expected.presenceWords(), actual.presenceWords(), what + ": derived presence");
-    final long[] actualValues = actual.heapNumericValues();
-    assertNotNull(actualValues, what + ": the derived column is a heap value array");
+    final long[] actualValues = actual.numericValues();
+    assertNotNull(actual.lane(), what + ": the derived column owns a numeric lane");
     assertArrayEquals(expected.heapNumericValues(), actualValues, what + ": derived values");
     assertEquals(expected.min(), actual.min(), what + ": zone-map min");
     assertEquals(expected.max(), actual.max(), what + ": zone-map max");

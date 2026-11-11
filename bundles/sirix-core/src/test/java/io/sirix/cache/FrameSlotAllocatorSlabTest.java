@@ -256,9 +256,9 @@ final class FrameSlotAllocatorSlabTest {
 
   @Test
   @ResourceLock(PAGE_PREPARATION_LOCK)
-  void aFreshSlabIsPopulatedAndOnlyALargeOneIsAdvisedHugePages() throws IOException {
+  void freshSlabsOfEverySizeArePopulatedWithoutHugePageAdvice() throws IOException {
     assumeLinuxWithPopulate();
-    final boolean[] previous = FrameSlotAllocator.setSlabPagePreparationForTesting(true, true);
+    final boolean previous = FrameSlotAllocator.setSlabPagePreparationForTesting(true);
     final FrameSlotAllocator allocator = new FrameSlotAllocator(PAGE_BUDGET);
     try {
       final MemorySegment large = allocator.allocateSlab(4L << 20);
@@ -266,8 +266,7 @@ final class FrameSlotAllocatorSlabTest {
       final Map<String, String> largeMapping = smapsOf(large.address());
       assertTrue(kilobytes(largeMapping, "Rss") >= 4096,
           "a populated slab is resident before its first write: " + largeMapping);
-      assertTrue(hasFlag(largeMapping, "hg"),
-          "a slab of 2 MiB or more carries the huge-page advice: " + largeMapping.get("VmFlags"));
+      assertFalse(hasFlag(largeMapping, "hg"));
       assertEquals(4L << 20, allocator.getPopulatedSlabBytes());
 
       final MemorySegment small = allocator.allocateSlab(64L << 10);
@@ -280,20 +279,8 @@ final class FrameSlotAllocatorSlabTest {
       assertTrue(allocator.releaseSlab(small));
       assertTrue(allocator.releaseSlab(large));
     } finally {
-      FrameSlotAllocator.setSlabPagePreparationForTesting(previous[0], previous[1]);
+      FrameSlotAllocator.setSlabPagePreparationForTesting(previous);
       allocator.shutdown();
-    }
-  }
-
-  @Test
-  @ResourceLock(PAGE_PREPARATION_LOCK)
-  void theDefaultPopulatesFreshSlabsWithoutHugePageAdvice() {
-    final boolean[] defaults = FrameSlotAllocator.setSlabPagePreparationForTesting(true, true);
-    try {
-      assertTrue(defaults[0], "fresh slabs are populated by default");
-      assertFalse(defaults[1], "huge-page advice is opt-in: synchronous compaction stalls measured");
-    } finally {
-      FrameSlotAllocator.setSlabPagePreparationForTesting(defaults[0], defaults[1]);
     }
   }
 
@@ -301,7 +288,7 @@ final class FrameSlotAllocatorSlabTest {
   @ResourceLock(PAGE_PREPARATION_LOCK)
   void aRecycledSlabIsNotPopulatedAgain() {
     assumeLinuxWithPopulate();
-    final boolean[] previous = FrameSlotAllocator.setSlabPagePreparationForTesting(true, true);
+    final boolean previous = FrameSlotAllocator.setSlabPagePreparationForTesting(true);
     final FrameSlotAllocator allocator = new FrameSlotAllocator(PAGE_BUDGET);
     try {
       final MemorySegment first = allocator.allocateSlab(1L << 20);
@@ -315,7 +302,7 @@ final class FrameSlotAllocatorSlabTest {
       assertEquals(1L << 20, allocator.getPopulatedSlabBytes(), "resident pages are not populated twice");
       assertTrue(allocator.releaseSlab(second));
     } finally {
-      FrameSlotAllocator.setSlabPagePreparationForTesting(previous[0], previous[1]);
+      FrameSlotAllocator.setSlabPagePreparationForTesting(previous);
       allocator.shutdown();
     }
   }
@@ -324,7 +311,7 @@ final class FrameSlotAllocatorSlabTest {
   @ResourceLock(PAGE_PREPARATION_LOCK)
   void pagePreparationCanBeSwitchedOff() throws IOException {
     assumeLinuxWithPopulate();
-    final boolean[] previous = FrameSlotAllocator.setSlabPagePreparationForTesting(false, false);
+    final boolean previous = FrameSlotAllocator.setSlabPagePreparationForTesting(false);
     final FrameSlotAllocator allocator = new FrameSlotAllocator(PAGE_BUDGET);
     try {
       final MemorySegment slab = allocator.allocateSlab(4L << 20);
@@ -333,7 +320,7 @@ final class FrameSlotAllocatorSlabTest {
       assertFalse(hasFlag(smapsOf(slab.address()), "hg"));
       assertTrue(allocator.releaseSlab(slab));
     } finally {
-      FrameSlotAllocator.setSlabPagePreparationForTesting(previous[0], previous[1]);
+      FrameSlotAllocator.setSlabPagePreparationForTesting(previous);
       allocator.shutdown();
     }
   }

@@ -4,6 +4,9 @@
 package io.sirix.index.projection;
 
 import io.sirix.cache.FrameSlotAllocator;
+import io.sirix.node.SegmentAccess;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -22,8 +25,11 @@ final class NativeGroupMemorySmokeTest {
     final FrameSlotAllocator allocator = new FrameSlotAllocator(64L << 20);
     GroupBuffer last = null;
     try {
-      try (GroupWorkspace workspace = GroupWorkspace.forScan(allocator)) {
-        final long[][] values = {{7L}};
+      try (GroupWorkspace workspace = GroupWorkspace.forScan(allocator); Arena arena = Arena.ofConfined()) {
+        final MemorySegment lane = arena.allocate(Long.BYTES, Long.BYTES);
+        SegmentAccess.putLong(lane, 0L, 7L);
+        final MemorySegment[] values = {lane};
+        final long[] bases = {0L};
         final long[][] presence = {{1L}};
         for (final boolean dense : new boolean[] {false, true}) {
           final NumericGroupAggTable table = new NumericGroupAggTable(1, 16, false, -1L).attachWorkspace(workspace);
@@ -36,7 +42,7 @@ final class NativeGroupMemorySmokeTest {
               final long record = (round & 1) == 0
                   ? table.acquireAccumulator(key, key, 1, 4)
                   : table.accumulatorAt(table.acquire(key, key), 1, 4);
-              ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, values, 0, presence, 1, 0, 1L, -1L);
+              ProjectionColumnGroupScan.foldNumericPlainWordLane(record, values, bases, presence, 1, 0, 1L, -1L);
             }
           }
           assertTrue(table.rehashes() > 0);

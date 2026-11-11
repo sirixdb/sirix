@@ -36,8 +36,7 @@ import static java.util.Objects.requireNonNull;
  * evicted (and its lane's buffer lent to someone else) no earlier than the fill after next; a
  * caller that reads a slice after releasing its range breaks that contract. {@link #close()}
  * returns the windows still cached, so whoever creates one of these closes it, also when its pass
- * is abandoned. The one-leaf emission shape keeps decoding into heap arrays: its consumers resolve
- * winners scattered across the store in no window order.
+ * is abandoned.
  * </p>
  */
 public final class WindowedSliceArrays implements AutoCloseable {
@@ -45,7 +44,7 @@ public final class WindowedSliceArrays implements AutoCloseable {
   private final int leafCount;
   /**
    * Longest fill range an access with borrowed lanes can serve without evicting a slice of the range
-   * itself; unbounded when it decodes into heap arrays.
+   * itself.
    */
   private final int maxFillLeaves;
   private final Int2ObjectOpenHashMap<ColumnSlice[]> arrays = new Int2ObjectOpenHashMap<>();
@@ -60,7 +59,7 @@ public final class WindowedSliceArrays implements AutoCloseable {
   public WindowedSliceArrays(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
     this(store, fetcher, keepWords, ProjectionColumnStore.LEAF_ACCESS_WINDOW,
-        2 * ProjectionColumnStore.LEAF_ACCESS_WINDOW, true);
+        2 * ProjectionColumnStore.LEAF_ACCESS_WINDOW);
   }
 
   /**
@@ -71,26 +70,13 @@ public final class WindowedSliceArrays implements AutoCloseable {
   public WindowedSliceArrays(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
       final int windowLeaves, final int cacheLeaves) {
-    this(store, fetcher, keepWords, windowLeaves, cacheLeaves, false);
-  }
-
-  /**
-   * @param borrowLanes decode each window's long lanes into borrowed allocator scratch — only for the
-   *        fill / kernel / release discipline described on the class
-   */
-  public WindowedSliceArrays(final ProjectionColumnStore store,
-      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
-      final int windowLeaves, final int cacheLeaves, final boolean borrowLanes) {
     requireNonNull(store, "store");
-    this.access =
-        store.windowedLeafAccess(requireNonNull(fetcher, "fetcher"), keepWords, windowLeaves, cacheLeaves, borrowLanes);
+    this.access = store.windowedLeafAccess(requireNonNull(fetcher, "fetcher"), keepWords, windowLeaves, cacheLeaves);
     this.leafCount = store.rowGroupCount();
     // A range of L leaves touches at most ceil((L - 1) / window) + 1 windows; the cache must hold them
     // all, or filling the range's tail would evict its head (and return its lanes) before the kernel
     // runs.
-    this.maxFillLeaves = borrowLanes
-        ? cacheLeaves - windowLeaves + 1
-        : Integer.MAX_VALUE;
+    this.maxFillLeaves = cacheLeaves - windowLeaves + 1;
   }
 
   private ColumnSlice[] arrayFor(final int col) {

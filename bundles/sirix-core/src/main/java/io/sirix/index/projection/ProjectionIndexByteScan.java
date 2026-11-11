@@ -189,7 +189,7 @@ public final class ProjectionIndexByteScan {
     // String decode per distinct group value per thread per scan.
     // 64-bit hash collision probability at 10M distinct values ~10⁻¹⁹ —
     // negligible for analytical groupby cardinalities.
-    it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> stringIntern;
+    Long2ObjectOpenHashMap<String> stringIntern;
     // iter#10 dense group-by remap: per-leaf dictId -> canonId.
     // Pre-allocated to 64, grown on demand for leaves with larger dicts.
     int[] dictRemap;
@@ -561,7 +561,7 @@ public final class ProjectionIndexByteScan {
         s.dictCache[i] = null;
     }
     if (s.stringIntern == null) {
-      s.stringIntern = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>(32);
+      s.stringIntern = new Long2ObjectOpenHashMap<>(32);
     }
     final String[] dictCache = s.dictCache;
     final int[] dictByteOff = s.dictByteOff;
@@ -980,8 +980,7 @@ public final class ProjectionIndexByteScan {
     }
     final int m = groupColumns.length;
     final ScanScratch s = SCRATCH.get();
-    final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> cellCache =
-        new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>(64);
+    final Long2ObjectOpenHashMap<String> cellCache = new Long2ObjectOpenHashMap<>(64);
     final int[] dictSizes = new int[m];
     final int[] lenHeaderOffs = new int[m];
     final int[] idsOffs = new int[m];
@@ -1365,11 +1364,11 @@ public final class ProjectionIndexByteScan {
       s.dictByteOff = new int[64];
     }
     if (s.stringIntern == null) {
-      s.stringIntern = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>(32);
+      s.stringIntern = new Long2ObjectOpenHashMap<>(32);
     }
     String[] dictCache = s.dictCache;
     int[] dictByteOff = s.dictByteOff;
-    final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> intern = s.stringIntern;
+    final Long2ObjectOpenHashMap<String> intern = s.stringIntern;
     for (final byte[] payload : rowGroupPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
@@ -1480,10 +1479,6 @@ public final class ProjectionIndexByteScan {
     return acc;
   }
 
-  /**
-   * Fresh per-group accumulator with fold-ready min/max seeds, on the heap: the form of the map-based
-   * kernels, which keep one array per group.
-   */
   public static long[] newGroupAggAcc(final int aggColumns, final long firstSeen) {
     final long[] acc = new long[groupAggSlots(aggColumns)];
     acc[1] = firstSeen;
@@ -1503,9 +1498,9 @@ public final class ProjectionIndexByteScan {
    * {@code missingAcc} (the null-key group) instead of a string group. Accumulator layout:
    * {@link #groupAggSlots}. Dict interning mirrors {@link #conjunctiveCountByGroup}.
    */
-  public static void conjunctiveAggregateByGroup(final List<byte[]> rowGroupPayloads,
+  public static void conjunctiveAggregateByGroup(final GroupWorkspace workspace, final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
-      final Object2ObjectOpenHashMap<String, long[]> out, final long[] missingAcc, final int leafIndexBase) {
+      final Object2ObjectOpenHashMap<String, GroupBuffer> out, final GroupBuffer missingAcc, final int leafIndexBase) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -1515,11 +1510,11 @@ public final class ProjectionIndexByteScan {
       s.dictByteOff = new int[64];
     }
     if (s.stringIntern == null) {
-      s.stringIntern = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>(32);
+      s.stringIntern = new Long2ObjectOpenHashMap<>(32);
     }
     String[] dictCache = s.dictCache;
     int[] dictByteOff = s.dictByteOff;
-    final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> intern = s.stringIntern;
+    final Long2ObjectOpenHashMap<String> intern = s.stringIntern;
     for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
       final byte[] payload = rowGroupPayloads.get(leaf);
       final int columnCount = columnCountOf(payload);
@@ -1595,13 +1590,13 @@ public final class ProjectionIndexByteScan {
           final int rowIdx = (w << 6) + bit;
           if (rowIdx >= rowCount)
             break;
-          final long[] acc;
+          final GroupBuffer acc;
           if (groupPresOff >= 0 && (groupPresWord & (1L << bit)) == 0L) {
             acc = missingAcc;
-            if (acc[0] == 0) {
+            if (GroupLanes.get(acc, 0) == 0) {
               // First missing-group row of this chunk — record its ordinal so the
               // null-key group emits at its document first-appearance position.
-              acc[1] = leafOrdinalBase | rowIdx;
+              GroupLanes.set(acc, 1, leafOrdinalBase | rowIdx);
             }
           } else {
             final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
@@ -1617,28 +1612,31 @@ public final class ProjectionIndexByteScan {
               }
               dictCache[dictId] = gv;
             }
-            long[] existing = out.get(gv);
+            GroupBuffer existing = out.get(gv);
             if (existing == null) {
-              existing = newGroupAggAcc(aggColumns.length, leafOrdinalBase | rowIdx);
+              existing = newGroupAggAcc(workspace, aggColumns.length, leafOrdinalBase | rowIdx);
               out.put(gv, existing);
             }
             acc = existing;
           }
-          acc[0]++;
-          for (int a = 0; a < aggColumns.length; a++) {
-            if (aggPresOff[a] >= 0 && (getLongLE(payload, aggPresOff[a] + w * 8) & (1L << bit)) == 0L) {
-              continue;
+          final long record = acc.accumulator(0, aggColumns.length, 4);
+          try {
+            GroupKernelLanes.increment(record, 0);
+            for (int a = 0; a < aggColumns.length; a++) {
+              if (aggPresOff[a] >= 0 && (getLongLE(payload, aggPresOff[a] + w * 8) & (1L << bit)) == 0L) {
+                continue;
+              }
+              final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+              final int base = 2 + 4 * a;
+              GroupKernelLanes.increment(record, base);
+              // Exact sum or DECLINE: the interpreter promotes an overflowing xs:integer
+              // sum to exact decimal — a wrapped long would silently serve a wrong total.
+              GroupKernelLanes.set(record, base + 1, Math.addExact(GroupKernelLanes.get(record, base + 1), v));
+              GroupKernelLanes.min(record, base + 2, v);
+              GroupKernelLanes.max(record, base + 3, v);
             }
-            final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
-            final int base = 2 + 4 * a;
-            acc[base]++;
-            // Exact sum or DECLINE: the interpreter promotes an overflowing xs:integer
-            // sum to exact decimal — a wrapped long would silently serve a wrong total.
-            acc[base + 1] = Math.addExact(acc[base + 1], v);
-            if (v < acc[base + 2])
-              acc[base + 2] = v;
-            if (v > acc[base + 3])
-              acc[base + 3] = v;
+          } finally {
+            Reference.reachabilityFence(acc);
           }
         }
       }
@@ -2104,9 +2102,10 @@ public final class ProjectionIndexByteScan {
    * @throws ArithmeticException on a per-group sum overflow — a DECLINE
    * @throws IllegalStateException on kind drift or an unreadable presence tail — a DECLINE
    */
-  public static void conjunctiveAggregateByGroupNumeric(final List<byte[]> rowGroupPayloads,
-      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
-      final Long2ObjectOpenHashMap<long[]> out, final long[] missingAcc, final int leafIndexBase) {
+  public static void conjunctiveAggregateByGroupNumeric(final GroupWorkspace workspace,
+      final List<byte[]> rowGroupPayloads, final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int groupColumn, final int[] aggColumns, final Long2ObjectOpenHashMap<GroupBuffer> out,
+      final GroupBuffer missingAcc, final int leafIndexBase) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2154,40 +2153,41 @@ public final class ProjectionIndexByteScan {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
           final int rowIdx = rowBase + bit;
-          final long[] acc;
+          final GroupBuffer acc;
           if ((groupPresWord & 1L << bit) == 0L) {
             acc = missingAcc;
-            if (acc[0] == 0) {
+            if (GroupLanes.get(acc, 0) == 0) {
               // First missing-group row of this chunk — record its ordinal so the
               // null-key group emits at its document first-appearance position.
-              acc[1] = leafOrdinalBase | rowIdx;
+              GroupLanes.set(acc, 1, leafOrdinalBase | rowIdx);
             }
           } else {
             final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
-            long[] existing = out.get(gv);
+            GroupBuffer existing = out.get(gv);
             if (existing == null) {
-              existing = newGroupAggAcc(aggCount, leafOrdinalBase | rowIdx);
+              existing = newGroupAggAcc(workspace, aggCount, leafOrdinalBase | rowIdx);
               out.put(gv, existing);
             }
             acc = existing;
           }
-          acc[0]++;
-          for (int a = 0; a < aggCount; a++) {
-            if ((getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) == 0L) {
-              continue;
+          final long record = acc.accumulator(0, aggColumns.length, 4);
+          try {
+            GroupKernelLanes.increment(record, 0);
+            for (int a = 0; a < aggCount; a++) {
+              if ((getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) == 0L) {
+                continue;
+              }
+              final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+              final int base = 2 + 4 * a;
+              GroupKernelLanes.increment(record, base);
+              // Exact sum or DECLINE: the interpreter promotes an overflowing xs:integer
+              // sum to exact decimal — a wrapped long would silently serve a wrong total.
+              GroupKernelLanes.set(record, base + 1, Math.addExact(GroupKernelLanes.get(record, base + 1), v));
+              GroupKernelLanes.min(record, base + 2, v);
+              GroupKernelLanes.max(record, base + 3, v);
             }
-            final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
-            final int base = 2 + 4 * a;
-            acc[base]++;
-            // Exact sum or DECLINE: the interpreter promotes an overflowing xs:integer
-            // sum to exact decimal — a wrapped long would silently serve a wrong total.
-            acc[base + 1] = Math.addExact(acc[base + 1], v);
-            if (v < acc[base + 2]) {
-              acc[base + 2] = v;
-            }
-            if (v > acc[base + 3]) {
-              acc[base + 3] = v;
-            }
+          } finally {
+            Reference.reachabilityFence(acc);
           }
         }
       }
@@ -5115,9 +5115,10 @@ public final class ProjectionIndexByteScan {
    * through a per-leaf combo cache, so the steady-state row cost is one packed-long hash probe — no
    * string work, no allocation.
    */
-  public static void conjunctiveAggregateByGroupMulti(final List<byte[]> rowGroupPayloads,
-      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
-      final Object2ObjectOpenHashMap<GroupKey, long[]> out, final int leafIndexBase) {
+  public static void conjunctiveAggregateByGroupMulti(final GroupWorkspace workspace,
+      final List<byte[]> rowGroupPayloads, final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int[] groupColumns, final int[] aggColumns, final Object2ObjectOpenHashMap<GroupKey, GroupBuffer> out,
+      final int leafIndexBase) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -5127,9 +5128,9 @@ public final class ProjectionIndexByteScan {
           "groupColumns must have 2.." + MAX_GROUP_COLUMNS + " entries, got " + keyCount);
     }
     final ScanScratch s = SCRATCH.get();
-    // Per-leaf combo cache: packed group ids -> the SAME long[] accumulator instance
+    // Per-leaf combo cache: packed group ids -> the same accumulator buffer
     // stored under the composite key in {@code out}. Cleared per leaf (ids are per-leaf).
-    final Long2ObjectOpenHashMap<long[]> comboCache = new Long2ObjectOpenHashMap<>(64);
+    final Long2ObjectOpenHashMap<GroupBuffer> comboCache = new Long2ObjectOpenHashMap<>(64);
     final String[][] dicts = new String[keyCount][];
     final int[] groupIdsOff = new int[keyCount];
     final int[] groupPresOff = new int[keyCount];
@@ -5228,7 +5229,7 @@ public final class ProjectionIndexByteScan {
             }
             packed = (packed << 11) | comp;
           }
-          long[] acc = comboCache.get(packed);
+          GroupBuffer acc = comboCache.get(packed);
           if (acc == null) {
             long p = packed;
             for (int g = keyCount - 1; g >= 0; g--) {
@@ -5241,26 +5242,29 @@ public final class ProjectionIndexByteScan {
             final GroupKey key = new GroupKey(keyScratch.clone());
             acc = out.get(key);
             if (acc == null) {
-              acc = newGroupAggAcc(aggColumns.length, leafOrdinalBase | rowIdx);
+              acc = newGroupAggAcc(workspace, aggColumns.length, leafOrdinalBase | rowIdx);
               out.put(key, acc);
             }
             comboCache.put(packed, acc);
           }
-          acc[0]++;
-          for (int a = 0; a < aggColumns.length; a++) {
-            if (aggPresOff[a] >= 0 && (getLongLE(payload, aggPresOff[a] + w * 8) & (1L << bit)) == 0L) {
-              continue;
+          final long record = acc.accumulator(0, aggColumns.length, 4);
+          try {
+            GroupKernelLanes.increment(record, 0);
+            for (int a = 0; a < aggColumns.length; a++) {
+              if (aggPresOff[a] >= 0 && (getLongLE(payload, aggPresOff[a] + w * 8) & (1L << bit)) == 0L) {
+                continue;
+              }
+              final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+              final int base = 2 + 4 * a;
+              GroupKernelLanes.increment(record, base);
+              // Exact sum or DECLINE: the interpreter promotes an overflowing xs:integer
+              // sum to exact decimal — a wrapped long would silently serve a wrong total.
+              GroupKernelLanes.set(record, base + 1, Math.addExact(GroupKernelLanes.get(record, base + 1), v));
+              GroupKernelLanes.min(record, base + 2, v);
+              GroupKernelLanes.max(record, base + 3, v);
             }
-            final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
-            final int base = 2 + 4 * a;
-            acc[base]++;
-            // Exact sum or DECLINE: the interpreter promotes an overflowing xs:integer
-            // sum to exact decimal — a wrapped long would silently serve a wrong total.
-            acc[base + 1] = Math.addExact(acc[base + 1], v);
-            if (v < acc[base + 2])
-              acc[base + 2] = v;
-            if (v > acc[base + 3])
-              acc[base + 3] = v;
+          } finally {
+            Reference.reachabilityFence(acc);
           }
         }
       }

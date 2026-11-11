@@ -14,6 +14,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
@@ -104,6 +107,57 @@ final class ColumnSlabLifetimeTest {
     ProjectionColumnStore.setResidencyHeadroomForTesting(true);
     HeapHeadroom.setHeadroomForTesting(Math.max(0L, bytes) * 4L);
     assertEquals(bytes, ProjectionColumnStore.sampleHeadroomShare(), "the share is a quarter of the headroom");
+  }
+
+  @Test
+  void allocatorRefusalDeclinesFullAndMaskedNumericFillsWithoutHeapFallback() {
+    final Fixture full = build(2, 200);
+    final Fixture masked = build(2, 200);
+    final MemorySegmentAllocator refusing = mock(MemorySegmentAllocator.class);
+    final long declined = ProjectionColumnStore.slabFillsDeclinedCount();
+    try (MockedStatic<Allocators> allocators = mockStatic(Allocators.class)) {
+      allocators.when(Allocators::getInstance).thenReturn(refusing);
+      assertThrows(ProjectionColumnStore.FillBudgetExceededException.class,
+          () -> full.store().column(0, full.fetcher()));
+      assertThrows(ProjectionColumnStore.FillBudgetExceededException.class,
+          () -> masked.store().columnMasked(0, masked.fetcher(), new long[] {1L}));
+    }
+    assertFalse(full.store().columnFilled(0));
+    assertFalse(masked.store().columnFilled(0));
+    assertFalse(full.store().columnKnownCorrupt(0));
+    assertFalse(masked.store().columnKnownCorrupt(0));
+    assertEquals(declined + 2, ProjectionColumnStore.slabFillsDeclinedCount());
+    assertEquals(0L, slabDelta());
+  }
+
+  @Test
+  void maskedNumericSlabStaysLiveUntilEveryOverlappingScopeCloses() {
+    final Fixture f = build(3, 200);
+    final long[] keep = {1L};
+    final ProjectionResidencyScope first = ProjectionResidencyScope.open();
+    final ProjectionResidencyScope second = ProjectionResidencyScope.open();
+    try {
+      final ColumnSlice[] slices = f.store().columnMasked(0, f.fetcher(), keep);
+      assertFalse(f.store().columnFilled(0));
+      assertNotNull(slices[0].lane());
+      assertNull(slices[0].heapNumericValues());
+      assertEquals(0, slices[1].rowCount());
+      assertEquals(0, slices[2].rowCount());
+      final long nativeBytes = slabDelta();
+      assertTrue(nativeBytes > 0L);
+      final long[] expected = heapDecode(f, 0, 0).numericValues();
+      first.close();
+      assertEquals(nativeBytes, slabDelta());
+      for (int row = 0; row < slices[0].rowCount(); row++) {
+        assertEquals(expected[row], SegmentAccess.getLong(slices[0].laneSegment(), slices[0].laneBase() + 8L * row));
+      }
+      second.close();
+      assertEquals(0L, slabDelta());
+    } finally {
+      first.close();
+      second.close();
+      f.store().retire();
+    }
   }
 
   @Test
@@ -338,9 +392,13 @@ final class ColumnSlabLifetimeTest {
           assertEquals(heap[row], SegmentAccess.getLong(slab, bases[leaf] + 8L * row));
         }
       }
-      final ColumnSlice[] heapView = f.store().columnMaskedView(0, f.fetcher(), keep, new LaneTarget());
-      assertNotNull(heapView[0].heapNumericValues(), "without memory the masked fill decodes to the heap");
-      assertNull(heapView[0].lane());
+      try (ProjectionResidencyScope scope = ProjectionResidencyScope.open()) {
+        final ColumnSlice[] nativeView = f.store().columnMaskedView(0, f.fetcher(), keep, new LaneTarget());
+        assertNotNull(scope);
+        assertNull(nativeView[0].heapNumericValues());
+        assertNotNull(nativeView[0].lane());
+        assertEquals(0, nativeView[1].rowCount());
+      }
       f.store().column(0, f.fetcher());
       final LaneTarget resident = new LaneTarget(slab, bases);
       final ColumnSlice[] pruned = f.store().columnMaskedView(0, f.fetcher(), keep, resident);

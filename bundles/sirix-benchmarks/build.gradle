@@ -287,3 +287,13 @@ if (project.hasProperty('enterpriseCoreJar')) {
         jmhImplementation 'org.jctools:jctools-core:4.0.7'
     }
 }
+
+
+tasks.register('verifyProjectionFoldKernels', JavaExec) {
+    group = 'verification'
+    description = 'Check projection fold benchmark arms against scalar aggregates without timing.'
+    dependsOn 'jmhClasses'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'io.sirix.index.projection.ProjectionFoldKernelBenchmark'
+    jvmArgs = ['--enable-preview', '--add-modules=jdk.incubator.vector', '--enable-native-access=ALL-UNNAMED']
+}

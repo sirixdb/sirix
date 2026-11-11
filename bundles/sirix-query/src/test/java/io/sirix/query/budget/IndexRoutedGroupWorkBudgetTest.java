@@ -807,17 +807,17 @@ final class IndexRoutedGroupWorkBudgetTest {
         return out;
       }).when(observedFetcher).fetchAll(any());
       // Positive control: a real BODY fetch is visible even when the work counter misses it.
-      columns.windowedLeafAccess(observedFetcher, null, 1).slice(handle.columnOf("cost"), 1);
+      try (var access = columns.windowedLeafAccess(observedFetcher, null, 1)) {
+        access.slice(handle.columnOf("cost"), 1);
+      }
       assertEquals(1, bodyRequests.get());
       final var observedColumns = spy(columns);
       final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
       doReturn(observedColumns).when(observedHandle).columnStoreOrNull();
       // Static mocks are caller-thread scoped; bind the probe to worker accesses as well.
       doAnswer(invocation -> columns.windowedLeafAccess(observedFetcher, invocation.getArgument(1),
-          invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(4))).when(observedColumns)
-                                                                                           .windowedLeafAccess(any(),
-                                                                                               any(), anyInt(),
-                                                                                               anyInt(), anyBoolean());
+          invocation.getArgument(2), invocation.getArgument(3))).when(observedColumns)
+                                                                .windowedLeafAccess(any(), any(), anyInt(), anyInt());
       final String source = "jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
           + "xs:dateTime('2024-06-01T00:00:00Z'))";
       final String query = "for $c in " + source + " let $grade := $c.grade group by $grade"
@@ -901,7 +901,7 @@ final class IndexRoutedGroupWorkBudgetTest {
               .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusals do not count as defects")
               .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "neither retry reads a body");
           verify(refusing).columnMaskedView(anyInt(), any(), any());
-          verify(refusing, never()).windowedLeafAccess(any(), any(), anyInt(), anyInt(), anyBoolean());
+          verify(refusing, never()).windowedLeafAccess(any(), any(), anyInt(), anyInt());
         }
         assertFalse(handle.payloadsMaterialized());
         assertEquals(0, handle.slicedRouteTick());

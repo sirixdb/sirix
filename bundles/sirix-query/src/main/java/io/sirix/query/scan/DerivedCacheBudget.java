@@ -134,8 +134,8 @@ public final class DerivedCacheBudget {
 
   /**
    * The off-heap column lanes of the projection stores: slab bytes the allocator currently commits,
-   * fills the allocator refused (decoded to the heap instead), and lanes a not-yet-converted consumer
-   * copied to the heap ({@link NumericLane#values()}).
+   * fills the allocator refused, and lanes a not-yet-converted consumer copied to the heap
+   * ({@link NumericLane#values()}).
    */
   public record LaneMetrics(long slabBytes, long fillsDeclined, long materializedLanes, long materializedBytes) {
   }
@@ -325,7 +325,15 @@ public final class DerivedCacheBudget {
         }
         inFlight += bytes;
       }
-      final MemorySegment slab = budget.allocator.allocateSlab(bytes);
+      final MemorySegment slab;
+      try {
+        slab = budget.allocator.allocateSlab(bytes);
+      } catch (final RuntimeException | Error failure) {
+        synchronized (this) {
+          inFlight -= bytes;
+        }
+        throw failure;
+      }
       if (slab == null) {
         synchronized (this) {
           inFlight -= bytes;

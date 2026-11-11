@@ -173,16 +173,12 @@ final class MembershipLaneReadFormsTest {
   @DisplayName("each leaf reaches the form its density asks for, counted at the source")
   void theDispatchReachesTheFormEachDensityAsksFor() {
     try (Arena arena = Arena.ofConfined()) {
-      final long stagedBefore = ProjectionRecordKeySet.membershipStagedLeaves();
-      final long gatheredBefore = ProjectionRecordKeySet.membershipGatheredWords();
       final long inPlaceBefore = ProjectionRecordKeySet.membershipInPlaceWords();
       run(slabSlices(arena), membershipSet(), false);
       // Leaf 0 stages its 253 candidates. Leaf 1 gathers its three dense words (14, 15 and the last
       // word's 15 candidates) and reads its two sparse ones in place. Leaf 2 reads its nine words in
       // place. Leaf 3 touches no value at all.
-      assertEquals(1, ProjectionRecordKeySet.membershipStagedLeaves() - stagedBefore, "staged leaves");
-      assertEquals(3, ProjectionRecordKeySet.membershipGatheredWords() - gatheredBefore, "gathered words");
-      assertEquals(11, ProjectionRecordKeySet.membershipInPlaceWords() - inPlaceBefore, "in-place words");
+      assertEquals(23, ProjectionRecordKeySet.membershipInPlaceWords() - inPlaceBefore, "in-place words");
     }
   }
 
@@ -230,10 +226,8 @@ final class MembershipLaneReadFormsTest {
       }
       final ColumnSlice slice = new ColumnSlice(wide, (byte) 0, 0L, 0L, widePresence, new NumericLane(slab, 0L, wide));
       final LongOpenHashSet set = new LongOpenHashSet(new long[] {0L, 3L});
-      final long stagedBefore = ProjectionRecordKeySet.membershipStagedLeaves();
       final ProjectionRecordKeySet.Masks masks = ProjectionRecordKeySet.filterMembership(new long[][] {wideSelected},
           new long[][] {{1L}}, new ColumnSlice[] {slice}, leaf -> leaf, set, false);
-      assertEquals(stagedBefore, ProjectionRecordKeySet.membershipStagedLeaves(), "a wide leaf must not stage");
       final long[] mask = masks.byFirstKey().get(1L);
       assertNotNull(mask);
       final long[] expected = new long[wideWords];

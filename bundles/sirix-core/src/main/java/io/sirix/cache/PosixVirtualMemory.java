@@ -45,7 +45,6 @@ final class PosixVirtualMemory implements VirtualMemory {
       ? 0
       : 0x4000;
   private static final int MADV_DONTNEED = 4;
-  private static final int MADV_HUGEPAGE = 14;
   private static final int MADV_POPULATE_WRITE = 23;
   private static final int ENOMEM = 12;
   private static final int EINVAL = 22;
@@ -115,24 +114,6 @@ final class PosixVirtualMemory implements VirtualMemory {
       }
     } catch (final Throwable t) {
       LOGGER.debug("discardToZeros madvise failed: {}", t.getMessage());
-    }
-  }
-
-  @Override
-  public boolean adviseHugePages(final MemorySegment segment) {
-    if (MADVISE == null || !OS.isLinux()) {
-      return false;
-    }
-    try {
-      final int rc = (int) MADVISE.invokeExact(segment, segment.byteSize(), MADV_HUGEPAGE);
-      if (rc != 0) {
-        LOGGER.debug("MADV_HUGEPAGE rc={} errno={} on address 0x{} ({} bytes)", rc, errno(),
-            Long.toHexString(segment.address()), segment.byteSize());
-      }
-      return rc == 0;
-    } catch (final Throwable t) {
-      LOGGER.debug("MADV_HUGEPAGE failed: {}", t.getMessage());
-      return false;
     }
   }
 

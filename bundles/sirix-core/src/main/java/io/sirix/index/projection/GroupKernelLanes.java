@@ -74,6 +74,8 @@ final class GroupKernelLanes {
   static final MemorySegment ADDRESS_SPACE = MemorySegment.NULL.reinterpret(Long.MAX_VALUE);
   static final VarHandle LANE = ValueLayout.JAVA_LONG_UNALIGNED.varHandle();
 
+  private static final VarHandle ATOMIC_LANE = ValueLayout.JAVA_LONG.varHandle();
+
   private GroupKernelLanes() {}
 
   /** Lane {@code lane} of {@code record}. */
@@ -100,6 +102,27 @@ final class GroupKernelLanes {
       return;
     }
     addAt(at(record, lane), delta);
+  }
+
+  static long getOpaque(final long record, final int lane) {
+    if (DEBUG) {
+      return GroupDebugRecords.getOpaque(record, lane);
+    }
+    return (long) ATOMIC_LANE.getOpaque(ADDRESS_SPACE, at(record, lane));
+  }
+
+  static long compareAndExchange(final long record, final int lane, final long expected, final long value) {
+    if (DEBUG) {
+      return GroupDebugRecords.compareAndExchange(record, lane, expected, value);
+    }
+    return (long) ATOMIC_LANE.compareAndExchange(ADDRESS_SPACE, at(record, lane), expected, value);
+  }
+
+  static long getAndAdd(final long record, final int lane, final long value) {
+    if (DEBUG) {
+      return GroupDebugRecords.getAndAdd(record, lane, value);
+    }
+    return (long) ATOMIC_LANE.getAndAdd(ADDRESS_SPACE, at(record, lane), value);
   }
 
   /** Add one to lane {@code lane} of {@code record}. */

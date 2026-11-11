@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import java.lang.foreign.MemorySegment;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Random;
@@ -55,6 +57,11 @@ final class GroupAddressDifferentialTest {
     }
     final long[][] expected = new long[GROUPS][WIDTH];
     final long[][] window = new long[COLUMNS][1];
+    final MemorySegment[] lanes = new MemorySegment[COLUMNS];
+    final long[] bases = new long[COLUMNS];
+    for (int column = 0; column < COLUMNS; column++) {
+      lanes[column] = MemorySegment.ofArray(window[column]);
+    }
     final long[][] present = new long[COLUMNS][1];
     final long[] identity = new long[2];
     final Random random = new Random(0x5AFEL + round);
@@ -98,7 +105,7 @@ final class GroupAddressDifferentialTest {
             ? table.storageAtAccBase(handle).accumulator(table.offsetAtAccBase(handle), COLUMNS, 4)
             : table.accumulatorAt(handle, COLUMNS, 4);
       }
-      ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, window, 0, present, COLUMNS, 0, 1L, -1L);
+      ProjectionColumnGroupScan.foldNumericPlainWordLane(record, lanes, bases, present, COLUMNS, 0, 1L, -1L);
     }
     assertTrue(table.rehashes() > 0, "the fixture must move live records");
     for (int key = 0; key < GROUPS; key++) {

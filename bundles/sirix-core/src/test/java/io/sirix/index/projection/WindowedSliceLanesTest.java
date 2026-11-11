@@ -92,8 +92,8 @@ final class WindowedSliceLanesTest {
   void borrowedLanesAnswerIdenticallyAndEveryWindowBorrowsOneBuffer() {
     final Fixture f = build();
     final ScratchStats before = stats();
-    final LeafColumnAccess plain = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE, false);
-    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE, true)) {
+    final LeafColumnAccess plain = f.store().residentLeafAccess(f.fetcher(), null);
+    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE)) {
       for (int leaf = 0; leaf < LEAVES; leaf++) {
         for (int col = 0; col < KINDS.length; col++) {
           final ColumnSlice expected = plain.slice(col, leaf);
@@ -102,7 +102,7 @@ final class WindowedSliceLanesTest {
           assertEquals(expected.min(), actual.min(), "min leaf " + leaf + " col " + col);
           assertEquals(expected.max(), actual.max(), "max leaf " + leaf + " col " + col);
           assertArrayEquals(expected.presenceWords(), actual.presenceWords(), "presence leaf " + leaf + " col " + col);
-          assertArrayEquals(expected.heapNumericValues(), laneRows(actual), "values leaf " + leaf + " col " + col);
+          assertArrayEquals(laneRows(expected), laneRows(actual), "values leaf " + leaf + " col " + col);
           assertNull(actual.heapNumericValues(), "a borrowed lane has no heap array beside it");
         }
       }
@@ -124,10 +124,10 @@ final class WindowedSliceLanesTest {
   @DisplayName("a window's buffer stays borrowed until its LAST slice leaves the cache")
   void aWindowsLanesStayBorrowedUntilItsLastSliceLeavesTheCache() {
     final Fixture f = build();
-    final LeafColumnAccess plain = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE, false);
-    final long[] expectedLeaf0 = plain.slice(0, 0).heapNumericValues();
+    final LeafColumnAccess plain = f.store().residentLeafAccess(f.fetcher(), null);
+    final long[] expectedLeaf0 = laneRows(plain.slice(0, 0));
     final ScratchStats before = stats();
-    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE, true)) {
+    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE)) {
       borrowing.slice(0, 0); // window 0
       borrowing.slice(0, WINDOW); // window 1: the cache holds leaves 0..7
       final ColumnSlice leaf0 = borrowing.slice(0, 0); // a hit: leaf 0 is now the most recently used
@@ -161,9 +161,9 @@ final class WindowedSliceLanesTest {
   @DisplayName("a window decoded again replaces its cached slices and returns the lanes they read")
   void aWindowDecodedAgainReturnsTheLanesOfTheSlicesItReplaces() {
     final Fixture f = build();
-    final LeafColumnAccess plain = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE, false);
+    final LeafColumnAccess plain = f.store().residentLeafAccess(f.fetcher(), null);
     final ScratchStats before = stats();
-    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE, true)) {
+    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE)) {
       borrowing.slice(0, 0);
       borrowing.slice(0, WINDOW);
       borrowing.slice(0, 0);
@@ -179,8 +179,8 @@ final class WindowedSliceLanesTest {
       assertEquals(1, borrows(again) - borrows(partial), "the second decode of window 0 borrowed its own buffer");
       assertEquals(before.totalLentBuffers() + 2, again.totalLentBuffers(),
           "the first decode's buffer went back with the slice that was replaced, window 1's with its last slice");
-      assertArrayEquals(plain.slice(0, 1).heapNumericValues(), laneRows(leaf1));
-      assertArrayEquals(plain.slice(0, 0).heapNumericValues(), laneRows(borrowing.slice(0, 0)));
+      assertArrayEquals(laneRows(plain.slice(0, 1)), laneRows(leaf1));
+      assertArrayEquals(laneRows(plain.slice(0, 0)), laneRows(borrowing.slice(0, 0)));
     }
     assertEquals(before.totalLentBuffers(), stats().totalLentBuffers());
     assertEquals(0, stats().staleReleases() - before.staleReleases());
@@ -190,7 +190,7 @@ final class WindowedSliceLanesTest {
   @DisplayName("presence words of evicted slices serve the leaves decoded next and carry nothing over")
   void presenceWordsAreReusedWithinTheAccessAndCarryNoStaleBits() {
     final Fixture f = build();
-    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE, true)) {
+    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(f.fetcher(), null, WINDOW, CACHE)) {
       // Column 2 is present on even leaves and all-missing on odd ones, so an array that held a full
       // leaf's bits is rewritten for an empty one and the other way round.
       final Set<long[]> madeBeforeTheFirstEviction = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -241,7 +241,7 @@ final class WindowedSliceLanesTest {
       return segments;
     };
     final ScratchStats before = stats();
-    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(failing, null, WINDOW, CACHE, true)) {
+    try (LeafColumnAccess borrowing = f.store().windowedLeafAccess(failing, null, WINDOW, CACHE)) {
       borrowing.slice(0, 0);
       broken[0] = true;
       assertThrows(IllegalStateException.class, () -> borrowing.slice(0, WINDOW));
@@ -264,7 +264,7 @@ final class WindowedSliceLanesTest {
   void sliceArraysRefuseAFillWiderThanTheCacheAndReturnTheirWindowsOnClose() {
     final Fixture f = build();
     final ScratchStats before = stats();
-    final WindowedSliceArrays arrays = new WindowedSliceArrays(f.store(), f.fetcher(), null, WINDOW, CACHE, true);
+    final WindowedSliceArrays arrays = new WindowedSliceArrays(f.store(), f.fetcher(), null, WINDOW, CACHE);
     assertThrows(IllegalArgumentException.class, () -> arrays.column(0, 0, CACHE - WINDOW + 2));
     final ColumnSlice[] filled = arrays.column(0, 0, CACHE - WINDOW + 1);
     assertEquals(ROWS, filled[0].rowCount());
@@ -278,12 +278,6 @@ final class WindowedSliceLanesTest {
     arrays.close();
     assertEquals(0, stats().staleReleases() - before.staleReleases());
 
-    try (WindowedSliceArrays allocating = new WindowedSliceArrays(f.store(), f.fetcher(), null, WINDOW, CACHE, false)) {
-      final ColumnSlice[] all = allocating.column(0, 0, LEAVES);
-      assertEquals(ROWS, all[0].rowCount(), "an access that decodes into heap arrays has no such bound");
-      assertNull(all[0].lane());
-      assertEquals(SHORT_ROWS, all[LEAVES - 1].heapNumericValues().length);
-    }
     assertEquals(before.totalLentBuffers(), stats().totalLentBuffers());
   }
 

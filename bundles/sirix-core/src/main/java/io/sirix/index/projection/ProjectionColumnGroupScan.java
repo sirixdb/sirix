@@ -14,7 +14,6 @@ import io.sirix.node.SegmentAccess;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.lang.ref.Reference;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -67,7 +66,7 @@ public final class ProjectionColumnGroupScan {
    * table the whole-leaf twin and the composite arm consume); a STRING_SEGMENT length operand
    * supplies {@code segmentLengthTables[a][segment]}, one such table per segment dictionary, and the
    * leaf's zone bounds choose the table ({@link #leafLengthTable}). {@code cdStringDict} marks the
-   * distinct block's operand as STRING_DICT — see {@link #foldSlicedWindow} for the leaf-local-id →
+   * distinct block's operand as STRING_DICT — see {@link #foldSlicedLane} for the leaf-local-id →
    * content-hash identity it feeds the set.
    */
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
@@ -178,9 +177,6 @@ public final class ProjectionColumnGroupScan {
           final long groupPresWord = groupPresence[w];
           final int rowBase = w << 6;
           // One decision per word, before the walk consumes it.
-          final long[] groupWindow = gatherPays(word)
-              ? gatherGroupWindow(groupSeg, groupBase, w, rowCount, ds.groupWindow)
-              : null;
           while (word != 0L) {
             final int bit = Long.numberOfTrailingZeros(word);
             word &= word - 1L;
@@ -191,7 +187,7 @@ public final class ProjectionColumnGroupScan {
               }
               GroupLanes.increment(missingAcc, 0);
             } else {
-              final long gv = groupValue(groupWindow, groupSeg, groupBase, bit, rowIdx);
+              final long gv = SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3));
               if (gv == 0L) {
                 GroupLanes.increment(out.acquireZero(leafOrdinalBase | rowIdx), 0);
               } else {
@@ -209,13 +205,6 @@ public final class ProjectionColumnGroupScan {
         }
         final long groupPresWord = groupPresence[w];
         final int rowBase = w << 6;
-        final boolean dense = gatherPays(word);
-        final long[][] aggWindow = dense
-            ? gatherWindow(aggSeg, aggBase, aggCount, w, rowCount, ds.ensureWindow(aggCount))
-            : null;
-        final long[] groupWindow = dense
-            ? gatherGroupWindow(groupSeg, groupBase, w, rowCount, ds.groupWindow)
-            : null;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
@@ -225,7 +214,7 @@ public final class ProjectionColumnGroupScan {
           final boolean groupMissing = (groupPresWord & 1L << bit) == 0L;
           final long distinctGroup = groupMissing
               ? 0L
-              : groupValue(groupWindow, groupSeg, groupBase, bit, rowIdx);
+              : SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3));
           if (groupMissing) {
             if (GroupKernelLanes.get(missingRecord, 0) == 0) {
               GroupKernelLanes.set(missingRecord, 1, leafOrdinalBase | rowIdx);
@@ -238,9 +227,9 @@ public final class ProjectionColumnGroupScan {
                 ? out.acquireZero(leafOrdinalBase | rowIdx).accumulator(0, aggCount, 4)
                 : out.acquireAccumulator(gv, leafOrdinalBase | rowIdx, aggCount, 4);
           }
-          foldAggRow(aggWindow, record, aggSeg, aggBase, aggPresence, aggIds, ds.stringLengths, stringLengthModes,
-              aggCount, w, bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null,
-              sumExactMask, leafLengthTables, groupMissing
+          foldSlicedLane(record, aggSeg, aggBase, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
+              bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null, sumExactMask,
+              leafLengthTables, groupMissing
                   ? null
                   : distinctOut,
               distinctGroup);
@@ -318,13 +307,6 @@ public final class ProjectionColumnGroupScan {
         }
         final long groupPresWord = groupPresence[w];
         final int rowBase = w << 6;
-        final boolean dense = gatherPays(word);
-        final long[][] aggWindow = dense
-            ? gatherWindow(aggSeg, aggBase, aggCount, w, rowCount, ds.ensureWindow(aggCount))
-            : null;
-        final long[] groupWindow = dense
-            ? gatherGroupWindow(groupSeg, groupBase, w, rowCount, ds.groupWindow)
-            : null;
         // The rows without a group key all fold into the one missing-key accumulator, so the word's
         // are folded together, column by column; the keyed rows then go to the table one by one.
         final long missing = word & ~groupPresWord;
@@ -332,21 +314,16 @@ public final class ProjectionColumnGroupScan {
           if (GroupLanes.get(missingAcc, 0) == 0) {
             GroupLanes.set(missingAcc, 1, leafOrdinalBase | (rowBase + Long.numberOfTrailingZeros(missing)));
           }
-          foldNumericPlainWord(aggWindow, missingRecord, aggSeg, aggBase, aggPresence, aggCount, w, missing,
-              sumExactMask);
+          foldNumericPlainWordLane(missingRecord, aggSeg, aggBase, aggPresence, aggCount, w, missing, sumExactMask);
           word &= groupPresWord;
         }
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
           final int rowIdx = rowBase + bit;
-          if (aggWindow != null) {
-            out.foldWindow(groupWindow[bit], leafOrdinalBase | rowIdx, aggWindow, aggPresence, aggCount, w, bit, roster,
-                decline);
-          } else {
-            out.foldLane(SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3)), leafOrdinalBase | rowIdx,
-                aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, roster, decline);
-          }
+          out.foldLane(SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3)), leafOrdinalBase | rowIdx,
+              aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, roster, decline);
+
         }
       }
     }
@@ -354,79 +331,8 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
-   * Fold the rows {@code rows} of one 64-row word into a plain numeric accumulator, column by column:
-   * the shape the missing-key accumulator of the dense arm needs, where no distinct set, no
-   * string-length operand and no dictionary state can occur. Kept beside its atomic twin
-   * ({@link DenseGlobalGroupAggTable#foldWindow}) so the lane order of the two is read together.
-   *
-   * <p>
-   * Bit {@code i} of {@code rows} is row {@code (w << 6) + i}. A column is folded for all of them
-   * before the next column is touched: its presence word is read once, its sum and extrema stay in
-   * locals while its rows are walked, and they are written back once. A row costs a column one value
-   * read and three updates, where a fold that is called row by row re-derives the column's lane and
-   * loads and stores its accumulator lanes for every row. A column with a single row in the word,
-   * which is what a sparse selection gives, is folded into the lanes directly instead.
-   *
-   * <p>
-   * {@code window} holds the values, row {@code i} of the word at index {@code first + i}: a gathered
-   * 64-row window with {@code first == 0} (see {@link #gatherWindow}), or a whole row-indexed lane
-   * with {@code first == w << 6}.
-   *
-   * <p>
-   * {@code record} is the accumulator, resolved by the caller for {@code aggCount} columns of four
-   * lanes ({@link GroupBuffer#accumulator}); the caller keeps what it was resolved from alive. An
-   * exact sum that leaves the signed 64-bit range throws {@link ArithmeticException}, on which the
-   * route declines; the accumulator is then left with the word partly folded and must not be read.
-   */
-  static void foldNumericPlainWordWindow(final long record, final long[][] window, final int first,
-      final long[][] aggPresence, final int aggCount, final int w, final long rows, final long sumExactMask) {
-    GroupKernelLanes.add(record, 0, Long.bitCount(rows));
-    for (int a = 0; a < aggCount; a++) {
-      long present = aggPresence[a][w] & rows;
-      if (present == 0L) {
-        continue;
-      }
-      final int column = 2 + 4 * a;
-      final boolean exact = NumericGroupAggTable.sumsExact(sumExactMask, a);
-      final long[] values = window[a];
-      final int count = Long.bitCount(present);
-      GroupKernelLanes.add(record, column, count);
-      if (count == 1) {
-        // A lone row, which is every row of a sparse selection: folded into the lanes directly,
-        // because a loop that is entered for one trip costs more than the row does.
-        final long v = values[first + Long.numberOfTrailingZeros(present)];
-        if (exact) {
-          GroupKernelLanes.set(record, column + 1, Math.addExact(GroupKernelLanes.get(record, column + 1), v));
-        }
-        GroupKernelLanes.min(record, column + 2, v);
-        GroupKernelLanes.max(record, column + 3, v);
-        continue;
-      }
-      long sum = GroupKernelLanes.get(record, column + 1);
-      long min = GroupKernelLanes.get(record, column + 2);
-      long max = GroupKernelLanes.get(record, column + 3);
-      // Counted by the rows rather than run until the word is empty: at most 64 trips, which the
-      // compiler knows, so the loop carries no safepoint poll.
-      for (int i = 0; i < count; i++) {
-        final long v = values[first + Long.numberOfTrailingZeros(present)];
-        present &= present - 1L;
-        if (exact) {
-          sum = Math.addExact(sum, v);
-        }
-        min = Math.min(min, v);
-        max = Math.max(max, v);
-      }
-      if (exact) {
-        GroupKernelLanes.set(record, column + 1, sum);
-      }
-      GroupKernelLanes.set(record, column + 2, min);
-      GroupKernelLanes.set(record, column + 3, max);
-    }
-  }
-
-  /**
-   * {@link #foldNumericPlainWordWindow} reading the lanes in place: a column's lane segment is the
-   * same for all rows of the word, so its liveness is established once per column and word.
+   * {@link #foldNumericPlainWordLane} reading the lanes in place: a column's lane segment is the same
+   * for all rows of the word, so its liveness is established once per column and word.
    */
   static void foldNumericPlainWordLane(final long record, final MemorySegment[] aggSeg, final long[] laneBases,
       final long[][] aggPresence, final int aggCount, final int w, final long rows, final long sumExactMask) {
@@ -445,7 +351,6 @@ public final class ProjectionColumnGroupScan {
       final int count = Long.bitCount(present);
       GroupKernelLanes.add(record, column, count);
       if (count == 1) {
-        // A lone row: see foldNumericPlainWordWindow.
         final long v = SegmentAccess.getLong(lane, base + ((long) Long.numberOfTrailingZeros(present) << 3));
         if (exact) {
           GroupKernelLanes.set(record, column + 1, Math.addExact(GroupKernelLanes.get(record, column + 1), v));
@@ -476,7 +381,7 @@ public final class ProjectionColumnGroupScan {
 
   /**
    * Zero the per-leaf hash memo for a STRING_DICT count-distinct operand and hand it back: one
-   * {@code long} per dict entry, hashed lazily on first reference by {@link #foldSlicedWindow}.
+   * {@code long} per dict entry, hashed lazily on first reference by {@link #foldSlicedLane}.
    */
   /**
    * The distinct operand's {@code dictId -> content hash} table for ONE leaf.
@@ -485,7 +390,7 @@ public final class ProjectionColumnGroupScan {
    * A slice filled in DISTINCT-IDENTITY mode carries the table already — read straight off the leaf's
    * {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_DICT_HASHES} segment, so no dictionary byte was
    * fetched, decoded or hashed for it. Its array is SHARED and must stay read-only, which is what the
-   * {@code cdDictBytes == null} guard in {@link #foldSlicedWindow} enforces: with no bytes to hash
+   * {@code cdDictBytes == null} guard in {@link #foldSlicedLane} enforces: with no bytes to hash
    * from, there is nothing to memoize back. Otherwise the per-thread scratch carries the same hashes,
    * filled lazily per referenced entry.
    */
@@ -511,25 +416,6 @@ public final class ProjectionColumnGroupScan {
     long[] cdHash = new long[64];
     int[] counts = new int[0];
     int[] firstRows = new int[0];
-    /**
-     * One 64-row value window per aggregate column plus one for the group key, reused for every word of
-     * every leaf: 512 bytes each, never a column representation and never allocated per leaf. See
-     * {@link #gatherWindow}.
-     */
-    long[][] window = new long[0][];
-    long[] groupWindow = new long[WINDOW_ROWS];
-
-    long[][] ensureWindow(final int columns) {
-      if (window.length < columns) {
-        final long[][] grown = new long[Math.max(4, columns)][];
-        System.arraycopy(window, 0, grown, 0, window.length);
-        for (int a = window.length; a < grown.length; a++) {
-          grown[a] = new long[WINDOW_ROWS];
-        }
-        window = grown;
-      }
-      return window;
-    }
 
     void ensureCounts(final int size) {
       if (counts.length < size) {
@@ -572,7 +458,7 @@ public final class ProjectionColumnGroupScan {
    * codepoint or UTF-8-byte counts with missing-is-zero semantics; {@code globalLengthTables} and
    * {@code segmentLengthTables} are the id-lane length tables the numeric twin documents.
    * {@code cdStringDict} marks the distinct block's operand as STRING_DICT — see
-   * {@link #foldSlicedWindow} for the leaf-local-id → content-hash identity it feeds the set.
+   * {@link #foldSlicedLane} for the leaf-local-id → content-hash identity it feeds the set.
    */
   public static void aggregateByGroupStringFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
@@ -726,13 +612,6 @@ public final class ProjectionColumnGroupScan {
         }
         final long groupPresWord = groupPresence[w];
         final int rowBase = w << 6;
-        final boolean dense = gatherPays(word);
-        final long[][] aggWindow = dense
-            ? gatherWindow(aggSeg, aggBase, aggCount, w, rowCount, ds.ensureWindow(aggCount))
-            : null;
-        final long[] gidWindow = dense && globalGidSeg != null
-            ? gatherGroupWindow(globalGidSeg, globalGidBase, w, rowCount, ds.groupWindow)
-            : null;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
@@ -761,8 +640,8 @@ public final class ProjectionColumnGroupScan {
               }
             }
           } else if (globalGroup) {
-            final long gid = groupValue(gidWindow, requireNonNull(globalGidSeg, "a global group needs its id lane"),
-                globalGidBase, bit, rowIdx);
+            final long gid = SegmentAccess.getLong(requireNonNull(globalGidSeg, "a global group needs its id lane"),
+                globalGidBase + ((long) rowIdx << 3));
             final long ordinal = leafOrdinalBase | rowIdx;
             // One array load per row; the per-leaf dict memo does not apply (ids are resource-wide
             // and the table IS the memo). Hash 0 = the transformed key hashed to the empty-bucket
@@ -784,9 +663,8 @@ public final class ProjectionColumnGroupScan {
                     return;
                   }
                 }
-                foldAggRow(aggWindow, zero.accumulator(0, aggCount, 4), aggSeg, aggBase, aggPresence, aggIds,
-                    ds.stringLengths, stringLengthModes, aggCount, w, bit, rowIdx, distinctBlock,
-                    distinctBlock >= 0 && localWords == null
+                foldSlicedLane(zero.accumulator(0, aggCount, 4), aggSeg, aggBase, aggPresence, aggIds, ds.stringLengths,
+                    stringLengthModes, aggCount, w, bit, rowIdx, distinctBlock, distinctBlock >= 0 && localWords == null
                         ? distinctOut.sinkFor(0L)
                         : null,
                     budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask,
@@ -856,7 +734,7 @@ public final class ProjectionColumnGroupScan {
                       return;
                     }
                   }
-                  foldAggRow(aggWindow, zero.accumulator(0, aggCount, 4), aggSeg, aggBase, aggPresence, aggIds,
+                  foldSlicedLane(zero.accumulator(0, aggCount, 4), aggSeg, aggBase, aggPresence, aggIds,
                       ds.stringLengths, stringLengthModes, aggCount, w, bit, rowIdx, distinctBlock,
                       distinctBlock >= 0 && localWords == null
                           ? distinctOut.sinkFor(0L)
@@ -891,9 +769,9 @@ public final class ProjectionColumnGroupScan {
           if (countOnly) {
             GroupKernelLanes.increment(record, 0);
           } else {
-            foldAggRow(aggWindow, record, aggSeg, aggBase, aggPresence, aggIds, ds.stringLengths, stringLengthModes,
-                aggCount, w, bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash,
-                distinctBitmaps, dwords, sumExactMask, leafLengthTables, null, 0L);
+            foldSlicedLane(record, aggSeg, aggBase, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount,
+                w, bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps,
+                dwords, sumExactMask, leafLengthTables, null, 0L);
           }
         }
       }
@@ -1068,32 +946,7 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
-   * Fold integral operands into present-count/sum pairs; missing operands retain a zero count.
-   * {@code window} is the word's 64 gathered values per column, so the VALUE index is {@code bit}.
-   *
-   * <p>
-   * {@code record} is the accumulator, resolved by the caller for {@code columns} columns of two
-   * lanes ({@link NumericGroupAggTable#acquireAccumulator},
-   * {@link NumericGroupAggTable#accumulatorAt}, {@link GroupBuffer#accumulator}); the caller keeps
-   * what it was resolved from alive.
-   */
-  static void foldSumsWindow(final long record, final long[][] window, final long[][] presence, final int columns,
-      final int word, final int bit, final long sumExactMask) {
-    GroupKernelLanes.increment(record, 0);
-    final long presentBit = 1L << bit;
-    for (int a = 0; a < columns; a++) {
-      if ((presence[a][word] & presentBit) != 0L) {
-        final int at = 2 + 2 * a;
-        GroupKernelLanes.increment(record, at);
-        if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
-          GroupKernelLanes.set(record, at + 1, Math.addExact(GroupKernelLanes.get(record, at + 1), window[a][bit]));
-        }
-      }
-    }
-  }
-
-  /**
-   * {@link #foldSumsWindow} reading the lanes in place: one checked segment read per surviving row.
+   * Fold present-count/sum pairs through the integral lanes.
    */
   static void foldSumsSlicedLane(final long record, final MemorySegment[] segs, final long[] laneBases,
       final long[][] presence, final int columns, final int word, final int bit, final int row,
@@ -1115,97 +968,7 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
-   * One row's aggregate fold over a gathered 64-row value window — the byte kernel's foldRow twin.
-   *
-   * <p>
-   * {@code cdHash != null} marks the distinct block's operand as STRING_DICT: dict ids are
-   * LEAF-LOCAL, so the set member is the entry's 64-bit content hash. Either the leaf's DICT_HASHES
-   * segment supplied the whole table ({@code cdDictBytes == null} — read-only, nothing to compute),
-   * or it is built once per referenced entry per leaf into a per-thread scratch ({@code 0} = not yet
-   * hashed; an entry whose hash IS 0 re-hashes per row, correct and vanishingly rare). Both fill it
-   * with the same function over the same bytes, so the two are interchangeable within one column.
-   * Identity is exact up to a 64-bit hash collision — the SAME standard the composite group-key
-   * identity already accepts.
-   *
-   * <p>
-   * {@code record} is the accumulator, resolved by the caller for {@code aggCount} columns of four
-   * lanes ({@link NumericGroupAggTable#acquireAccumulator},
-   * {@link NumericGroupAggTable#accumulatorAt}, {@link GroupBuffer#accumulator}); the caller keeps
-   * what it was resolved from alive.
-   */
-  static void foldSlicedWindow(final long record, final long[][] window, final long[][] aggPresence,
-      final int[][] aggIds, final int @Nullable [][] stringLengths, final byte @Nullable [] stringLengthModes,
-      final int aggCount, final int w, final int bit, final int rowIdx, final int distinctBlock,
-      final @Nullable Sink dset, final long @Nullable [] budget, final byte @Nullable [] cdDictBytes,
-      final int @Nullable [] cdDictOffsets, final long @Nullable [] cdHash,
-      final @Nullable GroupDistinctBitmaps bitmaps, final long @Nullable [] dwords, final long sumExactMask,
-      final int[][] leafLengthTables, final @Nullable Worker directDistinct, final long distinctGroup) {
-    GroupKernelLanes.increment(record, 0);
-    for (int a = 0; a < aggCount; a++) {
-      final boolean stringLengthAgg =
-          stringLengthModes != null && stringLengthModes[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE;
-      final boolean present = (aggPresence[a][w] & 1L << bit) != 0L;
-      if (!present && !stringLengthAgg) {
-        continue;
-      }
-      // fn:string-length(()) is 0, never empty: a row MISSING the operand still contributes 0.
-      final long v;
-      if (stringLengthAgg) {
-        // An id-lane operand's lengths live in the table the leaf setup chose (GLOBAL: the per-query
-        // table; SEGMENT: this leaf's segment's), indexed by the row's id lane — a segment cell's low
-        // 32 bits are its id; a per-leaf dict operand's in the precomputed per-entry pass, indexed by
-        // its dict id.
-        v = !present
-            ? 0L
-            : leafLengthTables[a] != null
-                ? leafLengthTables[a][(int) window[a][bit]]
-                : requireNonNull(stringLengths,
-                    "a dictionary length operand requires its length table")[a][aggIds[a][rowIdx]];
-      } else if (cdHash != null && a == distinctBlock) {
-        final int cdId = aggIds[a][rowIdx];
-        long h = cdHash[cdId];
-        // cdDictBytes == null marks a PRECOMPUTED table (the leaf's DICT_HASHES segment): the value
-        // read is already the answer, and the array is shared across workers — never written here.
-        if (h == 0L && cdDictBytes != null) {
-          final int[] offsets = requireNonNull(cdDictOffsets, "dictionary bytes require their offsets");
-          final int off = offsets[cdId];
-          h = ProjectionIndexByteScan.fnv1a64(cdDictBytes, off, offsets[cdId + 1] - off);
-          cdHash[cdId] = h;
-        }
-        v = h;
-      } else {
-        v = window[a][bit];
-      }
-      if (a == distinctBlock) {
-        // Dense global ids go to the shared per-group bitmap, which is exact at any cardinality and
-        // therefore spends no budget; everything else keeps the per-worker exact set and its ceiling.
-        if (dwords != null) {
-          if (!requireNonNull(bitmaps, "distinct bitmap words require their accumulator").set(dwords, v)) {
-            // An id outside the sized range declines; dropping it would silently lower the count.
-            requireNonNull(budget, "a distinct bitmap accumulator requires its budget")[1] = 1;
-          }
-        } else if (directDistinct != null) {
-          directDistinct.addToGroup(distinctGroup, v);
-        } else {
-          requireNonNull(dset, "a distinct aggregate requires its sink").add(v); // exact and bounded
-        }
-        continue;
-      }
-      final int aggBase = 2 + 4 * a;
-      GroupKernelLanes.increment(record, aggBase);
-      // Exact sum or DECLINE — the interpreter promotes an overflowing xs:integer sum. A lane no
-      // sum/avg reads is not folded at all: declining a min-only query over an unread sum would
-      // refuse an answer the accumulator's fixed [count, sum, min, max] shape never needed.
-      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
-        GroupKernelLanes.set(record, aggBase + 1, Math.addExact(GroupKernelLanes.get(record, aggBase + 1), v));
-      }
-      GroupKernelLanes.min(record, aggBase + 2, v);
-      GroupKernelLanes.max(record, aggBase + 3, v);
-    }
-  }
-
-  /**
-   * {@link #foldSlicedWindow} reading the lanes in place instead of a gathered window: one checked
+   * {@link #foldSlicedLane} reading the lanes in place instead of a gathered window: one checked
    * segment read per surviving row, which is the cheaper side below the gather crossover.
    */
   static void foldSlicedLane(final long record, final MemorySegment[] aggSeg, final long[] laneBases,
@@ -1280,135 +1043,6 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
-   * Whether gathering this word's values beats reading each surviving row's lane through a checked
-   * segment access. The row index of a group fold comes out of {@code numberOfTrailingZeros}, so the
-   * loop is not counted over linear offsets and neither C2 nor Graal can hoist the segment's bounds
-   * check out of it: every surviving row pays one. Gathering the word instead pays one check per
-   * vector in an intrinsified copy, which is cheaper once enough rows survive — the same walk-versus-
-   * word crossover {@link ProjectionVectorKernels#FOLD_WALK_MAX_BITS} already sets for the compare
-   * and fold kernels. Measured on this shape: at half selectivity the gather is 3% to 21% ahead of
-   * the alternative a slab-backed fill otherwise forces (copying the whole lane to the heap), while a
-   * plain per-row lane read is up to 76% behind it on the smaller kernels.
-   */
-  static boolean gatherPays(final long word) {
-    return Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS;
-  }
-
-  /**
-   * Copy this word's rows of every value lane into the per-thread window, which the window kernels
-   * then index by the bit position. A column with no value lane ({@code segs[a] == null}: an id-lane
-   * or dictionary operand) is skipped — its kernel branch reads the dictionary, never the window. The
-   * copy is clamped to the leaf's row count, so the tail word never reads past the lane.
-   *
-   * @return {@code window}, so a caller can assign the result and use {@code null} for "not gathered"
-   */
-  static long[][] gatherWindow(final MemorySegment[] segs, final long[] laneBases, final int columns, final int w,
-      final int rowCount, final long[][] window) {
-    return gatherWindowAt(segs, laneBases, columns, w, rowCount, window, 0);
-  }
-
-  /**
-   * {@link #gatherWindow} into {@code window[at + column]}, so one scratch holds several column
-   * families of one word — the composite kernel gathers its aggregates, its key components and its
-   * condition columns side by side.
-   */
-  static long[][] gatherWindowAt(final MemorySegment[] segs, final long[] bases, final int columns, final int w,
-      final int rowCount, final long[][] window, final int at) {
-    final int rowBase = w << 6;
-    final int rows = Math.min(WINDOW_ROWS, rowCount - rowBase);
-    final long from = (long) rowBase << 3;
-    for (int c = 0; c < columns; c++) {
-      final MemorySegment seg = segs[c];
-      if (seg != null) {
-        MemorySegment.copy(seg, ValueLayout.JAVA_LONG_UNALIGNED, bases[c] + from, window[at + c], 0, rows);
-      }
-    }
-    return window;
-  }
-
-  /**
-   * One value of one column, from this word's gathered window slot or from the lane in place. The
-   * caller has already decided per word which it is; {@code window == null} means not gathered.
-   */
-  private static long windowOrLane(final long @Nullable [][] window, final int slot, final MemorySegment seg,
-      final long laneBase, final int bit, final int rowIdx) {
-    return window != null
-        ? window[slot][bit]
-        : SegmentAccess.getLong(seg, laneBase + ((long) rowIdx << 3));
-  }
-
-  /** {@link #gatherWindow} for the single group-key lane. */
-  static long[] gatherGroupWindow(final MemorySegment seg, final long laneBase, final int w, final int rowCount,
-      final long[] window) {
-    final int rowBase = w << 6;
-    MemorySegment.copy(seg, ValueLayout.JAVA_LONG_UNALIGNED, laneBase + ((long) rowBase << 3), window, 0,
-        Math.min(WINDOW_ROWS, rowCount - rowBase));
-    return window;
-  }
-
-  /**
-   * One row's aggregate fold, from the word's gathered window when {@code window != null} and from
-   * the lanes in place otherwise. The two forms fold identically — proven row for row by
-   * {@code GroupFoldLaneEquivalenceTest} — so a caller chooses on {@link #gatherPays} alone.
-   *
-   * <p>
-   * {@code record} is the accumulator of the row's group, resolved by the caller for {@code aggCount}
-   * columns of four lanes after the acquisition; the caller keeps what it was resolved from alive.
-   */
-  private static void foldAggRow(final long @Nullable [][] window, final long record, final MemorySegment[] aggSeg,
-      final long[] aggBase, final long[][] aggPresence, final int[][] aggIds, final int @Nullable [][] stringLengths,
-      final byte @Nullable [] stringLengthModes, final int aggCount, final int w, final int bit, final int rowIdx,
-      final int distinctBlock, final @Nullable Sink dset, final long @Nullable [] budget,
-      final byte @Nullable [] cdDictBytes, final int @Nullable [] cdDictOffsets, final long @Nullable [] cdHash,
-      final @Nullable GroupDistinctBitmaps bitmaps, final long @Nullable [] dwords, final long sumExactMask,
-      final int[][] leafLengthTables, final @Nullable Worker directDistinct, final long distinctGroup) {
-    if (window != null) {
-      foldSlicedWindow(record, window, aggPresence, aggIds, stringLengths, stringLengthModes, aggCount, w, bit, rowIdx,
-          distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, bitmaps, dwords, sumExactMask,
-          leafLengthTables, directDistinct, distinctGroup);
-    } else {
-      foldSlicedLane(record, aggSeg, aggBase, aggPresence, aggIds, stringLengths, stringLengthModes, aggCount, w, bit,
-          rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, bitmaps, dwords, sumExactMask,
-          leafLengthTables, directDistinct, distinctGroup);
-    }
-  }
-
-  /** The row's group-key value, from the word's gathered window or from the lane in place. */
-  private static long groupValue(final long @Nullable [] window, final MemorySegment seg, final long laneBase,
-      final int bit, final int rowIdx) {
-    return window != null
-        ? window[bit]
-        : SegmentAccess.getLong(seg, laneBase + ((long) rowIdx << 3));
-  }
-
-  /**
-   * {@link #foldAggRow} for the sums-only accumulator shape: {@code columns} columns of two lanes.
-   */
-  private static void foldSumsRow(final long @Nullable [][] window, final long record, final MemorySegment[] segs,
-      final long[] laneBases, final long[][] presence, final int columns, final int w, final int bit, final int rowIdx,
-      final long sumExactMask) {
-    if (window != null) {
-      foldSumsWindow(record, window, presence, columns, w, bit, sumExactMask);
-    } else {
-      foldSumsSlicedLane(record, segs, laneBases, presence, columns, w, bit, rowIdx, sumExactMask);
-    }
-  }
-
-  /**
-   * A word's rows into the plain numeric accumulator the dense arm keeps for missing keys, from the
-   * word's gathered window when {@code window != null} and from the lanes in place otherwise.
-   */
-  private static void foldNumericPlainWord(final long @Nullable [][] window, final long record,
-      final MemorySegment[] aggSeg, final long[] laneBases, final long[][] aggPresence, final int aggCount, final int w,
-      final long rows, final long sumExactMask) {
-    if (window != null) {
-      foldNumericPlainWordWindow(record, window, 0, aggPresence, aggCount, w, rows, sumExactMask);
-    } else {
-      foldNumericPlainWordLane(record, aggSeg, laneBases, aggPresence, aggCount, w, rows, sumExactMask);
-    }
-  }
-
-  /**
    * The shared bitmap for {@code groupKey}, resolved through the worker's thread-confined cache so
    * the per-row path never consults the concurrent map. A {@code null} return means the bitmap budget
    * is spent and the caller must decline — signalled through the same {@code budget[1]} flag the
@@ -1427,8 +1061,6 @@ public final class ProjectionColumnGroupScan {
     }
     return words;
   }
-
-
 
   /**
    * Descriptor-only twin of {@link ProjectionIndexByteScan#requireGroupSumsFitLong}: bound every
@@ -1705,12 +1337,6 @@ public final class ProjectionColumnGroupScan {
     }
     final MemorySegment[] aggSeg = new MemorySegment[aggCount];
     final long[] aggBase = new long[aggCount];
-    // One gathered window per column family, laid out back to back in the per-thread scratch:
-    // aggregates first (the kernels index those from 0), then the key components, then the two
-    // condition columns of each component.
-    final int keyWindowAt = aggCount;
-    final int condWindowAt = aggCount + keyCount;
-    final int windowSlots = aggCount + 3 * keyCount;
     final long[][] aggPresence = new long[aggCount][];
     // The compiler can supply neutral arrays for fn:string. Classify the key metadata once,
     // independently of the row count; missing-to-literal substitution still applies below.
@@ -1949,12 +1575,6 @@ public final class ProjectionColumnGroupScan {
             continue;
           }
           final int rowBase = w << 6;
-          final long[][] win = gatherPays(word)
-              ? gatherWindowAt(condSeg, condBase, condSeg.length, w, rowCount,
-                  gatherWindowAt(compSeg, compBase, keyCount, w, rowCount,
-                      gatherWindow(aggSeg, aggBase, aggCount, w, rowCount, ds.ensureWindow(windowSlots)), keyWindowAt),
-                  condWindowAt)
-              : null;
           while (word != 0L) {
             final int bit = Long.numberOfTrailingZeros(word);
             word &= word - 1L;
@@ -1982,7 +1602,7 @@ public final class ProjectionColumnGroupScan {
                   }
                 }
               } else if (compSeg[k] != null) {
-                final long v = windowOrLane(win, keyWindowAt + k, compSeg[k], compBase[k], bit, rowIdx);
+                final long v = SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3));
                 compHash = HashCommon.mix(v);
                 identity[lane] = v;
               } else {
@@ -2016,9 +1636,9 @@ public final class ProjectionColumnGroupScan {
             if (countOnly) {
               GroupKernelLanes.increment(record, 0);
             } else if (sums) {
-              foldSumsRow(win, record, aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
+              foldSumsSlicedLane(record, aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
             } else {
-              foldAggRow(win, record, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
+              foldSlicedLane(record, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
                   distinctBlock, null, budget, null, null, null, null, null, sumExactMask, null, distinctOut, h);
             }
           }
@@ -2031,12 +1651,6 @@ public final class ProjectionColumnGroupScan {
           continue;
         }
         final int rowBase = w << 6;
-        final long[][] win = gatherPays(word)
-            ? gatherWindowAt(condSeg, condBase, condSeg.length, w, rowCount,
-                gatherWindowAt(compSeg, compBase, keyCount, w, rowCount,
-                    gatherWindow(aggSeg, aggBase, aggCount, w, rowCount, ds.ensureWindow(windowSlots)), keyWindowAt),
-                condWindowAt)
-            : null;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
@@ -2056,8 +1670,7 @@ public final class ProjectionColumnGroupScan {
                 }
                 if ((condPresence[c2][w] & 1L << bit) == 0L) {
                   condTrue = false; // missing condition operand: the comparison is false
-                } else if (windowOrLane(win, condWindowAt + c2, condSeg[c2], condBase[c2], bit,
-                    rowIdx) != keyCondLits[c2]) {
+                } else if (SegmentAccess.getLong(condSeg[c2], condBase[c2] + ((long) rowIdx << 3)) != keyCondLits[c2]) {
                   condTrue = false;
                 }
               }
@@ -2088,7 +1701,7 @@ public final class ProjectionColumnGroupScan {
               } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
                 // Conditional THEN over a global component: the id is the exact identity, in the
                 // same lane domain the resolved else id lives in.
-                final long gid = windowOrLane(win, keyWindowAt + k, compSeg[k], compBase[k], bit, rowIdx);
+                final long gid = SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3));
                 compHash = HashCommon.mix(gid);
                 identity[lane] = gid;
               } else {
@@ -2129,7 +1742,7 @@ public final class ProjectionColumnGroupScan {
                 }
               }
             } else if (ProjectionIndexRowGroupPage.isOrderedLongKind(keyKinds[k])) {
-              long v = windowOrLane(win, keyWindowAt + k, compSeg[k], compBase[k], bit, rowIdx);
+              long v = SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3));
               if (keyOffsets != null && keyOffsets[k] != 0L) {
                 final long shifted = v + keyOffsets[k];
                 if (((v ^ shifted) & (keyOffsets[k] ^ shifted)) < 0) {
@@ -2144,7 +1757,7 @@ public final class ProjectionColumnGroupScan {
             } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
               if (subTransformed) {
                 final long transformed = globalKeyViews[k].xsIntegerOfSubstring(
-                    Math.toIntExact(windowOrLane(win, keyWindowAt + k, compSeg[k], compBase[k], bit, rowIdx)),
+                    Math.toIntExact(SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3))),
                     keySubstr[2 * k], keySubstr[2 * k + 1]);
                 if (transformed == Long.MIN_VALUE) {
                   declineFlag[0] = 1;
@@ -2155,7 +1768,7 @@ public final class ProjectionColumnGroupScan {
               } else {
                 // Untransformed global component: the id IS the exact identity — no dictionary
                 // bytes read, no content hash, one lane.
-                final long gid = windowOrLane(win, keyWindowAt + k, compSeg[k], compBase[k], bit, rowIdx);
+                final long gid = SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3));
                 compHash = HashCommon.mix(gid);
                 identity[lane] = gid;
               }
@@ -2196,9 +1809,9 @@ public final class ProjectionColumnGroupScan {
           if (countOnly) {
             GroupKernelLanes.increment(record, 0);
           } else if (sums) {
-            foldSumsRow(win, record, aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
+            foldSumsSlicedLane(record, aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
           } else {
-            foldAggRow(win, record, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
+            foldSlicedLane(record, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
                 distinctBlock, null, budget, null, null, null, null, null, sumExactMask, null, distinctOut, h);
           }
         }
@@ -2507,13 +2120,6 @@ public final class ProjectionColumnGroupScan {
         }
         final long groupPresWord = groupPresence[w];
         final int rowBase = w << 6;
-        final boolean dense = gatherPays(word);
-        final long[][] aggWindow = dense
-            ? gatherWindow(aggSeg, aggBase, aggCount, w, rowCount, ds.ensureWindow(aggCount))
-            : null;
-        final long[] gidWindow = dense && globalIdSeg != null
-            ? gatherGroupWindow(globalIdSeg, globalIdBase, w, rowCount, ds.groupWindow)
-            : null;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
@@ -2525,9 +2131,9 @@ public final class ProjectionColumnGroupScan {
             return;
           }
           final int dictId = global
-              ? Math.toIntExact(groupValue(gidWindow,
-                  requireNonNull(globalIdSeg, "a global packed-substring group needs its id lane"), globalIdBase, bit,
-                  rowIdx))
+              ? Math.toIntExact(SegmentAccess.getLong(
+                  requireNonNull(globalIdSeg, "a global packed-substring group needs its id lane"),
+                  globalIdBase + ((long) rowIdx << 3)))
               : ids[rowIdx];
           final long packed = global
               ? globalDictionaryView.packIsoMinuteSubstring(dictId, subStart, subLen)
@@ -2547,8 +2153,8 @@ public final class ProjectionColumnGroupScan {
           if (countOnly) {
             GroupKernelLanes.increment(record, 0);
           } else {
-            foldAggRow(aggWindow, record, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx, -1,
-                null, null, null, null, null, null, null, sumExactMask, null, null, 0L);
+            foldSlicedLane(record, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx, -1, null,
+                null, null, null, null, null, null, sumExactMask, null, null, 0L);
           }
         }
       }
@@ -2703,9 +2309,9 @@ public final class ProjectionColumnGroupScan {
    * caller merges per-worker accumulators.
    *
    * <p>
-   * Lane-at-a-time, not row-at-a-time: the generic per-row {@code foldSlicedWindow} (a bit walk plus
-   * an {@code addExact} per value) cost 16 ns/row on a resident column — 100M q29 spent 0.2 s hot on
-   * ONE column. Each aggregate lane is folded over the matched-and-present words with a straight-line
+   * Lane-at-a-time, not row-at-a-time: the generic per-row {@code foldSlicedLane} (a bit walk plus an
+   * {@code addExact} per value) cost 16 ns/row on a resident column — 100M q29 spent 0.2 s hot on ONE
+   * column. Each aggregate lane is folded over the matched-and-present words with a straight-line
    * loop on full words and a bit walk on partial ones, into leaf-local
    * {@code [count, sum, min, max]}; exactness is decided ONCE per leaf from the fold's own extrema
    * (every partial sum is bounded by {@code count × max|v|}), and only a leaf that could have wrapped

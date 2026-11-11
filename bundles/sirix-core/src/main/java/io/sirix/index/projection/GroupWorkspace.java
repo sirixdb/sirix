@@ -247,6 +247,10 @@ public final class GroupWorkspace implements AutoCloseable {
     return takeChunk(lanes, stride, 1, accumulatorLanes);
   }
 
+  GroupBuffer takeAccumulatorChunk(final int lanes, final int stride) {
+    return takeChunk(lanes, stride, 0, stride);
+  }
+
   private GroupBuffer takeChunk(final int lanes, final int stride, final int offset, final int accumulatorLanes) {
     if (lanes <= 0) {
       throw new IllegalArgumentException("lanes must be positive: " + lanes);

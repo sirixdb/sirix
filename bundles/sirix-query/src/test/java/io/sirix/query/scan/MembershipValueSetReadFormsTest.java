@@ -26,37 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * {@link MaskedColumns#presentLongValues(int)} — the build side of a membership filter — answers
- * identically whichever way it reads its value lane, and it has three ways. A leaf with a present
- * row in more than one row in eight stages its whole lane with one counted copy; otherwise the
- * choice is per selection word, gathering the word's 64 values into a reused 512-byte window above
- * the gather crossover and reading the lane in place per present row below it. Choosing on speed
- * alone is legitimate only while the three agree value for value, on native slab lanes and on the
- * heap-array lanes an unconverted producer still hands out — which is what this test pins.
- *
- * <p>
- * The set is checked against an INDEPENDENT oracle computed here from the fixture's own values and
- * presence, not only against another form. The four leaves of one view cover all three forms plus
- * the no-read case: leaf 0 stages, leaf 1 mixes gathered and in-place words inside one leaf, leaf 2
- * reads every word in place, leaf 3 has no present selected row at all.
- * {@link MaskedColumns#valueStagedLeaves()} and its two siblings are asserted, so a fixture that
- * silently stopped reaching its form fails rather than passing vacuously.
- * </p>
- *
- * <p>
- * {@code presentLongValues} reads the view's row masks and its slices and nothing else, so the
- * store a view is built over is only its identity here; the values under test are the fixture's own
- * lanes.
- * </p>
- */
 final class MembershipValueSetReadFormsTest {
 
-  /**
-   * Not a multiple of 64, so the last word is partly invalid and a gather of it must clamp — and the
-   * fixture puts a 16-row word there, so the clamped word is one the gather really serves. A slab
-   * allocated at exactly {@code 8 * ROWS} bytes turns a missing clamp into a bounds failure.
-   */
   private static final int ROWS = 557;
 
   private static final int WORDS = (ROWS + 63) >>> 6;
@@ -115,11 +86,11 @@ final class MembershipValueSetReadFormsTest {
   }
 
   @Test
-  @DisplayName("the four leaves reach all three read forms, and no leaf reaches them all")
-  void theFixtureCoversEveryReadForm() {
-    assertTrue(present(0) << 3 >= ROWS, "leaf 0 must stage, has " + present(0));
-    assertTrue(present(1) << 3 < ROWS, "leaf 1 must not stage, has " + present(1));
-    assertTrue(present(2) << 3 < ROWS, "leaf 2 must not stage, has " + present(2));
+  @DisplayName("the fixture covers dense, sparse and empty selections")
+  void theFixtureCoversDifferentSelectionDensities() {
+    assertTrue(present(0) << 3 >= ROWS, "leaf 0 must be dense, has " + present(0));
+    assertTrue(present(1) << 3 < ROWS, "leaf 1 must be sparse, has " + present(1));
+    assertTrue(present(2) << 3 < ROWS, "leaf 2 must be sparse, has " + present(2));
     assertEquals(0, present(3), "leaf 3 must read nothing");
     int dense = 0;
     int sparse = 0;
@@ -131,13 +102,13 @@ final class MembershipValueSetReadFormsTest {
         sparse++;
       }
     }
-    assertEquals(3, dense, "leaf 1 must gather three words");
-    assertEquals(2, sparse, "leaf 1 must read two words in place");
+    assertEquals(3, dense, "leaf 1 must have three dense words");
+    assertEquals(2, sparse, "leaf 1 must have two sparse words");
     assertTrue(Long.bitCount(masks[1][WORDS - 1] & presence[1][WORDS - 1]) > 8,
-        "the partly valid last word must be gathered");
+        "the partly valid last word must carry a dense selection");
     for (int word = 0; word < WORDS; word++) {
       final int bits = Long.bitCount(masks[2][word] & presence[2][word]);
-      assertTrue(bits > 0 && bits <= 8, "leaf 2 word " + word + " must carry rows and stay below the crossover");
+      assertTrue(bits > 0 && bits <= 8, "leaf 2 word " + word + " must carry a sparse selection");
     }
   }
 
@@ -154,27 +125,26 @@ final class MembershipValueSetReadFormsTest {
   }
 
   @Test
-  @DisplayName("each leaf reaches the form its density asks for, counted at the source")
-  void theDispatchReachesTheFormEachDensityAsksFor() {
+  @DisplayName("every nonempty selection word reads its lane directly")
+  void everyNonemptyWordReadsTheLaneDirectly() {
+    int expectedWords = 0;
+    for (int leaf = 0; leaf < LEAVES; leaf++) {
+      for (int word = 0; word < WORDS; word++) {
+        if ((masks[leaf][word] & presence[leaf][word]) != 0L) {
+          expectedWords++;
+        }
+      }
+    }
     try (Arena arena = Arena.ofConfined(); MaskedColumns columns = view(slabSlices(arena))) {
-      final long stagedBefore = MaskedColumns.valueStagedLeaves();
-      final long gatheredBefore = MaskedColumns.valueGatheredWords();
-      final long inPlaceBefore = MaskedColumns.valueInPlaceWords();
-      columns.presentLongValues(0);
-      // Leaf 0 stages. Leaf 1 gathers its three dense words and reads its two sparse ones in place.
-      // Leaf 2 reads its nine words in place. Leaf 3 is skipped before any read.
-      assertEquals(1, MaskedColumns.valueStagedLeaves() - stagedBefore, "staged leaves");
-      assertEquals(3, MaskedColumns.valueGatheredWords() - gatheredBefore, "gathered words");
-      assertEquals(11, MaskedColumns.valueInPlaceWords() - inPlaceBefore, "in-place words");
+      final long before = MaskedColumns.valueInPlaceWords();
+      assertEquals(oracle(), columns.presentLongValues(0));
+      assertEquals(expectedWords, MaskedColumns.valueInPlaceWords() - before);
     }
   }
 
   @Test
-  @DisplayName("a lane exactly as long as its rows is never read past, clamped last word included")
-  void theGatherNeverReadsPastTheLane() {
-    // Each slab is allocated at exactly 8 * ROWS bytes, so a gather of the partly valid last word
-    // that failed to clamp to its 45 valid rows would fail the segment's bounds check rather than
-    // quietly interning memory past the lane.
+  @DisplayName("a lane exactly as long as its rows is never read past")
+  void directReadsNeverReadPastTheLane() {
     try (Arena arena = Arena.ofConfined()) {
       final ColumnSlice[] slices = slabSlices(arena);
       for (final ColumnSlice slice : slices) {

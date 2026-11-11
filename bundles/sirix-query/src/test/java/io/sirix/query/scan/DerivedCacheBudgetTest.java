@@ -1,12 +1,14 @@
 package io.sirix.query.scan;
 
 import io.sirix.cache.FrameSlotAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.query.scan.DerivedCacheBudget.Entry;
 import io.sirix.query.scan.DerivedCacheBudget.Partition;
 import io.sirix.query.scan.DerivedCacheBudget.Reservation;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.lang.foreign.MemorySegment;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 
@@ -63,6 +65,100 @@ final class DerivedCacheBudgetTest {
 
   private static Stub find(final Partition partition, final Object key) {
     return (Stub) partition.acquire(entry -> entry instanceof Stub stub && stub.key == key);
+  }
+
+  @Test
+  void exceptionalAllocationRefundsBothPartitionsAndAllowsAnotherReservation() {
+    final FrameSlotAllocator delegate = new FrameSlotAllocator(4L << 20);
+    try {
+      final FailingAllocator allocator = new FailingAllocator(delegate);
+      final DerivedCacheBudget budget = new DerivedCacheBudget(allocator, 8000, 800);
+      for (final Partition partition : new Partition[] {budget.numeric(), budget.packed()}) {
+        final long bytes = partition.metrics().maximumBytes();
+        for (final boolean error : new boolean[] {false, true}) {
+          allocator.fail = true;
+          allocator.error = error;
+          if (error) {
+            assertThrows(OutOfMemoryError.class, () -> partition.reserve(bytes));
+          } else {
+            assertThrows(IllegalStateException.class, () -> partition.reserve(bytes));
+          }
+          assertEquals(0L, partition.metrics().inFlightBytes());
+          partition.clear();
+          assertEquals(0L, partition.metrics().inFlightBytes());
+          try (Reservation reservation = partition.reserve(bytes)) {
+            assertNotNull(reservation);
+            assertEquals(bytes, partition.metrics().inFlightBytes());
+          }
+          assertEquals(0L, partition.metrics().inFlightBytes());
+          assertEquals(0L, delegate.getSlabBytes());
+        }
+      }
+    } finally {
+      delegate.shutdown();
+    }
+  }
+
+  private static final class FailingAllocator implements MemorySegmentAllocator {
+    private final FrameSlotAllocator delegate;
+    private boolean fail;
+    private boolean error;
+
+    private FailingAllocator(final FrameSlotAllocator delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public MemorySegment allocateSlab(final long bytes) {
+      if (fail) {
+        fail = false;
+        if (error) {
+          throw new OutOfMemoryError("injected allocation failure");
+        }
+        throw new IllegalStateException("injected allocation failure");
+      }
+      return delegate.allocateSlab(bytes);
+    }
+
+    @Override
+    public boolean releaseSlab(final MemorySegment slab) {
+      return delegate.releaseSlab(slab);
+    }
+
+    @Override
+    public void init(final long maxBufferSize) {
+      delegate.init(maxBufferSize);
+    }
+
+    @Override
+    public boolean isInitialized() {
+      return delegate.isInitialized();
+    }
+
+    @Override
+    public void free() {
+      delegate.free();
+    }
+
+    @Override
+    public MemorySegment allocate(final long size) {
+      return delegate.allocate(size);
+    }
+
+    @Override
+    public void release(final MemorySegment segment) {
+      delegate.release(segment);
+    }
+
+    @Override
+    public long getMaxBufferSize() {
+      return delegate.getMaxBufferSize();
+    }
+
+    @Override
+    public void resetSegment(final MemorySegment segment) {
+      delegate.resetSegment(segment);
+    }
   }
 
   @Test

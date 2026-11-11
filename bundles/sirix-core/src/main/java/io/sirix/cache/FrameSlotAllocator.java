@@ -486,37 +486,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    */
   public static final String SLAB_POPULATE_PROPERTY = "sirix.allocator.slabPopulate";
 
-  /**
-   * Advise transparent huge pages ({@link VirtualMemory#adviseHugePages}) for fresh slabs of at least
-   * {@link #SLAB_HUGE_PAGE_BYTES}; OFF by default. With the kernel's THP defrag mode {@code madvise}
-   * the advice makes every huge-page fault compact memory synchronously, and on a fragmented machine
-   * that fails every time: a cold t1M join measured 138-261 compaction stalls, none successful, every
-   * huge-page fault falling back to base pages, and +0.4 s of system time per process. Only for a
-   * host whose THP settings are known to be free of direct compaction.
-   */
-  public static final String SLAB_HUGE_PAGES_PROPERTY = "sirix.allocator.slabHugePages";
-
-  /** Slabs at least this large are advised huge pages; the x86-64 and arm64 huge page is 2 MiB. */
-  static final long SLAB_HUGE_PAGE_BYTES = 2L << 20;
-
   private static volatile boolean populateSlabs =
       !"false".equalsIgnoreCase(System.getProperty(SLAB_POPULATE_PROPERTY, "true"));
-
-  private static volatile boolean hugePageSlabs = Boolean.getBoolean(SLAB_HUGE_PAGES_PROPERTY);
 
   /**
    * Bytes of fresh slabs whose pages were populated on allocation; recycled reuses are not counted.
    */
   private final AtomicLong populatedSlabBytes = new AtomicLong();
 
-  /**
-   * Test seam for the page preparation of fresh slabs; returns the previous {@code {populate,
-   * hugePages}} pair. Process-wide, like the properties it overrides.
-   */
-  static boolean[] setSlabPagePreparationForTesting(final boolean populate, final boolean hugePages) {
-    final boolean[] previous = {populateSlabs, hugePageSlabs};
+  static boolean setSlabPagePreparationForTesting(final boolean populate) {
+    final boolean previous = populateSlabs;
     populateSlabs = populate;
-    hugePageSlabs = hugePages;
     return previous;
   }
 
@@ -687,16 +667,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Prepare a fresh slab's pages: huge-page advice for a large slab when it is switched on, then
-   * population in one call, so the lane fill that follows writes resident pages instead of taking one
-   * fault per page.
+   * Prepare a fresh slab's pages in one call, so the lane fill that follows writes resident pages
+   * instead of taking one fault per page.
    *
    * @return {@code false} when the kernel cannot back the slab's pages; the caller releases the slab
    */
   private boolean prepareSlabPages(final MemorySegment segment, final long mapped) {
-    if (hugePageSlabs && mapped >= SLAB_HUGE_PAGE_BYTES) {
-      VM.adviseHugePages(segment);
-    }
     if (!populateSlabs) {
       return true;
     }

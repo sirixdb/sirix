@@ -1323,9 +1323,11 @@ public final class ProjectionColumnStore {
     }
     for (int w = from; w < to; w += MEMO_DECODE_WINDOW) {
       final int wTo = Math.min(w + MEMO_DECODE_WINDOW, to);
-      final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher);
-      for (int i = 0; i < decoded.length; i++) {
-        longExtremaOfLeaf(decoded[i], w + i, values, present);
+      try (ScratchLease lanes = ScratchLease.of(Math.max(1L, laneBytes(w, wTo - w)), ScratchUse.PROJECTION)) {
+        final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher, lanes.segment());
+        for (int i = 0; i < decoded.length; i++) {
+          longExtremaOfLeaf(decoded[i], w + i, values, present);
+        }
       }
     }
   }
@@ -1448,7 +1450,7 @@ public final class ProjectionColumnStore {
     }
     for (int w = from; w < to; w += MEMO_DECODE_WINDOW) {
       final int wTo = Math.min(w + MEMO_DECODE_WINDOW, to);
-      final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher);
+      final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher, null);
       for (int i = 0; i < decoded.length; i++) {
         extremaOfLeaf(decoded[i], w + i - from, part);
       }
@@ -2450,7 +2452,7 @@ public final class ProjectionColumnStore {
 
     private static final long serialVersionUID = 1L;
 
-    FillBudgetExceededException(final String message) {
+    public FillBudgetExceededException(final String message) {
       super(message);
     }
   }
@@ -3517,7 +3519,11 @@ public final class ProjectionColumnStore {
       return recordKeyPredicateView(fetcher, keepWords);
     }
     if (keepWords == null) {
-      return column(col, fetcher);
+      final ColumnSlice[] slices = column(col, fetcher);
+      if (target != null) {
+        target.resident = true;
+      }
+      return slices;
     }
     if (!columnFilled(col)) {
       if (target != null && target.slab != null && columnLongLane(col)) {
@@ -3550,7 +3556,7 @@ public final class ProjectionColumnStore {
    * substitutes.
    */
   public ColumnSlice[] numericBucketKeyColumn(final int col, final ColumnSegmentFetcher fetcher, final long offset,
-      final long divisor, final long modulus) {
+      final long divisor, final long modulus, final MemorySegment target) {
     if (col < 0 || col >= columnKinds.length || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
         || divisor < 1 || modulus < 0) {
       throw new IllegalArgumentException("unsupported numeric bucket column or transform");
@@ -3559,11 +3565,18 @@ public final class ProjectionColumnStore {
       return column(col, fetcher);
     }
     final int count = rowGroupCount();
+    final long[] nativeBases = new long[count];
+    long nativeBytes = 0L;
+    for (int leaf = 0; leaf < count; leaf++) {
+      nativeBases[leaf] = nativeBytes;
+      nativeBytes += (long) rowCount(leaf) * Long.BYTES;
+    }
+    if (target.byteSize() < nativeBytes) {
+      throw new IllegalArgumentException("numeric bucket target is too small");
+    }
     final int ranges = count >= PARALLEL_DECODE_MIN
         ? Math.min(8, Math.min(Runtime.getRuntime().availableProcessors(), Math.max(1, count / 1024)))
         : 1;
-    // Unproven blocks retain their ordinary arrays. Budget representative buffers separately,
-    // including earlier power-of-two capacities still referenced after a worker grows one bucket.
     final long representativeBytes = Math.min(count, ranges * NumericBucketDecoder.MAX_BUCKETS) * 2L
         * ProjectionIndexRowGroupPage.MAX_ROWS * Long.BYTES + ranges * NumericBucketDecoder.MAX_BUCKETS * 32L;
     final long required = incrementalFillBytes(col, Math.addExact(projectedColumnFillBytes(col), representativeBytes));
@@ -3575,7 +3588,8 @@ public final class ProjectionColumnStore {
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
-    final ColumnSlice[] proven = numericProofColumn(col, fetcher, offset, divisor, modulus, ranges, required);
+    final ColumnSlice[] proven =
+        numericProofColumn(col, fetcher, offset, divisor, modulus, ranges, required, target, nativeBases);
     if (proven != null) {
       return proven;
     }
@@ -3583,7 +3597,8 @@ public final class ProjectionColumnStore {
     final ColumnSlice[] slices = new ColumnSlice[count];
     try {
       forEachMemoRange(count, ranges, (from, to, range) -> {
-        final NumericBucketDecoder decoder = new NumericBucketDecoder(offset, divisor, modulus);
+        final NumericBucketDecoder decoder =
+            new NumericBucketDecoder(offset, divisor, modulus, target, nativeBases[from]);
         for (int leaf = from; leaf < to; leaf++) {
           slices[leaf] = decoder.decodeVerified(bodies, leaf);
         }
@@ -3599,7 +3614,8 @@ public final class ProjectionColumnStore {
 
   /** Bound optional proof scratch to 20 MiB, and read BODYs only for leaves lacking usable proof. */
   private ColumnSlice @Nullable [] numericProofColumn(final int col, final ColumnSegmentFetcher fetcher,
-      final long offset, final long divisor, final long modulus, final int ranges, final long ordinaryRequired) {
+      final long offset, final long divisor, final long modulus, final int ranges, final long ordinaryRequired,
+      final MemorySegment target, final long[] nativeBases) {
     final int count = directories.size();
     if (indexNumber < 0 || count > 1 << 20 || columnBytes[col] != null
         || "false".equals(System.getProperty("sirix.projection.numericProofs"))) {
@@ -3650,7 +3666,8 @@ public final class ProjectionColumnStore {
     final ColumnSlice[] slices = new ColumnSlice[count];
     final NumericBucketDecoder[] decoders = new NumericBucketDecoder[ranges];
     forEachMemoRange(count, ranges, (from, to, range) -> {
-      final NumericBucketDecoder decoder = new NumericBucketDecoder(offset, divisor, modulus);
+      final NumericBucketDecoder decoder =
+          new NumericBucketDecoder(offset, divisor, modulus, target, nativeBases[from]);
       decoders[range] = decoder;
       for (int leaf = from; leaf < to; leaf++) {
         final RowGroupDirectory directory = directories.get(leaf);
@@ -3725,14 +3742,39 @@ public final class ProjectionColumnStore {
   }
 
   public ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords) {
-    return columnMasked(col, fetcher, keepWords, null, null);
+    if (!columnLongLane(col)) {
+      return columnMasked(col, fetcher, keepWords, null, null);
+    }
+    final long[] bases = new long[directories.size()];
+    final long bytes = maskedLaneLayout(col, keepWords, bases, 0L);
+    if (bytes == 0L) {
+      return columnMasked(col, fetcher, keepWords, MemorySegment.NULL, bases);
+    }
+    final MemorySegment allocation = Allocators.getInstance().allocateSlab(bytes);
+    if (allocation == null) {
+      SLAB_FILLS_DECLINED.increment();
+      throw new FillBudgetExceededException("Allocator refused masked numeric column slab");
+    }
+    final MaskedColumnSlab owner;
+    try {
+      owner = new MaskedColumnSlab(allocation);
+    } catch (final RuntimeException | Error failure) {
+      releaseLaneSlab(allocation);
+      throw failure;
+    }
+    try {
+      ProjectionResidencyScope.retainMaskedSlab(owner);
+      return columnMasked(col, fetcher, keepWords, owner.segment(), bases);
+    } catch (final RuntimeException | Error failure) {
+      owner.run();
+      throw failure;
+    }
   }
 
   /**
    * {@link #columnMasked(int, ColumnSegmentFetcher, long[])} decoding the surviving leaves' lanes of
    * a long-lane column into the caller's {@code providedSlab} at {@code providedBases} (from
-   * {@link #maskedLaneLayout}); with {@code null}, or for any other column, the fill decodes to heap
-   * arrays.
+   * {@link #maskedLaneLayout}).
    */
   private ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords,
       final @Nullable MemorySegment providedSlab, final long @Nullable [] providedBases) {
@@ -3862,6 +3904,7 @@ public final class ProjectionColumnStore {
         slab = Allocators.getInstance().allocateSlab(total);
         if (slab == null) {
           SLAB_FILLS_DECLINED.increment();
+          throw new FillBudgetExceededException("Allocator refused numeric column slab");
         }
       }
     }
@@ -3897,6 +3940,7 @@ public final class ProjectionColumnStore {
       // Decline the store, but do NOT record this column as corrupt: that memo is store-wide and
       // lives for the process, so one mis-dispatch would permanently disable every fast path on a
       // column whose bytes were never in question (task #50).
+      releaseLaneSlab(slab);
       throw inconsistent;
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
@@ -4018,9 +4062,10 @@ public final class ProjectionColumnStore {
       final byte[][] segments, final byte[] @Nullable [] dictSegments, final @Nullable MemorySegment laneSlab,
       final long @Nullable [] laneBases) {
     final byte[] descriptor = directories.get(i).descriptor();
-    if (laneSlab != null) {
-      return ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, segments[i], col, laneSlab,
-          requireNonNull(laneBases)[i]);
+    if (columnLongLane(col)) {
+      return ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, segments[i], col, laneSlab == null
+          ? MemorySegment.NULL
+          : laneSlab, requireNonNull(laneBases)[i]);
     }
     return set
         ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, segments[i], dictSegments[i], col)
@@ -4048,12 +4093,12 @@ public final class ProjectionColumnStore {
     }
   }
 
-  /** Fills that decoded to the heap because the allocator refused their slab, process-wide. */
+  /** Fills declined because the allocator refused their slab, process-wide. */
   public static long slabFillsDeclinedCount() {
     return SLAB_FILLS_DECLINED.sum();
   }
 
-  /** Count a masked fill whose caller could not get a slab and decoded to the heap instead. */
+  /** Count a masked fill whose caller could not get a slab. */
   public static void noteSlabFillDeclined() {
     SLAB_FILLS_DECLINED.increment();
   }
@@ -4834,8 +4879,7 @@ public final class ProjectionColumnStore {
       return new ResidentLeafAccess(fetcher, keepWords);
     }
     WINDOWED_LEAF_ACCESSES.increment();
-    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN,
-        false);
+    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN);
   }
 
   /** The resident access regardless of budget (tests and callers that already hold the fills). */
@@ -4855,24 +4899,8 @@ public final class ProjectionColumnStore {
    */
   public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
       final int windowLeaves, final int cacheLeaves) {
-    return windowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, false);
-  }
-
-  /**
-   * The windowed access with, when {@code borrowLanes}, the long lanes of each decoded window written
-   * into one buffer of allocator scratch ({@link ScratchUse#PROJECTION}) instead of a heap array per
-   * leaf. The buffer goes back to the allocator when the window's last slice leaves the access's
-   * cache, and whatever is still borrowed when the access is {@linkplain LeafColumnAccess#close()
-   * closed}. That makes a slice's lane valid only while the slice is in the cache, so it is for
-   * callers whose consumers finish with a window before the access moves {@code cacheLeaves} past it
-   * — the sliced group kernels' fill / kernel / release discipline ({@link WindowedSliceArrays}) —
-   * and who close the access. A caller that keeps slices across windows (a top-k heap resolving old
-   * entries) must not ask for it.
-   */
-  public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
-      final int windowLeaves, final int cacheLeaves, final boolean borrowLanes) {
     WINDOWED_LEAF_ACCESSES.increment();
-    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, borrowLanes);
+    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves);
   }
 
   /**
@@ -5022,7 +5050,7 @@ public final class ProjectionColumnStore {
    * pruning is the predicate view's business ({@link LeafColumnAccess#predicateSlice}).
    */
   private ColumnSlice[] decodeLeafSlices(final int col, final int @Nullable [] leaves, final int base, final int len,
-      final ColumnSegmentFetcher fetcher) {
+      final ColumnSegmentFetcher fetcher, final @Nullable MemorySegment lanes) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable");
     }
@@ -5036,6 +5064,7 @@ public final class ProjectionColumnStore {
             ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher)
         : null;
     final ColumnSlice[] decoded = new ColumnSlice[len];
+    long laneBase = 0L;
     for (int i = 0; i < len; i++) {
       final int leaf = leaves == null
           ? base + i
@@ -5045,11 +5074,15 @@ public final class ProjectionColumnStore {
       final byte[] dictSeg = dicts != null
           ? dicts[i]
           : null;
-      decoded[i] = set
-          ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col)
-          : string
-              ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col)
-              : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col);
+      decoded[i] = columnLongLane(col)
+          ? ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, bodySeg, col,
+              requireNonNull(lanes, "numeric leaf decode needs allocator memory"), laneBase)
+          : set
+              ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col)
+              : string
+                  ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col)
+                  : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col);
+      laneBase += (long) decoded[i].rowCount() * Long.BYTES;
     }
     return decoded;
   }
@@ -5161,6 +5194,7 @@ public final class ProjectionColumnStore {
      */
     private final ColumnSlice[][] decoded = new ColumnSlice[columnKinds.length][];
     private long @Nullable [][] decodedKeys;
+    private final ScratchLease[] laneLeases = new ScratchLease[columnKinds.length];
 
     LeafSetAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int[] leaves,
         final int from, final int to) {
@@ -5194,8 +5228,26 @@ public final class ProjectionColumnStore {
       }
       ColumnSlice[] set = decoded[col];
       if (set == null) {
-        set = decodeLeafSlices(col, leaves, from, to - from, fetcher);
-        decoded[col] = set;
+        ScratchLease lease = null;
+        if (columnLongLane(col)) {
+          long bytes = 0L;
+          for (int pos = from; pos < to; pos++) {
+            bytes += (long) rowCount(leaves[pos]) * Long.BYTES;
+          }
+          lease = ScratchLease.of(Math.max(1L, bytes), ScratchUse.PROJECTION);
+        }
+        try {
+          set = decodeLeafSlices(col, leaves, from, to - from, fetcher, lease == null
+              ? null
+              : lease.segment());
+          laneLeases[col] = lease;
+          decoded[col] = set;
+        } catch (final RuntimeException | Error failure) {
+          if (lease != null) {
+            lease.close();
+          }
+          throw failure;
+        }
       }
       return set[position(leaf)];
     }
@@ -5222,6 +5274,18 @@ public final class ProjectionColumnStore {
         decodedKeys = set;
       }
       return set[position(leaf)];
+    }
+
+    @Override
+    public void close() {
+      for (int col = 0; col < laneLeases.length; col++) {
+        if (laneLeases[col] != null) {
+          laneLeases[col].close();
+          laneLeases[col] = null;
+        }
+        decoded[col] = null;
+      }
+      decodedKeys = null;
     }
   }
 
@@ -5302,9 +5366,9 @@ public final class ProjectionColumnStore {
 
     /**
      * The borrowed lane buffers of the windows that still have a slice in the cache, by the segment the
-     * slices' lanes name; {@code null} = this access decodes into heap arrays the collector takes.
+     * slices' lanes name.
      */
-    private final @Nullable Reference2ObjectOpenHashMap<MemorySegment, WindowLanes> windowLanes;
+    private final Reference2ObjectOpenHashMap<MemorySegment, WindowLanes> windowLanes;
 
     /**
      * The presence words of evicted slices, for the leaves decoded next; used with borrowed lanes only.
@@ -5323,7 +5387,7 @@ public final class ProjectionColumnStore {
     }
 
     WindowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int windowLeaves,
-        final int cacheLeaves, final boolean borrowLanes) {
+        final int cacheLeaves) {
       if (windowLeaves <= 0) {
         throw new IllegalArgumentException("windowLeaves must be positive: " + windowLeaves);
       }
@@ -5334,12 +5398,8 @@ public final class ProjectionColumnStore {
       this.keepWords = keepWords;
       this.windowLeaves = windowLeaves;
       this.cacheLeaves = cacheLeaves;
-      this.windowLanes = borrowLanes
-          ? new Reference2ObjectOpenHashMap<>()
-          : null;
-      this.sparePresence = new SparePresenceWords(borrowLanes
-          ? cacheLeaves
-          : 0);
+      this.windowLanes = new Reference2ObjectOpenHashMap<>();
+      this.sparePresence = new SparePresenceWords(cacheLeaves);
     }
 
     @Override
@@ -5398,7 +5458,7 @@ public final class ProjectionColumnStore {
      * buffer goes back to the allocator: nothing may read those lanes any more.
      */
     private void leftCache(final @Nullable ColumnSlice slice) {
-      if (slice == null || windowLanes == null) {
+      if (slice == null) {
         return;
       }
       final NumericLane lane = slice.lane();
@@ -5418,12 +5478,12 @@ public final class ProjectionColumnStore {
     private ColumnSlice[] decodeWindow(final int col, final int window) {
       final int from = window * windowLeaves;
       final int len = Math.min(from + windowLeaves, leafCount) - from;
-      if (windowLanes == null || !ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col])) {
-        return decodeLeafSlices(col, null, from, len, fetcher);
+      if (!ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col])) {
+        return decodeLeafSlices(col, null, from, len, fetcher, null);
       }
       final long bytes = laneBytes(from, len);
       if (bytes == 0L) {
-        return decodeLeafSlices(col, null, from, len, fetcher);
+        return decodeLeafSlices(col, null, from, len, fetcher, MemorySegment.NULL);
       }
       // One buffer for the window's lanes of this column, borrowed until its last slice is evicted.
       final ScratchLease lease = ScratchLease.of(bytes, ScratchUse.PROJECTION);
@@ -5435,7 +5495,11 @@ public final class ProjectionColumnStore {
             withLane++;
           }
         }
-        windowLanes.put(lease.segment(), new WindowLanes(lease, withLane));
+        if (withLane == 0) {
+          lease.close();
+        } else {
+          windowLanes.put(lease.segment(), new WindowLanes(lease, withLane));
+        }
         return decoded;
       } catch (final Throwable failure) {
         // A segment that fails to fetch, verify or decode: no slice of this window was handed out.
@@ -5452,12 +5516,10 @@ public final class ProjectionColumnStore {
         }
       }
       keyCache.clear();
-      if (windowLanes != null) {
-        for (final WindowLanes lanes : windowLanes.values()) {
-          lanes.lease.close();
-        }
-        windowLanes.clear();
+      for (final WindowLanes lanes : windowLanes.values()) {
+        lanes.lease.close();
       }
+      windowLanes.clear();
     }
 
     @Override

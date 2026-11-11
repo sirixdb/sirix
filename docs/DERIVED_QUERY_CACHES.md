@@ -12,11 +12,7 @@ A fresh slab's pages are populated in one `madvise(MADV_POPULATE_WRITE)` call
 (`sirix.allocator.slabPopulate`, on by default; Linux only, a kernel without the call falls back to
 lazy faults), so the lane fill that follows writes resident pages instead of taking one fault per
 4 KiB page: the first-run admission of 180 MiB of join lanes paid 44k faults at 2.4 µs each, and
-population halves that cost. Huge-page advice for slabs from 2 MiB exists behind
-`sirix.allocator.slabHugePages` but is off: with THP defrag in `madvise` mode every huge-page fault
-compacts memory synchronously, and on a fragmented machine every attempt failed (261 stalls, 0
-successes, +0.4 s system time on one cold join). A recycled slab (below) is resident already and is
-never populated again.
+population halves that cost. A recycled slab (below) is resident already and is never populated again.
 
 ## Column lanes
 
@@ -41,9 +37,8 @@ top-k heap (`TopKHeap.bindLeaf` hoists each sort key's lane once per leaf), the 
 aggregates and the field-value emission all read `(segment, base)`. The sliced group passes'
 windowed access decodes each window's lanes into one buffer borrowed from the allocator and
 returns it when the window's last slice leaves its cache, so those passes read native lanes too.
-Producers that still decode to the heap — a windowed leaf access that does not borrow (top-k
-resolution, one-leaf winner emission) and the KEYS chain — reach those same kernels as heap
-segments (`MemorySegment.ofArray`), which is a representation difference, not a second code path.
+Windowed and leaf-set numeric access also borrow allocator memory and release it on close.
+The KEYS chain remains a heap representation; masked selections copy retained keys to their slab.
 
 **One segment class per process.** That representation difference is not free at the JIT level.
 Every read through a segment handle casts the segment to the JDK's abstract segment class and calls
@@ -60,61 +55,13 @@ leaf), whose class the compiler sees being constructed, so no shared profile is 
 durable cure is for no producer to hand a kernel a heap array as a segment: a heap array should be
 read as an array, or decoded into a slab like every other lane.
 
-**Reading a lane in a group fold.** A group fold's row index comes out of
-`Long.numberOfTrailingZeros` over the selection word, so its loop is not counted over linear offsets
-and no compiler hoists the segment's bounds check out of it: every surviving row would pay its own.
-The group kernels therefore exist in two forms per accumulator shape. `foldSlicedLane`,
-`foldSumsSlicedLane` and `foldNumericPlainLane` read the lane in place, one checked read per
-surviving row. `foldSlicedWindow`, `foldSumsWindow` and `foldNumericPlainWindow` instead fold a
-64-row value window that `ProjectionColumnGroupScan.gatherWindow` copied out of the lane with one
-counted, intrinsified `MemorySegment.copy` — one bounds check per vector rather than per row — and so
-index their values by the bit position rather than the row. `gatherPays` chooses per selection word
-at the `ProjectionVectorKernels.FOLD_WALK_MAX_BITS` crossover, the same walk-versus-word crossover
-the compare and fold kernels already dispatch on: below it a gather would read 64 rows to use a
-handful, above it the per-row checks cost more than the copy. The window is per-thread scratch, 512
-bytes per column reused for every word of every leaf — never a column representation, and nothing is
-allocated per leaf, which is what distinguishes it from the `numericValues()` seam it removes.
-`GroupFoldLaneEquivalenceTest` pins the two forms to identical accumulators, over native slab lanes
-and over the heap-array lanes a still-heap windowed slice hands them, so the choice is about speed
-alone.
-
-**Reading operand lanes in a derived column.** `ProjectionComputedColumn` evaluates a program over
-operand lanes for every row of a kept leaf, because the group kernel's own per-row mask decides later
-which values count, so its walk is normally dense rather than selective. It has three read forms and
-decides from one presence pass per leaf. When every row carries every operand — the shape of every
-measured route — it stages each operand lane with ONE counted copy of the leaf's own rows and walks
-the rows counted: a per-word gather would move the same bytes in 64-row pieces and pay sixteen times
-the `MemorySegment.copy` calls for a full leaf, which is what that copy costs at this size, not its
-bytes. When some row lacks an operand it falls back to the group folds' own per-word choice at the
-same `gatherPays` crossover, so a selective leaf wastes nothing. Both buffers are flat — operand `c`
-at `c * stride` in one array, not one array per operand — so a read is a single bounds-checked load of
-a loop-invariant array, and neither is allocated per leaf: the window is 512 bytes per operand and the
-staging buffer is allocated once per pass, at the row-group row bound, when the first fully present
-leaf asks for it. A leaf above that bound reads per word instead. Each walk is deliberately its own
-small method: the program interpreter runs once per row, and a caller it cannot be inlined into pays
-that call for every row of the query. `ComputedColumnLaneEquivalenceTest` pins the three forms to an
-independent oracle at every density and program width, over slab lanes and over the heap-array lanes
-an unconverted producer still hands out.
-
-**Reading a lane in a membership filter.** The two sides of a semi/anti join over an equality walk
-their lanes by bit for the same reason a group fold does, and at a density that is the opposite of the
-fold's: `MaskedColumns.presentLongValues` interns the build side's values and
-`ProjectionRecordKeySet.filterMembership` tests the probe side's, and on the measured anti-join route
-each reads about a quarter of a million rows per query with nine words in ten carrying more than the
-crossover's eight. Both therefore decide a read form from ONE sizing pass per leaf — the
-selection-AND-presence the walk would do anyway, popcounted — and have three. A leaf with a row to
-read in more than one row in eight stages its whole lane with one counted copy and the walks index the
-staged array: a projection leaf is sixteen words, so the per-word form would move the same bytes and
-pay sixteen times the `MemorySegment.copy` calls, the same accounting the derived column's staging
-rests on. Otherwise a word above the `FOLD_WALK_MAX_BITS` crossover is gathered into a reused
-512-byte window, and a word at or below it is read in place. Nothing is allocated per leaf or per
-word: one scratch per pass, the staging buffer at the row-group row bound taken when the first dense
-leaf asks for it, and a leaf above that bound reads per word. Each walk is its own small method so
-every dispatch arm keeps inlining it. `membershipStagedLeaves()`, `membershipGatheredWords()`,
-`membershipInPlaceWords()` and the matching `MaskedColumns.value*` counters report which form ran;
-`MembershipLaneReadFormsTest` and `MembershipValueSetReadFormsTest` pin all three to an independent
-oracle, over slab lanes and over the heap-array lanes an unconverted producer still hands out, and
-pin the gather's clamp on a partly valid last word.
+**Reading numeric lanes.** Group folds, computed columns and membership filters read numeric
+values directly through supported foreign-memory reads. Selection words supply row indices; the
+plain numeric word fold hoists each column's segment and base and folds the selected rows as a
+counted loop. There are no gathered heap windows or parallel array kernels in production.
+`ProjectionComputedColumn` writes its derived lane directly to a query-owned slab, which is returned
+after the route materializes its results. The fold, computed-column and membership differential tests
+compare those reads with independent scalar expectations over full and sparse masks.
 
 **Ownership.** The slab belongs to the store and the column (`ColumnSlabs`). It is charged to the
 store's residency ledger exactly as a heap fill was (`decodedColumnResidentBytes` prices a long lane
@@ -140,14 +87,19 @@ touches only a column whose pin count is zero, and it is double-checked: the slo
 first, the pins are read again, and a pin that arrived in between republishes the column instead
 of freeing it. Readers pin *before* they re-read the slot, so a slot still published after the pin
 can no longer be freed under them. The one contract this leaves is that a reader of column slices
-either runs inside a scope or holds an entry lease; a reader outside both (a direct store user in a
+either runs inside a scope, holds its own resident-column pins, or holds an entry lease; a reader outside these lifetimes (a direct store user in a
 test) must not share its store with a catalog that may evict it.
 
 **Masked views.** A masked fill (`columnMaskedView(col, fetcher, keep, LaneTarget)`) decodes a
 non-resident long-lane column's surviving leaves into the caller's slab at the per-leaf bases of
 `maskedLaneLayout`, and reports through the target whether it did so (`filled`) or served the
-store's resident column pruned (`resident`). Without a target, or when the allocator refused the
-memory (counted in `slabFillsDeclinedCount`), the fill decodes to heap arrays as before.
+store's resident column pruned (`resident`), including whole-column reads. Allocation refusal
+increments `slabFillsDeclinedCount` and follows the existing budget-decline/restart path; it never
+decodes numeric values to heap arrays. A query-local returned view pins each resident column until
+it closes, independently of the executor's residency scope. A masked numeric fill without a supplied
+target owns only the kept leaves' slab through every active residency scope; the final scope closes
+it. Direct store callers outside a scope receive an automatic-arena segment alias whose cleanup
+returns the allocation only after its last segment reference is unreachable.
 
 **Group routes.** A grouped aggregate reads its key, aggregate and conditional-key columns behind
 the route's leaf keep mask, so the columns the store does not hold resident take that masked fill.
@@ -159,7 +111,7 @@ resident gets no target at all and is served pruned from the store's own slab, p
 scope. The slices point into the route's slab, so `groupByAggregate` returns it in a `finally` once
 its winners are materialized (every arm emits an `ItemSequence` over copied accumulator lanes and
 strings, so nothing downstream reads a slice); the slab is charged to the allocator's physical
-budget like every other, and a refusal falls back to heap arrays and counts a declined slab fill.
+budget like every other, and refusal follows the budget-decline/restart path.
 
 **Query-local slabs are recycled.** A view that is not cached, a group route's masked lanes and an uncached
 join side decode into a slab that lives for one query. Mapping, zero-faulting and unmapping such a slab
@@ -176,7 +128,8 @@ segment over the same pages, so the instance released before cannot release the 
 grouped scan opens one `GroupWorkspace` (`io.sirix.index.projection`), which borrows regions from the
 allocator's scratch facility (`ScratchUse.AGGREGATION`, 64 KiB doubling to 2 MiB) and carves them
 into zeroed chunks: the stripes and index chunks of every `NumericGroupAggTable` of the scan, the
-spill's stripe buffers, zero-key slots and the workers' standalone accumulators. A table that
+native slots of `DenseGlobalGroupAggTable`, the map-based kernels' accumulators, the spill's stripe
+buffers, zero-key slots and the workers' standalone accumulators. A table that
 rehashes or is released hands its chunks back to the workspace, so the passes of a multi-pass scan
 reuse one another's memory; closing the workspace when the arm returns gives every region back, and
 nothing of a scan's group memory outlives it. Winners are copied to heap arrays before they are
@@ -198,7 +151,7 @@ indexed-acquisition methods that are deliberately too large to inline, and the l
 within the size inlined at any call site; `GroupAccessorSizeTest` holds those sizes and the class
 comments explain them. The plain kernels, which fold the rows of a word that have no group key into
 the dense arm's one missing-key accumulator, take the word's rows at once and fold them column by
-column (`foldNumericPlainWordLane`, `foldNumericPlainWordWindow`): a column's presence word is read
+column (`foldNumericPlainWordLane`): a column's presence word is read
 once, its sum and extrema stay in locals while its rows are walked, and its lane segment is the same
 for all of them, so the per-row cost is one value read and three updates.
 
@@ -212,9 +165,12 @@ accepted worker even on errors, returns its regions and then its grant. Returned
 in the allocator's common scratch size classes only after moving their charge outside the protected
 execution floor, and within the recycle bound (`sirix.allocator.slabRecycleBytes`, one sixteenth of
 the budget by default): a scan returns its regions by the hundred, and the next scan would otherwise
-map every one of them again and fault it in page by page. `DenseGlobalGroupAggTable` and the map-based group kernels still use heap arrays.
-`AggregationGrantTest`, `GroupRecordBoundaryTest`, `GroupWorkspaceTest`, and the group differential
-and work-budget suites cover ownership, capacity, exact answers and cleanup.
+map every one of them again and fault it in page by page. Dense slots are shared across workers;
+their accumulating and monotone lanes use the supported atomic foreign-memory access modes through
+the same resolved records, including bounded atomic access in debug mode.
+`AggregationGrantTest`, `GroupRecordBoundaryTest`, `GroupWorkspaceTest`,
+`DenseGlobalGroupAggTableTest`, `MapGroupWorkspaceTest`, and the group differential and work-budget
+suites cover ownership, capacity, exact answers and cleanup.
 
 ## Allowance
 
@@ -246,7 +202,7 @@ lanes are immutable.
 
 A query-local view — a mutable revision, no key roster, or a selection the share refused — owns
 the slab its lanes were decoded into and returns it to the allocator when it closes; a view over
-resident columns alone holds nothing, the query scope pins them. Only a cached view hands out a
+resident columns also holds its own pins until it closes. Only a cached view hands out a
 task lease (`acquireTaskLease`), so a background packing never reads lanes that a closed view may
 have released: an uncached selection is not packed in the background at all (nothing could find
 the packed side again by its one-off identity).
@@ -265,14 +221,16 @@ leaves' record keys in one slab (`maskedLaneLayout`, `KeyLanes.layout`); a route
 keys prune no leaf keeps every leaf explicitly rather than reading the store's whole columns
 (which would fill them resident, one slab each, and spread the side's lanes over several
 segments). It reserves the slab from the
-numeric share (`NumericMaskedColumnCache.reserve`), decodes the lanes straight into it, moves the
+numeric share (`NumericMaskedColumnCache.reserve`) only for NUMERIC_LONG/TIMESTAMP selections covering at
+least one quarter of all rows and three quarters of leaves. String-bearing and sparse selections stay
+query-local. The executor decodes the lanes straight into the slab, moves the
 keys in once from the store's decoded KEYS arrays (`KeyLanes.copyInto`, eight bytes per row, the
 arrays are not retained), and publishes the view as the entry (`publish`); fields the store already
 holds resident are read in place and pinned by the entry. Only immutable committed selections with
 a key roster qualify: write-transaction selections stay query-local. When the share or the
 allocator refuses the reservation, the lanes and keys go into a query-local slab the view owns, and
-nothing is cached; only an allocator that refuses that slab too leaves the keys in their arrays
-(viewed as heap segments) and the lanes in heap arrays. A background packing of an interval-join
+nothing is cached. If the allocator also refuses that slab, the route declines through its existing
+budget path. A background packing of an interval-join
 side counts its
 rows, reserves the exact slab, and scatters the records off the query thread under a task lease on
 the selection's entry; the synchronous build side is packed into a query-owned slab when the cache
@@ -343,8 +301,7 @@ and OS/application reserve within the machine or container allowance.
 `DerivedCacheBudget.global().metrics()` exposes the configured target (`-1` for automatic), the
 allocator allowance, the effective combined cap, both partition caps, retained bytes, in-flight
 bytes, retired-but-leased bytes, cumulative rejected bytes (saturating at `Long.MAX_VALUE`) and
-entry counts, and `lanes`: the allocator's live slab bytes, fills the allocator refused (decoded to
-the heap), and lanes a not-yet-converted consumer copied to the heap. `MemorySegmentAllocator.getSlabBytes()`
+entry counts, and `lanes`: the allocator's live slab bytes, fills the allocator refused (declined through the budget path), and lanes a not-yet-converted consumer copied to the heap. `MemorySegmentAllocator.getSlabBytes()`
 reports the bytes committed to live slabs, included in the allocator's physical bytes. `HeapCacheBudget.global().metrics()` exposes the
 configured and effective envelope, workspace reserve and each cache share; `BufferManagerImpl`
 logs the policy at initialization. These are cold-path observations, not per-row counters.

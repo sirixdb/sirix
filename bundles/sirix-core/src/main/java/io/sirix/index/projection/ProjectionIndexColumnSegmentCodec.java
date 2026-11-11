@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.node.SegmentAccess;
+
 import io.sirix.index.projection.ProjectionColumnStore.PackedDictionaryIds;
 import io.sirix.index.projection.ProjectionColumnStore.VerifiedBodyColumn;
 import io.sirix.utils.FSSTCompressor;
@@ -1717,12 +1719,18 @@ public final class ProjectionIndexColumnSegmentCodec {
    */
   static ProjectionColumnStore.ColumnSlice decodeBodySliceInto(final byte[] descriptor, final byte[] bodyColumnSegment,
       final int col, final MemorySegment slab, final long laneBase, final long @Nullable [] presenceToReuse) {
+    return decodeBodySliceInto(descriptor, bodyColumnSegment, col, slab, laneBase, presenceToReuse, false);
+  }
+
+  private static ProjectionColumnStore.ColumnSlice decodeBodySliceInto(final byte[] descriptor,
+      final byte[] bodyColumnSegment, final int col, final MemorySegment slab, final long laneBase,
+      final long @Nullable [] presenceToReuse, final boolean verified) {
     final int rowCount = RowGroupDescriptor.rowCount(descriptor);
     final byte kind = RowGroupDescriptor.kind(descriptor, col);
     if (!bodyLongLane(kind)) {
       throw new IllegalStateException("Column " + col + " (kind " + kind + ") has no long lane to decode off-heap");
     }
-    final ProjectionIndexRowGroupCodec.Cursor body = openBodySlice(descriptor, bodyColumnSegment, col, false);
+    final ProjectionIndexRowGroupCodec.Cursor body = openBodySlice(descriptor, bodyColumnSegment, col, verified);
     final byte flags = body.readByte();
     final int presWords = rowCount > 0
         ? (rowCount + 63) >>> 6
@@ -1761,15 +1769,20 @@ public final class ProjectionIndexColumnSegmentCodec {
     private final long offset;
     private final long divisor;
     private final long modulus;
-    private final Long2ObjectOpenHashMap<long[]> representatives = new Long2ObjectOpenHashMap<>(MAX_BUCKETS, 0.5f);
+    private final MemorySegment target;
+    private long nextBase;
+    private final Long2ObjectOpenHashMap<NumericLane> representatives = new Long2ObjectOpenHashMap<>(MAX_BUCKETS, 0.5f);
 
-    NumericBucketDecoder(final long offset, final long divisor, final long modulus) {
+    NumericBucketDecoder(final long offset, final long divisor, final long modulus, final MemorySegment target,
+        final long base) {
       if (divisor < 1 || modulus < 0) {
         throw new IllegalArgumentException("bucket divisor must be positive and modulus nonnegative");
       }
       this.offset = offset;
       this.divisor = divisor;
       this.modulus = modulus;
+      this.target = target;
+      this.nextBase = base;
     }
 
     ProjectionColumnStore.ColumnSlice decode(final byte[] descriptor, final byte[] bytes, final int col) {
@@ -1800,19 +1813,19 @@ public final class ProjectionIndexColumnSegmentCodec {
       final long bucket = modulus == 0
           ? quotient
           : quotient % modulus;
-      long[] values = representatives.get(bucket);
+      NumericLane values = representatives.get(bucket);
       if (values == null && representatives.size() == MAX_BUCKETS) {
         return null;
       }
-      if (values == null || values.length < rows) {
+      if (values == null || values.rows() < rows) {
         final long representative = values == null
             ? min
-            : values[0];
-        final int capacity = rows == 1
-            ? 1
-            : Integer.highestOneBit(rows - 1) << 1;
-        values = new long[capacity];
-        Arrays.fill(values, representative);
+            : values.get(0);
+        values = new NumericLane(target, nextBase, rows);
+        for (int row = 0; row < rows; row++) {
+          SegmentAccess.putLong(target, nextBase + ((long) row << 3), representative);
+        }
+        nextBase += (long) rows * Long.BYTES;
         representatives.put(bucket, values);
       }
       final int words = (rows + 63) >>> 6;
@@ -1829,8 +1842,7 @@ public final class ProjectionIndexColumnSegmentCodec {
           fullPresence = presence;
         }
       }
-      return new ProjectionColumnStore.ColumnSlice(rows, (byte) 0, values[0], values[0], presence, values, null, null,
-          null, null);
+      return new ProjectionColumnStore.ColumnSlice(rows, (byte) 0, values.get(0), values.get(0), presence, values);
     }
 
     private ProjectionColumnStore.ColumnSlice decode(final byte[] descriptor, final byte[] bytes, final int col,
@@ -1840,7 +1852,7 @@ public final class ProjectionIndexColumnSegmentCodec {
         throw new IllegalArgumentException("numeric bucket views require an integral numeric column");
       }
       if (rows < 1 || rows > ProjectionIndexRowGroupPage.MAX_ROWS) {
-        return decodeBodySlice(descriptor, bytes, col, verified);
+        return decodeOrdinary(descriptor, bytes, col, verified);
       }
       final ProjectionIndexRowGroupCodec.Cursor body = openBodySlice(descriptor, bytes, col, verified);
       final byte flags = body.readByte();
@@ -1850,34 +1862,42 @@ public final class ProjectionIndexColumnSegmentCodec {
       final long high = max + offset;
       if (flags != 0 || min > max || ((min ^ low) & (offset ^ low)) < 0 || ((max ^ high) & (offset ^ high)) < 0
           || low / divisor != high / divisor) {
-        return decodeBodySlice(descriptor, bytes, col, true);
+        return decodeOrdinary(descriptor, bytes, col, true);
       }
       // Equal residues alone cannot prove constancy across a modulus cycle; compare quotients first.
       final long quotient = low / divisor;
       final long bucket = modulus == 0
           ? quotient
           : quotient % modulus;
-      long[] values = representatives.get(bucket);
+      NumericLane values = representatives.get(bucket);
       if (values == null && representatives.size() == MAX_BUCKETS) {
-        return decodeBodySlice(descriptor, bytes, col, true);
+        return decodeOrdinary(descriptor, bytes, col, true);
       }
-      if (values == null || values.length < rows) {
+      if (values == null || values.rows() < rows) {
         final long representative = values == null
             ? min
-            : values[0];
-        final int capacity = rows == 1
-            ? 1
-            : Integer.highestOneBit(rows - 1) << 1;
-        values = new long[capacity];
-        Arrays.fill(values, representative);
+            : values.get(0);
+        values = new NumericLane(target, nextBase, rows);
+        for (int row = 0; row < rows; row++) {
+          SegmentAccess.putLong(target, nextBase + ((long) row << 3), representative);
+        }
+        nextBase += (long) rows * Long.BYTES;
         representatives.put(bucket, values);
       }
       final int words = (rows + 63) >>> 6;
       final long[] presence = new long[words];
       ProjectionIndexRowGroupCodec.decodePresenceInto(body, presence, words, rows);
-      return new ProjectionColumnStore.ColumnSlice(rows, flags, values[0], values[0], presence, values, null, null,
-          null, null);
+      return new ProjectionColumnStore.ColumnSlice(rows, flags, values.get(0), values.get(0), presence, values);
     }
+
+    private ProjectionColumnStore.ColumnSlice decodeOrdinary(final byte[] descriptor, final byte[] bytes, final int col,
+        final boolean verified) {
+      final ProjectionColumnStore.ColumnSlice slice =
+          decodeBodySliceInto(descriptor, bytes, col, target, nextBase, null, verified);
+      nextBase += (long) slice.rowCount() * Long.BYTES;
+      return slice;
+    }
+
   }
 
   /**

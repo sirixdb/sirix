@@ -1634,61 +1634,62 @@ public final class ProjectionColumnScan {
       }
       final int[] ascending = Arrays.copyOf(set, n);
       IntArrays.quickSort(ascending);
-      final ProjectionColumnStore.LeafColumnAccess access = store.leafSetAccess(fetcher, keep, ascending, 0, n);
-      final Scratch s = SCRATCH.get();
-      final ColumnSlice[] predicateSlices = s.leafPredicateSlices(predicates.length);
-      final ColumnSlice[] leafSort = s.leafSortSlices(keyCount);
-      long cand = 0L;
-      int visited = 0;
-      for (int i = 0; i < n; i++) {
-        final int leaf = set[i]; // best-first within the slab, so the local heap bounds early
-        if (local.full() && plan.strictlyWorse(local, leaf)) {
-          TOPK_LEAVES_SKIPPED.increment();
-          skipped.increment();
-          continue;
-        }
-        if (declined.get()) {
-          break;
-        }
-        final int rows = leafRows[leaf];
-        visited++;
-        if (evaluateMask(predicates, access, leaf, rows, s.mask, predicateSlices) <= 0) {
-          continue;
-        }
-        final long[] keys = access.recordKeys(leaf);
-        for (int kk = 0; kk < keyCount; kk++) {
-          leafSort[kk] = access.slice(sortColumns[kk], leaf);
-        }
-        // One bind per leaf: the heap hoists every long key's lane segment and base here, so the
-        // candidate walk below adds a row offset instead of re-resolving a slice per key per row.
-        local.bindLeaf(leafSort);
-        final long rank = leafRankBase[leaf];
-        final int stride = (rows + 63) >>> 6;
-        for (int w = 0; w < stride; w++) {
-          long word = s.mask[w];
-          if (word == 0L) {
+      try (final ProjectionColumnStore.LeafColumnAccess access = store.leafSetAccess(fetcher, keep, ascending, 0, n)) {
+        final Scratch s = SCRATCH.get();
+        final ColumnSlice[] predicateSlices = s.leafPredicateSlices(predicates.length);
+        final ColumnSlice[] leafSort = s.leafSortSlices(keyCount);
+        long cand = 0L;
+        int visited = 0;
+        for (int i = 0; i < n; i++) {
+          final int leaf = set[i]; // best-first within the slab, so the local heap bounds early
+          if (local.full() && plan.strictlyWorse(local, leaf)) {
+            TOPK_LEAVES_SKIPPED.increment();
+            skipped.increment();
             continue;
           }
-          long presAll = -1L;
+          if (declined.get()) {
+            break;
+          }
+          final int rows = leafRows[leaf];
+          visited++;
+          if (evaluateMask(predicates, access, leaf, rows, s.mask, predicateSlices) <= 0) {
+            continue;
+          }
+          final long[] keys = access.recordKeys(leaf);
           for (int kk = 0; kk < keyCount; kk++) {
-            presAll &= leafSort[kk].presenceWords()[w];
+            leafSort[kk] = access.slice(sortColumns[kk], leaf);
           }
-          if ((word & ~presAll) != 0L) {
-            declined.set(true); // a matching row without an order key — the interpreter places it
-            evaluated.add(visited);
-            candidates.add(cand);
-            return;
-          }
-          while (word != 0L) {
-            final int rowIdx = (w << 6) + Long.numberOfTrailingZeros(word);
-            word &= word - 1L;
-            local.offer(rowIdx, keys[rowIdx], rank + rowIdx);
-            cand++;
+          // One bind per leaf: the heap hoists every long key's lane segment and base here, so the
+          // candidate walk below adds a row offset instead of re-resolving a slice per key per row.
+          local.bindLeaf(leafSort);
+          final long rank = leafRankBase[leaf];
+          final int stride = (rows + 63) >>> 6;
+          for (int w = 0; w < stride; w++) {
+            long word = s.mask[w];
+            if (word == 0L) {
+              continue;
+            }
+            long presAll = -1L;
+            for (int kk = 0; kk < keyCount; kk++) {
+              presAll &= leafSort[kk].presenceWords()[w];
+            }
+            if ((word & ~presAll) != 0L) {
+              declined.set(true); // a matching row without an order key — the interpreter places it
+              evaluated.add(visited);
+              candidates.add(cand);
+              return;
+            }
+            while (word != 0L) {
+              final int rowIdx = (w << 6) + Long.numberOfTrailingZeros(word);
+              word &= word - 1L;
+              local.offer(rowIdx, keys[rowIdx], rank + rowIdx);
+              cand++;
+            }
           }
         }
+        evaluated.add(visited);
+        candidates.add(cand);
       }
-      evaluated.add(visited);
-      candidates.add(cand);
     }
   }
 
@@ -1822,76 +1823,77 @@ public final class ProjectionColumnScan {
       needed[i] = predicates[i].column;
     }
     needed[predicates.length] = valueColumn;
-    final ProjectionColumnStore.LeafColumnAccess access = store.leafAccess(fetcher, keep, needed, false);
-    final Scratch s = SCRATCH.get();
-    final ColumnSlice[] leafPredicateSlices = s.leafPredicateSlices(predicates.length);
-    // Row budget vs item budget: the cap prefix is exact only because document order makes the
-    // first `limit` SURVIVING ROWS the window, and a hole inside it already declined.
-    final long rowCap = limit >= 0
-        ? limit
-        : Long.MAX_VALUE;
-    long matched = 0;
-    long emitted = 0;
-    for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
-      final int leafRows = store.rowCount(leaf);
-      if (leafRows <= 0) {
-        continue;
-      }
-      final int rowCount = evaluateMask(predicates, access, leaf, leafRows, s.mask, leafPredicateSlices);
-      if (rowCount <= 0) {
-        continue;
-      }
-      final ColumnSlice value = access.predicateSlice(valueColumn, leaf);
-      if (value.rowCount() < rowCount) {
-        // The predicate columns say this leaf has rows the value column does not — mismatched
-        // segment truth, never a benign skip. Fail loud into the caller's fail-soft catch.
-        throw new IllegalStateException("value column " + valueColumn + " has " + value.rowCount() + " rows on leaf "
-            + leaf + ", predicate columns have " + rowCount);
-      }
-      final long[] presence = value.presenceWords();
-      // The long-lane kinds read their cell off the lane: segment and base hoisted per leaf, never
-      // resolved per emitted row. A dictionary or boolean column has no long lane and emits from its
-      // own arrays, so it binds nothing here.
-      final boolean longLane = isLongLaneKind(kind);
-      final MemorySegment valueLane = longLane
-          ? value.laneSegment()
-          : null;
-      final long valueLaneBase = longLane
-          ? value.laneBase()
-          : 0L;
-      final int stride = (rowCount + 63) >>> 6;
-      for (int w = 0; w < stride; w++) {
-        long word = s.mask[w];
-        if (word == 0L) {
+    try (final ProjectionColumnStore.LeafColumnAccess access = store.leafAccess(fetcher, keep, needed, false)) {
+      final Scratch s = SCRATCH.get();
+      final ColumnSlice[] leafPredicateSlices = s.leafPredicateSlices(predicates.length);
+      // Row budget vs item budget: the cap prefix is exact only because document order makes the
+      // first `limit` SURVIVING ROWS the window, and a hole inside it already declined.
+      final long rowCap = limit >= 0
+          ? limit
+          : Long.MAX_VALUE;
+      long matched = 0;
+      long emitted = 0;
+      for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
+        final int leafRows = store.rowCount(leaf);
+        if (leafRows <= 0) {
           continue;
         }
-        final long present = presence[w];
-        while (word != 0L) {
-          final int bit = Long.numberOfTrailingZeros(word);
-          word &= word - 1L;
-          final int rowIdx = (w << 6) + bit;
-          if (rowIdx >= rowCount) {
-            break;
+        final int rowCount = evaluateMask(predicates, access, leaf, leafRows, s.mask, leafPredicateSlices);
+        if (rowCount <= 0) {
+          continue;
+        }
+        final ColumnSlice value = access.predicateSlice(valueColumn, leaf);
+        if (value.rowCount() < rowCount) {
+          // The predicate columns say this leaf has rows the value column does not — mismatched
+          // segment truth, never a benign skip. Fail loud into the caller's fail-soft catch.
+          throw new IllegalStateException("value column " + valueColumn + " has " + value.rowCount() + " rows on leaf "
+              + leaf + ", predicate columns have " + rowCount);
+        }
+        final long[] presence = value.presenceWords();
+        // The long-lane kinds read their cell off the lane: segment and base hoisted per leaf, never
+        // resolved per emitted row. A dictionary or boolean column has no long lane and emits from its
+        // own arrays, so it binds nothing here.
+        final boolean longLane = isLongLaneKind(kind);
+        final MemorySegment valueLane = longLane
+            ? value.laneSegment()
+            : null;
+        final long valueLaneBase = longLane
+            ? value.laneBase()
+            : 0L;
+        final int stride = (rowCount + 63) >>> 6;
+        for (int w = 0; w < stride; w++) {
+          long word = s.mask[w];
+          if (word == 0L) {
+            continue;
           }
-          if (matched >= rowCap) {
-            return emitted; // the cap IS the answer prefix under a limit
-          }
-          if (matched >= maxMatches) {
-            return FIELD_VALUES_DECLINED; // over the eager-buffer budget
-          }
-          matched++;
-          if ((present & 1L << bit) == 0L) {
-            if (missingDeclines) {
-              return FIELD_VALUES_DECLINED;
+          final long present = presence[w];
+          while (word != 0L) {
+            final int bit = Long.numberOfTrailingZeros(word);
+            word &= word - 1L;
+            final int rowIdx = (w << 6) + bit;
+            if (rowIdx >= rowCount) {
+              break;
             }
-            continue; // a missing deref contributes nothing — exact
+            if (matched >= rowCap) {
+              return emitted; // the cap IS the answer prefix under a limit
+            }
+            if (matched >= maxMatches) {
+              return FIELD_VALUES_DECLINED; // over the eager-buffer budget
+            }
+            matched++;
+            if ((present & 1L << bit) == 0L) {
+              if (missingDeclines) {
+                return FIELD_VALUES_DECLINED;
+              }
+              continue; // a missing deref contributes nothing — exact
+            }
+            emitOne(sink, kind, value, valueLane, valueLaneBase, rowIdx);
+            emitted++;
           }
-          emitOne(sink, kind, value, valueLane, valueLaneBase, rowIdx);
-          emitted++;
         }
       }
+      return emitted;
     }
-    return emitted;
   }
 
   /**

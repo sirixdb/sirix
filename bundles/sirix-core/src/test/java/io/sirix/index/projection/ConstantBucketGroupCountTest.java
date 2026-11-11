@@ -6,7 +6,9 @@ import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.EncodedRowGro
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import it.unimi.dsi.fastutil.HashCommon;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import java.lang.foreign.Arena;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -25,6 +27,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 final class ConstantBucketGroupCountTest {
+  private final Arena numericTargets = Arena.ofShared();
+
+  @AfterEach
+  void closeNumericTargets() {
+    numericTargets.close();
+  }
+
+  private ColumnSlice[] bucketColumn(final ProjectionColumnStore store, final int col,
+      final ColumnSegmentFetcher fetcher, final long offset, final long divisor, final long modulus) {
+    long bytes = 0L;
+    for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
+      bytes += (long) store.rowCount(leaf) * Long.BYTES;
+    }
+    return store.numericBucketKeyColumn(col, fetcher, offset, divisor, modulus,
+        numericTargets.allocate(Math.max(1L, bytes), 64));
+  }
+
   private static final byte DICT = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
   private static final byte LONG = ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
   private static final ColumnPredicate[] SELECTED = {ColumnPredicate.numeric(2, ProjectionIndexScan.Op.EQ, 1L)};
@@ -62,7 +81,7 @@ final class ConstantBucketGroupCountTest {
     }
     final long previous = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(store.projectedColumnFillBytes(0));
     try {
-      final ColumnSlice[] slices = store.numericBucketKeyColumn(0, fetcher, 0L, 100L, 0L);
+      final ColumnSlice[] slices = bucketColumn(store, 0, fetcher, 0L, 100L, 0L);
       assertTrue(store.columnFilled(0), "the exact ordinary fill should remain available at its own budget");
       assertSame(slices, store.column(0, fetcher));
       assertArrayEquals(new long[] {100L, 101L, 102L}, slices[0].numericValues());
@@ -164,7 +183,7 @@ final class ConstantBucketGroupCountTest {
         0L, true);
   }
 
-  private static void assertScan(final List<List<Row>> blocks, final int dictionaryKey, final boolean substitute,
+  private void assertScan(final List<List<Row>> blocks, final int dictionaryKey, final boolean substitute,
       final boolean dense, final long shift, final long divisor, final long modulus, final boolean expectDecline) {
     assertScan(blocks, dictionaryKey, substitute, dense, shift, divisor, modulus, expectDecline, false);
     if (divisor > 0) {
@@ -172,7 +191,7 @@ final class ConstantBucketGroupCountTest {
     }
   }
 
-  private static void assertScan(final List<List<Row>> blocks, final int dictionaryKey, final boolean substitute,
+  private void assertScan(final List<List<Row>> blocks, final int dictionaryKey, final boolean substitute,
       final boolean dense, final long shift, final long divisor, final long modulus, final boolean expectDecline,
       final boolean bucketView) {
     final List<RowGroupDirectory> directories = new ArrayList<>();
@@ -213,7 +232,7 @@ final class ConstantBucketGroupCountTest {
     };
     for (int column = 0; column < columns.length; column++) {
       columns[column] = bucketView && column == 1
-          ? store.numericBucketKeyColumn(column, fetcher, shift, divisor, modulus)
+          ? bucketColumn(store, column, fetcher, shift, divisor, modulus)
           : store.column(column, fetcher);
     }
     if (bucketView) {

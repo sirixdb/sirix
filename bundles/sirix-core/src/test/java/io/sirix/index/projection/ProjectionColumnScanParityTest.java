@@ -4,12 +4,15 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.Op;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import java.lang.foreign.Arena;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -35,6 +38,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * column-kernel bug by definition.
  */
 final class ProjectionColumnScanParityTest {
+  private final Arena numericTargets = Arena.ofShared();
+
+  @AfterEach
+  void closeNumericTargets() {
+    numericTargets.close();
+  }
+
+  private ColumnSlice[] bucketColumn(final ProjectionColumnStore store, final int col,
+      final ColumnSegmentFetcher fetcher, final long offset, final long divisor, final long modulus) {
+    long bytes = 0L;
+    for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
+      bytes += (long) store.rowCount(leaf) * Long.BYTES;
+    }
+    return store.numericBucketKeyColumn(col, fetcher, offset, divisor, modulus,
+        numericTargets.allocate(Math.max(1L, bytes), 64));
+  }
+
 
   /** Columns: 0 = long, 1 = double, 2 = boolean, 3 = string (never sliced, predicate-only). */
   private static final byte[] KINDS =
@@ -1311,8 +1331,7 @@ final class ProjectionColumnScanParityTest {
         }
         return bytes;
       };
-      assertThrows(IllegalStateException.class,
-          () -> fixture.store().numericBucketKeyColumn(0, corrupting, 0, 10_000, 24));
+      assertThrows(IllegalStateException.class, () -> bucketColumn(fixture.store(), 0, corrupting, 0, 10_000, 24));
       assertFalse(fixture.store().columnFilled(0));
       assertThrows(IllegalStateException.class, () -> fixture.store().columnBytes(0, fixture.fetcher()));
     }
