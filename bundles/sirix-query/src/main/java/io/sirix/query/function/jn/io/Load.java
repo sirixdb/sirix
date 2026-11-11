@@ -4,12 +4,10 @@ import com.google.gson.stream.JsonReader;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Atomic;
-import io.brackit.query.atomic.DateTime;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
-import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
@@ -24,17 +22,19 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.FunctionConversionSequence;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.brackit.query.util.io.URIHandler;
+import io.sirix.access.MutationGate;
+import io.sirix.query.MutationAuthorization;
+import io.sirix.query.ContentOnlyStore;
+import io.sirix.query.function.ImportInput;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 
-import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.UncheckedIOException;
-import java.time.Instant;
-import java.util.HashSet;
-import java.util.Set;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * <p>
@@ -118,21 +118,46 @@ public final class Load extends AbstractFunction {
 
       JsonDBCollection collection;
 
-      if (createIfNotExists) {
-        collection = create(store, collectionName, resourceName, resources, options);
-      } else {
-        try {
-          collection = store.lookup(collectionName);
-          add(collection, resourceName, resources, options);
-        } catch (final DocumentException e) {
-          // collection does not exist
+      // Store/load are ordinary function calls, so require CREATE before touching the store or
+      // reading input; the query-level updating-expression check does not cover them.
+      MutationAuthorization.requireCreate(ctx, collectionName, resourceName);
+
+      if (store instanceof ContentOnlyStore) {
+        final Sequence[] contentArgs = args.clone();
+        contentArgs[2] = ImportInput.strings(resources, false);
+        new Store(false).execute(sctx, ctx, contentArgs);
+        return store.lookup(collectionName);
+      }
+
+      // Only the create path can replace the whole database, so only it takes the exclusive
+      // database hold. Appending into an existing collection takes nothing here: each target's
+      // check and write are ordered on that resource's own hold, inside the collection, so two
+      // callers writing different resources of one database never wait on each other.
+      final Path databaseDirectory = store.databaseDirectory(collectionName);
+      final boolean mayReplaceDatabase = createIfNotExists || store.lookup(collectionName) == null;
+      try (var gate = databaseDirectory == null || !mayReplaceDatabase
+          ? null
+          : MutationGate.acquireDatabase(databaseDirectory)) {
+        if (createIfNotExists) {
           collection = create(store, collectionName, resourceName, resources, options);
+        } else {
+          collection = store.lookup(collectionName);
+          if (collection == null) {
+            collection = create(store, collectionName, resourceName, resources, options);
+          } else {
+            add(collection, resourceName, resources, options);
+          }
         }
+
       }
 
       return collection;
     } catch (final Exception e) {
-      throw new QueryException(new QNm(e.getMessage()), e);
+      // (Throwable, QNm) is the cause-attaching overload. The (QNm, Object) one this used to bind to
+      // renders the throwable into the message and drops it, so an authorization refusal reached the
+      // caller with no HttpException in its chain and the REST failure handler could not map it to a
+      // status code. Store.java carries the same fix.
+      throw new QueryException(e, new QNm(e.getMessage()));
     }
   }
 
@@ -143,56 +168,40 @@ public final class Load extends AbstractFunction {
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(res.stringValue())))) {
         collection.add(resourceName, reader, options);
       } catch (final Exception e) {
-        throw new QueryException(new QNm(e.getMessage()), e);
+        throw new QueryException(e, new QNm(e.getMessage()));
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
+      final List<String> uris = new ArrayList<>();
       try (final Iter iter = seq.iterate()) {
-        int size = collection.getDatabase().listResources().size();
         for (Item item; (item = iter.next()) != null;) {
-          try (final JsonReader reader =
-              new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
-            collection.add("resource" + size++, reader, options);
-          } catch (final Exception e) {
-            throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
-          }
+          uris.add(((Str) item).stringValue());
         }
+        collection.addAllFromUris(uris, options);
+      } catch (final Exception e) {
+        throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     }
   }
 
   private JsonDBCollection create(final JsonDBStore store, final String collectionName, final String resourceName,
-      final Sequence resources, final Object options) throws IOException {
+      final Sequence resources, final Object options) {
     if (resources instanceof Atomic atomic) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(atomic.stringValue())))) {
         return store.create(collectionName, resourceName, reader, options);
       } catch (final Exception e) {
-        throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
+        throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     } else if (resources instanceof FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
-        final Set<JsonReader> jsonReaders = new HashSet<>();
-
+        final List<String> uris = new ArrayList<>();
         for (Item item; (item = iter.next()) != null;) {
-          jsonReaders.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
+          uris.add(((Str) item).stringValue());
         }
-
-        final JsonDBCollection collection = store.create(collectionName, jsonReaders, options);
-
-        jsonReaders.forEach(this::closeReader);
-
-        return collection;
+        return store.createFromUris(collectionName, uris, options);
       }
     }
 
     return null;
-  }
-
-  private void closeReader(JsonReader reader) {
-    try {
-      reader.close();
-    } catch (final IOException e) {
-      throw new UncheckedIOException(e);
-    }
   }
 }

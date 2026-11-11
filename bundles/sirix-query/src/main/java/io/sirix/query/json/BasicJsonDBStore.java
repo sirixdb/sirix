@@ -9,8 +9,12 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.object.ArrayObject;
+import io.brackit.query.util.io.URIHandler;
 import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.ResourceAccessScope;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.access.Databases;
+import io.sirix.access.MutationGate;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.json.JsonIndexController;
@@ -34,6 +38,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -42,6 +47,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -49,6 +55,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
@@ -530,7 +537,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       addDatabase(collection, database);
       return collection;
     } catch (final SirixRuntimeException e) {
-      throw new DocumentException(e.getCause());
+      throw new DocumentException(e, "Could not create document with name %s", name);
     }
   }
 
@@ -720,9 +727,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final @Nullable ProjectionSpec projection) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
-      removeIfExisting(collName, dbConf);
-      Databases.createJsonDatabase(dbConf);
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
+      createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbPath);
       databases.add(database);
 
@@ -745,7 +751,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         resourceName = "resource" + (database.listResources().size() + 1);
       }
 
-      final var resourceOptions = createResource(options, database, resourceName);
+      final var resourceOptions = createResource(collName, options, database, resourceName);
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       addDatabase(collection, database);
@@ -833,10 +839,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
     throw (T) failure;
   }
 
-  private Options createResource(final Object options, final Database<JsonResourceSession> database,
-      final String resourceName) {
+  private Options createResource(final String collName, final Object options,
+      final Database<JsonResourceSession> database, final String resourceName) {
     final Options resourceOptions = OptionsFactory.createOptions(options, options());
-    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
+    if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
+      MutationAuthorization.requireStore(collName, resourceName, true);
+    }
     return resourceOptions;
   }
 
@@ -857,20 +865,73 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public JsonDBCollection create(String collName, Set<JsonReader> jsonReaders, Object options) {
+    final var partitions = new ArrayList<Callable<JsonReader>>(jsonReaders.size());
+    for (final JsonReader reader : jsonReaders) {
+      partitions.add(() -> reader);
+    }
+    return createCollection(collName, partitions, options);
+  }
+
+  @Override
+  public JsonDBCollection createFromUris(final String collName, final List<String> uris, final Object options) {
+    requireNonNull(collName);
+    requireNonNull(uris);
+    requireNonNull(options);
+    final var partitions = new ArrayList<AcquiredJsonReader>(uris.size());
+    try {
+      for (final String uri : uris) {
+        requireNonNull(uri);
+        partitions.add(new AcquiredJsonReader(new JsonReader(new InputStreamReader(URIHandler.getInputStream(uri)))));
+      }
+      return createCollection(collName, partitions, options);
+    } catch (final IOException failure) {
+      throw new UncheckedIOException(failure);
+    } finally {
+      for (final AcquiredJsonReader partition : partitions) {
+        partition.close();
+      }
+    }
+  }
+
+  private static final class AcquiredJsonReader implements Callable<JsonReader>, AutoCloseable {
+    private final AtomicReference<JsonReader> reader;
+
+    private AcquiredJsonReader(final JsonReader reader) {
+      this.reader = new AtomicReference<>(reader);
+    }
+
+    @Override
+    public JsonReader call() {
+      // Taking ownership is atomic with caller cleanup, even if a cancelled worker is still live.
+      return requireNonNull(reader.getAndSet(null));
+    }
+
+    @Override
+    public void close() {
+      final JsonReader unclaimed = reader.getAndSet(null);
+      if (unclaimed != null) {
+        try {
+          unclaimed.close();
+        } catch (final IOException failure) {
+          LOGGER.debug("closing unclaimed load input failed", failure);
+        }
+      }
+    }
+  }
+
+  private JsonDBCollection createCollection(final String collName,
+      final List<? extends Callable<JsonReader>> partitions, final Object options) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
-      removeIfExisting(collName, dbConf);
-      Databases.createJsonDatabase(dbConf);
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
+      createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       final Options resourceOptions = OptionsFactory.createOptions(options, options());
       int numberOfResources = database.listResources().size();
-      final var resourceNames = new ArrayList<String>(jsonReaders.size());
-      final var partitions = new ArrayList<Callable<JsonReader>>(jsonReaders.size());
-      for (final var jsonReader : jsonReaders) {
+      final var resourceNames = new ArrayList<String>(partitions.size());
+      for (int i = 0; i < partitions.size(); i++) {
         resourceNames.add("resource" + (++numberOfResources));
-        partitions.add(() -> jsonReader);
       }
       // Hardened concurrent fan-out: all-or-nothing rollback + fail-fast collision check + bounded
       // pool, shared with the single-resource parallel shredder. Replaces a raw CompletableFuture
@@ -970,9 +1031,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
-      removeIfExisting(collName, dbConf);
-      Databases.createJsonDatabase(dbConf);
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
+      createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       // Resolve the options ONCE for all resources of this call.
@@ -1001,7 +1061,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   private void createResource(String collName, final Database<JsonResourceSession> database, final JsonReader reader,
       final String resourceName, final Options resourceOptions) {
-    database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
+    if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
+      MutationAuthorization.requireStore(collName, resourceName, true);
+    }
     try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
         final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
       wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
@@ -1020,9 +1082,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
-      removeIfExisting(collName, dbConf);
-      Databases.createJsonDatabase(dbConf);
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
+      createDatabase(collName, dbConf);
       final var database = Databases.openJsonDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       int numberOfResources = database.listResources().size();
@@ -1055,12 +1116,18 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
+  @Override
+  public Path databaseDirectory(final String name) {
+    return databasePath(name);
+  }
+
   private Path databasePath(final String name) {
     return databasePath(location.resolve(name));
   }
 
   private Path databasePath(final Path dbPath) {
     requireNonNull(dbPath);
+    ResourceAccessScope.checkDatabase(dbPath, false);
     try {
       return Files.exists(dbPath)
           ? dbPath.toRealPath()
@@ -1085,32 +1152,44 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
-  private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
-    if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
-      try {
-        final var statisticsCatalog = StatisticsCatalog.getInstance();
-        statisticsCatalog.invalidateDatabase(name);
-        collectionPaths.removeIf(collectionPath -> {
-          if (collectionPath.path().equals(dbConfig.getDatabaseFile())) {
-            statisticsCatalog.invalidateDatabase(collectionPath.name());
-            return true;
-          }
-          return false;
-        });
-
-        final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
-            || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
-
-        databases.removeIf(databasePredicate);
-        removeCollections(databasePredicate);
-        Databases.removeDatabase(dbConfig.getDatabaseFile());
-      } catch (final SirixRuntimeException e) {
-        throw new DocumentException(e);
+  private void createDatabase(final String name, final DatabaseConfiguration configuration) {
+    if (!Databases.createJsonDatabase(configuration)) {
+      removeIfExisting(name, configuration);
+      if (!Databases.createJsonDatabase(configuration)) {
+        throw new DocumentException("Could not create document with name %s", name);
       }
-      return true;
     }
+  }
 
-    return false;
+  private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
+    try (var gate = MutationGate.acquireDatabase(dbConfig.getDatabaseFile())) {
+      if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
+        MutationAuthorization.requireDelete(name);
+        try {
+          final var statisticsCatalog = StatisticsCatalog.getInstance();
+          statisticsCatalog.invalidateDatabase(name);
+          collectionPaths.removeIf(collectionPath -> {
+            if (collectionPath.path().equals(dbConfig.getDatabaseFile())) {
+              statisticsCatalog.invalidateDatabase(collectionPath.name());
+              return true;
+            }
+            return false;
+          });
+
+          final Predicate<Database<JsonResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
+              || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+
+          databases.removeIf(databasePredicate);
+          removeCollections(databasePredicate);
+          Databases.removeDatabase(dbConfig.getDatabaseFile());
+        } catch (final SirixRuntimeException e) {
+          throw new DocumentException(e);
+        }
+        return true;
+      }
+
+      return false;
+    }
   }
 
   @Override
@@ -1128,8 +1207,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
    *
    * @param session the resource session with an open write transaction
    */
+  @Override
   public void registerWriteSession(final JsonResourceSession session) {
-    sessionsWithWriteTrx.add(session);
+    sessionsWithWriteTrx.add(requireNonNull(session));
   }
 
   @Override

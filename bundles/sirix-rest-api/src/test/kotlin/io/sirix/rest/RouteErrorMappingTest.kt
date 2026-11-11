@@ -1,5 +1,11 @@
 package io.sirix.rest
 
+import io.brackit.query.QueryException
+import io.brackit.query.atomic.QNm
+import io.vertx.ext.web.handler.HttpException
+import org.junit.jupiter.api.Tag
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import io.vertx.core.Vertx
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.client.WebClient
@@ -28,9 +34,39 @@ import java.util.concurrent.TimeUnit
  * uncaught handler: the client got NO response (hang until timeout) and the failure bypassed the
  * failure handler entirely. It must map to a clean 500 — and the server must keep serving.
  */
+@Tag("offline")
 @ExtendWith(VertxExtension::class)
 @DisplayName("Route error mapping for java.lang.Error")
 class RouteErrorMappingTest {
+
+    @ParameterizedTest
+    @ValueSource(ints = [401, 403, 409])
+    @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
+    fun wrappedHttpFailureRetainsStatus(status: Int, vertx: Vertx, testContext: VertxTestContext) {
+        val router = Router.router(vertx)
+        val scope = CoroutineScope(vertx.dispatcher())
+        router.get("/wrapped").coroutineHandler(scope) {
+            throw QueryException(
+                QueryException(HttpException(status, "refused"), QNm("inner")), QNm("outer")
+            )
+        }
+        router.route().failureHandler(routerFailureHandler())
+        GlobalScope.launch(vertx.dispatcher()) {
+            try {
+                val server = vertx.createHttpServer().requestHandler(router).listen(0).coAwait()
+                val client = WebClient.create(vertx)
+                val response = client.get(server.actualPort(), "localhost", "/wrapped").send().coAwait()
+                testContext.verify {
+                    assertEquals(status, response.statusCode())
+                    assertEquals(status, response.bodyAsJsonObject().getInteger("statusCode"))
+                    assertEquals("refused", response.bodyAsJsonObject().getString("message"))
+                    testContext.completeNow()
+                }
+            } catch (failure: Throwable) {
+                testContext.failNow(failure)
+            }
+        }
+    }
 
     @Test
     @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)

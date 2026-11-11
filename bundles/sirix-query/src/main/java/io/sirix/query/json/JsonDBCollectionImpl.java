@@ -9,7 +9,10 @@ import io.brackit.query.jdm.json.Object;
 import io.brackit.query.jsonitem.AbstractJsonItemCollection;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.node.stream.ArrayStream;
+import io.brackit.query.util.io.URIHandler;
+import io.sirix.access.MutationGate;
 import io.sirix.api.Database;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -19,11 +22,14 @@ import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.Objects.requireNonNull;
@@ -171,11 +177,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
         }
       }
 
-      final JsonDBItem item = getItem(trx);
-      if (item == null) {
-        trx.close();
-      }
-      return item;
+      return getItem(trx);
     } catch (final Exception e) {
       if (trx != null && !trx.isClosed()) {
         trx.close();
@@ -240,32 +242,118 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   }
 
   private JsonDBItem getItem(final JsonNodeReadOnlyTrx rtx) {
-    final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
-    if (proxy.hasFirstChild()) {
-      proxy.moveToFirstChild();
-      if (proxy.isObject())
-        return new JsonDBObject(proxy, this);
-      else if (proxy.isArray())
-        return new JsonDBArray(proxy, this);
+    boolean transferred = false;
+    try {
+      final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
+      if (!proxy.moveToFirstChild())
+        return null;
+      final JsonDBItem item = (JsonDBItem) JsonItemFactory.INSTANCE.getSequence(proxy, this);
+      transferred = true;
+      return item;
+    } finally {
+      if (!transferred)
+        rtx.close();
     }
-
-    return null;
   }
 
   public JsonDBItem add(final String resourceName, final JsonReader reader, final Object options) {
-    try {
-      String resName = resourceName;
-      for (final Path resource : database.listResources()) {
-        final String existingResourceName = resource.getFileName().toString();
-        if (existingResourceName.equals(resourceName)) {
-          resName = existingResourceName + "1";
-          break;
-        }
+    final String resolvedName;
+    final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+    synchronized (database.getDatabaseConfig()) {
+      resolvedName = database.existsResource(resourceName)
+          ? resourceName + "1"
+          : resourceName;
+    }
+    return createAndWriteResource(resolvedName, reader, resourceOptions);
+  }
+
+  @Override
+  public void addAll(final List<JsonReader> readers, final Object options) {
+    requireNonNull(readers);
+    requireNonNull(options);
+    for (final JsonReader reader : readers) {
+      requireNonNull(reader);
+    }
+    final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+    final String[] names = resolveResourceNames(readers.size());
+    for (int i = 0; i < names.length; i++) {
+      createAndWriteResource(names[i], readers.get(i), resourceOptions);
+    }
+  }
+
+  @Override
+  public void addAllFromUris(final List<String> uris, final Object options) {
+    requireNonNull(uris);
+    requireNonNull(options);
+    for (final String uri : uris) {
+      requireNonNull(uri);
+    }
+    final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+    final String[] names = resolveResourceNames(uris.size());
+    for (int i = 0; i < names.length; i++) {
+      try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(uris.get(i))))) {
+        createAndWriteResource(names[i], reader, resourceOptions);
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
       }
+    }
+  }
 
-      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+  private String[] resolveResourceNames(final int count) {
+    final String[] names = new String[count];
+    synchronized (database.getDatabaseConfig()) {
+      final Set<String> resources = new HashSet<>();
+      for (final Path resource : database.listResources()) {
+        resources.add(resource.getFileName().toString());
+      }
+      final int initialSize = resources.size();
+      for (int i = 0; i < names.length; i++) {
+        final String requested = "resource" + (initialSize + i);
+        final String resolved = resources.contains(requested)
+            ? requested + "1"
+            : requested;
+        MutationAuthorization.requireStore(name, resolved, resources.contains(resolved));
+        names[i] = resolved;
+        resources.add(resolved);
+      }
+    }
+    return names;
+  }
 
-      database.createResource(ResourceConfigurations.create(resName, resourceOptions));
+  private JsonDBItem createAndWriteResource(final String resourceName, final JsonReader reader,
+      final Options resourceOptions) {
+    try (var gate = MutationGate.acquireResource(databaseDirectory(), resourceName)) {
+      prepareResource(resourceName, resourceOptions);
+      return writeResource(resourceName, reader, resourceOptions);
+    }
+  }
+
+  /**
+   * Create-if-absent for one resource, atomic against another caller racing the same name.
+   *
+   * <p>
+   * The resource's own gate hold spans the existence test, the authorization decision that follows
+   * from it and the creation, so a loser of the race cannot act on a stale "absent": it re-reads
+   * existence inside the gate, and when {@code createResource} reports the resource already there it
+   * is authorized again as a write, which needs MODIFY. Neither a silent overwrite nor a skipped
+   * check is reachable. Callers racing <em>different</em> resources of this database take different
+   * holds and never wait on each other.
+   * </p>
+   */
+  private void prepareResource(final String resourceName, final Options resourceOptions) {
+    MutationAuthorization.requireStore(name, resourceName, database.existsResource(resourceName));
+    if (!database.createResource(ResourceConfigurations.create(resourceName, resourceOptions))) {
+      MutationAuthorization.requireStore(name, resourceName, true);
+    }
+  }
+
+  /** The database directory, so a resource hold can be keyed within it. */
+  private Path databaseDirectory() {
+    return database.getDatabaseConfig().getDatabaseFile();
+  }
+
+  private JsonDBItem writeResource(final String resName, final JsonReader reader, final Options resourceOptions) {
+    try {
       final JsonResourceSession resourceSession = database.beginResourceSession(resName);
       try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
@@ -330,15 +418,9 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       final String resourceName = resourcePath.getFileName().toString();
       final JsonResourceSession resource = database.beginResourceSession(resourceName);
       try {
-        final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
-        final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
-
-        if (proxy.moveToFirstChild()) {
-          if (proxy.isObject())
-            documents.add(new JsonDBObject(proxy, this));
-          else if (proxy.isArray())
-            documents.add(new JsonDBArray(proxy, this));
-        }
+        final JsonDBItem item = getItem(resource.beginNodeReadOnlyTrx());
+        if (item != null)
+          documents.add(item);
       } catch (final SirixException e) {
         resource.close();
         throw new DocumentException(e.getCause());
@@ -358,37 +440,13 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
     return add(JsonShredder.createStringReader(json), new ArrayObject(new QNm[0], new Sequence[0]));
   }
 
-  @SuppressWarnings("SameParameterValue")
   private JsonDBItem add(final JsonReader reader, final Object options) {
-    try {
-
-      final String resourceName = "resource" + (database.listResources().size() + 1);
-      final var resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-
-      database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
-      final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-      try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-          ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, name);
-        }
-        wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
-      } catch (final Exception e) {
-        resourceSession.close();
-        throw e;
-      }
-
-      try {
-        final JsonNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx();
-        return getItem(rtx);
-      } catch (final Exception e) {
-        resourceSession.close();
-        throw e;
-      }
-    } catch (final SirixException e) {
-      LOG_WRAPPER.error(e.getMessage(), e);
-      return null;
+    final String resourceName;
+    final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
+    synchronized (database.getDatabaseConfig()) {
+      resourceName = "resource" + (database.listResources().size() + 1);
     }
+    return createAndWriteResource(resourceName, reader, resourceOptions);
   }
 
   @Override

@@ -1,5 +1,6 @@
 package io.sirix.query.function.jn.index.create;
 
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.json.JsonDBItem;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -68,6 +69,7 @@ public final class CreateCASIndex extends AbstractFunction {
     final JsonDBItem document = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonResourceSession resourceSession = rtx.getResourceSession();
+    MutationAuthorization.requireWritable(ctx, document);
 
     final Optional<JsonNodeTrx> optionalWriteTrx = resourceSession.getNodeTrx();
     final JsonNodeTrx wtx = optionalWriteTrx.orElseGet(resourceSession::beginNodeTrx);

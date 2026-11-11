@@ -4,6 +4,7 @@ import io.sirix.cache.Allocators;
 import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
 import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.exception.SirixIOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,13 +15,18 @@ import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
+import java.lang.foreign.ValueLayout.OfInt;
 import java.lang.invoke.MethodHandle;
+import java.nio.ByteOrder;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import static java.lang.foreign.ValueLayout.*;
+import static java.lang.foreign.ValueLayout.ADDRESS;
+import static java.lang.foreign.ValueLayout.JAVA_INT;
+import static java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED;
 
 /**
  * FFI-based LZ4 compression/decompression using Foreign Function API. Provides zero-copy
- * compression with MemorySegments. Falls back to lz4-java if native library is unavailable.
+ * compression with MemorySegments.
  */
 public final class FFILz4Compressor implements ByteHandler {
 
@@ -107,7 +113,7 @@ public final class FFILz4Compressor implements ByteHandler {
    * The 4-byte decompressed-size frame header is on-disk format — pinned little-endian like every
    * other persisted scalar (the native-order accessors made it host-defined).
    */
-  private static final OfInt LE_HEADER_INT = JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  private static final OfInt LE_HEADER_INT = JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
 
   /**
    * The compression mode for this instance.
@@ -523,15 +529,14 @@ public final class FFILz4Compressor implements ByteHandler {
     // Integer.MIN_VALUE survived negation as a negative size, and a < 4-byte payload threw a raw
     // IndexOutOfBounds instead of a storage error.
     if (compressed.byteSize() < Integer.BYTES) {
-      throw new io.sirix.exception.SirixIOException(
+      throw new SirixIOException(
           "Corrupt compressed page: payload shorter than its size header (" + compressed.byteSize() + " bytes)");
     }
     int sizeHeader = compressed.get(LE_HEADER_INT, 0);
     // abs over the WIDENED long is total (Integer.MIN_VALUE becomes +2^31, which the cap rejects).
     final long declaredSize = Math.abs((long) sizeHeader);
     if (declaredSize > MAX_DECOMPRESSED_SIZE) {
-      throw new io.sirix.exception.SirixIOException(
-          "Corrupt compressed page: implausible decompressed size " + sizeHeader);
+      throw new SirixIOException("Corrupt compressed page: implausible decompressed size " + sizeHeader);
     }
 
     // Buffers come from Allocators.getInstance(): on Linux that is the Umbra-style
@@ -543,17 +548,18 @@ public final class FFILz4Compressor implements ByteHandler {
     // overhead per 1 M-page scan — 2.5× slowdown — hence the pooled design.)
 
     if (sizeHeader < 0) {
-      int uncompressedSize = -sizeHeader;
+      final int uncompressedSize = -sizeHeader;
       if (uncompressedSize > compressed.byteSize() - 4) {
-        throw new io.sirix.exception.SirixIOException("Corrupt stored-uncompressed page: declared size "
-            + uncompressedSize + " exceeds the payload (" + (compressed.byteSize() - 4) + " bytes)");
+        throw new SirixIOException("Corrupt stored-uncompressed page: declared size " + uncompressedSize
+            + " exceeds the payload (" + (compressed.byteSize() - 4) + " bytes)");
       }
-      MemorySegment buffer = ALLOCATOR.allocate(uncompressedSize);
+      final MemorySegment buffer = ALLOCATOR.allocate(uncompressedSize);
       MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
 
       final MemorySegment backingBuffer = buffer;
-      return new DecompressionResult(buffer, backingBuffer, () -> ALLOCATOR.release(backingBuffer),
-          new java.util.concurrent.atomic.AtomicBoolean(false));
+      // Exclude allocator padding so a subsequent handler receives only its encoded frame.
+      return new DecompressionResult(buffer.asSlice(0, uncompressedSize), backingBuffer,
+          () -> ALLOCATOR.release(backingBuffer), new AtomicBoolean(false));
     }
 
     int decompressedSize = sizeHeader;
@@ -578,9 +584,9 @@ public final class FFILz4Compressor implements ByteHandler {
     }
 
     // Ownership of the allocator-owned buffer transfers to the returned DecompressionResult
-    // only on success; EVERY failure path — including the native MethodHandle invocation itself
-    // throwing — must release it exactly once, or repeated corrupt reads drain the frame-slot
-    // budget into an OutOfMemoryError (issue #1074).
+    // only on success; once staging completes, every decode failure — including the native
+    // MethodHandle invocation itself throwing — must release it exactly once, or repeated corrupt
+    // reads drain the frame-slot budget into an OutOfMemoryError (issue #1074).
     boolean ownershipTransferred = false;
     try {
       int actualSize;
@@ -600,13 +606,13 @@ public final class FFILz4Compressor implements ByteHandler {
       if (actualSize != decompressedSize) {
         // A size mismatch IS corruption — returning a truncated slice with only a WARN let the
         // wrong-size page proceed into deserialization.
-        throw new io.sirix.exception.SirixIOException(
+        throw new SirixIOException(
             "Corrupt compressed page: declared decompressed size " + decompressedSize + " but got " + actualSize);
       }
 
       final MemorySegment backingBuffer = buffer;
       final DecompressionResult result = new DecompressionResult(buffer.asSlice(0, actualSize), backingBuffer,
-          () -> ALLOCATOR.release(backingBuffer), new java.util.concurrent.atomic.AtomicBoolean(false));
+          () -> ALLOCATOR.release(backingBuffer), new AtomicBoolean(false));
       ownershipTransferred = true;
       return result;
     } finally {

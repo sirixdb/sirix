@@ -205,11 +205,31 @@ xn:store('names', (), <root>
 </root>)
 ```
 
-`xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
+For embedded Java/CLI queries, `xn:load` reads XML documents from URI strings, including a sequence of URIs. For example,
 `xn:load('names', (), ('file:///tmp/first.xml', 'file:///tmp/second.xml'), false())` adds
 documents to an existing collection, or creates it if absent. An empty resource-name argument
 assigns names starting at `resource` followed by the current document count plus one. A failed
 addition reports the import error without replacing the collection or its existing documents.
+
+`jn:import($database, $resource, $new-version)` is the JSON counterpart of
+`xn:import`: it compares a full new document against the latest stored revision with FMSE,
+applies the tree edit, and commits exactly one new revision. Unchanged nodes retain their
+node keys, and earlier revisions remain available. The database and resource must already exist.
+JSON accepts serialized content or a JSON item; a stored JSON string item retains its
+string value rather than being parsed as serialized content. XML accepts serialized XML
+content. Both return the imported document.
+
+```xquery
+jn:import('versions', 'orders', '{"orders":[{"id":1,"status":"shipped"}]}')
+jn:import('versions', 'orders', {"orders":[{"id":1,"status":"delivered"}]})
+xn:import('versions', 'orders', '<orders><order id="1">delivered</order></orders>')
+```
+
+Over REST, `jn:load` and `xn:load` also take inline document strings (or sequences of strings),
+with their existing resource, create-new and options arguments. The
+[REST query contract](bundles/sirix-rest-api/src/main/resources/openapi.yaml) defines
+content restrictions, mutation permissions and error responses. Embedded `jn:load`/`xn:load`
+keep URI loading, and embedded `xn:import` and the Java FMSE import services retain file imports.
 
 XML serialization escapes default and prefixed namespace declaration values, attribute values,
 and text at output; stored values and query namespace scopes remain decoded. For example, the
@@ -265,10 +285,9 @@ owns the endpoint contract.
 
 SirixDB ships a native [Model Context Protocol](https://modelcontextprotocol.io) server, so AI
 agents (Claude, Cursor, Windsurf, or any MCP client) can talk to it directly. Because every
-revision is copy-on-write, agents get **O(1) disposable snapshots**, **time-travel reads**, and
-**structural diffs** for free — branch, experiment, then discard or promote, with a
-human-reviewable diff. Read-only by default, with access control, output sanitization, and an
-audit log.
+revision is copy-on-write, agents can label revisions, make **time-travel reads**, and inspect
+**structural diffs** before optionally reverting a change. Read-only by default, with access
+control, output sanitization, and an audit log.
 
 ```bash
 ./gradlew :sirix-mcp:installDist   # creates build/install/sirix-mcp/bin/sirix-mcp

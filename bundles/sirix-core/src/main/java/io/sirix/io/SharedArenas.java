@@ -108,6 +108,9 @@ public final class SharedArenas {
    * Create an arena whose memory is accessible from any thread. Pair with {@link #close(Arena)} —
    * never call {@code arena.close()} directly on the result.
    */
+  // Not a try-with-resources resource by design: the returned arena outlives this call, and only
+  // close(Arena) may release it — auto/global arenas throw on close() (see the class javadoc).
+  @SuppressWarnings("MustBeClosedChecker")
   public static Arena newSharedArena() {
     return switch (STRATEGY) {
       case SHARED -> Arena.ofShared();

@@ -31,6 +31,7 @@ import io.sirix.query.function.jn.io.DropResource;
 import io.sirix.query.function.jn.io.ExistsDatabase;
 import io.sirix.query.function.jn.io.ExistsResource;
 import io.sirix.query.function.jn.io.Load;
+import io.sirix.query.function.jn.io.Import;
 import io.sirix.query.function.jn.io.OpenRevisions;
 import io.sirix.query.function.jn.io.Store;
 import io.sirix.query.function.jn.temporal.AllTimes;
@@ -140,6 +141,10 @@ public final class JNFun {
             new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
             new SequenceType(AtomicType.BOOL, Cardinality.One),
             new SequenceType(ObjectType.OBJECT, Cardinality.ZeroOrOne))));
+
+    // import: the third argument is serialized JSON content or a JSON item.
+    Functions.predefine(new Import(Import.IMPORT,
+        new Signature(SequenceType.JSON_ITEM, SequenceType.STRING, SequenceType.STRING, SequenceType.ITEM)));
 
     // load
     Functions.predefine(new Load(false));

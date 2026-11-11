@@ -27,6 +27,8 @@
  */
 package io.sirix.query;
 
+import io.brackit.query.ErrorCode;
+import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
@@ -96,55 +98,7 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
           if (item == null) {
             item = it.next();
           }
-          while (item != null) {
-            if (columnarWriter == null && ColumnarJsonWriter.isBatchRecord(item)) {
-              columnarWriter = new ColumnarJsonWriter(out);
-            }
-            if (columnarWriter != null && columnarWriter.record(item)) {
-              item = it == null
-                  ? null
-                  : it.next();
-              if (item != null) {
-                columnarWriter.append(',');
-              }
-              if (item == null || !ColumnarJsonWriter.isBatchRecord(item)) {
-                columnarWriter.drain();
-              }
-            } else if (item instanceof StructuredDBItem) {
-              final var node = (StructuredDBItem<JsonNodeReadOnlyTrx>) item;
-              trxSet.add(node.getTrx());
-
-              var serializerBuilder = new JsonSerializer.Builder(node.getTrx().getResourceSession(), out,
-                  node.getTrx().getRevisionNumber()).serializeTimestamp(true).isXQueryResultSequence();
-              if (prettyPrint) {
-                serializerBuilder.prettyPrint().withInitialIndent();
-              }
-              final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
-              serializer.call();
-
-              item = printCommaIfNextItemExists(it);
-            } else if (item instanceof Atomic) {
-              if (((Atomic) item).type() == Type.STR) {
-                // Escape the string value — a computed/literal string containing a quote or a
-                // control character would otherwise produce invalid JSON.
-                out.append("\"").append(StringValue.escape(item.toString())).append("\"");
-              } else {
-                out.append(item.toString());
-              }
-
-              item = printCommaIfNextItemExists(it);
-            } else if ((item instanceof Array) || (item instanceof Object)) {
-              if (columnarWriter != null) {
-                columnarWriter.drain();
-              }
-              try (final var out = new StringWriter(); final var printWriter = new PrintWriter(out)) {
-                new StringSerializer(printWriter).serialize(item);
-                this.out.append(out.toString());
-              }
-
-              item = printCommaIfNextItemExists(it);
-            }
-          }
+          serializeItems(item, it);
         } finally {
           try {
             if (columnarWriter != null) {
@@ -160,6 +114,70 @@ public final class JsonDBSerializer implements Serializer, AutoCloseable {
       }
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
+    }
+  }
+
+
+  private void serializeItems(@Nullable Item item, final @Nullable Iter it) throws IOException {
+    while (item != null) {
+      if (columnarWriter == null && ColumnarJsonWriter.isBatchRecord(item)) {
+        columnarWriter = new ColumnarJsonWriter(out);
+      }
+      if (columnarWriter != null && columnarWriter.record(item)) {
+        item = advanceBatch(columnarWriter, it);
+      } else {
+        serializeItem(item);
+        item = printCommaIfNextItemExists(it);
+      }
+    }
+  }
+
+  private static @Nullable Item advanceBatch(final ColumnarJsonWriter writer, final @Nullable Iter it)
+      throws IOException {
+    final Item item = it == null
+        ? null
+        : it.next();
+    if (item != null) {
+      writer.append(',');
+    }
+    if (item == null || !ColumnarJsonWriter.isBatchRecord(item)) {
+      writer.drain();
+    }
+    return item;
+  }
+
+  private void serializeItem(final Item item) throws IOException {
+    if (item instanceof StructuredDBItem<?> node && node.getTrx() instanceof JsonNodeReadOnlyTrx trx) {
+      trxSet.add(trx);
+
+      var serializerBuilder =
+          new JsonSerializer.Builder(trx.getResourceSession(), out, trx.getRevisionNumber()).serializeTimestamp(true)
+                                                                                            .isXQueryResultSequence();
+      if (prettyPrint) {
+        serializerBuilder.prettyPrint().withInitialIndent();
+      }
+      final JsonSerializer serializer = serializerBuilder.startNodeKey(node.getNodeKey()).build();
+      serializer.call();
+    } else if (item instanceof Atomic) {
+      if (((Atomic) item).type() == Type.STR) {
+        // Escape the string value — a computed/literal string containing a quote or a
+        // control character would otherwise produce invalid JSON.
+        out.append("\"").append(StringValue.escape(item.toString())).append("\"");
+      } else {
+        out.append(item.toString());
+      }
+    } else if ((item instanceof Array) || (item instanceof Object)) {
+      if (columnarWriter != null) {
+        columnarWriter.drain();
+      }
+      try (final var out = new StringWriter(); final var printWriter = new PrintWriter(out)) {
+        new StringSerializer(printWriter).serialize(item);
+        this.out.append(out.toString());
+      }
+    } else {
+      // Every iteration must advance or fail: XML nodes and function items cannot be JSON values.
+      throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
+          "Cannot serialize this item as JSON. Use application/xml for XML results.");
     }
   }
 

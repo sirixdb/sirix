@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.sirix.access.Databases;
 import io.sirix.access.trx.page.StorageEpochTestSupport;
 import io.sirix.cache.BufferManagerImpl;
-import io.sirix.query.bench.bitemporal.BitemporalSchema.Event;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -43,7 +42,8 @@ final class BitemporalStorageEpochEvictionTest {
   }
 
   private void assertColdPublicationsUnderEviction(final int bound) throws Exception {
-    final List<Event>[] events = BitemporalStorageEpochTest.generateEvents(directory.resolve("events.jsonl"));
+    final Path events = directory.resolve("events.jsonl");
+    BitemporalStorageEpochTest.generateEvents(events);
     final Path plain = directory.resolve("plain");
     assertEquals(0, BitemporalStorageEpochTest.load(plain, events, Integer.MAX_VALUE));
     final List<String> expected = BitemporalStorageEpochTest.coldPublications(plain);

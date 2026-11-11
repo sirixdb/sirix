@@ -18,10 +18,10 @@ buildscript {
         classpath "com.gradleup.shadow:shadow-gradle-plugin:9.6.1"
         classpath "com.diffplug.spotless:spotless-plugin-gradle:8.10.4"
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath "org.graalvm.buildtools:native-gradle-plugin:1.1.17"
+        classpath "org.graalvm.buildtools:native-gradle-plugin:1.1.18"
         classpath "com.vanniktech:gradle-maven-publish-plugin:0.37.0"
         classpath "info.solidsoft.gradle.pitest:gradle-pitest-plugin:1.19.0"
-        classpath "net.ltgt.gradle:gradle-errorprone-plugin:5.1.1"
+        classpath "net.ltgt.gradle:gradle-errorprone-plugin:5.2.0"
     }
 }
 
@@ -38,6 +38,7 @@ sonarqube {
 }
 
 apply from: "${rootDir}/libraries.gradle"
+apply from: "${rootDir}/gradle/nullness-policy.gradle"
 
 apply plugin: 'net.researchgate.release'
 
@@ -110,19 +111,25 @@ subprojects {
     apply plugin: "com.diffplug.spotless"
     apply plugin: 'jacoco'
 
+    sourceSets.configureEach {
+        dependencies.add(compileOnlyConfigurationName, implLibraries.jspecify)
+    }
+
+    tasks.named('check') {
+        dependsOn rootProject.tasks.named('verifyNullMarkedPackages')
+    }
+
     jacoco {
-        // Needs to understand Java 25 class files; the plugin's bundled default lags the toolchain.
-        toolVersion = '0.8.13'
+        // Official Java 25 support; keep the agent and report reader on the same version.
+        toolVersion = '0.8.14'
     }
 
     // Instrument only when coverage is actually going to be consumed. The agent rewrites every
     // loaded class and adds a probe write per branch, which taxes every `gradlew test` run.
     //
-    // The trigger is the TASK GRAPH, not just -Pcoverage: sonarqube.yml runs `gradlew build
-    // sonarqube` without any flag, and gating on the flag alone would have left Sonar silently
-    // reporting 0% coverage with no failing task to notice it. Enabling whenever a Jacoco report
-    // (or Sonar) is in the graph keeps CI honest and still leaves a bare `gradlew test`
-    // uninstrumented.
+    // The task graph also enables coverage when a JaCoCo report or Sonar is requested, so
+    // `build jacocoTestReport` in sonarqube.yml produces coverage without a separate flag.
+    // A bare `gradlew test` stays uninstrumented.
     gradle.taskGraph.whenReady { graph ->
         final boolean coverageWanted = project.hasProperty('coverage') || graph.allTasks.any {
             it instanceof JacocoReport || it.name.toLowerCase().startsWith('sonar')
@@ -190,28 +197,30 @@ subprojects {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // Error Prone + NullAway — opt-in static bug detection:
-    //   ./gradlew compileJava -PerrorProne          (all modules)
-    //   ./gradlew :sirix-core:compileJava -PerrorProne
-    // Off by default so the everyday build is unchanged; the verification CI
-    // workflow runs it. ERROR-severity Error Prone checks (almost-always-real
-    // bugs: bad equals/hashCode, format strings, self-assignment, ...) fail the
-    // compile; NullAway reports nullness-contract violations as warnings.
+    // Error Prone + NullAway — CI static bug gate (local opt-in):
+    // NullAway rejects violations only in @NullMarked code; legacy packages remain unchecked.
+    // Workflow coverage, local commands and package migration: docs/VERIFICATION.md.
     // ═══════════════════════════════════════════════════════════════════════
     if (project.hasProperty('errorProne')) {
         apply plugin: 'net.ltgt.errorprone'
 
         dependencies {
-            errorprone "com.google.errorprone:error_prone_core:2.50.0"
+            errorprone "com.google.errorprone:error_prone_core:2.51.0"
             errorprone "com.uber.nullaway:nullaway:0.14.3"
         }
 
         tasks.withType(JavaCompile).configureEach {
+            dependsOn rootProject.tasks.named('verifyNullMarkedPackages')
+            if (name == 'compileTestJava') {
+                options.errorprone.option('NullAway:HandleTestAssertionLibraries', true)
+            }
             options.errorprone {
                 disableWarningsInGeneratedCode = true
                 excludedPaths = '.*/build/generated/.*'
-                option('NullAway:AnnotatedPackages', 'io.sirix')
-                check('NullAway', CheckSeverity.WARN)
+                option('NullAway:OnlyNullMarked', true)
+                check('NullAway', CheckSeverity.ERROR)
+                // Upstream crash on generated literals (still in 2.51.0): https://github.com/google/error-prone/issues/6208
+                disable('StringConcatToTextBlock')
                 // Nodes/pages deliberately compare MemorySegments by reference: the question is
                 // "is this node backed by exactly this segment instance", not value equality —
                 // and identity is the cheap check on the hot path. Keep as a warning.

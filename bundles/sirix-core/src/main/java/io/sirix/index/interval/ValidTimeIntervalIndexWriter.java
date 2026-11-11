@@ -7,6 +7,8 @@ package io.sirix.index.interval;
 
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.node.NodeKind;
+import io.sirix.utils.UtcTimestampParser;
+import io.sirix.utils.UtcTimestampParser.ParsedInstant;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
@@ -45,6 +47,9 @@ public final class ValidTimeIntervalIndexWriter {
   private final IntervalDomain domain;
   private final String validFromField;
   private final String validToField;
+  // Writer-confined scratch avoids allocating timestamp results for each bound.
+  private final ParsedInstant fromScratch = new ParsedInstant();
+  private final ParsedInstant toScratch = new ParsedInstant();
 
   /**
    * @param tree the RI-tree (its two stores share one HOT sub-tree, writer-backed)
@@ -102,8 +107,10 @@ public final class ValidTimeIntervalIndexWriter {
   public Interval readIntervalAtCursor(final JsonNodeReadOnlyTrx rtx) {
     final long objectKey = rtx.getNodeKey();
     final long parentKey = rtx.getParentKey();
-    Instant from = null;
-    Instant to = null;
+    final ParsedInstant from = fromScratch;
+    final ParsedInstant to = toScratch;
+    from.clear();
+    to.clear();
     boolean fromLexical = false;
     boolean toLexical = false;
     long fromCount = 0;
@@ -117,15 +124,15 @@ public final class ValidTimeIntervalIndexWriter {
           }
           if (validFromField.equals(fieldName)) {
             fromCount++;
-            if (from == null) {
-              from = readInstantOfFieldAtCursor(rtx);
-              fromLexical = from != null && isExactLexicalBound(rtx.getValue());
+            if (!from.isPresent()) {
+              readInstantOfFieldAtCursor(rtx, from);
+              fromLexical = from.isPresent() && isExactLexicalBound(rtx.getValue());
             }
           } else if (validToField.equals(fieldName)) {
             toCount++;
-            if (to == null) {
-              to = readInstantOfFieldAtCursor(rtx);
-              toLexical = to != null && isExactLexicalBound(rtx.getValue());
+            if (!to.isPresent()) {
+              readInstantOfFieldAtCursor(rtx, to);
+              toLexical = to.isPresent() && isExactLexicalBound(rtx.getValue());
             }
           }
         } while (rtx.moveToRightSibling());
@@ -133,14 +140,14 @@ public final class ValidTimeIntervalIndexWriter {
     } finally {
       rtx.moveTo(objectKey);
     }
-    return toInterval(from, to, fromCount, toCount).withExactLexicalBounds(fromLexical && toLexical)
-                                                   .atParent(parentKey);
+    return toPrimitiveInterval(from, to, fromCount, toCount).withExactLexicalBounds(fromLexical && toLexical)
+                                                            .atParent(parentKey);
   }
 
   /**
-   * Map a {@code (validFrom, validTo)} instant pair into the integer domain. Mirrors
-   * {@link #readIntervalAtCursor} so the listener (which already holds the parsed instants from the
-   * change event) and the builder agree on registrability.
+   * Map a {@code (validFrom, validTo)} instant pair into the integer domain. Uses the same
+   * registrability rules as {@link #toPrimitiveInterval}, which the builder and listener use for
+   * reusable parsed bounds.
    */
   public Interval toInterval(final @Nullable Instant from, final @Nullable Instant to) {
     return toInterval(from, to, 1, 1);
@@ -162,6 +169,28 @@ public final class ValidTimeIntervalIndexWriter {
     }
     return new Interval(true, lo, hi, fromCount == 1 && toCount == 1 && domain.isExact(from) && domain.isExact(to),
         -1L);
+  }
+
+  /** Map reusable primitive bounds without materializing Instant results. */
+  public Interval toPrimitiveInterval(final ParsedInstant from, final ParsedInstant to, final long fromCount,
+      final long toCount) {
+    if (fromCount > 1 || toCount > 1) {
+      return unresolvable();
+    }
+    if (!from.isPresent() && !to.isPresent()) {
+      return Interval.ABSENT;
+    }
+    final long lo = from.isPresent()
+        ? domain.point(from.epochSecond(), from.nano())
+        : RelationalIntervalTree.MIN_VALUE;
+    final long hi = to.isPresent()
+        ? domain.point(to.epochSecond(), to.nano())
+        : domain.maxValue();
+    if (lo > hi) {
+      return Interval.ABSENT;
+    }
+    return new Interval(true, lo, hi, fromCount == 1 && toCount == 1 && from.isPresent() && to.isPresent()
+        && domain.isExact(from.epochSecond(), from.nano()) && domain.isExact(to.epochSecond(), to.nano()), -1L);
   }
 
   /**
@@ -231,16 +260,16 @@ public final class ValidTimeIntervalIndexWriter {
    * SirixDB is fusion-only (the legacy {@code OBJECT_KEY -> STRING_VALUE} shape was removed in Phase
    * 4): a valid-time string field is a fused {@code OBJECT_NAMED_STRING} whose value is inline, so
    * {@code rtx.getValue()} reads it directly. The {@code isStringValue()} guard also covers any
-   * hypothetical string-value-bearing node generically. Returns {@code null} if the value is missing
-   * or Java's Instant parser rejects it; lexical exactness is checked separately.
+   * hypothetical string-value-bearing node generically. Clears the result if the value is missing or
+   * Java's Instant parser rejects it; lexical exactness is checked separately.
    */
-  private static @Nullable Instant readInstantOfFieldAtCursor(final JsonNodeReadOnlyTrx rtx) {
+  private static void readInstantOfFieldAtCursor(final JsonNodeReadOnlyTrx rtx, final ParsedInstant result) {
     final NodeKind kind = rtx.getKind();
     String raw = null;
     if (kind == NodeKind.OBJECT_NAMED_STRING || rtx.isStringValue()) {
       raw = rtx.getValue();
     }
-    return parseInstant(raw);
+    UtcTimestampParser.parseNullable(raw, result);
   }
 
   /**

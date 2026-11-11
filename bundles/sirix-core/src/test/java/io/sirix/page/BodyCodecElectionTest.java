@@ -53,6 +53,7 @@ final class BodyCodecElectionTest {
   }
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     stickyOnlyBefore = PageKind.CODEC_BAKEOFF_STICKY_ONLY;

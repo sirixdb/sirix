@@ -205,7 +205,7 @@ public enum CompKind {
 
         case STRING:
         case ANY_URI:
-          return mOperand1.compareTo(mOperand2) < 1;
+          return mOperand1.compareTo(mOperand2) <= 0;
 
         case DATE:
         case DATE_TIME:
@@ -290,7 +290,7 @@ public enum CompKind {
 
         case STRING:
         case ANY_URI:
-          return mOperand1.compareTo(mOperand2) > -1;
+          return mOperand1.compareTo(mOperand2) >= 0;
 
         case DATE:
         case DATE_TIME:

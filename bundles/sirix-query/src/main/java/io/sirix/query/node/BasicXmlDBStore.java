@@ -5,7 +5,10 @@ import io.brackit.query.jdm.Stream;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 import org.jspecify.annotations.Nullable;
 import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.ResourceAccessScope;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.access.Databases;
+import io.sirix.access.MutationGate;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
 import io.sirix.api.xml.XmlNodeTrx;
@@ -321,7 +324,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
   @Override
   public XmlDBCollection create(final String name) {
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(resolveForCreate(location.resolve(name)));
-    try {
+    try (var gate = MutationGate.acquireDatabase(dbConf.getDatabaseFile())) {
       if (!Databases.createXmlDatabase(dbConf)) {
         if (Databases.existsDatabase(dbConf.getDatabaseFile())) {
           throw new DocumentException("Document with name %s exists!", name);
@@ -336,7 +339,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
       collections.put(database, collection);
       return collection;
     } catch (final SirixRuntimeException e) {
-      throw new DocumentException(e.getCause());
+      throw new DocumentException(e, "Could not create document with name %s", name);
     }
   }
 
@@ -353,28 +356,29 @@ public final class BasicXmlDBStore implements XmlDBStore {
 
   @Override
   public XmlDBCollection create(final String collName, final String optResName, final NodeSubtreeParser parser) {
-    return createCollection(collName, null, parser, null, null);
+    return createCollection(collName, optResName, parser, null, null);
   }
 
   @Override
   public XmlDBCollection create(final String collName, final @Nullable String optResName,
       final NodeSubtreeParser parser, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
-    return createCollection(collName, null, parser, commitMessage, commitTimestamp);
+    return createCollection(collName, optResName, parser, commitMessage, commitTimestamp);
   }
 
   private XmlDBCollection createCollection(final String collName, final @Nullable String optResName,
       final NodeSubtreeParser parser, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp) {
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
-      removeIfExisting(dbConf);
-      Databases.createXmlDatabase(dbConf);
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
+      createDatabase(collName, dbConf);
       final var database = Databases.openXmlDatabase(dbPath);
       databases.add(database);
       final String resName = optResName != null
           ? optResName
           : "resource" + (database.listResources().size() + 1);
-      database.createResource(resourceOptions.create(resName, commitTimestamp));
+      if (!database.createResource(resourceOptions.create(resName, commitTimestamp))) {
+        MutationAuthorization.requireStore(collName, resName, true);
+      }
       final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database, resourceOptions);
       collections.put(database, collection);
 
@@ -401,9 +405,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
     final Path dbPath = resolveForCreate(location.resolve(collName));
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
-    try {
-      removeIfExisting(dbConf);
-      Databases.createXmlDatabase(dbConf);
+    try (var gate = MutationGate.acquireDatabase(dbPath)) {
+      createDatabase(collName, dbConf);
       final var database = Databases.openXmlDatabase(dbConf.getDatabaseFile());
       databases.add(database);
       final XmlDBCollection collection = new XmlDBCollectionImpl(collName, database, resourceOptions);
@@ -416,8 +419,10 @@ public final class BasicXmlDBStore implements XmlDBStore {
         while ((parser = parsers.next()) != null) {
           final NodeSubtreeParser nextParser = parser;
           final String resourceName = "resource" + i++;
+          if (!database.createResource(resourceOptions.create(resourceName, null))) {
+            MutationAuthorization.requireStore(collName, resourceName, true);
+          }
           imports.add(importPool.submit(() -> {
-            database.createResource(resourceOptions.create(resourceName, null));
             try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
                 final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
               nextParser.parse(
@@ -446,8 +451,14 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
   }
 
+  @Override
+  public Path databaseDirectory(final String name) {
+    return resolveForCreate(location.resolve(name));
+  }
+
   private Path databasePath(final String name) {
     final Path dbPath = location.resolve(name);
+    ResourceAccessScope.checkDatabase(dbPath, false);
     try {
       return Files.exists(dbPath)
           ? dbPath.toRealPath()
@@ -461,27 +472,39 @@ public final class BasicXmlDBStore implements XmlDBStore {
   public void drop(final String name) {
     final Path dbPath = databasePath(name);
     final DatabaseConfiguration dbConfig = new DatabaseConfiguration(dbPath);
-    if (!removeIfExisting(dbConfig)) {
+    if (!removeIfExisting(name, dbConfig)) {
       throw new DocumentException("No collection with the specified name found!");
     }
   }
 
-  private boolean removeIfExisting(final DatabaseConfiguration dbConfig) {
-    if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
-      try {
-        final Predicate<Database<XmlResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
-            || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
-
-        databases.removeIf(databasePredicate);
-        collections.keySet().removeIf(databasePredicate);
-        Databases.removeDatabase(dbConfig.getDatabaseFile());
-      } catch (final SirixRuntimeException e) {
-        throw new DocumentException(e);
+  private void createDatabase(final String name, final DatabaseConfiguration configuration) {
+    if (!Databases.createXmlDatabase(configuration)) {
+      removeIfExisting(name, configuration);
+      if (!Databases.createXmlDatabase(configuration)) {
+        throw new DocumentException("Could not create document with name %s", name);
       }
-      return true;
     }
+  }
 
-    return false;
+  private boolean removeIfExisting(final String name, final DatabaseConfiguration dbConfig) {
+    try (var gate = MutationGate.acquireDatabase(dbConfig.getDatabaseFile())) {
+      if (Databases.existsDatabase(dbConfig.getDatabaseFile())) {
+        MutationAuthorization.requireDelete(name);
+        try {
+          final Predicate<Database<XmlResourceSession>> databasePredicate = currDatabase -> !currDatabase.isOpen()
+              || currDatabase.getDatabaseConfig().getDatabaseFile().equals(dbConfig.getDatabaseFile());
+
+          databases.removeIf(databasePredicate);
+          collections.keySet().removeIf(databasePredicate);
+          Databases.removeDatabase(dbConfig.getDatabaseFile());
+        } catch (final SirixRuntimeException e) {
+          throw new DocumentException(e);
+        }
+        return true;
+      }
+
+      return false;
+    }
   }
 
   @Override

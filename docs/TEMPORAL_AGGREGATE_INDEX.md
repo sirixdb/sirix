@@ -30,8 +30,8 @@ container implementation to classify an ordinary page; revision-owned containers
 Dropping a declaration does not free its id in that source history; reverting restores the earlier
 allocator state and can reuse an id in a new branch. Removing a source projection also removes its
 dependent aggregate definitions from the new revision; historical catalogues and roots remain readable.
-Aggregate CREATE and both aggregate DROP signatures are updating functions. REST checks MODIFY
-permission before evaluating an updating query, including a commit-wrapped DROP.
+For REST mutation permissions, including commit-wrapped DDL, see the authentication contract in the
+[OpenAPI specification](../bundles/sirix-rest-api/src/main/resources/openapi.yaml).
 
 Committing a historical document preserves pending DDL and edits when the writer already
 represents that document's revision. Commit waits for an outstanding asynchronous publication

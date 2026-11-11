@@ -1,0 +1,108 @@
+import com.sun.source.util.JavacTask
+import org.gradle.api.GradleException
+import org.gradle.api.tasks.compile.JavaCompile
+
+import java.util.Collections
+import java.util.HashSet
+import java.util.List
+import java.util.Map
+import java.util.Set
+import java.util.TreeSet
+
+import javax.tools.DiagnosticCollector
+import javax.tools.JavaFileObject
+import javax.tools.ToolProvider
+
+final String allowlistPath = 'gradle/nullaway-unmarked-packages.txt'
+
+tasks.register('verifyNullMarkedPackages') {
+    group = 'verification'
+    description = 'Require JSpecify package defaults outside the shrinking legacy allowlist.'
+    ext.sourceGroups = providers.provider {
+        subprojects.collectEntries { subproject ->
+            subproject.tasks.withType(JavaCompile).collectEntries { compilation ->
+                [(compilation.path): compilation.source.files.findAll {
+                    !it.toPath().startsWith(subproject.layout.buildDirectory.get().asFile.toPath())
+                }]
+            }
+        }
+    }
+    ext.legacyPackages = objects.fileProperty().fileValue(rootProject.file(allowlistPath))
+    inputs.files(providers.provider { sourceGroups.get().values().flatten() })
+    inputs.file(legacyPackages)
+
+    doLast {
+        final Set<String> allowed = legacyPackages.get().asFile.readLines('UTF-8').findAll { !it.isBlank() }.toSet()
+        final Set<String> unmarked = new TreeSet<>()
+        final List<String> violations = []
+        final compiler = ToolProvider.systemJavaCompiler
+        if (compiler == null) {
+            throw new GradleException('Package nullness verification requires a JDK.')
+        }
+        compiler.getStandardFileManager(null, null, null).withCloseable { manager ->
+            sourceGroups.get().each { sourceSet, sources ->
+                if (sources.isEmpty()) {
+                    return
+                }
+                final diagnostics = new DiagnosticCollector<JavaFileObject>()
+                final JavacTask parser = (JavacTask) compiler.getTask(null, manager, diagnostics,
+                        ['-proc:none', '--enable-preview', '--release', '25'], null,
+                        manager.getJavaFileObjectsFromFiles(sources))
+                final Set<String> packages = new TreeSet<>()
+                final Set<String> marked = new HashSet<>()
+                parser.parse().each { unit ->
+                    final String name = unit.packageName?.toString()
+                    if (name == null || !(name == 'io.sirix' || name.startsWith('io.sirix.'))) {
+                        return
+                    }
+                    packages.add(name)
+                    final Map<String, String> imports = unit.imports.findAll { !it.isStatic() }.collectEntries {
+                        final String qualified = it.qualifiedIdentifier.toString()
+                        [(qualified.substring(qualified.lastIndexOf('.') + 1)): qualified]
+                    }
+                    final Set<String> annotations = unit.packageAnnotations.collect {
+                        final String type = it.annotationType.toString()
+                        imports.getOrDefault(type, type)
+                    }.toSet()
+                    if (annotations.contains('org.jspecify.annotations.NullMarked') &&
+                            !annotations.contains('org.jspecify.annotations.NullUnmarked')) {
+                        marked.add(name)
+                    }
+                }
+                packages.removeAll(marked)
+                unmarked.addAll(packages)
+                packages.removeAll(allowed)
+                violations.addAll(packages.collect { "${sourceSet}: ${it}".toString() })
+            }
+        }
+        final Set<String> stale = new TreeSet<>(allowed)
+        stale.removeAll(unmarked)
+        if (!stale.isEmpty()) {
+            violations.add("Remove obsolete allowlist entries: ${stale}")
+        }
+        final revisions = providers.exec {
+            commandLine 'git', 'log', '--first-parent', '--reverse', '--format=%H', '--', allowlistPath
+        }.standardOutput.asText.get().readLines().findAll { !it.isBlank() }
+        Set<String> previous = null
+        revisions.each { revision ->
+            final prior = providers.exec {
+                commandLine 'git', 'show', "${revision}:${allowlistPath}"
+                ignoreExitValue = true
+            }
+            final Set<String> snapshot = prior.result.get().exitValue == 0
+                    ? prior.standardOutput.asText.get().readLines().findAll { !it.isBlank() }.toSet()
+                    : Collections.emptySet()
+            if (previous != null && !previous.containsAll(snapshot)) {
+                violations.add("The unmarked-package allowlist may only shrink (commit ${revision}).")
+            }
+            previous = snapshot
+        }
+        if (previous != null && !previous.containsAll(allowed)) {
+            violations.add('The unmarked-package allowlist may only shrink.')
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException("Missing @NullMarked package defaults:\n" + violations.join('\n'))
+        }
+        logger.lifecycle('Package nullness policy verified ({} legacy packages).', allowed.size())
+    }
+}

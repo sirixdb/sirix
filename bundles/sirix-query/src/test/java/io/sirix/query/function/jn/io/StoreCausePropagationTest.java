@@ -17,6 +17,7 @@ import io.sirix.query.json.Options;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -133,6 +134,11 @@ final class StoreCausePropagationTest {
     }
 
     @Override
+    public void registerWriteSession(final JsonResourceSession session) {
+      throw unsupported();
+    }
+
+    @Override
     public JsonDBCollection lookup(final String name) {
       throw unsupported();
     }
@@ -201,6 +207,11 @@ final class StoreCausePropagationTest {
 
     @Override
     public JsonDBCollection create(final String collName, final Set<JsonReader> json, final Object options) {
+      throw unsupported();
+    }
+
+    @Override
+    public JsonDBCollection createFromUris(final String collName, final List<String> uris, final Object options) {
       throw unsupported();
     }
 

@@ -63,6 +63,7 @@ final class DurableBatchReadFailureReleaseTest {
   private NodeStorageEngineReader storage;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void openReader() {
     session = mock(InternalResourceSession.class);
     final RevisionEpochTracker tracker = mock(RevisionEpochTracker.class);

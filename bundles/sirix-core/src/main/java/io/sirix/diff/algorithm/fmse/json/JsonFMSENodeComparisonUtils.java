@@ -3,7 +3,6 @@ package io.sirix.diff.algorithm.fmse.json;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.diff.algorithm.fmse.Levenshtein;
 import io.sirix.diff.algorithm.fmse.Util;
-import io.sirix.node.NodeKind;
 
 /**
  * JSON-specific node comparison utilities for the FMSE algorithm. Provides typed value extraction,
@@ -19,8 +18,8 @@ public final class JsonFMSENodeComparisonUtils {
   private final JsonNodeReadOnlyTrx oldRtx;
   private final JsonNodeReadOnlyTrx newRtx;
 
-  public JsonFMSENodeComparisonUtils(final long oldStartKey, final long newStartKey,
-      final JsonNodeReadOnlyTrx oldRtx, final JsonNodeReadOnlyTrx newRtx) {
+  public JsonFMSENodeComparisonUtils(final long oldStartKey, final long newStartKey, final JsonNodeReadOnlyTrx oldRtx,
+      final JsonNodeReadOnlyTrx newRtx) {
     this.oldStartKey = oldStartKey;
     this.newStartKey = newStartKey;
     this.oldRtx = oldRtx;
@@ -31,7 +30,7 @@ public final class JsonFMSENodeComparisonUtils {
    * Gets the string representation of a node's value for comparison purposes.
    *
    * @param nodeKey the node key
-   * @param rtx     the read-only transaction
+   * @param rtx the read-only transaction
    * @return the node value as a string
    */
   public static String getNodeValue(final long nodeKey, final JsonNodeReadOnlyTrx rtx) {
@@ -40,8 +39,7 @@ public final class JsonFMSENodeComparisonUtils {
       case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> rtx.getName().getLocalName();
       case STRING_VALUE, OBJECT_NAMED_STRING -> rtx.getValue();
       case NUMBER_VALUE, OBJECT_NAMED_NUMBER -> rtx.getValue();
-      case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
-          String.valueOf(rtx.getBooleanValue());
+      case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN -> String.valueOf(rtx.getBooleanValue());
       case NULL_VALUE, OBJECT_NAMED_NULL -> "null";
       case OBJECT, ARRAY, JSON_DOCUMENT -> "";
       default -> "";
@@ -51,14 +49,14 @@ public final class JsonFMSENodeComparisonUtils {
   /**
    * Checks if two nodes have equal typed values (faster than string comparison for typed nodes).
    *
-   * @param firstKey  first node key
+   * @param firstKey first node key
    * @param secondKey second node key
-   * @param oldRtx    old revision transaction
-   * @param newRtx    new revision transaction
+   * @param oldRtx old revision transaction
+   * @param newRtx new revision transaction
    * @return true if values are equal
    */
-  public static boolean typedValuesEqual(final long firstKey, final long secondKey,
-      final JsonNodeReadOnlyTrx oldRtx, final JsonNodeReadOnlyTrx newRtx) {
+  public static boolean typedValuesEqual(final long firstKey, final long secondKey, final JsonNodeReadOnlyTrx oldRtx,
+      final JsonNodeReadOnlyTrx newRtx) {
     oldRtx.moveTo(firstKey);
     newRtx.moveTo(secondKey);
 
@@ -67,39 +65,33 @@ public final class JsonFMSENodeComparisonUtils {
     }
 
     return switch (oldRtx.getKind()) {
-      case NULL_VALUE, OBJECT_NAMED_NULL -> true;
+      case NULL_VALUE -> true;
       case BOOLEAN_VALUE -> oldRtx.getBooleanValue() == newRtx.getBooleanValue();
-      case NUMBER_VALUE ->
-          oldRtx.getNumberValue().doubleValue() == newRtx.getNumberValue().doubleValue();
+      case NUMBER_VALUE -> oldRtx.getNumberValue().equals(newRtx.getNumberValue());
       case STRING_VALUE -> oldRtx.getValue().equals(newRtx.getValue());
       // Fused OBJECT_NAMED_* — equal iff BOTH name AND inline primitive value match.
       case OBJECT_NAMED_NUMBER -> {
         final var oldName = oldRtx.getName();
         final var newName = newRtx.getName();
-        yield oldName != null && newName != null
-            && oldName.getLocalName().equals(newName.getLocalName())
-            && oldRtx.getNumberValue().doubleValue() == newRtx.getNumberValue().doubleValue();
+        yield oldName != null && newName != null && oldName.getLocalName().equals(newName.getLocalName())
+            && oldRtx.getNumberValue().equals(newRtx.getNumberValue());
       }
       case OBJECT_NAMED_STRING -> {
         final var oldName = oldRtx.getName();
         final var newName = newRtx.getName();
-        yield oldName != null && newName != null
-            && oldName.getLocalName().equals(newName.getLocalName())
+        yield oldName != null && newName != null && oldName.getLocalName().equals(newName.getLocalName())
             && oldRtx.getValue().equals(newRtx.getValue());
       }
       case OBJECT_NAMED_BOOLEAN -> {
         final var oldName = oldRtx.getName();
         final var newName = newRtx.getName();
-        yield oldName != null && newName != null
-            && oldName.getLocalName().equals(newName.getLocalName())
+        yield oldName != null && newName != null && oldName.getLocalName().equals(newName.getLocalName())
             && oldRtx.getBooleanValue() == newRtx.getBooleanValue();
       }
-      // P2 fused-structural — equal iff names match. Subtree comparison happens via FMSE recursion.
-      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> {
+      case OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> {
         final var oldName = oldRtx.getName();
         final var newName = newRtx.getName();
-        yield oldName != null && newName != null
-            && oldName.getLocalName().equals(newName.getLocalName());
+        yield oldName != null && newName != null && oldName.getLocalName().equals(newName.getLocalName());
       }
       default -> false;
     };
@@ -108,7 +100,7 @@ public final class JsonFMSENodeComparisonUtils {
   /**
    * Calculates the similarity ratio between two strings using Levenshtein distance or quick ratio.
    *
-   * @param first  the first string
+   * @param first the first string
    * @param second the second string
    * @return similarity ratio in [0, 1]
    */
@@ -126,8 +118,8 @@ public final class JsonFMSENodeComparisonUtils {
   }
 
   /**
-   * Checks if the ancestor paths of two nodes are compatible. For OBJECT_KEY ancestors, compares
-   * key names with a threshold of 0.7.
+   * Checks if the ancestor paths of two nodes are compatible. For OBJECT_KEY ancestors, compares key
+   * names with a threshold of 0.7.
    *
    * @param nodeX node key in old revision
    * @param nodeY node key in new revision
@@ -153,8 +145,7 @@ public final class JsonFMSENodeComparisonUtils {
 
       // OBJECT_KEY + fused OBJECT_NAMED_* ancestors carry the key name; compare by name.
       if (oldRtx.getKind().playsObjectKeyRole()) {
-        final double ratio = calculateRatio(
-            oldRtx.getName().getLocalName(), newRtx.getName().getLocalName());
+        final double ratio = calculateRatio(oldRtx.getName().getLocalName(), newRtx.getName().getLocalName());
         if (ratio < ANCESTOR_NAME_THRESHOLD) {
           return false;
         }

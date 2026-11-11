@@ -23,18 +23,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The record-page invalidation sweep must never free a page another holder is still guarding.
  *
- * <p>The sweep used to drain guards it did not own — {@code while (getGuardCount() > 0)
- * releaseGuard()} — and then close the page. That forges the "I'm done" signal on behalf of the real
- * holder: the off-heap slot is released mid-read, and the holder's own release then drives the count
- * negative. It is reachable because the sweep is database-scoped while the truncation that triggers
- * it is resource-scoped, so a live transaction on a sibling resource can be holding a guard on a
- * page whose bytes were never truncated at all.</p>
+ * <p>
+ * The sweep used to drain guards it did not own — {@code while (getGuardCount() > 0)
+ * releaseGuard()} — and then close the page. That forges the "I'm done" signal on behalf of the
+ * real holder: the off-heap slot is released mid-read, and the holder's own release then drives the
+ * count negative. It is reachable because the sweep is database-scoped while the truncation that
+ * triggers it is resource-scoped, so a live transaction on a sibling resource can be holding a
+ * guard on a page whose bytes were never truncated at all.
+ * </p>
  *
- * <p>{@code markOrphaned()} + {@code close()} is the protocol {@code TransactionIntentLog.closePage}
+ * <p>
+ * {@code markOrphaned()} + {@code close()} is the protocol {@code TransactionIntentLog.closePage}
  * already used for the same reason: unmapping is what the stale-offset hazard requires, and the
- * orphan bit makes the holder's last release perform the teardown. Note {@code close()} alone is not
- * enough — {@link KeyValueLeafPage#close()} returns early on a guarded page without arranging any
- * later teardown, which would leak the slot instead of freeing it.</p>
+ * orphan bit makes the holder's last release perform the teardown. Note {@code close()} alone is
+ * not enough — {@link KeyValueLeafPage#close()} returns early on a guarded page without arranging
+ * any later teardown, which would leak the slot instead of freeing it.
+ * </p>
  */
 public final class RecordPageSweepGuardTest {
 
@@ -45,6 +49,7 @@ public final class RecordPageSweepGuardTest {
   private Arena arena;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     JsonTestHelper.deleteEverything();
     Databases.getGlobalBufferManager().clearAllCaches();
@@ -66,8 +71,8 @@ public final class RecordPageSweepGuardTest {
 
   private KeyValueLeafPage newPage() {
     return new KeyValueLeafPage(1L, IndexType.DOCUMENT,
-        new ResourceConfiguration.Builder("recordPageSweepGuardResource").build(), 1,
-        arena.allocate(SIXTY_FOUR_KB), null);
+        new ResourceConfiguration.Builder("recordPageSweepGuardResource").build(), 1, arena.allocate(SIXTY_FOUR_KB),
+        null);
   }
 
   @Test
@@ -85,11 +90,9 @@ public final class RecordPageSweepGuardTest {
 
     Databases.clearCachesForDatabase(DATABASE_ID);
 
-    assertNull(recordCache.get(key),
-        "the sweep must still unmap the entry — that is what makes a reused offset safe");
+    assertNull(recordCache.get(key), "the sweep must still unmap the entry — that is what makes a reused offset safe");
     assertFalse(page.isClosed(),
-        "the sweep must not free a page a live reader is still using; teardown defers to the last "
-            + "releaseGuard");
+        "the sweep must not free a page a live reader is still using; teardown defers to the last " + "releaseGuard");
     assertEquals(1, page.getGuardCount(),
         "the sweep must not forge the holder's release — a drained count underflows when the real "
             + "holder finishes");
@@ -102,9 +105,11 @@ public final class RecordPageSweepGuardTest {
   /**
    * The record-page FRAGMENT cache is swept by the same methods and was the half left behind.
    *
-   * <p>Versioning fragments are shared across transactions by construction — that is the whole point
-   * of the fragment cache — so a guard held here is, if anything, more likely to belong to someone
-   * other than the sweeping thread than one on a combined page.</p>
+   * <p>
+   * Versioning fragments are shared across transactions by construction — that is the whole point of
+   * the fragment cache — so a guard held here is, if anything, more likely to belong to someone other
+   * than the sweeping thread than one on a combined page.
+   * </p>
    */
   @Test
   void sweepUnmapsButDoesNotFreeAGuardedRecordPageFragment() {
@@ -119,8 +124,7 @@ public final class RecordPageSweepGuardTest {
     Databases.clearCachesForDatabase(DATABASE_ID);
 
     assertNull(fragmentCache.get(key), "the sweep must still unmap the fragment");
-    assertFalse(fragment.isClosed(),
-        "the sweep must not free a fragment a live merge is still reading");
+    assertFalse(fragment.isClosed(), "the sweep must not free a fragment a live merge is still reading");
     assertEquals(1, fragment.getGuardCount(), "the sweep must not forge the holder's release");
 
     fragment.releaseGuard();

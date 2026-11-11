@@ -32,6 +32,8 @@ import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBStore;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * <p>
@@ -117,40 +119,41 @@ public final class Store extends AbstractFunction {
 
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {
-        create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
+        create(store, collName, nodes, commitMessage, commitTimesstamp);
       } else {
-        try {
-          final XmlDBCollection coll = store.lookup(collName);
+        final XmlDBCollection coll = store.lookup(collName);
+        if (coll == null) {
+          create(store, collName, nodes, commitMessage, commitTimesstamp);
+        } else {
           add(coll, resName, nodes, commitMessage, commitTimesstamp);
-        } catch (final DocumentException e) {
-          // collection does not exist
-          create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
         }
       }
 
       return null;
     } catch (final Exception e) {
-      throw new QueryException(new QNm(e.getMessage()), e);
+      throw new QueryException(e, new QNm(e.getMessage()));
     }
   }
 
   private static void add(final XmlDBCollection coll, final String resName, final Sequence nodes,
       final String commitMessage, final Instant commitTimestamp) throws DocumentException {
     if (nodes instanceof Node<?> n) {
-      coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp);
+      coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp).getTrx().close();
     } else {
       try (ParserStream parsers = new ParserStream(nodes)) {
+        final List<NodeSubtreeParser> inputs = new ArrayList<>();
         for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-          coll.add(parser);
+          inputs.add(parser);
         }
+        coll.addAll(inputs);
       }
     }
   }
 
-  private static void create(final XmlDBStore store, final String collName, final String resName, final Sequence nodes,
+  private static void create(final XmlDBStore store, final String collName, final Sequence nodes,
       final String commitMessage, final Instant commitTimestamp) throws DocumentException {
     if (nodes instanceof Node<?> n) {
-      store.create(collName, resName, new StoreParser(n), commitMessage, commitTimestamp);
+      store.create(collName, new StoreParser(n), commitMessage, commitTimestamp);
     } else {
       store.create(collName, new ParserStream(nodes));
     }

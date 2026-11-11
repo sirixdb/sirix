@@ -69,6 +69,9 @@ failure table and tells the reader where the work went.
 
 | Test | Path | Fails when |
 |---|---|---|
+| `sirix-mcp` `BoundedQueryResultWorkBudgetTest` | oversized stored arrays, singly and within sequences | output bounding materializes all array members or reads beyond a bounded prefix; item offsets must skip arrays without traversing them |
+| `sirix-mcp` `BoundedDiffWorkBudgetTest` | initial and continuation diff pages over array updates | revision readers or path summaries are reopened per operation, readers leak, or array positions repeatedly walk the same prefix |
+| `sirix-mcp` `BoundedSerializationAllocationBudgetTest` | bounded query pages | per-item serialization scratch is reallocated; the allocation allowance includes returned strings and has a per-row scratch positive control |
 | `sirix-query` `ColumnarSerializationWorkBudgetTest` | columnar, computed primitive and mixed record output | execution-scoped rows or grouped records stop batching writer calls, or an unsupported suffix allocates and flushes per item; output parity and unbatched/per-item positive controls prevent vacuous bounds |
 | `sirix-query` `ProjectionQueryWorkBudgetTest` | count-only group-by | it is no longer answered from the value-count summary the build maintained (three build paths), or the summary answers wrongly |
 | | filtered group-by | it leaves the sliced route: whole-projection materialization (`eagerFallbacks`) or the generic pipeline |
@@ -86,12 +89,15 @@ failure table and tells the reader where the work went.
 | `sirix-query` `TemporalAggregateDictionaryWorkBudgetTest` | ordinary and correlated grouped points after deleting 255/4095 groups, repeated group churn and complete deletion; ordered integral count/min/max after one group-key change, with and without stored child counts, across all versioning types | dictionary admission visits more than current rows plus one, retries a declined primitive dictionary through object output, decodes declined heads, reads declined aggregate nodes, or walks history-sized pages; populated historical revisions remain exact and served |
 | `sirix-query` `TemporalAggregateCatchUpWorkBudgetTest` | paused derived frontier with 20 changed rows beside 256/4096 source rows, at lag 0/1/8/16/17; folded lag 8/16/64 and a 64-publication history | complete tails stop serving, base reads exceed three chunks, raw summaries are reread across increasing historical points, folded fixture reads exceed seven chunks, repeated points reread tails, or source columns are loaded |
 | `sirix-query` `TemporalAggregateSourceWorkBudgetTest` | ordinary and correlated indexed scans with absent, uncovered, covering and oversized aggregate dictionaries | admission and masked fallback evaluate or open a document reader twice per binding, node work grows with source population, or any empty-array comparison mode evaluates an invalid point; covering aggregates remain served |
+| `sirix-core` `ValidTimeTimestampAllocationBudgetTest` | canonical UTC strings with no fraction or 1–9 fractional digits | warmed production parsing allocates temporary bytes or primitive writer mapping allocates more than its retained interval; JDK parsing and escaping interval controls prevent vacuous zero bounds |
 | `sirix-query` `StoredDateTimeAllocationBudgetTest` | SH1 fixed UTC bytes and repeated stored field casts | the fixed parser or memo allocates after warmup; the executable general-parser allocation witness remains positive |
 | `sirix-query` `ProjectionLoadPinnedPageBudgetTest` | projection bulk load, `FILE_CHANNEL` and `MEMORY_MAPPED` | the pre-commit spill drains nothing, or the intent log's pinned region grows with the load |
+| `sirix-query` `BitemporalLoaderBudgetTest` | SH1 benchmark-harness loader: the streaming one-record input window and the load-owned native interval slabs (harness state, not engine work; the [kit README](../../../../../../../../bundles/sirix-query/bench/bitemporal/README.md) owns the loader contract) | warmed canonical parsing allocates per event, the warmed interval read/replace/write cycle allocates anything, native state stops being proportional to live intervals, slab-backed intervals diverge from an independent per-day model across a slab boundary, or missing/duplicate/out-of-order/truncated input is accepted; a closed or budget-exhausted store must refuse its relations |
 | `sirix-core` `TemporalAggregateCatalogueWorkBudgetTest` | load, copy and publish an unused aggregate catalogue | aggregate lane decoding happens before a consumer requests it, or concurrent first use decodes more than once; snapshot isolation and semantic validation are checked separately |
 | `sirix-core` `SparseRevisionIndexWorkBudgetTest` | cold and warm dense revision-index loading with 16/4096 mostly pruned slots | the production FILE_CHANNEL decoder issues more than one metadata read or reads more than one history pass; warm index loading rereads any records |
 | `sirix-core` `ChangeLogWorkBudgetTest` | 20 projected row changes beside 256/4096 rows, all versioning types | slab bytes or slots grow with untouched rows; first old cells or represented base revisions disappear across page flushes, explicit barriers, cold reopening or revert; unchanged writer reads rebuild, encode or replay an already-applied batch |
 | `sirix-core` `RefusedOverflowLeafTableTest` | eight unused writer tables, then an actual overflow refusal | unused tables allocate 8 KiB or more; the positive witness fails to allocate the real 1 MiB backing array; concurrent first refusals lose an identity |
+| `sirix-core` `InlineSlotCopyAllocationBudgetTest` | inline slot reconstruction and empty overflow-reference lookups | empty-map operations allocate boxed keys, or copying an inline slot fails to retire its stale overflow reference while preserving unrelated references |
 | `sirix-core` `DerivedMaintainerWorkBudgetTest` | 20-row publication beside 256/4096 rows with the daemon deterministically paused | source writes any aggregate slots; derived replay rereads slab chunks or untouched groups, opens projection row groups, folds old parts during catch-up, or writes document pages/catalogue files |
 | `sirix-core` `TemporalAggregateMaintenanceWorkBudgetTest` | explicit internal aggregate-kernel mode: 20-row publication, 528 one-row publications/barriers beside 256/4096 rows, and 4096 publications through the large fixture's checkpoint cascade | first-delta chunk/page work exceeds changed-record bounds or opens a reader; cumulative tier-fold chunk/endpoint/node work exceeds changed-record bounds; tiers carry or checkpoints cascade more than once per boundary; historical summaries change |
 | `sirix-core` `BatchedSegmentReadWorkBudgetTest` | batched page read (column fill) | the batch stops coalescing, is not sorted by file offset, or covers a region more than once |
@@ -311,6 +317,20 @@ path: gate it as `VersioningType` gates its merge counters if it sits on a per-r
 path, and leave it unconditional, as `AbstractReader.regionChunkHits()` argues, only where each
 event already costs a system call. Then list it in the catalog and in the diagnostics appendix of
 `docs/SEGMENT_PROJECTION_INDEXES.md`.
+
+`InlineSlotCopyAllocationBudgetTest` measures 16,384 inline slot copies and
+empty overflow-reference lookups with key 1,031, beyond the `Long` cache. One
+counter window wraps each individual copy and the windows are summed. Eight warmup
+passes and the asserted ninth pass share one loop and callsite, including accumulation
+of the returned byte count; measurement does not enter a separate cold caller loop. Page
+recycling and page growth stay outside the windows. An actual overflow carrier
+is replaced by inline bytes in the correctness control, while an unrelated
+reference survives.
+It runs in the existing `dictionaryReadViewAllocationTest` fork, invoked by the standard core test
+task and included in coverage, so sibling Mockito mocks cannot contaminate the measured classes.
+Mutation evidence (2026-11-02): restoring either unconditional empty-map lookup or removal in an
+interpreted JVM failed at 393,216 bytes (24 bytes per copy), against zero with the guards. The source
+was restored afterwards.
 
 ## Adding a budget test
 

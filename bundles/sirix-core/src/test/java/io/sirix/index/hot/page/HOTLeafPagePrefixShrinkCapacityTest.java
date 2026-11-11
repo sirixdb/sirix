@@ -85,6 +85,7 @@ class HOTLeafPagePrefixShrinkCapacityTest {
   private HOTLeafPage leaf;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     leaf = new HOTLeafPage(1L, 1, IndexType.VALIDTIME, arena.allocate(PAGE_SIZE), null,

@@ -20,16 +20,20 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 /**
  * Taking a page out of a cache must hand back the page that was actually removed.
  *
- * <p>{@code TransactionIntentLog.put} used to {@code get} the cached page and then {@code remove}
- * the key as two separate operations, closing whatever the {@code get} had returned. Those are not
- * the same page under concurrency: a reader caching a page for that reference in between leaves the
+ * <p>
+ * {@code TransactionIntentLog.put} used to {@code get} the cached page and then {@code remove} the
+ * key as two separate operations, closing whatever the {@code get} had returned. Those are not the
+ * same page under concurrency: a reader caching a page for that reference in between leaves the
  * {@code remove} evicting an instance nobody examines. It is then out of the cache, never enters a
  * TIL container, and is never closed — an owner-less 64 KiB frame per lost race, which is why the
- * residue grew with reader count and commit rate rather than staying flat.</p>
+ * residue grew with reader count and commit rate rather than staying flat.
+ * </p>
  *
- * <p>{@code removeAndGet} closes the window by doing both inside one {@code compute}. This pins the
- * contract it has to satisfy: the returned instance is the one unmapped, and it is handed over
- * OPEN — removal transfers ownership, it does not free.</p>
+ * <p>
+ * {@code removeAndGet} closes the window by doing both inside one {@code compute}. This pins the
+ * contract it has to satisfy: the returned instance is the one unmapped, and it is handed over OPEN
+ * — removal transfers ownership, it does not free.
+ * </p>
  */
 public final class RemoveAndGetAtomicityTest {
 
@@ -38,6 +42,7 @@ public final class RemoveAndGetAtomicityTest {
   private Arena arena;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
   }
@@ -51,8 +56,7 @@ public final class RemoveAndGetAtomicityTest {
 
   private KeyValueLeafPage newPage(final long pageKey) {
     return new KeyValueLeafPage(pageKey, IndexType.DOCUMENT,
-        new ResourceConfiguration.Builder("removeAndGetResource").build(), 1,
-        arena.allocate(SIXTY_FOUR_KB), null);
+        new ResourceConfiguration.Builder("removeAndGetResource").build(), 1, arena.allocate(SIXTY_FOUR_KB), null);
   }
 
   @Test

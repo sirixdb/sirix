@@ -2,9 +2,12 @@ package io.sirix.rest.crud.json
 
 import com.google.gson.stream.JsonReader
 import io.brackit.query.jdm.json.Object
+import io.sirix.query.function.ImportInput
 import io.sirix.query.json.JsonDBCollection
 import io.sirix.query.json.JsonDBItem
 import io.sirix.rest.Auth
+import io.sirix.query.MutationAuthorization
+import io.sirix.rest.crud.SessionMutationAuthorizer
 import io.sirix.rest.AuthRole
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -28,6 +31,8 @@ class AuthCheckingJsonDBCollection(
     private val authz: AuthorizationProvider
 ) : JsonDBCollection by wrapped {
 
+    private val mutationAuthorizer = SessionMutationAuthorizer(user, authz)
+
     private val collectionName: String = wrapped.getName()
 
     override fun delete() {
@@ -40,29 +45,39 @@ class AuthCheckingJsonDBCollection(
         wrapped.remove(documentID)
     }
 
+    override fun addAll(readers: List<JsonReader>, options: Object) {
+        Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
+        MutationAuthorization.where(mutationAuthorizer).run { wrapped.addAll(readers, options) }
+    }
+
+    override fun addAllFromUris(uris: List<String>, options: Object) {
+        Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
+        throw ImportInput.invalidContent("JSON")
+    }
+
     override fun add(resourceName: String, reader: JsonReader, options: Object): JsonDBItem {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        return wrapped.add(resourceName, reader, options)
+        return MutationAuthorization.where(mutationAuthorizer).call<JsonDBItem, RuntimeException> { wrapped.add(resourceName, reader, options) }
     }
 
     override fun add(resourceName: String, reader: JsonReader): JsonDBItem {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        return wrapped.add(resourceName, reader)
+        return MutationAuthorization.where(mutationAuthorizer).call<JsonDBItem, RuntimeException> { wrapped.add(resourceName, reader) }
     }
 
     override fun add(json: String): JsonDBItem {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        return wrapped.add(json)
+        return MutationAuthorization.where(mutationAuthorizer).call<JsonDBItem, RuntimeException> { wrapped.add(json) }
     }
 
     override fun add(file: Path): JsonDBItem {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        return wrapped.add(file)
+        throw ImportInput.invalidContent("JSON")
     }
 
     override fun add(inputStream: InputStream): JsonDBItem {
         Auth.checkIfAuthorized(user, collectionName, AuthRole.CREATE, authz)
-        return wrapped.add(inputStream)
+        return MutationAuthorization.where(mutationAuthorizer).call<JsonDBItem, RuntimeException> { wrapped.add(inputStream) }
     }
 
     // Interface delegation does not forward Object methods; key equality on the underlying

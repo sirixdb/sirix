@@ -13,6 +13,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.Proxy;
+import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,31 +26,33 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
- * Lifecycle / cancellation contracts for {@link RevisionPrefetcher} that are not
- * exercised by the per-axis behavioural tests:
+ * Lifecycle / cancellation contracts for {@link RevisionPrefetcher} that are not exercised by the
+ * per-axis behavioural tests:
  *
  * <ul>
- *   <li>Constructor is lazy — no in-flight tasks until {@link RevisionPrefetcher#poll}
- *       is called for the first time.</li>
- *   <li>{@link RevisionPrefetcher#close} before any poll() short-circuits the supplier
- *       and prevents any further opens.</li>
- *   <li>close() is idempotent.</li>
- *   <li>poll() after close() always returns {@code null}.</li>
- *   <li>Tasks submitted but cancelled mid-flight either skip the trx-open entirely or
- *       close the rtx inline — the consumer never observes a leaked transaction.</li>
- *   <li>Constructor argument validation rejects non-positive depths and null sources.</li>
+ * <li>Constructor is lazy — no in-flight tasks until {@link RevisionPrefetcher#poll} is called for
+ * the first time.</li>
+ * <li>{@link RevisionPrefetcher#close} before any poll() short-circuits the supplier and prevents
+ * any further opens.</li>
+ * <li>close() is idempotent.</li>
+ * <li>poll() after close() always returns {@code null}.</li>
+ * <li>Tasks submitted but cancelled mid-flight either skip the trx-open entirely or close the rtx
+ * inline — the consumer never observes a leaked transaction.</li>
+ * <li>Constructor argument validation rejects non-positive depths and null sources.</li>
  * </ul>
  */
 public final class RevisionPrefetcherLifecycleTest {
 
   /**
    * Bound on every handshake in {@link #close_doesNotReturnWhileInFlightTasksStillHoldTransactions}.
-   * Each one waits for a step that takes microseconds when it happens at all, so this is a
-   * deadlock backstop generous enough for a saturated CI runner, not a tuning knob.
+   * Each one waits for a step that takes microseconds when it happens at all, so this is a deadlock
+   * backstop generous enough for a saturated CI runner, not a tuning knob.
    */
   private static final long HANDSHAKE_TIMEOUT_SECONDS = 20L;
 
@@ -69,9 +74,9 @@ public final class RevisionPrefetcherLifecycleTest {
   }
 
   /**
-   * Build a supplier walking revisions ascending from 1 through the most-recent. The
-   * caller can read {@code calls.get()} to count how many revisions the prefetcher
-   * actually pulled from the iterator — a proxy for "how many opens were submitted."
+   * Build a supplier walking revisions ascending from 1 through the most-recent. The caller can read
+   * {@code calls.get()} to count how many revisions the prefetcher actually pulled from the iterator
+   * — a proxy for "how many opens were submitted."
    */
   private IntSupplier ascendingRevisions(final AtomicInteger calls) {
     final int max = holder.getResourceSession().getMostRecentRevisionNumber();
@@ -87,8 +92,7 @@ public final class RevisionPrefetcherLifecycleTest {
     };
   }
 
-  private RevisionPrefetcher<XmlNodeReadOnlyTrx, XmlNodeTrx> newPrefetcher(
-      final IntSupplier source, final int depth) {
+  private RevisionPrefetcher<XmlNodeReadOnlyTrx, XmlNodeTrx> newPrefetcher(final IntSupplier source, final int depth) {
     final long rootKey = 0L; // moveTo(0) always succeeds for the document node
     return new RevisionPrefetcher<>(holder.getResourceSession(), rootKey, source, depth);
   }
@@ -147,36 +151,39 @@ public final class RevisionPrefetcherLifecycleTest {
     // time it returns every rtx it opened has been released. This used to be untestable — close()
     // cancelled the futures and returned while the bodies ran on, so the only available assertions
     // were "no exception, no hang, supplier not queried again" and callers had to sleep or poll.
-    assertEquals("close() must release every prefetched rtx before it returns",
-        baseline, holder.getResourceSession().activeTrxCount());
-    assertEquals("close() must not query the supplier any further",
-        callsBeforeClose, calls.get());
+    assertEquals("close() must release every prefetched rtx before it returns", baseline,
+        holder.getResourceSession().activeTrxCount());
+    assertEquals("close() must not query the supplier any further", callsBeforeClose, calls.get());
   }
 
   /**
    * The window {@link RevisionPrefetcher#close()} must close, widened until a test can see it.
    *
-   * <p>The natural window is microseconds — a prefetch body opens its rtx and observes the closed
-   * flag a few instructions later — so neither repetition nor CPU load reproduces a miss reliably;
-   * both pass with the fix and without it. This harness makes it deterministic instead: a proxy
-   * session opens the REAL rtx and then parks inside {@code beginNodeReadOnlyTrx}, so the task is
-   * provably holding an open, counted transaction while {@code close()} runs. Revision 1 is let
-   * through so {@code poll()} can return; revisions 2..4 park.
+   * <p>
+   * The natural window is microseconds — a prefetch body opens its rtx and observes the closed flag a
+   * few instructions later — so neither repetition nor CPU load reproduces a miss reliably; both pass
+   * with the fix and without it. This harness makes it deterministic instead: a proxy session opens
+   * the REAL rtx and then parks inside {@code beginNodeReadOnlyTrx}, so the task is provably holding
+   * an open, counted transaction while {@code close()} runs. Revision 1 is let through so
+   * {@code poll()} can return; revisions 2..4 park.
    *
-   * <p>Then the two behaviours separate cleanly. Draining: {@code close()} cannot return until the
-   * parked tasks are released and have closed their rtxs, so the count recorded immediately after
-   * it is the baseline. Fire-and-forget: {@code close()} returns while they are still parked, and
-   * the recorded count is above the baseline by exactly the number in flight.
+   * <p>
+   * Then the two behaviours separate cleanly. Draining: {@code close()} cannot return until the
+   * parked tasks are released and have closed their rtxs, so the count recorded immediately after it
+   * is the baseline. Fire-and-forget: {@code close()} returns while they are still parked, and the
+   * recorded count is above the baseline by exactly the number in flight.
    *
-   * <p>Both hand-offs are latch handshakes rather than timing assumptions. The consumer waits for
+   * <p>
+   * Both hand-offs are latch handshakes rather than timing assumptions. The consumer waits for
    * {@code closeAllowed} before closing, because a {@code close()} that wins the race publishes its
-   * flag first and every remaining task then short-circuits ahead of its open — nothing is in
-   * flight and the two behaviours become indistinguishable. The harness in turn waits for the
-   * prefetcher to report itself closed before releasing the parked tasks, so the release can never
-   * precede the flag either.
+   * flag first and every remaining task then short-circuits ahead of its open — nothing is in flight
+   * and the two behaviours become indistinguishable. The harness in turn waits for the prefetcher to
+   * report itself closed before releasing the parked tasks, so the release can never precede the flag
+   * either.
    *
-   * <p>Consumer calls live on one thread, honouring the single-consumer contract; the test thread
-   * only operates the latches.
+   * <p>
+   * Consumer calls live on one thread, honouring the single-consumer contract; the test thread only
+   * operates the latches.
    */
   @Test
   public void close_doesNotReturnWhileInFlightTasksStillHoldTransactions() throws Exception {
@@ -188,11 +195,10 @@ public final class RevisionPrefetcherLifecycleTest {
 
     @SuppressWarnings("unchecked")
     final ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> blocking =
-        (ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx>) Proxy.newProxyInstance(
-            getClass().getClassLoader(), new Class<?>[] {ResourceSession.class},
-            (proxy, method, args) -> {
-              if ("beginNodeReadOnlyTrx".equals(method.getName()) && args != null
-                  && args.length == 1 && args[0] instanceof Integer revision) {
+        (ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx>) Proxy.newProxyInstance(getClass().getClassLoader(),
+            new Class<?>[] {ResourceSession.class}, (proxy, method, args) -> {
+              if ("beginNodeReadOnlyTrx".equals(method.getName()) && args != null && args.length == 1
+                  && args[0] instanceof Integer revision) {
                 final XmlNodeReadOnlyTrx rtx = real.beginNodeReadOnlyTrx(revision);
                 if (revision > 1) {
                   // Open and counted, but the body has not reached its closed-flag checkpoint.
@@ -215,8 +221,7 @@ public final class RevisionPrefetcherLifecycleTest {
           first.rtx.close();
         }
         if (!closeAllowed.await(HANDSHAKE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-          throw new IllegalStateException("no prefetch task parked within "
-              + HANDSHAKE_TIMEOUT_SECONDS + "s");
+          throw new IllegalStateException("no prefetch task parked within " + HANDSHAKE_TIMEOUT_SECONDS + "s");
         }
         prefetcher.close();
         countRecordedRightAfterClose.set(real.activeTrxCount());
@@ -232,8 +237,7 @@ public final class RevisionPrefetcherLifecycleTest {
     assertTrue("a prefetch task must park inside the open, holding an rtx",
         parked.await(HANDSHAKE_TIMEOUT_SECONDS, TimeUnit.SECONDS));
     closeAllowed.countDown();
-    assertTrue("the consumer must reach close() while a task is still parked",
-        awaitClosed(prefetcher));
+    assertTrue("the consumer must reach close() while a task is still parked", awaitClosed(prefetcher));
     // close() has published its flag and is now either draining or — fire-and-forget — already
     // back in the consumer. The tasks are still parked either way, so give the latter time to
     // record its above-baseline count before we let them go.
@@ -243,8 +247,8 @@ public final class RevisionPrefetcherLifecycleTest {
     assertFalse("consumer thread must finish", consumer.isAlive());
     assertNull("consumer thread must not fail: " + consumerFailure.get(), consumerFailure.get());
 
-    assertEquals("close() must not return while in-flight tasks still hold open transactions",
-        baseline, countRecordedRightAfterClose.get());
+    assertEquals("close() must not return while in-flight tasks still hold open transactions", baseline,
+        countRecordedRightAfterClose.get());
   }
 
   /**
@@ -253,8 +257,7 @@ public final class RevisionPrefetcherLifecycleTest {
    *
    * @return {@code false} if the flag was not observed within {@link #HANDSHAKE_TIMEOUT_SECONDS}
    */
-  private static boolean awaitClosed(final RevisionPrefetcher<?, ?> prefetcher)
-      throws InterruptedException {
+  private static boolean awaitClosed(final RevisionPrefetcher<?, ?> prefetcher) throws InterruptedException {
     final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(HANDSHAKE_TIMEOUT_SECONDS);
     while (!prefetcher.isClosed()) {
       if (System.nanoTime() - deadline >= 0L) {
@@ -281,6 +284,74 @@ public final class RevisionPrefetcherLifecycleTest {
     try (final var p = newPrefetcher(exhausted, 4)) {
       assertNull("exhausted iterator yields null", p.poll());
       assertNull(p.poll()); // and again
+    }
+  }
+
+  @Test
+  public void failedOpenPropagatesAndDrainsQueuedReaders() {
+    assertFailureCleanup(new SecurityException("revision denied"), false, false);
+  }
+
+  @Test
+  public void failedPositioningClosesItsReaderAndDrainsQueuedReaders() {
+    assertFailureCleanup(new IllegalStateException("positioning failed"), true, false);
+  }
+
+  @Test
+  public void cancelledOpenRemainsEndOfStreamAndDrainsQueuedReaders() {
+    assertFailureCleanup(new CancellationException("cancelled"), false, true);
+  }
+
+  private void assertFailureCleanup(final RuntimeException failure, final boolean failDuringPositioning,
+      final boolean cancelled) {
+    final XmlResourceSession real = holder.getResourceSession();
+    final int baseline = real.activeTrxCount();
+    final CountDownLatch queuedReadersOpened = new CountDownLatch(2);
+    @SuppressWarnings("unchecked")
+    final ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> failing =
+        (ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx>) Proxy.newProxyInstance(getClass().getClassLoader(),
+            new Class<?>[] {ResourceSession.class}, (proxy, method, args) -> {
+              if (method.getName().equals("beginNodeReadOnlyTrx") && args != null && args.length == 1
+                  && args[0] instanceof Integer revision) {
+                if (revision == 1 && !failDuringPositioning) {
+                  queuedReadersOpened.await();
+                  throw failure;
+                }
+                final XmlNodeReadOnlyTrx reader = real.beginNodeReadOnlyTrx(revision);
+                if (revision != 1) {
+                  queuedReadersOpened.countDown();
+                  return reader;
+                }
+                return Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[] {XmlNodeReadOnlyTrx.class},
+                    (readerProxy, readerMethod, readerArgs) -> {
+                      if (readerMethod.getName().equals("moveTo")) {
+                        queuedReadersOpened.await();
+                        throw failure;
+                      }
+                      return invoke(reader, readerMethod, readerArgs);
+                    });
+              }
+              return invoke(real, method, args);
+            });
+    try (final var prefetcher = new RevisionPrefetcher<>(failing, 0L, ascendingRevisions(new AtomicInteger()), 3)) {
+      if (cancelled) {
+        assertNull(prefetcher.poll());
+      } else {
+        assertSame(failure, assertThrows(RuntimeException.class, prefetcher::poll));
+      }
+      assertTrue(prefetcher.isClosed());
+      assertEquals(0, prefetcher.inFlight());
+      assertEquals(baseline, real.activeTrxCount());
+      assertNull(prefetcher.poll());
+    }
+    assertEquals(baseline, real.activeTrxCount());
+  }
+
+  private static Object invoke(final Object delegate, final Method method, final Object[] arguments) throws Throwable {
+    try {
+      return method.invoke(delegate, arguments);
+    } catch (final InvocationTargetException exception) {
+      throw exception.getCause();
     }
   }
 

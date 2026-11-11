@@ -4278,12 +4278,12 @@ revisions 5 → 6: book[0].price changed 12 → 19.99, and a "discount" field wa
 \end{diagramS}
 
 A third operation imports an \emph{external} document \emph{as} a diff. The \textbf{FMES} service
-(\code{FMSEImport}, \pp{io/sirix/diff/algorithm/fmse/}) implements the Fast-Match\,/\,Edit-Script
+(\code{FMSEImport} and \code{JsonFMSEImport}, \pp{io/sirix/diff/service/}) implements the Fast-Match\,/\,Edit-Script
 tree-correction algorithm of Chawathe, Rajaraman, Garcia-Molina and Widom~\cite{chawathe}. Its job is to fold a
 new version of a document into the store as a \emph{structural delta} that keeps the identity, the
 stable node keys, of everything that did not change, instead of re-shredding the document and losing
 that identity. The pipeline has three steps. First the new document is shredded into a throwaway
-resource (\code{FMSEImport.shredder}), so both versions are now SirixDB trees with cursors. Second, a
+resource (the import service's \code{shredder}), so both versions are now SirixDB trees with cursors. Second, a
 \emph{matching} is computed between the stored (old) tree and the new one. Third, the algorithm walks
 the new tree and applies a minimal edit script \textbf{in place against the stored tree} through an
 ordinary write transaction, then commits, so the import lands as one new revision that \code{jn:diff}
@@ -4295,7 +4295,7 @@ can later reproduce.
 Levenshtein ratio (\code{Levenshtein}, via \code{FMSENodeComparisonUtils.calculateRatio}, which
 substitutes a character-frequency \emph{quick ratio} for strings longer than 50 characters) that must
 exceed the threshold \code{FMESF}~$=0.5$. The JSON comparator scores typed values directly (numbers by
-numeric value, booleans and nulls exactly) rather than stringifying them. Ties are broken by the path
+exact stored numeric payload, booleans and nulls exactly) rather than stringifying them. Ties are broken by the path
 summary, where equal root-to-leaf paths force a match and unequal-length paths forbid one, and for XML
 by an optional \code{id}-attribute fast path that forces a match when ancestor ids agree. \emph{Inner}
 nodes are then matched by structural overlap: two inner nodes match when the fraction of their
@@ -4304,11 +4304,14 @@ y\rvert)$, reaches \code{FMESTHRESHOLD}~$=0.5$. Within each same-kind bucket the
 longest-common-subsequence pass (Myers'~\cite{myers} $O(ND)$ diff, \code{Util.longestCommonSubsequence}) followed by
 a greedy sweep over whatever the LCS left unpaired. The result is a \code{Matching}: two directional
 maps, old to new and back, plus a subtree-containment index that answers ``how many matched descendants
-do these two share'' in time proportional to the subtree.
+do these two share'' in time proportional to the subtree. The JSON driver also pairs
+same-kind document-root objects or arrays even when descendant overlap is low, so matched
+children can retain their node keys.
 
 \textbf{Phase~2 builds and applies the edit script} in Chawathe's order. It iterates the new tree
 breadth-first and, for each node $x$ under parent $y$, does exactly one of \textbf{insert} (when $x$ has
-no partner, copy its subtree in with \code{copySubtreeAs\ldots}), \textbf{update} (when the partner's
+no partner; XML copies its subtree with \code{copySubtreeAs\ldots}, while JSON inserts
+only the node and processes descendants in the breadth-first pass), \textbf{update} (when the partner's
 value or key name differs, \code{setValue} or \code{setObjectKeyName}), or \textbf{move} (when $x$'s
 partner sits under the wrong parent, \code{moveSubtreeTo\ldots}, which keeps the subtree's node keys).
 After each node it \textbf{aligns children}: a second LCS, this time over the \emph{matched} children of
@@ -4323,7 +4326,7 @@ new document  ──shred──▶  throwaway resource ─┐
 stored resource (old revision) ───────────────┘                       │
                                                                       ▼
   edit script, breadth-first over the new tree:
-    no partner                     ──▶ insert   copySubtreeAs*
+    no partner                     ──▶ insert   XML: subtree copy; JSON: node only
     value or key-name differs      ──▶ update   setValue / setObjectKeyName
     partner under the wrong parent ──▶ move     moveSubtreeTo*   (keeps node keys)
     children mis-ordered           ──▶ align    LCS over matched children, move the rest
@@ -4334,16 +4337,12 @@ stored resource (old revision) ───────────────┘ 
 \end{diagram}
 
 Identity is preserved exactly where it should be: a matched node is updated or moved in place and keeps
-its node key, an inserted subtree is fresh material copied from the new tree, and a deletion is old
-material with no partner. \code{FMES} is wired to the function \code{xn:import}
-(registered signatures are defined in \code{XMLFun}) and is reachable from a small CLI as
-well. A full JSON port exists (\code{JsonFMSE}, sharing its matching core \code{FMSEAlgorithm} with the
-XML driver), but it is not yet bound to any import function, so as a user-facing feature FMES is
-XML-only today. Two implementation notes are worth recording. The paper's ``in-order'' traversal is
-realised as \emph{post-order}, the code noting that the paper's wording is wrong for non-binary trees.
-And the JSON delete visitor does not yet handle the two fused structural record kinds
-(\code{OBJECT\_NAMED\_OBJECT} and \code{OBJECT\_NAMED\_ARRAY}), so an unmatched named container is
-descended into rather than removed; that gap is one reason the JSON path remains test-only.
+its node key, newly inserted nodes are fresh material, and a deletion is old material with no
+partner. JSON's shallow insertion lets the edit pass move already matched descendants into new
+containers instead of duplicating them. The query entry points and content contracts are documented
+in the \href{../README.md}{repository README}. The JSON driver (\code{JsonFMSE}) shares its matching
+core \code{FMSEAlgorithm} with the XML driver. The paper's ``in-order'' traversal is realised as
+\emph{post-order}, the code noting that the paper's wording is wrong for non-binary trees.
 
 \dcap{A worked FMES import: an edited document becomes a structural delta}
 \begin{diagramS}
@@ -4679,9 +4678,7 @@ The optimiser completes the query story for JSON; but the engine has a second fa
 JSON, yet \S\ref{sec:xmljson} made the point that the storage, versioning, durability, and indexing
 machinery is node-family-agnostic: an XML resource is the same engine with
 \code{ELEMENT}\,/\,\code{ATTRIBUTE}\,/\,\code{TEXT} nodes instead of objects, arrays, and fused records. It
-is worth showing that XML face directly, so the dual-engine claim is concrete rather than asserted, the
-more so because one capability --- FMES structural import --- is wired only on the XML side today
-(\S\ref{sec:diff}).
+is worth showing that XML face directly, so the dual-engine claim is concrete rather than asserted.
 
 \dcap{Embedded Java: an XML resource is the JSON flow with an XML node family}
 \begin{diagramS}
@@ -4702,7 +4699,7 @@ try (var db = Databases.openXmlDatabase(path)) {
 }
 \end{diagramS}
 
-\dcap{XQuery: navigation, time travel, diff, and the XML-only FMES import}
+\dcap{XQuery: navigation, time travel, and diff}
 \begin{diagramS}
 (* XPath navigation over the stored document *)
 xn:doc('db','lib')/library/book[1]/title/text()
@@ -4713,9 +4710,6 @@ xn:open('db','lib', xs:dateTime("2026-01-15T00:00:00Z"))/library/book
 (* the XQuery Update script that replays the changes from revision 1 to revision 2 *)
 xn:diff('db','lib', 1, 2)
 
-(* fold an external document in as an identity-preserving structural delta (FMES; XML-only) *)
-xn:import('db','lib', '/path/to/new-library.xml')
-
 (* store-level sdb: functions work on XML items too *)
 sdb:item-history(xn:doc('db','lib')/library/book[1])
 \end{diagramS}
@@ -4725,10 +4719,8 @@ an \code{XMLEventReader} from \code{XmlShredder} instead of a \code{JsonReader} 
 navigation is XPath with the extra attribute and namespace axes, and the query entry points carry the
 \code{xn:} prefix. Everything underneath, the page trie, the sliding snapshot, the dual-beacon commit,
 the write permit, the change-tracking indexes, and the temporal \code{sdb:} functions, is byte-for-byte
-the same code path as for JSON. The one asymmetry is deliberate and noted in the body: \code{xn:import}
-runs the FMES fast-match/edit-script algorithm to land an external document as a minimal structural
-delta that preserves node identity, and that binding is XML-only for now, with the JSON port
-(\code{JsonFMSE}) implemented but not yet wired to a function.
+the same code path as for JSON. Both models also support the FMES import described in
+\S\ref{sec:diff}; see the \href{../README.md}{repository README} for query usage.
 
 The two node families line up concern for concern; only the markup-specific kinds have no JSON analogue.
 
@@ -7440,8 +7432,7 @@ concurrent-\emph{writer} regimes remain unmeasured. \textbf{Within a resource th
 document does not scale writes across cores. \textbf{The vectorised executor is deliberately narrow}:
 it is fail-closed to a small set of numeric, columnar query shapes, with string-predicate SIMD and
 	non-\code{double} numeric columns still open. \textbf{The HOT index} is the sole PATH/CAS/NAME
-	secondary-index representation. \textbf{The JSON FMES import} is library-only, not wired to a function, and its
-delete phase does not yet cover the fused structural kinds. \textbf{Histogram collection is deferred}, so
+	secondary-index representation. \textbf{Histogram collection is deferred}, so
 a first-seen predicate plans on a default selectivity until statistics are built. And several
 \textbf{enterprise pieces}, the public S3 selector wiring, multi-writer fencing, and a broker-backed
 Kafka replication test, are staged rather than finished. None of these undermines the core claims; each
@@ -8225,7 +8216,7 @@ xn:open('db','lib', xs:dateTime("2026-01-15T00:00:00Z"))/library/book[1]/title/t
 sdb:item-history(xn:doc('db','lib')/library/book[1])
 \end{diagramS}
 
-For the XML-only FMES import example, see Section~\ref{app:xml}.
+For import query examples, see the \href{../README.md}{repository README}.
 
 \dcap{Aggregations and grouping (set-oriented / vectorised where covered)}
 \begin{diagramS}

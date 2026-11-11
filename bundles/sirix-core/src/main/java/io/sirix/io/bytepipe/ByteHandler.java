@@ -1,5 +1,7 @@
 package io.sirix.io.bytepipe;
 
+import org.jspecify.annotations.Nullable;
+
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.foreign.MemorySegment;
@@ -52,8 +54,8 @@ public interface ByteHandler {
    * }
    * }</pre>
    * 
-   * @param segment Decompressed data (may be a slice of backingBuffer)
-   * @param backingBuffer Full allocated buffer (for zero-copy ownership transfer)
+   * @param segment Decompressed payload limited to its logical length, excluding allocator padding
+   * @param backingBuffer Full allocated buffer retained for release and zero-copy ownership transfer
    * @param releaser Returns buffer to allocator when called
    * @param ownershipTransferred Tracks whether ownership was transferred to prevent double-release
    */
@@ -77,7 +79,7 @@ public interface ByteHandler {
      * 
      * @return the releaser to call when done, or null if already transferred
      */
-    public Runnable transferOwnership() {
+    public @Nullable Runnable transferOwnership() {
       if (ownershipTransferred.compareAndSet(false, true)) {
         return releaser;
       }
@@ -131,10 +133,10 @@ public interface ByteHandler {
    * Decompress data using a pooled buffer with explicit lifecycle (Loom-friendly).
    *
    * <p>
-   * Returns a {@link DecompressionResult} backed by a bounded pool — memory is bounded by pool
-   * size, not virtual-thread count. The legacy {@code decompress(MemorySegment)} variant that
-   * returned a freshly-allocated segment was removed; it had ThreadLocal-based pooling that
-   * pinned a buffer per virtual thread (incompatible with millions of VTs).
+   * Returns a {@link DecompressionResult} backed by a bounded pool — memory is bounded by pool size,
+   * not virtual-thread count. The legacy {@code decompress(MemorySegment)} variant that returned a
+   * freshly-allocated segment was removed; it had ThreadLocal-based pooling that pinned a buffer per
+   * virtual thread (incompatible with millions of VTs).
    * 
    * <p>
    * The returned result MUST be closed after use to return the buffer to the pool:

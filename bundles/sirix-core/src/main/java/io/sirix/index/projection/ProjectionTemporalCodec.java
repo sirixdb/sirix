@@ -1,5 +1,7 @@
 package io.sirix.index.projection;
 
+import io.sirix.utils.UtcTimestampParser;
+
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -133,7 +135,6 @@ public final class ProjectionTemporalCodec {
   /** Days from 0000-03-01 to 1970-01-01, the shift in Hinnant's civil ⇆ days pair. */
   private static final long DAYS_TO_EPOCH_ERA_SHIFT = 719_468L;
 
-  private static final int[] DAYS_IN_MONTH = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
   private ProjectionTemporalCodec() {
     throw new AssertionError("no instances");
@@ -543,18 +544,7 @@ public final class ProjectionTemporalCodec {
    * exact for every four-digit year and branch-free but for the two sign corrections.
    */
   public static long daysFromCivil(final int year, final int month, final int day) {
-    final long y = year - (month <= 2
-        ? 1
-        : 0);
-    final long era = (y >= 0
-        ? y
-        : y - 399) / 400;
-    final long yearOfEra = y - era * 400; // [0, 399]
-    final long dayOfYear = (153 * (month + (month > 2
-        ? -3
-        : 9)) + 2) / 5 + day - 1; // [0, 365]
-    final long dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
-    return era * 146_097 + dayOfEra - DAYS_TO_EPOCH_ERA_SHIFT;
+    return UtcTimestampParser.daysFromCivil(year, month, day);
   }
 
   /** Write {@code dddd-dd-dd} for a day count — Hinnant's {@code civil_from_days}, inlined. */
@@ -617,16 +607,7 @@ public final class ProjectionTemporalCodec {
   }
 
   private static boolean validCivil(final int year, final int month, final int day) {
-    if (year < 0 || year > 9999 || month < 1 || month > 12 || day < 1) {
-      return false;
-    }
-    final int max = month == 2 && isLeapYear(year)
-        ? 29
-        : DAYS_IN_MONTH[month - 1];
-    return day <= max;
+    return UtcTimestampParser.validCivil(year, month, day);
   }
 
-  private static boolean isLeapYear(final int year) {
-    return (year & 3) == 0 && (year % 100 != 0 || year % 400 == 0);
-  }
 }

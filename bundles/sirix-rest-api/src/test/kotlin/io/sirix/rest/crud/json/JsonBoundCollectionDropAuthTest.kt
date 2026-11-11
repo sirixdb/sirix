@@ -64,7 +64,7 @@ class JsonBoundCollectionDropAuthTest {
                     advanceToRevisionTwo(unrelated, 200)
                     unrelated.close()
                     val affectedHistograms = affectedNames.associateWith { name ->
-                        collectHistograms(store, name).also { store.lookup(name).close() }
+                        collectHistograms(store, name).also { store.lookup(name)!!.close() }
                     }
                     val unrelatedHistograms = collectHistograms(store, unrelatedName)
                     val roles = if (canDelete) arrayOf("orders-view", "orders-delete") else arrayOf("orders-view")
@@ -158,7 +158,7 @@ class JsonBoundCollectionDropAuthTest {
                     }
                     assertFalse(Files.exists(targetPath))
                     assertTrue(Files.exists(unrelatedPath))
-                    store.lookup("alias").database.beginResourceSession("resource1").use { session ->
+                    store.lookup("alias")!!.database.beginResourceSession("resource1").use { session ->
                         session.beginNodeReadOnlyTrx().use { reader ->
                             assertTrue(reader.moveToFirstChild())
                             assertTrue(reader.moveToFirstChild())
@@ -202,7 +202,7 @@ class JsonBoundCollectionDropAuthTest {
                             assertTrue(reader.moveToFirstChild())
                         }
                         JsonGetTestBinding.bind(handler, reader, collection, context, sessionStore)
-                        assertSame(database, sessionStore.lookup(name).database)
+                        assertSame(database, sessionStore.lookup(name)!!.database)
                         assertTrue(context.contextItem != null)
                         action(sessionStore, context, collection)
                     }

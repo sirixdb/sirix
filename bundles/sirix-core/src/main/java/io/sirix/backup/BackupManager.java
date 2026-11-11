@@ -12,6 +12,8 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.utils.SirixFiles;
 
+import org.jspecify.annotations.Nullable;
+
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -347,7 +349,7 @@ public final class BackupManager {
    * everything inside the transaction-intent-log directory (the {@code .commit} marker), and
    * atomic-write temporaries (diff-file {@code *.tmp*} spills).
    */
-  private static boolean isTransientResourceFile(final Path relativePath) {
+  private static boolean isTransientResourceFile(final @Nullable Path relativePath) {
     if (relativePath == null) {
       return false;
     }
@@ -359,7 +361,7 @@ public final class BackupManager {
    * Maps a path relative to the DATABASE directory to one relative to its resource directory
    * ({@code resources/<name>/rest…} → {@code rest…}), or {@code null} if it is not inside a resource.
    */
-  private static Path relativeToResource(final Path databaseRelativePath) {
+  private static @Nullable Path relativeToResource(final Path databaseRelativePath) {
     if (databaseRelativePath.getNameCount() <= 2
         || !databaseRelativePath.getName(0).toString().equals(RESOURCES_DIR.toString())) {
       return null;

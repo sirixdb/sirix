@@ -772,7 +772,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   public NameFilter createNameFilter(final Set<String> names) {
     final Set<QNm> includes = new HashSet<>(names.size());
     for (final String name : names) {
-      // TODO: Prefix/NspURI
+      // This string-based API has no namespace context for resolving prefixes.
       includes.add(new QNm(name));
     }
     return new NameFilter(includes, Collections.emptySet());

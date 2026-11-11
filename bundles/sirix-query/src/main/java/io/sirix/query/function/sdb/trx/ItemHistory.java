@@ -101,7 +101,9 @@ public final class ItemHistory extends AbstractFunction {
       final int[] revisions = indexedRevisions;
       final long nodeKey = item.getNodeKey();
       final boolean isJson = item instanceof JsonDBItem;
-      final JsonItemFactory jsonItemFactory = isJson ? new JsonItemFactory() : null;
+      final JsonItemFactory jsonItemFactory = isJson
+          ? new JsonItemFactory()
+          : null;
 
       // Open transactions and resolve nodes in parallel using virtual threads
       final Item[] results = new Item[revisions.length];
@@ -114,11 +116,10 @@ public final class ItemHistory extends AbstractFunction {
             final NodeReadOnlyTrx rtxInRevision = resourceSession.beginNodeReadOnlyTrx(revision);
             if (rtxInRevision.moveTo(nodeKey)) {
               if (isJson) {
-                results[idx] = jsonItemFactory.getSequence(
-                    (JsonNodeReadOnlyTrx) rtxInRevision, ((JsonDBItem) item).getCollection());
+                results[idx] = jsonItemFactory.getSequence((JsonNodeReadOnlyTrx) rtxInRevision,
+                    ((JsonDBItem) item).getCollection());
               } else {
-                results[idx] = new XmlDBNode(
-                    (XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection());
+                results[idx] = new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection());
               }
             } else {
               rtxInRevision.close();

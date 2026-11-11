@@ -9,100 +9,84 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.sirix.access.Databases;
-import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import io.sirix.api.xml.XmlNodeTrx;
-import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.access.MutationGate;
 import io.sirix.diff.algorithm.fmse.DefaultNodeComparisonFactory;
 import io.sirix.diff.algorithm.fmse.FMSE;
 import io.sirix.diff.service.FMSEImport;
-import io.sirix.utils.SirixFiles;
+import io.sirix.query.ContentOnlyStore;
+import io.sirix.query.MutationAuthorization;
+import io.sirix.query.function.ImportInput;
 import io.sirix.query.function.xml.XMLFun;
-import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBCollection;
-import io.sirix.query.node.XmlDBNode;
-
+import io.sirix.query.node.XmlDBStore;
+import io.sirix.service.xml.shredder.XmlShredder;
+import io.sirix.utils.SirixFiles;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import javax.xml.stream.XMLEventReader;
+import javax.xml.stream.XMLStreamException;
 
-import static java.util.Objects.requireNonNull;
-
-/**
- * <p>
- * Function for importing the differences between the currently stored revision of a resource in a
- * collection/database and a new version of a resource. If successful, this function returns the
- * document-node.
- * </p>
- * <p>
- * Registered signatures are defined in {@link XMLFun}.
- * </p>
- *
- * @author Max Bechtold
- * @author Johannes Lichtenberger
- *
- */
+/** Imports inline XML as one FMSE revision; embedded callers may also supply a local file path. */
 public final class Import extends AbstractFunction {
+  public static final QNm IMPORT = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "import");
 
-  /** Import function name. */
-  public final static QNm IMPORT = new QNm(XMLFun.XML_NSURI, XMLFun.XML_PREFIX, "import");
-
-  /**
-   * Constructor.
-   *
-   * @param name the name of the function
-   * @param signature the signature of the function
-   */
   public Import(final QNm name, final Signature signature) {
-    super(name, signature, true, true);
+    super(name, signature, true);
   }
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    if (args.length != 3) {
-      throw new QueryException(new QNm("No valid arguments specified!"));
+    final String databaseName = ((Str) args[0]).stringValue();
+    final String resourceName = ((Str) args[1]).stringValue();
+    final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
+    final XmlDBCollection initial = store.lookup(databaseName);
+    if (initial == null) {
+      throw new QueryException(new QNm("Database does not exist"));
     }
-
-    final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getNodeStore();
-    final XmlDBCollection coll = store.lookup(((Str) args[0]).stringValue());
-
-    if (coll == null) {
-      throw new QueryException(new QNm("No valid arguments specified!"));
-    }
-
-    final String resName = ((Str) args[1]).stringValue();
-    final String resToImport = ((Str) args[2]).stringValue();
-
-    XmlDBNode doc = null;
-    final XmlNodeReadOnlyTrx trx;
-
-    try {
-      doc = coll.getDocument(resName);
-
-      try (final XmlNodeTrx wtx =
-          doc.getTrx().getResourceSession().getNodeTrx().orElse(doc.getTrx().getResourceSession().beginNodeTrx())) {
-        final Path pathOfResToImport = Paths.get(resToImport);
-        final Path newRevTarget = Files.createTempDirectory(pathOfResToImport.getFileName().toString());
-        if (Files.exists(newRevTarget)) {
-          SirixFiles.recursiveRemove(newRevTarget);
-        }
-
-        new FMSEImport().shredder(requireNonNull(pathOfResToImport), newRevTarget);
-
-        try (final var databaseNew = Databases.openXmlDatabase(newRevTarget);
-            final XmlResourceSession resourceNew = databaseNew.beginResourceSession("shredded");
-            final XmlNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
-            final FMSE fmes = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
-          fmes.diff(wtx, rtx);
-        }
-      } catch (final IOException e) {
-        throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
+    final Path databasePath = initial.getDatabase().getDatabaseConfig().getDatabaseFile();
+    try (var gate = MutationGate.acquireResource(databasePath, resourceName)) {
+      final XmlDBCollection collection = store.lookup(databaseName);
+      if (collection == null) {
+        throw new QueryException(new QNm("Database does not exist"));
       }
-    } finally {
-      trx = doc.getTrx().getResourceSession().beginNodeReadOnlyTrx();
-      doc.getTrx().close();
+      if (!collection.getDatabase().existsResource(resourceName)) {
+        throw new QueryException(new QNm("ResourceNotFound"), "Resource '%s' does not exist", resourceName);
+      }
+      final var targetSession = collection.getDatabase().beginResourceSession(resourceName);
+      MutationAuthorization.requireWritable(ctx, collection.getName(), targetSession.getResourceConfig().getName());
+      final String source = ((Str) args[2]).stringValue();
+      final boolean fileSource = !(store instanceof ContentOnlyStore) && !source.stripLeading().startsWith("<");
+      if (!fileSource) {
+        ImportInput.validateXml(source);
+      }
+      // Keep the private parent intact while the shredder replaces its database directory.
+      final Path temporary = Files.createTempDirectory(databasePath, ".sirix-xml-import-");
+      final Path stagedDatabase = temporary.resolve("database");
+      try {
+        if (fileSource) {
+          new FMSEImport().shredder(Path.of(source), stagedDatabase);
+        } else {
+          final XMLEventReader input = XmlShredder.createStringReader(source);
+          try {
+            new FMSEImport().shredder(input, stagedDatabase);
+          } finally {
+            input.close();
+          }
+        }
+        try (final var database = Databases.openXmlDatabase(stagedDatabase);
+            final var session = database.beginResourceSession("shredded");
+            final var reader = session.beginNodeReadOnlyTrx();
+            final var writer = targetSession.beginNodeTrx();
+            final var diff = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
+          diff.diff(writer, reader);
+        }
+      } finally {
+        SirixFiles.recursiveRemove(temporary);
+      }
+      return collection.getDocument(resourceName);
+    } catch (final IOException | XMLStreamException failure) {
+      throw new QueryException(failure, new QNm("XML import failed"));
     }
-
-    return new XmlDBNode(trx, coll);
   }
 }

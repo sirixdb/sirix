@@ -20,6 +20,15 @@
   - Use StringBuilder for string concatenation in loops
 - A change to a read, load or query path must keep the **work-budget tests** green; the *Work budgets* block of `docs/VERIFICATION.md` runs all of them. A broken budget is a regression until shown otherwise: never widen a bound to get a green build, and never add a wall-clock assertion. Rules and how to add one: `bundles/sirix-core/src/test/java/io/sirix/budget/README.md`.
 
+## Low-latency hot paths
+
+- Hot paths are work performed per record, node, page, key or query row.
+- No per-element allocation there: reuse buffers and scratch storage; prefer primitive arrays and collections.
+- In hot loops, avoid streams, capturing lambdas, boxing, string building and exceptions for control flow.
+- Prefer cache-friendly layouts with contiguous data and monomorphic hot calls.
+- Otherwise prefer simple code and standard software-engineering patterns; when in doubt, choose performance and leave a one-line comment explaining why.
+- Verify hot-path changes with allocation tests and the existing work-budget tests referenced above.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

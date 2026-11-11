@@ -62,6 +62,7 @@ public final class NodePageTest {
   private Arena arena;
 
   @Before
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
@@ -134,8 +135,9 @@ public final class NodePageTest {
       final PagePersister pagePersister = new PagePersister();
       pagePersister.serializePage(storageEngineReader.getResourceSession().getResourceConfig(), data, page1,
           SerializationType.DATA);
-      page2 = (KeyValueLeafPage) pagePersister.deserializePage(storageEngineReader.getResourceSession().getResourceConfig(),
-          Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
+      page2 =
+          (KeyValueLeafPage) pagePersister.deserializePage(storageEngineReader.getResourceSession().getResourceConfig(),
+              Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
       // assertEquals(position, out.position());
       final ElementNode element = (ElementNode) storageEngineReader.getValue(page2, 0L);
 

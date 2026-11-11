@@ -126,6 +126,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   String canonicalResourceName(final String name) {
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), name, false);
     final String canonicalName = ResourceConfiguration.canonicalResourceName(name);
     final Path path =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
@@ -236,7 +237,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         if (existing != null) {
           resourceSessions.removeObject(path, existing);
         }
-        removeResource(name);
+        removeResourceInternal(name);
       }
     }
     final ResourceConfiguration.Builder builder =
@@ -303,7 +304,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   synchronized boolean createResource(final ResourceConfiguration resourceConfig,
       final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
     assertNotClosed();
-    requireNonNull(resourceConfig);
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), requireNonNull(resourceConfig).getName(), true);
 
     boolean returnVal = true;
     resourceConfig.setDatabaseConfiguration(dbConfig);
@@ -420,7 +421,15 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   @Override
-  public synchronized Database<T> removeResource(final String name) {
+  public Database<T> removeResource(final String name) {
+    final String canonicalName = canonicalResourceName(name);
+    try (var gate = MutationGate.acquireResource(dbConfig.getDatabaseFile(), canonicalName)) {
+      return removeResourceInternal(canonicalName);
+    }
+  }
+
+  private synchronized Database<T> removeResourceInternal(final String name) {
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), canonicalResourceName(name), true);
     assertNotClosed();
     final String canonicalName = canonicalResourceName(name);
     final Path resourceFile =
@@ -492,7 +501,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final String derivedName = resourceFile.getFileName() + DerivedIndexMaintainer.SUFFIX;
     if (!DerivedIndexMaintainer.isDerivedResourceName(canonicalName)
         && Files.exists(resourceFile.resolveSibling(derivedName))) {
-      removeResource(derivedName);
+      removeResourceInternal(derivedName);
     }
     return this;
   }
@@ -557,9 +566,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized boolean existsResource(final String resourceName) {
     assertNotClosed();
-    final Path resourceFile = dbConfig.getDatabaseFile()
-                                      .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-                                      .resolve(canonicalResourceName(resourceName));
+    final String canonicalName = canonicalResourceName(resourceName);
+    final Path resourceFile =
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
     return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;
   }
 

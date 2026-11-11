@@ -43,6 +43,7 @@ public final class GoldenCompositePageTest {
   private Arena arena;
 
   @Before
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();

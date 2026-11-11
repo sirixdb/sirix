@@ -31,6 +31,7 @@ class KeyValueLeafPageTest {
   private Arena arena;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     long recordPageKey = 1L;

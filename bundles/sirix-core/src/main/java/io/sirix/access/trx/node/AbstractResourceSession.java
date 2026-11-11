@@ -1,5 +1,7 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.access.ResourceAccessScope;
+
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.IntConsumer;
@@ -1274,6 +1276,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized W beginNodeTrx(final int maxNodeCount, final int maxTime, final TimeUnit timeUnit,
       final AfterCommitState afterCommitState) {
+    // Authorize before acquiring a writer or touching its intent log.
+    ResourceAccessScope.checkWrite(this);
     // Checks.
     assertAccess(getMostRecentRevisionNumber());
     if (maxNodeCount < 0 || maxTime < 0) {
@@ -1724,6 +1728,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public synchronized StorageEngineWriter createStorageEngineWriter(final int revision) {
+    ResourceAccessScope.checkWrite(this);
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -1771,7 +1776,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
 
     // noinspection unchecked
-    return nodeTrxMap.values().stream().filter(NodeTrx.class::isInstance).map(rtx -> (W) rtx).findAny();
+    final Optional<W> writer =
+        nodeTrxMap.values().stream().filter(NodeTrx.class::isInstance).map(rtx -> (W) rtx).findAny();
+    if (writer.isPresent()) {
+      ResourceAccessScope.checkWrite(this);
+    }
+    return writer;
   }
 
   /**

@@ -58,6 +58,7 @@ jobs:
 
       - name: Run the soak
         env:
+          ORG_GRADLE_PROJECT_errorProne: 'true'
           # The test is gated by SIRIX_STRESS_ENABLE — without it the test method
           # returns early in the first millisecond. This avoids @Disabled,
           # which Gradle's forked test JVM cannot easily un-disable from CLI flags.

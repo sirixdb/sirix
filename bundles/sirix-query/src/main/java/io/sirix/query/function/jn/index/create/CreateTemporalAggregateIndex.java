@@ -18,6 +18,7 @@ import io.sirix.index.Indexes;
 import io.sirix.index.aggregate.TemporalAggregateDeclarations;
 import io.sirix.index.aggregate.TemporalAggregateSpec;
 import io.sirix.index.projection.ProjectionIndexMetadata;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.function.jn.index.IndexDdl;
 
@@ -41,6 +42,7 @@ public final class CreateTemporalAggregateIndex extends AbstractFunction {
   public Sequence execute(final StaticContext context, final QueryContext query, final Sequence[] arguments) {
     final JsonDBItem document = (JsonDBItem) arguments[0];
     final JsonResourceSession session = document.getResourceSession();
+    MutationAuthorization.requireWritable(query, document);
     final var existing = session.getNodeTrx();
     if (existing.isPresent()) {
       existing.get().awaitPendingAsyncCommit();

@@ -26,8 +26,6 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 
-import net.openhft.hashing.LongHashFunction;
-
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.time.Instant;
@@ -496,28 +494,4 @@ public interface IOStorage {
       holder.update(index);
     }
   }
-}
-
-
-/**
- * Thread-local scratch for {@link IOStorage#tailLogEntryChecksum} — the checksum is computed on the
- * commit path and once per ring entry during recovery, so it must not allocate.
- */
-final class TailLogScratch {
-
-  static final LongHashFunction XX3 = LongHashFunction.xx3();
-
-  static final ThreadLocal<ByteBuffer> BUFFER =
-      ThreadLocal.withInitial(() -> ByteBuffer.allocate(40).order(ByteOrder.LITTLE_ENDIAN));
-
-  private TailLogScratch() {}
-}
-
-
-/** Scratch shared by disk record encoders and decoders on the calling thread. */
-final class RevisionRecordScratch {
-  static final ThreadLocal<ByteBuffer> BUFFER =
-      ThreadLocal.withInitial(() -> ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN));
-
-  private RevisionRecordScratch() {}
 }

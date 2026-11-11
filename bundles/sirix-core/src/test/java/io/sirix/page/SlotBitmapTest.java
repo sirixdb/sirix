@@ -31,6 +31,7 @@ class SlotBitmapTest {
   private ResourceConfiguration resourceConfig;
 
   @BeforeEach
+  @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
     resourceConfig = new ResourceConfiguration.Builder("testResource").build();

@@ -11,6 +11,7 @@ import io.sirix.index.aggregate.DerivedIndexMaintainer;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 
 /** An independently closeable reference to the process's shared database instance. */
 final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>
@@ -38,9 +39,16 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   }
 
   @Override
-  public synchronized boolean createResource(final ResourceConfiguration config) {
+  public boolean createResource(final ResourceConfiguration config) {
+    Objects.requireNonNull(config, "config");
+    // A cleanup callback must fail before waiting on the remover's database hold.
     database();
-    return owner.localDatabase.createResource(config, resourceStore);
+    try (var gate = MutationGate.acquireResource(owner.path, config.getName())) {
+      synchronized (this) {
+        database();
+        return owner.localDatabase.createResource(config, resourceStore);
+      }
+    }
   }
 
   @Override

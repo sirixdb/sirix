@@ -18,9 +18,10 @@ well they catch the characteristic failure mode of AI-generated (and, frankly, h
 | Crash injection / soak | Durability across simulated crashes; leak-free long-running bitemporal workloads | `crash/CrashRecoveryInjectionTest`, `stress/BitemporalSoakStressTest`, `stress.yml` workflow |
 | Work-budget tests | A load or query does **no materially more work** than it should (leaves read, route taken, pages left pinned), where its answer would be identical either way | `sirix-query/src/test/java/io/sirix/query/budget/`, `sirix-core/.../index/projection/*WorkBudgetTest.java`; rules in `sirix-core/src/test/java/io/sirix/budget/README.md` |
 | Mutation testing (PIT) | The tests **assert** on behavior instead of merely executing it — a surviving mutant is a code change no test noticed | `:sirix-core:pitest`, `verification.yml` workflow |
+| REST authorization guards | Refused mutations through query entry points (execute/evaluate/serialize/paginate) and function calls preserve revision counts, pending edits, index catalogues, projection metadata and derived aggregate headers. Database-scoped roles use the full collection name; the permission contract is in the [OpenAPI specification](../bundles/sirix-rest-api/src/main/resources/openapi.yaml) | `sirix-rest-api/src/test/kotlin/io/sirix/rest/**` (`QueryMutationAuthorizationTest`, `PermissionCheckingQueryTest`); `:sirix-rest-api:offlineTest` selects tests needing no Docker or Keycloak, and `gradle.yml`'s `TestRestApi` job gates `:sirix-rest-api:test` |
 | JUnit framework consistency | Query test classes do not mix standard JUnit 4 and Jupiter annotation markers, including inherited fixtures | `sirix-query/src/test/java/io/sirix/query/JUnitFrameworkConsistencyTest.java` (owns the guard's scope) |
-| Error Prone + NullAway | Compile-time rejection of almost-always-bug patterns; warnings for nullness-contract violations | `-PerrorProne`, `verification.yml` workflow |
-| SonarQube / Checkstyle | Style and maintainability smells | `sonarqube.yml`, `checkstyle.xml` |
+| Error Prone + NullAway | Compile-time rejection of bug patterns and nullness-contract violations in `@NullMarked` code | Main CI, release, stress and deep verification; local `-PerrorProne` |
+| SonarCloud / Checkstyle | Static analysis and style rules | [SonarCloud analysis](#sonarcloud-analysis), `checkstyle.xml` |
 
 ## Why these layers, specifically
 
@@ -78,8 +79,50 @@ coverage.
 
 **Error Prone** rejects bug patterns at compile time (bad equals/format strings/self-assignment
 and ~500 more); **NullAway** checks nullness contracts against the JSpecify annotations already
-used in the codebase. Both are opt-in (`-PerrorProne`) so the everyday build is unchanged, and run
-in CI via the `Deep verification` workflow.
+used in the codebase. Local builds opt in with `-PerrorProne`. The main PR/push CI workflow sets
+`ORG_GRADLE_PROJECT_errorProne=true` only on its `Compile and package` job, which compiles all
+main, test and JMH benchmark source sets. The release workflow runs the same gated compile
+before importing signing credentials or publishing, covering tag pushes, release branches and
+manually selected refs. The stress workflow enables the gate on its core test compile, including
+manual runs against refs outside main CI's branch filters. Deep verification gates its dedicated
+core and MCP compile with `-PerrorProne`. Each of these four workflows runs one gated compile;
+other jobs and the Sonar workflow avoid repeating static analysis. Error Prone errors fail compilation;
+NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
+has a JSpecify `@NullMarked` package default. Legacy unmarked code, including core and query,
+is outside NullAway checking, even where individual nullable contracts are annotated.
+Test compilation models AssertJ/JUnit assertion checks without adding runtime guards.
+
+`verifyNullMarkedPackages` checks package defaults for every Gradle Java compilation, including
+main, test and JMH, using the JDK parser. It runs before gated Java compilation and from `check`.
+A new `io.sirix` package must have its own `@NullMarked` `package-info.java` in each compilation
+source group.
+The checked-in baseline is `gradle/nullaway-unmarked-packages.txt`; entries may only be removed,
+never added. The task rejects obsolete entries and any growth along the first-parent Git history,
+including uncommitted additions (the first committed list establishes the baseline). Migrating a
+legacy package requires marking all its compilation source groups and removing its entry.
+Generated build sources are excluded. Run the gate with JDK 25 and a full-history checkout containing `origin/main`.
+`StringConcatToTextBlock` alone is disabled because its generated-literal crash persists through
+Error Prone 2.51.0 ([upstream bug](https://github.com/google/error-prone/issues/6208)).
+
+## SonarCloud analysis
+
+[`sonarqube.yml`](../.github/workflows/sonarqube.yml) runs on pushes to `main` and eligible
+pull requests targeting `main`. It builds and tests with JaCoCo XML reports before running `sonar` separately.
+It waits for the quality gate, so a successful upload alone cannot make the check green.
+The required quality-gate policy is **no new bugs or vulnerabilities on new code**;
+configure its conditions in SonarCloud.
+PR analysis uses GitHub Actions' automatic PR parameters and the source commit with full history.
+Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
+The REST integration suite remains outside this job. The offline REST authorization tests run
+without Docker or Keycloak, and their JaCoCo execution data feeds both the REST and query reports.
+
+The core XML report includes the isolated test forks' execution data. Their agent-handling
+safety invariant is documented beside the fork-option copy in
+[`bundles/sirix-core/build.gradle`](../bundles/sirix-core/build.gradle).
+
+Review issues against the low-latency requirements in `AGENTS.md`. Prefer clean code when it
+costs no hot-path performance. Any rule exception must name the specific rule and scope, with
+a short reason explaining the performance cost; do not weaken allocation or work-budget tests.
 
 ## Running the layers
 
@@ -151,10 +194,13 @@ suite, with cold-reopen checks.
 # Work budgets (includes TemporalAggregateCatchUpWorkBudgetTest for lag 0, 1, 8, 16, 17 and folded lag 64)
 # Add -Dsirix.workBudget.print=true -i to print every captured counter table
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*' \
-                            --tests 'io.sirix.query.json.IndexedArrayPositionTest'
+  --tests 'io.sirix.query.json.IndexedArrayPositionTest' \
+  --tests 'io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \
                            --tests 'io.sirix.index.projection.*WorkBudgetTest' \
                            --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest'
+./gradlew :sirix-mcp:test --tests 'io.sirix.mcp.*WorkBudgetTest' \
+                          --tests 'io.sirix.mcp.BoundedSerializationAllocationBudgetTest'
 
 # Mutation testing (report: bundles/sirix-core/build/reports/pitest/index.html)
 ./gradlew :sirix-core:pitest
@@ -166,8 +212,9 @@ suite, with cold-reopen checks.
 ./gradlew :sirix-core:test --tests 'io.sirix.index.aggregate.DerivedIndexCrashRecoveryTest' \
                            -Dsirix.crash.run=true
 
-# Static bug detection
-./gradlew :sirix-core:compileJava :sirix-core:compileTestJava -PerrorProne
+# Static bug detection (same source sets as deep verification)
+./gradlew :sirix-core:compileJava :sirix-core:compileTestJava \
+          :sirix-mcp:compileJava :sirix-mcp:compileTestJava -PerrorProne
 ```
 
 CI: the `Deep verification` workflow (`.github/workflows/verification.yml`) runs PIT and Error

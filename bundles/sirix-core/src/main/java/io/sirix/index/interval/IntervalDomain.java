@@ -65,12 +65,16 @@ public final class IntervalDomain {
   /** Whether this instant is represented without rounding or clamping. */
   @SuppressWarnings("JavaInstantGetSecondsGetNano") // Tests fractional alignment, not epoch time.
   public boolean isExact(final @Nullable Instant instant) {
-    if (instant == null || instant.getNano() % 1_000_000 != 0) {
+    return instant != null && isExact(instant.getEpochSecond(), instant.getNano());
+  }
+
+  /** Primitive counterpart for owner-confined parsed bounds. */
+  public boolean isExact(final long epochSecond, final int nano) {
+    if (nano % 1_000_000 != 0) {
       return false;
     }
     try {
-      final long millis = instant.toEpochMilli();
-      final long shifted = Math.subtractExact(millis, originMillis);
+      final long shifted = Math.subtractExact(epochMillis(epochSecond, nano), originMillis);
       return shifted >= 0 && shifted < maxValue;
     } catch (final ArithmeticException e) {
       return false;
@@ -106,12 +110,24 @@ public final class IntervalDomain {
 
   /** Query point for an instant. */
   public long point(final Instant at) {
+    return point(at.getEpochSecond(), at.getNano());
+  }
+
+  /** Primitive counterpart preserving Instant's negative-fraction and overflow semantics. */
+  public long point(final long epochSecond, final int nano) {
     try {
-      return toDomain(at.toEpochMilli());
+      return toDomain(epochMillis(epochSecond, nano));
     } catch (final ArithmeticException e) {
-      return at.isBefore(Instant.EPOCH)
+      return epochSecond < 0
           ? RelationalIntervalTree.MIN_VALUE
           : maxValue;
     }
+  }
+
+  private static long epochMillis(final long epochSecond, final int nano) {
+    if (epochSecond < 0 && nano > 0) {
+      return Math.addExact(Math.multiplyExact(epochSecond + 1, 1_000), nano / 1_000_000 - 1_000L);
+    }
+    return Math.addExact(Math.multiplyExact(epochSecond, 1_000), nano / 1_000_000);
   }
 }

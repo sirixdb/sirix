@@ -400,10 +400,11 @@ public interface StorageEngineReader extends AutoCloseable {
   PathSummaryPage getPathSummaryPage(RevisionRootPage revisionRoot);
 
   /**
-   * Get the {@link DeweyIDPage} associated with the current revision root.
+   * Get the {@link DeweyIDPage} associated with the supplied current or historical revision root.
+   * Readers and writers expose this container even when Dewey-ID storage is disabled.
    *
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link DeweyIDPage}
-   * @return DeweyIDPage The associated DeweyIDPage
+   * @return the associated Dewey-ID container
    * @throws SirixIOException if an I/O error occurs
    */
   DeweyIDPage getDeweyIDPage(RevisionRootPage revisionRoot);

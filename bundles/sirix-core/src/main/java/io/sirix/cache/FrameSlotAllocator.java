@@ -1323,6 +1323,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * ({@link #acquireSlotOrWait}), mirroring {@code LinuxMemorySegmentAllocator}'s park-and-retry
    * pattern.
    */
+  // The oversized branch's confined arena is not a try-with-resources resource by design: it is
+  // handed to the OversizedAllocation registered in #oversizedByAddress and outlives this call,
+  // until release(MemorySegment) closes it on the allocating thread. Its own catch block closes it
+  // on every failure path before registration completes.
+  @SuppressWarnings("MustBeClosedChecker")
   @Override
   public MemorySegment allocate(final long size) {
     if (size <= 0) {

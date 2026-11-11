@@ -16,6 +16,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.function.jn.index.IndexDdl;
 
@@ -47,6 +48,7 @@ public final class DropTemporalAggregateIndex extends AbstractFunction {
     final JsonDBItem document = (JsonDBItem) args[0];
     final JsonNodeReadOnlyTrx rtx = document.getTrx();
     final JsonResourceSession resourceSession = rtx.getResourceSession();
+    MutationAuthorization.requireWritable(ctx, document);
 
     final var optionalWriteTrx = resourceSession.getNodeTrx();
     if (optionalWriteTrx.isPresent()) {
