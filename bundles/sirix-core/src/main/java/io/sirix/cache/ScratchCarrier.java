@@ -10,7 +10,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * One scratch buffer of an allocator: its backing, the views over it, and the counters of the
+ * One scratch region of an allocator: its backing, the views over it, and the counters of the
  * borrows it served. Owned by its {@link ScratchSource} for its whole life and lent to one
  * {@link ScratchLease} at a time, so the views are built once and a warm borrow allocates nothing.
  *
@@ -39,12 +39,6 @@ final class ScratchCarrier {
   /** {@code segment.byteSize()}. */
   final long capacity;
 
-  /** Frame slot backing this buffer, or {@code -1} when a region of its own backs it. */
-  final int slotIndex;
-
-  /** The slot's version while this buffer owns it; meaningless without a slot. */
-  final long slotVersion;
-
   /** Links of the source's list of live buffers; guarded by the source's registry lock. */
   @Nullable
   ScratchCarrier previous;
@@ -70,14 +64,11 @@ final class ScratchCarrier {
   /** The buffer view, built on the first borrow that asks for one. */
   private @Nullable ByteBuffer buffer;
 
-  ScratchCarrier(final ScratchSource source, final int capacityClass, final MemorySegment segment, final int slotIndex,
-      final long slotVersion) {
+  ScratchCarrier(final ScratchSource source, final int capacityClass, final MemorySegment segment) {
     this.source = source;
     this.capacityClass = capacityClass;
     this.segment = segment;
     this.capacity = segment.byteSize();
-    this.slotIndex = slotIndex;
-    this.slotVersion = slotVersion;
   }
 
   /**

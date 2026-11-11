@@ -32,10 +32,12 @@ hinted exactly up to it. Hints do not queue Java tasks, retain page objects, or 
 integrity checks. Descriptor discovery is lazy; single-page readers and unsupported platforms keep
 ordinary reads. Whole-file access hints remain separate opt-in policies.
 
-Scratch buffers use a bounded unordered pool. Padded atomic slots transfer exclusive ownership
-without a common queue lock or per-thread retention. Each operation makes one bounded pass over
-the slots. An exhausted pool can allocate a temporary buffer; a full pool discards returned extras.
-Returned pages retain independently owned data, never a borrowed pool view.
+Scratch buffers use the allocator's mapped regions, separate from page-frame slots. Padded atomic
+idle arrays transfer exclusive ownership without a common queue lock or per-thread retention.
+Each borrow scans its capacity's idle array and spares before mapping a replacement. Extra small
+buffers and larger idle regions share the allocator's recycle-byte allowance; all idle scratch
+regions can be reclaimed for another capacity, while lent regions remain mapped. Returned pages
+retain independently owned data, never a borrowed scratch view.
 
 Frame recycling scans only the bitmap prefix that can contain previously allocated slots. Each
 bounded retry refreshes the monotonically advancing allocation limit; the scan wraps with an

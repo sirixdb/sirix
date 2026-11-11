@@ -56,10 +56,10 @@ final class ScratchLeaseTest {
 
   private static final String POISON_LOCK = "sirix.allocator.poisonScratch";
 
-  private static final int SLOT_4K = 0;
-  private static final int SLOT_256K = 6;
-  private static final int REGION_512K = FrameScratch.SLOT_CLASSES;
-  private static final int REGION_1M = FrameScratch.SLOT_CLASSES + 1;
+  private static final int SMALL_4K = 0;
+  private static final int SMALL_256K = 6;
+  private static final int REGION_512K = FrameScratch.SMALL_CLASSES;
+  private static final int REGION_1M = FrameScratch.SMALL_CLASSES + 1;
   private static final int REGION_16M = FrameScratch.CLASS_COUNT - 1;
 
   private final List<FrameSlotAllocator> allocators = new ArrayList<>();
@@ -86,12 +86,12 @@ final class ScratchLeaseTest {
 
   @Test
   void aBorrowIsRoundedUpToTheNextCapacity() {
-    assertEquals(SLOT_4K, FrameScratch.classForSize(1));
-    assertEquals(SLOT_4K, FrameScratch.classForSize(4 * KIB));
+    assertEquals(SMALL_4K, FrameScratch.classForSize(1));
+    assertEquals(SMALL_4K, FrameScratch.classForSize(4 * KIB));
     assertEquals(1, FrameScratch.classForSize(4 * KIB + 1));
     assertEquals(5, FrameScratch.classForSize(128 * KIB));
-    assertEquals(SLOT_256K, FrameScratch.classForSize(128 * KIB + 1));
-    assertEquals(SLOT_256K, FrameScratch.classForSize(256 * KIB));
+    assertEquals(SMALL_256K, FrameScratch.classForSize(128 * KIB + 1));
+    assertEquals(SMALL_256K, FrameScratch.classForSize(256 * KIB));
     assertEquals(REGION_512K, FrameScratch.classForSize(256 * KIB + 1));
     assertEquals(REGION_1M, FrameScratch.classForSize(MIB));
     assertEquals(REGION_16M - 1, FrameScratch.classForSize(8 * MIB));
@@ -118,7 +118,7 @@ final class ScratchLeaseTest {
       assertSame(Arena.global().scope(), slot.segment().scope(), "no per-access liveness check");
       assertSame(Arena.global().scope(), region.segment().scope());
       final ScratchStats stats = allocator.scratchStats();
-      assertEquals(SLOT_4K, stats.capacityIndex(100));
+      assertEquals(SMALL_4K, stats.capacityIndex(100));
       assertEquals(REGION_512K, stats.capacityIndex(300 * KIB));
       assertEquals(FrameScratch.EXACT_CLASS, stats.capacityIndex(16 * MIB + 5));
       assertEquals(100 + 300 * KIB + 16 * MIB + 5, stats.requestedBytes());
@@ -142,7 +142,7 @@ final class ScratchLeaseTest {
         slotAddress = lease.segment().address();
         slotBuffer = lease.buffer();
       }
-      assertEquals(slotAddress, lease.segment().address(), "the same slot serves every borrow");
+      assertEquals(slotAddress, lease.segment().address(), "the same capacity serves every borrow");
       assertSame(slotBuffer, lease.buffer(), "the buffer view is built once");
       assertEquals(0, lease.buffer().position(), "cleared for each borrow");
       assertEquals(128 * KIB, lease.buffer().limit());
@@ -161,7 +161,7 @@ final class ScratchLeaseTest {
     }
     final ScratchStats stats = allocator.scratchStats();
     assertEquals(200, stats.totalAcquisitions());
-    assertEquals(2, stats.totalCreated(), "one slot buffer and one region, created once");
+    assertEquals(2, stats.totalCreated(), "one buffer per capacity, created once");
     assertEquals(198, stats.totalReused());
     assertEquals(0, stats.totalReclaimed());
     assertEquals(100, stats.acquisitions(ScratchUse.SERIALIZATION));
@@ -210,7 +210,7 @@ final class ScratchLeaseTest {
   }
 
   /**
-   * A slot borrow with a nested one of the same capacity, as a read with a fallback read; a region.
+   * A small borrow with a nested one of the same capacity, as a read with a fallback read; a region.
    */
   private static long borrowTwice(final ScratchLease lease, final ScratchLease nested, final int round) {
     lease.acquire(128 * KIB, ScratchUse.READ);
@@ -313,7 +313,7 @@ final class ScratchLeaseTest {
   }
 
   @Test
-  void scratchSlotsStayOutOfTheFrameCountersAndIdleBuffersAreNotActive() {
+  void smallScratchStaysOutOfFrameCountersAndIsReclaimedIndependently() {
     final FrameSlotAllocator allocator = allocator(BUDGET, IDLE);
     final MemorySegment frame = allocator.allocate(128 * KIB);
     final int frameClass = FrameSlotAllocator.indexForSize(128 * KIB);
@@ -328,70 +328,61 @@ final class ScratchLeaseTest {
     assertEquals(committedBefore + 256 * KIB, allocator.getPhysicalMemoryBytes());
     first.close();
     second.close();
-    assertEquals(activeBefore, allocator.getActiveMemoryBytes(),
-        "an idle buffer keeps its slot but is lent to nobody: a leak check sees the baseline");
-    assertEquals(committedBefore + 256 * KIB, allocator.getPhysicalMemoryBytes(), "its slot stays committed");
+    assertEquals(activeBefore, allocator.getActiveMemoryBytes());
+    assertEquals(committedBefore + 256 * KIB, allocator.getPhysicalMemoryBytes(), "its region stays committed");
     assertEquals(1, allocator.liveSlotCount(frameClass), "only the page frame is a live frame slot");
     assertEquals(1, allocator.allocateCount(frameClass));
     assertEquals(0, allocator.releaseCount(frameClass));
-    assertEquals(0, allocator.recycledSlotCount(frameClass), "the idle buffers still own their slots");
+    assertEquals(0, allocator.recycledSlotCount(frameClass), "scratch owns no frame slots");
     allocator.release(frame);
     assertEquals(1, allocator.releaseCount(frameClass));
     assertEquals(activeBefore - 128 * KIB, allocator.getActiveMemoryBytes());
+    allocator.scratch().reclaimAllIdle();
+    assertEquals(activeBefore - 128 * KIB, allocator.getActiveMemoryBytes());
+    assertEquals(committedBefore, allocator.getPhysicalMemoryBytes());
   }
 
   @Test
-  void anIdleSlotBufferGivesItsSlotToAPageFrameAndALentOneNever() {
-    // After protecting the execution eighth, one 256 KiB slot fits; a second does not.
+  void aLentSmallBufferSurvivesFramePressureAndAnIdleOneCanBeUnmapped() {
     final FrameSlotAllocator allocator = allocator(512 * KIB, IDLE);
-    final AtomicInteger pressure = new AtomicInteger();
-    final FrameSlotAllocator.PressureListener previous = FrameSlotAllocator.pressureListener();
-    FrameSlotAllocator.setPressureListener(pressure::incrementAndGet);
+    final ScratchLease lease = new ScratchLease(allocator).acquire(256 * KIB, ScratchUse.SERIALIZATION);
     try {
-      assertEquals(0, allocator.scratchReserveBytes(), "no additional progress reserve for this tiny budget");
-      final ScratchLease lease = new ScratchLease(allocator).acquire(256 * KIB, ScratchUse.SERIALIZATION);
       SegmentAccess.putLong(lease.segment(), 0L, 0x5EEDL);
-      assertNull(allocator.allocateSlot(256 * KIB), "the budget is committed and the scratch buffer is lent");
-      assertEquals(0x5EEDL, SegmentAccess.getLong(lease.segment(), 0L), "a lent buffer is never reclaimed");
+      assertNull(allocator.allocateSlot(256 * KIB));
+      assertEquals(0x5EEDL, SegmentAccess.getLong(lease.segment(), 0L));
       assertEquals(0, allocator.scratchStats().totalReclaimed());
-
-      final long scratchAddress = lease.segment().address();
       lease.close();
-      assertEquals(1, allocator.scratchStats().totalIdleBuffers());
-      final FrameSlotAllocator.FrameSlot two = allocator.allocateSlot(256 * KIB);
-      assertNotNull(two, "the idle buffer's slot serves the page frame");
-      assertEquals(scratchAddress, two.segment().address(), "the very slot the scratch buffer held");
-      final ScratchStats stats = allocator.scratchStats();
-      assertEquals(1, stats.reclaimed()[SLOT_256K]);
-      assertEquals(0, stats.totalIdleBuffers());
-      assertEquals(0, pressure.get(), "no page was evicted to find that slot");
-      assertEquals(256 * KIB, allocator.getPhysicalMemoryBytes(), "the execution floor remains protected");
-
-      assertFalse(new ScratchLease(allocator).tryAcquire(256 * KIB, ScratchUse.READ),
-          "an optional borrow is refused while the committed slot holds a frame");
-      assertEquals(1, allocator.scratchStats().refusals());
-      assertEquals(256 * KIB, allocator.scratchStats().refusedBytes());
-      assertEquals(0, pressure.get(), "an optional borrow never asks the caches for relief");
-      two.close();
-      final ScratchLease reborrowed = new ScratchLease(allocator);
-      assertTrue(reborrowed.tryAcquire(256 * KIB, ScratchUse.READ), "a released frame's slot serves scratch again");
-      reborrowed.close();
+      final FrameSlotAllocator.FrameSlot frame = allocator.allocateSlot(256 * KIB);
+      assertNotNull(frame);
+      try {
+        assertEquals(1, allocator.scratchStats().reclaimed()[SMALL_256K]);
+        assertEquals(0, allocator.scratchStats().totalIdleBuffers());
+        assertEquals(256 * KIB, allocator.getPhysicalMemoryBytes());
+        assertEquals(1, allocator.liveSlotCount(SMALL_256K));
+      } finally {
+        frame.close();
+      }
+      try (ScratchLease small = new ScratchLease(allocator).acquire(128 * KIB, ScratchUse.READ)) {
+        assertEquals(128 * KIB, small.capacity());
+        assertEquals(384 * KIB, allocator.getPhysicalMemoryBytes());
+      }
+      allocator.scratch().reclaimAllIdle();
+      assertEquals(256 * KIB, allocator.getPhysicalMemoryBytes());
+      assertEquals(0L, allocator.getActiveMemoryBytes());
     } finally {
-      FrameSlotAllocator.setPressureListener(previous);
+      lease.close();
     }
   }
 
   @Test
-  void idleLargerSlotsServeOtherClassesAtTheCommitmentLimit() {
+  void idleLargerCapacitiesServeOtherClassesAtTheCommitmentLimit() {
     for (final boolean mandatory : new boolean[] {true, false}) {
       final FrameSlotAllocator allocator = allocator(4 * MIB, 16);
       final List<ScratchLease> imports = new ArrayList<>(14);
-      final Set<Long> addresses = new HashSet<>();
       try {
         for (int buffer = 0; buffer < 14; buffer++) {
           final ScratchLease lease = new ScratchLease(allocator).acquire(256 * KIB, ScratchUse.IMPORT);
           imports.add(lease);
-          addresses.add(lease.segment().address());
         }
         assertEquals(14 * 256 * KIB, allocator.getPhysicalMemoryBytes());
         for (final ScratchLease lease : imports) {
@@ -404,11 +395,10 @@ final class ScratchLeaseTest {
             } else {
               assertTrue(read.tryAcquire(bytes, ScratchUse.READ));
             }
-            assertEquals(256 * KIB, read.capacity());
-            assertTrue(addresses.contains(read.segment().address()));
+            assertTrue(read.capacity() >= bytes);
             SegmentAccess.putLong(read.segment(), bytes - Long.BYTES, bytes);
             assertEquals(bytes, SegmentAccess.getLong(read.segment(), bytes - Long.BYTES));
-            assertEquals(14 * 256 * KIB, allocator.getPhysicalMemoryBytes());
+            assertTrue(allocator.getPhysicalMemoryBytes() <= 14 * 256 * KIB);
           }
         }
         assertEquals(0L, allocator.scratchStats().refusals());
@@ -566,22 +556,40 @@ final class ScratchLeaseTest {
   }
 
   @Test
-  void theIdleBoundPerCapacityIsExact() {
+  void smallBurstBuffersReuseTheIdleArrayAndChargedSpares() {
     final FrameSlotAllocator allocator = allocator(BUDGET, 2);
     assertEquals(2, allocator.scratch().idleBuffersPerCapacity());
     final ScratchLease[] leases = new ScratchLease[5];
     for (int i = 0; i < leases.length; i++) {
       leases[i] = new ScratchLease(allocator).acquire(4 * KIB, ScratchUse.CODEC);
     }
-    assertEquals(5, allocator.scratchStats().lentBuffers()[SLOT_4K]);
+    assertEquals(5, allocator.scratchStats().lentBuffers()[SMALL_4K]);
     for (final ScratchLease lease : leases) {
       lease.close();
     }
     final ScratchStats stats = allocator.scratchStats();
-    assertEquals(2, stats.idleBuffers()[SLOT_4K], "two stay resident");
-    assertEquals(3, stats.reclaimed()[SLOT_4K], "the others gave their slots back");
-    assertEquals(3, allocator.recycledSlotCount(SLOT_4K), "to the class, for the next frame or borrow");
-    assertEquals(5 * 4 * KIB, allocator.getPhysicalMemoryBytes(), "slot commitment is permanent");
+    assertEquals(5, stats.idleBuffers()[SMALL_4K]);
+    assertEquals(0, stats.reclaimed()[SMALL_4K]);
+    assertEquals(0, allocator.recycledSlotCount(SMALL_4K));
+    assertEquals(5 * 4 * KIB, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+    assertEquals(3 * 4 * KIB, allocator.getRecycledSlabBytes());
+    final long created = stats.totalCreated();
+    final Set<Long> addresses = new HashSet<>();
+    for (int buffer = 0; buffer < leases.length; buffer++) {
+      leases[buffer].acquire(4 * KIB, ScratchUse.CODEC);
+      assertTrue(addresses.add(leases[buffer].segment().address()));
+    }
+    assertEquals(created, allocator.scratchStats().totalCreated());
+    assertEquals(0L, allocator.getRecycledSlabBytes());
+    for (final ScratchLease lease : leases) {
+      lease.close();
+    }
+    assertEquals(3 * 4 * KIB, allocator.getRecycledSlabBytes());
+    allocator.scratch().reclaimAllIdle();
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+    assertEquals(0L, allocator.getRecycledSlabBytes());
     assertEquals(4, allocator(MIB, 3).scratch().idleBuffersPerCapacity(), "the idle arrays are a power of two long");
     assertThrows(IllegalArgumentException.class, () -> new FrameSlotAllocator(MIB, -1));
   }
@@ -602,7 +610,7 @@ final class ScratchLeaseTest {
       assertEquals(0xA5A5_0000L + i, SegmentAccess.getLong(lease.segment(), i));
     }
     ScratchStats stats = allocator.scratchStats();
-    assertEquals(1, stats.idleBuffers()[SLOT_4K], "the old buffer went back");
+    assertEquals(1, stats.idleBuffers()[SMALL_4K], "the old buffer went back");
     assertEquals(1, stats.lentBuffers()[FrameScratch.classForSize(2 * MIB)]);
     assertEquals(2, stats.acquisitions(ScratchUse.SERIALIZATION), "the replacement serves the same use");
     assertThrows(IllegalArgumentException.class, () -> lease.grow(8 * MIB, 2 * MIB + 1));
@@ -690,12 +698,20 @@ final class ScratchLeaseTest {
       assertEquals(0, stats.refusals());
       assertEquals(stats.totalCreated() - stats.totalReclaimed(), stats.totalIdleBuffers(),
           "every buffer is either resident or given back, none lost");
-      assertTrue(stats.totalIdleBuffers() - stats.idleBuffers()[REGION_1M] <= 2L * IDLE,
-          "the idle arrays bounded the slot buffers under contention");
+      assertTrue(stats.totalIdleBuffers() - stats.idleBuffers()[REGION_1M] <= 3L * workers);
       assertTrue(stats.idleBuffers()[REGION_1M] <= workers,
           "regions are bounded in bytes: no more stay than were ever lent at once");
-      assertEquals(0, allocator.getActiveMemoryBytes(), "nothing is lent");
-      assertEquals(stats.idleBuffers()[REGION_1M] * MIB, allocator.getRecycledSlabBytes());
+      long smallSpareBytes = 0L;
+      for (int capacityClass = 0; capacityClass < FrameScratch.SMALL_CLASSES; capacityClass++) {
+        final long capacity = FrameScratch.capacityOf(capacityClass);
+        smallSpareBytes += Math.max(0L, stats.idleBuffers()[capacityClass] - IDLE) * capacity;
+      }
+      assertEquals(0L, allocator.getActiveMemoryBytes());
+      assertEquals(stats.idleBuffers()[REGION_1M] * MIB + smallSpareBytes, allocator.getRecycledSlabBytes());
+      allocator.scratch().reclaimAllIdle();
+      assertEquals(0L, allocator.getActiveMemoryBytes());
+      assertEquals(0L, allocator.getPhysicalMemoryBytes());
+      assertEquals(0L, allocator.getRecycledSlabBytes());
       assertEquals(0, allocator.liveSlotCount(FrameSlotAllocator.indexForSize(16 * KIB)));
     } finally {
       pool.shutdownNow();
@@ -708,14 +724,14 @@ final class ScratchLeaseTest {
     final ScratchLease slot = new ScratchLease(allocator).acquire(4 * KIB, ScratchUse.PAGE);
     final ScratchLease region = new ScratchLease(allocator).acquire(MIB, ScratchUse.READ);
     new ScratchLease(allocator).acquire(64 * KIB, ScratchUse.PAGE).close();
-    assertThrows(IllegalStateException.class, allocator::shutdown, "a lent slot buffer blocks shutdown");
+    assertThrows(IllegalStateException.class, allocator::shutdown, "a lent small buffer blocks shutdown");
     slot.close();
     assertThrows(IllegalStateException.class, allocator::shutdown, "a lent region blocks shutdown");
     SegmentAccess.putLong(region.segment(), 0L, 7L);
     assertEquals(7L, SegmentAccess.getLong(region.segment(), 0L), "and is still mapped after the refusal");
     region.close();
     allocator.shutdown();
-    assertEquals(0, allocator.getPhysicalMemoryBytes(), "idle slots and regions were all given back");
+    assertEquals(0, allocator.getPhysicalMemoryBytes(), "idle regions were all given back");
     assertEquals(0, allocator.getRecycledSlabBytes());
     final ScratchStats stats = allocator.scratchStats();
     assertEquals(0, stats.totalIdleBuffers());

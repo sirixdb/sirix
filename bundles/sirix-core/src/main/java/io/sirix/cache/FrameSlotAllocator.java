@@ -88,18 +88,19 @@ import java.util.concurrent.locks.LockSupport;
  * <ul>
  * <li><b>Page frames</b>: slots, held by cached pages and returned by eviction.</li>
  * <li><b>Scratch buffers</b> ({@link ScratchLease}, {@link FrameScratch}): every transient buffer
- * of the engine. A slot up to 256 KiB, a mapped region of 512 KiB to 16 MiB above that, exactly
- * sized beyond; exclusively lent, kept resident between borrows, never evicted while lent. No
- * reader, serializer or codec keeps spare buffers of its own.</li>
+ * of the engine. Each buffer has its own mapped region, normalized from 4 KiB through 16 MiB,
+ * exactly sized beyond; exclusively lent, kept resident between borrows, never evicted while lent.
+ * No reader, serializer or codec keeps spare buffers of its own.</li>
  * <li><b>Cache-owned slabs</b> ({@link #allocateSlab}): page-granular regions whose owner's leases
  * decide their lifetime.</li>
  * <li><b>Oversized allocations</b> ({@link #allocate} beyond the largest class): confined to the
  * allocating thread.</li>
  * </ul>
  *
- * The budget is split by who may commit its last bytes, because slot commitment never returns: one
- * eighth is an execution floor, usable only through exclusive aggregation grants. Of the remaining
- * seven eighths, fresh page frames leave {@code oversizedHeadroom}, and cache slabs and oversized
+ * The budget is split by who may commit its last bytes. Page-frame slot commitment is permanent;
+ * idle scratch and cache slabs return their commitment at shared admission. One eighth is an
+ * execution floor, usable only through exclusive aggregation grants. Of the remaining seven
+ * eighths, fresh page frames leave {@code oversizedHeadroom}, and cache slabs and oversized
  * allocations leave {@code scratchReserve}. Ordinary scratch may use those seven eighths. Thus
  * caches cannot consume the execution floor or the read/serialization progress reserve, even when
  * no scan is active. Idle aggregation regions must transfer their charge out of the execution floor
@@ -360,7 +361,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private final AtomicLong nonExecutionCommittedBytes = new AtomicLong();
   private final AggregationBudget aggregationBudget = new AggregationBudget(this);
 
-  /** Bytes currently owned by callers, distinct from retained committed capacity. */
+  /** Active charges, including the lifetime charge of small scratch regions. */
   private final AtomicLong activeBytes = new AtomicLong();
 
   /** Active bytes backed by frame slots; shutdown must never unmap while this is nonzero. */
@@ -527,7 +528,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     slabRecycleLimitBytes = bytes;
     final long excess = recycledSlabBytes.get() - bytes;
     if (excess > 0) {
-      drainRecycledSlabs(excess);
+      drainRecycledSlabs(excess, false);
     }
     return previous;
   }
@@ -549,7 +550,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * @return the bytes returned to the budget
    */
-  private long drainRecycledSlabs(final long wanted) {
+  private long drainRecycledSlabs(final long wanted, final boolean includeSmallIdle) {
     long freed = 0L;
     for (final ConcurrentLinkedDeque<SlabAllocation> free : recycledSlabs.values()) {
       SlabAllocation recycled;
@@ -566,7 +567,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     final FrameScratch scratchBuffers = scratch;
     if (freed < wanted && scratchBuffers != null) {
-      freed += scratchBuffers.reclaimIdleRegions(wanted - freed);
+      freed += scratchBuffers.reclaimIdleRegions(wanted - freed, includeSmallIdle);
     }
     return freed;
   }
@@ -857,14 +858,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   /**
    * Bytes currently owned by callers: page frames, oversized allocations, slabs and lent scratch
-   * buffers. An idle scratch buffer keeps its frame slot but is lent to nobody, so its bytes are not
-   * counted; the gauge is exact while no scratch borrow or return is in flight.
+   * buffers. Idle small-buffer charges are subtracted on demand; the gauge is exact while no scratch
+   * borrow or return is in flight.
    */
   public long getActiveMemoryBytes() {
     final FrameScratch scratchBuffers = scratch;
     return activeBytes.get() - (scratchBuffers == null
         ? 0L
-        : scratchBuffers.idleSlotBytes());
+        : scratchBuffers.idleSmallBytes());
   }
 
   /** What this allocator's scratch buffers were asked for, hold and refused. */
@@ -971,7 +972,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       throw new IllegalArgumentException("requested size " + requestedBytes + " exceeds largest class");
     }
     final SizeClass c = classes[classIdx];
-    final int slotIdx = acquireSlot(c, classIdx, true);
+    final int slotIdx = acquireSlot(c);
     if (slotIdx < 0) {
       return null;
     }
@@ -983,13 +984,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   /**
    * Reserve one slot in {@code c}, returning its primitive index. The slot is exclusively owned when
    * this method returns; no handle, map entry, boxed address, or free-list node is created.
-   *
-   * @param frame whether the slot will hold a page frame; {@code false} for a scratch buffer, which
-   *        may commit the whole budget and stays out of the per-class frame counters
-   *        ({@link #liveSlotCount}, {@link #allocateCount}, {@link #releaseCount}) that leak checks
-   *        compare across an operation
    */
-  private int acquireSlot(final SizeClass c, final int classIdx, final boolean frame) {
+  private int acquireSlot(final SizeClass c) {
     // Publish in-flight ownership before touching a region. shutdown() closes admission first and
     // then reads this counter, so an allocation that passed ensureInitialized() immediately before
     // the terminal transition either becomes visible here or observes termination and backs out.
@@ -1005,13 +1001,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     try {
       int slotIdx = popRecycledSlot(c);
       if (slotIdx < 0) {
-        slotIdx = commitFreshSlot(c, frame);
-        if (slotIdx < 0 && frame && scratch.reclaimIdleSlots(classIdx) > 0) {
-          // Neither a recycled slot nor room to commit a fresh one, but idle scratch buffers of
-          // this class owned slots nobody reads: a page frame takes those before the page caches
-          // are asked to evict anything.
-          slotIdx = popRecycledSlot(c);
-        }
+        slotIdx = commitFreshSlot(c);
         if (slotIdx < 0) {
           return -1;
         }
@@ -1032,10 +1022,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       final long owned = inProgress + 1L;
       c.slotVersion.setRelease(slotIdx, owned);
 
-      if (frame) {
-        c.liveCount.incrementAndGet();
-        c.allocCount.incrementAndGet();
-      }
+      c.liveCount.incrementAndGet();
+      c.allocCount.incrementAndGet();
       acquired = true;
       HftBoundaryTelemetry.allocatorAllocation();
       assert (owned & 1L) == 0L : "owned version must be even";
@@ -1055,10 +1043,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * @return the slot's index, or {@code -1} when the budget or the class's region has no room
    */
-  private int commitFreshSlot(final SizeClass c, final boolean frame) {
-    final boolean reserved = frame
-        ? reserveSlabCommittedBytes(c.slotSize)
-        : reserveScratchCommittedBytes(c.slotSize);
+  private int commitFreshSlot(final SizeClass c) {
+    final boolean reserved = reserveSlabCommittedBytes(c.slotSize);
     if (!reserved) {
       return -1;
     }
@@ -1101,7 +1087,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Commitment for a scratch buffer: the whole budget, including the reserve nothing else may commit.
+   * Commitment for ordinary scratch: the non-execution allowance, including its progress reserve.
    */
   boolean reserveScratchCommittedBytes(final long bytes) {
     return reserveCommittedBytesUpTo(bytes, budgetBytes - budgetBytes / AggregationBudget.DIVISOR);
@@ -1153,32 +1139,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         + activeBytes.get() + " bytes) after " + (waitedNanos / 1_000_000L) + " ms of retry");
   }
 
-  /**
-   * A frame slot of class {@code classIdx} for a scratch buffer.
-   *
-   * @param mandatory whether to ask the page caches for relief and wait, as a page frame does, before
-   *        failing
-   * @return the slot's index, or {@code -1} for an optional request the class and budget cannot serve
-   *         now
-   * @throws OutOfMemoryError when a mandatory request cannot be served
-   */
-  int acquireScratchSlot(final int classIdx, final long requestedBytes, final boolean mandatory) {
-    return mandatory
-        ? acquireSlotOrWait(classIdx, requestedBytes, false)
-        : acquireSlot(classes[classIdx], classIdx, false);
-  }
-
-  /** Return a slot taken with {@link #acquireScratchSlot}. */
-  void releaseScratchSlot(final int classIdx, final int slotIdx, final long versionAtAlloc) {
-    releaseSlot(classIdx, slotIdx, versionAtAlloc, false);
-  }
-
-  /** The bytes of slot {@code slotIdx} of class {@code classIdx}: a view into the class's region. */
-  MemorySegment slotSegment(final int classIdx, final int slotIdx) {
-    final SizeClass c = classes[classIdx];
-    return c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize);
-  }
-
   private static final long INITIAL_PARK_NANOS = 50_000L;
   private static final long MAX_PARK_NANOS = 5_000_000L;
   private static final long MAX_WAIT_NANOS = 10_000_000_000L;
@@ -1192,15 +1152,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * @throws OutOfMemoryError when the class stays exhausted
    */
-  private int acquireSlotOrWait(final int classIdx, final long size, final boolean frame) {
+  private int acquireSlotOrWait(final int classIdx, final long size) {
     final SizeClass c = classes[classIdx];
-    int slotIdx = acquireSlot(c, classIdx, frame);
+    int slotIdx = acquireSlot(c);
     if (slotIdx < 0) {
       // First shot at relief before parking: the cache is the most likely
       // owner of the bytes we need, so ask it to evict synchronously. Skips
       // the 500 ms ClockSweeper cadence in the common hot-scan case.
       firePressure();
-      slotIdx = acquireSlot(c, classIdx, frame);
+      slotIdx = acquireSlot(c);
     }
     if (slotIdx < 0) {
       long parkNanos = INITIAL_PARK_NANOS;
@@ -1209,10 +1169,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         LockSupport.parkNanos(parkNanos);
         totalWaitedNanos += parkNanos;
         parkNanos = Math.min(parkNanos * 2, MAX_PARK_NANOS);
-        slotIdx = acquireSlot(c, classIdx, frame);
+        slotIdx = acquireSlot(c);
         if (slotIdx < 0) {
           firePressure();
-          slotIdx = acquireSlot(c, classIdx, frame);
+          slotIdx = acquireSlot(c);
         }
       }
       if (slotIdx < 0) {
@@ -1242,7 +1202,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       if (shortBy <= 0L) {
         continue;
       }
-      if (drainRecycledSlabs(shortBy) == 0L) {
+      if (drainRecycledSlabs(shortBy, true) == 0L) {
         return false;
       }
     }
@@ -1380,7 +1340,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       throw new IllegalArgumentException("requested size " + size + " exceeds largest class");
     }
     final SizeClass c = classes[classIdx];
-    final int slotIdx = acquireSlotOrWait(classIdx, size, true);
+    final int slotIdx = acquireSlotOrWait(classIdx, size);
     // A fresh scope is the allocation era's identity token. Slice/reinterpret-derived segments keep
     // it, while a stale segment at this recycled address carries a different scope (#1073 Defect A).
     // The primitive slot was already charged above, so every failure in the FFM wrapping or lazy
@@ -1659,18 +1619,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     c.recycledCount.incrementAndGet();
   }
 
-  /** Called by {@link FrameSlot#close()} — not usually invoked directly. */
-  boolean releaseSlot(final int classIdx, final int slotIdx, final long versionAtAlloc) {
-    return releaseSlot(classIdx, slotIdx, versionAtAlloc, true);
-  }
-
   /**
    * Release a slot: advance its version and return its index to the class's recycled set. The slot's
    * pages stay committed and keep their contents.
-   *
-   * @param frame whether the slot held a page frame; see {@link #acquireSlot}
    */
-  private boolean releaseSlot(final int classIdx, final int slotIdx, final long versionAtAlloc, final boolean frame) {
+  boolean releaseSlot(final int classIdx, final int slotIdx, final long versionAtAlloc) {
     final SizeClass c = classes[classIdx];
     final long prior = c.slotVersion.getAcquire(slotIdx);
 
@@ -1717,10 +1670,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     assert (quiescent & 1L) == 0L : "post-release version must be even";
 
     pushRecycledSlot(c, slotIdx);
-    if (frame) {
-      c.liveCount.decrementAndGet();
-      c.releaseCount.incrementAndGet();
-    }
+    c.liveCount.decrementAndGet();
+    c.releaseCount.incrementAndGet();
     activeSlotBytes.addAndGet(-c.slotSize);
     activeBytes.addAndGet(-c.slotSize);
     HftBoundaryTelemetry.allocatorRelease();
@@ -1915,7 +1866,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveAggregationCapacity
           + " bytes granted to aggregation; close the scans before shutdown");
     }
-    // Idle scratch buffers are read by nobody: give their slots and regions back first, so that only
+    // Idle scratch buffers are read by nobody: give their regions back first, so that only
     // memory somebody still holds can stop the shutdown below.
     final FrameScratch scratchBuffers = scratch;
     if (scratchBuffers != null) {
@@ -1943,7 +1894,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
     // lease; unmapping it here would be a use-after-free.
-    drainRecycledSlabs(Long.MAX_VALUE);
+    drainRecycledSlabs(Long.MAX_VALUE, true);
     final long liveSlabBytes = slabBytes.get();
     if (liveSlabBytes != 0L) {
       terminated.set(false);

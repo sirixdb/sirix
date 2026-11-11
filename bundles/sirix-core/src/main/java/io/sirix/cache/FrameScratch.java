@@ -13,75 +13,51 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * The scratch buffers of a {@link FrameSlotAllocator}: every transient buffer of the engine (read
- * staging, serialization, codec and page staging, import and aggregation chunks) is borrowed here
- * through a {@link ScratchLease}, so the allocator is the only owner of reusable native memory and
- * its one physical budget covers all of it.
+ * Allocator-owned scratch regions, exclusively borrowed through {@link ScratchLease} under the same
+ * physical budget as page frames and cache slabs.
  *
  * <h2>Capacities</h2>
  *
- * A borrow uses a capacity at least as large as requested:
- *
- * <ul>
- * <li>the allocator's seven frame-slot classes, 4 KiB to 256 KiB: the buffer is a frame slot, taken
- * and returned through the same primitive slot path as a page frame;</li>
- * <li>{@link #REGION_CAPACITIES}, 512 KiB to 16 MiB: the buffer is a mapped region of its own. The
- * largest matters: a coalesced read spans up to 8 MiB between page offsets <em>plus</em> the four
- * length bytes of its last page, which no 8 MiB buffer holds;</li>
- * <li>anything larger is an exactly sized, page-rounded region that is unmapped when it is
- * returned.</li>
- * </ul>
+ * Every buffer has its own mapped region. Requests round up to power-of-two capacities from 4 KiB
+ * through 16 MiB; larger requests use exactly sized, page-rounded regions. The 16 MiB capacity
+ * covers coalesced reads spanning 8 MiB plus the final page's length header.
  *
  * <h2>Reuse</h2>
  *
- * A returned buffer stays resident in the idle array of its capacity and is lent again as it is:
- * its pages stay committed, its views are kept, and a warm borrow costs one compare-and-set out of
- * the array and one back in. The arrays are small and striped by thread, so a thread normally finds
- * the buffer it returned last. Nothing is zeroed.
- *
- * <p>
- * Idle buffers are the allocator's, bounded and given back before anything else is refused: an idle
- * slot buffer returns its slot when a page frame of its class finds none, an idle region is
- * unmapped when a commitment does not fit the budget and counts against the allocator's recycle
- * bound together with the recycled cache slabs. A <em>lent</em> buffer is never reclaimed, evicted
- * or moved; only its lease returns it.
- *
- * <p>
- * The idle arrays hold as many buffers per capacity as threads are likely to hold at once, which is
- * the right population for a reader's or a serializer's buffer and far too few for a grouped scan:
- * its workspace borrows regions by the hundred and returns them together. A region that finds its
- * idle array full therefore stays resident on a spare stack of its capacity, bounded like every
- * idle region by the recycle bound in bytes and by nothing else, and is lent again before a new
- * region is mapped. Without it the next scan would map, and fault in page by page, nearly
- * everything the last one returned. Slot buffers have no spare stack: an idle one holds a frame
- * slot of its class.
+ * Returned buffers retain their views and contents in thread-striped idle arrays. A warm borrow
+ * takes one array entry by compare-and-set; a return publishes it the same way. Overflow goes to
+ * spare stacks, bounded in bytes together with recycled cache slabs. Exactly sized buffers are
+ * unmapped on return. Idle backing of every capacity can be reclaimed at commitment admission; lent
+ * backing is never reclaimed or moved.
  *
  * <h2>Budget</h2>
  *
- * Scratch is charged to the allocator's physical budget like everything else, and it alone may
- * commit the last {@link FrameSlotAllocator#scratchReserveBytes()} of it, so a reader or a
- * serializer makes progress when page frames and cache slabs have taken the rest. A mandatory
- * borrow beyond that asks the page caches for relief and waits like a page frame; an optional one
- * is refused at once and the caller takes its cheaper route.
+ * Ordinary scratch may use the non-execution allowance, including the progress reserve left by page
+ * frames and cache slabs. Aggregation regions charge an exclusive execution grant. On return, those
+ * regions must transfer their commitment outside the execution floor before being retained. A
+ * mandatory allocation that cannot fit reclaims idle backing, asks the page caches for relief, and
+ * waits; an optional allocation can decline.
  *
  * <h2>Cost</h2>
  *
- * The borrow path of a slot buffer shares no counter: the statistics live on the buffer itself,
- * written by its one holder, and are summed on demand. A region buffer (a read of half a megabyte
- * or more) also moves the recycle bound and the active-byte gauge.
+ * Ordinary buffers up to 256 KiB retain their active charge from creation to destruction and do not
+ * touch shared counters on an idle-array borrow or return. Their idle bytes are derived on demand.
+ * Idle arrays bound that population; excess spares count against the recycle bound. Larger buffers
+ * and grant-backed borrows update active and lent-region counters per borrow, and every spare-stack
+ * transfer updates the recycle charge.
  */
 final class FrameScratch extends ScratchSource {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(FrameScratch.class);
 
-  /** Capacities above the largest frame-slot class, each backed by a mapped region of its own. */
+  /** Reusable capacities above 256 KiB. */
   static final long[] REGION_CAPACITIES = {512L << 10, 1L << 20, 2L << 20, 4L << 20, 8L << 20, 16L << 20};
 
-  /** Capacities backed by a frame slot: the allocator's size classes. */
-  static final int SLOT_CLASSES = FrameSlotAllocator.SIZE_CLASSES.length;
+  /** Capacities up to 256 KiB, with creation-to-destruction accounting for ordinary scratch. */
+  static final int SMALL_CLASSES = FrameSlotAllocator.SIZE_CLASSES.length;
 
-  /** Reusable capacities: slot classes, then {@link #REGION_CAPACITIES}. */
-  static final int CLASS_COUNT = SLOT_CLASSES + REGION_CAPACITIES.length;
+  /** Reusable capacities: small classes, then {@link #REGION_CAPACITIES}. */
+  static final int CLASS_COUNT = SMALL_CLASSES + REGION_CAPACITIES.length;
 
   /** Pseudo class of exactly sized regions beyond the largest capacity; never kept idle. */
   static final int EXACT_CLASS = CLASS_COUNT;
@@ -145,10 +121,13 @@ final class FrameScratch extends ScratchSource {
   private final AtomicLong refusedBytes = new AtomicLong();
   private final AtomicLong staleReleases = new AtomicLong();
 
-  /** Bytes of live region-backed buffers, lent or idle: commitment this source holds. */
+  /**
+   * Bytes of mapped buffers, including mappings in flight; shutdown requires none after idle
+   * reclamation.
+   */
   private final AtomicLong regionBytes = new AtomicLong();
 
-  /** Bytes of region-backed buffers a lease holds now; a shutdown must find none. */
+  /** Lent bytes accounted per borrow: large buffers and grant-backed buffers. */
   private final AtomicLong lentRegionBytes = new AtomicLong();
 
   /**
@@ -203,11 +182,11 @@ final class FrameScratch extends ScratchSource {
 
   /** Bytes of capacity class {@code capacityClass}; zero for {@link #EXACT_CLASS}. */
   static long capacityOf(final int capacityClass) {
-    if (capacityClass < SLOT_CLASSES) {
+    if (capacityClass < SMALL_CLASSES) {
       return FrameSlotAllocator.SIZE_CLASSES[capacityClass];
     }
     return capacityClass < CLASS_COUNT
-        ? REGION_CAPACITIES[capacityClass - SLOT_CLASSES]
+        ? REGION_CAPACITIES[capacityClass - SMALL_CLASSES]
         : 0L;
   }
 
@@ -255,9 +234,7 @@ final class FrameScratch extends ScratchSource {
     if (carrier != null) {
       return lend(carrier, minBytes, use);
     }
-    return lend(capacityClass < SLOT_CLASSES && grant == null
-        ? takeSlot(capacityClass, minBytes, mandatory)
-        : mapRegion(capacityClass, capacityOf(capacityClass), minBytes, mandatory, grant), minBytes, use);
+    return lend(mapRegion(capacityClass, capacityOf(capacityClass), minBytes, mandatory, grant), minBytes, use);
   }
 
   private @Nullable ScratchCarrier takeIdle(final int capacityClass, final @Nullable AggregationGrant grant) {
@@ -266,25 +243,18 @@ final class FrameScratch extends ScratchSource {
     for (int probe = 0; probe <= idleMask; probe++) {
       final int index = ((home + probe) & idleMask) << IDLE_STRIDE_SHIFT;
       final ScratchCarrier carrier = (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, index);
-      if (carrier != null && (grant == null || carrier.slotIndex < 0)
-          && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
-        if (carrier.slotIndex < 0) {
+      if (carrier != null && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
+        if (capacityClass >= SMALL_CLASSES) {
           allocator.unreserveRecycledBytes(carrier.capacity);
         }
-        if (grant != null) {
-          allocator.transferToAggregation(carrier.capacity);
-          carrier.aggregationGrant = grant;
-        }
+        prepareBorrow(carrier, grant);
         return carrier;
       }
     }
     final ScratchCarrier spare = spareRegions[capacityClass].pollFirst();
     if (spare != null) {
       allocator.unreserveRecycledBytes(spare.capacity);
-      if (grant != null) {
-        allocator.transferToAggregation(spare.capacity);
-        spare.aggregationGrant = grant;
-      }
+      prepareBorrow(spare, grant);
     }
     return spare;
   }
@@ -297,8 +267,7 @@ final class FrameScratch extends ScratchSource {
     if (carrier == null) {
       return null;
     }
-    if (carrier.slotIndex < 0) {
-      // A slot buffer's bytes are active for as long as it owns its slot; a region's only while lent.
+    if (!small(carrier)) {
       lentRegionBytes.addAndGet(carrier.capacity);
       allocator.adjustActiveBytes(carrier.capacity);
     }
@@ -312,84 +281,73 @@ final class FrameScratch extends ScratchSource {
         : (bytes + PAGE_BYTES - 1) & -PAGE_BYTES;
   }
 
-  /** A fresh buffer on a frame slot of {@code capacityClass}, or {@code null} when refused. */
-  private @Nullable ScratchCarrier takeSlot(final int capacityClass, final long minBytes, final boolean mandatory) {
-    final int slotIndex;
-    try {
-      int available = allocator.acquireScratchSlot(capacityClass, minBytes, false);
-      if (available < 0) {
-        for (int larger = capacityClass + 1; larger < CLASS_COUNT; larger++) {
-          final ScratchCarrier carrier = takeIdle(larger, null);
-          if (carrier != null) {
-            return carrier;
-          }
-        }
-        if (mandatory) {
-          available = allocator.acquireScratchSlot(capacityClass, minBytes, true);
-        }
+  private static boolean small(final ScratchCarrier carrier) {
+    return carrier.capacityClass < SMALL_CLASSES && carrier.aggregationGrant == null;
+  }
+
+  private void prepareBorrow(final ScratchCarrier carrier, final @Nullable AggregationGrant grant) {
+    if (grant != null) {
+      if (carrier.capacityClass < SMALL_CLASSES) {
+        allocator.adjustActiveBytes(-carrier.capacity);
       }
-      slotIndex = available;
-    } catch (final OutOfMemoryError exhausted) {
-      refused(minBytes);
-      throw exhausted;
-    }
-    if (slotIndex < 0) {
-      refused(minBytes);
-      return null;
-    }
-    final long slotVersion = allocator.acquireVersion(capacityClass, slotIndex);
-    try {
-      final ScratchCarrier carrier = new ScratchCarrier(this, capacityClass,
-          allocator.slotSegment(capacityClass, slotIndex), slotIndex, slotVersion);
-      register(carrier);
-      return carrier;
-    } catch (final RuntimeException | Error failure) {
-      allocator.releaseScratchSlot(capacityClass, slotIndex, slotVersion);
-      throw failure;
+      allocator.transferToAggregation(carrier.capacity);
+      carrier.aggregationGrant = grant;
     }
   }
 
   /** A fresh buffer on a mapped region of {@code bytes}, or {@code null} when refused. */
   private @Nullable ScratchCarrier mapRegion(final int capacityClass, final long bytes, final long minBytes,
       final boolean mandatory, final @Nullable AggregationGrant grant) {
-    final boolean reserved;
+    regionBytes.addAndGet(bytes);
+    boolean created = false;
     try {
-      if (grant != null) {
-        allocator.commitAggregationBytes(bytes);
-        reserved = true;
-      } else {
-        reserved = allocator.reserveScratchCommittedBytes(bytes, mandatory);
+      if (allocator.isTerminated()) {
+        throw new IllegalStateException("FrameSlotAllocator has been shut down");
       }
-    } catch (final OutOfMemoryError exhausted) {
-      refused(minBytes);
-      throw exhausted;
-    }
-    if (!reserved) {
-      refused(minBytes);
-      return null;
-    }
-    MemorySegment region = null;
-    try {
-      region = memory.reserve(bytes);
-      // Not populated: unlike a slab of decoded lanes, a read buffer is rarely written to its end, so
-      // its pages are left to the first touch and only the touched ones become resident.
-      memory.commitFresh(region);
-      final ScratchCarrier carrier = new ScratchCarrier(this, capacityClass, region, -1, 0L);
-      carrier.aggregationGrant = grant;
-      HftBoundaryTelemetry.nativeAllocation();
-      register(carrier);
-      regionBytes.addAndGet(bytes);
-      return carrier;
-    } catch (final RuntimeException | Error failure) {
-      if (region != null) {
-        memory.release(region);
+      final boolean reserved;
+      try {
+        if (grant != null) {
+          allocator.commitAggregationBytes(bytes);
+          reserved = true;
+        } else {
+          reserved = allocator.reserveScratchCommittedBytes(bytes, mandatory);
+        }
+      } catch (final OutOfMemoryError exhausted) {
+        refused(minBytes);
+        throw exhausted;
       }
-      if (grant == null) {
-        allocator.refundCommittedBytes(bytes);
-      } else {
-        allocator.refundAggregationBytes(bytes);
+      if (!reserved) {
+        refused(minBytes);
+        return null;
       }
-      throw failure;
+      MemorySegment region = null;
+      try {
+        region = memory.reserve(bytes);
+        memory.commitFresh(region);
+        final ScratchCarrier carrier = new ScratchCarrier(this, capacityClass, region);
+        carrier.aggregationGrant = grant;
+        HftBoundaryTelemetry.nativeAllocation();
+        register(carrier);
+        if (small(carrier)) {
+          allocator.adjustActiveBytes(bytes);
+        }
+        created = true;
+        return carrier;
+      } catch (final RuntimeException | Error failure) {
+        if (region != null) {
+          memory.release(region);
+        }
+        if (grant == null) {
+          allocator.refundCommittedBytes(bytes);
+        } else {
+          allocator.refundAggregationBytes(bytes);
+        }
+        throw failure;
+      }
+    } finally {
+      if (!created) {
+        regionBytes.addAndGet(-bytes);
+      }
     }
   }
 
@@ -409,8 +367,7 @@ final class FrameScratch extends ScratchSource {
       carrier.segment.fill((byte) 0x5A);
     }
     final int capacityClass = carrier.capacityClass;
-    final boolean region = carrier.slotIndex < 0;
-    if (region) {
+    if (!small(carrier)) {
       lentRegionBytes.addAndGet(-carrier.capacity);
       allocator.adjustActiveBytes(-carrier.capacity);
     }
@@ -426,12 +383,16 @@ final class FrameScratch extends ScratchSource {
       } finally {
         grant.refund(carrier.capacity);
       }
+      if (capacityClass < SMALL_CLASSES) {
+        allocator.adjustActiveBytes(carrier.capacity);
+      }
     }
     if (capacityClass == EXACT_CLASS || allocator.isTerminated()) {
       destroy(carrier);
       return true;
     }
-    if (region && !allocator.tryReserveRecycledBytes(carrier.capacity)) {
+    final boolean small = capacityClass < SMALL_CLASSES;
+    if (!small && !allocator.tryReserveRecycledBytes(carrier.capacity)) {
       destroy(carrier);
       return true;
     }
@@ -445,13 +406,11 @@ final class FrameScratch extends ScratchSource {
         return true;
       }
     }
-    if (region) {
-      // The idle array is full: stay resident on the spare stack, inside the recycle bound reserved
-      // above. The carrier is the next borrower's from here on.
-      spareRegions[capacityClass].addFirst(carrier);
+    if (small && !allocator.tryReserveRecycledBytes(carrier.capacity)) {
+      destroy(carrier);
       return true;
     }
-    destroy(carrier);
+    spareRegions[capacityClass].addFirst(carrier);
     return true;
   }
 
@@ -464,18 +423,17 @@ final class FrameScratch extends ScratchSource {
 
   private void destroy(final ScratchCarrier carrier, final boolean aggregation) {
     unregister(carrier);
-    if (carrier.slotIndex >= 0) {
-      allocator.releaseScratchSlot(carrier.capacityClass, carrier.slotIndex, carrier.slotVersion);
+    regionBytes.addAndGet(-carrier.capacity);
+    memory.release(carrier.segment);
+    if (aggregation) {
+      allocator.refundAggregationBytes(carrier.capacity);
     } else {
-      regionBytes.addAndGet(-carrier.capacity);
-      memory.release(carrier.segment);
-      if (aggregation) {
-        allocator.refundAggregationBytes(carrier.capacity);
-      } else {
-        allocator.refundCommittedBytes(carrier.capacity);
+      if (small(carrier)) {
+        allocator.adjustActiveBytes(-carrier.capacity);
       }
-      HftBoundaryTelemetry.nativeRelease();
+      allocator.refundCommittedBytes(carrier.capacity);
     }
+    HftBoundaryTelemetry.nativeRelease();
   }
 
   private void register(final ScratchCarrier carrier) {
@@ -514,36 +472,14 @@ final class FrameScratch extends ScratchSource {
   }
 
   /**
-   * Give back the slots of the idle buffers of {@code capacityClass}: called when a page frame of
-   * that class finds no slot, and at shutdown. A lent buffer is never touched.
-   *
-   * @return the number of slots returned
-   */
-  int reclaimIdleSlots(final int capacityClass) {
-    final ScratchCarrier[] slots = idle[capacityClass];
-    int returned = 0;
-    for (int slot = 0; slot <= idleMask; slot++) {
-      final int index = slot << IDLE_STRIDE_SHIFT;
-      final ScratchCarrier carrier = (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, index);
-      if (carrier != null && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
-        if (carrier.slotIndex < 0) {
-          allocator.unreserveRecycledBytes(carrier.capacity);
-        }
-        destroy(carrier);
-        returned++;
-      }
-    }
-    return returned;
-  }
-
-  /**
    * Unmap idle region buffers, largest capacity first, until at least {@code wanted} bytes of
    * commitment are returned or none are left: called when a commitment does not fit the budget, when
    * the recycle bound is lowered, and at shutdown. A lent buffer is never touched.
    *
+   * @param includeSmallIdle whether to include uncharged small idle-array entries
    * @return the bytes returned to the budget
    */
-  long reclaimIdleRegions(final long wanted) {
+  long reclaimIdleRegions(final long wanted, final boolean includeSmallIdle) {
     long freed = 0L;
     for (int capacityClass = CLASS_COUNT - 1; capacityClass >= 0 && freed < wanted; capacityClass--) {
       final ConcurrentLinkedDeque<ScratchCarrier> spares = spareRegions[capacityClass];
@@ -553,13 +489,17 @@ final class FrameScratch extends ScratchSource {
         freed += spare.capacity;
         destroy(spare);
       }
+      if (!includeSmallIdle && capacityClass < SMALL_CLASSES) {
+        continue;
+      }
       final ScratchCarrier[] slots = idle[capacityClass];
       for (int slot = 0; slot <= idleMask && freed < wanted; slot++) {
         final int index = slot << IDLE_STRIDE_SHIFT;
         final ScratchCarrier carrier = (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, index);
-        if (carrier != null && carrier.slotIndex < 0
-            && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
-          allocator.unreserveRecycledBytes(carrier.capacity);
+        if (carrier != null && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
+          if (capacityClass >= SMALL_CLASSES) {
+            allocator.unreserveRecycledBytes(carrier.capacity);
+          }
           freed += carrier.capacity;
           destroy(carrier);
         }
@@ -570,35 +510,27 @@ final class FrameScratch extends ScratchSource {
 
   /** Give back every idle buffer; shutdown. */
   void reclaimAllIdle() {
-    reclaimIdleRegions(Long.MAX_VALUE);
-    for (int capacityClass = 0; capacityClass < SLOT_CLASSES; capacityClass++) {
-      reclaimIdleSlots(capacityClass);
-    }
+    reclaimIdleRegions(Long.MAX_VALUE, true);
   }
 
-  /** Bytes of frame slots held by idle buffers: owned at slot level, lent to nobody. */
-  long idleSlotBytes() {
+  long idleSmallBytes() {
     long bytes = 0L;
-    for (int capacityClass = 0; capacityClass < SLOT_CLASSES; capacityClass++) {
-      final ScratchCarrier[] slots = idle[capacityClass];
-      final long capacity = FrameSlotAllocator.SIZE_CLASSES[capacityClass];
-      for (int slot = 0; slot <= idleMask; slot++) {
-        final ScratchCarrier carrier =
-            (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, slot << IDLE_STRIDE_SHIFT);
-        if (carrier != null && carrier.slotIndex >= 0) {
-          bytes += capacity;
+    synchronized (registryLock) {
+      for (ScratchCarrier carrier = liveHead; carrier != null; carrier = carrier.next) {
+        if (small(carrier) && !carrier.isLent()) {
+          bytes += carrier.capacity;
         }
       }
     }
     return bytes;
   }
 
-  /** Bytes of live region-backed buffers, lent or idle. */
+  /** Bytes of all mapped buffers and mappings in flight. */
   long regionBytes() {
     return regionBytes.get();
   }
 
-  /** Bytes of region-backed buffers a lease holds now. */
+  /** Lent bytes accounted per borrow. */
   long lentRegionBytes() {
     return lentRegionBytes.get();
   }

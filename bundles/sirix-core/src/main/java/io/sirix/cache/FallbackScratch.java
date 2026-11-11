@@ -99,7 +99,7 @@ final class FallbackScratch extends ScratchSource {
     try {
       region = memory.reserve(bytes);
       memory.commitFresh(region);
-      final ScratchCarrier carrier = new ScratchCarrier(this, MAPPED_CLASS, region, -1, 0L);
+      final ScratchCarrier carrier = new ScratchCarrier(this, MAPPED_CLASS, region);
       carrier.aggregationGrant = grant;
       aggregationBytes.addAndGet(bytes);
       carrier.lend(minBytes, ScratchUse.AGGREGATION);
@@ -121,7 +121,7 @@ final class FallbackScratch extends ScratchSource {
       // The allocator's own budgeted path; it waits for its page caches itself.
       final MemorySegment segment = allocator.allocate(minBytes);
       try {
-        carrier = new ScratchCarrier(this, FRAME_CLASS, segment, -1, 0L);
+        carrier = new ScratchCarrier(this, FRAME_CLASS, segment);
       } catch (final RuntimeException | Error failure) {
         allocator.release(segment);
         throw failure;
@@ -143,7 +143,7 @@ final class FallbackScratch extends ScratchSource {
         region = memory.reserve(mapped);
         try {
           memory.commitFresh(region);
-          carrier = new ScratchCarrier(this, MAPPED_CLASS, region, -1, 0L);
+          carrier = new ScratchCarrier(this, MAPPED_CLASS, region);
         } catch (final RuntimeException | Error failure) {
           memory.release(region);
           throw failure;

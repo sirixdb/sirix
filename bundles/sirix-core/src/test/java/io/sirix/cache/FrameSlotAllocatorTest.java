@@ -706,4 +706,32 @@ class FrameSlotAllocatorTest {
     assertFalse(allocator.reserveScratchCommittedBytes(1), "the non-execution budget is then exhausted");
   }
 
+  @Test
+  void scratchHeadroomCannotBeConvertedIntoAdditionalPageFrames() {
+    final long size = 256L * 1024L;
+    final List<FrameSlot> frames = new ArrayList<>();
+    try {
+      for (FrameSlot frame; (frame = allocator.allocateSlot(size)) != null;) {
+        frames.add(frame);
+      }
+      final long frameBytes = (long) frames.size() * size;
+      assertTrue(frameBytes > 0L);
+      assertEquals(allocator.budgetBytes() - allocator.budgetBytes() / 8 - allocator.oversizedHeadroomBytes(),
+          frameBytes);
+      final long small = 64L * 1024L;
+      try (ScratchLease scratch = new ScratchLease(allocator).acquire(small, ScratchUse.READ)) {
+        assertEquals(frameBytes + small, allocator.getPhysicalMemoryBytes());
+      }
+      assertNull(allocator.allocateSlot(small));
+      assertEquals(frameBytes, allocator.getPhysicalMemoryBytes());
+      assertEquals(1L, allocator.scratchStats().totalReclaimed());
+      assertEquals(0L, allocator.allocateCount(FrameSlotAllocator.indexForSize(small)));
+    } finally {
+      for (final FrameSlot frame : frames) {
+        frame.close();
+      }
+    }
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+  }
+
 }

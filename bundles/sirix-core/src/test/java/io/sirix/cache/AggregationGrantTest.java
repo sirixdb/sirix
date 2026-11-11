@@ -74,17 +74,18 @@ final class AggregationGrantTest {
       final long historical = allocator.getPhysicalMemoryBytes();
       assertTrue(historical > 0L, "returned page slots remain physically committed");
       final long cacheLimit = bytes - bytes / AggregationBudget.DIVISOR - allocator.scratchReserveBytes();
-      cached = allocator.allocateSlab(cacheLimit - historical);
-      assertNotNull(cached);
-      assertEquals(cacheLimit, allocator.nonExecutionCommittedBytes());
-      assertNull(allocator.allocateSlab(4096));
-      try (AggregationGrant grant = allocator.aggregationBudget().acquire(bytes / 8, bytes / 8);
-          ScratchLease execution = grant.borrow(bytes / 8);
-          ScratchLease progress = new ScratchLease(allocator).acquire(256L << 10, ScratchUse.READ)) {
-        execution.segment().fill((byte) 0x17);
-        progress.segment().fill((byte) 0x29);
-        assertTrue(allocator.getPhysicalMemoryBytes() <= bytes);
-        assertEquals(bytes / 8, grant.usedBytes());
+      try (ScratchLease progress = new ScratchLease(allocator).acquire(256L << 10, ScratchUse.READ)) {
+        cached = allocator.allocateSlab(cacheLimit - historical - progress.capacity());
+        assertNotNull(cached);
+        assertEquals(cacheLimit, allocator.nonExecutionCommittedBytes());
+        assertNull(allocator.allocateSlab(4096));
+        try (AggregationGrant grant = allocator.aggregationBudget().acquire(bytes / 8, bytes / 8);
+            ScratchLease execution = grant.borrow(bytes / 8)) {
+          execution.segment().fill((byte) 0x17);
+          progress.segment().fill((byte) 0x29);
+          assertTrue(allocator.getPhysicalMemoryBytes() <= bytes);
+          assertEquals(bytes / 8, grant.usedBytes());
+        }
       }
       assertEquals(0L, allocator.aggregationBudget().grantedBytes());
     } finally {

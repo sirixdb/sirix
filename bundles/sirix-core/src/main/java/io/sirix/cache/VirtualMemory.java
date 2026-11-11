@@ -10,9 +10,8 @@ import java.lang.foreign.MemorySegment;
 /**
  * The platform-specific virtual-memory plumbing behind {@link FrameSlotAllocator} — everything else
  * in the allocator (size classes, fixed-position slots, optimistic version counters, the free-slot
- * stacks) is portable Java. All four operations are COLD paths: a region is reserved once per size
- * class at init, a slot is committed once when first handed out, and regions are released once at
- * shutdown. The allocator's hot path never enters this interface.
+ * stacks) is portable Java. Reservations, first commitments, scratch reclamation and shutdown are
+ * cold paths. Warm frame-slot and scratch-buffer reuse never enters this interface.
  *
  * <p>
  * Semantics the allocator relies on:

@@ -124,6 +124,15 @@ assumes zeroed slab memory (the test seam `sirix.allocator.poisonRecycledSlabs` 
 the budget unmaps them first, and shutdown unmaps them all. A reuse hands out a fresh global-scope
 segment over the same pages, so the instance released before cannot release the new owner's slab.
 
+**Scratch owns separate mapped regions.** All scratch capacities, including 4–256 KiB, use
+individually mapped regions under the allocator's shared commitment budget. Page-frame slots remain
+separate because optimistic page readers require released frame addresses to stay mapped. A scratch
+lease never lends its storage to a page frame. Any idle scratch capacity can be unmapped before a
+scratch, slab, oversized, or page-frame commitment is refused; a lent region remains exclusively
+owned and cannot be reclaimed. The small idle arrays keep their warm buffers without charging the
+slab recycle allowance. Extra small buffers and all larger idle regions share that allowance, with
+spares reused before mapping replacements. Exactly sized buffers above 16 MiB are unmapped on return.
+
 **Group tables.** The accumulators a grouped aggregate folds into are allocator memory too. Each
 grouped scan opens one `GroupWorkspace` (`io.sirix.index.projection`), which borrows regions from the
 allocator's scratch facility (`ScratchUse.AGGREGATION`, 64 KiB doubling to 2 MiB) and carves them
