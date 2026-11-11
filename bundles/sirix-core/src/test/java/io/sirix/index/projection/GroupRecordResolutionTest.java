@@ -162,45 +162,6 @@ final class GroupRecordResolutionTest {
   }
 
   @Test
-  void theHalvesAHeldRecordIsAddedUpFromAreTheValidatedMask() {
-    // The held operations add a record's address up from two masked halves. That is the address the
-    // buffer validated only if the halves are the mask, bit for bit, and it is worth doing only
-    // while the low half is an offset a compiler adds to a pointer.
-    assertEquals(GroupKernelLanes.ADDRESS_MASK, GroupKernelLanes.ADDRESS_HIGH | GroupKernelLanes.ADDRESS_LOW);
-    assertEquals(0L, GroupKernelLanes.ADDRESS_HIGH & GroupKernelLanes.ADDRESS_LOW, "no bit is added twice");
-    assertTrue(GroupKernelLanes.ADDRESS_LOW > 0L && GroupKernelLanes.ADDRESS_LOW <= Integer.MAX_VALUE,
-        "the low half fits a signed 32-bit offset");
-  }
-
-  @Test
-  void theHeldOperationsReachTheLanesTheOthersReach() {
-    try (GroupWorkspace workspace = new GroupWorkspace()) {
-      final GroupBuffer block = workspace.newBlock(2 + 4 * COLUMNS);
-      final long record = block.accumulator(0, COLUMNS, 4);
-      for (int lane = 0; lane < 2 + 4 * COLUMNS; lane++) {
-        GroupKernelLanes.heldSet(record, lane, 100L + lane);
-        assertEquals(100L + lane, GroupKernelLanes.get(record, lane), "held store, plain load");
-        GroupKernelLanes.set(record, lane, 200L + lane);
-        assertEquals(200L + lane, GroupKernelLanes.heldGet(record, lane), "plain store, held load");
-        assertEquals(200L + lane, GroupLanes.get(block, lane), "and the checked access agrees");
-      }
-      GroupKernelLanes.heldIncrement(record, 0);
-      assertEquals(201L, GroupLanes.get(block, 0));
-      GroupKernelLanes.heldMin(record, 4, 300L);
-      assertEquals(204L, GroupLanes.get(block, 4), "a larger value lowers nothing");
-      GroupKernelLanes.heldMin(record, 4, -5L);
-      assertEquals(-5L, GroupLanes.get(block, 4));
-      GroupKernelLanes.heldMax(record, 5, 7L);
-      assertEquals(205L, GroupLanes.get(block, 5), "a smaller value raises nothing");
-      GroupKernelLanes.heldMax(record, 5, 900L);
-      assertEquals(900L, GroupLanes.get(block, 5));
-      if (GroupKernelLanes.DEBUG) {
-        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.heldGet(record, 2 + 4 * COLUMNS));
-      }
-    }
-  }
-
-  @Test
   void aBlockIsResolvedOnceForAWholeScan() {
     try (GroupWorkspace workspace = new GroupWorkspace()) {
       final GroupBuffer missing = workspace.newBlock(2 + 4 * COLUMNS);

@@ -36,7 +36,7 @@ final class NativeGroupMemorySmokeTest {
               final long record = (round & 1) == 0
                   ? table.acquireAccumulator(key, key, 1, 4)
                   : table.accumulatorAt(table.acquire(key, key), 1, 4);
-              ProjectionColumnGroupScan.foldNumericPlainWindow(record, values, presence, 1, 0, 0, 0, -1L);
+              ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, values, 0, presence, 1, 0, 1L, -1L);
             }
           }
           assertTrue(table.rehashes() > 0);

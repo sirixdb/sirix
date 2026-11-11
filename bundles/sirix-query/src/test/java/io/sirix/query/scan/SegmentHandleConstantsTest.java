@@ -154,14 +154,14 @@ final class SegmentHandleConstantsTest {
       // Build-time initialization captures the class's static state in the image heap, so the class
       // may hold immutable access metadata only. The internal aggregation holder also captures
       // its build-time debug switch, a constant zero-address segment and the constant mask its
-      // addresses are validated against, with the two halves of that mask; no owned memory.
+      // addresses are validated against; no owned memory.
       for (final Field field : Class.forName(name, false, loader).getDeclaredFields()) {
         if (!Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
           continue;
         }
         final boolean aggregationMetadata = name.equals("io.sirix.index.projection.GroupKernelLanes")
             && ((field.getName().equals("DEBUG") && field.getType() == boolean.class)
-                || (field.getName().startsWith("ADDRESS_") && field.getType() == long.class)
+                || (field.getName().equals("ADDRESS_MASK") && field.getType() == long.class)
                 || (field.getName().equals("ADDRESS_SPACE") && field.getType() == MemorySegment.class));
         assertTrue(
             Modifier.isFinal(field.getModifiers())
@@ -172,8 +172,7 @@ final class SegmentHandleConstantsTest {
           field.setAccessible(true);
           final long mask = field.getLong(null);
           // Lane-aligned, positive, and with room above it for the largest lane offset an int
-          // lane expresses: a masked record plus any lane stays inside the spanning segment. The
-          // mask's halves are subsets of it, so the same holds of each.
+          // lane expresses: a masked record plus any lane stays inside the spanning segment.
           assertEquals(0L, mask & 7L);
           assertTrue(mask > 0L && mask <= Long.MAX_VALUE - Long.BYTES - (0xFFFF_FFFFL << 3));
         }

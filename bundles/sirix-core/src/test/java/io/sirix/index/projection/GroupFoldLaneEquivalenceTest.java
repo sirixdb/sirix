@@ -20,9 +20,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The two forms of every group-fold kernel answer identically. A kernel either reads the lanes in
- * place ({@code foldSlicedLane}, {@code foldNumericPlainLane}, {@code foldSumsSlicedLane}) or folds
- * the word's values from a gathered 64-row window ({@code foldSlicedWindow},
- * {@code foldNumericPlainWindow}, {@code foldSumsWindow}), and {@code gatherPays} picks between
+ * place ({@code foldSlicedLane}, {@code foldNumericPlainWordLane}, {@code foldSumsSlicedLane}) or
+ * folds the word's values from a gathered 64-row window ({@code foldSlicedWindow},
+ * {@code foldNumericPlainWordWindow}, {@code foldSumsWindow}), and {@code gatherPays} picks between
  * them per word for speed alone. That is only legitimate while the two agree row for row, on native
  * slab lanes and on the heap-array lanes the still-heap windowed slices hand a converted kernel —
  * which is what this test pins.
@@ -98,14 +98,98 @@ final class GroupFoldLaneEquivalenceTest {
   }
 
   @Test
-  @DisplayName("foldNumericPlainWindow equals foldNumericPlainLane and fills the same stripe")
+  @DisplayName("foldNumericPlainWordWindow equals foldNumericPlainWordLane and fills the same stripe")
   void thePlainKernelAgreesOnBothForms() {
     try (Arena arena = Arena.ofConfined()) {
       final long[] expected = oracleFull();
-      assertArrayEquals(expected, foldPlain(slabOf(arena), false), "slab lanes read in place");
-      assertArrayEquals(expected, foldPlain(slabOf(arena), true), "slab lanes folded from a window");
-      assertArrayEquals(expected, foldPlain(heapSegments(), false), "heap-array lanes read in place");
-      assertArrayEquals(expected, foldPlain(heapSegments(), true), "heap-array lanes folded from a window");
+      assertArrayEquals(expected, foldPlain(slabOf(arena), PlainForm.LANE), "slab lanes read in place");
+      assertArrayEquals(expected, foldPlain(slabOf(arena), PlainForm.GATHERED), "slab lanes folded from a window");
+      assertArrayEquals(expected, foldPlain(heapSegments(), PlainForm.LANE), "heap-array lanes read in place");
+      assertArrayEquals(expected, foldPlain(heapSegments(), PlainForm.GATHERED),
+          "heap-array lanes folded from a window");
+      assertArrayEquals(expected, foldPlain(heapSegments(), PlainForm.ROW_INDEXED),
+          "a whole row-indexed lane as the window, addressed from the word's first row");
+    }
+  }
+
+  @Test
+  @DisplayName("the plain kernel folds a word's rows column by column to what a row-by-row fold gives")
+  void thePlainKernelFoldsAnyRowSubsetOfAWord() {
+    // The dense arm hands the kernel the rows of a word that have no group key: an arbitrary subset.
+    // Folding the subsets of one word in pieces must give what folding the word at once gives.
+    try (Arena arena = Arena.ofConfined(); GroupWorkspace workspace = new GroupWorkspace()) {
+      final MemorySegment[] segs = slabOf(arena);
+      final long[] bases = new long[AGGS];
+      final Random rnd = new Random(0x5EEDL);
+      for (int w = 0; w < WORDS; w++) {
+        final long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, WORDS, ROWS);
+        final long first = word & rnd.nextLong();
+        final GroupBuffer atOnce = fullSlot(workspace);
+        final GroupBuffer inPieces = fullSlot(workspace);
+        ProjectionColumnGroupScan.foldNumericPlainWordLane(atOnce.accumulator(0, AGGS, 4), segs, bases, presence, AGGS,
+            w, word, ALL_SUMS_EXACT);
+        final long record = inPieces.accumulator(0, AGGS, 4);
+        ProjectionColumnGroupScan.foldNumericPlainWordLane(record, segs, bases, presence, AGGS, w, first,
+            ALL_SUMS_EXACT);
+        ProjectionColumnGroupScan.foldNumericPlainWordLane(record, segs, bases, presence, AGGS, w, word & ~first,
+            ALL_SUMS_EXACT);
+        ProjectionColumnGroupScan.foldNumericPlainWordLane(record, segs, bases, presence, AGGS, w, 0L, ALL_SUMS_EXACT);
+        assertArrayEquals(GroupLanes.toArray(atOnce, 0, FULL_WIDTH), GroupLanes.toArray(inPieces, 0, FULL_WIDTH),
+            "word " + w);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a column whose sum the query does not read keeps its sum lane and cannot overflow")
+  void aColumnWithoutAnExactSumKeepsItsSumLane() {
+    final long[][] overflowing = {{Long.MAX_VALUE, 1L, -7L}};
+    final long[][] allPresent = {{7L}};
+    try (Arena arena = Arena.ofConfined(); GroupWorkspace workspace = new GroupWorkspace()) {
+      final MemorySegment slab = arena.allocate(24, 64);
+      for (int row = 0; row < 3; row++) {
+        SegmentAccess.putLong(slab, (long) row << 3, overflowing[0][row]);
+      }
+      final long[] seeds = {0L, 0L, 0L, 42L, Long.MAX_VALUE, Long.MIN_VALUE};
+      final long[] expected = {3L, 0L, 3L, 42L, -7L, Long.MAX_VALUE};
+      final GroupBuffer fromWindow = workspace.newBlock(6);
+      final GroupBuffer fromLane = workspace.newBlock(6);
+      GroupLanes.copy(seeds, 0, fromWindow, 0, 6);
+      GroupLanes.copy(seeds, 0, fromLane, 0, 6);
+      // No bit of the exactness mask: the sum is not folded, so nothing can leave the long range.
+      ProjectionColumnGroupScan.foldNumericPlainWordWindow(fromWindow.accumulator(0, 1, 4), overflowing, 0, allPresent,
+          1, 0, 7L, 0L);
+      ProjectionColumnGroupScan.foldNumericPlainWordLane(fromLane.accumulator(0, 1, 4), new MemorySegment[] {slab},
+          new long[] {0L}, allPresent, 1, 0, 7L, 0L);
+      assertArrayEquals(expected, GroupLanes.toArray(fromWindow, 0, 6), "count and extrema folded, the sum left alone");
+      assertArrayEquals(expected, GroupLanes.toArray(fromLane, 0, 6));
+      // The same rows one word at a time: a lone row takes the kernel's direct path.
+      final GroupBuffer rowByRow = workspace.newBlock(6);
+      GroupLanes.copy(seeds, 0, rowByRow, 0, 6);
+      for (int row = 0; row < 3; row++) {
+        ProjectionColumnGroupScan.foldNumericPlainWordLane(rowByRow.accumulator(0, 1, 4), new MemorySegment[] {slab},
+            new long[] {0L}, allPresent, 1, 0, 1L << row, 0L);
+      }
+      assertArrayEquals(expected, GroupLanes.toArray(rowByRow, 0, 6), "lone rows fold to the same stripe");
+    }
+  }
+
+  @Test
+  @DisplayName("an exact sum overflows the same way whether its rows are folded together or alone")
+  void anOverflowingSumDeclinesInTheRowLoopToo() {
+    final long[][] overflowing = {{Long.MAX_VALUE, 1L}};
+    final long[][] bothPresent = {{3L}};
+    try (Arena arena = Arena.ofConfined(); GroupWorkspace workspace = new GroupWorkspace()) {
+      final MemorySegment slab = arena.allocate(16, 64);
+      SegmentAccess.putLong(slab, 0, Long.MAX_VALUE);
+      SegmentAccess.putLong(slab, 8, 1L);
+      // Both rows in one call: the kernel keeps the sum in a local across them.
+      assertThrows(ArithmeticException.class,
+          () -> ProjectionColumnGroupScan.foldNumericPlainWordWindow(workspace.newBlock(6).accumulator(0, 1, 4),
+              overflowing, 0, bothPresent, 1, 0, 3L, ALL_SUMS_EXACT));
+      assertThrows(ArithmeticException.class,
+          () -> ProjectionColumnGroupScan.foldNumericPlainWordLane(workspace.newBlock(6).accumulator(0, 1, 4),
+              new MemorySegment[] {slab}, new long[] {0L}, bothPresent, 1, 0, 3L, ALL_SUMS_EXACT));
     }
   }
 
@@ -180,18 +264,18 @@ final class GroupFoldLaneEquivalenceTest {
       SegmentAccess.putLong(slab, 8, 1L);
       final GroupBuffer fromWindow = workspace.newBlock(6);
       final GroupBuffer fromLane = workspace.newBlock(6);
-      ProjectionColumnGroupScan.foldNumericPlainWindow(fromWindow.accumulator(0, 1, 4), overflowing, bothPresent, 1, 0,
-          0, 0, ALL_SUMS_EXACT);
-      ProjectionColumnGroupScan.foldNumericPlainLane(fromLane.accumulator(0, 1, 4), new MemorySegment[] {slab},
-          new long[] {0L}, bothPresent, 1, 0, 0, 0, ALL_SUMS_EXACT);
+      ProjectionColumnGroupScan.foldNumericPlainWordWindow(fromWindow.accumulator(0, 1, 4), overflowing, 0, bothPresent,
+          1, 0, 1L, ALL_SUMS_EXACT);
+      ProjectionColumnGroupScan.foldNumericPlainWordLane(fromLane.accumulator(0, 1, 4), new MemorySegment[] {slab},
+          new long[] {0L}, bothPresent, 1, 0, 1L, ALL_SUMS_EXACT);
       assertArrayEquals(GroupLanes.toArray(fromWindow, 0, 6), GroupLanes.toArray(fromLane, 0, 6),
           "the first row folds identically on both forms");
       assertThrows(ArithmeticException.class,
-          () -> ProjectionColumnGroupScan.foldNumericPlainWindow(fromWindow.accumulator(0, 1, 4), overflowing,
-              bothPresent, 1, 0, 1, 1, ALL_SUMS_EXACT));
+          () -> ProjectionColumnGroupScan.foldNumericPlainWordWindow(fromWindow.accumulator(0, 1, 4), overflowing, 0,
+              bothPresent, 1, 0, 2L, ALL_SUMS_EXACT));
       assertThrows(ArithmeticException.class,
-          () -> ProjectionColumnGroupScan.foldNumericPlainLane(fromLane.accumulator(0, 1, 4),
-              new MemorySegment[] {slab}, new long[] {0L}, bothPresent, 1, 0, 1, 1, ALL_SUMS_EXACT));
+          () -> ProjectionColumnGroupScan.foldNumericPlainWordLane(fromLane.accumulator(0, 1, 4),
+              new MemorySegment[] {slab}, new long[] {0L}, bothPresent, 1, 0, 2L, ALL_SUMS_EXACT));
     }
   }
 
@@ -239,19 +323,33 @@ final class GroupFoldLaneEquivalenceTest {
     }
   }
 
-  private long[] foldPlain(final MemorySegment[] segs, final boolean windowed) {
+  /** Where the plain kernel takes a word's values from. */
+  private enum PlainForm {
+    LANE, GATHERED, ROW_INDEXED
+  }
+
+  /** The plain kernel over every word of the mask: it takes a word's rows at once. */
+  private long[] foldPlain(final MemorySegment[] segs, final PlainForm form) {
     try (GroupWorkspace workspace = new GroupWorkspace()) {
       final GroupBuffer slot = fullSlot(workspace);
       final long record = slot.accumulator(0, AGGS, 4);
       final long[] bases = new long[AGGS];
-      walk(segs, bases, windowed, (window, w, bit, row) -> {
-        if (window != null) {
-          ProjectionColumnGroupScan.foldNumericPlainWindow(record, window, presence, AGGS, w, bit, row, ALL_SUMS_EXACT);
-        } else {
-          ProjectionColumnGroupScan.foldNumericPlainLane(record, segs, bases, presence, AGGS, w, bit, row,
-              ALL_SUMS_EXACT);
+      final long[][] window = new long[AGGS][64];
+      for (int w = 0; w < WORDS; w++) {
+        final long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, WORDS, ROWS);
+        if (word == 0L) {
+          continue;
         }
-      });
+        switch (form) {
+          case LANE -> ProjectionColumnGroupScan.foldNumericPlainWordLane(record, segs, bases, presence, AGGS, w, word,
+              ALL_SUMS_EXACT);
+          case GATHERED -> ProjectionColumnGroupScan.foldNumericPlainWordWindow(record,
+              ProjectionColumnGroupScan.gatherWindow(segs, bases, AGGS, w, ROWS, window), 0, presence, AGGS, w, word,
+              ALL_SUMS_EXACT);
+          case ROW_INDEXED -> ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, values, w << 6, presence,
+              AGGS, w, word, ALL_SUMS_EXACT);
+        }
+      }
       return GroupLanes.toArray(slot, 0, GroupLanes.count(slot));
     }
   }

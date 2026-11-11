@@ -60,7 +60,7 @@ final class GroupRecordAllocationTest {
         case 1 -> table.accumulatorAt(handle, 1, 4);
         default -> table.acquireAccumulator(key, row, 1, 4);
       };
-      ProjectionColumnGroupScan.foldNumericPlainWindow(record, values, presence, 1, 0, 0, 0, -1L);
+      ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, values, 0, presence, 1, 0, 1L, -1L);
     }
   }
 }

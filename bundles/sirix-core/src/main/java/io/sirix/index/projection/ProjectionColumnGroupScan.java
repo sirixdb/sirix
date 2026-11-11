@@ -325,17 +325,22 @@ public final class ProjectionColumnGroupScan {
         final long[] groupWindow = dense
             ? gatherGroupWindow(groupSeg, groupBase, w, rowCount, ds.groupWindow)
             : null;
+        // The rows without a group key all fold into the one missing-key accumulator, so the word's
+        // are folded together, column by column; the keyed rows then go to the table one by one.
+        final long missing = word & ~groupPresWord;
+        if (missing != 0L) {
+          if (GroupLanes.get(missingAcc, 0) == 0) {
+            GroupLanes.set(missingAcc, 1, leafOrdinalBase | (rowBase + Long.numberOfTrailingZeros(missing)));
+          }
+          foldNumericPlainWord(aggWindow, missingRecord, aggSeg, aggBase, aggPresence, aggCount, w, missing,
+              sumExactMask);
+          word &= groupPresWord;
+        }
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
           final int rowIdx = rowBase + bit;
-          if ((groupPresWord & 1L << bit) == 0L) {
-            if (GroupLanes.get(missingAcc, 0) == 0) {
-              GroupLanes.set(missingAcc, 1, leafOrdinalBase | rowIdx);
-            }
-            foldNumericPlainRow(aggWindow, missingRecord, aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx,
-                sumExactMask);
-          } else if (aggWindow != null) {
+          if (aggWindow != null) {
             out.foldWindow(groupWindow[bit], leafOrdinalBase | rowIdx, aggWindow, aggPresence, aggCount, w, bit, roster,
                 decline);
           } else {
@@ -349,56 +354,123 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
-   * {@link #foldSlicedWindow} restricted to plain numeric aggregate lanes — the shape the missing-key
-   * accumulator of the dense arm needs, where no distinct set, no string-length operand and no
-   * dictionary state can occur. Kept beside its atomic twin
+   * Fold the rows {@code rows} of one 64-row word into a plain numeric accumulator, column by column:
+   * the shape the missing-key accumulator of the dense arm needs, where no distinct set, no
+   * string-length operand and no dictionary state can occur. Kept beside its atomic twin
    * ({@link DenseGlobalGroupAggTable#foldWindow}) so the lane order of the two is read together.
    *
    * <p>
-   * {@code window} is the word's 64 gathered values, so the VALUE index is {@code bit}; see
-   * {@link #gatherWindow}.
+   * Bit {@code i} of {@code rows} is row {@code (w << 6) + i}. A column is folded for all of them
+   * before the next column is touched: its presence word is read once, its sum and extrema stay in
+   * locals while its rows are walked, and they are written back once. A row costs a column one value
+   * read and three updates, where a fold that is called row by row re-derives the column's lane and
+   * loads and stores its accumulator lanes for every row. A column with a single row in the word,
+   * which is what a sparse selection gives, is folded into the lanes directly instead.
+   *
+   * <p>
+   * {@code window} holds the values, row {@code i} of the word at index {@code first + i}: a gathered
+   * 64-row window with {@code first == 0} (see {@link #gatherWindow}), or a whole row-indexed lane
+   * with {@code first == w << 6}.
    *
    * <p>
    * {@code record} is the accumulator, resolved by the caller for {@code aggCount} columns of four
-   * lanes ({@link GroupBuffer#accumulator}); the caller keeps what it was resolved from alive. It is
-   * the one missing-key block for every row of the caller's loop, which is why this kernel and its
-   * lane twin use {@link GroupKernelLanes}' {@code held} operations.
+   * lanes ({@link GroupBuffer#accumulator}); the caller keeps what it was resolved from alive. An
+   * exact sum that leaves the signed 64-bit range throws {@link ArithmeticException}, on which the
+   * route declines; the accumulator is then left with the word partly folded and must not be read.
    */
-  static void foldNumericPlainWindow(final long record, final long[][] window, final long[][] aggPresence,
-      final int aggCount, final int w, final int bit, final int rowIdx, final long sumExactMask) {
-    GroupKernelLanes.heldIncrement(record, 0);
+  static void foldNumericPlainWordWindow(final long record, final long[][] window, final int first,
+      final long[][] aggPresence, final int aggCount, final int w, final long rows, final long sumExactMask) {
+    GroupKernelLanes.add(record, 0, Long.bitCount(rows));
     for (int a = 0; a < aggCount; a++) {
-      if ((aggPresence[a][w] & 1L << bit) == 0L) {
+      long present = aggPresence[a][w] & rows;
+      if (present == 0L) {
         continue;
       }
-      final long v = window[a][bit];
-      final int aggBase = 2 + 4 * a;
-      GroupKernelLanes.heldIncrement(record, aggBase);
-      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
-        GroupKernelLanes.heldSet(record, aggBase + 1, Math.addExact(GroupKernelLanes.heldGet(record, aggBase + 1), v));
+      final int column = 2 + 4 * a;
+      final boolean exact = NumericGroupAggTable.sumsExact(sumExactMask, a);
+      final long[] values = window[a];
+      final int count = Long.bitCount(present);
+      GroupKernelLanes.add(record, column, count);
+      if (count == 1) {
+        // A lone row, which is every row of a sparse selection: folded into the lanes directly,
+        // because a loop that is entered for one trip costs more than the row does.
+        final long v = values[first + Long.numberOfTrailingZeros(present)];
+        if (exact) {
+          GroupKernelLanes.set(record, column + 1, Math.addExact(GroupKernelLanes.get(record, column + 1), v));
+        }
+        GroupKernelLanes.min(record, column + 2, v);
+        GroupKernelLanes.max(record, column + 3, v);
+        continue;
       }
-      GroupKernelLanes.heldMin(record, aggBase + 2, v);
-      GroupKernelLanes.heldMax(record, aggBase + 3, v);
+      long sum = GroupKernelLanes.get(record, column + 1);
+      long min = GroupKernelLanes.get(record, column + 2);
+      long max = GroupKernelLanes.get(record, column + 3);
+      // Counted by the rows rather than run until the word is empty: at most 64 trips, which the
+      // compiler knows, so the loop carries no safepoint poll.
+      for (int i = 0; i < count; i++) {
+        final long v = values[first + Long.numberOfTrailingZeros(present)];
+        present &= present - 1L;
+        if (exact) {
+          sum = Math.addExact(sum, v);
+        }
+        min = Math.min(min, v);
+        max = Math.max(max, v);
+      }
+      if (exact) {
+        GroupKernelLanes.set(record, column + 1, sum);
+      }
+      GroupKernelLanes.set(record, column + 2, min);
+      GroupKernelLanes.set(record, column + 3, max);
     }
   }
 
-  /** {@link #foldNumericPlainWindow} reading the lanes in place. */
-  static void foldNumericPlainLane(final long record, final MemorySegment[] aggSeg, final long[] laneBases,
-      final long[][] aggPresence, final int aggCount, final int w, final int bit, final int rowIdx,
-      final long sumExactMask) {
-    GroupKernelLanes.heldIncrement(record, 0);
+  /**
+   * {@link #foldNumericPlainWordWindow} reading the lanes in place: a column's lane segment is the
+   * same for all rows of the word, so its liveness is established once per column and word.
+   */
+  static void foldNumericPlainWordLane(final long record, final MemorySegment[] aggSeg, final long[] laneBases,
+      final long[][] aggPresence, final int aggCount, final int w, final long rows, final long sumExactMask) {
+    GroupKernelLanes.add(record, 0, Long.bitCount(rows));
+    // The word's first row, in bytes: 64 rows of 8 bytes each.
+    final long wordOffset = (long) w << 9;
     for (int a = 0; a < aggCount; a++) {
-      if ((aggPresence[a][w] & 1L << bit) == 0L) {
+      long present = aggPresence[a][w] & rows;
+      if (present == 0L) {
         continue;
       }
-      final long v = SegmentAccess.getLong(aggSeg[a], laneBases[a] + ((long) rowIdx << 3));
-      final int aggBase = 2 + 4 * a;
-      GroupKernelLanes.heldIncrement(record, aggBase);
-      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
-        GroupKernelLanes.heldSet(record, aggBase + 1, Math.addExact(GroupKernelLanes.heldGet(record, aggBase + 1), v));
+      final int column = 2 + 4 * a;
+      final boolean exact = NumericGroupAggTable.sumsExact(sumExactMask, a);
+      final MemorySegment lane = aggSeg[a];
+      final long base = laneBases[a] + wordOffset;
+      final int count = Long.bitCount(present);
+      GroupKernelLanes.add(record, column, count);
+      if (count == 1) {
+        // A lone row: see foldNumericPlainWordWindow.
+        final long v = SegmentAccess.getLong(lane, base + ((long) Long.numberOfTrailingZeros(present) << 3));
+        if (exact) {
+          GroupKernelLanes.set(record, column + 1, Math.addExact(GroupKernelLanes.get(record, column + 1), v));
+        }
+        GroupKernelLanes.min(record, column + 2, v);
+        GroupKernelLanes.max(record, column + 3, v);
+        continue;
       }
-      GroupKernelLanes.heldMin(record, aggBase + 2, v);
-      GroupKernelLanes.heldMax(record, aggBase + 3, v);
+      long sum = GroupKernelLanes.get(record, column + 1);
+      long min = GroupKernelLanes.get(record, column + 2);
+      long max = GroupKernelLanes.get(record, column + 3);
+      for (int i = 0; i < count; i++) {
+        final long v = SegmentAccess.getLong(lane, base + ((long) Long.numberOfTrailingZeros(present) << 3));
+        present &= present - 1L;
+        if (exact) {
+          sum = Math.addExact(sum, v);
+        }
+        min = Math.min(min, v);
+        max = Math.max(max, v);
+      }
+      if (exact) {
+        GroupKernelLanes.set(record, column + 1, sum);
+      }
+      GroupKernelLanes.set(record, column + 2, min);
+      GroupKernelLanes.set(record, column + 3, max);
     }
   }
 
@@ -1322,14 +1394,17 @@ public final class ProjectionColumnGroupScan {
     }
   }
 
-  /** {@link #foldAggRow} for the plain numeric shape the dense arm's missing-key accumulator uses. */
-  private static void foldNumericPlainRow(final long @Nullable [][] window, final long record,
+  /**
+   * A word's rows into the plain numeric accumulator the dense arm keeps for missing keys, from the
+   * word's gathered window when {@code window != null} and from the lanes in place otherwise.
+   */
+  private static void foldNumericPlainWord(final long @Nullable [][] window, final long record,
       final MemorySegment[] aggSeg, final long[] laneBases, final long[][] aggPresence, final int aggCount, final int w,
-      final int bit, final int rowIdx, final long sumExactMask) {
+      final long rows, final long sumExactMask) {
     if (window != null) {
-      foldNumericPlainWindow(record, window, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
+      foldNumericPlainWordWindow(record, window, 0, aggPresence, aggCount, w, rows, sumExactMask);
     } else {
-      foldNumericPlainLane(record, aggSeg, laneBases, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
+      foldNumericPlainWordLane(record, aggSeg, laneBases, aggPresence, aggCount, w, rows, sumExactMask);
     }
   }
 

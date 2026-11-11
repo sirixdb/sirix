@@ -196,14 +196,11 @@ What a row costs depends on the lookup of an existing group being compiled into 
 HotSpot decides by method size. `NumericGroupAggTable` is therefore a leaf probe plus insertion and
 indexed-acquisition methods that are deliberately too large to inline, and the lane accessors stay
 within the size inlined at any call site; `GroupAccessorSizeTest` holds those sizes and the class
-comments explain them. A kernel that holds one record for its whole run (the plain kernels fold
-every row into the missing-key block) also depends on that record's pointer keeping a register. C2
-gives up the bare conversion of a `long` to a pointer before any other value in the loop, so those
-kernels use `GroupKernelLanes`' `held` operations, which add the record's address up from two
-masked halves and so make its pointer the result of an addition. The other kernels keep the single
-mask: the held form costs a per-row record one more mask and addition and about a hundred bytes of
-compiled code per kernel, enough to push a kernel past `-XX:InlineSmallCode`. The comment on
-`GroupKernelLanes.heldAt` has the measurements.
+comments explain them. The plain kernels, which fold the rows of a word that have no group key into
+the dense arm's one missing-key accumulator, take the word's rows at once and fold them column by
+column (`foldNumericPlainWordLane`, `foldNumericPlainWordWindow`): a column's presence word is read
+once, its sum and extrema stay in locals while its rows are walked, and its lane segment is the same
+for all of them, so the per-row cost is one value read and three updates.
 
 An allocator-owned `AggregationBudget` protects one eighth of native capacity from caches, including
 cache-owned slabs. Each scan acquires an exclusive `AggregationGrant` before planning; contending

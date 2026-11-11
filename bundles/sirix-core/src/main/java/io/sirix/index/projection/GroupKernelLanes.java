@@ -35,12 +35,6 @@ import java.lang.invoke.VarHandle;
  * compiler the range it could not otherwise know.
  *
  * <p>
- * <b>Held records.</b> A kernel whose record never moves while it runs (the plain kernels fold
- * every row into one missing-key block) uses the {@code held} operations. They read and write the
- * same lanes; what differs is the code HotSpot compiles for a base that stays the same across a row
- * loop, and {@link #heldAt} says how.
- *
- * <p>
  * <b>Lifetime.</b> A record does not keep its memory alive. The kernel that resolved it keeps the
  * {@link GroupBuffer} or the table it came from reachable until its last access
  * ({@link java.lang.ref.Reference#reachabilityFence}); both hold the workspace whose regions the
@@ -71,14 +65,6 @@ final class GroupKernelLanes {
    * the largest record-relative lane offset an {@code int} lane can express.
    */
   static final long ADDRESS_MASK = 0x3FFF_FFFF_FFFF_FFF8L;
-
-  /**
-   * The two halves of {@link #ADDRESS_MASK} a held record's address is added up from. The low half is
-   * the part of an address that fits a signed 32-bit offset, which is what makes the compiler add it
-   * to a pointer instead of converting the whole sum; see {@link #heldAt}.
-   */
-  static final long ADDRESS_LOW = 0x7FFF_FFF8L;
-  static final long ADDRESS_HIGH = ADDRESS_MASK & ~ADDRESS_LOW;
 
   /**
    * The segment spanning the address space, and the lane handle. The group table's probes use the two
@@ -142,50 +128,6 @@ final class GroupKernelLanes {
     maxAt(at(record, lane), value);
   }
 
-  /** {@link #get} for a record the kernel holds across its row loop; see {@link #heldAt}. */
-  static long heldGet(final long record, final int lane) {
-    if (DEBUG) {
-      return GroupDebugRecords.get(record, lane);
-    }
-    return (long) LANE.get(ADDRESS_SPACE, heldAt(record, lane));
-  }
-
-  /** {@link #set} for a record the kernel holds across its row loop; see {@link #heldAt}. */
-  static void heldSet(final long record, final int lane, final long value) {
-    if (DEBUG) {
-      GroupDebugRecords.set(record, lane, value);
-      return;
-    }
-    LANE.set(ADDRESS_SPACE, heldAt(record, lane), value);
-  }
-
-  /** {@link #increment} for a record the kernel holds across its row loop; see {@link #heldAt}. */
-  static void heldIncrement(final long record, final int lane) {
-    if (DEBUG) {
-      GroupDebugRecords.add(record, lane, 1L);
-      return;
-    }
-    addAt(heldAt(record, lane), 1L);
-  }
-
-  /** {@link #min} for a record the kernel holds across its row loop; see {@link #heldAt}. */
-  static void heldMin(final long record, final int lane, final long value) {
-    if (DEBUG) {
-      GroupDebugRecords.min(record, lane, value);
-      return;
-    }
-    minAt(heldAt(record, lane), value);
-  }
-
-  /** {@link #max} for a record the kernel holds across its row loop; see {@link #heldAt}. */
-  static void heldMax(final long record, final int lane, final long value) {
-    if (DEBUG) {
-      GroupDebugRecords.max(record, lane, value);
-      return;
-    }
-    maxAt(heldAt(record, lane), value);
-  }
-
   /**
    * The lane at {@code address}, which is not a record: an address a {@link GroupBuffer} derived from
    * its own validated bounds for one checked access. Never reached in debug mode, whose callers read
@@ -208,31 +150,6 @@ final class GroupKernelLanes {
    */
   private static long at(final long record, final int lane) {
     return (record & ADDRESS_MASK) + (Integer.toUnsignedLong(lane) << 3);
-  }
-
-  /**
-   * {@link #at} for a record its kernel holds across a row loop: the same address, added up from the
-   * record's two masked halves.
-   *
-   * <p>
-   * Masked whole, a record's pointer is the bare conversion of one {@code long}. HotSpot's C2 regards
-   * such a value as free to recompute and charges its uses half, so when a loop holds more values
-   * than there are registers, that pointer is the first to lose its register although nothing in the
-   * loop is used more often, and it is then fetched again in front of every lane access. The
-   * four-column plain fold ran 196 instead of 186 instructions a row that way, in three of four JVM
-   * runs of the same bytecode. Because the low half fits a 32-bit offset, C2 converts the high half
-   * alone and adds the low one to the pointer; that addition of two registers is charged in full, and
-   * the pointer kept its register in every run measured.
-   *
-   * <p>
-   * It is not the form for every record. It costs a record that changes with each row one further
-   * mask and addition per row, and it makes a kernel's compiled code about a hundred bytes larger,
-   * which is enough to take a kernel past the size C2 still inlines into a row loop
-   * ({@code -XX:InlineSmallCode}): the one-column sums fold then ran 110 instead of 51 instructions a
-   * row. So only the kernels that hold one record for their whole run use it.
-   */
-  private static long heldAt(final long record, final int lane) {
-    return (record & ADDRESS_HIGH) + (record & ADDRESS_LOW) + (Integer.toUnsignedLong(lane) << 3);
   }
 
   /**

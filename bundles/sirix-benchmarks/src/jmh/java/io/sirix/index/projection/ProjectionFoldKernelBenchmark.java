@@ -1277,6 +1277,21 @@ public class ProjectionFoldKernelBenchmark {
       if (gather) {
         ProjectionColumnGroupScan.gatherWindow(segments, bases, aggCount, w, POOL_VALUES, gathered);
       }
+      if (kernel == Kernel.NUMERIC_PLAIN) {
+        // The plain kernels take a word's rows at once, as the dense arm hands them the rows of a
+        // word that have no group key.
+        if (gather) {
+          ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, gathered, 0, presence, aggCount, w, word,
+              ALL_SUMS_EXACT);
+        } else if (arrays) {
+          ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, values, w << 6, presence, aggCount, w, word,
+              ALL_SUMS_EXACT);
+        } else {
+          ProjectionColumnGroupScan.foldNumericPlainWordLane(record, segments, bases, presence, aggCount, w, word,
+              ALL_SUMS_EXACT);
+        }
+        continue;
+      }
       long remaining = word;
       while (remaining != 0L) {
         final int bit = Long.numberOfTrailingZeros(remaining);
@@ -1306,15 +1321,7 @@ public class ProjectionFoldKernelBenchmark {
               bit, rowIdx, -1, null, null, null, null, null, null, null, ALL_SUMS_EXACT, NO_LENGTH_TABLES, null, 0L);
         }
       }
-      case NUMERIC_PLAIN -> {
-        if (arrays) {
-          ProjectionColumnGroupScan.foldNumericPlainWindow(record, values, presence, aggCount, w, bit, rowIdx,
-              ALL_SUMS_EXACT);
-        } else {
-          ProjectionColumnGroupScan.foldNumericPlainLane(record, segments, bases, presence, aggCount, w, bit, rowIdx,
-              ALL_SUMS_EXACT);
-        }
-      }
+      case NUMERIC_PLAIN -> throw new AssertionError("the plain kernels fold a word at once, in foldLeaf");
       case SUMS -> {
         if (arrays) {
           ProjectionColumnGroupScan.foldSumsWindow(record, values, presence, aggCount, w, bit, ALL_SUMS_EXACT);

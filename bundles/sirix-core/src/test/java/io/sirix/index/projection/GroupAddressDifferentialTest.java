@@ -98,7 +98,7 @@ final class GroupAddressDifferentialTest {
             ? table.storageAtAccBase(handle).accumulator(table.offsetAtAccBase(handle), COLUMNS, 4)
             : table.accumulatorAt(handle, COLUMNS, 4);
       }
-      ProjectionColumnGroupScan.foldNumericPlainWindow(record, window, present, COLUMNS, 0, 0, 0, -1L);
+      ProjectionColumnGroupScan.foldNumericPlainWordWindow(record, window, 0, present, COLUMNS, 0, 1L, -1L);
     }
     assertTrue(table.rehashes() > 0, "the fixture must move live records");
     for (int key = 0; key < GROUPS; key++) {
