@@ -17023,6 +17023,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final boolean boundedBudget =
               cdBlock < 0 && boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderOnKeyLane;
           final long groupBudget = plannedGroupBudget(workspace, eff, partitions, strideLanes, boundedBudget);
+          if (groupBudget <= 0L) {
+            return declineGroupAgg("aggregation allowance cannot hold the minimum grouped working set");
+          }
           // Set when a key-ordered pass meets a ZERO group, which an identity-mode table cannot hold
           // (acquireZero refuses one) and whose side slot carries no identity lanes to order on.
           final long[] zeroGroupWithoutIdentity = new long[1];
@@ -17077,8 +17080,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 ? new long[eff]
                 : null;
             try {
-              parallel(eff, idx -> {
-                final int subChunk = GroupTableSpill.subChunkLeaves();
+              parallel(workspace.plannedWorkers(), idx -> {
+                final int subChunk = spill.batchLeaves();
                 int sub = spill.claimLeaves(rowGroupCount, subChunk);
                 if (sub >= rowGroupCount)
                   return; // every morsel of the pass is already claimed
@@ -17696,6 +17699,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final boolean boundedBudget =
             cdBlock < 0 && boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
         final long groupBudget = plannedGroupBudget(workspace, eff, partitions, strideLanes, boundedBudget);
+        if (groupBudget <= 0L) {
+          return declineGroupAgg("aggregation allowance cannot hold the minimum grouped working set");
+        }
         final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
         long[] missingMergedFlatHeld = null;
         // A GLOBAL regex key gets its transformed-key hash PRECOMPUTED for every id by one
@@ -17765,8 +17771,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               ? new long[eff]
               : null;
           try {
-            parallel(eff, idx -> {
-              final int subChunk = GroupTableSpill.subChunkLeaves();
+            parallel(workspace.plannedWorkers(), idx -> {
+              final int subChunk = spill.batchLeaves();
               int sub = spill.claimLeaves(rowGroupCount, subChunk);
               if (sub >= rowGroupCount)
                 return; // every morsel of the pass is already claimed
@@ -19197,6 +19203,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int strideLanes = NumericGroupAggTable.strideFor(aggCols.length, true, 0);
       final boolean boundedBudget = boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
       final long groupBudget = plannedGroupBudget(workspace, eff, partitions, strideLanes, boundedBudget);
+      if (groupBudget <= 0L) {
+        return declineGroupAgg("aggregation allowance cannot hold the minimum grouped working set");
+      }
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
       final NumericGroupAggTable[] partTables = new NumericGroupAggTable[partitions];
       // HASH-RANGE PASSES — see the composite arm; seeded from the same handle memo.
@@ -19218,8 +19227,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             ? new long[eff]
             : null;
         try {
-          parallel(eff, idx -> {
-            final int subChunk = GroupTableSpill.subChunkLeaves();
+          parallel(workspace.plannedWorkers(), idx -> {
+            final int subChunk = spill.batchLeaves();
             int sub = spill.claimLeaves(rowGroupCount, subChunk);
             if (sub >= rowGroupCount)
               return; // every morsel of the pass is already claimed
@@ -19766,6 +19775,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final boolean boundedBudget =
           cdBlockIdx < 0 && boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
       final long groupBudget = plannedGroupBudget(workspace, eff, partitions, strideLanes, boundedBudget);
+      if (groupBudget <= 0L) {
+        return declineGroupAgg("aggregation allowance cannot hold the minimum grouped working set");
+      }
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
       long[] missingMergedHeld = null;
       // HASH-RANGE PASSES — see the composite arm: past the per-pass group budget the scan restarts
@@ -19796,8 +19808,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             ? new long[eff]
             : null;
         try {
-          parallel(eff, idx -> {
-            final int subChunk = GroupTableSpill.subChunkLeaves();
+          parallel(workspace.plannedWorkers(), idx -> {
+            final int subChunk = spill.batchLeaves();
             int sub = spill.claimLeaves(rowGroupCount, subChunk);
             if (sub >= rowGroupCount)
               return; // every morsel of the pass is already claimed

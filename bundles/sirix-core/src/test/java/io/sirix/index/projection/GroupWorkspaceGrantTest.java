@@ -82,7 +82,8 @@ final class GroupWorkspaceGrantTest {
   void aTinyBudgetRejectsTheMinimumWorkingSetBeforeMapping() {
     final FrameSlotAllocator allocator = new FrameSlotAllocator(1L << 20);
     try (GroupWorkspace workspace = GroupWorkspace.forScan(allocator)) {
-      assertThrows(OutOfMemoryError.class, () -> workspace.preparePlan(1, 1, 13));
+      assertEquals(0L, workspace.preparePlan(1, 1, 13));
+      assertEquals(0, workspace.plannedWorkers());
       assertEquals(0L, workspace.borrowedBytes());
       assertEquals(0L, allocator.aggregationBudget().grantedBytes());
       assertEquals(0L, allocator.getPhysicalMemoryBytes());

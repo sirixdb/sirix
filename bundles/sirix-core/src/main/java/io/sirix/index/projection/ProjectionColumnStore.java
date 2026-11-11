@@ -1816,7 +1816,7 @@ public final class ProjectionColumnStore {
       return;
     }
     final int rangeLen = ((n + ranges - 1) / ranges + 63) & ~63;
-    final AtomicReference<RuntimeException> failed = new AtomicReference<>();
+    final AtomicReference<Throwable> failed = new AtomicReference<>();
     IntStream.range(0, ranges).parallel().forEach(r -> {
       final int from = r * rangeLen;
       final int to = Math.min(from + rangeLen, n);
@@ -1825,13 +1825,19 @@ public final class ProjectionColumnStore {
       }
       try {
         task.run(from, to, r);
-      } catch (final RuntimeException rangeFailed) {
+      } catch (final RuntimeException | Error rangeFailed) {
         failed.compareAndSet(null, rangeFailed);
       }
     });
-    final RuntimeException rangeFailed = failed.get();
-    if (rangeFailed != null) {
-      throw rangeFailed;
+    rethrowParallelFailure(failed.get());
+  }
+
+  private static void rethrowParallelFailure(final @Nullable Throwable failure) {
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    if (failure instanceof RuntimeException exception) {
+      throw exception;
     }
   }
 
@@ -3292,21 +3298,18 @@ public final class ProjectionColumnStore {
     final ColumnSlice[] slices = new ColumnSlice[n];
     try {
       if (n >= PARALLEL_DECODE_MIN) {
-        final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
+        final AtomicReference<Throwable> failed = new AtomicReference<>();
         IntStream.range(0, n).parallel().forEach(i -> {
           if (failed.get() != null) {
             return;
           }
           try {
             slices[i] = decodeOneIdentitySlice(i, col, bodySegments, hashSegments, dictSegments, fallback);
-          } catch (final IllegalStateException corrupt) {
-            failed.compareAndSet(null, corrupt);
+          } catch (final RuntimeException | Error failure) {
+            failed.compareAndSet(null, failure);
           }
         });
-        final IllegalStateException corrupt = failed.get();
-        if (corrupt != null) {
-          throw corrupt;
-        }
+        rethrowParallelFailure(failed.get());
       } else {
         for (int i = 0; i < n; i++) {
           slices[i] = decodeOneIdentitySlice(i, col, bodySegments, hashSegments, dictSegments, fallback);
@@ -3825,21 +3828,18 @@ public final class ProjectionColumnStore {
         // every execution of a pruning query pays this decode again. Serially it is the whole hot
         // time of a repeated group-by (measured: ~1.33 s of a 1.35 s JSONBench Q4 at 100M rows,
         // 97,656 leaves, on the CALLING thread while twenty scan workers waited for it).
-        final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
+        final AtomicReference<Throwable> failed = new AtomicReference<>();
         IntStream.range(0, n).parallel().forEach(i -> {
           if (failed.get() != null) {
             return;
           }
           try {
             slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
-          } catch (final IllegalStateException corrupt) {
-            failed.compareAndSet(null, corrupt);
+          } catch (final RuntimeException | Error failure) {
+            failed.compareAndSet(null, failure);
           }
         });
-        final IllegalStateException corrupt = failed.get();
-        if (corrupt != null) {
-          throw corrupt;
-        }
+        rethrowParallelFailure(failed.get());
       } else {
         for (int i = 0; i < n; i++) {
           slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
@@ -3916,21 +3916,18 @@ public final class ProjectionColumnStore {
         // (no shared state) — and for FSST string dictionaries it is the COLD whale: a
         // serial fill measured ~120 ms behind the 15-worker whole-leaf assembly on a 1M-row
         // URL grouping. Decode across the common pool; first failure wins the rethrow.
-        final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
+        final AtomicReference<Throwable> failed = new AtomicReference<>();
         IntStream.range(0, n).parallel().forEach(i -> {
           if (failed.get() != null) {
             return;
           }
           try {
             slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments, laneSlab, laneBases);
-          } catch (final IllegalStateException corrupt) {
-            failed.compareAndSet(null, corrupt);
+          } catch (final RuntimeException | Error failure) {
+            failed.compareAndSet(null, failure);
           }
         });
-        final IllegalStateException corrupt = failed.get();
-        if (corrupt != null) {
-          throw corrupt;
-        }
+        rethrowParallelFailure(failed.get());
       } else {
         for (int i = 0; i < n; i++) {
           slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments, laneSlab, laneBases);

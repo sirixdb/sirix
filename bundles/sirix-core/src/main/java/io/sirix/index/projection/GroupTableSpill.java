@@ -505,21 +505,21 @@ public final class GroupTableSpill {
   private static final long CAPACITY_SLACK = 2L;
 
   /** Maximum worker footprint through its next flush check, including a rehash in that batch. */
-  static long workerPeakBytes(final int strideLanes) {
-    final long batchRows = Math.multiplyExact((long) subChunkLeaves(), ProjectionIndexRowGroupPage.MAX_ROWS);
-    final long groups = Math.addExact(effectiveFlushThreshold() - 1L, batchRows);
+  static long workerPeakBytes(final int strideLanes, final int hint, final int threshold, final int batchLeaves) {
+    final long batchRows = Math.multiplyExact((long) batchLeaves, ProjectionIndexRowGroupPage.MAX_ROWS);
+    final long groups = Math.addExact(threshold - 1L, batchRows);
     if (groups > Integer.MAX_VALUE) {
       throw new IllegalArgumentException("worker flush batch exceeds supported group capacity");
     }
     final long capacity =
-        Math.max(NumericGroupAggTable.capacityFor(workerTableHint()), NumericGroupAggTable.capacityFor((int) groups));
+        Math.max(NumericGroupAggTable.capacityFor(hint), NumericGroupAggTable.capacityFor((int) groups));
     final long growingCapacity = capacity + capacity / 2;
     return denseIndexEnabled(strideLanes)
         ? Math.addExact(Math.multiplyExact(groups, (long) strideLanes * Long.BYTES), growingCapacity * Long.BYTES)
         : Math.multiplyExact(growingCapacity, (long) strideLanes * Long.BYTES);
   }
 
-  private static int effectiveFlushThreshold() {
+  static int effectiveFlushThreshold() {
     return stripeSpillEnabled() && flushGroupsForTesting < 0 && Integer.getInteger(FLUSH_GROUPS_PROPERTY) == null
         ? STRIPE_FLUSH_GROUPS
         : flushGroups();
@@ -1043,9 +1043,23 @@ public final class GroupTableSpill {
     }
   }
 
+  private int localTableHint() {
+    final GroupWorkspace own = workspace;
+    return own == null
+        ? workerTableHint()
+        : own.workerTableHint();
+  }
+
+  public int batchLeaves() {
+    final GroupWorkspace own = workspace;
+    return own == null
+        ? subChunkLeaves()
+        : own.batchLeaves();
+  }
+
   /** A fresh worker table from the factory, restricted to this pass's partitions. */
   public NumericGroupAggTable freshLocal() {
-    final NumericGroupAggTable table = adopt(factory.apply(workerTableHint()));
+    final NumericGroupAggTable table = adopt(factory.apply(localTableHint()));
     if (partialGroups) {
       table.allowPartialGroups();
       final @Nullable LongAdder observer = partialWorkersForTesting;
@@ -1184,7 +1198,10 @@ public final class GroupTableSpill {
 
   /** Whether {@code local} has grown past the threshold and should be flushed. */
   public boolean shouldFlush(final NumericGroupAggTable local) {
-    return local.size() >= threshold;
+    final GroupWorkspace own = workspace;
+    return local.size() >= (own == null
+        ? threshold
+        : own.flushThreshold(threshold));
   }
 
   /**
@@ -1417,7 +1434,7 @@ public final class GroupTableSpill {
   /** A shared partition table: at the plan's expected count when known, else at the worker hint. */
   private NumericGroupAggTable createShared() {
     if (sharedHint < 0) {
-      return adopt(factory.apply(workerTableHint()));
+      return adopt(factory.apply(localTableHint()));
     }
     PRESIZED_SHARED.increment();
     return adopt(factory.apply(sharedHint));
@@ -1432,7 +1449,7 @@ public final class GroupTableSpill {
   private NumericGroupAggTable createSharedForStripes(final long stripes) {
     final long perPartition = Math.max(16L, budget / Math.max(1, passHi - passLo));
     final long bounded = Math.min(stripes, Math.min(perPartition, sharedHint < 0
-        ? workerTableHint()
+        ? localTableHint()
         : sharedHint));
     if (sharedHint >= 0) {
       PRESIZED_SHARED.increment();

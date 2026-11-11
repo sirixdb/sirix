@@ -425,7 +425,11 @@ public final class GroupWorkspace implements AutoCloseable {
 
   private long plannedBytes;
   private long planningOverhead;
+  private int requestedWorkers;
   private int plannedWorkers;
+  private int plannedWorkerHint;
+  private int plannedFlushThreshold;
+  private int plannedBatchLeaves;
   private int plannedPartitions;
   private int plannedStride;
 
@@ -458,23 +462,71 @@ public final class GroupWorkspace implements AutoCloseable {
       throw new IllegalArgumentException("invalid aggregation planning geometry");
     }
     if (plannedBytes == 0L) {
-      final long workerBytes = Math.multiplyExact(GroupTableSpill.workerPeakBytes(strideLanes), workers);
-      final long workerTails = Math.multiplyExact((long) workers, PARTITION_TAIL_BYTES);
-      // The initial region ramp and one final region; full 2 MiB regions waste less than
-      // 128 KiB each because every group chunk is at most that large. Reserve that 1/16 too.
-      final long fixed = Math.addExact(Math.addExact(workerBytes, workerTails), 2 * MAX_REGION_BYTES);
-      final long needed =
-          Math.addExact(Math.addExact(fixed, PARTITION_TAIL_BYTES), GroupTableSpill.bytesPerGroup(strideLanes));
-      final long minimum = Math.addExact(needed, Math.addExact(needed, 14L) / 15L);
+      int hint = GroupTableSpill.workerTableHint();
+      int threshold = GroupTableSpill.effectiveFlushThreshold();
+      int batchLeaves = GroupTableSpill.subChunkLeaves();
+      final long capacity = regions.grant == null
+          ? allocator.aggregationBudget().capacity()
+          : regions.grant.capacity();
+      long fixed;
+      long minimum;
+      int fittedWorkers;
+      while (true) {
+        final long perWorker = Math.addExact(GroupTableSpill.workerPeakBytes(strideLanes, hint, threshold, batchLeaves),
+            PARTITION_TAIL_BYTES);
+        final long shared =
+            Math.addExact(2 * MAX_REGION_BYTES + PARTITION_TAIL_BYTES, GroupTableSpill.bytesPerGroup(strideLanes));
+        final long available = capacity - (capacity + 15L) / 16L - shared;
+        fittedWorkers = (int) Math.min(workers, Math.max(0L, available / perWorker));
+        if (fittedWorkers > 0) {
+          fixed = Math.addExact(Math.multiplyExact(perWorker, fittedWorkers), 2 * MAX_REGION_BYTES);
+          final long needed =
+              Math.addExact(fixed, Math.addExact(PARTITION_TAIL_BYTES, GroupTableSpill.bytesPerGroup(strideLanes)));
+          minimum = Math.addExact(needed, Math.addExact(needed, 14L) / 15L);
+          break;
+        }
+        if (hint == 16 && threshold == 1 && batchLeaves == 1) {
+          return 0L;
+        }
+        hint = Math.max(16, hint / 2);
+        threshold = Math.max(1, threshold / 2);
+        batchLeaves = Math.max(1, batchLeaves / 2);
+      }
       plannedBytes = grant(minimum).preparePlan(minimum);
       planningOverhead = Math.addExact(fixed, (plannedBytes + 15L) / 16L);
-      plannedWorkers = workers;
+      requestedWorkers = workers;
+      plannedWorkers = fittedWorkers;
+      plannedWorkerHint = hint;
+      plannedFlushThreshold = threshold;
+      plannedBatchLeaves = batchLeaves;
       plannedPartitions = partitions;
       plannedStride = strideLanes;
-    } else if (plannedWorkers != workers || plannedPartitions != partitions || plannedStride != strideLanes) {
+    } else if (requestedWorkers != workers || plannedPartitions != partitions || plannedStride != strideLanes) {
       throw new IllegalStateException("a scan cannot change its planned aggregation layout");
     }
     return usableGroupBytes();
+  }
+
+  public int plannedWorkers() {
+    return plannedWorkers;
+  }
+
+  int workerTableHint() {
+    return plannedBytes == 0L
+        ? GroupTableSpill.workerTableHint()
+        : plannedWorkerHint;
+  }
+
+  int flushThreshold(final int configured) {
+    return plannedBytes == 0L
+        ? configured
+        : plannedFlushThreshold;
+  }
+
+  int batchLeaves() {
+    return plannedBytes == 0L
+        ? GroupTableSpill.subChunkLeaves()
+        : plannedBatchLeaves;
   }
 
   /** Maximum group capacity with one active partition; the pass planner charges its actual fanout. */
