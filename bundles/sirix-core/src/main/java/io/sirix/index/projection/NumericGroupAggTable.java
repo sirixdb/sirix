@@ -578,7 +578,7 @@ public final class NumericGroupAggTable {
    * {@linkplain #release() released}. Nothing of the table may be read afterwards.
    */
   public void close() {
-    release();
+    retire();
     if (privateWorkspace && workspace != null) {
       workspace.close();
     }
@@ -722,6 +722,15 @@ public final class NumericGroupAggTable {
     if (discardZero != null) {
       recycle(discardZero);
       discardZero = null;
+    }
+  }
+
+  public void retire() {
+    release();
+    final GroupBuffer zero = zeroSlot;
+    zeroSlot = null;
+    if (zero != null) {
+      recycle(zero);
     }
   }
 
@@ -924,7 +933,8 @@ public final class NumericGroupAggTable {
   private GroupBuffer zeroBlock() {
     GroupBuffer block = zeroSlot;
     if (block == null) {
-      block = workspace().newBlock(slotWidth);
+      requireLiveTable();
+      block = workspace().takeAccumulatorChunk(slotWidth, slotWidth);
       seedAcc(block, slotWidth, sumsOnly);
       zeroSlot = block;
     }

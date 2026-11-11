@@ -100,10 +100,9 @@ public final class GroupBuffer {
    * Resolve the record {@code [first, first + count)} for {@link GroupKernelLanes}: this buffer is
    * live and holds the complete range. The answer names the range, lane {@code 0} being
    * {@code first}; it is valid until the buffer is handed back, and a kernel must keep this buffer
-   * reachable for as long as it uses the record. A block that is never handed back (a standalone
-   * accumulator, a table's zero-key slot) can therefore be resolved once for a whole scan, while a
-   * record of a table's chunk is resolved again after every acquisition that may have grown the
-   * table.
+   * reachable for as long as it uses the record. A block that is never handed back can therefore be
+   * resolved once for a whole scan, while a record of a table's chunk is resolved again after every
+   * acquisition that may have grown the table.
    *
    * @throws IllegalStateException if the buffer was handed back or its workspace is closed
    * @throws IndexOutOfBoundsException if the range does not lie inside this buffer

@@ -1470,7 +1470,8 @@ public final class ProjectionIndexByteScan {
    * those kernels see one kind of memory.
    */
   public static GroupBuffer newGroupAggAcc(final GroupWorkspace workspace, final int aggColumns, final long firstSeen) {
-    final GroupBuffer acc = workspace.newBlock(groupAggSlots(aggColumns));
+    final int slots = groupAggSlots(aggColumns);
+    final GroupBuffer acc = workspace.takeAccumulatorChunk(slots, slots);
     GroupLanes.set(acc, 1, firstSeen);
     for (int a = 0; a < aggColumns; a++) {
       GroupLanes.set(acc, 2 + 4 * a + 2, Long.MAX_VALUE);

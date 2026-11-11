@@ -1,5 +1,7 @@
 package io.sirix.query.scan;
 
+import io.sirix.index.projection.GroupBuffer;
+import io.sirix.index.projection.GroupLanes;
 import io.sirix.index.projection.GroupTableSpill;
 import io.sirix.index.projection.GroupWorkspace;
 import io.sirix.index.projection.NumericGroupAggTable;
@@ -25,6 +27,10 @@ final class GroupAbortedPassReleaseTest {
       final GroupTableSpill spill = new GroupTableSpill(PARTITIONS, SHIFT, GroupAbortedPassReleaseTest::denseTable, 0,
           PARTITIONS, 50_000L).inWorkspace(workspace);
       final NumericGroupAggTable[] tables = {spill.freshLocal(), spill.freshLocal()};
+      final GroupBuffer firstZero = tables[0].acquireZero(0L);
+      final GroupBuffer secondZero = tables[1].acquireZero(0L);
+      GroupLanes.increment(firstZero, 0);
+      GroupLanes.increment(secondZero, 0);
       for (final NumericGroupAggTable local : tables) {
         for (int key = 1; key <= 128; key++) {
           local.acquire(key, key);
@@ -38,6 +44,8 @@ final class GroupAbortedPassReleaseTest {
         // Worker 1 leaves its scan early; it never reaches result-index construction.
         SirixVectorizedExecutor.releaseAbortedPass(spill, tables, new int[2][][]);
         assertEquals(0L, chunksOut(workspace));
+        assertThrows(IllegalStateException.class, () -> GroupLanes.get(firstZero, 0));
+        assertThrows(IllegalStateException.class, () -> GroupLanes.get(secondZero, 0));
       } finally {
         GroupTableSpill.setSimulateOutOfMemoryOnFlushForTesting(false);
       }

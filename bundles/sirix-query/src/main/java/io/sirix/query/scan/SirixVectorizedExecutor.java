@@ -13982,8 +13982,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int[][][] partIdx) {
     for (int t = 0; t < tables.length; t++) {
       final NumericGroupAggTable table = tables[t];
-      if (table != null && !table.released()) {
-        table.release(); // its chunks are the restart's tables
+      if (table != null) {
+        table.retire(); // its chunks are the restart's tables
       }
     }
     spill.releaseTables();
@@ -14001,7 +14001,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // A stripe is one key lane below the accumulator base and stride - 1 lanes from it on.
       sel.detachFromStorage(1, into.stride() - 1);
     }
-    into.release();
+    into.retire();
   }
 
   /**
@@ -14012,7 +14012,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     for (int t = 0; t < tables.length; t++) {
       final NumericGroupAggTable table = tables[t];
       if (table != null) {
-        table.release();
+        table.retire();
         tables[t] = null;
       }
       partIdx[t] = null;
@@ -17301,7 +17301,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               final int candidates = into.sizeIncludingZero();
               plan.notePartition(part, candidates);
               if (candidates == 0) {
-                into.release();
+                into.retire();
                 return;
               }
               final GroupTopKSelector sel =
@@ -17780,94 +17780,98 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               tables[idx] = local;
               final GroupBuffer missing =
                   ProjectionIndexByteScan.newGroupAggAcc(workspace, aggColsFlat.length, Long.MAX_VALUE);
-              if (cdBlock >= 0) {
-                cdBudgets[idx] = new long[] {Long.MAX_VALUE, 0}; // the bitmap arm's range flag only
-              }
-              // Per-worker view for a GLOBAL regex key — the view's slice caches are single-threaded.
-              final GlobalValueDictionary.ReadView workerGroupView = globalRegexGroup
-                  ? GlobalValueDictionary.readView(globalRegexGroupHeaderKey, workerTrx().getStorageEngineReader())
-                  : null;
-              if (globalRegexGroup && workerGroupView == null) {
-                throw new IllegalStateException("global regex key dictionary became unreadable mid-query");
-              }
-              final WindowedSliceArrays wsl = windowedSlices && stringSlicedArm
-                  ? new WindowedSliceArrays(groupStore, columnFetcher(), windowedKeepS)
-                  : null;
-              // The lanes the windows borrow go back however this worker leaves its range.
               try {
-                while (sub < rowGroupCount) {
-                  final int subEnd = Math.min(sub + subChunk, rowGroupCount);
-                  if (spill.aborted()) {
-                    // The coordinator counts and releases this published local after joining workers.
-                    return; // over the per-pass group budget: the arm restarts with more passes
-                  }
-                  if (wsl != null && ProjectionColumnScan.allPruned(windowedKeepS, sub, subEnd)) {
-                    // Every leaf of this morsel is dropped by the keep mask: no window is fetched and no
-                    // kernel runs — the morsel is accounted (it truly holds no group) and the next one claimed.
+                if (cdBlock >= 0) {
+                  cdBudgets[idx] = new long[] {Long.MAX_VALUE, 0}; // the bitmap arm's range flag only
+                }
+                // Per-worker view for a GLOBAL regex key — the view's slice caches are single-threaded.
+                final GlobalValueDictionary.ReadView workerGroupView = globalRegexGroup
+                    ? GlobalValueDictionary.readView(globalRegexGroupHeaderKey, workerTrx().getStorageEngineReader())
+                    : null;
+                if (globalRegexGroup && workerGroupView == null) {
+                  throw new IllegalStateException("global regex key dictionary became unreadable mid-query");
+                }
+                final WindowedSliceArrays wsl = windowedSlices && stringSlicedArm
+                    ? new WindowedSliceArrays(groupStore, columnFetcher(), windowedKeepS)
+                    : null;
+                // The lanes the windows borrow go back however this worker leaves its range.
+                try {
+                  while (sub < rowGroupCount) {
+                    final int subEnd = Math.min(sub + subChunk, rowGroupCount);
+                    if (spill.aborted()) {
+                      // The coordinator counts and releases this published local after joining workers.
+                      return; // over the per-pass group budget: the arm restarts with more passes
+                    }
+                    if (wsl != null && ProjectionColumnScan.allPruned(windowedKeepS, sub, subEnd)) {
+                      // Every leaf of this morsel is dropped by the keep mask: no window is fetched and no
+                      // kernel runs — the morsel is accounted (it truly holds no group) and the next one claimed.
+                      spill.noteLeavesScanned(subEnd - sub);
+                      sub = spill.claimLeaves(rowGroupCount, subChunk);
+                      continue;
+                    }
+                    if (stringSlicedArm) {
+                      final ProjectionColumnStore.ColumnSlice[][] predColsNow = wsl != null
+                          ? wsl.predicateColumns(preds, sub, subEnd)
+                          : sPredCols;
+                      final ProjectionColumnStore.ColumnSlice[][] treeColsNow = wsl == null
+                          ? sTreeCols
+                          : tree != null
+                              ? wsl.treeColumns(tree, sub, subEnd)
+                              : null;
+                      final ProjectionColumnStore.ColumnSlice[] groupColNow = wsl != null
+                          ? wsl.column(groupCol, sub, subEnd)
+                          : sGroupCol;
+                      final ProjectionColumnStore.ColumnSlice[][] aggColsNow = wsl != null
+                          ? wsl.columns(aggColsFlat, sub, subEnd)
+                          : sAggCols;
+                      ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, predColsNow, tree,
+                          treeColsNow, groupColNow, aggColsNow, stringLengthModesInFlat, sub, subEnd, local, missing,
+                          cdBlock, cdBlock >= 0
+                              ? cdAcc.worker(idx)
+                              : null,
+                          cdBlock >= 0
+                              ? cdAcc.worker(idx).missing()
+                              : null,
+                          cdBlock >= 0
+                              ? cdBudgets[idx]
+                              : null,
+                          cdStringDict, regexKey, regexRepl, regexDecline, cdBitmaps, globalLengthTablesInFlat, null,
+                          globalKeyHashes);
+                    } else {
+                      ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(armPayloads.subList(sub, subEnd),
+                          preds, groupCol, aggColsFlat, local, missing, sub, cdBlock, cdBlock >= 0
+                              ? cdAcc.worker(idx)
+                              : null,
+                          cdBlock >= 0
+                              ? cdAcc.worker(idx).missing()
+                              : null,
+                          cdBlock >= 0
+                              ? cdBudgets[idx]
+                              : null,
+                          tree, regexKey, regexRepl, regexDecline, stringLengthModesInFlat, cdStringDict,
+                          workerGroupView, globalLengthTablesInFlat, globalKeyHashes);
+                    }
+                    if (wsl != null) {
+                      wsl.release(sub, subEnd);
+                    }
                     spill.noteLeavesScanned(subEnd - sub);
                     sub = spill.claimLeaves(rowGroupCount, subChunk);
-                    continue;
+                    if (sub < rowGroupCount && spill.shouldFlush(local)) {
+                      spill.flush(local); // never right before the final table: the merge takes that one
+                      local = spill.freshLocal();
+                      tables[idx] = local;
+                    }
                   }
-                  if (stringSlicedArm) {
-                    final ProjectionColumnStore.ColumnSlice[][] predColsNow = wsl != null
-                        ? wsl.predicateColumns(preds, sub, subEnd)
-                        : sPredCols;
-                    final ProjectionColumnStore.ColumnSlice[][] treeColsNow = wsl == null
-                        ? sTreeCols
-                        : tree != null
-                            ? wsl.treeColumns(tree, sub, subEnd)
-                            : null;
-                    final ProjectionColumnStore.ColumnSlice[] groupColNow = wsl != null
-                        ? wsl.column(groupCol, sub, subEnd)
-                        : sGroupCol;
-                    final ProjectionColumnStore.ColumnSlice[][] aggColsNow = wsl != null
-                        ? wsl.columns(aggColsFlat, sub, subEnd)
-                        : sAggCols;
-                    ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, predColsNow, tree,
-                        treeColsNow, groupColNow, aggColsNow, stringLengthModesInFlat, sub, subEnd, local, missing,
-                        cdBlock, cdBlock >= 0
-                            ? cdAcc.worker(idx)
-                            : null,
-                        cdBlock >= 0
-                            ? cdAcc.worker(idx).missing()
-                            : null,
-                        cdBlock >= 0
-                            ? cdBudgets[idx]
-                            : null,
-                        cdStringDict, regexKey, regexRepl, regexDecline, cdBitmaps, globalLengthTablesInFlat, null,
-                        globalKeyHashes);
-                  } else {
-                    ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(armPayloads.subList(sub, subEnd),
-                        preds, groupCol, aggColsFlat, local, missing, sub, cdBlock, cdBlock >= 0
-                            ? cdAcc.worker(idx)
-                            : null,
-                        cdBlock >= 0
-                            ? cdAcc.worker(idx).missing()
-                            : null,
-                        cdBlock >= 0
-                            ? cdBudgets[idx]
-                            : null,
-                        tree, regexKey, regexRepl, regexDecline, stringLengthModesInFlat, cdStringDict, workerGroupView,
-                        globalLengthTablesInFlat, globalKeyHashes);
-                  }
+                } finally {
                   if (wsl != null) {
-                    wsl.release(sub, subEnd);
-                  }
-                  spill.noteLeavesScanned(subEnd - sub);
-                  sub = spill.claimLeaves(rowGroupCount, subChunk);
-                  if (sub < rowGroupCount && spill.shouldFlush(local)) {
-                    spill.flush(local); // never right before the final table: the merge takes that one
-                    local = spill.freshLocal();
-                    tables[idx] = local;
+                    wsl.close();
                   }
                 }
+                partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
+                flatMissing[idx] = GroupLanes.toArray(missing, 0, GroupLanes.count(missing));
               } finally {
-                if (wsl != null) {
-                  wsl.close();
-                }
+                workspace.giveChunk(missing);
               }
-              partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
-              flatMissing[idx] = GroupLanes.toArray(missing, 0, GroupLanes.count(missing));
             }, scanNanos);
           } catch (final RuntimeException | OutOfMemoryError scanFailed) {
             // A worker out of memory is a pass over its budget, not a defect: restart with more passes
@@ -17962,7 +17966,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             final int candidates = into.sizeIncludingZero();
             plan.notePartition(part, candidates);
             if (candidates == 0) {
-              into.release();
+              into.retire();
               return;
             }
             final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(selLimit, candidates));
@@ -19043,30 +19047,35 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (from >= to)
           return;
         final GroupBuffer local = ProjectionIndexByteScan.newGroupAggAcc(workspace, aggCols.length, Long.MAX_VALUE);
-        if (constWindowed) {
-          // The fold accumulates into `local`, so one sub-chunk of decoded slices at a time is exact.
-          final WindowedSliceArrays wsl = new WindowedSliceArrays(constStore, columnFetcher(), constKeep);
-          final int subChunk = GroupTableSpill.subChunkLeaves();
-          // The lanes the windows borrow go back however this worker leaves its range.
-          try {
-            for (int sub = from; sub < to; sub += subChunk) {
-              final int subEnd = Math.min(sub + subChunk, to);
-              if (ProjectionColumnScan.allPruned(constKeep, sub, subEnd)) {
-                continue; // every leaf dropped by the keep mask: nothing to fetch or fold
+        try {
+          if (constWindowed) {
+            // The fold accumulates into `local`, so one sub-chunk of decoded slices at a time is exact.
+            final WindowedSliceArrays wsl = new WindowedSliceArrays(constStore, columnFetcher(), constKeep);
+            final int subChunk = GroupTableSpill.subChunkLeaves();
+            // The lanes the windows borrow go back however this worker leaves its range.
+            try {
+              for (int sub = from; sub < to; sub += subChunk) {
+                final int subEnd = Math.min(sub + subChunk, to);
+                if (ProjectionColumnScan.allPruned(constKeep, sub, subEnd)) {
+                  continue; // every leaf dropped by the keep mask: nothing to fetch or fold
+                }
+                ProjectionColumnGroupScan.aggregateAllNumericFlat(constStore, preds,
+                    wsl.predicateColumns(preds, sub, subEnd), wsl.columns(aggCols, sub, subEnd), sub, subEnd, local);
+                wsl.release(sub, subEnd);
               }
-              ProjectionColumnGroupScan.aggregateAllNumericFlat(constStore, preds,
-                  wsl.predicateColumns(preds, sub, subEnd), wsl.columns(aggCols, sub, subEnd), sub, subEnd, local);
-              wsl.release(sub, subEnd);
+            } finally {
+              wsl.close();
             }
-          } finally {
-            wsl.close();
+          } else if (constSliced) {
+            ProjectionColumnGroupScan.aggregateAllNumericFlat(constStore, preds, kPredCols, kAggCols, from, to, local);
+          } else {
+            ProjectionIndexByteScan.conjunctiveAggregateAllNumeric(armPayloads.subList(from, to), preds, aggCols,
+                local);
           }
-        } else if (constSliced) {
-          ProjectionColumnGroupScan.aggregateAllNumericFlat(constStore, preds, kPredCols, kAggCols, from, to, local);
-        } else {
-          ProjectionIndexByteScan.conjunctiveAggregateAllNumeric(armPayloads.subList(from, to), preds, aggCols, local);
+          perThread[idx] = GroupLanes.toArray(local, 0, GroupLanes.count(local));
+        } finally {
+          workspace.giveChunk(local);
         }
-        perThread[idx] = GroupLanes.toArray(local, 0, GroupLanes.count(local));
       });
       final long[] acc = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
       for (int t = 0; t < eff; t++) {
@@ -19207,7 +19216,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return declineGroupAgg("aggregation allowance cannot hold the minimum grouped working set");
       }
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
-      final NumericGroupAggTable[] partTables = new NumericGroupAggTable[partitions];
       // HASH-RANGE PASSES — see the composite arm; seeded from the same handle memo.
       final GroupPasses plan =
           new GroupPasses(handle, groupShapeFp, groupBudget, partitionsF, strideLanes, boundedBudget, workspace);
@@ -19323,7 +19331,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           plan.restart(spill, rowGroupCount);
           passes = plan.passes();
           Arrays.fill(partSelectors, null);
-          Arrays.fill(partTables, null);
           GROUP_PASS_RESTARTS.increment();
           pass = -1;
           continue;
@@ -19352,10 +19359,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final NumericGroupAggTable into = spill.takeOrCreate(part, () -> new NumericGroupAggTable(aggCols.length,
               (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask).attachWorkspace(workspace));
           NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
-          partTables[part] = into;
           final int candidates = into.sizeIncludingZero();
           plan.notePartition(part, candidates);
           if (candidates == 0) {
+            into.retire();
             return;
           }
           final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
@@ -19381,8 +19388,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             }
           }
           partSelectors[part] = sel;
+          retireMergedPartition(into, sel);
         });
-        // The partition tables stay: the winners' aux is re-probed from them after the passes.
         releaseMergedLocals(tables, partIdx);
         if (PROJ_DIAG) {
           diagPassDone("packed", pass, passes, passLo, passHi, passStartNanos, scanEndNanos, scanNanos, spill, null, 0,
@@ -19407,14 +19414,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           continue;
         }
         for (int i = 0; i < sel.size(); i++) {
-          final int base = sel.baseAt(i);
-          final long[] acc = sel.copyOfAcc(i, slotWidth);
+          final long[] acc = sel.copyOfAcc(i, slotWidth + 1);
           finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
         }
       }
       finalSel.sortInPlace();
-      // Winners: recover each pack's aux from its partition table (no boxing during selection),
-      // then decode the ORIGINAL substring from the source dictionary entry.
       final int[] leafColumnBase = new int[rowGroupCount];
       Arrays.fill(leafColumnBase, -1);
       final ArrayList<Item> out = new ArrayList<>(finalSel.size());
@@ -19425,9 +19429,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return declineGroupAgg("global packed-substring dictionary became unreadable before winner materialization");
       }
       for (int i = 0; i < finalSel.size(); i++) {
-        final long packed = finalSel.keyLongAt(i);
-        final NumericGroupAggTable into = partTables[NumericGroupAggTable.partitionOf(packed, shift)];
-        final long src = into.auxAtAccBase(into.acquire(packed, Long.MAX_VALUE));
+        final long src = finalSel.accAt(i)[finalSel.baseAt(i) + slotWidth];
         if (winnerGlobalView != null) {
           final String key = winnerGlobalView.materializeIsoMinuteSubstring(Math.toIntExact(src), subStart, subLen);
           out.add(groupAggRecord(key, finalSel.accAt(i), keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
@@ -19817,86 +19819,91 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             tables[idx] = local;
             final GroupBuffer missing =
                 ProjectionIndexByteScan.newGroupAggAcc(workspace, aggCols.length, Long.MAX_VALUE);
-            if (cdBlockIdx >= 0) {
-              cdBudgets[idx] = new long[] {Long.MAX_VALUE, 0}; // the bitmap arm's range flag only
-            }
-            final WindowedSliceArrays wsl = windowedSlices && slicedStore != null
-                ? new WindowedSliceArrays(slicedStore, columnFetcher(), windowedKeep)
-                : null;
-            // The lanes the windows borrow go back however this worker leaves its range.
             try {
-              while (sub < rowGroupCount) {
-                final int subEnd = Math.min(sub + subChunk, rowGroupCount);
-                if (spill.aborted()) {
-                  // The coordinator counts and releases this published local after joining workers.
-                  return; // over the per-pass group budget: the arm restarts with more passes
-                }
-                if (wsl != null && ProjectionColumnScan.allPruned(windowedKeep, sub, subEnd)) {
-                  // Every leaf of this morsel is dropped by the keep mask: no window is fetched and no
-                  // kernel runs — the morsel is accounted (it truly holds no group) and the next one claimed.
+              if (cdBlockIdx >= 0) {
+                cdBudgets[idx] = new long[] {Long.MAX_VALUE, 0}; // the bitmap arm's range flag only
+              }
+              final WindowedSliceArrays wsl = windowedSlices && slicedStore != null
+                  ? new WindowedSliceArrays(slicedStore, columnFetcher(), windowedKeep)
+                  : null;
+              // The lanes the windows borrow go back however this worker leaves its range.
+              try {
+                while (sub < rowGroupCount) {
+                  final int subEnd = Math.min(sub + subChunk, rowGroupCount);
+                  if (spill.aborted()) {
+                    // The coordinator counts and releases this published local after joining workers.
+                    return; // over the per-pass group budget: the arm restarts with more passes
+                  }
+                  if (wsl != null && ProjectionColumnScan.allPruned(windowedKeep, sub, subEnd)) {
+                    // Every leaf of this morsel is dropped by the keep mask: no window is fetched and no
+                    // kernel runs — the morsel is accounted (it truly holds no group) and the next one claimed.
+                    spill.noteLeavesScanned(subEnd - sub);
+                    sub = spill.claimLeaves(rowGroupCount, subChunk);
+                    continue;
+                  }
+                  if (slicedStore != null) {
+                    final ProjectionColumnStore.ColumnSlice[][] predColsNow = wsl != null
+                        ? wsl.predicateColumns(preds, sub, subEnd)
+                        : slicedPredCols;
+                    final ProjectionColumnStore.ColumnSlice[][] treeColsNow = wsl == null
+                        ? slicedTreeCols
+                        : predTree != null
+                            ? wsl.treeColumns(predTree, sub, subEnd)
+                            : null;
+                    final ProjectionColumnStore.ColumnSlice[] groupColNow = requireResolvedGroupKeys(segmentKeys,
+                        wsl != null
+                            ? canonicaliseGroupKeys(segmentKeys, wsl.column(groupCol, sub, subEnd))
+                            : slicedGroupCol);
+                    final ProjectionColumnStore.ColumnSlice[][] aggColsNow = wsl != null
+                        ? wsl.columns(aggCols, sub, subEnd)
+                        : slicedAggCols;
+                    ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, predColsNow, predTree,
+                        treeColsNow, groupColNow, aggColsNow, stringLengthModes, sub, subEnd, local, missing,
+                        cdBlockIdx, cdBlockIdx >= 0
+                            ? cdAcc.worker(idx)
+                            : null,
+                        cdBlockIdx >= 0
+                            ? cdAcc.worker(idx).missing()
+                            : null,
+                        cdBlockIdx >= 0
+                            ? cdBudgets[idx]
+                            : null,
+                        cdStringDict, globalLengthTables, segmentLengthTables);
+                  } else {
+                    ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(
+                        rowGroupPayloads.subList(sub, subEnd), preds, groupCol, aggCols, local, missing, sub,
+                        cdBlockIdx, cdBlockIdx >= 0
+                            ? cdAcc.worker(idx)
+                            : null,
+                        cdBlockIdx >= 0
+                            ? cdAcc.worker(idx).missing()
+                            : null,
+                        cdBlockIdx >= 0
+                            ? cdBudgets[idx]
+                            : null,
+                        predTree, stringLengthModes, cdStringDict, globalLengthTables);
+                  }
+                  if (wsl != null) {
+                    wsl.release(sub, subEnd);
+                  }
                   spill.noteLeavesScanned(subEnd - sub);
                   sub = spill.claimLeaves(rowGroupCount, subChunk);
-                  continue;
+                  if (sub < rowGroupCount && spill.shouldFlush(local)) {
+                    spill.flush(local); // never right before the final table: the merge takes that one
+                    local = spill.freshLocal();
+                    tables[idx] = local;
+                  }
                 }
-                if (slicedStore != null) {
-                  final ProjectionColumnStore.ColumnSlice[][] predColsNow = wsl != null
-                      ? wsl.predicateColumns(preds, sub, subEnd)
-                      : slicedPredCols;
-                  final ProjectionColumnStore.ColumnSlice[][] treeColsNow = wsl == null
-                      ? slicedTreeCols
-                      : predTree != null
-                          ? wsl.treeColumns(predTree, sub, subEnd)
-                          : null;
-                  final ProjectionColumnStore.ColumnSlice[] groupColNow = requireResolvedGroupKeys(segmentKeys,
-                      wsl != null
-                          ? canonicaliseGroupKeys(segmentKeys, wsl.column(groupCol, sub, subEnd))
-                          : slicedGroupCol);
-                  final ProjectionColumnStore.ColumnSlice[][] aggColsNow = wsl != null
-                      ? wsl.columns(aggCols, sub, subEnd)
-                      : slicedAggCols;
-                  ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, predColsNow, predTree,
-                      treeColsNow, groupColNow, aggColsNow, stringLengthModes, sub, subEnd, local, missing, cdBlockIdx,
-                      cdBlockIdx >= 0
-                          ? cdAcc.worker(idx)
-                          : null,
-                      cdBlockIdx >= 0
-                          ? cdAcc.worker(idx).missing()
-                          : null,
-                      cdBlockIdx >= 0
-                          ? cdBudgets[idx]
-                          : null,
-                      cdStringDict, globalLengthTables, segmentLengthTables);
-                } else {
-                  ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads.subList(sub, subEnd),
-                      preds, groupCol, aggCols, local, missing, sub, cdBlockIdx, cdBlockIdx >= 0
-                          ? cdAcc.worker(idx)
-                          : null,
-                      cdBlockIdx >= 0
-                          ? cdAcc.worker(idx).missing()
-                          : null,
-                      cdBlockIdx >= 0
-                          ? cdBudgets[idx]
-                          : null,
-                      predTree, stringLengthModes, cdStringDict, globalLengthTables);
-                }
+              } finally {
                 if (wsl != null) {
-                  wsl.release(sub, subEnd);
-                }
-                spill.noteLeavesScanned(subEnd - sub);
-                sub = spill.claimLeaves(rowGroupCount, subChunk);
-                if (sub < rowGroupCount && spill.shouldFlush(local)) {
-                  spill.flush(local); // never right before the final table: the merge takes that one
-                  local = spill.freshLocal();
-                  tables[idx] = local;
+                  wsl.close();
                 }
               }
+              partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
+              perThreadMissing[idx] = GroupLanes.toArray(missing, 0, GroupLanes.count(missing));
             } finally {
-              if (wsl != null) {
-                wsl.close();
-              }
+              workspace.giveChunk(missing);
             }
-            partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
-            perThreadMissing[idx] = GroupLanes.toArray(missing, 0, GroupLanes.count(missing));
           }, scanNanos);
         } catch (final RuntimeException | OutOfMemoryError scanFailed) {
           // A worker out of memory is a pass over its budget, not a defect: restart with more passes
@@ -19981,7 +19988,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final int candidates = into.sizeIncludingZero();
           plan.notePartition(part, candidates);
           if (candidates == 0) {
-            into.release();
+            into.retire();
             return;
           }
           final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
@@ -20331,11 +20338,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return;
       }
       final GroupBuffer missing = ProjectionIndexByteScan.newGroupAggAcc(workspace, aggCols.length, Long.MAX_VALUE);
-      final DenseGlobalGroupAggTable.IdRoster roster = new DenseGlobalGroupAggTable.IdRoster(1 << 12);
-      ProjectionColumnGroupScan.aggregateByGroupNumericDense(store, preds, predCols, predTree, treeCols, groupSlices,
-          aggSlices, from, to, dense, missing, roster, decline);
-      perThreadMissing[idx] = GroupLanes.toArray(missing, 0, GroupLanes.count(missing));
-      rosters[idx] = roster;
+      try {
+        final DenseGlobalGroupAggTable.IdRoster roster = new DenseGlobalGroupAggTable.IdRoster(1 << 12);
+        ProjectionColumnGroupScan.aggregateByGroupNumericDense(store, preds, predCols, predTree, treeCols, groupSlices,
+            aggSlices, from, to, dense, missing, roster, decline);
+        perThreadMissing[idx] = GroupLanes.toArray(missing, 0, GroupLanes.count(missing));
+        rosters[idx] = roster;
+      } finally {
+        workspace.giveChunk(missing);
+      }
     });
     if (decline[0] != 0L) {
       // A cell holds an id the dictionary header does not cover — the column and the header
@@ -20553,25 +20564,29 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private static Long2ObjectOpenHashMap<GroupBuffer> drainNumericGroupTable(final GroupWorkspace workspace,
       final NumericGroupAggTable t, final int aggColumns) {
     final Long2ObjectOpenHashMap<GroupBuffer> map = new Long2ObjectOpenHashMap<>();
-    final int stride = t.stride();
-    final int w = t.slotWidth();
-    // The drained block is the STANDALONE accumulator shape ([count, firstSeen, aggs...]) the
-    // legacy map merge and emission expect — the stripe's key and aux lanes stay behind.
-    for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
-      final GroupBuffer tbl = t.storageChunkOrNull(chunk);
-      if (tbl == null) {
-        continue;
-      }
-      for (int off = 0; off < GroupLanes.count(tbl); off += stride) {
-        if (GroupLanes.get(tbl, off) != 0L) {
-          map.put(GroupLanes.get(tbl, off), copyGroupAcc(workspace, tbl, off + 1, w));
+    try {
+      final int stride = t.stride();
+      final int w = t.slotWidth();
+      // The drained block is the STANDALONE accumulator shape ([count, firstSeen, aggs...]) the
+      // legacy map merge and emission expect — the stripe's key and aux lanes stay behind.
+      for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
+        final GroupBuffer tbl = t.storageChunkOrNull(chunk);
+        if (tbl == null) {
+          continue;
+        }
+        for (int off = 0; off < GroupLanes.count(tbl); off += stride) {
+          if (GroupLanes.get(tbl, off) != 0L) {
+            map.put(GroupLanes.get(tbl, off), copyGroupAcc(workspace, tbl, off + 1, w));
+          }
         }
       }
+      if (t.hasZeroKey()) {
+        map.put(0L, copyGroupAcc(workspace, t.zeroSlot(), 0, w));
+      }
+      return map;
+    } finally {
+      t.retire();
     }
-    if (t.hasZeroKey()) {
-      map.put(0L, copyGroupAcc(workspace, t.zeroSlot(), 0, w));
-    }
-    return map;
   }
 
   /**
@@ -20587,57 +20602,65 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final NumericGroupAggTable t, final int aggColumns, final ProjectionColumnStore.LeafColumnAccess access,
       final int groupCol) {
     final Object2ObjectOpenHashMap<String, GroupBuffer> map = new Object2ObjectOpenHashMap<>();
-    final int stride = t.stride();
-    final int w = t.slotWidth();
-    for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
-      final GroupBuffer tbl = t.storageChunkOrNull(chunk);
-      if (tbl == null) {
-        continue;
-      }
-      for (int off = 0; off < GroupLanes.count(tbl); off += stride) {
-        if (GroupLanes.get(tbl, off) == 0L) {
+    try {
+      final int stride = t.stride();
+      final int w = t.slotWidth();
+      for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
+        final GroupBuffer tbl = t.storageChunkOrNull(chunk);
+        if (tbl == null) {
           continue;
         }
-        final int base = off + 1;
-        final long src = GroupLanes.get(tbl, base + w);
-        final String key = access.slice(groupCol, (int) (src >>> 20)).dictString((int) (src & 0xFFFFF));
-        map.put(key, copyGroupAcc(workspace, tbl, base, w));
+        for (int off = 0; off < GroupLanes.count(tbl); off += stride) {
+          if (GroupLanes.get(tbl, off) == 0L) {
+            continue;
+          }
+          final int base = off + 1;
+          final long src = GroupLanes.get(tbl, base + w);
+          final String key = access.slice(groupCol, (int) (src >>> 20)).dictString((int) (src & 0xFFFFF));
+          map.put(key, copyGroupAcc(workspace, tbl, base, w));
+        }
       }
+      if (t.hasZeroKey()) {
+        final long src = t.zeroAux();
+        final String key = access.slice(groupCol, (int) (src >>> 20)).dictString((int) (src & 0xFFFFF));
+        map.put(key, copyGroupAcc(workspace, t.zeroSlot(), 0, w));
+      }
+      return map;
+    } finally {
+      t.retire();
     }
-    if (t.hasZeroKey()) {
-      final long src = t.zeroAux();
-      final String key = access.slice(groupCol, (int) (src >>> 20)).dictString((int) (src & 0xFFFFF));
-      map.put(key, copyGroupAcc(workspace, t.zeroSlot(), 0, w));
-    }
-    return map;
   }
 
   private static Object2ObjectOpenHashMap<String, GroupBuffer> drainStringGroupTable(final GroupWorkspace workspace,
       final NumericGroupAggTable t, final int aggColumns, final ProjectionColumnStore.ColumnSlice[] groupColSlices) {
     final Object2ObjectOpenHashMap<String, GroupBuffer> map = new Object2ObjectOpenHashMap<>();
-    final int stride = t.stride();
-    final int w = t.slotWidth();
-    for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
-      final GroupBuffer tbl = t.storageChunkOrNull(chunk);
-      if (tbl == null) {
-        continue;
-      }
-      for (int off = 0; off < GroupLanes.count(tbl); off += stride) {
-        if (GroupLanes.get(tbl, off) == 0L) {
+    try {
+      final int stride = t.stride();
+      final int w = t.slotWidth();
+      for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
+        final GroupBuffer tbl = t.storageChunkOrNull(chunk);
+        if (tbl == null) {
           continue;
         }
-        final int base = off + 1;
-        final long src = GroupLanes.get(tbl, base + w);
-        final String key = groupColSlices[(int) (src >>> 20)].dictString((int) (src & 0xFFFFF));
-        map.put(key, copyGroupAcc(workspace, tbl, base, w));
+        for (int off = 0; off < GroupLanes.count(tbl); off += stride) {
+          if (GroupLanes.get(tbl, off) == 0L) {
+            continue;
+          }
+          final int base = off + 1;
+          final long src = GroupLanes.get(tbl, base + w);
+          final String key = groupColSlices[(int) (src >>> 20)].dictString((int) (src & 0xFFFFF));
+          map.put(key, copyGroupAcc(workspace, tbl, base, w));
+        }
       }
+      if (t.hasZeroKey()) {
+        final long src = t.zeroAux();
+        final String key = groupColSlices[(int) (src >>> 20)].dictString((int) (src & 0xFFFFF));
+        map.put(key, copyGroupAcc(workspace, t.zeroSlot(), 0, w));
+      }
+      return map;
+    } finally {
+      t.retire();
     }
-    if (t.hasZeroKey()) {
-      final long src = t.zeroAux();
-      final String key = groupColSlices[(int) (src >>> 20)].dictString((int) (src & 0xFFFFF));
-      map.put(key, copyGroupAcc(workspace, t.zeroSlot(), 0, w));
-    }
-    return map;
   }
 
   /**

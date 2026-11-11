@@ -37,8 +37,7 @@ import static java.util.Objects.requireNonNull;
  * of a lane count ({@link #takeChunk}) and hands it back when it rehashes or is released
  * ({@link #giveChunk}); a chunk handed back serves the next request of the same lane count, so a
  * scan whose worker tables flush and whose partition tables grow many times per pass touches each
- * page once instead of once per table. Small blocks ({@link #newBlock}: a zero-key slot, a
- * standalone accumulator) are carved and not taken back.
+ * page once instead of once per table. Blocks from {@link #newBlock} are carved and not taken back.
  *
  * <p>
  * <b>Everything handed out is zero.</b> Allocator memory holds its previous borrower's bytes, a
@@ -304,8 +303,7 @@ public final class GroupWorkspace implements AutoCloseable {
   }
 
   /**
-   * An all-zero block of {@code lanes} lanes that is never taken back: a table's zero-key slot, a
-   * standalone accumulator, the scratch a pass folds its out-of-range keys into.
+   * An all-zero block of {@code lanes} lanes that is never taken back.
    *
    * @throws IllegalArgumentException if {@code lanes} is not positive
    * @throws IllegalStateException if the workspace is closed

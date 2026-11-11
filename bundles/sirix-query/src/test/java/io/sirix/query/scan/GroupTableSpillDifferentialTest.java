@@ -45,6 +45,8 @@ final class GroupTableSpillDifferentialTest {
   private static final String DOC = "jn:doc('" + DB + "','" + RES + "')[]";
 
   private static final List<String> QUERIES = List.of(
+      "subsequence(for $h in " + DOC + " let $k := $h.k7 group by $k let $s := sum($h.amount) "
+          + "order by $s descending, $k ascending return {\"k7\": $k, \"sum\": $s}, 1, 2)",
       // numeric key, top-k by count with a deterministic tie-break
       "subsequence(for $h in " + DOC + " let $k := $h.k40 group by $k let $c := count($h) "
           + "order by $c descending, $k ascending return {\"k40\": $k, \"c\": $c}, 1, 10)",

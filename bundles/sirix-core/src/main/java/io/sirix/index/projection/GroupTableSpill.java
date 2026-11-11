@@ -1221,9 +1221,7 @@ public final class GroupTableSpill {
       throw failure;
     } finally {
       // A flush consumes the worker table even when a merge or allocation fails part way through.
-      if (!local.released()) {
-        local.release();
-      }
+      local.retire();
     }
   }
 
@@ -1260,7 +1258,7 @@ public final class GroupTableSpill {
         spilled.add(target.size() - before);
       }
     }
-    local.release();
+    local.retire();
     FLUSHES.increment();
     if (spilled.sum() > budget) {
       aborted = true;
@@ -1314,7 +1312,7 @@ public final class GroupTableSpill {
         zeroGroups.mergeZeroGroupFrom(local);
       }
     }
-    local.release();
+    local.retire();
     FLUSHES.increment();
     if (spilled.sum() + buffered.sum() > budget) {
       // Never abort on stripes that have not been deduplicated: a shape whose groups every worker
@@ -1383,7 +1381,7 @@ public final class GroupTableSpill {
       shared[0] = target;
     }
     target.mergeZeroGroupFrom(zeroGroups);
-    zeroGroups.release();
+    zeroGroups.retire();
     zeroGroups = null;
   }
 
@@ -1493,7 +1491,7 @@ public final class GroupTableSpill {
           sharedRehashes.add(table.rehashes());
           shared[p] = null;
           // Its storage is the restart's tables: hand it back to the workspace.
-          table.release();
+          table.retire();
         }
         if (stripeBuffers != null && stripeBuffers[p] != null) {
           // The counters the estimate reads survive a release (they are what the pass SAW), so the
@@ -1506,7 +1504,7 @@ public final class GroupTableSpill {
           stripeBuffers[p].release(workspace());
         }
         if (p == 0 && zeroGroups != null) {
-          zeroGroups.release();
+          zeroGroups.retire();
           zeroGroups = null;
         }
       }
