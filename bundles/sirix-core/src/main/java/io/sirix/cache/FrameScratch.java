@@ -126,6 +126,7 @@ final class FrameScratch extends ScratchSource {
    * reclamation.
    */
   private final AtomicLong regionBytes = new AtomicLong();
+  private final AtomicLong mappedRegionBytes = new AtomicLong();
 
   /** Lent bytes accounted per borrow: large buffers and grant-backed buffers. */
   private final AtomicLong lentRegionBytes = new AtomicLong();
@@ -331,6 +332,7 @@ final class FrameScratch extends ScratchSource {
         if (small(carrier)) {
           allocator.adjustActiveBytes(bytes);
         }
+        mappedRegionBytes.addAndGet(bytes);
         created = true;
         return carrier;
       } catch (final RuntimeException | Error failure) {
@@ -424,6 +426,7 @@ final class FrameScratch extends ScratchSource {
   private void destroy(final ScratchCarrier carrier, final boolean aggregation) {
     unregister(carrier);
     regionBytes.addAndGet(-carrier.capacity);
+    mappedRegionBytes.addAndGet(-carrier.capacity);
     memory.release(carrier.segment);
     if (aggregation) {
       allocator.refundAggregationBytes(carrier.capacity);
@@ -528,6 +531,10 @@ final class FrameScratch extends ScratchSource {
   /** Bytes of all mapped buffers and mappings in flight. */
   long regionBytes() {
     return regionBytes.get();
+  }
+
+  long reclaimableBytesUpperBound() {
+    return Math.max(0L, mappedRegionBytes.get() - lentRegionBytes.get());
   }
 
   /** Lent bytes accounted per borrow. */

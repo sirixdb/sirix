@@ -103,7 +103,7 @@ final class WindowedSliceLanesTest {
           assertEquals(expected.max(), actual.max(), "max leaf " + leaf + " col " + col);
           assertArrayEquals(expected.presenceWords(), actual.presenceWords(), "presence leaf " + leaf + " col " + col);
           assertArrayEquals(laneRows(expected), laneRows(actual), "values leaf " + leaf + " col " + col);
-          assertNull(actual.heapNumericValues(), "a borrowed lane has no heap array beside it");
+          assertNull(actual.numericValues(), "a borrowed lane has no heap array beside it");
         }
       }
       final ScratchStats walked = stats();

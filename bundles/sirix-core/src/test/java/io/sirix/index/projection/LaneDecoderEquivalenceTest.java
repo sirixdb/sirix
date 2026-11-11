@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.EncodedRowGroup;
 import io.sirix.index.projection.ProjectionIndexRowGroupCodec.Cursor;
@@ -161,7 +163,7 @@ final class LaneDecoderEquivalenceTest {
             assertEquals(heap.min(), lane.min(), at);
             assertEquals(heap.max(), lane.max(), at);
             assertArrayEquals(heap.presenceWords(), lane.presenceWords(), at);
-            assertNull(lane.heapNumericValues(), at);
+            assertNull(lane.numericValues(), at);
             if (rows == 0) {
               assertNull(lane.lane(), "a rowless leaf carries no lane: " + at);
               continue;
@@ -172,7 +174,7 @@ final class LaneDecoderEquivalenceTest {
             final long[] values = heap.numericValues();
             assertNotNull(values, at);
             assertLaneEquals(values, slab, 0L, at);
-            assertArrayEquals(values, lane.numericValues(), "the counted seam copies the lane exactly: " + at);
+            assertArrayEquals(values, copyNumericValues(lane), "a test-owned copy holds the lane exactly: " + at);
           }
         }
       }

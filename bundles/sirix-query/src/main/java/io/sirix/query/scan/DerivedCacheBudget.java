@@ -2,7 +2,6 @@ package io.sirix.query.scan;
 
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.index.projection.NumericLane;
 import io.sirix.index.projection.ProjectionColumnStore;
 import org.jspecify.annotations.Nullable;
 
@@ -123,8 +122,7 @@ public final class DerivedCacheBudget {
     return new Metrics(configuredBytes, allocatorBytes, effectiveBytes, n, p, n.retainedBytes() + p.retainedBytes(),
         n.inFlightBytes() + p.inFlightBytes(), n.retiredLeasedBytes() + p.retiredLeasedBytes(),
         saturatedAdd(n.rejectedBytes(), p.rejectedBytes()),
-        new LaneMetrics(allocator.getSlabBytes(), ProjectionColumnStore.slabFillsDeclinedCount(),
-            NumericLane.materializedCount(), NumericLane.materializedBytes()));
+        new LaneMetrics(allocator.getSlabBytes(), ProjectionColumnStore.slabFillsDeclinedCount()));
   }
 
   public record Metrics(long configuredBytes, long allocatorBytes, long effectiveBytes, PartitionMetrics numeric,
@@ -133,11 +131,10 @@ public final class DerivedCacheBudget {
   }
 
   /**
-   * The off-heap column lanes of the projection stores: slab bytes the allocator currently commits,
-   * fills the allocator refused, and lanes a not-yet-converted consumer copied to the heap
-   * ({@link NumericLane#values()}).
+   * The off-heap column lanes of the projection stores: slab bytes the allocator currently commits
+   * and fills the allocator refused.
    */
-  public record LaneMetrics(long slabBytes, long fillsDeclined, long materializedLanes, long materializedBytes) {
+  public record LaneMetrics(long slabBytes, long fillsDeclined) {
   }
 
   public record PartitionMetrics(long maximumBytes, long retainedBytes, long inFlightBytes, long retiredLeasedBytes,

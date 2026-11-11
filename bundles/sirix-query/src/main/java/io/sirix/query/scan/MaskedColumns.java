@@ -417,7 +417,7 @@ public final class MaskedColumns implements AutoCloseable {
     final NumericLane lane = slice.lane();
     return lane != null
         ? lane.get(row)
-        : requireNonNull(slice.heapNumericValues(), "an admitted long field needs a numeric lane")[row];
+        : requireNonNull(slice.numericValues(), "an admitted long field needs a numeric lane")[row];
   }
 
   /**

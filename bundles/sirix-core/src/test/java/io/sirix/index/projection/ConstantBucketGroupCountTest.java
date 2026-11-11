@@ -1,5 +1,9 @@
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
+import static io.sirix.index.projection.NumericLaneTestSupport.numericValue;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.EncodedRowGroup;
@@ -84,7 +88,7 @@ final class ConstantBucketGroupCountTest {
       final ColumnSlice[] slices = bucketColumn(store, 0, fetcher, 0L, 100L, 0L);
       assertTrue(store.columnFilled(0), "the exact ordinary fill should remain available at its own budget");
       assertSame(slices, store.column(0, fetcher));
-      assertArrayEquals(new long[] {100L, 101L, 102L}, slices[0].numericValues());
+      assertArrayEquals(new long[] {100L, 101L, 102L}, copyNumericValues(slices[0]));
     } finally {
       ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previous);
     }
@@ -242,7 +246,7 @@ final class ConstantBucketGroupCountTest {
         for (int row = 0; row < blocks.get(block).size(); row++) {
           final Long number = blocks.get(block).get(row).number();
           if (number != null) {
-            assertEquals(number.longValue(), originals[block].numericValues()[row],
+            assertEquals(number.longValue(), numericValue(originals[block], row),
                 "ordinary reads must still see exact source values");
           }
         }

@@ -453,6 +453,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private final ConcurrentHashMap<Long, SlabAllocation> slabsByAddress = new ConcurrentHashMap<>();
 
   private final AtomicLong slabBytes = new AtomicLong();
+  private final AtomicLong recycledCacheSlabBytes = new AtomicLong();
+  private final AtomicInteger slabOperations = new AtomicInteger();
+  private volatile @Nullable Runnable slabPublicationHook;
 
   /**
    * Released slabs kept mapped for the next slab of the same page-rounded size (decision 104, the
@@ -556,6 +559,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       SlabAllocation recycled;
       while (freed < wanted && (recycled = free.pollLast()) != null) {
         recycledSlabBytes.addAndGet(-recycled.bytes());
+        recycledCacheSlabBytes.addAndGet(-recycled.bytes());
         VM.release(recycled.segment());
         refundCommittedBytes(recycled.bytes());
         HftBoundaryTelemetry.nativeRelease();
@@ -596,8 +600,20 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     recycledSlabBytes.addAndGet(-bytes);
   }
 
+  void setSlabPublicationHookForTesting(final @Nullable Runnable hook) {
+    slabPublicationHook = hook;
+  }
+
+  private void beforeSlabPublication() {
+    final Runnable hook = slabPublicationHook;
+    if (hook != null) {
+      hook.run();
+    }
+  }
+
   /** Publish a live slab: the exact instance the caller received, by address. */
   private void publishSlab(final MemorySegment segment, final long mapped) {
+    beforeSlabPublication();
     if (slabsByAddress.putIfAbsent(segment.address(), new SlabAllocation(segment, mapped)) != null) {
       throw new IllegalStateException("duplicate slab address " + segment.address());
     }
@@ -612,59 +628,65 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       throw new IllegalArgumentException("slab size must be positive: " + bytes);
     }
     ensureInitialized();
-    if (terminated.get()) {
-      throw new IllegalStateException("FrameSlotAllocator has been shut down");
-    }
-    final long mapped = bytes > Long.MAX_VALUE - SLAB_PAGE_BYTES
-        ? Long.MAX_VALUE
-        : (bytes + SLAB_PAGE_BYTES - 1) & -SLAB_PAGE_BYTES;
-    // A recycled slab of this size first: its pages are mapped and committed already (dirty, never
-    // zeroed), so the reuse costs no system call and no page fault. The caller gets a FRESH
-    // global-scope view over the same pages: the instance handed out before stays rejected by the
-    // exact-instance check of releaseSlab, so a stale double release cannot free the new owner's slab.
-    final ConcurrentLinkedDeque<SlabAllocation> free = recycledSlabs.get(mapped);
-    if (free != null) {
-      final SlabAllocation recycled = free.pollFirst();
-      if (recycled != null) {
-        recycledSlabBytes.addAndGet(-mapped);
-        final MemorySegment reused = MemorySegment.ofAddress(recycled.segment().address()).reinterpret(mapped);
-        if (poisonRecycledSlabs) {
-          reused.fill((byte) 0x5A);
-        }
-        publishSlab(reused, mapped);
-        return reused;
+    slabOperations.incrementAndGet();
+    try {
+      if (terminated.get()) {
+        throw new IllegalStateException("FrameSlotAllocator has been shut down");
       }
-    }
-    // Charged against the whole budget like an oversized allocation: slab bytes return on release.
-    // A refusal is reported, never retried through page-cache pressure: the caller owns reclaimable
-    // images of its own and must give those up before a persisted page loses its frame. Recycled
-    // slabs that would not fit beside the request are unmapped first (reserveCommittedBytesUpTo).
-    if (!reserveCommittedBytes(mapped)) {
-      return null;
-    }
-    final MemorySegment segment;
-    try {
-      segment = VM.reserve(mapped);
-    } catch (final RuntimeException | Error failure) {
-      refundCommittedBytes(mapped);
-      throw failure;
-    }
-    try {
-      VM.commitFresh(segment);
-      if (!prepareSlabPages(segment, mapped)) {
-        // The kernel cannot back the pages: reported like a budget refusal, never thrown.
-        VM.release(segment);
-        refundCommittedBytes(mapped);
+      final long mapped = bytes > Long.MAX_VALUE - SLAB_PAGE_BYTES
+          ? Long.MAX_VALUE
+          : (bytes + SLAB_PAGE_BYTES - 1) & -SLAB_PAGE_BYTES;
+      // A recycled slab of this size first: its pages are mapped and committed already (dirty, never
+      // zeroed), so the reuse costs no system call and no page fault. The caller gets a FRESH
+      // global-scope view over the same pages: the instance handed out before stays rejected by the
+      // exact-instance check of releaseSlab, so a stale double release cannot free the new owner's slab.
+      final ConcurrentLinkedDeque<SlabAllocation> free = recycledSlabs.get(mapped);
+      if (free != null) {
+        final SlabAllocation recycled = free.pollFirst();
+        if (recycled != null) {
+          recycledSlabBytes.addAndGet(-mapped);
+          recycledCacheSlabBytes.addAndGet(-mapped);
+          final MemorySegment reused = MemorySegment.ofAddress(recycled.segment().address()).reinterpret(mapped);
+          if (poisonRecycledSlabs) {
+            reused.fill((byte) 0x5A);
+          }
+          publishSlab(reused, mapped);
+          return reused;
+        }
+      }
+      // Charged against the whole budget like an oversized allocation: slab bytes return on release.
+      // A refusal is reported, never retried through page-cache pressure: the caller owns reclaimable
+      // images of its own and must give those up before a persisted page loses its frame. Recycled
+      // slabs that would not fit beside the request are unmapped first (reserveCommittedBytesUpTo).
+      if (!reserveCommittedBytes(mapped)) {
         return null;
       }
-      publishSlab(segment, mapped);
-    } catch (final RuntimeException | Error failure) {
-      VM.release(segment);
-      refundCommittedBytes(mapped);
-      throw failure;
+      final MemorySegment segment;
+      try {
+        segment = VM.reserve(mapped);
+      } catch (final RuntimeException | Error failure) {
+        refundCommittedBytes(mapped);
+        throw failure;
+      }
+      try {
+        VM.commitFresh(segment);
+        if (!prepareSlabPages(segment, mapped)) {
+          // The kernel cannot back the pages: reported like a budget refusal, never thrown.
+          VM.release(segment);
+          refundCommittedBytes(mapped);
+          return null;
+        }
+        publishSlab(segment, mapped);
+      } catch (final RuntimeException | Error failure) {
+        VM.release(segment);
+        refundCommittedBytes(mapped);
+        throw failure;
+      }
+      HftBoundaryTelemetry.nativeAllocation();
+      return segment;
+    } finally {
+      slabOperations.decrementAndGet();
     }
-    HftBoundaryTelemetry.nativeAllocation();
-    return segment;
   }
 
   /**
@@ -690,35 +712,45 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   @Override
   public boolean releaseSlab(final MemorySegment slab) {
-    final long address = slab.address();
-    final SlabAllocation allocation = slabsByAddress.get(address);
-    // Exact instance: a stale handle whose address a newer slab reuses must not unmap that slab.
-    if (allocation == null || allocation.segment() != slab) {
-      LOGGER.warn("Rejected stale or repeated slab release of address {} ({} bytes)", address, slab.byteSize());
-      return false;
-    }
-    if (!slabsByAddress.remove(address, allocation)) {
-      return false;
-    }
-    final long bytes = allocation.bytes();
-    activeBytes.addAndGet(-bytes);
-    slabBytes.addAndGet(-bytes);
-    HftBoundaryTelemetry.allocatorRelease();
-    // Keep the pages mapped for the next slab of this size while the recycle bound allows it; the
-    // bound is reserved with a CAS so concurrent releases never exceed it.
-    final long limit = slabRecycleLimitBytes;
-    for (;;) {
-      final long current = recycledSlabBytes.get();
-      if (terminated.get() || current + bytes > limit) {
-        final boolean released = VM.release(allocation.segment());
-        refundCommittedBytes(bytes);
-        HftBoundaryTelemetry.nativeRelease();
-        return released;
+    slabOperations.incrementAndGet();
+    try {
+      final long address = slab.address();
+      final SlabAllocation allocation = slabsByAddress.get(address);
+      // Exact instance: a stale handle whose address a newer slab reuses must not unmap that slab.
+      if (allocation == null || allocation.segment() != slab) {
+        LOGGER.warn("Rejected stale or repeated slab release of address {} ({} bytes)", address, slab.byteSize());
+        return false;
       }
-      if (recycledSlabBytes.compareAndSet(current, current + bytes)) {
-        recycledSlabs.computeIfAbsent(bytes, size -> new ConcurrentLinkedDeque<>()).addFirst(allocation);
-        return true;
+      if (!slabsByAddress.remove(address, allocation)) {
+        return false;
       }
+      final long bytes = allocation.bytes();
+      activeBytes.addAndGet(-bytes);
+      HftBoundaryTelemetry.allocatorRelease();
+      // Keep the pages mapped for the next slab of this size while the recycle bound allows it; the
+      // bound is reserved with a CAS so concurrent releases never exceed it.
+      try {
+        final long limit = slabRecycleLimitBytes;
+        for (;;) {
+          final long current = recycledSlabBytes.get();
+          if (terminated.get() || current + bytes > limit) {
+            final boolean released = VM.release(allocation.segment());
+            refundCommittedBytes(bytes);
+            HftBoundaryTelemetry.nativeRelease();
+            return released;
+          }
+          beforeSlabPublication();
+          if (recycledSlabBytes.compareAndSet(current, current + bytes)) {
+            recycledCacheSlabBytes.addAndGet(bytes);
+            recycledSlabs.computeIfAbsent(bytes, size -> new ConcurrentLinkedDeque<>()).addFirst(allocation);
+            return true;
+          }
+        }
+      } finally {
+        slabBytes.addAndGet(-bytes);
+      }
+    } finally {
+      slabOperations.decrementAndGet();
     }
   }
 
@@ -1198,11 +1230,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // request is short of before refusing anyone, and no more than that, so the rest stays resident
     // for its next borrower. The shortfall is re-read each round because other threads commit too.
     while (!tryReserveCommittedBytes(bytes, limit)) {
-      final long shortBy = bytes - Math.max(0L, limit - nonExecutionCommittedBytes.getAcquire());
+      final long shortBy = nonExecutionCommittedBytes.getAcquire() - (limit - bytes);
       if (shortBy <= 0L) {
         continue;
       }
-      if (drainRecycledSlabs(shortBy, true) == 0L) {
+      final FrameScratch scratchBuffers = scratch;
+      final long reclaimable = recycledCacheSlabBytes.get() + (scratchBuffers == null
+          ? 0L
+          : scratchBuffers.reclaimableBytesUpperBound());
+      if (shortBy > reclaimable || drainRecycledSlabs(shortBy, true) == 0L) {
         return false;
       }
     }
@@ -1891,6 +1927,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       terminated.set(false);
       throw new IllegalStateException("FrameSlotAllocator shutdown raced " + oversizedOperations
           + " oversized allocation operation(s); retry after admission completes");
+    }
+    final int pendingSlabOperations = slabOperations.get();
+    if (pendingSlabOperations != 0) {
+      terminated.set(false);
+      throw new IllegalStateException("FrameSlotAllocator shutdown raced " + pendingSlabOperations
+          + " slab operation(s); retry after admission completes");
     }
     // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
     // lease; unmapping it here would be a use-after-free.

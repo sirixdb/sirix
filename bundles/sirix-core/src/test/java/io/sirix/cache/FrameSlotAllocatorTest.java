@@ -723,8 +723,8 @@ class FrameSlotAllocatorTest {
         assertEquals(frameBytes + small, allocator.getPhysicalMemoryBytes());
       }
       assertNull(allocator.allocateSlot(small));
-      assertEquals(frameBytes, allocator.getPhysicalMemoryBytes());
-      assertEquals(1L, allocator.scratchStats().totalReclaimed());
+      assertEquals(frameBytes + small, allocator.getPhysicalMemoryBytes());
+      assertEquals(0L, allocator.scratchStats().totalReclaimed());
       assertEquals(0L, allocator.allocateCount(FrameSlotAllocator.indexForSize(small)));
     } finally {
       for (final FrameSlot frame : frames) {

@@ -1199,7 +1199,7 @@ public class ProjectionFoldKernelBenchmark {
   private enum Arm {
     /** Per-leaf heap arrays that were never off-heap: the shape before the lanes existed. */
     ARRAY,
-    /** {@code NumericLane.values()}: the leaf's lane copied to a fresh heap array, then read. */
+    /** The leaf's lane copied to a fresh benchmark-owned heap array, then read. */
     ARRAY_AFTER_COPY,
     /** The store's own slab, read in place. */
     SLAB,
@@ -1279,9 +1279,6 @@ public class ProjectionFoldKernelBenchmark {
       switch (arm) {
         case ARRAY -> values[a] = s.heapValues[leaf][a];
         case ARRAY_AFTER_COPY -> {
-          // What ColumnSlice.numericValues() does for a slab-backed slice: one fresh heap array per
-          // slice, filled once from the lane, then read by the array kernel. The allocation is part
-          // of the cost — the slices of a query's fill are new objects, so the copy is not reused.
           final long[] copy = new long[BLOCK_VALUES];
           MemorySegment.copy(s.slabs[a], ValueLayout.JAVA_LONG_UNALIGNED, s.slabBases[leaf][a], copy, 0, BLOCK_VALUES);
           values[a] = copy;

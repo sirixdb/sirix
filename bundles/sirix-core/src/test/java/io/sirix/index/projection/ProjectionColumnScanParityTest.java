@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.numericValue;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
@@ -641,7 +643,7 @@ final class ProjectionColumnScanParityTest {
         if ((agg.presenceWords()[r >>> 6] & (1L << (r & 63))) == 0) {
           continue;
         }
-        final long v = agg.numericValues()[r];
+        final long v = numericValue(agg, r);
         acc[0]++;
         acc[1] += v;
         if (v < acc[2])
@@ -681,7 +683,7 @@ final class ProjectionColumnScanParityTest {
       final boolean v = (slice.boolWords()[r >>> 6] & (1L << (r & 63))) != 0;
       return v == p.boolLit;
     }
-    final long v = slice.numericValues()[r];
+    final long v = numericValue(slice, r);
     return switch (p.op) {
       case GT -> v > p.longLit;
       case LT -> v < p.longLit;
@@ -1130,7 +1132,7 @@ final class ProjectionColumnScanParityTest {
         final int dictId = slice.stringDictIds()[r];
         values.add(Arrays.copyOfRange(slice.dictBytes(), slice.dictOffset(dictId),
             slice.dictOffset(dictId) + slice.dictLength(dictId)));
-        longs.add(longSlices[leaf].numericValues()[r]);
+        longs.add(numericValue(longSlices[leaf], r));
         keys.add(recordKeys[leaf][r]);
       }
     }
@@ -1196,7 +1198,7 @@ final class ProjectionColumnScanParityTest {
       final int rows = fx.store().rowCount(leaf);
       final ProjectionColumnStore.ColumnSlice slice = sortSlices[leaf];
       for (int r = 0; r < rows; r++, rank++) {
-        if (filterGt != Long.MIN_VALUE && filterSlices[leaf].numericValues()[r] <= filterGt) {
+        if (filterGt != Long.MIN_VALUE && numericValue(filterSlices[leaf], r) <= filterGt) {
           continue;
         }
         final int dictId = slice.stringDictIds()[r];

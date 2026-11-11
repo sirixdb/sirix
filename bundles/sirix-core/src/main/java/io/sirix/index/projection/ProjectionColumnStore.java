@@ -182,30 +182,6 @@ public final class ProjectionColumnStore {
       this(rowCount, flags, min, max, presenceWords, null, null, null, null, null, null, null, null, lane);
     }
 
-    /**
-     * The numeric lane as a heap array. A slab-backed slice materializes a copy once, counted by
-     * {@link NumericLane#materializedCount()}: the transition seam for consumers not yet reading the
-     * lane in place. Converted kernels read {@link #lane()} and never call this.
-     */
-    @Override
-    public long @Nullable [] numericValues() {
-      final long[] onHeap = numericValues;
-      if (onHeap != null) {
-        return onHeap;
-      }
-      final NumericLane resident = lane;
-      return resident == null
-          ? null
-          : resident.values();
-    }
-
-    /**
-     * The heap value array as stored, never materializing a slab-backed lane ({@code null} for one).
-     */
-    public long @Nullable [] heapNumericValues() {
-      return numericValues;
-    }
-
     /** Whether the slice carries a numeric lane in either representation. */
     public boolean hasNumericLane() {
       return numericValues != null || lane != null;
@@ -4004,9 +3980,9 @@ public final class ProjectionColumnStore {
         : s.presenceWords().length * 8L;
     b += s.lane() != null
         ? 8L * s.rowCount()
-        : s.heapNumericValues() == null
+        : s.numericValues() == null
             ? 0
-            : s.heapNumericValues().length * 8L;
+            : s.numericValues().length * 8L;
     b += s.boolWords() == null
         ? 0
         : s.boolWords().length * 8L;

@@ -1072,7 +1072,7 @@ public final class SegmentGroupCanonicaliser {
     final NumericLane lane = slice.lane();
     return lane != null
         ? lane.rows()
-        : requireNonNull(slice.heapNumericValues(), "a slice with a lane has one of the two forms").length;
+        : requireNonNull(slice.numericValues(), "a slice with a lane has one of the two forms").length;
   }
 
   private synchronized void snapshotCandidates(final long[] hashes, final int[] candidates, final long[] cells,

@@ -1912,11 +1912,8 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
-   * ONE row's value from a numeric lane, read where it already lives. Winner materialisation is
-   * SPARSE — a handful of rows per query — so the per-call segment and base resolution is cheaper by
-   * orders of magnitude than {@code numericValues()}, which would copy the whole leaf's lane to the
-   * heap to answer a single row. Never call this inside a row loop: a loop hoists the segment and the
-   * base once per leaf instead.
+   * ONE row's value from a numeric lane, read where it already lives. Never call this inside a row
+   * loop: a loop hoists the segment and the base once per leaf instead.
    */
   private static long laneValue(final ColumnSlice slice, final int rowIdx) {
     return SegmentAccess.getLong(slice.laneSegment(), slice.laneBase() + ((long) rowIdx << 3));

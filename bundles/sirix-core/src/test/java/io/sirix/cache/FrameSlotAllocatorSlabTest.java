@@ -6,6 +6,8 @@ package io.sirix.cache;
 import io.sirix.node.SegmentAccess;
 import io.sirix.utils.OS;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.lang.foreign.Arena;
@@ -18,6 +20,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -38,6 +42,67 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  */
 final class FrameSlotAllocatorSlabTest {
   private static final long BUDGET = 4L << 20;
+
+  private enum SlabTransition {
+    FRESH, REUSED, RELEASED
+  }
+
+  @ParameterizedTest
+  @EnumSource(SlabTransition.class)
+  void shutdownRejectsUnpublishedSlabTransitions(final SlabTransition transition) throws Exception {
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(BUDGET);
+    final ExecutorService worker = Executors.newSingleThreadExecutor();
+    final CountDownLatch publishing = new CountDownLatch(1);
+    final CountDownLatch proceed = new CountDownLatch(1);
+    try {
+      final MemorySegment existing = transition == SlabTransition.FRESH
+          ? null
+          : allocator.allocateSlab(4096L);
+      if (transition == SlabTransition.REUSED) {
+        assertNotNull(existing);
+        assertTrue(allocator.releaseSlab(existing));
+      }
+      allocator.setSlabPublicationHookForTesting(() -> {
+        publishing.countDown();
+        try {
+          proceed.await();
+        } catch (final InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException(interrupted);
+        }
+      });
+      final Future<MemorySegment> operation = worker.submit(() -> {
+        if (transition == SlabTransition.RELEASED) {
+          assertNotNull(existing);
+          assertTrue(allocator.releaseSlab(existing));
+          return null;
+        }
+        return allocator.allocateSlab(4096L);
+      });
+      publishing.await();
+      assertThrows(IllegalStateException.class, allocator::shutdown);
+      allocator.setSlabPublicationHookForTesting(null);
+      proceed.countDown();
+      final MemorySegment allocated = operation.get();
+      if (transition != SlabTransition.RELEASED) {
+        assertNotNull(allocated);
+        assertTrue(allocator.releaseSlab(allocated));
+      }
+      allocator.shutdown();
+      assertEquals(0L, allocator.getSlabBytes());
+      assertEquals(0L, allocator.getRecycledSlabBytes());
+      assertEquals(0L, allocator.getPhysicalMemoryBytes());
+      assertEquals(0L, allocator.nonExecutionCommittedBytes());
+      assertEquals(0L, allocator.getActiveMemoryBytes());
+      assertThrows(IllegalStateException.class, () -> allocator.allocateSlab(4096L));
+    } finally {
+      allocator.setSlabPublicationHookForTesting(null);
+      proceed.countDown();
+      worker.shutdown();
+      worker.close();
+      allocator.shutdown();
+    }
+  }
 
   @Test
   void slabsAreChargedBeforeMappingAndRefundedExactlyOnce() throws Exception {

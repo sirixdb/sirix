@@ -25,9 +25,7 @@ rows) and no heap value array; presence words, boolean words and string dictiona
 arrays in this step, and the store decodes the KEYS chain to heap arrays (a masked selection moves
 the kept leaves' keys into its own slab, below). Kernels read a lane through the slice's segment and base,
 hoisted once per leaf, eight bytes per row at linear offsets (`SegmentAccess`), or through
-`LongVector.fromMemorySegment`; `ColumnSlice.numericValues()` on a lane-backed slice copies the lane
-to the heap once and counts it (`NumericLane.materializedCount`), the seam that keeps a consumer
-not yet converted working — a converted kernel never calls it, and the integration step deletes it.
+`LongVector.fromMemorySegment`.
 
 **One kernel per operation.** A consumer reaches a value only through the slice's lane, so each
 operation has exactly one kernel rather than an array form and a segment form to keep in step: the

@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
 import static java.util.Objects.requireNonNull;
 
 import io.sirix.budget.EngineWorkCounters;
@@ -428,7 +430,7 @@ final class RecordKeySetPredicateTest {
                                                                      store.columnMaskedView(column, fetcher, keep);
                                                                  assertEquals(0, slices[0].rowCount());
                                                                  assertEquals(values[column],
-                                                                     requireNonNull(slices[1].numericValues(),
+                                                                     requireNonNull(copyNumericValues(slices[1]),
                                                                          "the retained fixture column is numeric")[0]);
                                                                  assertEquals(0, slices[2].rowCount());
                                                                }

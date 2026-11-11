@@ -3,6 +3,8 @@
  */
 package io.sirix.query.scan;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.projection.NumericLane;
@@ -84,9 +86,8 @@ final class ProjectionLaneKernelParityTest {
     final ColumnSlice[] lanes = f.store().column(0, f.fetcher());
     final long min = columnMin(lanes);
     final long span = columnMax(lanes) - min;
-    final long materializedBefore = NumericLane.materializedCount();
     final long fromLanes = SirixVectorizedExecutor.distinctViaBitset(lanes, min, span);
-    assertEquals(materializedBefore, NumericLane.materializedCount(), "the lane run copies nothing to the heap");
+    assertNoHeapValues(lanes);
     assertEquals(expectedDistinct(f), fromLanes, "the lane answer is the model's");
     assertEquals(fromLanes, SirixVectorizedExecutor.distinctViaBitset(heapTwins(lanes), min, span));
     f.store().retire();
@@ -98,9 +99,8 @@ final class ProjectionLaneKernelParityTest {
   void hashDistinctMatchesTheArrayVersion() {
     final Fixture f = build(5, 120, Long.MIN_VALUE, Long.MAX_VALUE, 3L);
     final ColumnSlice[] lanes = f.store().column(0, f.fetcher());
-    final long materializedBefore = NumericLane.materializedCount();
     final long fromLanes = SirixVectorizedExecutor.distinctViaHashSet(lanes);
-    assertEquals(materializedBefore, NumericLane.materializedCount(), "the lane run copies nothing to the heap");
+    assertNoHeapValues(lanes);
     assertEquals(expectedDistinct(f), fromLanes);
     assertEquals(fromLanes, SirixVectorizedExecutor.distinctViaHashSet(heapTwins(lanes)));
     f.store().retire();
@@ -116,9 +116,9 @@ final class ProjectionLaneKernelParityTest {
     final ColumnSlice[] leftHeap = heapTwins(left);
     final ColumnSlice[] rightHeap = heapTwins(right);
     for (final String op : new String[] {"+", "-", "*"}) {
-      final long materializedBefore = NumericLane.materializedCount();
       final long fromLanes = SirixVectorizedExecutor.foldBinaryNumeric(left, right, op);
-      assertEquals(materializedBefore, NumericLane.materializedCount(), "the lane run copies nothing to the heap");
+      assertNoHeapValues(left);
+      assertNoHeapValues(right);
       assertEquals(expectedFold(f, op), fromLanes, "operator " + op + " over the lanes");
       assertEquals(fromLanes, SirixVectorizedExecutor.foldBinaryNumeric(leftHeap, rightHeap, op),
           "operator " + op + " over the array twins");
@@ -329,6 +329,16 @@ final class ProjectionLaneKernelParityTest {
     return total;
   }
 
+  private static void assertNoHeapValues(final ColumnSlice[] slices) {
+    for (final ColumnSlice slice : slices) {
+      if (slice.rowCount() != 0) {
+        assertNull(slice.numericValues(), "a slab lane exposes no heap value array");
+        assertNotNull(slice.lane());
+        assertTrue(slice.lane().segment().isNative());
+      }
+    }
+  }
+
   /**
    * Heap-array twins of lane-backed slices: the same values, presence words and zone bounds, carried
    * as {@code long[]} the way every producer did before the lanes existed.
@@ -341,11 +351,7 @@ final class ProjectionLaneKernelParityTest {
         twins[i] = slice;
         continue;
       }
-      final NumericLane lane = Objects.requireNonNull(slice.lane(), "a long-lane column carries a lane");
-      final long[] values = new long[slice.rowCount()];
-      for (int row = 0; row < values.length; row++) {
-        values[row] = SegmentAccess.getLong(lane.segment(), lane.base() + ((long) row << 3));
-      }
+      final long[] values = copyNumericValues(slice);
       twins[i] = new ColumnSlice(slice.rowCount(), slice.flags(), slice.min(), slice.max(), slice.presenceWords(),
           values, null, null, null, null);
     }

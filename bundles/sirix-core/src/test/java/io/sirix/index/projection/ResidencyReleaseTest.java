@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.FillBudgetExceededException;
 import io.sirix.index.projection.ProjectionColumnStore.LeafColumnAccess;
@@ -385,7 +387,7 @@ final class ResidencyReleaseTest {
     long sum = 0;
     for (int leaf = 0; leaf < leaves; leaf++) {
       final ProjectionColumnStore.ColumnSlice slice = access.slice(col, leaf);
-      final long[] values = slice.numericValues();
+      final long[] values = copyNumericValues(slice);
       if (values == null) {
         continue;
       }

@@ -3,10 +3,12 @@
  */
 package io.sirix.cache;
 
+import io.sirix.cache.FrameSlotAllocator.FrameSlot;
 import io.sirix.node.SegmentAccess;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
@@ -15,6 +17,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class FrameScratchReclamationTest {
@@ -23,6 +26,134 @@ final class FrameScratchReclamationTest {
 
   private enum Target {
     SMALL, REGION, EXACT, SLAB, OVERSIZED, FRAME
+  }
+
+  @ParameterizedTest
+  @ValueSource(longs = {128 * 1024L, 512 * 1024L, 17 * 1024 * 1024L + 1L})
+  void impossibleScratchAdmissionKeepsIdleMappings(final long requested) {
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(32 * MIB, 4);
+    MemorySegment resident = null;
+    try {
+      resident = allocator.allocateSlab(28 * MIB - 4 * KIB);
+      assertNotNull(resident);
+      SegmentAccess.putLong(resident, 0L, 59L);
+      final long address;
+      try (ScratchLease scratch = new ScratchLease(allocator).acquire(4 * KIB, ScratchUse.READ)) {
+        address = scratch.segment().address();
+      }
+      final ScratchStats before = allocator.scratchStats();
+      try (ScratchLease refused = new ScratchLease(allocator)) {
+        assertFalse(refused.tryAcquire(requested, ScratchUse.CODEC));
+      }
+      assertEquals(28 * MIB, allocator.getPhysicalMemoryBytes());
+      assertEquals(before.totalCreated(), allocator.scratchStats().totalCreated());
+      assertEquals(before.totalReclaimed(), allocator.scratchStats().totalReclaimed());
+      assertEquals(59L, SegmentAccess.getLong(resident, 0L));
+      try (ScratchLease scratch = new ScratchLease(allocator).acquire(4 * KIB, ScratchUse.READ)) {
+        assertEquals(address, scratch.segment().address());
+      }
+    } finally {
+      if (resident != null) {
+        assertTrue(allocator.releaseSlab(resident));
+      }
+      allocator.shutdown();
+    }
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.nonExecutionCommittedBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+    assertEquals(0L, allocator.getRecycledSlabBytes());
+  }
+
+  @Test
+  void impossibleFrameAdmissionKeepsIdleScratchAndSlabsMapped() {
+    final long budget = 64 * MIB;
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(budget, 4);
+    final List<FrameSlot> frames = new ArrayList<>();
+    try {
+      final long frameLimit = budget - budget / 8 - allocator.oversizedHeadroomBytes();
+      for (long bytes = 0L; bytes < frameLimit; bytes += 256 * KIB) {
+        final FrameSlot frame = allocator.allocateSlot(256 * KIB);
+        assertNotNull(frame);
+        frames.add(frame);
+      }
+      final MemorySegment slab = allocator.allocateSlab(4 * KIB);
+      assertNotNull(slab);
+      assertTrue(allocator.releaseSlab(slab));
+      final long scratchAddress;
+      try (ScratchLease scratch = new ScratchLease(allocator).acquire(128 * KIB, ScratchUse.READ)) {
+        scratchAddress = scratch.segment().address();
+      }
+      final long committed = allocator.getPhysicalMemoryBytes();
+      final ScratchStats before = allocator.scratchStats();
+      assertNull(allocator.allocateSlot(4 * KIB));
+      assertEquals(committed, allocator.getPhysicalMemoryBytes());
+      assertEquals(committed, allocator.nonExecutionCommittedBytes());
+      assertEquals(4 * KIB, allocator.getRecycledSlabBytes());
+      assertEquals(before.totalCreated(), allocator.scratchStats().totalCreated());
+      assertEquals(before.totalReclaimed(), allocator.scratchStats().totalReclaimed());
+      try (ScratchLease scratch = new ScratchLease(allocator).acquire(128 * KIB, ScratchUse.READ)) {
+        assertEquals(scratchAddress, scratch.segment().address());
+      }
+      final MemorySegment reused = allocator.allocateSlab(4 * KIB);
+      assertNotNull(reused);
+      assertEquals(slab.address(), reused.address());
+      assertTrue(allocator.releaseSlab(reused));
+    } finally {
+      for (final FrameSlot frame : frames) {
+        frame.close();
+      }
+      allocator.shutdown();
+    }
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.nonExecutionCommittedBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+    assertEquals(0L, allocator.getRecycledSlabBytes());
+  }
+
+  @Test
+  void admissionReclaimsTheRealShortfallAboveTheFrameLimit() {
+    final long budget = 64 * MIB;
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(budget, 4);
+    final List<FrameSlot> frames = new ArrayList<>();
+    final List<ScratchLease> leases = new ArrayList<>(3);
+    try {
+      final long frameLimit = budget - budget / 8 - allocator.oversizedHeadroomBytes();
+      for (long bytes = 0L; bytes < frameLimit - 256 * KIB; bytes += 256 * KIB) {
+        final FrameSlot frame = allocator.allocateSlot(256 * KIB);
+        assertNotNull(frame);
+        frames.add(frame);
+      }
+      final MemorySegment slab = allocator.allocateSlab(4 * KIB);
+      assertNotNull(slab);
+      assertTrue(allocator.releaseSlab(slab));
+      for (int buffer = 0; buffer < 3; buffer++) {
+        leases.add(new ScratchLease(allocator).acquire(128 * KIB, ScratchUse.READ));
+      }
+      for (final ScratchLease lease : leases) {
+        lease.close();
+      }
+      final long committed = allocator.getPhysicalMemoryBytes();
+      assertEquals(frameLimit + 132 * KIB, committed);
+      final FrameSlot frame = allocator.allocateSlot(128 * KIB);
+      assertNotNull(frame);
+      frames.add(frame);
+      assertEquals(frameLimit, allocator.getPhysicalMemoryBytes());
+      assertEquals(260 * KIB, committed + 128 * KIB - allocator.getPhysicalMemoryBytes());
+      assertEquals(2L, allocator.scratchStats().totalReclaimed());
+      assertEquals(1L, allocator.scratchStats().totalIdleBuffers());
+      assertEquals(0L, allocator.getRecycledSlabBytes());
+    } finally {
+      for (final ScratchLease lease : leases) {
+        lease.close();
+      }
+      for (final FrameSlot frame : frames) {
+        frame.close();
+      }
+      allocator.shutdown();
+    }
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.nonExecutionCommittedBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
   }
 
   @Test

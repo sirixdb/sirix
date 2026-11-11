@@ -16,6 +16,8 @@ import io.sirix.budget.WorkCapture;
 import io.sirix.budget.WorkReport;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionColumnStore;
+import io.sirix.index.projection.NumericLane;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.FillBudgetExceededException;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
@@ -220,7 +222,7 @@ final class IndexRoutedGroupWorkBudgetTest {
       final var fetcher = ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
       final var executor = new SirixVectorizedExecutor(session, revision, 1);
       try {
-        long[] residentValues = null;
+        NumericLane residentLane = null;
         for (int repeat = 0; repeat < 3; repeat++) {
           final WorkCapture.Captured<ServedGroups> served =
               WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
@@ -239,11 +241,13 @@ final class IndexRoutedGroupWorkBudgetTest {
                     : 0, "membership and grouping share the resident record keys")
                 .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "membership remains in the grouped route");
           assertTrue(columns.columnFilled(membershipColumn), "membership retains its decoded column");
-          final long[] decoded = columns.column(membershipColumn, fetcher)[0].numericValues();
+          final ColumnSlice decoded = columns.column(membershipColumn, fetcher)[0];
+          assertNull(decoded.numericValues(), "the resident lane exposes no heap value array");
+          assertNotNull(decoded.lane());
           if (repeat == 0) {
-            residentValues = decoded;
+            residentLane = decoded.lane();
           } else {
-            assertSame(residentValues, decoded, "repeated membership reuses the decoded value lane");
+            assertSame(residentLane, decoded.lane(), "repeated membership reuses the decoded value lane");
           }
         }
       } finally {

@@ -161,7 +161,7 @@ final class ColumnSlabLifetimeTest {
           final MemorySegment directAllocation = allocations.get(1);
           assertFalse(direct.store().columnFilled(0));
           assertNotNull(slices[0].lane());
-          assertNull(slices[0].heapNumericValues());
+          assertNull(slices[0].numericValues());
           assertEquals(0, slices[1].rowCount());
           assertEquals(0, slices[2].rowCount());
           other.close();
@@ -187,7 +187,6 @@ final class ColumnSlabLifetimeTest {
   @DisplayName("a fill decodes every leaf into one slab the slices read in place")
   void aFillDecodesEveryLeafIntoOneSlabReadInPlace() {
     final Fixture f = build(5, 200);
-    final long materializedBefore = NumericLane.materializedCount();
     final ColumnSlice[] slices = f.store().column(0, f.fetcher());
     assertEquals(charged(slabBytes(f)), slabDelta(), "one slab, every leaf's lane 64-byte aligned");
     long expectedBase = 0L;
@@ -195,7 +194,7 @@ final class ColumnSlabLifetimeTest {
       final ColumnSlice slice = slices[leaf];
       final NumericLane lane = slice.lane();
       assertNotNull(lane, "a long-lane column carries no heap value array");
-      assertNull(slice.heapNumericValues());
+      assertNull(slice.numericValues());
       assertTrue(lane.segment().isNative());
       assertEquals(expectedBase, lane.base(), "leaf " + leaf);
       expectedBase += (8L * slice.rowCount() + 63L) & ~63L;
@@ -205,7 +204,6 @@ final class ColumnSlabLifetimeTest {
         assertEquals(heap[row], SegmentAccess.getLong(slice.laneSegment(), slice.laneBase() + 8L * row));
       }
     }
-    assertEquals(materializedBefore, NumericLane.materializedCount(), "in-place reads copy nothing to the heap");
     f.store().retire();
     assertEquals(0L, slabDelta(), "retirement returns the unpinned slab");
   }

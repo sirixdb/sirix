@@ -3,6 +3,10 @@
  */
 package io.sirix.index.projection;
 
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.node.SegmentAccess;
 import org.junit.jupiter.api.AfterEach;
@@ -459,9 +463,10 @@ final class ComputedColumnLaneEquivalenceTest {
   private static void assertDerived(final ColumnSlice expected, final ColumnSlice actual, final String what) {
     assertEquals(expected.rowCount(), actual.rowCount(), what + ": row count");
     assertArrayEquals(expected.presenceWords(), actual.presenceWords(), what + ": derived presence");
-    final long[] actualValues = actual.numericValues();
+    assertNull(actual.numericValues(), what + ": the slab exposes no heap value array");
+    final long[] actualValues = copyNumericValues(actual);
     assertNotNull(actual.lane(), what + ": the derived column owns a numeric lane");
-    assertArrayEquals(expected.heapNumericValues(), actualValues, what + ": derived values");
+    assertArrayEquals(copyNumericValues(expected), actualValues, what + ": derived values");
     assertEquals(expected.min(), actual.min(), what + ": zone-map min");
     assertEquals(expected.max(), actual.max(), what + ": zone-map max");
   }

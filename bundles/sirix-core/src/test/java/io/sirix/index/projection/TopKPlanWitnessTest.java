@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.LeafColumnAccess;
@@ -443,7 +445,7 @@ final class TopKPlanWitnessTest {
         continue;
       }
       assertArrayEquals(strings[leaf].presenceWords(), s.presenceWords(), "presence of leaf " + leaf);
-      assertArrayEquals(longs[leaf].numericValues(), l.numericValues(), "longs of leaf " + leaf);
+      assertArrayEquals(copyNumericValues(longs[leaf]), copyNumericValues(l), "longs of leaf " + leaf);
       assertArrayEquals(keys[leaf], access.recordKeys(leaf), "record keys of leaf " + leaf);
       for (int r = 0; r < s.rowCount(); r++) {
         if ((s.presenceWords()[r >>> 6] & 1L << (r & 63)) != 0L) {
