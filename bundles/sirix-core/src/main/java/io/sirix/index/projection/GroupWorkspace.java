@@ -12,6 +12,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.ref.Cleaner;
 import java.util.Arrays;
 import java.util.concurrent.atomic.LongAdder;
@@ -40,10 +41,12 @@ import static java.util.Objects.requireNonNull;
  * standalone accumulator) are carved and not taken back.
  *
  * <p>
- * <b>Everything handed out is zero.</b> Allocator memory holds its previous borrower's bytes, and
- * an all-zero chunk is what a group table reads as "every bucket empty". A carved chunk is cleared
- * when it is carved and a returned chunk when it is returned. Returned buffer generations are
- * permanently invalid, even when a later table reuses the same bytes.
+ * <b>Everything handed out is zero.</b> Allocator memory holds its previous borrower's bytes, a
+ * returned chunk its last table's, and an all-zero chunk is what a group table reads as "every
+ * bucket empty". A chunk is therefore cleared when it is taken, carved or returned alike, and not
+ * when it is given back: what is cleared is then in the cache for the table that asked for it, and
+ * a chunk nobody takes again is never cleared at all. Returned buffer generations are permanently
+ * invalid, even when a later table reuses the same bytes.
  *
  * <p>
  * <b>Lifetime.</b> Each buffer retains this workspace. Checked public access rejects closed
@@ -57,12 +60,16 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * Thread-safe: the tables of a scan's workers take and give chunks concurrently. Chunks are
  * exchanged at most once per 128 KiB of table, so one monitor serves the bookkeeping. The clearing
- * is done outside it, by the thread that takes or gives the chunk: workers clear (and, on memory
- * the allocator has just mapped, first touch) their own chunks side by side instead of queueing
- * behind one another. That is safe for the same reason writing a table is: the workspace is closed
- * only once every worker of the scan has finished.
+ * is done outside it, by the thread that takes the chunk: workers clear (and, on memory the
+ * allocator has just mapped, first touch) their own chunks side by side instead of queueing behind
+ * one another. That is safe for the same reason writing a table is: the workspace is closed only
+ * once every worker of the scan has finished.
  */
 public final class GroupWorkspace implements AutoCloseable {
+
+  /** A page of zero lanes, the source {@link #clear} copies from. Never written. */
+  private static final long[] ZERO_PAGE = new long[512];
+  private static final long ZERO_PAGE_BYTES = (long) ZERO_PAGE.length << 3;
 
   /** The first region a workspace borrows: a small group-by never needs more. */
   static final long FIRST_REGION_BYTES = 64L << 10;
@@ -245,26 +252,29 @@ public final class GroupWorkspace implements AutoCloseable {
       throw new IllegalArgumentException("lanes must be positive: " + lanes);
     }
     final MemorySegment chunk;
+    final long generation;
     synchronized (this) {
       requireOpen();
       final Spare spare = spareByLanes.get(lanes);
       if (spare != null && spare.count > 0) {
         chunksReused++;
         REUSED.increment();
-        return new GroupBuffer(spare.pop(), this, ++nextGeneration, stride, offset, accumulatorLanes);
+        chunk = spare.pop();
+      } else {
+        chunk = carve((long) lanes << 3);
+        chunksCarved++;
       }
-      chunk = carve((long) lanes << 3);
-      chunksCarved++;
+      generation = ++nextGeneration;
     }
     // Cleared by the taking thread, outside the monitor: see the class comment.
-    chunk.fill((byte) 0);
-    return new GroupBuffer(chunk, this, nextGeneration(), stride, offset, accumulatorLanes);
+    clear(chunk);
+    return new GroupBuffer(chunk, this, generation, stride, offset, accumulatorLanes);
   }
 
   /**
-   * Hand a chunk back for the next {@link #takeChunk} of its lane count. It is cleared here and must
-   * not be touched by the caller afterwards. A chunk given to a closed workspace is ignored: its
-   * region went back to the allocator with the rest.
+   * Hand a chunk back for the next {@link #takeChunk} of its lane count. The caller must not touch it
+   * afterwards; its bytes stay as they are until it is taken again. A chunk given to a closed
+   * workspace is ignored: its region went back to the allocator with the rest.
    *
    * @param chunk a chunk this workspace handed out
    */
@@ -275,8 +285,6 @@ public final class GroupWorkspace implements AutoCloseable {
     }
     final int lanes = GroupLanes.count(chunk);
     chunk.retire(this);
-    // Cleared by the giving thread, outside the monitor: see the class comment.
-    chunk.segment.fill((byte) 0);
     synchronized (this) {
       if (closed) {
         return;
@@ -307,8 +315,30 @@ public final class GroupWorkspace implements AutoCloseable {
       requireOpen();
       block = carve((long) lanes << 3);
     }
-    block.fill((byte) 0);
+    clear(block);
     return new GroupBuffer(block, this, nextGeneration());
+  }
+
+  /**
+   * Zero {@code memory}, a whole number of lanes.
+   *
+   * <p>
+   * By copying from a page of zeros, not by {@link MemorySegment#fill}: a fill reaches
+   * {@code Unsafe.setMemory}, whose x86-64 stub stores eight bytes at a time, while the copy stubs
+   * move whole vectors. A table that grows to a million groups takes about twice its final size in
+   * chunks, each of them cleared here; building one ran 324 cycles a row with the fill and 320 with
+   * the copy, which is what the heap table it replaced takes.
+   */
+  private static void clear(final MemorySegment memory) {
+    final long bytes = memory.byteSize();
+    long done = 0L;
+    while (bytes - done >= ZERO_PAGE_BYTES) {
+      MemorySegment.copy(ZERO_PAGE, 0, memory, ValueLayout.JAVA_LONG_UNALIGNED, done, ZERO_PAGE.length);
+      done += ZERO_PAGE_BYTES;
+    }
+    if (done < bytes) {
+      MemorySegment.copy(ZERO_PAGE, 0, memory, ValueLayout.JAVA_LONG_UNALIGNED, done, (int) (bytes - done >>> 3));
+    }
   }
 
   /** Carve {@code bytes} from the current region, borrowing the next one when it does not fit. */

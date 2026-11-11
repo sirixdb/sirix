@@ -129,6 +129,16 @@ final class GroupKernelLanes {
   }
 
   /**
+   * Copy {@code lanes} lanes, from lane {@code first} of {@code source} to the start of
+   * {@code target}. Production only: debug mode's records are views, which its callers copy between
+   * through their buffers.
+   */
+  static void copy(final long source, final int first, final long target, final int lanes) {
+    MemorySegment.copy(ADDRESS_SPACE, at(source, first), ADDRESS_SPACE, at(target, 0),
+        Integer.toUnsignedLong(lanes) << 3);
+  }
+
+  /**
    * The lane at {@code address}, which is not a record: an address a {@link GroupBuffer} derived from
    * its own validated bounds for one checked access. Never reached in debug mode, whose callers read
    * through the bounded buffer instead. Not masked: the spanning segment's own check then runs beside

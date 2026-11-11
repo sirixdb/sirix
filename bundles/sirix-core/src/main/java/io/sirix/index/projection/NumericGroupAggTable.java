@@ -1771,8 +1771,10 @@ public final class NumericGroupAggTable {
           continue;
         }
         final int oldLanes = GroupLanes.count(oldChunk);
+        // The whole chunk is one record for the walk: resolved once, not once per bucket.
+        final long from = oldChunk.record(0, oldLanes);
         for (int o = 0; o < oldLanes; o += st) {
-          final long key = GroupLanes.get(oldChunk, o);
+          final long key = GroupKernelLanes.get(from, o);
           if (key == 0L) {
             continue;
           }
@@ -1789,12 +1791,12 @@ public final class NumericGroupAggTable {
             grown[chunkIndex] = targetChunk;
             grownAddress[chunkIndex] = targetChunk.address;
           }
-          copyStripe(oldChunk, o, targetChunk, (bucket & newChunkBucketMask) * st, st);
+          copyStripe(oldChunk, from, o, targetChunk, (bucket & newChunkBucketMask) * st, st);
         }
-        // Every stripe of this chunk lives in the grown table now. It goes back at once, while the
-        // walk above still has it in the cache: clearing it there costs a fraction of clearing it
-        // cold, and it is the chunk the grown table takes next. The table forgets the chunk in the
-        // same step, so it is returned exactly once whatever happens next.
+        // Every stripe of this chunk lives in the grown table now. It goes back at once: it is then
+        // the chunk the grown table takes next, and the workspace clears it for that table while the
+        // walk above still has it in the cache, a fraction of what clearing it cold costs. The table
+        // forgets the chunk in the same step, so it is returned exactly once whatever happens next.
         old[c] = null;
         oldAddress[c] = 0L;
         recycle(oldChunk);
@@ -1819,21 +1821,19 @@ public final class NumericGroupAggTable {
   }
 
   /**
-   * Copy the {@code lanes} lanes of one stripe. Both complete stripes are validated against their
-   * chunks first; the copy itself is a lane loop, because a stripe is a dozen lanes and a bulk copy's
-   * own entry cost is several of them. Debug mode copies through the bounded segments.
+   * Copy the {@code lanes} lanes of one stripe from a chunk growth is walking, whose whole-chunk
+   * record {@code from} the walk resolved, into a chunk of the grown table. The target stripe is
+   * validated against its chunk; the copy itself is a lane loop, because a stripe is a dozen lanes
+   * and a bulk copy's own entry cost is several of them. Debug mode copies through the bounded
+   * segments.
    */
-  private static void copyStripe(final GroupBuffer source, final int from, final GroupBuffer target, final int to,
-      final int lanes) {
+  private static void copyStripe(final GroupBuffer source, final long from, final int first, final GroupBuffer target,
+      final int to, final int lanes) {
     if (GroupKernelLanes.DEBUG) {
-      GroupLanes.copy(source, from, target, to, lanes);
+      GroupLanes.copy(source, first, target, to, lanes);
       return;
     }
-    final long read = source.record(from, lanes);
-    final long write = target.record(to, lanes);
-    for (int lane = 0; lane < lanes; lane++) {
-      GroupKernelLanes.set(write, lane, GroupKernelLanes.get(read, lane));
-    }
+    GroupKernelLanes.copy(from, first, target.record(to, lanes), lanes);
     Reference.reachabilityFence(source);
     Reference.reachabilityFence(target);
   }
