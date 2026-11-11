@@ -382,6 +382,46 @@ final class ScratchLeaseTest {
   }
 
   @Test
+  void idleLargerSlotsServeOtherClassesAtTheCommitmentLimit() {
+    for (final boolean mandatory : new boolean[] {true, false}) {
+      final FrameSlotAllocator allocator = allocator(4 * MIB, 16);
+      final List<ScratchLease> imports = new ArrayList<>(14);
+      final Set<Long> addresses = new HashSet<>();
+      try {
+        for (int buffer = 0; buffer < 14; buffer++) {
+          final ScratchLease lease = new ScratchLease(allocator).acquire(256 * KIB, ScratchUse.IMPORT);
+          imports.add(lease);
+          addresses.add(lease.segment().address());
+        }
+        assertEquals(14 * 256 * KIB, allocator.getPhysicalMemoryBytes());
+        for (final ScratchLease lease : imports) {
+          lease.close();
+        }
+        for (long bytes = 128 * KIB; bytes >= 4 * KIB; bytes /= 2) {
+          try (ScratchLease read = new ScratchLease(allocator)) {
+            if (mandatory) {
+              read.acquire(bytes, ScratchUse.READ);
+            } else {
+              assertTrue(read.tryAcquire(bytes, ScratchUse.READ));
+            }
+            assertEquals(256 * KIB, read.capacity());
+            assertTrue(addresses.contains(read.segment().address()));
+            SegmentAccess.putLong(read.segment(), bytes - Long.BYTES, bytes);
+            assertEquals(bytes, SegmentAccess.getLong(read.segment(), bytes - Long.BYTES));
+            assertEquals(14 * 256 * KIB, allocator.getPhysicalMemoryBytes());
+          }
+        }
+        assertEquals(0L, allocator.scratchStats().refusals());
+        assertEquals(0L, allocator.scratchStats().lentBytes());
+      } finally {
+        for (final ScratchLease lease : imports) {
+          lease.close();
+        }
+      }
+    }
+  }
+
+  @Test
   void theEndOfTheBudgetIsCommittedByScratchAlone() {
     final FrameSlotAllocator allocator = allocator(BUDGET, IDLE);
     final AtomicInteger pressure = new AtomicInteger();

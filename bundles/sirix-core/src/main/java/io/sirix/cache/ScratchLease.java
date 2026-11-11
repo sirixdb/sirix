@@ -15,11 +15,11 @@ import java.util.Objects;
  * nothing else keeps spare buffers.
  *
  * <p>
- * <b>What a borrow gets.</b> A buffer of at least the requested size, rounded up to the allocator's
- * next capacity: a frame slot up to 256 KiB, a mapped region of 512 KiB to 16 MiB above that, an
- * exactly sized region beyond. It is charged to the allocator's one physical budget, is never an
- * eviction candidate while lent, and is <em>not zeroed</em>: it holds whatever its last borrower
- * left, so a borrower that needs zeros writes them.
+ * <b>What a borrow gets.</b> A buffer of at least the requested size, from the allocator's capacity
+ * classes: frame slots up to 256 KiB, mapped regions of 512 KiB to 16 MiB, or an exactly sized
+ * region beyond. It is charged to the allocator's one physical budget, is never an eviction
+ * candidate while lent, and is <em>not zeroed</em>: it holds whatever its last borrower left, so a
+ * borrower that needs zeros writes them.
  *
  * <p>
  * <b>Lifetime.</b> The lease is the borrow's close authority. {@link #close()} returns the buffer

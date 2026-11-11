@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <h2>Capacities</h2>
  *
- * A borrow is rounded up to the next capacity, selected in constant time with no search:
+ * A borrow uses a capacity at least as large as requested:
  *
  * <ul>
  * <li>the allocator's seven frame-slot classes, 4 KiB to 256 KiB: the buffer is a frame slot, taken
@@ -251,6 +251,16 @@ final class FrameScratch extends ScratchSource {
     if (capacityClass == EXACT_CLASS) {
       return lend(mapRegion(EXACT_CLASS, pageRounded(minBytes), minBytes, mandatory, grant), minBytes, use);
     }
+    final ScratchCarrier carrier = takeIdle(capacityClass, grant);
+    if (carrier != null) {
+      return lend(carrier, minBytes, use);
+    }
+    return lend(capacityClass < SLOT_CLASSES && grant == null
+        ? takeSlot(capacityClass, minBytes, mandatory)
+        : mapRegion(capacityClass, capacityOf(capacityClass), minBytes, mandatory, grant), minBytes, use);
+  }
+
+  private @Nullable ScratchCarrier takeIdle(final int capacityClass, final @Nullable AggregationGrant grant) {
     final ScratchCarrier[] slots = idle[capacityClass];
     final int home = home();
     for (int probe = 0; probe <= idleMask; probe++) {
@@ -259,14 +269,13 @@ final class FrameScratch extends ScratchSource {
       if (carrier != null && (grant == null || carrier.slotIndex < 0)
           && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
         if (carrier.slotIndex < 0) {
-          // An idle region counts against the recycle bound; a lent one does not.
           allocator.unreserveRecycledBytes(carrier.capacity);
         }
         if (grant != null) {
           allocator.transferToAggregation(carrier.capacity);
           carrier.aggregationGrant = grant;
         }
-        return lend(carrier, minBytes, use);
+        return carrier;
       }
     }
     final ScratchCarrier spare = spareRegions[capacityClass].pollFirst();
@@ -276,11 +285,8 @@ final class FrameScratch extends ScratchSource {
         allocator.transferToAggregation(spare.capacity);
         spare.aggregationGrant = grant;
       }
-      return lend(spare, minBytes, use);
     }
-    return lend(capacityClass < SLOT_CLASSES && grant == null
-        ? takeSlot(capacityClass, minBytes, mandatory)
-        : mapRegion(capacityClass, capacityOf(capacityClass), minBytes, mandatory, grant), minBytes, use);
+    return spare;
   }
 
   /**
@@ -310,7 +316,19 @@ final class FrameScratch extends ScratchSource {
   private @Nullable ScratchCarrier takeSlot(final int capacityClass, final long minBytes, final boolean mandatory) {
     final int slotIndex;
     try {
-      slotIndex = allocator.acquireScratchSlot(capacityClass, minBytes, mandatory);
+      int available = allocator.acquireScratchSlot(capacityClass, minBytes, false);
+      if (available < 0) {
+        for (int larger = capacityClass + 1; larger < CLASS_COUNT; larger++) {
+          final ScratchCarrier carrier = takeIdle(larger, null);
+          if (carrier != null) {
+            return carrier;
+          }
+        }
+        if (mandatory) {
+          available = allocator.acquireScratchSlot(capacityClass, minBytes, true);
+        }
+      }
+      slotIndex = available;
     } catch (final OutOfMemoryError exhausted) {
       refused(minBytes);
       throw exhausted;

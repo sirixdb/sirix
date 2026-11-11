@@ -715,6 +715,14 @@ public final class NumericGroupAggTable {
       recycleChunks(probeIndex);
       probeIndex = RELEASED_STORAGE;
     }
+    if (discard != null) {
+      recycle(discard);
+      discard = null;
+    }
+    if (discardZero != null) {
+      recycle(discardZero);
+      discardZero = null;
+    }
   }
 
   /** Whether {@link #release} has run. */
@@ -1021,20 +1029,28 @@ public final class NumericGroupAggTable {
    * complete within one pass.
    */
   public void setPassRange(final int shift, final int lo, final int hi) {
+    requireLiveTable();
     if (shift < 0 || shift > 64) {
       throw new IllegalArgumentException("shift out of range: " + shift);
     }
     if (lo < 0 || hi <= lo) {
       throw new IllegalArgumentException("empty pass range [" + lo + ", " + hi + ")");
     }
+    if (discard == null) {
+      final GroupBuffer nextDiscard = workspace().takeRecordChunk(stride, stride, slotWidth);
+      final GroupBuffer nextDiscardZero;
+      try {
+        nextDiscardZero = workspace().takeAccumulatorChunk(slotWidth, slotWidth);
+      } catch (final RuntimeException | Error failure) {
+        recycle(nextDiscard);
+        throw failure;
+      }
+      discard = nextDiscard;
+      discardZero = nextDiscardZero;
+    }
     this.passShift = shift;
     this.passLo = lo;
     this.passHi = hi;
-    if (discard == null) {
-      // Room for a full stripe past the acc base the kernels fold at (offset 1).
-      discard = workspace().takeRecordChunk(stride, stride, slotWidth);
-      discardZero = workspace().newBlock(slotWidth);
-    }
   }
 
   /** Whether {@code key} lies outside the pass range (never, without a pass filter). */
