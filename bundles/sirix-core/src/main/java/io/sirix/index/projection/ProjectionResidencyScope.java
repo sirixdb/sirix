@@ -4,7 +4,6 @@
 package io.sirix.index.projection;
 
 import java.util.Arrays;
-import java.util.ArrayList;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -68,8 +67,6 @@ public final class ProjectionResidencyScope implements AutoCloseable {
 
   private int storeCount;
 
-  private final ArrayList<MaskedColumnSlab> maskedSlabs = new ArrayList<>();
-
   private volatile boolean closed;
 
   private ProjectionResidencyScope() {}
@@ -98,17 +95,6 @@ public final class ProjectionResidencyScope implements AutoCloseable {
       ProjectionColumnStore.sampleHeadroomShare();
     }
     return scope;
-  }
-
-  static void retainMaskedSlab(final MaskedColumnSlab slab) {
-    synchronized (REGISTRY_LOCK) {
-      for (final ProjectionResidencyScope scope : active) {
-        synchronized (scope) {
-          scope.maskedSlabs.add(slab);
-          slab.retain();
-        }
-      }
-    }
   }
 
   /** Scopes opened process-wide — test observability. */
@@ -203,10 +189,6 @@ public final class ProjectionResidencyScope implements AutoCloseable {
         return;
       }
       closed = true;
-      for (final MaskedColumnSlab slab : maskedSlabs) {
-        slab.release();
-      }
-      maskedSlabs.clear();
       count = storeCount;
       touched = stores;
       held = pins;

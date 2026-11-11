@@ -4,6 +4,7 @@
 package io.sirix.index.projection;
 
 import io.sirix.node.SegmentAccess;
+import org.jspecify.annotations.Nullable;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -170,6 +171,21 @@ public final class DenseGlobalGroupAggTable {
     }
     this.lanes = workspace.takeAccumulatorChunk((int) length, slotWidth);
     this.zeroSlot = ProjectionIndexByteScan.newGroupAggAcc(workspace, aggColumns, Long.MAX_VALUE);
+  }
+
+  public static @Nullable DenseGlobalGroupAggTable tryCreate(final GroupWorkspace workspace, final int aggColumns,
+      final int maxId, final long sumExactMask, final boolean foldCountLane, final int workers) {
+    if (maxId <= 0 || workers <= 0) {
+      throw new IllegalArgumentException("dense table needs positive dictionary and worker counts");
+    }
+    final long slotBytes = (long) slotWidthOf(aggColumns) * Long.BYTES;
+    final long tableBytes = bytesFor(aggColumns, maxId) - slotBytes;
+    synchronized (workspace) {
+      if (!workspace.canAllocate(tableBytes, slotBytes, Math.addExact(workers, 1))) {
+        return null;
+      }
+      return new DenseGlobalGroupAggTable(workspace, aggColumns, maxId, sumExactMask, foldCountLane);
+    }
   }
 
   /** Aggregate columns this table's accumulator blocks carry. */

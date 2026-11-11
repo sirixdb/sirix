@@ -97,9 +97,9 @@ store's resident column pruned (`resident`), including whole-column reads. Alloc
 increments `slabFillsDeclinedCount` and follows the existing budget-decline/restart path; it never
 decodes numeric values to heap arrays. A query-local returned view pins each resident column until
 it closes, independently of the executor's residency scope. A masked numeric fill without a supplied
-target owns only the kept leaves' slab through every active residency scope; the final scope closes
-it. Direct store callers outside a scope receive an automatic-arena segment alias whose cleanup
-returns the allocation only after its last segment reference is unreachable.
+target owns only the kept leaves' slab through an automatic-arena segment alias. Its cleanup returns
+the allocation after its last segment reference is unreachable, independently of other queries'
+residency scopes.
 
 **Group routes.** A grouped aggregate reads its key, aggregate and conditional-key columns behind
 the route's leaf keep mask, so the columns the store does not hold resident take that masked fill.

@@ -15,10 +15,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.ref.Reference;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -131,32 +137,49 @@ final class ColumnSlabLifetimeTest {
   }
 
   @Test
-  void maskedNumericSlabStaysLiveUntilEveryOverlappingScopeCloses() {
-    final Fixture f = build(3, 200);
-    final long[] keep = {1L};
-    final ProjectionResidencyScope first = ProjectionResidencyScope.open();
-    final ProjectionResidencyScope second = ProjectionResidencyScope.open();
-    try {
-      final ColumnSlice[] slices = f.store().columnMasked(0, f.fetcher(), keep);
-      assertFalse(f.store().columnFilled(0));
-      assertNotNull(slices[0].lane());
-      assertNull(slices[0].heapNumericValues());
-      assertEquals(0, slices[1].rowCount());
-      assertEquals(0, slices[2].rowCount());
-      final long nativeBytes = slabDelta();
-      assertTrue(nativeBytes > 0L);
-      final long[] expected = heapDecode(f, 0, 0).numericValues();
-      first.close();
-      assertEquals(nativeBytes, slabDelta());
-      for (int row = 0; row < slices[0].rowCount(); row++) {
-        assertEquals(expected[row], SegmentAccess.getLong(slices[0].laneSegment(), slices[0].laneBase() + 8L * row));
+  void directMaskedReadersOwnTheirSlabsAcrossUnrelatedScopeClosure() {
+    for (final boolean maskedView : new boolean[] {false, true}) {
+      final Fixture unrelated = build(2, 200);
+      final Fixture direct = build(3, 200);
+      final MemorySegmentAllocator observed = mock(MemorySegmentAllocator.class);
+      final List<MemorySegment> allocations = new ArrayList<>();
+      try (Arena arena = Arena.ofConfined(); MockedStatic<Allocators> allocators = mockStatic(Allocators.class)) {
+        allocators.when(Allocators::getInstance).thenReturn(observed);
+        when(observed.allocateSlab(anyLong())).thenAnswer(invocation -> {
+          final long bytes = invocation.getArgument(0);
+          final MemorySegment memory = arena.allocate(bytes, 64);
+          allocations.add(memory);
+          return memory;
+        });
+        final ProjectionResidencyScope other = ProjectionResidencyScope.open();
+        try {
+          unrelated.store().column(0, unrelated.fetcher());
+          final ColumnSlice[] slices = maskedView
+              ? direct.store().columnMaskedView(0, direct.fetcher(), new long[] {1L}, new LaneTarget())
+              : direct.store().columnMasked(0, direct.fetcher(), new long[] {1L});
+          assertEquals(2, allocations.size());
+          final MemorySegment directAllocation = allocations.get(1);
+          assertFalse(direct.store().columnFilled(0));
+          assertNotNull(slices[0].lane());
+          assertNull(slices[0].heapNumericValues());
+          assertEquals(0, slices[1].rowCount());
+          assertEquals(0, slices[2].rowCount());
+          other.close();
+          unrelated.store().retire();
+          verify(observed).releaseSlab(allocations.getFirst());
+          verify(observed, never()).releaseSlab(directAllocation);
+          final long[] expected = heapDecode(direct, 0, 0).numericValues();
+          for (int row = 0; row < slices[0].rowCount(); row++) {
+            assertEquals(expected[row],
+                SegmentAccess.getLong(slices[0].laneSegment(), slices[0].laneBase() + 8L * row));
+          }
+          Reference.reachabilityFence(slices);
+        } finally {
+          other.close();
+          unrelated.store().retire();
+          direct.store().retire();
+        }
       }
-      second.close();
-      assertEquals(0L, slabDelta());
-    } finally {
-      first.close();
-      second.close();
-      f.store().retire();
     }
   }
 
@@ -391,13 +414,6 @@ final class ColumnSlabLifetimeTest {
         for (int row = 0; row < heap.length; row++) {
           assertEquals(heap[row], SegmentAccess.getLong(slab, bases[leaf] + 8L * row));
         }
-      }
-      try (ProjectionResidencyScope scope = ProjectionResidencyScope.open()) {
-        final ColumnSlice[] nativeView = f.store().columnMaskedView(0, f.fetcher(), keep, new LaneTarget());
-        assertNotNull(scope);
-        assertNull(nativeView[0].heapNumericValues());
-        assertNotNull(nativeView[0].lane());
-        assertEquals(0, nativeView[1].rowCount());
       }
       f.store().column(0, f.fetcher());
       final LaneTarget resident = new LaneTarget(slab, bases);

@@ -880,7 +880,7 @@ final class IndexRoutedGroupWorkBudgetTest {
       final var refusing = spy(columns);
       final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
       doReturn(refusing).when(observedHandle).columnStoreOrNull();
-      doThrow(mock(FillBudgetExceededException.class)).when(refusing).columnMaskedView(anyInt(), any(), any());
+      doThrow(mock(FillBudgetExceededException.class)).when(refusing).columnMaskedView(anyInt(), any(), any(), any());
       final var executor = new SirixVectorizedExecutor(session, revision, 1);
       try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
         catalog.when(() -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any()))
@@ -900,7 +900,7 @@ final class IndexRoutedGroupWorkBudgetTest {
           work.assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the resident fill refusal declines once")
               .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusals do not count as defects")
               .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "neither retry reads a body");
-          verify(refusing).columnMaskedView(anyInt(), any(), any());
+          verify(refusing).columnMaskedView(anyInt(), any(), any(), any());
           verify(refusing, never()).windowedLeafAccess(any(), any(), anyInt(), anyInt());
         }
         assertFalse(handle.payloadsMaterialized());

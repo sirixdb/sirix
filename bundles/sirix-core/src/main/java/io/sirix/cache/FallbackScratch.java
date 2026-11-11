@@ -83,11 +83,16 @@ final class FallbackScratch extends ScratchSource {
   }
 
   @Override
-  ScratchCarrier acquireAggregation(final long minBytes, final AggregationGrant grant) {
+  long aggregationCapacity(final long minBytes) {
     if (minBytes <= 0 || minBytes > Long.MAX_VALUE - PAGE_BYTES) {
       throw new IllegalArgumentException("invalid aggregation region size");
     }
-    final long bytes = (minBytes + PAGE_BYTES - 1) & -PAGE_BYTES;
+    return (minBytes + PAGE_BYTES - 1) & -PAGE_BYTES;
+  }
+
+  @Override
+  ScratchCarrier acquireAggregation(final long minBytes, final AggregationGrant grant) {
+    final long bytes = aggregationCapacity(minBytes);
     grant.claim(bytes);
     final VirtualMemory memory = VirtualMemory.forCurrentPlatform();
     MemorySegment region = null;

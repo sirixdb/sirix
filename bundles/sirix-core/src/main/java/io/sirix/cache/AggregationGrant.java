@@ -24,6 +24,10 @@ public final class AggregationGrant implements AutoCloseable {
     this.incremental = incremental;
   }
 
+  public long allocationCapacity(final long bytes) {
+    return ScratchSource.of(allocator).aggregationCapacity(bytes);
+  }
+
   public ScratchLease borrow(final long bytes) {
     return new ScratchLease(allocator).acquireAggregation(bytes, this);
   }

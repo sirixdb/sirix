@@ -78,6 +78,25 @@ final class FallbackScratchTest {
   }
 
   @Test
+  void aggregationAdmissionAndAllocationUseTheSamePageRoundedCapacity() {
+    final FrameSlotAllocator delegate = new FrameSlotAllocator(64L << 20);
+    final CountingAllocator allocator = new CountingAllocator(delegate, 64L << 20);
+    try (AggregationGrant grant = allocator.aggregationBudget().acquire(8L << 20, 8L << 20)) {
+      final long[][] cases = {{1L, 4096L}, {4097L, 8192L}, {262_145L, 266_240L}};
+      for (final long[] sample : cases) {
+        assertEquals(sample[1], grant.allocationCapacity(sample[0]));
+        try (ScratchLease lease = grant.borrow(sample[0])) {
+          assertEquals(sample[1], lease.capacity());
+          assertEquals(sample[1], grant.usedBytes());
+        }
+        assertEquals(0L, grant.usedBytes());
+      }
+    } finally {
+      delegate.shutdown();
+    }
+  }
+
+  @Test
   void aBorrowWithinTheLargestSegmentIsTheAllocatorsOwnAllocation() {
     final FrameSlotAllocator frames = new FrameSlotAllocator(64 * MIB);
     final CountingAllocator allocator = new CountingAllocator(frames, 64 * MIB);

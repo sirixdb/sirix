@@ -1063,8 +1063,8 @@ through `GroupKernelLanes`, every other access is checked by `GroupLanes`; winne
 they are emitted. The per-pass group budget therefore derives from the allocator, by
 the one rule in `proj/AggregationShare.java`: `min(allocator budget/8, allocator headroom/4)`. The heap-side
 budgets (distinct sets, retained column fills) still derive from `HeapHeadroom`: `min(maxHeap/8, headroom/4)` with
-headroom = max heap − live after last GC. `DenseGlobalGroupAggTable` and the map-based group kernels keep heap
-arrays.
+headroom = max heap − live after last GC. `DenseGlobalGroupAggTable` and the map-based group kernels use native
+lanes from the same scan workspace.
 
 ---
 
@@ -1174,7 +1174,7 @@ incremented **after** a try completes, so a suite that fails part way is not jud
 | numericGroupBys | numeric group arms (`SVE:2022`, `3715`, `19004`, `19274`) | one key of kind NUMERIC_LONG/temporal, STRING_GLOBAL or STRING_SEGMENT | id and long lanes | slot walk or generic |
 | groupSliced | sliced serves of the group arms (`SVE:16714`, `17079`, `17329`, `17451`, `18332`, `19006`, `19276`) | a group serve that read column slices instead of whole leaves | `ProjectionColumnStore` slices of the needed columns | whole-leaf kernels |
 | groupSummary | `serveScalarValueCounts` (`SVE:14702`) | no-predicate single-key value-count ordered by count desc | slot-0 metadata + set-summary blob only; no row groups (`proj/ProjectionIndexCatalog.java:356-400`) | normal group route |
-| groupDense | `denseGlobalGroupAggregate` (`SVE:19334`) | ordered group-by over one STRING_GLOBAL key | one id-indexed table ≤ `sirix.projection.groupDense.maxBytes` (`min(1 GiB, maxHeap/8)`) | hash-partitioned table |
+| groupDense | `denseGlobalGroupAggregate` (`SVE:19334`) | ordered group-by over one STRING_GLOBAL key | one id-indexed table ≤ `sirix.projection.groupDense.maxBytes` (default 1 GiB), with rounded table, zero-slot and worker-accumulator allocations fitting the scan's available aggregation grant | hash-partitioned table |
 | sortedScans | `markSortedScanServed` (`SVE:20706`) | `for … [where] order by $r.f … return $r \| $r.f` (optionally top-K) | projection sort columns, then record pages of the winners | generic |
 | sortedGroupBys | `trySortedGroupTopK` (`SVE:17688`) | grouped min/max/span top-K ≤ 32 with equality predicates | sorted directory, leaf bounds, group summaries (§6.1); no row groups | rest of the group route |
 | predicateScans | `markPredicateScanServed` (`SVE:20724`) | `for … where p return $r \| $r.f`, conjunctive, ≤ `sirix.predScan.maxMatches` (100 000) | column slices → record keys → record pages | generic |

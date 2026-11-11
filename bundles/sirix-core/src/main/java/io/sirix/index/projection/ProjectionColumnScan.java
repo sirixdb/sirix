@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import static java.util.Objects.requireNonNull;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.index.projection.ProjectionColumnStore.LaneTarget;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.PackedDictionaryIds;
 import io.sirix.index.projection.ProjectionColumnStore.StringValueExtrema;
@@ -21,6 +22,7 @@ import org.jspecify.annotations.Nullable;
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.function.IntFunction;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
@@ -190,10 +192,19 @@ public final class ProjectionColumnScan {
 
   public static ColumnSlice[][] resolvePredicateColumnsShared(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher, final long @Nullable [] keep) {
+    return resolvePredicateColumnsShared(store, predicates, fetcher, keep, null);
+  }
+
+  public static ColumnSlice[][] resolvePredicateColumnsShared(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher, final long @Nullable [] keep,
+      final @Nullable IntFunction<@Nullable LaneTarget> targets) {
     checkPredicates(store, predicates);
     final ColumnSlice[][] columns = new ColumnSlice[predicates.length][];
     for (int i = 0; i < predicates.length; i++) {
-      columns[i] = store.columnMaskedView(predicates[i].column, fetcher, keep);
+      final int column = predicates[i].column;
+      columns[i] = store.columnMaskedView(column, fetcher, keep, targets == null
+          ? null
+          : targets.apply(column));
     }
     return columns;
   }
@@ -323,6 +334,12 @@ public final class ProjectionColumnScan {
    */
   public static ColumnSlice[][] resolveTreeColumnsShared(final ProjectionColumnStore store,
       final ProjectionIndexScan.PredicateTree tree, final ColumnSegmentFetcher fetcher, final long @Nullable [] keep) {
+    return resolveTreeColumnsShared(store, tree, fetcher, keep, null);
+  }
+
+  public static ColumnSlice[][] resolveTreeColumnsShared(final ProjectionColumnStore store,
+      final ProjectionIndexScan.PredicateTree tree, final ColumnSegmentFetcher fetcher, final long @Nullable [] keep,
+      final @Nullable IntFunction<@Nullable LaneTarget> targets) {
     checkPredicates(store, tree.leaves);
     final ColumnSlice[][] cols = new ColumnSlice[tree.leaves.length][];
     for (int i = 0; i < tree.leaves.length; i++) {
@@ -338,7 +355,9 @@ public final class ProjectionColumnScan {
       }
       cols[i] = shared != null
           ? shared
-          : store.columnMaskedView(column, fetcher, keep);
+          : store.columnMaskedView(column, fetcher, keep, targets == null
+              ? null
+              : targets.apply(column));
     }
     return cols;
   }

@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -94,6 +96,67 @@ final class DenseGlobalGroupAggTableTest {
           () -> table.foldLane(1L, 1L, values, bases, presence, 1, 0, 0, 0, roster, decline));
     } finally {
       workspace.close();
+    }
+  }
+
+  @Test
+  void optionalDenseTableDeclinesBeforeMappingWhenTheAllocatorIsSmallerThanTheTable() {
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(1L << 20);
+    try (GroupWorkspace workspace = GroupWorkspace.forScan(allocator)) {
+      assertNull(DenseGlobalGroupAggTable.tryCreate(workspace, 1, 5_000_000, -1L, true, 4));
+      assertEquals(0L, workspace.usedBytes());
+      assertEquals(0L, workspace.borrowedBytes());
+      assertEquals(0L, workspace.grantedBytes());
+      final NumericGroupAggTable hash = new NumericGroupAggTable(1, 16, false, -1L).attachWorkspace(workspace);
+      final int handle = hash.acquire(7L, 0L);
+      final GroupBuffer accumulator = hash.storageAtAccBase(handle);
+      final int base = hash.offsetAtAccBase(handle);
+      GroupLanes.set(accumulator, base + 3, 42L);
+      assertEquals(42L, GroupLanes.get(accumulator, base + 3));
+      hash.release();
+    } finally {
+      assertEquals(0L, allocator.aggregationBudget().grantedBytes());
+      allocator.shutdown();
+    }
+  }
+
+  @Test
+  void optionalAdmissionIncludesRoundedRegionsAndEveryAuxiliaryAccumulator() {
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(768L << 10);
+    try (GroupWorkspace workspace = GroupWorkspace.forScan(allocator)) {
+      assertEquals(96L << 10, allocator.aggregationBudget().capacity());
+      assertEquals(96L << 10, DenseGlobalGroupAggTable.bytesFor(1, 1365) + 682L * 48L);
+      assertNull(DenseGlobalGroupAggTable.tryCreate(workspace, 1, 1365, -1L, true, 682));
+      assertEquals(0L, workspace.usedBytes());
+      assertEquals(0L, workspace.grantedBytes());
+      final DenseGlobalGroupAggTable table = DenseGlobalGroupAggTable.tryCreate(workspace, 1, 1365, -1L, true, 681);
+      assertNotNull(table);
+      for (int worker = 0; worker < 681; worker++) {
+        ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE);
+      }
+      assertEquals(96L << 10, workspace.usedBytes());
+      assertEquals(workspace.grantedBytes(), workspace.usedBytes());
+    } finally {
+      assertEquals(0L, allocator.aggregationBudget().grantedBytes());
+      allocator.shutdown();
+    }
+  }
+
+  @Test
+  void optionalAdmissionUsesTheRemainingTailAndTheExistingGrant() {
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(1L << 20);
+    try (GroupWorkspace workspace = GroupWorkspace.forScan(allocator)) {
+      workspace.newBlock(8191);
+      final DenseGlobalGroupAggTable table = DenseGlobalGroupAggTable.tryCreate(workspace, 1, 64, -1L, true, 4);
+      assertNotNull(table);
+      for (int worker = 0; worker < 4; worker++) {
+        ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE);
+      }
+      assertEquals(128L << 10, workspace.usedBytes());
+      assertNull(DenseGlobalGroupAggTable.tryCreate(workspace, 1, 1365, -1L, true, 1));
+      assertEquals(128L << 10, workspace.usedBytes());
+    } finally {
+      allocator.shutdown();
     }
   }
 

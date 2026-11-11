@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import io.sirix.cache.Allocators;
 import io.sirix.cache.HeapCacheBudget;
+import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
 import io.sirix.node.SegmentAccess;
@@ -3750,20 +3751,20 @@ public final class ProjectionColumnStore {
     if (bytes == 0L) {
       return columnMasked(col, fetcher, keepWords, MemorySegment.NULL, bases);
     }
-    final MemorySegment allocation = Allocators.getInstance().allocateSlab(bytes);
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    final MemorySegment allocation = allocator.allocateSlab(bytes);
     if (allocation == null) {
       SLAB_FILLS_DECLINED.increment();
       throw new FillBudgetExceededException("Allocator refused masked numeric column slab");
     }
     final MaskedColumnSlab owner;
     try {
-      owner = new MaskedColumnSlab(allocation);
+      owner = new MaskedColumnSlab(allocator, allocation);
     } catch (final RuntimeException | Error failure) {
-      releaseLaneSlab(allocation);
+      allocator.releaseSlab(allocation);
       throw failure;
     }
     try {
-      ProjectionResidencyScope.retainMaskedSlab(owner);
       return columnMasked(col, fetcher, keepWords, owner.segment(), bases);
     } catch (final RuntimeException | Error failure) {
       owner.run();

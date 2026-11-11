@@ -16373,7 +16373,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final long[] groupKeep = groupSliced
           ? ProjectionColumnScan.predicateKeepMask(groupStore, preds, tree, columnFetcher())
           : null;
-      laneSlab = RouteLaneSlab.forColumns(groupStore, groupKeep, groupCols, aggColsFlat, keyCondCols);
+      laneSlab = RouteLaneSlab.forColumns(groupStore, groupKeep,
+          residentColumns(preds, tree, groupCols, aggColsFlat, keyCondCols, EMPTY_INT_ARRAY, null));
       final ProjectionColumnStore.ColumnSlice[][] computedLaneSlices;
       if (anyDerivedLane) {
         // Evaluate each program once, over the leaves the predicates keep, on the calling thread
@@ -16817,9 +16818,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           final boolean emitFromLeafSet = windowedSlices && compositeSlicedArm;
           if (compositeSlicedArm && !windowedSlices) {
             final ProjectionColumnStore.ColumnSegmentFetcher cFetcher = columnFetcher();
-            cPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, cFetcher, groupKeep);
+            cPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, cFetcher, groupKeep,
+                laneSlab::target);
             cTreeCols = tree != null
-                ? ProjectionColumnScan.resolveTreeColumnsShared(groupStore, tree, cFetcher, groupKeep)
+                ? ProjectionColumnScan.resolveTreeColumnsShared(groupStore, tree, cFetcher, groupKeep, laneSlab::target)
                 : null;
             cKeyCols = new ProjectionColumnStore.ColumnSlice[keyCount][];
             cKeyKinds = new byte[keyCount];
@@ -17619,9 +17621,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   && groupStore.columnKind(groupCol) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL)) {
             throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT or regex-global");
           }
-          sPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, sFetcher, groupKeep);
+          sPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, sFetcher, groupKeep,
+              laneSlab::target);
           sTreeCols = tree != null
-              ? ProjectionColumnScan.resolveTreeColumnsShared(groupStore, tree, sFetcher, groupKeep)
+              ? ProjectionColumnScan.resolveTreeColumnsShared(groupStore, tree, sFetcher, groupKeep, laneSlab::target)
               : null;
           sGroupCol = groupStore.columnMaskedView(groupCol, sFetcher, groupKeep, laneSlab.target(groupCol));
           sAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
@@ -18297,7 +18300,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (groupStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
         }
-        legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, legFetcher, groupKeep);
+        legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, legFetcher, groupKeep,
+            laneSlab::target);
         legGroupCol = groupStore.columnMaskedView(groupCol, legFetcher, groupKeep, laneSlab.target(groupCol));
         legAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
         for (int a = 0; a < aggColsFlat.length; a++) {
@@ -19155,9 +19159,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if ((groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) != (globalDictionaryHeaderKey > 0L)) {
           throw new IllegalStateException("packed substring column kind disagrees with its global dictionary header");
         }
-        pPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, pFetcher, groupKeep);
+        pPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, pFetcher, groupKeep,
+            laneSlab::target);
         pTreeCols = tree != null
-            ? ProjectionColumnScan.resolveTreeColumnsShared(slicedStore, tree, pFetcher, groupKeep)
+            ? ProjectionColumnScan.resolveTreeColumnsShared(slicedStore, tree, pFetcher, groupKeep, laneSlab::target)
             : null;
         pGroupCol = slicedStore.columnMaskedView(groupCol, pFetcher, groupKeep, laneSlab.target(groupCol));
         pAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
@@ -19570,7 +19575,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (groupDenseEnabled() && slicedStore != null && !windowedSlices && globalKeyDictionary > 0L && cdBlockIdx < 0
           && stringLengthModes == null && !anyComputedLane && !anyCountLane) {
         final DenseGlobalGroupAggTable dense = denseGlobalGroupTable(workspace, globalKeyDictionary, aggCols.length,
-            sumExactMask, denseCountLaneRead(funcs, orderPlan, having));
+            sumExactMask, denseCountLaneRead(funcs, orderPlan, having), eff);
         if (dense != null) {
           return denseGlobalGroupAggregateInWorkspace(workspace, laneSlab, slicedStore, preds, predTree, groupCol,
               aggCols, keyNames, funcs, aggFields, outNames, distinctFields, eff, chunkSize, orderPlan, limit, having,
@@ -19602,14 +19607,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final int[][][] segmentLengthTables;
       if (slicedStore != null && !windowedSlices) {
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
-        slicedPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, fetcher, groupKeep);
+        slicedPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, fetcher, groupKeep,
+            laneSlab::target);
         // ONE keep mask for the arm. The tree's masked views and the predicate-first seal below read
         // the same zone evidence (a scan carries flat predicates OR a tree, never both, so the tree's
         // own mask IS the predicates' mask); evaluating it twice was the same rule in two places, and
         // a witness that counted every pruned leaf twice.
         final long[] keepMask = groupKeep;
         slicedTreeCols = predTree != null
-            ? ProjectionColumnScan.resolveTreeColumnsShared(slicedStore, predTree, fetcher, keepMask)
+            ? ProjectionColumnScan.resolveTreeColumnsShared(slicedStore, predTree, fetcher, keepMask, laneSlab::target)
             : null;
         // PREDICATE-FIRST. Canonicalising is one dictionary read per distinct cell, so over a whole
         // column at 100M it is ~18M random reads; a query whose predicate keeps a handful of rows
@@ -20034,7 +20040,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
     if (slicedStore != null && !windowedSlices) {
       final ProjectionColumnStore.ColumnSegmentFetcher legFetcher = columnFetcher();
-      legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, legFetcher, groupKeep);
+      legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, legFetcher, groupKeep,
+          laneSlab::target);
       legGroupCol = canonicaliseGroupColumn(segmentKeys,
           slicedStore.columnMaskedView(groupCol, legFetcher, groupKeep, laneSlab.target(groupCol)), null, null,
           segmentWalksOnWorkers());
@@ -20211,7 +20218,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   private @Nullable DenseGlobalGroupAggTable denseGlobalGroupTable(final GroupWorkspace workspace, final long headerKey,
-      final int aggColumns, final long sumExactMask, final boolean foldCountLane) {
+      final int aggColumns, final long sumExactMask, final boolean foldCountLane, final int workers) {
     final ValueDictionaryHeaderNode header =
         GlobalValueDictionary.header(headerKey, workerTrx().getStorageEngineReader());
     if (header == null) {
@@ -20227,7 +20234,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return declineDense("dense table would cost " + bytes + " bytes over a " + budget + " budget");
     }
     try {
-      return new DenseGlobalGroupAggTable(workspace, aggColumns, entryCount, sumExactMask, foldCountLane);
+      final DenseGlobalGroupAggTable table =
+          DenseGlobalGroupAggTable.tryCreate(workspace, aggColumns, entryCount, sumExactMask, foldCountLane, workers);
+      return table == null
+          ? declineDense("dense table exceeds available aggregation capacity")
+          : table;
     } catch (final IllegalArgumentException e) {
       // Only reachable when the byte budget is configured above what one array can hold.
       return declineDense(e.getMessage());
@@ -20270,9 +20281,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // and letting the fan-out race the first fill would multiply the segment I/O by the worker count.
     final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
     final ProjectionColumnStore.ColumnSlice[][] predCols =
-        ProjectionColumnScan.resolvePredicateColumnsShared(store, preds, fetcher, groupKeep);
+        ProjectionColumnScan.resolvePredicateColumnsShared(store, preds, fetcher, groupKeep, laneSlab::target);
     final ProjectionColumnStore.ColumnSlice[][] treeCols = predTree != null
-        ? ProjectionColumnScan.resolveTreeColumnsShared(store, predTree, fetcher, groupKeep)
+        ? ProjectionColumnScan.resolveTreeColumnsShared(store, predTree, fetcher, groupKeep, laneSlab::target)
         : null;
     final ProjectionColumnStore.ColumnSlice[] groupSlices =
         store.columnMaskedView(groupCol, fetcher, groupKeep, laneSlab.target(groupCol));
@@ -20413,8 +20424,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * dictionary is large relative to the live group count.
    */
   private static long groupDenseMaxBytes() {
-    return Long.getLong("sirix.projection.groupDense.maxBytes",
-        Math.min(1L << 30, Runtime.getRuntime().maxMemory() / 8));
+    return Long.getLong("sirix.projection.groupDense.maxBytes", 1L << 30);
   }
 
   /**

@@ -295,15 +295,17 @@ public class JoinKernelBenchmark {
     long[] bits;
     int groups;
 
-    @Setup(Level.Invocation)
-    public void reset(final Packed packed) {
+    @Setup(Level.Trial)
+    public void setUp(final Packed packed) {
       groups = packed.groups;
-      if (groupMinimum == null) {
-        groupMinimum = new long[groups];
-        groupMaximum = new long[groups];
-        distinctCounts = new long[groups];
-        bits = new long[groups * packed.distinctWords];
-      }
+      groupMinimum = new long[groups];
+      groupMaximum = new long[groups];
+      distinctCounts = new long[groups];
+      bits = new long[groups * packed.distinctWords];
+    }
+
+    @Setup(Level.Invocation)
+    public void reset() {
       Arrays.fill(groupMinimum, Long.MAX_VALUE);
       Arrays.fill(groupMaximum, Long.MIN_VALUE);
       Arrays.fill(distinctCounts, 0L);
@@ -316,6 +318,25 @@ public class JoinKernelBenchmark {
         sum = sum * 31 + groupMinimum[g] + groupMaximum[g] + distinctCounts[g];
       }
       return sum;
+    }
+  }
+
+  @State(Scope.Thread)
+  @SuppressWarnings("NullAway.Init")
+  public static class ShippedFold {
+    ExtremaFold fold;
+
+    @Setup(Level.Trial)
+    public void setUp(final Packed packed) {
+      fold = new ExtremaFold(packed.groups, new DistinctDomain(0L, packed.distinctWords), packed.build, false, true);
+    }
+
+    @Setup(Level.Invocation)
+    public void reset() {
+      Arrays.fill(fold.groupMinimum, Long.MAX_VALUE);
+      Arrays.fill(fold.groupMaximum, Long.MIN_VALUE);
+      Arrays.fill(fold.distinctCounts, 0L);
+      Arrays.fill(fold.bits, 0L);
     }
   }
 
@@ -429,9 +450,8 @@ public class JoinKernelBenchmark {
   // --- shipped: JoinKernels.foldMerge (build-major, one build record per bucket in locals) ---
 
   @Benchmark
-  public long mergeShipped(final Packed packed) {
-    final ExtremaFold fold =
-        new ExtremaFold(packed.groups, new DistinctDomain(0L, packed.distinctWords), packed.build, false, true);
+  public long mergeShipped(final Packed packed, final ShippedFold state) {
+    final ExtremaFold fold = state.fold;
     JoinKernels.foldMerge(fold, packed.build, packed.probe, packed.slots);
     return checksum(fold, packed.groups);
   }
@@ -440,9 +460,8 @@ public class JoinKernelBenchmark {
    * JoinKernels.foldChained: the probe lanes streamed against the packed build side (a cold query).
    */
   @Benchmark
-  public long chainedShipped(final Packed packed) {
-    final ExtremaFold fold =
-        new ExtremaFold(packed.groups, new DistinctDomain(0L, packed.distinctWords), packed.build, false, true);
+  public long chainedShipped(final Packed packed, final ShippedFold state) {
+    final ExtremaFold fold = state.fold;
     JoinKernels.foldChained(fold, packed.build, packed.probeLanes, 0L, packed.slots);
     return checksum(fold, packed.groups);
   }
@@ -453,6 +472,121 @@ public class JoinKernelBenchmark {
       sum = sum * 31 + fold.groupMinimum[g] + fold.groupMaximum[g] + fold.distinctCount(g);
     }
     return sum;
+  }
+
+  public static void main(final String[] args) {
+    final Packed packed = new Packed();
+    try {
+      mergeFixture(packed);
+      final JoinKernelBenchmark benchmark = new JoinKernelBenchmark();
+      final Fold arrays = new Fold();
+      arrays.setUp(packed);
+      final ShippedFold shipped = new ShippedFold();
+      shipped.setUp(packed);
+      final ExtremaFold reusable = shipped.fold;
+      final long[] minima = arrays.groupMinimum;
+      final long[] expectedMinimum = new long[packed.groups];
+      final long[] expectedMaximum = new long[packed.groups];
+      final long[] expectedDistinct = new long[packed.groups];
+      Arrays.fill(expectedMinimum, Long.MAX_VALUE);
+      Arrays.fill(expectedMaximum, Long.MIN_VALUE);
+      expectedMinimum[0] = 7L;
+      expectedMaximum[0] = 17L;
+      expectedDistinct[0] = 2L;
+      expectedMinimum[1] = 22L;
+      expectedMaximum[1] = 26L;
+      expectedDistinct[1] = 2L;
+      for (int repeat = 0; repeat < 3; repeat++) {
+        arrays.reset();
+        requireEmpty(arrays.groupMinimum, arrays.groupMaximum, arrays.distinctCounts, arrays.bits);
+        benchmark.mergeArrays(packed, arrays);
+        requireResult(arrays.groupMinimum, arrays.groupMaximum, arrays.distinctCounts, expectedMinimum, expectedMaximum,
+            expectedDistinct);
+        arrays.reset();
+        requireEmpty(arrays.groupMinimum, arrays.groupMaximum, arrays.distinctCounts, arrays.bits);
+        benchmark.mergeHandle(packed, arrays);
+        requireResult(arrays.groupMinimum, arrays.groupMaximum, arrays.distinctCounts, expectedMinimum, expectedMaximum,
+            expectedDistinct);
+        shipped.reset();
+        requireEmpty(shipped.fold.groupMinimum, shipped.fold.groupMaximum, shipped.fold.distinctCounts,
+            shipped.fold.bits);
+        benchmark.mergeShipped(packed, shipped);
+        requireResult(shipped.fold.groupMinimum, shipped.fold.groupMaximum, shipped.fold.distinctCounts,
+            expectedMinimum, expectedMaximum, expectedDistinct);
+        shipped.reset();
+        requireEmpty(shipped.fold.groupMinimum, shipped.fold.groupMaximum, shipped.fold.distinctCounts,
+            shipped.fold.bits);
+        benchmark.chainedShipped(packed, shipped);
+        requireResult(shipped.fold.groupMinimum, shipped.fold.groupMaximum, shipped.fold.distinctCounts,
+            expectedMinimum, expectedMaximum, expectedDistinct);
+        if (shipped.fold != reusable || arrays.groupMinimum != minima) {
+          throw new IllegalStateException("merge invocation replaced its trial-owned fold state");
+        }
+      }
+    } finally {
+      packed.tearDown();
+    }
+  }
+
+  private static void mergeFixture(final Packed packed) {
+    packed.slots = 4;
+    packed.distinctWords = 1;
+    final HeapSide build = new HeapSide(1);
+    final HeapSide probe = new HeapSide(1);
+    Arrays.fill(build.join[0], -1L);
+    Arrays.fill(probe.join[0], -1L);
+    fixtureRow(build, 0, 0L, 0L, 10L, 20L, 0L, 0L);
+    fixtureRow(build, 1, 0L, 5L, 15L, 30L, 0L, 1L);
+    fixtureRow(build, 2, 1L, 0L, 5L, 9L, 0L, 0L);
+    fixtureRow(build, 3, 2L, 50L, 60L, 100L, 0L, 2L);
+    fixtureRow(probe, 0, 0L, 0L, 5L, 3L, 7L, 0L);
+    fixtureRow(probe, 1, 0L, 8L, 12L, 4L, 7L, 0L);
+    fixtureRow(probe, 2, 0L, 10L, 15L, 8L, 9L, 0L);
+    fixtureRow(probe, 3, 1L, 4L, 6L, 2L, 11L, 0L);
+    fixtureRow(probe, 4, 2L, 60L, 70L, 5L, 13L, 0L);
+    fixtureRow(probe, 5, 3L, 0L, 1L, 1L, 15L, 0L);
+    packed.heapProbe = probe;
+    packed.buildStart = new int[packed.slots + 1];
+    packed.probeStart = new int[packed.slots + 1];
+    packed.buildRows = packed.heapPack(build, packed.buildStart);
+    packed.probeRows = packed.heapPack(probe, packed.probeStart);
+    packed.buildLanes = packed.lanes(build);
+    packed.probeLanes = packed.lanes(probe);
+    packed.build = packed.shippedPack(packed.buildLanes);
+    packed.probe = packed.shippedPack(packed.probeLanes);
+  }
+
+  private static void fixtureRow(final HeapSide side, final int row, final long key, final long from, final long to,
+      final long margin, final long distinct, final long group) {
+    side.masks[0][row >>> 6] |= 1L << row;
+    side.join[0][row] = key;
+    side.from[0][row] = from;
+    side.to[0][row] = to;
+    side.margin[0][row] = margin;
+    side.distinct[0][row] = distinct;
+    side.group[0][row] = group;
+  }
+
+  private static void requireEmpty(final long[] minimum, final long[] maximum, final long[] distinct,
+      final long[] bits) {
+    for (int group = 0; group < minimum.length; group++) {
+      if (minimum[group] != Long.MAX_VALUE || maximum[group] != Long.MIN_VALUE || distinct[group] != 0L) {
+        throw new IllegalStateException("merge invocation did not reset group " + group);
+      }
+    }
+    for (final long word : bits) {
+      if (word != 0L) {
+        throw new IllegalStateException("merge invocation did not clear its distinct bitmap");
+      }
+    }
+  }
+
+  private static void requireResult(final long[] minimum, final long[] maximum, final long[] distinct,
+      final long[] expectedMinimum, final long[] expectedMaximum, final long[] expectedDistinct) {
+    if (!Arrays.equals(expectedMinimum, minimum) || !Arrays.equals(expectedMaximum, maximum)
+        || !Arrays.equals(expectedDistinct, distinct)) {
+      throw new IllegalStateException("merge disagrees with the worked interval-join fixture");
+    }
   }
 
   // ==================== probe walk: masks over column lanes ====================

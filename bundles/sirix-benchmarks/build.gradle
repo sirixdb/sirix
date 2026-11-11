@@ -297,3 +297,12 @@ tasks.register('verifyProjectionFoldKernels', JavaExec) {
     mainClass = 'io.sirix.index.projection.ProjectionFoldKernelBenchmark'
     jvmArgs = ['--enable-preview', '--add-modules=jdk.incubator.vector', '--enable-native-access=ALL-UNNAMED']
 }
+
+tasks.register('verifyJoinKernelMerges', JavaExec) {
+    group = 'verification'
+    description = 'Check join merge benchmark results and reusable state without timing.'
+    dependsOn 'jmhClasses'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'io.sirix.query.compiler.translator.JoinKernelBenchmark'
+    jvmArgs = ['--enable-preview', '--add-modules=jdk.incubator.vector', '--enable-native-access=ALL-UNNAMED']
+}

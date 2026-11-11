@@ -28,6 +28,8 @@ abstract class ScratchSource {
    */
   abstract @Nullable ScratchCarrier acquire(long minBytes, ScratchUse use, boolean mandatory);
 
+  abstract long aggregationCapacity(long minBytes);
+
   abstract ScratchCarrier acquireAggregation(long minBytes, AggregationGrant grant);
 
   /**

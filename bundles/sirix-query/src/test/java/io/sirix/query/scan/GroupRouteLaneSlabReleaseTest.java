@@ -16,7 +16,8 @@ import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -94,12 +95,16 @@ final class GroupRouteLaneSlabReleaseTest {
     }
   }
 
-  @Test
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
   @DisplayName("a masked grouped aggregate answers like the interpreter and leaves no slab behind")
-  void aMaskedGroupedAggregateReleasesItsRouteSlab() throws Exception {
+  void aMaskedGroupedAggregateReleasesItsRouteSlab(final boolean predicateTree) throws Exception {
     // A predicate on a third column makes the route's keep mask selective, so the key and aggregate
     // columns take the MASKED fill rather than a whole-column resident read.
-    final String query = "for $h in " + DOC + " where $h.id lt 12000 let $g := $h.g group by $g"
+    final String predicate = predicateTree
+        ? "($h.id lt 12000 or $h.id gt 18000)"
+        : "$h.id lt 12000";
+    final String query = "for $h in " + DOC + " where " + predicate + " let $g := $h.g group by $g"
         + " order by $g return {\"g\": $g, \"s\": sum($h.v), \"c\": count($h)}";
     final String generic = run(query, false);
     assertTrue(generic.contains("\"g\":"), "the interpreter answered nothing: " + generic);

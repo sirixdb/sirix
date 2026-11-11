@@ -223,11 +223,19 @@ final class FrameScratch extends ScratchSource {
   }
 
   @Override
-  ScratchCarrier acquireAggregation(final long minBytes, final AggregationGrant grant) {
+  long aggregationCapacity(final long minBytes) {
+    if (minBytes <= 0) {
+      throw new IllegalArgumentException("invalid aggregation region size");
+    }
     final int capacityClass = classForSize(minBytes);
-    final long capacity = capacityClass == EXACT_CLASS
+    return capacityClass == EXACT_CLASS
         ? pageRounded(minBytes)
         : capacityOf(capacityClass);
+  }
+
+  @Override
+  ScratchCarrier acquireAggregation(final long minBytes, final AggregationGrant grant) {
+    final long capacity = aggregationCapacity(minBytes);
     grant.claim(capacity);
     try {
       return acquireInternal(minBytes, ScratchUse.AGGREGATION, true, grant);

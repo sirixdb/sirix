@@ -353,10 +353,7 @@ public final class GroupWorkspace implements AutoCloseable {
       final long remaining = grant.capacity() - grant.usedBytes();
       // Incremental tools-only workspaces grow on demand. A planned scan spends only its grant,
       // including capacity rounding, and uses a smaller last region when the growth ramp won't fit.
-      final long target = !scan && plannedBytes == 0L
-          ? nextRegionBytes
-          : Math.min(nextRegionBytes, Long.highestOneBit(remaining));
-      final long regionBytes = Math.max(bytes, target);
+      final long regionBytes = regionBytes(bytes, nextRegionBytes, remaining);
       final ScratchLease lease = grant.borrow(regionBytes);
       try {
         regions.add(lease);
@@ -373,6 +370,53 @@ public final class GroupWorkspace implements AutoCloseable {
     final MemorySegment slice = region.asSlice(carved, bytes);
     carved += bytes;
     return slice;
+  }
+
+  private long regionBytes(final long bytes, final long nextBytes, final long remaining) {
+    final long target = !scan && plannedBytes == 0L
+        ? nextBytes
+        : Math.min(nextBytes, Long.highestOneBit(remaining));
+    return Math.max(bytes, target);
+  }
+
+  synchronized boolean canAllocate(final long firstBytes, final long additionalBytes, final int additionalBlocks) {
+    requireOpen();
+    if (firstBytes <= 0L || additionalBytes <= 0L || additionalBlocks < 0) {
+      throw new IllegalArgumentException("invalid aggregation allocation geometry");
+    }
+    final boolean openingGrant = regions.grant == null;
+    final long capacity = openingGrant
+        ? allocator.aggregationBudget().capacity()
+        : regions.grant.capacity();
+    if (capacity == 0L) {
+      return false;
+    }
+    final AggregationGrant grant = grant(Math.min(FIRST_REGION_BYTES, capacity));
+    long remaining = grant.capacity() - grant.usedBytes();
+    long tail = carving == null
+        ? 0L
+        : carving.byteSize() - carved;
+    long nextBytes = nextRegionBytes;
+    for (long block = 0; block <= additionalBlocks; block++) {
+      final long bytes = block == 0
+          ? firstBytes
+          : additionalBytes;
+      if (bytes > tail) {
+        final long regionCapacity = grant.allocationCapacity(regionBytes(bytes, nextBytes, remaining));
+        if (regionCapacity > remaining) {
+          if (openingGrant) {
+            grant.close();
+            regions.grant = null;
+          }
+          return false;
+        }
+        remaining -= regionCapacity;
+        tail = regionCapacity;
+        nextBytes = Math.min(MAX_REGION_BYTES, nextBytes << 1);
+      }
+      tail -= bytes;
+    }
+    return true;
   }
 
   private synchronized long nextGeneration() {
