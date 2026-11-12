@@ -141,17 +141,15 @@ and can be overridden via system properties.
 | `RecordPageFragmentCache` | 18.75% of budget | `sirix.cache.recordPageFragment` | Older revision fragments needed to reconstruct historical records |
 | `PageCache` | 6.25% of budget (min 100 MB) | `sirix.cache.page` | Index pages, RevisionRoot pages — metadata, not records |
 | `RevisionRootPageCache` | 5,000 entries (fixed count) | — | Revision root pointers |
-| `HOTLookupCache` | 1/32 of the record-page budget, clamped to 1,024–65,536 entries | `sirix.hotLookupCache.maxEntries` | Memoized committed-revision point lookups (`0` disables) |
+| `HOTLookupCache` | [Budget-derived and heap-share bounded](HOT_INDEX_SPECIFICATION.md#61-behaviour) | `sirix.hotLookupCache.maxEntries` | Memoized committed-revision point lookups (`0` disables) |
 | `NamesCache` | 500 entries (fixed) | — | Interned QName / property-name strings |
 | `PathSummaryCache` | 20 entries (fixed) | — | Per-resource path-summary readers |
 
 The budget is not the caches' alone. Transient buffers (reads, serialization, commits, imports) and the
 working memory of grouped scans (their group tables) are borrowed from the same allocator and counted by the
-same budget; the `sirix_allocator_scratch_*` metrics report them. One eighth of the allocator budget is
-reserved for aggregation execution. Page and semantic caches cannot commit it. Each grouped scan acquires
-an exclusive capacity grant before planning its hash-range passes; when another scan holds the needed
-capacity, admission waits and can be interrupted. The planner subtracts worker and rounding overhead and
-charges the full group layout, index growth and merge overlap. Bounded top-k uses the same allowance.
+same budget; the `sirix_allocator_scratch_*` metrics report them. The
+[derived-memory contract](DERIVED_QUERY_CACHES.md) owns aggregation execution grants, derived-cache
+allowances and the separate retained heap-cache envelope, including their override and disable controls.
 
 Set explicit byte counts when you know your working set:
 

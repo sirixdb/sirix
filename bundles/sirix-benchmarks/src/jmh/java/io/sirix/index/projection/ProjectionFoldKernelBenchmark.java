@@ -1297,13 +1297,13 @@ public class ProjectionFoldKernelBenchmark {
     }
   }
 
-  /** One leaf's masked row walk through the chosen kernel; {@code wordBase} indexes the mask pool. */
   /**
    * One leaf's masked row walk through the chosen kernel; {@code wordBase} indexes the mask pool.
    * Every arm reaches the kernels through {@link #foldOneRow}, so two arms that resolve to the same
    * read path really do run the same code and a score difference between them is an effect, not a
    * difference in how this harness happened to inline.
    */
+  @SuppressWarnings("ReachabilityFenceUsage") // Callers keep the workspace open; preserve the measured loop shape.
   private static void foldLeaf(final long[] maskWords, final int wordBase, final int aggCount, final GroupBuffer slot,
       final long[][] values, final MemorySegment[] segments, final long[] bases, final long[][] presence, final Arm arm,
       final Kernel kernel, final long[][] gathered, final long[] records) {

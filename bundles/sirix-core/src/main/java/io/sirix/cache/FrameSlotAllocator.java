@@ -334,7 +334,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private volatile long oversizedHeadroomBytes;
 
   /**
-   * The last bytes of the budget, which only scratch buffers may commit; part of
+   * The last bytes of the non-execution allowance, which only ordinary scratch may commit; part of
    * {@link #oversizedHeadroomBytes}. See {@link #SCRATCH_RESERVE_BYTES_PROPERTY}.
    */
   private volatile long scratchReserveBytes;
@@ -449,9 +449,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   /**
    * A cache-owned slab: one page-granular region with a global-scope segment, charged to the same
-   * physical budget as oversized allocations and refunded exactly once on release. No arena: the
-   * owner's leases decide when nothing can still dereference it, and a global-scope segment carries
-   * no per-access liveness check. Release may come from any thread.
+   * physical budget as oversized allocations until its backing is unmapped. No arena: the owner's
+   * leases decide when nothing can still dereference it, and a global-scope segment carries no
+   * per-access liveness check. Release may come from any thread.
    */
   private record SlabAllocation(MemorySegment segment, long bytes) {
   }
@@ -470,10 +470,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * otherwise, which measured as +10 % on a 50 ms query. Their pages stay committed and dirty, so a
    * reuse pays neither the system calls nor the faults; the bytes stay in {@link #committedBytes} and
    * are counted in {@link #recycledSlabBytes}, never in {@link #slabBytes} (live slabs only). Bounded
-   * by {@link #slabRecycleLimitBytes}; a release beyond the bound unmaps as before, and any
-   * commitment that does not fit the budget drains the recycled slabs first
-   * ({@link #reserveCommittedBytesUpTo}), as does {@link #shutdown()}. The holder of a recycled slab
-   * is not a lease: a caller that releases a slab must never read it again, recycled or not.
+   * by {@link #slabRecycleLimitBytes}; a release beyond the bound unmaps as before. Commitment
+   * admission reclaims the shortfall only if idle backing can cover it
+   * ({@link #reserveCommittedBytesUpTo}); {@link #shutdown()} drains it all. The holder of a recycled
+   * slab is not a lease: a caller that releases a slab must never read it again, recycled or not.
    */
   private final ConcurrentHashMap<Long, ConcurrentLinkedDeque<SlabAllocation>> recycledSlabs =
       new ConcurrentHashMap<>();

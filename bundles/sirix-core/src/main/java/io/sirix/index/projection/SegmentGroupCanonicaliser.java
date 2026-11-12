@@ -1058,12 +1058,6 @@ public final class SegmentGroupCanonicaliser {
   }
 
   /**
-   * Capture an existing representative per hash while holding the map's monitor. The worker then
-   * resolves and compares its immutable value outside the monitor. Canonical IDs and their first
-   * representative cells never change during a walk, so a proven match stays valid. A hash collision
-   * or an arrival after this snapshot uses the ordinary exact check when publishing.
-   */
-  /**
    * Longs in a slice's value lane. The produced canonical lane must match it, because the shared
    * all-zero lane is reused by LENGTH and callers compare the two shapes; a slab-backed slice knows
    * its own row count, a heap-backed one its array's length.
@@ -1075,6 +1069,12 @@ public final class SegmentGroupCanonicaliser {
         : requireNonNull(slice.numericValues(), "a slice with a lane has one of the two forms").length;
   }
 
+  /**
+   * Capture an existing representative per hash while holding the map's monitor. The worker then
+   * resolves and compares its immutable value outside the monitor. Canonical IDs and their first
+   * representative cells never change during a walk, so a proven match stays valid. A hash collision
+   * or an arrival after this snapshot uses the ordinary exact check when publishing.
+   */
   private synchronized void snapshotCandidates(final long[] hashes, final int[] candidates, final long[] cells,
       final String[] values, final boolean[] identities, final int n) {
     for (int i = 0; i < n; i++) {

@@ -1060,11 +1060,10 @@ A `NumericGroupAggTable`'s stripes are allocator memory: each grouped scan opens
 (`proj/GroupWorkspace.java`), every table, stripe buffer and standalone accumulator of the scan takes its chunks
 there, and closing it returns all of it to the allocator. The kernels resolve a record once and address its lanes
 through `GroupKernelLanes`, every other access is checked by `GroupLanes`; winners are copied to the heap before
-they are emitted. The per-pass group budget therefore derives from the allocator, by
-the one rule in `proj/AggregationShare.java`: `min(allocator budget/8, allocator headroom/4)`. The heap-side
-budgets (distinct sets, retained column fills) still derive from `HeapHeadroom`: `min(maxHeap/8, headroom/4)` with
-headroom = max heap − live after last GC. `DenseGlobalGroupAggTable` and the map-based group kernels use native
-lanes from the same scan workspace.
+they are emitted. `DenseGlobalGroupAggTable` and the map-based group kernels use native lanes from the same
+scan workspace. The [group-memory contract](DERIVED_QUERY_CACHES.md#column-lanes) owns execution grants
+and pass planning; the [heap-envelope policy](DERIVED_QUERY_CACHES.md#heap-envelope) owns retained
+column-fill ceilings. Distinct sets still plan against `HeapHeadroom.plannedShareBytes()`.
 
 ---
 
@@ -1262,7 +1261,7 @@ evidence shows `groupDense=0` and `sortedGroupBys=1`.
 
 - **Single read** (`:363-420`): one pread of `sirix.filechannel.pagePrefixBytes` (1024) → u32 length → if the body fits,
   no second pread → checksum → deserialize from the borrowed scratch buffer (a `ScratchLease` on the allocator:
-  a 128 KiB frame slot for an ordinary page, kept resident between reads; the reader pools nothing itself).
+  see the [scratch ownership contract](DERIVED_QUERY_CACHES.md#column-lanes); the reader pools nothing itself).
 - **Batched read** (`:576-690`, `:867-939`):
   1. sort the batch into file order (the comment cites 5× re-coverage with zig-zag order);
   2. snapshot the file size once (`sirix.filechannel.batchFileSize`);
@@ -1950,7 +1949,7 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 | `sirix.filechannel.pagePrefixBytes` | 1024 (4..64 KiB) | first speculative pread size | `:233-234` |
 | `sirix.filechannel.bufferBytes` | 128 KiB (64 KiB..16 MiB) | floor of every read's scratch-buffer request | `FileChannelReader.BUFFER_BYTES` |
 | `sirix.allocator.scratchIdleBuffers` | 2 × CPUs within 8..64 | idle scratch buffers the allocator keeps resident per capacity | `cache/FrameScratch.java` |
-| `sirix.allocator.scratchReserveBytes` | a quarter of the oversized headroom, ≤ 256 MiB | end of the allocator budget only scratch buffers may commit | `cache/FrameSlotAllocator.java` |
+| `sirix.allocator.scratchReserveBytes` | a quarter of the oversized headroom, ≤ 256 MiB | progress reserve within the non-execution allowance, available to ordinary scratch but not frames or cache slabs | `cache/FrameSlotAllocator.java` |
 | `sirix.filechannel.batchFileSize` | T | snapshot file size once per batch | `:563` |
 | `sirix.filechannel.borrowBatchInput` | value of `sirix.io.borrowOverflowInput` (so on, every runtime) | decode run members from span slices; an explicit value wins | `:80`; `io/AbstractReader.java:49-58`, `:60-73` |
 | `sirix.io.borrowOverflowInput` | on, every runtime | decode overflow pages from the borrowed read segment; also the default for the batch switch above | `io/AbstractReader.java:49-58`, `:64-65` |

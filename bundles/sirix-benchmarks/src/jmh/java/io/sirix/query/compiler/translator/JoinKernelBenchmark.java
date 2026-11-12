@@ -474,6 +474,7 @@ public class JoinKernelBenchmark {
     return sum;
   }
 
+  @SuppressWarnings("ReferenceEquality") // Verify trial-owned array identity, not its contents.
   public static void main(final String[] args) {
     final Packed packed = new Packed();
     try {

@@ -16,9 +16,8 @@ import org.jspecify.annotations.Nullable;
  * aligned base of the selection's slab (the cache entry's reservation or the query-local slab),
  * eight bytes per row, read in place by the join and membership kernels exactly like a numeric lane
  * ({@link #segment(int)} and {@link #base(int)} hoisted per leaf, {@link SegmentAccess} at linear
- * offsets). A pruned leaf has no lane. Only when the allocator refused the slab do the lanes view
- * the decoded heap arrays as heap segments ({@link #onHeap}), the same fallback a numeric column
- * takes.
+ * offsets). A pruned leaf has no lane. {@link #onHeap} also represents decoded key arrays as heap
+ * segments when no slab is needed; allocator refusal declines the production route.
  *
  * <p>
  * The store decodes the KEYS chain to heap arrays (its own resident KEYS lane, or a per-selection

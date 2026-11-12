@@ -32,7 +32,7 @@ final class ColumnSlabs implements Runnable {
     slabs = new AtomicReferenceArray<>(columns);
   }
 
-  /** The slab {@code col}'s lanes live in, or {@code null} for a column decoded to the heap. */
+  /** The slab {@code col}'s lanes live in, or {@code null} when the column owns none. */
   @Nullable
   MemorySegment get(final int col) {
     return slabs.get(col);

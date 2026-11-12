@@ -417,7 +417,7 @@ public final class MaskedColumns implements AutoCloseable {
 
   /**
    * The segment holding {@code field}'s lane on {@code leaf}: the store's column slab, the cache
-   * entry's slab, this view's own slab, or (allocator refusal) the heap array viewed as a segment.
+   * entry's slab or this view's own slab. Allocator refusal declines the route before serving a view.
    * Kernels hoist it per leaf with {@link #laneBase(int, int)} and read eight bytes per row at linear
    * offsets.
    */

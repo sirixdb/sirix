@@ -105,6 +105,7 @@ public class GroupTableBenchmark {
   }
 
   /** The row loop of a numeric group kernel: acquire the stripe, then count, sum and extrema. */
+  @SuppressWarnings("ReachabilityFenceUsage") // Callers keep the workspace open; preserve the measured loop shape.
   private long fold(final NumericGroupAggTable table) {
     final long[] rowKeys = keys;
     final long[] rowValues = values;

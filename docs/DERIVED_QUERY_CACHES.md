@@ -4,10 +4,11 @@ Decoded numeric column lanes, cached masked selections and packed interval-join 
 allocator-backed foreign memory, not on the Java heap. Each image owns one slab from the
 persisted-page allocator (`MemorySegmentAllocator.allocateSlab`): a page-granular region whose
 `MemorySegment` has the global scope, so reads carry no per-access liveness check, charged to the
-allocator's physical budget before it is mapped and refunded exactly once when it is released. The
-heap envelope (`HeapCacheBudget`) therefore takes no share for derived data; see the table below.
-A released slab is unmapped (`VM.release`), so every reader of a slab must be provably finished
-before its release: this document names the proof for each owner.
+allocator's physical budget before it is mapped. Release removes its live-slab charge exactly once;
+recycled backing remains committed until it is unmapped. The heap envelope (`HeapCacheBudget`)
+therefore takes no share for derived data; see the table below.
+Every reader of a slab must be provably finished before its release, which can recycle or unmap
+the backing: this document names the proof for each owner.
 A fresh slab's pages are populated in one `madvise(MADV_POPULATE_WRITE)` call
 (`sirix.allocator.slabPopulate`, on by default; Linux only, a kernel without the call falls back to
 lazy faults), so the lane fill that follows writes resident pages instead of taking one fault per
@@ -118,8 +119,9 @@ on every query measured as +10 % on a 50 ms query once the kernels read the lane
 size (`getRecycledSlabBytes`, bounded by `sirix.allocator.slabRecycleBytes`, by default one sixteenth
 of the allocator budget and at most 512 MiB). Their pages stay committed and dirty: a consumer never
 assumes zeroed slab memory (the test seam `sirix.allocator.poisonRecycledSlabs` fills a reused slab with
-`0x5A`), the recycled bytes stay in the allocator's committed total, any commitment that does not fit
-the budget unmaps them first, and shutdown unmaps them all. A reuse hands out a fresh global-scope
+`0x5A`), and the recycled bytes stay in the allocator's committed total. Commitment admission
+reclaims only the shortfall, after checking that idle backing can cover it; an impossible request
+leaves resident buffers intact. Shutdown unmaps them all. A reuse hands out a fresh global-scope
 segment over the same pages, so the instance released before cannot release the new owner's slab.
 
 **Scratch owns separate mapped regions.** All scratch capacities, including 4–256 KiB, use
@@ -198,9 +200,10 @@ allocator never evicts persisted pages on behalf of a derived cache.
 
 Removing an entry from lookup never frees its storage. Every reader view (`MaskedColumns`) and
 every background packing task holds one lease on its entry; the cache holds one while the entry
-is published. The slab is unmapped and its bytes refunded when the last lease drops, so a reader
-that acquired a lease before an eviction keeps reading valid memory until it closes, and a freed
-entry can never be acquired again. Every entry owns a slab (at least its key lanes); an entry that
+is published. The slab is returned to the allocator and its cache-share charge refunded when the
+last lease drops, so a reader that acquired a lease before an eviction keeps reading valid memory
+until it closes, and a freed entry can never be acquired again. Every entry owns a slab (at least
+its key lanes); an entry that
 reads the store's resident columns in place also holds their pins until that same moment
 (`Entry.released`). Views are closed by the
 kernels that opened them (the joined aggregate, the routed membership paths); a `Cleaner` backstop
@@ -308,9 +311,11 @@ and OS/application reserve within the machine or container allowance.
 `DerivedCacheBudget.global().metrics()` exposes the configured target (`-1` for automatic), the
 allocator allowance, the effective combined cap, both partition caps, retained bytes, in-flight
 bytes, retired-but-leased bytes, cumulative rejected bytes (saturating at `Long.MAX_VALUE`) and
-entry counts, and `lanes`: the allocator's live slab bytes, fills the allocator refused (declined through the budget path), and lanes a not-yet-converted consumer copied to the heap. `MemorySegmentAllocator.getSlabBytes()`
-reports the bytes committed to live slabs, included in the allocator's physical bytes. `HeapCacheBudget.global().metrics()` exposes the
-configured and effective envelope, workspace reserve and each cache share; `BufferManagerImpl`
+entry counts, and `lanes`: the allocator's live slab bytes and fills the allocator refused
+(declined through the budget path). `MemorySegmentAllocator.getSlabBytes()` reports the bytes
+committed to live slabs, included in the allocator's physical bytes.
+`HeapCacheBudget.global().metrics()` exposes the configured and effective envelope, workspace
+reserve and each cache share; `BufferManagerImpl`
 logs the policy at initialization. These are cold-path observations, not per-row counters.
 
 ## Tests

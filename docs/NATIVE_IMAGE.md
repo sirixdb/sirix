@@ -229,16 +229,18 @@ won 8x natively on Q10 in the same image. The allocation showed first: twice mai
 natively and less than main's on C2.
 
 The rule: a segment `VarHandle` lives only in a class that a shared `native-image.properties` lists
-for build-time initialization and that holds nothing else (`io.sirix.node.SegmentAccess`, the general
-helpers; `io.sirix.query.compiler.translator.JoinKernels`, the join kernels' handle), and a hot
-kernel invokes such a handle directly at its own bytecode (`JoinKernels.SLAB_LONG.get(...)`) rather
-than through a helper method or a static alias of its own. The direct invocation matters on HotSpot
+for build-time initialization and that holds only constant access metadata. The configuration and
+`SegmentHandleConstantsTest` own the permitted holders and their allowed fields. Join kernels
+invoke a constant handle directly at their own bytecode (`JoinKernels.SLAB_LONG.get(...)`) rather
+than through a helper method or a static alias of their own. The direct invocation matters on HotSpot
 too: C2 compiles an inlined helper with the helper's process-wide type profile, which heap-array
 segment reads elsewhere make bimorphic, so the kernel's reads carry a type switch and an out-of-line
 call for the heap case (the helper form cost t250k warm Q10 60 % on C2 against the direct one).
+Aggregation accessors instead keep an exclusively native segment profile; their access and debug
+contracts are in [Derived query-cache memory](DERIVED_QUERY_CACHES.md#column-lanes).
 `SegmentHandleConstantsTest` (`:sirix-query:test`) scans the query and projection packages for static
-handles whose first coordinate is a `MemorySegment` outside those classes, and checks that each of
-them is in the configuration and holds only final handles. The build report
+handles whose first coordinate is a `MemorySegment` outside the permitted holders, and checks the
+holders against the shared configuration and constant-metadata contract. The build report
 (`-H:BuildOutputJSONFile`, `--emit build-report`) shows the kind per class: a compiled `<clinit>`
 means run-time initialization.
 
