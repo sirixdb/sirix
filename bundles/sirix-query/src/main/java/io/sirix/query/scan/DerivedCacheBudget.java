@@ -35,6 +35,8 @@ import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 public final class DerivedCacheBudget {
   public static final String MAX_BYTES_PROPERTY = "sirix.derivedCache.maxBytes";
 
+  // Volatile publishes the test callback reference; it does not protect mutable callback state.
+  @SuppressWarnings("java:S3077")
   static volatile @Nullable Consumer<String> handoffHookForTesting;
 
   static void handoff(final String point) {
@@ -51,7 +53,11 @@ public final class DerivedCacheBudget {
   private final Partition numeric;
   private final Partition packed;
 
+  // Volatile publishes the initialized budget; each partition synchronizes its mutable accounting.
+  @SuppressWarnings("java:S3077")
   private static volatile @Nullable DerivedCacheBudget runtime;
+  // Volatile publishes the test budget; each partition synchronizes its mutable accounting.
+  @SuppressWarnings("java:S3077")
   private static volatile @Nullable DerivedCacheBudget testing;
 
   /** Initialized on first use, after the allocator has received its effective persisted allowance. */
@@ -319,6 +325,8 @@ public final class DerivedCacheBudget {
      * yet. Returns {@code null} without building when the entry cannot fit the share even then, or when
      * the allocator refuses the slab.
      */
+    // The caller owns the returned reservation; failed mapping is unwound here.
+    @SuppressWarnings("java:S2095")
     public @Nullable Reservation reserve(final long bytes) {
       if (bytes <= 0) {
         throw new IllegalArgumentException("Construction weight must be positive");

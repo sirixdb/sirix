@@ -149,6 +149,8 @@ public class GrowingMemorySegment {
    * @return the segment
    * @throws OutOfMemoryError when the allocator's budget cannot serve the borrow
    */
+  // The returned segment owns the lease and returns it from close().
+  @SuppressWarnings("java:S2095")
   public static GrowingMemorySegment ofScratch(final long initialCapacity, final ScratchUse use) {
     return new GrowingMemorySegment(new ScratchLease().acquire(initialCapacity, use));
   }

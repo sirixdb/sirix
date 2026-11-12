@@ -213,6 +213,8 @@ final class ValueDictionaryValueBlockCodec {
    * record keeps nothing between records.
    * </p>
    */
+  // Only the reusable handle lives with the thread; each decode returns its borrowed buffer.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<ScratchLease> NATIVE_LANDING = ThreadLocal.withInitial(ScratchLease::new);
 
   /**

@@ -84,6 +84,8 @@ final class LazyChunkedBody {
    * that is in the middle of deserializing another page further down its own stack, and sharing one
    * buffer between the two would let the inner expansion overwrite the outer page's body.
    */
+  // Only the reusable handle lives with the thread; each expansion returns its borrowed buffer.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<ScratchLease> EXPAND_LEASE = ThreadLocal.withInitial(ScratchLease::new);
 
   /**
@@ -283,6 +285,8 @@ final class LazyChunkedBody {
    * segment being written here must not be released underneath the write, and the guard-count
    * protocol that keeps a cached page alive is left exactly as it was.
    */
+  // Expansion must use the same page monitor as close() to prevent release during the write.
+  @SuppressWarnings("java:S2445")
   private void materialize(final KeyValueLeafPage page, final int chunk) {
     synchronized (page) {
       final byte[] wire = pending[chunk];

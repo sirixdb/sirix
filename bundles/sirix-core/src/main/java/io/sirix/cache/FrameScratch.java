@@ -102,6 +102,8 @@ final class FrameScratch extends ScratchSource {
    * the class comment. Each counts against the allocator's recycle bound while it is here.
    */
   private final SpareList[] spareRegions;
+  // Volatile publishes the test callback reference; it does not protect mutable callback state.
+  @SuppressWarnings("java:S3077")
   private volatile @Nullable Runnable sparePublicationHook;
 
   private static final class SpareList {

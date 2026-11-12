@@ -47,6 +47,8 @@ import org.jspecify.annotations.Nullable;
  * slots == n), so a divergence between this pass and the full tokenizer refuses loudly per chunk.
  */
 final class FusedSliceAndScan implements AutoCloseable {
+  // Volatile publishes the test callback reference; it does not protect mutable callback state.
+  @SuppressWarnings("java:S3077")
   static volatile @Nullable Runnable chunkHandoffHookForTesting;
 
   /**

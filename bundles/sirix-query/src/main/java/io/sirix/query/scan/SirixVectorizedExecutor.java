@@ -14264,18 +14264,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
 
     /**
-     * A pass owns only its share of the partition streams. When their tails do not fit, start with more
-     * passes instead of requiring every partition's worst-case tail at admission. A completed-count
-     * tolerance may never exceed the actual exclusive byte capacity.
+     * A pass owns only its share of the partition streams. When the groups it expects and the partial
+     * chunks of the partitions holding them do not fit ({@link GroupWorkspace#usableGroups}), start
+     * with more passes. A plan that knows no count expects one group and so starts with one pass on any
+     * grant that holds a partition: a pass is a scan of the whole input. A completed-count tolerance
+     * may never exceed the actual exclusive byte capacity.
      */
     private void fitWorkspaceCapacity() {
       if (workspace == null) {
         return;
       }
-      final long charge = GroupTableSpill.bytesPerGroup(strideLanes);
       for (int candidate = passes; candidate <= partitions; candidate++) {
         final int active = GroupTableSpill.largestPassShare(partitions, candidate);
-        final long physicalGroups = workspace.usableGroupBytes(active) / charge;
+        final long physicalGroups = workspace.usableGroups(active);
         final long candidateBudget = Math.min(passBudget, physicalGroups);
         final long expected = plannedGroups == 0L
             ? 1L
@@ -31753,6 +31754,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return every;
   }
 
+  // Returned views or cache entries own the resources; finally releases anything not handed off.
+  @SuppressWarnings("java:S2095")
   private @Nullable MaskedColumns readMaskedColumns(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] rowKeys, final int[] cols,
       final byte[] kinds, final String[] fields, final long @Nullable [] cacheKeys, final boolean ownLanes) {

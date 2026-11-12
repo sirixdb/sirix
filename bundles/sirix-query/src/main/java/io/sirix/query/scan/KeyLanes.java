@@ -31,6 +31,8 @@ final class KeyLanes {
   private final MemorySegment @Nullable [] segments;
   private final long[] bases;
   private final int[] rows;
+  // The complete first-key arrays are published once built and never mutated afterwards.
+  @SuppressWarnings("java:S3077")
   private volatile long @Nullable [][] firstKeys;
 
   private KeyLanes(final MemorySegment @Nullable [] segments, final long[] bases, final int[] rows) {

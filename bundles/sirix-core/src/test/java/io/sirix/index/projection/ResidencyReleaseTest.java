@@ -96,13 +96,15 @@ final class ResidencyReleaseTest {
     assertFalse(f.store().columnsFitWithinBudget(new int[] {0, 1}, -1), "nor the pair");
 
     final long windowedBefore = ProjectionColumnStore.windowedLeafAccessCount();
-    final LeafColumnAccess access = f.store().leafAccess(f.fetcher(), null, new int[] {0}, false);
-    assertTrue(access.windowed(), "over the share the access must be the windowed one");
-    assertEquals(windowedBefore + 1, ProjectionColumnStore.windowedLeafAccessCount());
-    assertEquals(0L, f.store().retainedFillBytes(), "a refused route must retain nothing");
+    final long windowedSum;
+    try (LeafColumnAccess access = f.store().leafAccess(f.fetcher(), null, new int[] {0}, false)) {
+      assertTrue(access.windowed(), "over the share the access must be the windowed one");
+      assertEquals(windowedBefore + 1, ProjectionColumnStore.windowedLeafAccessCount());
+      assertEquals(0L, f.store().retainedFillBytes(), "a refused route must retain nothing");
 
-    // …and it still ANSWERS: the windowed slices carry the same values a resident fill would.
-    final long windowedSum = sumThrough(access, 0, f.store().leafCount());
+      // …and it still ANSWERS: the windowed slices carry the same values a resident fill would.
+      windowedSum = sumThrough(access, 0, f.store().leafCount());
+    }
     assertThrows(FillBudgetExceededException.class, () -> f.store().column(0, f.fetcher()),
         "the fill door declines rather than retaining over the share");
     assertEquals(0L, f.store().retainedFillBytes(), "a declined fill must charge nothing");
@@ -110,10 +112,11 @@ final class ResidencyReleaseTest {
     // MUTATION of the gate: with R1 killed the same store, share and budget retain the fill.
     ProjectionColumnStore.setResidencyHeadroomForTesting(false);
     assertTrue(f.store().columnFillable(0), "without the headroom gate the static budget admits it");
-    final LeafColumnAccess resident = f.store().leafAccess(f.fetcher(), null, new int[] {0}, false);
-    assertFalse(resident.windowed(), "without the headroom gate the access is resident");
-    assertEquals(windowedSum, sumThrough(resident, 0, f.store().leafCount()),
-        "the windowed answer must equal the resident one");
+    try (LeafColumnAccess resident = f.store().leafAccess(f.fetcher(), null, new int[] {0}, false)) {
+      assertFalse(resident.windowed(), "without the headroom gate the access is resident");
+      assertEquals(windowedSum, sumThrough(resident, 0, f.store().leafCount()),
+          "the windowed answer must equal the resident one");
+    }
     assertTrue(f.store().retainedFillBytes() > 0L, "the resident route retained the fill");
   }
 
@@ -198,8 +201,9 @@ final class ResidencyReleaseTest {
     ProjectionColumnStore.setColumnFillBudgetBytesForTesting(b);
     try (ProjectionResidencyScope query2 = ProjectionResidencyScope.open()) {
       assertFalse(killed.store().columnFillable(1), "the retained column crowds the next query out");
-      assertTrue(killed.store().leafAccess(killed.fetcher(), null, new int[] {1}, false).windowed(),
-          "…which is what sends it windowed");
+      try (LeafColumnAccess crowded = killed.store().leafAccess(killed.fetcher(), null, new int[] {1}, false)) {
+        assertTrue(crowded.windowed(), "…which is what sends it windowed");
+      }
       assertNotNull(query2);
     }
     assertEquals(a, killed.store().retainedFillBytes(), "and nothing is ever released");

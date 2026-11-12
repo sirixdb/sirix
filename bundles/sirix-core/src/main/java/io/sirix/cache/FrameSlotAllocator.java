@@ -346,6 +346,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   public static final String SCRATCH_RESERVE_BYTES_PROPERTY = "sirix.allocator.scratchReserveBytes";
 
   /** This allocator's scratch buffers; created with the size classes. */
+  // Volatile publishes the scratch owner; its operations synchronize mutable state.
+  @SuppressWarnings("java:S3077")
   private volatile FrameScratch scratch;
 
   /** Idle scratch buffers to keep per capacity; {@code 0} selects the configured default. */
@@ -461,6 +463,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   private final AtomicLong slabBytes = new AtomicLong();
   private final AtomicInteger slabOperations = new AtomicInteger();
+  // Volatile publishes the test callback reference; it does not protect mutable callback state.
+  @SuppressWarnings("java:S3077")
   private volatile @Nullable Runnable slabPublicationHook;
 
   /**

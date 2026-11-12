@@ -202,6 +202,8 @@ public final class SirixLZ77Codec {
    * the reason given at {@link #ARRAY_LE_INT}. The handle is reused so a decode allocates nothing; it
    * holds no memory between decodes, the buffer goes back to the allocator with each one.
    */
+  // Only the reusable handle lives with the thread; each decode returns its borrowed buffer.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<ScratchLease> DECODE_LEASE = ThreadLocal.withInitial(ScratchLease::new);
 
   /**

@@ -673,8 +673,12 @@ public final class ParallelBulkJsonImporter {
   private static final long UNWIND_WAIT_MILLIS = 5_000L;
 
   /** See {@link #setChunkTakenHookForTesting}. */
+  // Volatile publishes the test callback reference; it does not protect mutable callback state.
+  @SuppressWarnings("java:S3077")
   private static volatile @Nullable Runnable chunkTakenHookForTesting;
 
+  // Volatile publishes the test callback reference; it does not protect mutable callback state.
+  @SuppressWarnings("java:S3077")
   private static volatile @Nullable Runnable feederStartedHookForTesting;
 
   /**
@@ -718,6 +722,8 @@ public final class ParallelBulkJsonImporter {
     return limit;
   }
 
+  // The coordinator finally shuts down the pool; no worker starts before that guard.
+  @SuppressWarnings("java:S2095")
   private void run(final InputStream input, final int parallelism) throws IOException {
 
     final RootArray rootArray = openRootArray();

@@ -459,6 +459,24 @@ public final class GroupWorkspace implements AutoCloseable {
   // growth and merge overlap are already in bytesPerGroup; these are their partial chunks.
   private static final long PARTITION_TAIL_BYTES = 6L * (128L << 10);
 
+  /**
+   * The partial chunks of a partition in multiples of its groups' charge, while they are smaller than
+   * {@link #PARTITION_TAIL_BYTES}. Under the stripe spill every stream of a partition is sized by
+   * what lands in it: a stripe buffer's chunks double from eight stripes, and a partition table is
+   * created at the stripes of its first compaction and doubles from there. The chunk a stream is
+   * filling and the smaller ones it has outgrown are therefore each smaller than the table the stream
+   * has reached, which has at most 8/3 buckets a group: 16/3 stripes and 16/3 index lanes a group at
+   * the worst, under 8/3 of the charge at any stripe width.
+   */
+  private static final long PARTITION_TAIL_CHARGES = 3L;
+
+  /**
+   * Stripes the first chunks of a partition hold before its groups account for them: a table of
+   * sixteen buckets, its sixteen index lanes and the buffer's first eight stripes are at most 32
+   * stripes at any width, and twice that covers the chunks a first growth retires.
+   */
+  private static final long PARTITION_FIRST_CHUNK_STRIPES = 64L;
+
   private AggregationGrant grant() {
     return grant(FIRST_REGION_BYTES);
   }
@@ -562,6 +580,63 @@ public final class GroupWorkspace implements AutoCloseable {
       throw new IllegalArgumentException("invalid live aggregation partition count");
     }
     return Math.max(0L, plannedBytes - planningOverhead - activePartitions * PARTITION_TAIL_BYTES);
+  }
+
+  /**
+   * The groups a pass over {@code activePartitions} partitions can hold in this scan's grant: every
+   * group at its charge, and the partial chunks of the partitions that hold one.
+   *
+   * <p>
+   * A partition owes partial chunks only once a group has landed in it, and never more than
+   * {@link #PARTITION_TAIL_BYTES}. A pass limited to few groups therefore owes few tails, however
+   * wide the merge split is: reserving the full tail of every partition before the first group made a
+   * plan over a thousand partitions start with several passes, each a scan of the whole input, on any
+   * grant below their 768 MiB. Three bounds hold at once and the pass may use the widest:
+   * <ul>
+   * <li>every partition at its full tail, the bound that binds once the partitions are large;
+   * <li>one full tail for each group, since a pass of fewer groups than partitions fills no more
+   * partitions than it has groups;
+   * <li>under the stripe spill, tails in proportion to what the partitions hold
+   * ({@link #PARTITION_TAIL_CHARGES}) plus their first chunks
+   * ({@link #PARTITION_FIRST_CHUNK_STRIPES}).
+   * </ul>
+   * A plan that proves too small for the grant after all fails its allocation, and the pass restarts
+   * with more passes as it does past its group budget.
+   *
+   * @param activePartitions partitions the largest pass owns
+   * @return groups that pass can hold; zero before {@link #preparePlan}
+   * @throws IllegalArgumentException if the count is not positive or exceeds the planned partitions
+   */
+  public synchronized long usableGroups(final int activePartitions) {
+    if (activePartitions <= 0 || (plannedBytes != 0L && activePartitions > plannedPartitions)) {
+      throw new IllegalArgumentException("invalid live aggregation partition count");
+    }
+    final long usable = plannedBytes - planningOverhead;
+    if (usable <= 0L) {
+      return 0L;
+    }
+    final long charge = GroupTableSpill.bytesPerGroup(plannedStride);
+    final long everyTail = Math.max(0L, usable - activePartitions * PARTITION_TAIL_BYTES) / charge;
+    final long tailPerGroup = heldGroups(usable, activePartitions, charge, PARTITION_TAIL_BYTES);
+    if (!GroupTableSpill.stripeSpillEnabled()) {
+      // Flushes probe into partition tables created at the worker hint: a chunk a stream, whatever lands.
+      return Math.max(everyTail, tailPerGroup);
+    }
+    final long firstChunks = PARTITION_FIRST_CHUNK_STRIPES * plannedStride * Long.BYTES;
+    return Math.max(Math.max(everyTail, tailPerGroup),
+        heldGroups(usable, activePartitions, (1L + PARTITION_TAIL_CHARGES) * charge, firstChunks));
+  }
+
+  /**
+   * The most groups {@code g} with {@code g * perGroup + min(g, partitions) * perPartition} within
+   * {@code usable}.
+   */
+  private static long heldGroups(final long usable, final int partitions, final long perGroup,
+      final long perPartition) {
+    final long everyPartition = (usable - partitions * perPartition) / perGroup;
+    return everyPartition >= partitions
+        ? everyPartition
+        : usable / (perGroup + perPartition);
   }
 
   public synchronized long grantedBytes() {

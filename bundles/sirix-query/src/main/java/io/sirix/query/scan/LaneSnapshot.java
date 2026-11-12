@@ -81,6 +81,8 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
   /**
    * A view holding {@code lease} on this entry: shared slices and key lanes, this view's own masks.
    */
+  // The returned view owns the adopted lease; failed adoption returns the lease here.
+  @SuppressWarnings("java:S2095")
   MaskedColumns view(final DerivedCacheBudget.Lease lease) {
     try {
       DerivedCacheBudget.handoff("view");

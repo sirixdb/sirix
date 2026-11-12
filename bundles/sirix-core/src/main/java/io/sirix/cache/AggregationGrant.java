@@ -28,6 +28,8 @@ public final class AggregationGrant implements AutoCloseable {
     return ScratchSource.of(allocator).aggregationCapacity(bytes);
   }
 
+  // The returned lease transfers cleanup ownership to the caller.
+  @SuppressWarnings("java:S2095")
   public ScratchLease borrow(final long bytes) {
     return new ScratchLease(allocator).acquireAggregation(bytes, this);
   }

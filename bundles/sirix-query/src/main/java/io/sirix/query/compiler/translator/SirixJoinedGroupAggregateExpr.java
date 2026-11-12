@@ -40,6 +40,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,8 +77,12 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
   /** Work counter: bucketed sides built for the dense extrema kernel (a cache hit builds none). */
   private static final LongAdder BUCKETED_SIDES_BUILT = new LongAdder();
+  // Volatile publishes the executor reference; the executor provides its own task synchronization.
+  @SuppressWarnings("java:S3077")
   private static volatile @Nullable Executor packingExecutorForTesting;
 
+  // Volatile publishes the test callback reference; it does not protect mutable callback state.
+  @SuppressWarnings("java:S3077")
   static volatile @Nullable Consumer<String> handoffHookForTesting;
 
   private static void handoff(final String point) {
@@ -92,10 +97,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   }
 
   static @Nullable CompletableFuture<?> inFlightPackingForTesting() {
-    for (final CompletableFuture<?> future : BucketedSideCache.IN_FLIGHT.values()) {
-      return future;
-    }
-    return null;
+    final Iterator<? extends CompletableFuture<?>> futures = BucketedSideCache.IN_FLIGHT.values().iterator();
+    return futures.hasNext()
+        ? futures.next()
+        : null;
   }
 
   /** Test seam for isolated fixtures that hold an optional packing task before execution. */
@@ -961,6 +966,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       public int hashCode() {
         return 31 * System.identityHashCode(rows) + Arrays.hashCode(signature);
       }
+
+      @Override
+      public String toString() {
+        return "InFlightKey[store=" + store + ", rows=" + rows + ", signature=" + Arrays.toString(signature) + "]";
+      }
     }
 
     private BucketedSideCache() {}
@@ -1666,7 +1676,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
 
   private static int[] build(final MaskedColumns buildColumns, final int buildFieldCount, final BuildRows buildRows,
       final boolean denseNumeric) {
-    buildRows.nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8, buildColumns.rows()))];
+    buildRows.nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8L, buildColumns.rows()))];
     final MemorySegment[] laneSeg = new MemorySegment[buildFieldCount];
     final long[] laneOff = new long[buildFieldCount];
     final long[] values = new long[buildFieldCount];

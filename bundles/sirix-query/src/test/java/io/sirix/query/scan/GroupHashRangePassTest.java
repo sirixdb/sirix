@@ -74,12 +74,9 @@ final class GroupHashRangePassTest {
   private long previousBudget;
   private int previousThreshold;
   private int previousSubChunk;
-  private String previousPartitions;
 
   @BeforeEach
   void setUp() throws Exception {
-    // Keep partition tails within CI's native grant to exercise the budget-triggered restart.
-    previousPartitions = System.setProperty(SirixVectorizedExecutor.GROUP_MERGE_PARTITIONS_PROPERTY, "32");
     previousBudget = GroupTableSpill.setGroupBudgetForTesting(32L);
     previousThreshold = GroupTableSpill.setFlushGroupsForTesting(8);
     previousSubChunk = GroupTableSpill.setSubChunkLeavesForTesting(1);
@@ -122,11 +119,6 @@ final class GroupHashRangePassTest {
 
   @AfterEach
   void tearDown() {
-    if (previousPartitions == null) {
-      System.clearProperty(SirixVectorizedExecutor.GROUP_MERGE_PARTITIONS_PROPERTY);
-    } else {
-      System.setProperty(SirixVectorizedExecutor.GROUP_MERGE_PARTITIONS_PROPERTY, previousPartitions);
-    }
     GroupTableSpill.setGroupBudgetForTesting(previousBudget);
     GroupTableSpill.setFlushGroupsForTesting(previousThreshold);
     GroupTableSpill.setSubChunkLeavesForTesting(previousSubChunk);
@@ -300,8 +292,7 @@ final class GroupHashRangePassTest {
 
   private static String runWith(final JsonResourceSession session, final SirixCompileChain chain,
       final SirixQueryContext ctx, final String query) throws Exception {
-    // Keep multiple morsels per worker so the fixture flushes before its final local tables.
-    final SirixVectorizedExecutor exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+    final SirixVectorizedExecutor exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
     try {
       SequentialPipelineStrategy.setVectorizedExecutor(exec);
       final Sequence result = new Query(chain, query).execute(ctx);
@@ -327,7 +318,7 @@ final class GroupHashRangePassTest {
         if (vectorized) {
           final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
           final JsonResourceSession session = db.beginResourceSession(RES);
-          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
           SequentialPipelineStrategy.setVectorizedExecutor(exec);
         }
         final Sequence result = new Query(chain, query).execute(ctx);

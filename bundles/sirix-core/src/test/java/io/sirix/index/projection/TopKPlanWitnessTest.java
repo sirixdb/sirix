@@ -432,24 +432,25 @@ final class TopKPlanWitnessTest {
     final ColumnSlice[] longs = resident.column(LONGS, fx.fetcher());
     final long[][] keys = resident.recordKeys(fx.fetcher());
     final int[] set = {0, 1, 2, 4, 4_396, 4_399};
-    final LeafColumnAccess access = store.leafSetAccess(fx.fetcher(), null, set, 1, set.length - 1);
-    assertTrue(access.windowed());
-    for (int i = 1; i < set.length - 1; i++) {
-      final int leaf = set[i];
-      final ColumnSlice s = access.slice(STRINGS, leaf);
-      final ColumnSlice l = access.slice(LONGS, leaf);
-      assertEquals(strings[leaf].rowCount(), s.rowCount(), "rows of leaf " + leaf);
-      assertEquals(longs[leaf].rowCount(), l.rowCount(), "rows of leaf " + leaf);
-      if (s.rowCount() <= 0) {
-        assertEquals(0, keys[leaf].length);
-        continue;
-      }
-      assertArrayEquals(strings[leaf].presenceWords(), s.presenceWords(), "presence of leaf " + leaf);
-      assertArrayEquals(copyNumericValues(longs[leaf]), copyNumericValues(l), "longs of leaf " + leaf);
-      assertArrayEquals(keys[leaf], access.recordKeys(leaf), "record keys of leaf " + leaf);
-      for (int r = 0; r < s.rowCount(); r++) {
-        if ((s.presenceWords()[r >>> 6] & 1L << (r & 63)) != 0L) {
-          assertEquals(cell(strings[leaf], r), cell(s, r), "row " + r + " of leaf " + leaf);
+    try (LeafColumnAccess access = store.leafSetAccess(fx.fetcher(), null, set, 1, set.length - 1)) {
+      assertTrue(access.windowed());
+      for (int i = 1; i < set.length - 1; i++) {
+        final int leaf = set[i];
+        final ColumnSlice s = access.slice(STRINGS, leaf);
+        final ColumnSlice l = access.slice(LONGS, leaf);
+        assertEquals(strings[leaf].rowCount(), s.rowCount(), "rows of leaf " + leaf);
+        assertEquals(longs[leaf].rowCount(), l.rowCount(), "rows of leaf " + leaf);
+        if (s.rowCount() <= 0) {
+          assertEquals(0, keys[leaf].length);
+          continue;
+        }
+        assertArrayEquals(strings[leaf].presenceWords(), s.presenceWords(), "presence of leaf " + leaf);
+        assertArrayEquals(copyNumericValues(longs[leaf]), copyNumericValues(l), "longs of leaf " + leaf);
+        assertArrayEquals(keys[leaf], access.recordKeys(leaf), "record keys of leaf " + leaf);
+        for (int r = 0; r < s.rowCount(); r++) {
+          if ((s.presenceWords()[r >>> 6] & 1L << (r & 63)) != 0L) {
+            assertEquals(cell(strings[leaf], r), cell(s, r), "row " + r + " of leaf " + leaf);
+          }
         }
       }
     }

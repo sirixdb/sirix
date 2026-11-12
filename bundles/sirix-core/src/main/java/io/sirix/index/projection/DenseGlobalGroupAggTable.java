@@ -173,6 +173,8 @@ public final class DenseGlobalGroupAggTable {
     this.zeroSlot = ProjectionIndexByteScan.newGroupAggAcc(workspace, aggColumns, Long.MAX_VALUE);
   }
 
+  // The workspace monitor makes capacity admission and table allocation one atomic operation.
+  @SuppressWarnings("java:S2445")
   public static @Nullable DenseGlobalGroupAggTable tryCreate(final GroupWorkspace workspace, final int aggColumns,
       final int maxId, final long sumExactMask, final boolean foldCountLane, final int workers) {
     if (maxId <= 0 || workers <= 0) {

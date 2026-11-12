@@ -11,6 +11,7 @@ import io.sirix.budget.EngineWorkCounters;
 import io.sirix.budget.WorkCapture;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.index.projection.ProjectionColumnStore.LeafColumnAccess;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.Op;
@@ -327,8 +328,11 @@ final class RecordKeySetPredicateTest {
               assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fx.store(), preds, 0, n, fx.fetcher()),
                   "sliced ranged " + at);
               final long[] keep = ProjectionColumnScan.predicateKeepMask(fx.store(), preds, fx.fetcher());
-              assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fx.store(), preds, 0, n,
-                  fx.store().windowedLeafAccess(fx.fetcher(), keep, 2)), "sliced windowed " + at);
+              // The access holds its last window's buffers until it is closed, as a worker's does.
+              try (LeafColumnAccess windowed = fx.store().windowedLeafAccess(fx.fetcher(), keep, 2)) {
+                assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fx.store(), preds, 0, n, windowed),
+                    "sliced windowed " + at);
+              }
               assertEquals(expected, ProjectionIndexByteScan.conjunctiveCount(fx.rawLeaves(), preds),
                   "whole-leaf bytes " + at);
               // The same predicates as an AND tree, and the key set under an OR with the long test:

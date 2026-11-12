@@ -323,12 +323,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * workspace is allocator scratch borrowed for one image and returned once the sidecar has taken its
    * copy; the handle is reused so a borrow allocates nothing, and holds no memory in between.
    */
+  // Only the reusable handle lives with the thread; each image returns its borrowed buffer.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<ScratchLease> SIDE_SLOT_IMAGE_SCRATCH = ThreadLocal.withInitial(ScratchLease::new);
 
   /**
    * Per-thread handle for the workspace of one off-frame field resize: allocator scratch borrowed for
    * the resize and returned with it.
    */
+  // Only the reusable handle lives with the thread; each resize returns its borrowed buffer.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<ScratchLease> RESIZE_OVERFLOW_SCRATCH = ThreadLocal.withInitial(ScratchLease::new);
 
   /** Maximum old flyweight image plus DeltaVarIntCodec's documented nine-byte field growth. */

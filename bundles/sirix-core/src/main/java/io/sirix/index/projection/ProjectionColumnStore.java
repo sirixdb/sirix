@@ -28,6 +28,7 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
@@ -169,6 +170,50 @@ public final class ProjectionColumnStore {
       long @Nullable [] numericValues, long @Nullable [] boolWords, int @Nullable [] stringDictIds,
       byte @Nullable [] dictBytes, int @Nullable [] dictOffsets, int @Nullable [] setCounts,
       long @Nullable [] dictHashes, @Nullable PackedDictionaryIds packedStringIds, @Nullable NumericLane lane) {
+
+    @Override
+    public boolean equals(final Object other) {
+      if (this == other) {
+        return true;
+      }
+      return other instanceof ColumnSlice that
+          && (rowCount == that.rowCount && flags == that.flags && min == that.min && max == that.max
+              && Arrays.equals(presenceWords, that.presenceWords) && Arrays.equals(numericValues, that.numericValues)
+              && Arrays.equals(boolWords, that.boolWords) && Arrays.equals(stringDictIds, that.stringDictIds)
+              && Arrays.equals(dictBytes, that.dictBytes) && Arrays.equals(dictOffsets, that.dictOffsets)
+              && Arrays.equals(setCounts, that.setCounts) && Arrays.equals(dictHashes, that.dictHashes)
+              && Objects.equals(packedStringIds, that.packedStringIds) && Objects.equals(lane, that.lane));
+    }
+
+    @Override
+    public int hashCode() {
+      int result = 1;
+      result = 31 * result + Integer.hashCode(rowCount);
+      result = 31 * result + Integer.hashCode(flags);
+      result = 31 * result + Long.hashCode(min);
+      result = 31 * result + Long.hashCode(max);
+      result = 31 * result + Arrays.hashCode(presenceWords);
+      result = 31 * result + Arrays.hashCode(numericValues);
+      result = 31 * result + Arrays.hashCode(boolWords);
+      result = 31 * result + Arrays.hashCode(stringDictIds);
+      result = 31 * result + Arrays.hashCode(dictBytes);
+      result = 31 * result + Arrays.hashCode(dictOffsets);
+      result = 31 * result + Arrays.hashCode(setCounts);
+      result = 31 * result + Arrays.hashCode(dictHashes);
+      result = 31 * result + Objects.hashCode(packedStringIds);
+      result = 31 * result + Objects.hashCode(lane);
+      return result;
+    }
+
+    @Override
+    public String toString() {
+      return "ColumnSlice[rowCount=" + rowCount + ", flags=" + flags + ", min=" + min + ", max=" + max
+          + ", presenceWords=" + Arrays.toString(presenceWords) + ", numericValues=" + Arrays.toString(numericValues)
+          + ", boolWords=" + Arrays.toString(boolWords) + ", stringDictIds=" + Arrays.toString(stringDictIds)
+          + ", dictBytes=" + Arrays.toString(dictBytes) + ", dictOffsets=" + Arrays.toString(dictOffsets)
+          + ", setCounts=" + Arrays.toString(setCounts) + ", dictHashes=" + Arrays.toString(dictHashes)
+          + ", packedStringIds=" + packedStringIds + ", lane=" + lane + "]";
+    }
 
     /** The shape every producer but the slab fill uses: no off-heap lane. */
     public ColumnSlice(final int rowCount, final byte flags, final long min, final long max, final long[] presenceWords,
@@ -754,9 +799,32 @@ public final class ProjectionColumnStore {
    * Byte base of every leaf's lane in a whole-column slab (64-byte aligned, leaf order), its size.
    */
   private record LaneLayout(long[] leafBases, long bytes) {
+
+    @Override
+    public boolean equals(final Object other) {
+      if (this == other) {
+        return true;
+      }
+      return other instanceof LaneLayout that && (Arrays.equals(leafBases, that.leafBases) && bytes == that.bytes);
+    }
+
+    @Override
+    public int hashCode() {
+      int result = 1;
+      result = 31 * result + Arrays.hashCode(leafBases);
+      result = 31 * result + Long.hashCode(bytes);
+      return result;
+    }
+
+    @Override
+    public String toString() {
+      return "LaneLayout[leafBases=" + Arrays.toString(leafBases) + ", bytes=" + bytes + "]";
+    }
   }
 
   /** Computed once from the leaf row counts: the same for every numeric column. */
+  // The layout and its array are fully built before publication and never mutated afterwards.
+  @SuppressWarnings("java:S3077")
   private volatile @Nullable LaneLayout laneLayout;
 
   /**
@@ -2070,6 +2138,8 @@ public final class ProjectionColumnStore {
    *
    * @throws IllegalStateException on missing/corrupt segments or a non-sliceable column
    */
+  // Cleanup is rethrown only without a primary failure; otherwise it is suppressed on that failure.
+  @SuppressWarnings("java:S1143")
   public ColumnSlice[] column(final int col, final ColumnSegmentFetcher fetcher) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="

@@ -32,6 +32,8 @@ final class GroupDebugRecords {
   /** Filings beyond which the dead ones are looked for. */
   private static final int SWEEP_AT = 1 << 16;
 
+  // Debug filing identities live with their thread; dead allocations are swept from the maps.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<GroupDebugRecords> OF_THREAD = ThreadLocal.withInitial(GroupDebugRecords::new);
 
   /** One footprint of one allocation; the allocation compares by identity. */

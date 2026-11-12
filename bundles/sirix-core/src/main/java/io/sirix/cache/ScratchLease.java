@@ -81,6 +81,8 @@ public final class ScratchLease implements AutoCloseable {
    * @return a lease holding the buffer
    * @throws OutOfMemoryError when the budget cannot serve the borrow
    */
+  // The returned lease transfers cleanup ownership to the caller.
+  @SuppressWarnings("java:S2095")
   public static ScratchLease of(final long minBytes, final ScratchUse use) {
     return new ScratchLease().acquire(minBytes, use);
   }
@@ -231,6 +233,8 @@ public final class ScratchLease implements AutoCloseable {
     }
   }
 
+  // bind and acquireAggregation publish the carrier through LEASE_CARRIER, a VarHandle.
+  @SuppressWarnings("javabugs:S6416")
   private ScratchCarrier held() {
     final ScratchCarrier held = carrier;
     if (held == null) {

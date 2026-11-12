@@ -65,12 +65,9 @@ final class GroupPassOutOfMemoryRestartTest {
   private Path dbDir;
   private int previousThreshold;
   private int previousSubChunk;
-  private String previousPartitions;
 
   @BeforeEach
   void setUp() throws Exception {
-    // Keep restarted passes wide enough to flush local groups even with CI's smaller native grant.
-    previousPartitions = System.setProperty(SirixVectorizedExecutor.GROUP_MERGE_PARTITIONS_PROPERTY, "32");
     previousThreshold = GroupTableSpill.setFlushGroupsForTesting(8);
     previousSubChunk = GroupTableSpill.setSubChunkLeavesForTesting(1); // several sub-chunks per worker: flushes happen
     SirixVectorizedExecutor.STRICT_SERVING = true;
@@ -117,11 +114,6 @@ final class GroupPassOutOfMemoryRestartTest {
 
   @AfterEach
   void tearDown() {
-    if (previousPartitions == null) {
-      System.clearProperty(SirixVectorizedExecutor.GROUP_MERGE_PARTITIONS_PROPERTY);
-    } else {
-      System.setProperty(SirixVectorizedExecutor.GROUP_MERGE_PARTITIONS_PROPERTY, previousPartitions);
-    }
     GroupTableSpill.setSimulateOutOfMemoryOnFlushForTesting(false);
     GroupTableSpill.setFlushGroupsForTesting(previousThreshold);
     GroupTableSpill.setSubChunkLeavesForTesting(previousSubChunk);
@@ -171,8 +163,7 @@ final class GroupPassOutOfMemoryRestartTest {
         if (vectorized) {
           final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
           final JsonResourceSession session = db.beginResourceSession(RES);
-          // Keep multiple morsels per worker so every restarted arm reaches a shared-table flush.
-          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
           SequentialPipelineStrategy.setVectorizedExecutor(exec);
         }
         final Sequence result = new Query(chain, query).execute(ctx);

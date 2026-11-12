@@ -19,7 +19,6 @@ import io.sirix.page.SerializationType;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.page.interfaces.Page;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 
@@ -70,16 +69,9 @@ final class FileChannelReadScratchTest {
   /** The floor of every read's request: {@code sirix.filechannel.bufferBytes}. */
   private static final long PAGE_BUFFER_BYTES = 128L * 1024;
 
-  private long lentBuffersBefore;
-
   @BeforeAll
   static void initializeAllocator() {
     assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance()).init(8L * 1024 * 1024 * 1024);
-  }
-
-  @BeforeEach
-  void snapshotOutstandingBorrows() {
-    lentBuffersBefore = stats().totalLentBuffers();
   }
 
   private static ScratchStats stats() {
@@ -125,7 +117,7 @@ final class FileChannelReadScratchTest {
       final int region = warm.capacityIndex(batch.spanBytes());
       assertEquals(2L * 1024 * 1024, warm.capacityBytes()[region], "a 1.9 MiB span is served by the 2 MiB capacity");
       assertTrue(warm.idleBuffers()[region] >= 1, "the allocator keeps the run's region resident");
-      assertEquals(lentBuffersBefore, warm.totalLentBuffers(), "the batch returned every buffer");
+      assertEquals(0, warm.totalLentBuffers(), "the batch returned every buffer");
       final long runsBefore = FileChannelReader.runCount();
 
       for (int repeat = 0; repeat < 3; repeat++) {
@@ -136,7 +128,7 @@ final class FileChannelReadScratchTest {
       assertEquals(0, after.totalCreated() - warm.totalCreated(),
           "repeated batches of the same shape borrow the resident region instead of mapping one");
       assertEquals(3, after.acquisitions()[region] - warm.acquisitions()[region], "one span borrow per batch");
-      assertEquals(lentBuffersBefore, after.totalLentBuffers());
+      assertEquals(0, after.totalLentBuffers());
       assertEquals(0, after.refusals() - warm.refusals());
       assertEquals(0, after.staleReleases() - warm.staleReleases());
     }
@@ -167,7 +159,7 @@ final class FileChannelReadScratchTest {
           "each member was read through a buffer of its own");
       assertEquals(MEMBERS * PAGE_BUFFER_BYTES,
           after.requestedBytes(ScratchUse.READ) - before.requestedBytes(ScratchUse.READ), "an ordinary page buffer");
-      assertEquals(lentBuffersBefore, after.totalLentBuffers());
+      assertEquals(0, after.totalLentBuffers());
 
       readAndVerify(reader, batch);
       assertEquals(1, FileChannelReader.runCount() - runsBefore, "with room again the batch coalesces");
@@ -190,7 +182,7 @@ final class FileChannelReadScratchTest {
           after.requestedBytes(ScratchUse.READ) - warm.requestedBytes(ScratchUse.READ),
           "every page read asks for the common request floor, whatever the page's size");
       assertEquals(0, after.totalCreated() - warm.totalCreated(), "and reuses the buffer the last read returned");
-      assertEquals(lentBuffersBefore, after.totalLentBuffers());
+      assertEquals(0, after.totalLentBuffers());
     }
   }
 
@@ -220,8 +212,7 @@ final class FileChannelReadScratchTest {
       assertEquals(6, after.acquisitions(ScratchUse.READ) - before.acquisitions(ScratchUse.READ),
           "prefix buffer, then body buffer");
       assertTrue(after.created()[large] - before.created()[large] <= 1, "the larger buffer is mapped once at most");
-      assertEquals(lentBuffersBefore, after.totalLentBuffers(),
-          "the prefix buffer and the body buffer were both returned");
+      assertEquals(0, after.totalLentBuffers(), "the prefix buffer and the body buffer were both returned");
     }
   }
 
@@ -235,19 +226,18 @@ final class FileChannelReadScratchTest {
     corrupted[Math.toIntExact(batch.offsets()[MEMBERS / 2] + batch.frames()[MEMBERS / 2].length - 1)] ^= 1;
     try (FileChannelReader reader = reader(corrupted)) {
       assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references(), CONFIG));
-      assertEquals(lentBuffersBefore, stats().totalLentBuffers(), "a failed run returned its span buffer");
+      assertEquals(0, stats().totalLentBuffers(), "a failed run returned its span buffer");
       assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references()[MEMBERS / 2], CONFIG));
-      assertEquals(lentBuffersBefore, stats().totalLentBuffers(), "a failed page read returned its buffer");
+      assertEquals(0, stats().totalLentBuffers(), "a failed page read returned its buffer");
     }
 
     // The file ends inside a page body: the body read comes up short.
     final byte[] truncated = Arrays.copyOf(batch.file(), batch.file().length - 8);
     try (FileChannelReader reader = reader(truncated)) {
       assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references()[MEMBERS - 1], CONFIG));
-      assertEquals(lentBuffersBefore, stats().totalLentBuffers(), "a short read returned its buffer");
+      assertEquals(0, stats().totalLentBuffers(), "a short read returned its buffer");
       assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references(), CONFIG));
-      assertEquals(lentBuffersBefore, stats().totalLentBuffers(),
-          "a run whose last body comes up short returned its buffer");
+      assertEquals(0, stats().totalLentBuffers(), "a run whose last body comes up short returned its buffer");
     }
 
     // A length header that no page of this file can have.
@@ -255,7 +245,7 @@ final class FileChannelReadScratchTest {
     ByteBuffer.wrap(garbled).order(ByteOrder.LITTLE_ENDIAN).putInt(Math.toIntExact(batch.offsets()[3]), -5);
     try (FileChannelReader reader = reader(garbled)) {
       assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references()[3], CONFIG));
-      assertEquals(lentBuffersBefore, stats().totalLentBuffers(), "a rejected length header returned its buffer");
+      assertEquals(0, stats().totalLentBuffers(), "a rejected length header returned its buffer");
     }
 
     final ScratchStats after = stats();

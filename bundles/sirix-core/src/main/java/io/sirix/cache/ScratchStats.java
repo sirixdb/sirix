@@ -3,6 +3,7 @@
  */
 package io.sirix.cache;
 
+import java.util.Arrays;
 import java.util.Objects;
 
 /**
@@ -37,6 +38,53 @@ import java.util.Objects;
 public record ScratchStats(long[] capacityBytes, long[] acquisitions, long[] created, long[] reclaimed,
     long[] lentBuffers, long[] idleBuffers, long requestedBytes, long roundedBytes, long lentBytes, long idleBytes,
     long refusals, long refusedBytes, long staleReleases, long[] acquisitionsByUse, long[] requestedBytesByUse) {
+
+  @Override
+  public boolean equals(final Object other) {
+    if (this == other) {
+      return true;
+    }
+    return other instanceof ScratchStats that
+        && (Arrays.equals(capacityBytes, that.capacityBytes) && Arrays.equals(acquisitions, that.acquisitions)
+            && Arrays.equals(created, that.created) && Arrays.equals(reclaimed, that.reclaimed)
+            && Arrays.equals(lentBuffers, that.lentBuffers) && Arrays.equals(idleBuffers, that.idleBuffers)
+            && requestedBytes == that.requestedBytes && roundedBytes == that.roundedBytes && lentBytes == that.lentBytes
+            && idleBytes == that.idleBytes && refusals == that.refusals && refusedBytes == that.refusedBytes
+            && staleReleases == that.staleReleases && Arrays.equals(acquisitionsByUse, that.acquisitionsByUse)
+            && Arrays.equals(requestedBytesByUse, that.requestedBytesByUse));
+  }
+
+  @Override
+  public int hashCode() {
+    int result = 1;
+    result = 31 * result + Arrays.hashCode(capacityBytes);
+    result = 31 * result + Arrays.hashCode(acquisitions);
+    result = 31 * result + Arrays.hashCode(created);
+    result = 31 * result + Arrays.hashCode(reclaimed);
+    result = 31 * result + Arrays.hashCode(lentBuffers);
+    result = 31 * result + Arrays.hashCode(idleBuffers);
+    result = 31 * result + Long.hashCode(requestedBytes);
+    result = 31 * result + Long.hashCode(roundedBytes);
+    result = 31 * result + Long.hashCode(lentBytes);
+    result = 31 * result + Long.hashCode(idleBytes);
+    result = 31 * result + Long.hashCode(refusals);
+    result = 31 * result + Long.hashCode(refusedBytes);
+    result = 31 * result + Long.hashCode(staleReleases);
+    result = 31 * result + Arrays.hashCode(acquisitionsByUse);
+    result = 31 * result + Arrays.hashCode(requestedBytesByUse);
+    return result;
+  }
+
+  @Override
+  public String toString() {
+    return "ScratchStats[capacityBytes=" + Arrays.toString(capacityBytes) + ", acquisitions="
+        + Arrays.toString(acquisitions) + ", created=" + Arrays.toString(created) + ", reclaimed="
+        + Arrays.toString(reclaimed) + ", lentBuffers=" + Arrays.toString(lentBuffers) + ", idleBuffers="
+        + Arrays.toString(idleBuffers) + ", requestedBytes=" + requestedBytes + ", roundedBytes=" + roundedBytes
+        + ", lentBytes=" + lentBytes + ", idleBytes=" + idleBytes + ", refusals=" + refusals + ", refusedBytes="
+        + refusedBytes + ", staleReleases=" + staleReleases + ", acquisitionsByUse="
+        + Arrays.toString(acquisitionsByUse) + ", requestedBytesByUse=" + Arrays.toString(requestedBytesByUse) + "]";
+  }
 
   /** No scratch buffers and no history: an allocator that has lent nothing. */
   public static final ScratchStats EMPTY = new ScratchStats(new long[0], new long[0], new long[0], new long[0],
