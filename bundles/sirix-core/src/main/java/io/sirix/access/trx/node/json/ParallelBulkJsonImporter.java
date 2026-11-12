@@ -675,6 +675,22 @@ public final class ParallelBulkJsonImporter {
   /** See {@link #setChunkTakenHookForTesting}. */
   private static volatile @Nullable Runnable chunkTakenHookForTesting;
 
+  private static volatile @Nullable Runnable feederStartedHookForTesting;
+
+  /**
+   * Test seam: a hook the coordinator runs as soon as its feeder is running, before it takes the
+   * first chunk. A failure there finds the feeder scanning ahead or waiting at a full queue, holding
+   * every chunk it has cut.
+   *
+   * @param hook the hook, or {@code null} for none
+   * @return the previous hook, for restoring in a finally block
+   */
+  public static @Nullable Runnable setFeederStartedHookForTesting(final @Nullable Runnable hook) {
+    final Runnable previous = feederStartedHookForTesting;
+    feederStartedHookForTesting = hook;
+    return previous;
+  }
+
   /**
    * Test seam: a hook the coordinator runs each time it has taken a chunk from the feeder, before the
    * chunk is given to a build. That is the one point where the coordinator alone holds a chunk's
@@ -708,10 +724,17 @@ public final class ParallelBulkJsonImporter {
     final long rootArrayPcr = rootArray.pcr();
     final long rootArrayKey = rootArray.key();
 
-    final FusedSliceAndScan fused =
-        new FusedSliceAndScan(input, chunkCharBudget, projectionLoads.length > 0, maxProjectionChunkRows());
-    fused.consumeArrayOpen();
-    fused.rootStep().pcr = rootArrayPcr;
+    // The coordinator's own state first, and the scanner inside the feeder: the feeder holds allocator
+    // scratch from its first read on, and only the cleanup at the end of the coordinator's loop stops
+    // it
+    // and returns what it holds. So nothing that can fail lies between its start and that loop.
+    final boolean projecting = projectionLoads.length > 0;
+    final int maxChunkRows = maxProjectionChunkRows();
+    final int maxInFlight = parallelism + 2;
+    final ArrayDeque<PendingBuild> inFlight = new ArrayDeque<>(maxInFlight);
+    final ExecutorService buildPool = parallelism > 1
+        ? Executors.newFixedThreadPool(parallelism)
+        : null;
 
     // The FEEDER: scans + slices ahead on its own thread, fully writer-free — all shared-state
     // resolution (paths, names, reservation) happens HERE on the coordinator at chunk handoff.
@@ -721,7 +744,11 @@ public final class ParallelBulkJsonImporter {
     // over, and returns the chunk it was filling when it stops.
     final AtomicBoolean abandoned = new AtomicBoolean();
     final Thread feeder = new Thread(() -> {
+      FusedSliceAndScan fused = null;
       try {
+        fused = new FusedSliceAndScan(input, chunkCharBudget, projecting, maxChunkRows);
+        fused.consumeArrayOpen();
+        fused.rootStep().pcr = rootArrayPcr;
         FusedSliceAndScan.Chunk next;
         while ((next = fused.nextChunk()) != null) {
           if (!handOff(handoff, next, abandoned)) {
@@ -733,25 +760,28 @@ public final class ParallelBulkJsonImporter {
       } catch (final Throwable t) {
         handOff(handoff, t, abandoned);
       } finally {
-        fused.close();
+        if (fused != null) {
+          fused.close();
+        }
       }
     }, "sirix-bulk-import-feeder");
     feeder.setDaemon(true);
-    feeder.start();
-
-    final ExecutorService buildPool = parallelism > 1
-        ? Executors.newFixedThreadPool(parallelism)
-        : null;
-    final ArrayDeque<PendingBuild> inFlight = new ArrayDeque<>(parallelism + 2);
-    final int maxInFlight = parallelism + 2;
 
     long totalMembers = 0;
     long lastMemberKey = NULL_KEY;
     long expectedNextReservation = rootArrayKey + 1;
     // The bytes of the chunk the coordinator took and has not yet given to a build.
     FusedSliceAndScan.ChunkBuffer inHand = null;
+    // A feeder that never started holds nothing and is not waited for.
+    boolean feederStarted = false;
 
     try {
+      feeder.start();
+      feederStarted = true;
+      final Runnable started = feederStartedHookForTesting;
+      if (started != null) {
+        started.run();
+      }
       while (true) {
         final Object taken;
         try {
@@ -876,7 +906,9 @@ public final class ParallelBulkJsonImporter {
       if (buildPool != null) {
         buildPool.shutdownNow();
       }
-      stopFeeder(feeder, handoff, abandoned);
+      if (feederStarted) {
+        stopFeeder(feeder, handoff, abandoned);
+      }
     }
 
     if (heldTailPage != null) {

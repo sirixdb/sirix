@@ -15,6 +15,7 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.cache.Allocators;
 import io.sirix.io.StorageType;
 import io.sirix.node.BytesOut;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -27,6 +28,7 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -315,7 +317,57 @@ final class ScratchBufferWorkBudgetTest {
         }
       }
       assertEquals(6, chunksTaken[0], "the coordinator's own failure must have been the one that ended the last load");
+
+      // And a coordinator that fails as soon as its feeder runs, before it has taken a chunk: by then
+      // the feeder has cut four chunks, waits at the full queue with the next one, and nothing but the
+      // coordinator's cleanup can stop it and return what it holds.
+      final String startupResource = RESOURCE + "-import-failed-at-startup";
+      createImportResource(database, startupResource);
+      final boolean[] theFeederWaited = new boolean[1];
+      final long[] lentBeforeTheLoad = new long[1];
+      final Runnable failOnceTheFeederWaits = () -> {
+        // Four queued chunks of two slabs each and at least one slab of the chunk it cannot hand over.
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+        while (lentSince(lentBeforeTheLoad[0]) < 9 && System.nanoTime() - deadline < 0) {
+          Thread.onSpinWait();
+        }
+        theFeederWaited[0] = lentSince(lentBeforeTheLoad[0]) >= 9;
+        throw new IllegalStateException("the coordinator failed before it took a chunk");
+      };
+      final Runnable previousStartupHook =
+          ParallelBulkJsonImporter.setFeederStartedHookForTesting(failOnceTheFeederWaits);
+      try (final JsonResourceSession session = database.beginResourceSession(startupResource)) {
+        final WorkReport failed = CAPTURE.run(() -> {
+          try (final JsonNodeTrx trx = session.beginNodeTrx()) {
+            lentBeforeTheLoad[0] = Allocators.getInstance().scratchStats().totalLentBuffers();
+            assertThrows(IllegalStateException.class, () -> ParallelBulkJsonImporter.assembleBytes(trx,
+                new ByteArrayInputStream(document), IMPORT_CHUNK_BYTES, 3));
+            trx.rollback();
+          }
+        });
+        assertTrue(theFeederWaited[0], "the fixture failed before the feeder had filled the queue");
+        failed.assertAtLeast(EngineWorkCounters.SCRATCH_IMPORT_BORROWS, 9, "the feeder had cut its chunks")
+              .assertZero(EngineWorkCounters.SCRATCH_BUFFERS_LENT,
+                  "the failed load left scratch lent: the feeder was left at the full queue with its chunks")
+              .assertZero(EngineWorkCounters.SCRATCH_STALE_RETURNS, "a slab was returned twice");
+      } finally {
+        ParallelBulkJsonImporter.setFeederStartedHookForTesting(previousStartupHook);
+      }
+      // The allocator is whole again: the same document loads.
+      final String afterwards = RESOURCE + "-import-after-startup-failure";
+      createImportResource(database, afterwards);
+      try (final JsonResourceSession session = database.beginResourceSession(afterwards)) {
+        try (final JsonNodeTrx trx = session.beginNodeTrx()) {
+          ParallelBulkJsonImporter.assembleBytes(trx, new ByteArrayInputStream(document), IMPORT_CHUNK_BYTES, 3);
+          trx.commit();
+        }
+        assertEquals(IMPORT_RECORDS, countObjects(session), "a load after the failed startup");
+      }
     }
+  }
+
+  private static long lentSince(final long before) {
+    return Allocators.getInstance().scratchStats().totalLentBuffers() - before;
   }
 
   private static final int IMPORT_RECORDS = 24_000;
