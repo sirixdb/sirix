@@ -461,7 +461,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private final ConcurrentHashMap<Long, SlabAllocation> slabsByAddress = new ConcurrentHashMap<>();
 
   private final AtomicLong slabBytes = new AtomicLong();
-  private final AtomicLong recycledCacheSlabBytes = new AtomicLong();
   private final AtomicInteger slabOperations = new AtomicInteger();
   private volatile @Nullable Runnable slabPublicationHook;
 
@@ -567,7 +566,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       SlabAllocation recycled;
       while (freed < wanted && (recycled = free.pollLast()) != null) {
         recycledSlabBytes.addAndGet(-recycled.bytes());
-        recycledCacheSlabBytes.addAndGet(-recycled.bytes());
         unmapSlab(recycled.segment(), recycled.bytes());
         freed += recycled.bytes();
       }
@@ -661,7 +659,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         final SlabAllocation recycled = free.pollFirst();
         if (recycled != null) {
           recycledSlabBytes.addAndGet(-mapped);
-          recycledCacheSlabBytes.addAndGet(-mapped);
           try {
             final MemorySegment reused = MemorySegment.ofAddress(recycled.segment().address()).reinterpret(mapped);
             if (poisonRecycledSlabs) {
@@ -752,7 +749,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         try {
           HftBoundaryTelemetry.allocatorRelease();
           if (!terminated.get() && tryReserveRecycledBytes(bytes)) {
-            recycledCacheSlabBytes.addAndGet(bytes);
             recycled = true;
             beforeSlabPublication();
             recycledSlabs.computeIfAbsent(bytes, size -> new ConcurrentLinkedDeque<>()).addFirst(allocation);
@@ -761,7 +757,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         } catch (final RuntimeException | Error failure) {
           if (recycled) {
             recycledSlabBytes.addAndGet(-bytes);
-            recycledCacheSlabBytes.addAndGet(-bytes);
           }
           unmapSlab(allocation.segment(), bytes);
           throw failure;
@@ -1303,9 +1298,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         continue;
       }
       final FrameScratch scratchBuffers = scratch;
-      final long reclaimable = recycledCacheSlabBytes.get() + (scratchBuffers == null
+      final long reclaimable = recycledSlabBytes.get() + (scratchBuffers == null
           ? 0L
-          : scratchBuffers.reclaimableBytesUpperBound());
+          : scratchBuffers.unchargedIdleSmallBytes());
       if (shortBy > reclaimable || drainRecycledSlabs(shortBy, true) == 0L) {
         return false;
       }

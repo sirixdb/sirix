@@ -106,22 +106,8 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
    * @param size The size of the segment to allocate.
    * @return A MemorySegment of the specified size.
    */
-  public MemorySegment borrowSegment(long size) {
-    long roundedSize = SegmentAllocators.roundUpToPowerOfTwo(size);
-    int index = SegmentAllocators.getIndexForSize(roundedSize);
-
-    if (index < 0 || index >= segmentPools.length) {
-      throw new IllegalArgumentException("Unsupported size: " + size);
-    }
-
-    // Attempt to reuse a segment from the pool
-    MemorySegment segment = segmentPools[index].poll();
-    if (segment != null) {
-      return segment;
-    }
-
-    // No reusable segment, allocate a new one
-    return allocate(roundedSize);
+  public MemorySegment borrowSegment(final long size) {
+    return allocate(SegmentAllocators.roundUpToPowerOfTwo(size));
   }
 
   /**
@@ -173,55 +159,47 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
    * @param size The size to allocate.
    * @return The allocated MemorySegment.
    */
-  public MemorySegment allocate(long size) {
+  public MemorySegment allocate(final long size) {
     if (!initialized) {
       throw new IllegalStateException("allocator must be initialized before borrowing memory");
-    }
-    // Reuse a released segment before VirtualAlloc'ing a new one: release() pools segments by size
-    // class, but this method never polled that pool, so every allocation was a fresh VirtualAlloc
-    // and every release parked a segment forever — native memory grew unbounded with read traffic.
-    // Only reuse a pooled segment that is at least `size` bytes (the pool may hold a smaller raw
-    // segment filed under the same rounded class); slice it to the requested size for the caller.
-    // Oversized requests (e.g. large-value overflow decompression) bypass the size-class pool —
-    // getIndexForSize rejects anything outside [4 KiB, 256 KiB], but VirtualAlloc has no such limit.
-    final int index = isPoolable(size)
-        ? SegmentAllocators.getIndexForSize(size)
-        : -1;
-    if (index >= 0 && index < segmentPools.length) {
-      final MemorySegment pooled = segmentPools[index].poll();
-      if (pooled != null) {
-        if (pooled.byteSize() >= size) {
-          return pooled.byteSize() == size
-              ? pooled
-              : pooled.asSlice(0, size);
-        }
-        // Too small to satisfy this request — hand it back and fall through to a fresh allocation.
-        segmentPools[index].offer(pooled);
-      }
     }
     if (size <= 0 || size > Long.MAX_VALUE - 4095L) {
       throw new IllegalArgumentException("invalid allocation size: " + size);
     }
-    final long rounded = (size + 4095L) & -4096L;
+    final long capacity = size <= PAGE_SIZES[PAGE_SIZES.length - 1]
+        ? SegmentAllocators.roundUpToPowerOfTwo(size)
+        : (size + 4095L) & -4096L;
+    final int index = isPoolable(capacity)
+        ? SegmentAllocators.getIndexForSize(capacity)
+        : -1;
+    if (index >= 0) {
+      final MemorySegment pooled = segmentPools[index].poll();
+      if (pooled != null) {
+        return pooled;
+      }
+    }
     final long limit = FallbackScratch.pageAllowance(maxBufferSize.get());
     for (;;) {
       final long committed = committedBytes.get();
-      if (rounded > limit - committed) {
+      if (capacity > limit - committed) {
+        if (capacity <= limit && reclaimIdleSegment()) {
+          continue;
+        }
         throw new OutOfMemoryError("Windows allocator page commitment exceeds " + limit + " bytes");
       }
-      if (committedBytes.compareAndSet(committed, committed + rounded)) {
+      if (committedBytes.compareAndSet(committed, committed + capacity)) {
         break;
       }
     }
     MemorySegment address = MemorySegment.NULL;
     try {
-      address =
-          (MemorySegment) virtualAllocHandle.invoke(MemorySegment.NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+      address = (MemorySegment) virtualAllocHandle.invoke(MemorySegment.NULL, capacity, MEM_COMMIT | MEM_RESERVE,
+          PAGE_READWRITE);
       if (address.equals(MemorySegment.NULL)) {
         throw new OutOfMemoryError("Failed to allocate memory segment of size " + size);
       }
-      final MemorySegment segment = address.reinterpret(size);
-      allocations.put(address.address(), rounded);
+      final MemorySegment segment = address.reinterpret(capacity);
+      allocations.put(address.address(), capacity);
       return segment;
     } catch (Throwable failure) {
       if (!address.equals(MemorySegment.NULL)) {
@@ -231,12 +209,23 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
           failure.addSuppressed(cleanup);
         }
       }
-      committedBytes.addAndGet(-rounded);
+      committedBytes.addAndGet(-capacity);
       if (failure instanceof Error error) {
         throw error;
       }
       throw new IllegalStateException("Allocation failed", failure);
     }
+  }
+
+  private boolean reclaimIdleSegment() {
+    for (int index = segmentPools.length - 1; index >= 0; index--) {
+      final MemorySegment idle = segmentPools[index].pollLast();
+      if (idle != null) {
+        free(idle);
+        return true;
+      }
+    }
+    return false;
   }
 
   @Override

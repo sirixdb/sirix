@@ -176,7 +176,6 @@ final class FrameScratch extends ScratchSource {
    * reclamation.
    */
   private final AtomicLong regionBytes = new AtomicLong();
-  private final AtomicLong mappedRegionBytes = new AtomicLong();
 
   /** Lent bytes accounted per borrow: large buffers and grant-backed buffers. */
   private final AtomicLong lentRegionBytes = new AtomicLong();
@@ -381,7 +380,6 @@ final class FrameScratch extends ScratchSource {
         if (small(carrier)) {
           allocator.adjustActiveBytes(bytes);
         }
-        mappedRegionBytes.addAndGet(bytes);
         created = true;
         return carrier;
       } catch (final RuntimeException | Error failure) {
@@ -502,7 +500,6 @@ final class FrameScratch extends ScratchSource {
 
   private void destroy(final ScratchCarrier carrier, final boolean aggregation) {
     unregister(carrier);
-    mappedRegionBytes.addAndGet(-carrier.capacity);
     memory.release(carrier.segment);
     if (aggregation) {
       allocator.refundAggregationBytes(carrier.capacity);
@@ -610,8 +607,19 @@ final class FrameScratch extends ScratchSource {
     return regionBytes.get();
   }
 
-  long reclaimableBytesUpperBound() {
-    return Math.max(0L, mappedRegionBytes.get() - lentRegionBytes.get());
+  long unchargedIdleSmallBytes() {
+    long bytes = 0L;
+    for (int capacityClass = 0; capacityClass < SMALL_CLASSES; capacityClass++) {
+      final ScratchCarrier[] slots = idle[capacityClass];
+      for (int slot = 0; slot <= idleMask; slot++) {
+        final int index = slot << IDLE_STRIDE_SHIFT;
+        final ScratchCarrier carrier = (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, index);
+        if (carrier != null) {
+          bytes += carrier.capacity;
+        }
+      }
+    }
+    return bytes;
   }
 
   /** Lent bytes accounted per borrow. */
