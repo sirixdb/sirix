@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.lang.WrongThreadException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentHashMap;

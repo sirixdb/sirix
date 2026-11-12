@@ -163,7 +163,8 @@ final class GroupPassOutOfMemoryRestartTest {
         if (vectorized) {
           final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
           final JsonResourceSession session = db.beginResourceSession(RES);
-          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+          // Keep multiple morsels per worker so every restarted arm reaches a shared-table flush.
+          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
           SequentialPipelineStrategy.setVectorizedExecutor(exec);
         }
         final Sequence result = new Query(chain, query).execute(ctx);

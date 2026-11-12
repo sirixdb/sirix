@@ -11,7 +11,6 @@ import io.sirix.settings.Constants;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;

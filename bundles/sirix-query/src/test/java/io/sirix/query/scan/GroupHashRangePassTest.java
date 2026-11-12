@@ -292,7 +292,8 @@ final class GroupHashRangePassTest {
 
   private static String runWith(final JsonResourceSession session, final SirixCompileChain chain,
       final SirixQueryContext ctx, final String query) throws Exception {
-    final SirixVectorizedExecutor exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+    // Keep multiple morsels per worker so the fixture flushes before its final local tables.
+    final SirixVectorizedExecutor exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
     try {
       SequentialPipelineStrategy.setVectorizedExecutor(exec);
       final Sequence result = new Query(chain, query).execute(ctx);
@@ -318,7 +319,7 @@ final class GroupHashRangePassTest {
         if (vectorized) {
           final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
           final JsonResourceSession session = db.beginResourceSession(RES);
-          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+          exec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
           SequentialPipelineStrategy.setVectorizedExecutor(exec);
         }
         final Sequence result = new Query(chain, query).execute(ctx);

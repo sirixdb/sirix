@@ -13,7 +13,6 @@ import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import org.jspecify.annotations.Nullable;
 
 /**
  * The index-routed row source: membership of a leaf's record keys in a SORTED key set, the

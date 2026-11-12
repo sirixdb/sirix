@@ -22,7 +22,6 @@ import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import io.sirix.cache.Allocators;
 import io.sirix.query.scan.DerivedCacheBudget;
-import io.sirix.query.scan.NumericMaskedColumnCache;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.io.TempDir;
