@@ -55,8 +55,25 @@ final class JoinKernelsTest {
   // ==================== the reference: heap kernels of the pre-lane main ====================
 
   /** One side as decoded heap arrays. */
-  private record HeapSide(long[][] masks, long[][] join, long[][] from, long[][] to, long[][] margin, long[][] distinct,
-      long[][] group) {
+  private static final class HeapSide {
+    final long[][] masks;
+    final long[][] join;
+    final long[][] from;
+    final long[][] to;
+    final long[][] margin;
+    final long[][] distinct;
+    final long[][] group;
+
+    HeapSide(final long[][] masks, final long[][] join, final long[][] from, final long[][] to, final long[][] margin,
+        final long[][] distinct, final long[][] group) {
+      this.masks = masks;
+      this.join = join;
+      this.from = from;
+      this.to = to;
+      this.margin = margin;
+      this.distinct = distinct;
+      this.group = group;
+    }
   }
 
   private static final int STRIDE = 5;
@@ -305,7 +322,7 @@ final class JoinKernelsTest {
   private static long[] lane(final SplittableRandom random, final int low, final int highExclusive) {
     final long[] values = new long[ROWS];
     for (int row = 0; row < ROWS; row++) {
-      values[row] = low + random.nextInt(highExclusive - low);
+      values[row] = (long) low + random.nextInt(highExclusive - low);
     }
     return values;
   }

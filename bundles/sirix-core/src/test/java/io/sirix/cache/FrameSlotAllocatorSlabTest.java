@@ -15,6 +15,7 @@ import java.lang.foreign.MemorySegment;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -291,7 +292,7 @@ final class FrameSlotAllocatorSlabTest {
     try {
       allocator.setSlabRecycleLimitBytesForTesting(16 * 4096);
       final long committedBefore = allocator.getPhysicalMemoryBytes();
-      final java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+      final List<Future<?>> futures = new ArrayList<>();
       for (int t = 0; t < 4; t++) {
         futures.add(pool.submit(() -> {
           for (int i = 0; i < 2_000; i++) {
@@ -303,7 +304,7 @@ final class FrameSlotAllocatorSlabTest {
           }
         }));
       }
-      for (final java.util.concurrent.Future<?> future : futures) {
+      for (final Future<?> future : futures) {
         future.get();
       }
       assertEquals(0, allocator.getSlabBytes(), "every slab released");
