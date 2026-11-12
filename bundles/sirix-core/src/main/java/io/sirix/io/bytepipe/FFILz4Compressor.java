@@ -1,5 +1,8 @@
 package io.sirix.io.bytepipe;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.sirix.cache.Allocators;
 import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
@@ -554,41 +557,36 @@ public final class FFILz4Compressor implements ByteHandler {
             + " exceeds the payload (" + (compressed.byteSize() - 4) + " bytes)");
       }
       final MemorySegment buffer = ALLOCATOR.allocate(uncompressedSize);
-      MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
-
-      final MemorySegment backingBuffer = buffer;
-      // Exclude allocator padding so a subsequent handler receives only its encoded frame.
-      return new DecompressionResult(buffer.asSlice(0, uncompressedSize), backingBuffer,
-          () -> ALLOCATOR.release(backingBuffer), new AtomicBoolean(false));
+      try {
+        MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
+        final MemorySegment backingBuffer = buffer;
+        return new DecompressionResult(buffer.asSlice(0, uncompressedSize), backingBuffer,
+            () -> ALLOCATOR.release(backingBuffer), new AtomicBoolean(false));
+      } catch (final Throwable failure) {
+        try {
+          ALLOCATOR.release(buffer);
+        } catch (final Throwable cleanup) {
+          retainCleanupFailure(failure, cleanup);
+        }
+        throw failure;
+      }
     }
 
     int decompressedSize = sizeHeader;
 
-    MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
-
-    // A heap input is copied into borrowed scratch for the FFI call; the decompressors take the
-    // input length from the view, so it is cut to the payload's exact size.
-    final MemorySegment nativeCompressed;
     ScratchLease inputLease = null;
-    if (compressed.isNative()) {
-      nativeCompressed = compressed;
-    } else {
-      try {
-        inputLease = ScratchLease.of(compressed.byteSize(), ScratchUse.CODEC);
-      } catch (final RuntimeException | Error failure) {
-        ALLOCATOR.release(buffer);
-        throw failure;
-      }
-      nativeCompressed = inputLease.segment().asSlice(0, compressed.byteSize());
-      MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
-    }
-
-    // Ownership of the allocator-owned buffer transfers to the returned DecompressionResult
-    // only on success; once staging completes, every decode failure — including the native
-    // MethodHandle invocation itself throwing — must release it exactly once, or repeated corrupt
-    // reads drain the frame-slot budget into an OutOfMemoryError (issue #1074).
     boolean ownershipTransferred = false;
+    Throwable failure = null;
+    final MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
     try {
+      final MemorySegment nativeCompressed;
+      if (compressed.isNative()) {
+        nativeCompressed = compressed;
+      } else {
+        inputLease = ScratchLease.of(compressed.byteSize(), ScratchUse.CODEC);
+        nativeCompressed = inputLease.segment().asSlice(0, compressed.byteSize());
+        MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
+      }
       int actualSize;
       if (USE_FAST_DECOMPRESS && NATIVE_LZ4_AVAILABLE) {
         int bytesRead = decompressSegmentFast(nativeCompressed.asSlice(4), buffer, decompressedSize);
@@ -613,14 +611,33 @@ public final class FFILz4Compressor implements ByteHandler {
       final MemorySegment backingBuffer = buffer;
       final DecompressionResult result = new DecompressionResult(buffer.asSlice(0, actualSize), backingBuffer,
           () -> ALLOCATOR.release(backingBuffer), new AtomicBoolean(false));
+      if (inputLease != null) {
+        final ScratchLease input = inputLease;
+        inputLease = null;
+        input.close();
+      }
       ownershipTransferred = true;
       return result;
+    } catch (final Throwable caught) {
+      failure = caught;
+      throw caught;
     } finally {
       if (!ownershipTransferred) {
-        ALLOCATOR.release(buffer);
+        try {
+          ALLOCATOR.release(buffer);
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
       if (inputLease != null) {
-        inputLease.close();
+        try {
+          inputLease.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
+      }
+      if (failure != null) {
+        rethrowCleanupFailure(failure);
       }
     }
   }

@@ -128,6 +128,7 @@ final class GroupRouteLaneSlabReleaseTest {
   @ParameterizedTest
   @ValueSource(strings = {"roster", "computed", "bucket"})
   void failedSlabHandoffReturnsEveryRouteOwner(final String point) throws Exception {
+    final long slabBytesBefore = Allocators.getInstance().getSlabBytes();
     final String query = switch (point) {
       case "bucket" -> "for $h in " + DOC + " let $g := $h.g, $b := $h.id idiv 100 group by $g, $b order by $g, $b"
           + " return {\"g\":$g,\"b\":$b,\"c\":count($h)}";
@@ -151,7 +152,7 @@ final class GroupRouteLaneSlabReleaseTest {
     }
     assertEquals(expected, run(query, true));
     Databases.removeDatabase(dbDir.resolve(DB));
-    assertEquals(0, Allocators.getInstance().getSlabBytes());
+    assertEquals(slabBytesBefore, Allocators.getInstance().getSlabBytes());
   }
 
   private String run(final String query, final boolean vectorized) throws Exception {

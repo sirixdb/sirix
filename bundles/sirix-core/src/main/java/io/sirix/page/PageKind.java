@@ -28,6 +28,9 @@
 
 package io.sirix.page;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
 import io.sirix.index.hot.page.HOTIndirectPage;
@@ -8946,8 +8949,20 @@ public enum PageKind {
       if (--depth == 0) {
         blob = null;
         blobHeapOffset = 0L;
-        staging.close();
-        lz4.close();
+        Throwable failure = null;
+        try {
+          staging.close();
+        } catch (final Throwable cleanup) {
+          failure = cleanup;
+        }
+        try {
+          lz4.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
+        if (failure != null) {
+          rethrowCleanupFailure(failure);
+        }
       }
     }
 

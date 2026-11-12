@@ -16,6 +16,7 @@ import io.sirix.page.OverflowPage;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
+import io.sirix.settings.StringCompressionType;
 import io.sirix.page.interfaces.Page;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -270,6 +272,32 @@ final class FileChannelReadScratchTest {
     try (HOTLeafPage leaf = assertInstanceOf(HOTLeafPage.class, reader.read(batch.references()[member], CONFIG))) {
       assertArrayEquals(batch.values()[member], leaf.copyStoredValue(leaf.findEntry(KEY)));
     }
+  }
+
+  @Test
+  void failedRegionProbeReturnsItsBorrowAndAllowsTheFollowingRead() throws IOException {
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("probe-failure")
+                                                              .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                              .verifyChecksumsOnRead(false)
+                                                              .stringCompressionType(StringCompressionType.NONE)
+                                                              .build();
+    final byte[] file = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN).putInt(12).array();
+    final PageReference reference = new PageReference();
+    reference.setKey(0);
+    final PagePersister persister = mock(PagePersister.class);
+    final OutOfMemoryError failure = new OutOfMemoryError("injected probe failure");
+    when(persister.probeRegionTableOffset(any(), any(), any())).thenThrow(failure);
+    final ScratchStats before = stats();
+    try (FileChannelReader reader = new FileChannelReader(channel(file), mock(FileChannel.class),
+        new ByteHandlerPipeline(), SerializationType.DATA, persister, Caffeine.newBuilder().build())) {
+      assertSame(failure, assertThrows(OutOfMemoryError.class, () -> reader.readRegionsOnly(reference, config, 1, 0)));
+      assertEquals(before.lentBytes(), stats().lentBytes());
+    }
+    final Batch batch = Batch.create();
+    try (FileChannelReader following = reader(batch.file())) {
+      readSingle(following, batch, 0);
+    }
+    assertEquals(before.lentBytes(), stats().lentBytes());
   }
 
   private static FileChannelReader reader(final byte[] file) throws IOException {

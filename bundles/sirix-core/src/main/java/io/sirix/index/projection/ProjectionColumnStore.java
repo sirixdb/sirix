@@ -5336,14 +5336,21 @@ public final class ProjectionColumnStore {
 
     @Override
     public void close() {
+      Throwable failure = null;
       for (int col = 0; col < laneLeases.length; col++) {
-        if (laneLeases[col] != null) {
-          laneLeases[col].close();
-          laneLeases[col] = null;
-        }
+        final ScratchLease lease = laneLeases[col];
+        laneLeases[col] = null;
         decoded[col] = null;
+        if (lease != null) {
+          try {
+            lease.close();
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
+        }
       }
       decodedKeys = null;
+      rethrowCleanupFailure(failure);
     }
   }
 
@@ -5574,10 +5581,16 @@ public final class ProjectionColumnStore {
         }
       }
       keyCache.clear();
+      Throwable failure = null;
       for (final WindowLanes lanes : windowLanes.values()) {
-        lanes.lease.close();
+        try {
+          lanes.lease.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
       windowLanes.clear();
+      rethrowCleanupFailure(failure);
     }
 
     @Override

@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -137,6 +138,42 @@ final class FusedSliceAndScanTest {
     buffer.release();
     assertEquals(before.totalLentBuffers(), stats().totalLentBuffers(),
         "a chunk keeps no slab for its next use, however large it was");
+  }
+
+  @Test
+  void failedChunkHandoffLeavesItsSlabsOwnedByTheScanner() throws IOException {
+    final byte[] json = "[0,1,2]".getBytes(StandardCharsets.UTF_8);
+    try (FusedSliceAndScan warm = new FusedSliceAndScan(new ByteArrayInputStream(json), 1 << 20, true)) {
+      warm.consumeArrayOpen();
+      warm.nextChunk().bytes().release();
+    }
+    final FrameSlotAllocator allocator = assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance());
+    final long committed = allocator.getPhysicalMemoryBytes();
+    final ScratchStats before = stats();
+    final OutOfMemoryError failure = new OutOfMemoryError("injected chunk handoff failure");
+    FusedSliceAndScan.chunkHandoffHookForTesting = () -> {
+      throw failure;
+    };
+    try (FusedSliceAndScan scanner = new FusedSliceAndScan(new ByteArrayInputStream(json), 1 << 20, true)) {
+      scanner.consumeArrayOpen();
+      assertSame(failure, assertThrows(OutOfMemoryError.class, scanner::nextChunk));
+      assertEquals(before.totalLentBuffers() + 1, stats().totalLentBuffers(), "the scanner still owns its old chunk");
+    } finally {
+      FusedSliceAndScan.chunkHandoffHookForTesting = null;
+    }
+    assertEquals(before.lentBytes(), stats().lentBytes());
+    assertEquals(committed, allocator.getPhysicalMemoryBytes());
+    try (FusedSliceAndScan following = new FusedSliceAndScan(new ByteArrayInputStream(json), 1 << 20, true)) {
+      following.consumeArrayOpen();
+      final FusedSliceAndScan.Chunk chunk = following.nextChunk();
+      try {
+        assertEquals(3, chunk.members());
+        assertArrayEquals(new long[] {1, 1, 1}, chunk.memberNodes());
+      } finally {
+        chunk.bytes().release();
+      }
+    }
+    assertEquals(before.lentBytes(), stats().lentBytes());
   }
 
   @Test

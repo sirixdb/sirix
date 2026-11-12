@@ -15504,8 +15504,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // The masked long lanes of this route's key, aggregate and conditional-key columns: one slab,
     // laid out and allocated on the first column the route actually resolves, released below.
     RouteLaneSlab laneSlab = RouteLaneSlab.NONE;
-    final ArrayList<ProjectionColumnStore.LeafColumnAccess> leafAccesses = new ArrayList<>();
-    final ArrayList<MemorySegment> computedSlabs = new ArrayList<>();
+    final ArrayList<ProjectionColumnStore.LeafColumnAccess> leafAccesses = new ArrayList<>(10);
+    final ArrayList<MemorySegment> computedSlabs = new ArrayList<>(10);
     try {
       final RuntimeException fault = GROUP_AGG_TEST_FAULT;
       if (fault != null) {
@@ -18462,9 +18462,18 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       ProjectionColumnStore.noteSlabFillDeclined();
       throw new ProjectionColumnStore.FillBudgetExceededException("allocator refused " + kind + " lanes");
     }
-    owners.add(memory);
-    DerivedCacheBudget.handoff(kind);
-    return memory;
+    try {
+      DerivedCacheBudget.handoff(kind);
+      owners.add(memory);
+      return memory;
+    } catch (final Throwable failure) {
+      try {
+        Allocators.getInstance().releaseSlab(memory);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
+    }
   }
 
   private static void releaseGroupResources(final ArrayList<ProjectionColumnStore.LeafColumnAccess> accesses,

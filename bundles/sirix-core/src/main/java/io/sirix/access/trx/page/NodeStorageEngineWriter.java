@@ -21,6 +21,9 @@
 
 package io.sirix.access.trx.page;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.access.trx.node.AbstractResourceSession;
 
@@ -3219,7 +3222,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (asyncFlushTimedOut) {
         return;
       }
-      injectAsyncFlushFault("write");
       // One epoch per flush. It bounds how long a refusal mark is honoured (see
       // MAX_SKIPPED_FLUSH_EPOCHS), and under the diagnostic it also separates a page encoded twice
       // inside one flush from a page encoded again in every flush it survives.
@@ -3227,23 +3229,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (PageSectionDiag.ENABLED) {
         PageSectionDiag.noteFlushEpoch();
       }
-      final boolean ownsRetainedAppendBuffer = RETAIN_APPEND_BUFFER && appendBufferInUse.compareAndSet(false, true);
-      final BytesOut<?> bgBuffer;
-      if (ownsRetainedAppendBuffer) {
-        BytesOut<?> retained = retainedAppendBuffer;
-        if (retained == null) {
-          retained = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
-          retainedAppendBuffer = retained;
-        }
-        // Clear on ACQUIRE, not only on release: a previous epoch that failed mid-append must not
-        // be able to leave a prefix for this one to write out.
-        retained.clear();
-        bgBuffer = retained;
-      } else {
-        bgBuffer = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
-      }
       final PageReference shadowRef = new PageReference();
+      final boolean ownsRetainedAppendBuffer = RETAIN_APPEND_BUFFER && appendBufferInUse.compareAndSet(false, true);
+      BytesOut<?> bgBuffer = null;
       try {
+        if (ownsRetainedAppendBuffer) {
+          BytesOut<?> retained = retainedAppendBuffer;
+          if (retained == null) {
+            retained = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
+            retainedAppendBuffer = retained;
+          }
+          // Clear on ACQUIRE, not only on release: a previous epoch that failed mid-append must not
+          // be able to leave a prefix for this one to write out.
+          retained.clear();
+          bgBuffer = retained;
+        } else {
+          bgBuffer = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
+        }
+        injectAsyncFlushFault("write");
         final ResourceConfiguration config = getResourceSession().getResourceConfig();
         shadowRef.setDatabaseId(storageEngineReader.getDatabaseId());
         shadowRef.setResourceId(storageEngineReader.getResourceId());
@@ -3414,11 +3417,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               }
             }
           }
+          Throwable cleanupFailure = null;
           if (currentWindow != null) {
-            closeWindowLeftovers(currentWindow);
+            try {
+              closeWindowLeftovers(currentWindow);
+            } catch (final Throwable cleanup) {
+              cleanupFailure = cleanup;
+            }
           }
           if (nextWindow != null) {
-            closeWindowLeftovers(nextWindow);
+            try {
+              closeWindowLeftovers(nextWindow);
+            } catch (final Throwable cleanup) {
+              cleanupFailure = retainCleanupFailure(cleanupFailure, cleanup);
+            }
+          }
+          if (cleanupFailure != null) {
+            rethrowCleanupFailure(cleanupFailure);
           }
         }
         injectAsyncFlushFault("before-flush");
@@ -3442,9 +3457,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         if (ownsRetainedAppendBuffer) {
           // Keep the buffer, drop its contents, then publish the release. The volatile write is what
           // hands the next owner a buffer it can see in full.
-          bgBuffer.clear();
-          appendBufferInUse.set(false);
-        } else {
+          try {
+            if (bgBuffer != null) {
+              bgBuffer.clear();
+            }
+          } finally {
+            appendBufferInUse.set(false);
+          }
+        } else if (bgBuffer != null) {
           bgBuffer.close();
         }
       }
@@ -4099,14 +4119,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /** Close and null out any copies left in a snapshot window after a failed flush. */
   private static void closeWindowLeftovers(final KeyValueLeafPage[] window) {
+    Throwable failure = null;
     for (int i = 0; i < window.length; i++) {
       final KeyValueLeafPage leftover = window[i];
       if (leftover != null) {
         window[i] = null;
         if (!leftover.isAdoptedImmutableForFlush()) {
-          leftover.close();
+          try {
+            leftover.close();
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
       }
+    }
+    if (failure != null) {
+      rethrowCleanupFailure(failure);
     }
   }
 
@@ -5276,24 +5304,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // The retained append buffer is off-heap and outlives every epoch by design, so this close is
     // the one place it is released. awaitInFlightAsyncFlushOnly() below fences any owner first;
     // releasing the flag as well keeps a post-close reuse from resurrecting a closed buffer.
-    final BytesOut<?> retainedBuffer = retainedAppendBuffer;
-    if (retainedBuffer != null) {
-      retainedAppendBuffer = null;
-      appendBufferInUse.set(true);
-    }
-
     Throwable asyncFailure = null;
     try {
       awaitInFlightAsyncFlushOnly();
     } catch (final Throwable t) {
       asyncFailure = t;
-    }
-    if (retainedBuffer != null) {
-      try {
-        retainedBuffer.close();
-      } catch (final RuntimeException releaseFailure) {
-        LOGGER.warn("Releasing the retained append buffer failed", releaseFailure);
-      }
     }
     if (asyncFlushWorkerRunning) {
       final Throwable unfencedFailure =
@@ -5306,6 +5321,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     Throwable teardownFailure = null;
+    final BytesOut<?> retainedBuffer = retainedAppendBuffer;
+    if (retainedBuffer != null) {
+      retainedAppendBuffer = null;
+      appendBufferInUse.set(true);
+      try {
+        retainedBuffer.close();
+      } catch (final Throwable failure) {
+        teardownFailure = retainFirstFailure(teardownFailure, failure);
+      }
+    }
     // Controllers cache revision catalogues, but their listeners belong to this writer alone.
     // Retire all listener roots after fencing async work, even if a later teardown owner fails.
     try {

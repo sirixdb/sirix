@@ -26,10 +26,15 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -118,6 +123,34 @@ final class CodecScratchTest {
     }
 
     assertEquals(0, stats().staleReleases() - start.staleReleases());
+  }
+
+  @Test
+  void failedLz4DecodeReturnsBothBorrows() {
+    final FFILz4Compressor lz4 = new FFILz4Compressor();
+    final byte[] raw = compressible(50_000);
+    final byte[] encoded = lz4.compress(MemorySegment.ofArray(raw)).toArray(ValueLayout.JAVA_BYTE);
+    assumeTrue(ByteBuffer.wrap(encoded).order(ByteOrder.LITTLE_ENDIAN).getInt() > 0, "fixture uses compressed LZ4");
+    try (ByteHandler.DecompressionResult warm = lz4.decompressScoped(MemorySegment.ofArray(encoded))) {
+      assertArrayEquals(raw, warm.segment().toArray(ValueLayout.JAVA_BYTE));
+    }
+    final FrameSlotAllocator allocator = assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance());
+    final long committed = allocator.getPhysicalMemoryBytes();
+    final long active = allocator.getActiveMemoryBytes();
+    final ScratchStats before = stats();
+    final OutOfMemoryError failure = new OutOfMemoryError("injected decoder failure");
+    final FFILz4Compressor failing = spy(new FFILz4Compressor());
+    doThrow(failure).when(failing).decompressSegment(any(MemorySegment.class), any(MemorySegment.class), anyInt());
+    doThrow(failure).when(failing).decompressSegmentFast(any(MemorySegment.class), any(MemorySegment.class), anyInt());
+    assertSame(failure,
+        assertThrows(OutOfMemoryError.class, () -> failing.decompressScoped(MemorySegment.ofArray(encoded))));
+    assertEquals(before.lentBytes(), stats().lentBytes());
+    assertEquals(active, allocator.getActiveMemoryBytes());
+    assertEquals(committed, allocator.getPhysicalMemoryBytes());
+    try (ByteHandler.DecompressionResult following = lz4.decompressScoped(MemorySegment.ofArray(encoded))) {
+      assertArrayEquals(raw, following.segment().toArray(ValueLayout.JAVA_BYTE));
+    }
+    assertEquals(before.lentBytes(), stats().lentBytes());
   }
 
   @Test

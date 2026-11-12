@@ -533,12 +533,12 @@ public final class FileChannelReader extends AbstractReader {
       final ResourceConfiguration resourceConfiguration, final int regionKindMask, final int regionDeferMask) {
     // One lease for both bounded reads: the header's buffer is returned before the chunk's is
     // borrowed, and with the common request floor it is the same buffer again.
-    final ScratchLease lease = borrow(4 + REGION_PROBE_BYTES);
     final long position = reference.getKey();
     final int dataLength;
     final long regionOffset;
     final long[] probe = PROBE_OUT.get();
     final long[] bitmap = PROBE_BITMAP.get();
+    final ScratchLease lease = borrow(4 + REGION_PROBE_BYTES);
     try {
       final ByteBuffer header = lease.buffer();
       header.clear().limit(4 + REGION_PROBE_BYTES);
@@ -976,9 +976,9 @@ public final class FileChannelReader extends AbstractReader {
       }
       return;
     }
-    RUN_COUNT.increment();
-    RUN_SPAN_BYTES.add(spanLen);
     try {
+      RUN_COUNT.increment();
+      RUN_SPAN_BYTES.add(spanLen);
       ByteBuffer buffer = lease.buffer();
       buffer.clear().limit(spanLen);
       readFully(buffer, start, "coalesced page span");

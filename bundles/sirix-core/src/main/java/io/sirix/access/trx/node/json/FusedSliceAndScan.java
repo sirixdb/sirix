@@ -3,6 +3,9 @@
  */
 package io.sirix.access.trx.node.json;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.foreign.MemorySegment;
@@ -44,6 +47,7 @@ import org.jspecify.annotations.Nullable;
  * slots == n), so a divergence between this pass and the full tokenizer refuses loudly per chunk.
  */
 final class FusedSliceAndScan implements AutoCloseable {
+  static volatile @Nullable Runnable chunkHandoffHookForTesting;
 
   /**
    * One node of the feeder-owned PATH TRIE: scan context is tracked by trie-node IDENTITY, never by
@@ -271,19 +275,25 @@ final class FusedSliceAndScan implements AutoCloseable {
       length = 0;
       readPosition = 0;
       readLimit = 0;
+      Throwable failure = null;
       for (SlabBlock block = firstBlock; block != null; block = block.next) {
         final ScratchLease[] slabs = block.slabs;
         for (int i = 0; i < SLABS_PER_BLOCK; i++) {
           final ScratchLease slab = slabs[i];
           if (slab != null) {
             slabs[i] = null;
-            slab.close();
+            try {
+              slab.close();
+            } catch (final Throwable cleanup) {
+              failure = retainCleanupFailure(failure, cleanup);
+            }
           }
         }
       }
       firstBlock.next = null;
       appendBlock = firstBlock;
       appendBlockIndex = 0;
+      rethrowCleanupFailure(failure);
     }
 
     /** Slabs this buffer holds borrowed. */
@@ -843,24 +853,35 @@ final class FusedSliceAndScan implements AutoCloseable {
     for (int i = 0; i < touchedNameCount; i++) {
       final int nameId = touchedNameSlots[i];
       tallies.add(new int[] {nameId, nameChunkOccurrencesById[nameId]});
-      nameChunkOccurrencesById[nameId] = 0;
     }
-    touchedNameCount = 0;
     final int[] stepOccurrences = new int[touchedSteps.size()];
     for (int i = 0; i < touchedSteps.size(); i++) {
       final PathStep step = touchedSteps.get(i);
       stepOccurrences[i] = step.chunkOccurrences;
-      step.chunkOccurrences = 0;
-      step.touchedThisChunk = false;
     }
     // The chunk's slabs leave with it; the next chunk borrows its own as it fills.
     final ChunkBuffer out = chunkBuffer;
-    chunkBuffer = new ChunkBuffer();
+    final ChunkBuffer next = new ChunkBuffer();
+    final Runnable hook = chunkHandoffHookForTesting;
+    if (hook != null) {
+      hook.run();
+    }
     final long[] memberNodeCounts = memberNodes == null
         ? null
         : memberNodes.toLongArray();
-    return new Chunk(out, chunkLength, isFinal, nodes, members, lastMemberNodes, List.copyOf(newSteps),
+    final Chunk result = new Chunk(out, chunkLength, isFinal, nodes, members, lastMemberNodes, List.copyOf(newSteps),
         List.copyOf(touchedSteps), stepOccurrences, List.copyOf(newNames), tallies, memberNodeCounts);
+    for (int i = 0; i < touchedNameCount; i++) {
+      nameChunkOccurrencesById[touchedNameSlots[i]] = 0;
+    }
+    touchedNameCount = 0;
+    for (int i = 0; i < touchedSteps.size(); i++) {
+      final PathStep step = touchedSteps.get(i);
+      step.chunkOccurrences = 0;
+      step.touchedThisChunk = false;
+    }
+    chunkBuffer = next;
+    return result;
   }
 
   private static boolean matches(final byte[] existing, final byte[] source, final int start, final int len) {
