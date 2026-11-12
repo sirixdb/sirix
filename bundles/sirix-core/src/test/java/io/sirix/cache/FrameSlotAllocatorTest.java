@@ -8,7 +8,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import org.mockito.MockedStatic;
 import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +23,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -53,6 +59,31 @@ class FrameSlotAllocatorTest {
   @AfterEach
   void tearDown() {
     allocator.shutdown();
+  }
+
+  @Test
+  void failedOversizedClosureKeepsItsOwnerUntilAReleaseSucceeds() {
+    final long bytes = 512L * 1024L;
+    try (Arena backing = Arena.ofConfined()) {
+      final MemorySegment memory = backing.allocate(bytes);
+      final Arena failing = mock(Arena.class);
+      when(failing.allocate(bytes)).thenReturn(memory);
+      final OutOfMemoryError failure = new OutOfMemoryError("injected arena close failure");
+      doThrow(failure).doNothing().when(failing).close();
+      try (MockedStatic<Arena> arenas = mockStatic(Arena.class)) {
+        arenas.when(Arena::ofConfined).thenReturn(failing);
+        final MemorySegment allocation = allocator.allocate(bytes);
+        assertSame(memory, allocation);
+        assertSame(failure, assertThrows(OutOfMemoryError.class, () -> allocator.release(allocation)));
+        assertEquals(bytes, allocator.getPhysicalMemoryBytes());
+        assertEquals(bytes, allocator.nonExecutionCommittedBytes());
+        assertEquals(bytes, allocator.getActiveMemoryBytes());
+        allocator.release(allocation);
+        assertEquals(0L, allocator.getPhysicalMemoryBytes());
+        assertEquals(0L, allocator.nonExecutionCommittedBytes());
+        assertEquals(0L, allocator.getActiveMemoryBytes());
+      }
+    }
   }
 
   @Test

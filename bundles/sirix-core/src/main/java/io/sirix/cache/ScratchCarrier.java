@@ -45,6 +45,11 @@ final class ScratchCarrier {
   @Nullable
   ScratchCarrier next;
 
+  @Nullable
+  ScratchCarrier sparePrevious;
+  @Nullable
+  ScratchCarrier spareNext;
+
   /** Accessed through {@link ScratchHandles#ERA}. */
   long era;
 

@@ -104,6 +104,51 @@ final class FrameSlotAllocatorSlabTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(SlabTransition.class)
+  void failedPublicationReturnsMappingAndBudgetOwnership(final SlabTransition transition) {
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(BUDGET);
+    final OutOfMemoryError failure = new OutOfMemoryError("injected publication failure");
+    try {
+      final MemorySegment existing = transition == SlabTransition.FRESH
+          ? null
+          : allocator.allocateSlab(8192L);
+      if (transition == SlabTransition.REUSED) {
+        assertNotNull(existing);
+        assertTrue(allocator.releaseSlab(existing));
+      }
+      allocator.setSlabPublicationHookForTesting(() -> {
+        throw failure;
+      });
+      final OutOfMemoryError thrown = assertThrows(OutOfMemoryError.class, () -> {
+        if (transition == SlabTransition.RELEASED) {
+          assertNotNull(existing);
+          allocator.releaseSlab(existing);
+        } else {
+          allocator.allocateSlab(8192L);
+        }
+      });
+      assertSame(failure, thrown);
+      assertEquals(0L, allocator.getPhysicalMemoryBytes());
+      assertEquals(0L, allocator.nonExecutionCommittedBytes());
+      assertEquals(0L, allocator.getActiveMemoryBytes());
+      assertEquals(0L, allocator.getSlabBytes());
+      assertEquals(0L, allocator.getRecycledSlabBytes());
+      allocator.setSlabPublicationHookForTesting(null);
+      final MemorySegment next = allocator.allocateSlab(8192L);
+      assertNotNull(next);
+      SegmentAccess.putLong(next, 0L, 59L);
+      assertEquals(59L, SegmentAccess.getLong(next, 0L));
+      assertTrue(allocator.releaseSlab(next));
+    } finally {
+      allocator.setSlabPublicationHookForTesting(null);
+      allocator.shutdown();
+    }
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.nonExecutionCommittedBytes());
+    assertEquals(0L, allocator.getRecycledSlabBytes());
+  }
+
   @Test
   void slabsAreChargedBeforeMappingAndRefundedExactlyOnce() throws Exception {
     final FrameSlotAllocator allocator = new FrameSlotAllocator(BUDGET);

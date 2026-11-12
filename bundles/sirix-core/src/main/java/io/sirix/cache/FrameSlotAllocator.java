@@ -10,6 +10,8 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.lang.WrongThreadException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.BiFunction;
 
 /**
  * Umbra / LeanStore-style buffer allocator with fixed-position frame slots and optimistic versioned
@@ -438,6 +441,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   private final ConcurrentHashMap<Long, OversizedAllocation> oversizedByAddress = new ConcurrentHashMap<>();
+  private static final BiFunction<Long, OversizedAllocation, OversizedAllocation> CLOSE_OVERSIZED =
+      (address, allocation) -> {
+        allocation.arena().close();
+        return null;
+      };
 
   /**
    * A cache-owned slab: one page-granular region with a global-scope segment, charged to the same
@@ -560,9 +568,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       while (freed < wanted && (recycled = free.pollLast()) != null) {
         recycledSlabBytes.addAndGet(-recycled.bytes());
         recycledCacheSlabBytes.addAndGet(-recycled.bytes());
-        VM.release(recycled.segment());
-        refundCommittedBytes(recycled.bytes());
-        HftBoundaryTelemetry.nativeRelease();
+        unmapSlab(recycled.segment(), recycled.bytes());
         freed += recycled.bytes();
       }
       if (freed >= wanted) {
@@ -613,13 +619,20 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   /** Publish a live slab: the exact instance the caller received, by address. */
   private void publishSlab(final MemorySegment segment, final long mapped) {
-    beforeSlabPublication();
-    if (slabsByAddress.putIfAbsent(segment.address(), new SlabAllocation(segment, mapped)) != null) {
-      throw new IllegalStateException("duplicate slab address " + segment.address());
+    final Long address = segment.address();
+    final SlabAllocation allocation = new SlabAllocation(segment, mapped);
+    try {
+      beforeSlabPublication();
+      if (slabsByAddress.putIfAbsent(address, allocation) != null) {
+        throw new IllegalStateException("duplicate slab address " + address);
+      }
+      HftBoundaryTelemetry.allocatorAllocation();
+    } catch (final RuntimeException | Error failure) {
+      slabsByAddress.remove(address, allocation);
+      throw failure;
     }
     activeBytes.addAndGet(mapped);
     slabBytes.addAndGet(mapped);
-    HftBoundaryTelemetry.allocatorAllocation();
   }
 
   @Override
@@ -636,6 +649,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       final long mapped = bytes > Long.MAX_VALUE - SLAB_PAGE_BYTES
           ? Long.MAX_VALUE
           : (bytes + SLAB_PAGE_BYTES - 1) & -SLAB_PAGE_BYTES;
+      if (mapped > contentCommitLimit()) {
+        return null;
+      }
       // A recycled slab of this size first: its pages are mapped and committed already (dirty, never
       // zeroed), so the reuse costs no system call and no page fault. The caller gets a FRESH
       // global-scope view over the same pages: the instance handed out before stays rejected by the
@@ -646,12 +662,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         if (recycled != null) {
           recycledSlabBytes.addAndGet(-mapped);
           recycledCacheSlabBytes.addAndGet(-mapped);
-          final MemorySegment reused = MemorySegment.ofAddress(recycled.segment().address()).reinterpret(mapped);
-          if (poisonRecycledSlabs) {
-            reused.fill((byte) 0x5A);
+          try {
+            final MemorySegment reused = MemorySegment.ofAddress(recycled.segment().address()).reinterpret(mapped);
+            if (poisonRecycledSlabs) {
+              reused.fill((byte) 0x5A);
+            }
+            publishSlab(reused, mapped);
+            return reused;
+          } catch (final RuntimeException | Error failure) {
+            unmapSlab(recycled.segment(), mapped);
+            throw failure;
           }
-          publishSlab(reused, mapped);
-          return reused;
         }
       }
       // Charged against the whole budget like an oversized allocation: slab bytes return on release.
@@ -676,13 +697,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           refundCommittedBytes(mapped);
           return null;
         }
+        HftBoundaryTelemetry.nativeAllocation();
         publishSlab(segment, mapped);
       } catch (final RuntimeException | Error failure) {
         VM.release(segment);
         refundCommittedBytes(mapped);
         throw failure;
       }
-      HftBoundaryTelemetry.nativeAllocation();
       return segment;
     } finally {
       slabOperations.decrementAndGet();
@@ -726,32 +747,39 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       }
       final long bytes = allocation.bytes();
       activeBytes.addAndGet(-bytes);
-      HftBoundaryTelemetry.allocatorRelease();
-      // Keep the pages mapped for the next slab of this size while the recycle bound allows it; the
-      // bound is reserved with a CAS so concurrent releases never exceed it.
       try {
-        final long limit = slabRecycleLimitBytes;
-        for (;;) {
-          final long current = recycledSlabBytes.get();
-          if (terminated.get() || current + bytes > limit) {
-            final boolean released = VM.release(allocation.segment());
-            refundCommittedBytes(bytes);
-            HftBoundaryTelemetry.nativeRelease();
-            return released;
-          }
-          beforeSlabPublication();
-          if (recycledSlabBytes.compareAndSet(current, current + bytes)) {
+        boolean recycled = false;
+        try {
+          HftBoundaryTelemetry.allocatorRelease();
+          if (!terminated.get() && tryReserveRecycledBytes(bytes)) {
             recycledCacheSlabBytes.addAndGet(bytes);
+            recycled = true;
+            beforeSlabPublication();
             recycledSlabs.computeIfAbsent(bytes, size -> new ConcurrentLinkedDeque<>()).addFirst(allocation);
             return true;
           }
+        } catch (final RuntimeException | Error failure) {
+          if (recycled) {
+            recycledSlabBytes.addAndGet(-bytes);
+            recycledCacheSlabBytes.addAndGet(-bytes);
+          }
+          unmapSlab(allocation.segment(), bytes);
+          throw failure;
         }
+        return unmapSlab(allocation.segment(), bytes);
       } finally {
         slabBytes.addAndGet(-bytes);
       }
     } finally {
       slabOperations.decrementAndGet();
     }
+  }
+
+  private boolean unmapSlab(final MemorySegment segment, final long bytes) {
+    final boolean released = VM.release(segment);
+    refundCommittedBytes(bytes);
+    HftBoundaryTelemetry.nativeRelease();
+    return released;
   }
 
   @Override
@@ -793,26 +821,19 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * budget is a no-op (we cannot cheaply grow an mmap'd region). Callers should call once at startup.
    */
   @Override
-  public void init(final long maxBufferSize) {
+  public synchronized void init(final long maxBufferSize) {
     if (terminated.get()) {
       throw new IllegalStateException("FrameSlotAllocator has been shut down");
     }
-    if (initialized.compareAndSet(false, true)) {
-      final long granted = MemorySegmentAllocator.clampToPhysicalHeadroom(maxBufferSize);
-      if (granted < maxBufferSize) {
-        LOGGER.warn("Off-heap arena clamped from {} MiB to {} MiB to leave headroom for the heap and the OS",
-            maxBufferSize / (1024 * 1024), granted / (1024 * 1024));
-      }
-      initInternal(granted);
-    } else {
-      // Another thread already claimed initialization but may not have published `classes` yet
-      // (initInternal maps several large regions before assigning it). Wait for the volatile
-      // `classes` write so a caller never returns from init() — and then dereferences classes —
-      // while it is still null (the concurrent allocateSlot NPE window).
-      while (classes == null) {
-        Thread.onSpinWait();
-      }
+    if (initialized.get()) {
+      return;
     }
+    final long granted = MemorySegmentAllocator.clampToPhysicalHeadroom(maxBufferSize);
+    if (granted < maxBufferSize) {
+      LOGGER.warn("Off-heap arena clamped from {} MiB to {} MiB to leave headroom for the heap and the OS",
+          maxBufferSize / (1024 * 1024), granted / (1024 * 1024));
+    }
+    initInternal(granted);
   }
 
   private void initInternal(final long budgetBytes) {
@@ -858,19 +879,34 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // Per-class virtual reservation is workload-independent; MAP_NORESERVE means physical pages
     // only commit when touched. Cap the number of slots to bound version metadata; its fixed-size
     // chunks avoid persistent G1 humongous arrays without adding hot-path allocation.
-    for (int i = 0; i < SIZE_CLASSES.length; i++) {
-      final long slotSize = SIZE_CLASSES[i];
-      final long rawSlotCount = VIRTUAL_PER_CLASS / slotSize;
-      final int slotCount = Math.toIntExact(Math.min(rawSlotCount, 1L << 20));
-      final long regionBytes = (long) slotCount * slotSize;
-      final MemorySegment region = mapRegion(regionBytes);
-      cls[i] = new SizeClass(slotSize, slotCount, region);
-      LOGGER.info("FrameSlotAllocator class {}: {} slots × {} bytes = {} MiB virtual", i, slotCount, slotSize,
-          regionBytes / (1024 * 1024));
+    MemorySegment pending = null;
+    try {
+      for (int i = 0; i < SIZE_CLASSES.length; i++) {
+        final long slotSize = SIZE_CLASSES[i];
+        final long rawSlotCount = VIRTUAL_PER_CLASS / slotSize;
+        final int slotCount = Math.toIntExact(Math.min(rawSlotCount, 1L << 20));
+        final long regionBytes = (long) slotCount * slotSize;
+        pending = VM.reserve(regionBytes);
+        HftBoundaryTelemetry.nativeAllocation();
+        cls[i] = new SizeClass(slotSize, slotCount, pending);
+        pending = null;
+        LOGGER.info("FrameSlotAllocator class {}: {} slots × {} bytes = {} MiB virtual", i, slotCount, slotSize,
+            regionBytes / (1024 * 1024));
+      }
+      LOGGER.info("FrameSlotAllocator: shared physical budget = {} MiB", budgetBytes / (1024 * 1024));
+    } catch (final RuntimeException | Error failure) {
+      if (pending != null) {
+        VM.release(pending);
+      }
+      for (final SizeClass allocated : cls) {
+        if (allocated != null) {
+          VM.release(allocated.region);
+        }
+      }
+      throw failure;
     }
     this.classes = cls;
     this.initialized.set(true);
-    LOGGER.info("FrameSlotAllocator: shared physical budget = {} MiB", budgetBytes / (1024 * 1024));
   }
 
   @Override
@@ -961,7 +997,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   /** Idle execution memory may be retained only if it fits outside the protected execution floor. */
   boolean transferFromAggregation(final long bytes) {
-    return tryReserveNonExecutionBytes(bytes, budgetBytes - budgetBytes / AggregationBudget.DIVISOR);
+    return tryReserveNonExecutionBytes(bytes, scratchCommitLimit());
   }
 
   public long nonExecutionCommittedBytes() {
@@ -971,12 +1007,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   @Override
   public void free() {
     shutdown();
-  }
-
-  private static MemorySegment mapRegion(final long bytes) {
-    final MemorySegment region = VM.reserve(bytes);
-    HftBoundaryTelemetry.nativeAllocation();
-    return region;
   }
 
   /**
@@ -1009,8 +1039,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return null;
     }
     final long owned = c.slotVersion.getAcquire(slotIdx);
-    final MemorySegment slot = c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize);
-    return new FrameSlot(this, classIdx, slotIdx, owned, slot);
+    try {
+      final MemorySegment slot = c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize);
+      return new FrameSlot(this, classIdx, slotIdx, owned, slot);
+    } catch (final RuntimeException | Error failure) {
+      releaseSlot(classIdx, slotIdx, owned);
+      throw failure;
+    }
   }
 
   /**
@@ -1054,10 +1089,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       final long owned = inProgress + 1L;
       c.slotVersion.setRelease(slotIdx, owned);
 
+      try {
+        HftBoundaryTelemetry.allocatorAllocation();
+      } catch (final RuntimeException | Error failure) {
+        pushRecycledSlot(c, slotIdx);
+        throw failure;
+      }
       c.liveCount.incrementAndGet();
       c.allocCount.incrementAndGet();
       acquired = true;
-      HftBoundaryTelemetry.allocatorAllocation();
       assert (owned & 1L) == 0L : "owned version must be even";
       return slotIdx;
     } finally {
@@ -1085,16 +1125,21 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       refundCommittedBytes(c.slotSize);
       return -1;
     }
+    final boolean committed;
     try {
-      if (VM.commitFresh(c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize))) {
-        HftBoundaryTelemetry.nativeAllocation();
-      }
-      c.committedBytes.addAndGet(c.slotSize);
+      committed = VM.commitFresh(c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize));
     } catch (final RuntimeException | Error failure) {
-      // The fresh index is intentionally stranded: on Windows a failed MEM_COMMIT slot is not
-      // touch-safe and therefore must never enter the recycled set.
       refundCommittedBytes(c.slotSize);
       throw failure;
+    }
+    c.committedBytes.addAndGet(c.slotSize);
+    if (committed) {
+      try {
+        HftBoundaryTelemetry.nativeAllocation();
+      } catch (final RuntimeException | Error failure) {
+        pushRecycledSlot(c, slotIdx);
+        throw failure;
+      }
     }
     return slotIdx;
   }
@@ -1104,8 +1149,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * oversized headroom but not the scratch reserve at the very end of the budget.
    */
   boolean reserveCommittedBytes(final long bytes) {
-    return reserveCommittedBytesUpTo(bytes,
-        budgetBytes - budgetBytes / AggregationBudget.DIVISOR - scratchReserveBytes);
+    return reserveCommittedBytesUpTo(bytes, contentCommitLimit());
   }
 
   /**
@@ -1114,15 +1158,31 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * Package-private so the witness test can drive the decision table directly.
    */
   boolean reserveSlabCommittedBytes(final long bytes) {
-    return reserveCommittedBytesUpTo(bytes,
-        budgetBytes - budgetBytes / AggregationBudget.DIVISOR - oversizedHeadroomBytes);
+    return reserveCommittedBytesUpTo(bytes, frameCommitLimit());
   }
 
   /**
    * Commitment for ordinary scratch: the non-execution allowance, including its progress reserve.
    */
   boolean reserveScratchCommittedBytes(final long bytes) {
-    return reserveCommittedBytesUpTo(bytes, budgetBytes - budgetBytes / AggregationBudget.DIVISOR);
+    return reserveCommittedBytesUpTo(bytes, scratchCommitLimit());
+  }
+
+  private long scratchCommitLimit() {
+    return budgetBytes - budgetBytes / AggregationBudget.DIVISOR;
+  }
+
+  private long contentCommitLimit() {
+    return scratchCommitLimit() - scratchReserveBytes;
+  }
+
+  private long frameCommitLimit() {
+    return scratchCommitLimit() - oversizedHeadroomBytes;
+  }
+
+  private static OutOfMemoryError impossibleAllocation(final String kind, final long bytes, final long ceiling) {
+    return new OutOfMemoryError("FrameSlotAllocator: " + kind + " capacity " + bytes + " bytes exceeds its " + ceiling
+        + "-byte admission ceiling");
   }
 
   long oversizedHeadroomBytes() {
@@ -1141,29 +1201,33 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (terminated.get()) {
       throw new IllegalStateException("FrameSlotAllocator has been shut down");
     }
-    if (bytes <= budgetBytes && reserveScratchCommittedBytes(bytes)) {
+    final long ceiling = scratchCommitLimit();
+    if (bytes > ceiling) {
+      if (!mandatory) {
+        return false;
+      }
+      throw impossibleAllocation("scratch buffer", bytes, ceiling);
+    }
+    if (reserveScratchCommittedBytes(bytes)) {
       return true;
     }
     if (!mandatory) {
       return false;
     }
-    // Waiting cannot help a request the whole budget does not hold.
     long waitedNanos = 0L;
-    if (bytes <= budgetBytes) {
-      firePressure();
-      long parkNanos = INITIAL_PARK_NANOS;
-      while (waitedNanos < MAX_WAIT_NANOS) {
-        if (reserveScratchCommittedBytes(bytes)) {
-          return true;
-        }
-        LockSupport.parkNanos(parkNanos);
-        waitedNanos += parkNanos;
-        parkNanos = Math.min(parkNanos * 2, MAX_PARK_NANOS);
-        firePressure();
-      }
+    firePressure();
+    long parkNanos = INITIAL_PARK_NANOS;
+    while (waitedNanos < MAX_WAIT_NANOS) {
       if (reserveScratchCommittedBytes(bytes)) {
         return true;
       }
+      LockSupport.parkNanos(parkNanos);
+      waitedNanos += parkNanos;
+      parkNanos = Math.min(parkNanos * 2, MAX_PARK_NANOS);
+      firePressure();
+    }
+    if (reserveScratchCommittedBytes(bytes)) {
+      return true;
     }
     dumpStateForOOM(-1, bytes, waitedNanos);
     throw new OutOfMemoryError("FrameSlotAllocator: scratch buffer of " + bytes + " bytes does not fit the "
@@ -1186,6 +1250,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    */
   private int acquireSlotOrWait(final int classIdx, final long size) {
     final SizeClass c = classes[classIdx];
+    final long ceiling = frameCommitLimit();
+    if (c.slotSize > ceiling) {
+      throw impossibleAllocation("page frame", c.slotSize, ceiling);
+    }
     int slotIdx = acquireSlot(c);
     if (slotIdx < 0) {
       // First shot at relief before parking: the cache is the most likely
@@ -1313,6 +1381,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         throw new IllegalStateException("FrameSlotAllocator has been shut down");
       }
       try {
+        final long ceiling = contentCommitLimit();
+        if (size > ceiling) {
+          throw impossibleAllocation("oversized allocation", size, ceiling);
+        }
         // Oversized request — larger than any frame-slot size class. These come from large-value
         // overflow storage (#1076): OverflowPage (de)compression buffers can exceed 256 KiB. Served
         // from a per-allocation CONFINED arena, closed deterministically in release(). Two reasons
@@ -1339,11 +1411,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         Arena arena = null;
         MemorySegment segment = null;
         OversizedAllocation allocation = null;
+        Long address = null;
         try {
           arena = Arena.ofConfined();
           segment = arena.allocate(size);
+          address = segment.address();
           allocation = new OversizedAllocation(arena, Thread.currentThread(), size);
-          final OversizedAllocation prior = oversizedByAddress.putIfAbsent(segment.address(), allocation);
+          final OversizedAllocation prior = oversizedByAddress.putIfAbsent(address, allocation);
           if (prior != null) {
             throw new IllegalStateException("duplicate oversized allocation address " + segment.address());
           }
@@ -1352,16 +1426,14 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
           activeBytes.addAndGet(size);
           return segment;
         } catch (final RuntimeException | Error failure) {
-          if (segment != null && allocation != null) {
-            oversizedByAddress.remove(segment.address(), allocation);
+          if (address != null && allocation != null) {
+            oversizedByAddress.remove(address, allocation);
           }
           if (arena != null) {
             try {
               arena.close();
-            } catch (final RuntimeException cleanupFailure) {
-              if (cleanupFailure != failure) {
-                failure.addSuppressed(cleanupFailure);
-              }
+            } catch (final RuntimeException | Error cleanupFailure) {
+              retainCleanupFailure(failure, cleanupFailure);
             }
           }
           refundCommittedBytes(size);
@@ -1432,17 +1504,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     final OversizedAllocation oversized = oversizedByAddress.get(address);
     if (oversized != null) {
       if (oversized.owner() != Thread.currentThread()) {
-        throw new java.lang.WrongThreadException();
+        throw new WrongThreadException();
       }
-      // Remove the address mapping BEFORE closing the arena: close frees the native memory, and
-      // a fresh oversized allocation can immediately reuse the same address — its putIfAbsent
-      // would then collide with this stale entry and fail a VALID allocation with "duplicate
-      // oversized allocation address". Remove-first means only a genuine double-release loses
-      // the removal race and fails loudly.
-      if (!oversizedByAddress.remove(address, oversized)) {
-        throw new IllegalStateException("oversized allocation ownership changed during release at " + address);
-      }
-      oversized.arena().close();
+      oversizedByAddress.computeIfPresent(address, CLOSE_OVERSIZED);
       activeBytes.addAndGet(-oversized.bytes());
       refundCommittedBytes(oversized.bytes());
       HftBoundaryTelemetry.allocatorRelease();
@@ -1688,7 +1752,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // deterministically. The version is already odd ("writer in progress"), so a
     // racing optimistic reader retries rather than observing the half-wiped slot.
     if (poisonOnRelease) {
-      c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize).fill((byte) 0);
+      final long end = (long) (slotIdx + 1) * c.slotSize;
+      for (long offset = (long) slotIdx * c.slotSize; offset < end; offset += Long.BYTES) {
+        c.region.set(ValueLayout.JAVA_LONG, offset, 0L);
+      }
     }
 
     // NB: no MADV_DONTNEED on release. Physical pages stay resident across
@@ -1708,8 +1775,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     pushRecycledSlot(c, slotIdx);
     c.liveCount.decrementAndGet();
     c.releaseCount.incrementAndGet();
-    activeSlotBytes.addAndGet(-c.slotSize);
     activeBytes.addAndGet(-c.slotSize);
+    activeSlotBytes.addAndGet(-c.slotSize);
     HftBoundaryTelemetry.allocatorRelease();
     return true;
   }
@@ -1894,89 +1961,86 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // handshake (terminal flag versus in-flight owner count); acquire/release-only accesses permit
     // the store-buffering outcome in which both sides miss the other's publication.
     terminated.set(true);
-    // A granted scan owns capacity even before its first mapping. Admission checks the terminal
-    // flag under the budget monitor; taking that monitor here completes the shutdown handshake.
-    final long liveAggregationCapacity = aggregationBudget.grantedBytes();
-    if (liveAggregationCapacity != 0L) {
-      terminated.set(false);
-      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveAggregationCapacity
-          + " bytes granted to aggregation; close the scans before shutdown");
-    }
-    // Idle scratch buffers are read by nobody: give their regions back first, so that only
-    // memory somebody still holds can stop the shutdown below.
-    final FrameScratch scratchBuffers = scratch;
-    if (scratchBuffers != null) {
-      scratchBuffers.reclaimAllIdle();
-    }
-    final long liveSlotBytes = activeSlotBytes.get();
-    if (liveSlotBytes != 0L) {
-      terminated.set(false);
-      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveSlotBytes
-          + " active frame-slot bytes; release all slot owners before shutdown");
-    }
-    final long liveScratchRegionBytes = scratchBuffers == null
-        ? 0L
-        : scratchBuffers.regionBytes();
-    if (liveScratchRegionBytes != 0L) {
-      terminated.set(false);
-      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveScratchRegionBytes
-          + " bytes of lent scratch regions; close their leases before shutdown");
-    }
-    final int oversizedOperations = oversizedAllocationOperations.get();
-    if (oversizedOperations != 0) {
-      terminated.set(false);
-      throw new IllegalStateException("FrameSlotAllocator shutdown raced " + oversizedOperations
-          + " oversized allocation operation(s); retry after admission completes");
-    }
-    final int pendingSlabOperations = slabOperations.get();
-    if (pendingSlabOperations != 0) {
-      terminated.set(false);
-      throw new IllegalStateException("FrameSlotAllocator shutdown raced " + pendingSlabOperations
-          + " slab operation(s); retry after admission completes");
-    }
-    // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
-    // lease; unmapping it here would be a use-after-free.
-    drainRecycledSlabs(Long.MAX_VALUE, true);
-    final long liveSlabBytes = slabBytes.get();
-    if (liveSlabBytes != 0L) {
-      terminated.set(false);
-      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveSlabBytes
-          + " live slab bytes; clear the derived caches that own them before shutdown");
-    }
-
-    // Confined arenas preserve the same-thread, allocation-free normal release path. Validate all
-    // owners before closing any so a foreign-thread leak fails atomically instead of leaving a
-    // half-shut-down allocator. The owning thread can release it and retry shutdown.
-    final Thread shutdownThread = Thread.currentThread();
-    for (final OversizedAllocation oversized : oversizedByAddress.values()) {
-      if (oversized.owner() != shutdownThread) {
-        terminated.set(false);
-        throw new IllegalStateException("FrameSlotAllocator shutdown cannot close an oversized allocation owned by "
-            + oversized.owner().getName() + "; release it on its allocating thread first");
+    try {
+      // A granted scan owns capacity even before its first mapping. Admission checks the terminal
+      // flag under the budget monitor; taking that monitor here completes the shutdown handshake.
+      final long liveAggregationCapacity = aggregationBudget.grantedBytes();
+      if (liveAggregationCapacity != 0L) {
+        throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveAggregationCapacity
+            + " bytes granted to aggregation; close the scans before shutdown");
       }
-    }
+      // Idle scratch buffers are read by nobody: give their regions back first, so that only
+      // memory somebody still holds can stop the shutdown below.
+      final FrameScratch scratchBuffers = scratch;
+      if (scratchBuffers != null) {
+        scratchBuffers.reclaimAllIdle();
+      }
+      final long liveSlotBytes = activeSlotBytes.get();
+      if (liveSlotBytes != 0L) {
+        throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveSlotBytes
+            + " active frame-slot bytes; release all slot owners before shutdown");
+      }
+      final long liveScratchRegionBytes = scratchBuffers == null
+          ? 0L
+          : scratchBuffers.regionBytes();
+      if (liveScratchRegionBytes != 0L) {
+        throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveScratchRegionBytes
+            + " bytes of lent scratch regions; close their leases before shutdown");
+      }
+      final int oversizedOperations = oversizedAllocationOperations.get();
+      if (oversizedOperations != 0) {
+        throw new IllegalStateException("FrameSlotAllocator shutdown raced " + oversizedOperations
+            + " oversized allocation operation(s); retry after admission completes");
+      }
+      final int pendingSlabOperations = slabOperations.get();
+      if (pendingSlabOperations != 0) {
+        throw new IllegalStateException("FrameSlotAllocator shutdown raced " + pendingSlabOperations
+            + " slab operation(s); retry after admission completes");
+      }
+      // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
+      // lease; unmapping it here would be a use-after-free.
+      drainRecycledSlabs(Long.MAX_VALUE, true);
+      final long liveSlabBytes = slabBytes.get();
+      if (liveSlabBytes != 0L) {
+        throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveSlabBytes
+            + " live slab bytes; clear the derived caches that own them before shutdown");
+      }
 
-    Throwable cleanupFailure = null;
-    for (final var entry : oversizedByAddress.entrySet()) {
-      final long address = entry.getKey();
-      final OversizedAllocation oversized = entry.getValue();
-      try {
-        oversized.arena().close();
-        if (!oversizedByAddress.remove(address, oversized)) {
-          throw new IllegalStateException("oversized allocation ownership changed during shutdown at " + address);
+      // Confined arenas preserve the same-thread, allocation-free normal release path. Validate all
+      // owners before closing any so a foreign-thread leak fails atomically instead of leaving a
+      // half-shut-down allocator. The owning thread can release it and retry shutdown.
+      final Thread shutdownThread = Thread.currentThread();
+      for (final OversizedAllocation oversized : oversizedByAddress.values()) {
+        if (oversized.owner() != shutdownThread) {
+          throw new IllegalStateException("FrameSlotAllocator shutdown cannot close an oversized allocation owned by "
+              + oversized.owner().getName() + "; release it on its allocating thread first");
         }
-        activeBytes.addAndGet(-oversized.bytes());
-        refundCommittedBytes(oversized.bytes());
-        HftBoundaryTelemetry.allocatorRelease();
-        HftBoundaryTelemetry.nativeRelease();
-      } catch (final RuntimeException | Error failure) {
-        cleanupFailure = retainCleanupFailure(cleanupFailure, failure);
       }
-    }
 
-    if (cleanupFailure != null) {
+      Throwable cleanupFailure = null;
+      for (final var entry : oversizedByAddress.entrySet()) {
+        final Long address = entry.getKey();
+        final OversizedAllocation oversized = entry.getValue();
+        try {
+          oversized.arena().close();
+          if (!oversizedByAddress.remove(address, oversized)) {
+            throw new IllegalStateException("oversized allocation ownership changed during shutdown at " + address);
+          }
+          activeBytes.addAndGet(-oversized.bytes());
+          refundCommittedBytes(oversized.bytes());
+          HftBoundaryTelemetry.allocatorRelease();
+          HftBoundaryTelemetry.nativeRelease();
+        } catch (final RuntimeException | Error failure) {
+          cleanupFailure = retainCleanupFailure(cleanupFailure, failure);
+        }
+      }
+
+      if (cleanupFailure != null) {
+        rethrowCleanupFailure(cleanupFailure);
+      }
+    } catch (final RuntimeException | Error failure) {
       terminated.set(false);
-      rethrowCleanupFailure(cleanupFailure);
+      throw failure;
     }
 
     final SizeClass[] currentClasses = classes;

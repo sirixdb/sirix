@@ -65,6 +65,41 @@ final class FrameScratchReclamationTest {
   }
 
   @Test
+  void sparesAreBorrowedNewestFirstAndReclaimedOldestFirst() {
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(4 * MIB, 1);
+    final ScratchLease[] leases = new ScratchLease[4];
+    final long[] addresses = new long[4];
+    try {
+      for (int buffer = 0; buffer < leases.length; buffer++) {
+        leases[buffer] = new ScratchLease(allocator).acquire(64 * KIB, ScratchUse.READ);
+        addresses[buffer] = leases[buffer].segment().address();
+      }
+      for (final ScratchLease lease : leases) {
+        lease.close();
+      }
+      assertEquals(64 * KIB, allocator.scratch().reclaimIdleRegions(64 * KIB, true));
+      for (int buffer = 0; buffer < 3; buffer++) {
+        leases[buffer].acquire(64 * KIB, ScratchUse.READ);
+      }
+      assertEquals(addresses[0], leases[0].segment().address());
+      assertEquals(addresses[3], leases[1].segment().address());
+      assertEquals(addresses[2], leases[2].segment().address());
+      assertEquals(4L, allocator.scratchStats().totalCreated());
+      assertEquals(1L, allocator.scratchStats().totalReclaimed());
+    } finally {
+      for (final ScratchLease lease : leases) {
+        if (lease != null) {
+          lease.close();
+        }
+      }
+      allocator.shutdown();
+    }
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.nonExecutionCommittedBytes());
+    assertEquals(0L, allocator.getRecycledSlabBytes());
+  }
+
+  @Test
   void impossibleFrameAdmissionKeepsIdleScratchAndSlabsMapped() {
     final long budget = 64 * MIB;
     final FrameSlotAllocator allocator = new FrameSlotAllocator(budget, 4);

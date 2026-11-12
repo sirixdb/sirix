@@ -7,6 +7,8 @@ import com.sun.management.ThreadMXBean;
 import io.sirix.node.SegmentAccess;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.lang.foreign.Arena;
@@ -176,13 +178,14 @@ final class ScratchLeaseTest {
     assertEquals(4 * MIB, allocator.getRecycledSlabBytes(), "an idle region counts against the recycle bound");
   }
 
-  @Test
-  void aWarmBorrowAllocatesNothing() {
+  @ParameterizedTest
+  @ValueSource(ints = {1, IDLE})
+  void aWarmBorrowAllocatesNothing(final int idleBuffers) {
     final var platformBean = ManagementFactory.getThreadMXBean();
     assumeTrue(platformBean instanceof ThreadMXBean);
     final ThreadMXBean bean = (ThreadMXBean) platformBean;
     assumeTrue(bean.isThreadAllocatedMemorySupported());
-    final FrameSlotAllocator allocator = allocator(BUDGET, IDLE);
+    final FrameSlotAllocator allocator = allocator(BUDGET, idleBuffers);
     final ScratchLease lease = new ScratchLease(allocator);
     final ScratchLease nested = new ScratchLease(allocator);
     long sink = 0L;
@@ -192,7 +195,7 @@ final class ScratchLeaseTest {
     final ScratchStats before = allocator.scratchStats();
     final long thread = Thread.currentThread().threadId();
     // The least of several batches: a borrow that allocated would allocate in every batch (at least
-    // 16 bytes 60,000 times), while the virtual machine's own one-off events on this thread, such as
+    // 16 bytes 80,000 times), while the virtual machine's own one-off events on this thread, such as
     // re-creating scalar-replaced objects when it deoptimizes a frame, land in some batch at most.
     long leastAllocated = Long.MAX_VALUE;
     for (int batch = 0; batch < 5; batch++) {
@@ -203,7 +206,7 @@ final class ScratchLeaseTest {
       leastAllocated = Math.min(leastAllocated, bean.getThreadAllocatedBytes(thread) - start);
     }
     final ScratchStats after = allocator.scratchStats();
-    assertEquals(5 * 60_000, after.totalAcquisitions() - before.totalAcquisitions());
+    assertEquals(5 * 80_000, after.totalAcquisitions() - before.totalAcquisitions());
     assertEquals(0, after.totalCreated() - before.totalCreated(), "every borrow reused a resident buffer");
     assertEquals(0, leastAllocated, "a warm borrow builds no view, no handle and no bookkeeping object");
     assertTrue(sink != 0L);
@@ -222,9 +225,102 @@ final class ScratchLeaseTest {
     nested.close();
     lease.close();
     lease.acquire(MIB, ScratchUse.READ);
-    sum += lease.capacity();
+    nested.acquire(MIB, ScratchUse.CODEC);
+    lease.buffer().putInt(0, round);
+    SegmentAccess.putInt(nested.segment(), 0L, round + 1);
+    sum += lease.capacity() + nested.capacity() + lease.buffer().getInt(0) + SegmentAccess.getInt(nested.segment(), 0L);
+    nested.close();
     lease.close();
     return sum;
+  }
+
+  @ParameterizedTest
+  @ValueSource(longs = {128 * KIB, 512 * KIB})
+  void failedSparePublicationReturnsItsMappingAndGrant(final long capacity) {
+    for (final boolean execution : new boolean[] {false, true}) {
+      final FrameSlotAllocator allocator = allocator(16 * MIB, 1);
+      final AggregationGrant grant = execution
+          ? allocator.aggregationBudget().acquire(2 * capacity, 2 * capacity)
+          : null;
+      final ScratchLease first = grant == null
+          ? new ScratchLease(allocator).acquire(capacity, ScratchUse.READ)
+          : grant.borrow(capacity);
+      final ScratchLease spare = grant == null
+          ? new ScratchLease(allocator).acquire(capacity, ScratchUse.READ)
+          : grant.borrow(capacity);
+      final OutOfMemoryError failure = new OutOfMemoryError("injected spare publication failure");
+      try {
+        first.close();
+        allocator.scratch().setSparePublicationHookForTesting(() -> {
+          throw failure;
+        });
+        assertSame(failure, assertThrows(OutOfMemoryError.class, spare::close));
+        assertFalse(spare.isHeld());
+        assertEquals(capacity, allocator.getPhysicalMemoryBytes());
+        assertEquals(capacity, allocator.nonExecutionCommittedBytes());
+        assertEquals(capacity, allocator.scratch().regionBytes());
+        assertEquals(0L, allocator.getActiveMemoryBytes());
+        assertEquals(capacity >= 512 * KIB
+            ? capacity
+            : 0L, allocator.getRecycledSlabBytes());
+        assertEquals(1L, allocator.scratchStats().totalIdleBuffers());
+        assertEquals(1L, allocator.scratchStats().totalReclaimed());
+        if (grant != null) {
+          assertEquals(0L, grant.usedBytes());
+        }
+      } finally {
+        allocator.scratch().setSparePublicationHookForTesting(null);
+        first.close();
+        spare.close();
+        if (grant != null) {
+          grant.close();
+        }
+      }
+      allocator.scratch().reclaimAllIdle();
+      assertEquals(0L, allocator.getPhysicalMemoryBytes());
+      assertEquals(0L, allocator.nonExecutionCommittedBytes());
+      assertEquals(0L, allocator.getActiveMemoryBytes());
+      assertEquals(0L, allocator.getRecycledSlabBytes());
+      assertEquals(0L, allocator.scratch().regionBytes());
+    }
+  }
+
+  @Test
+  void shutdownSeesASpareReturnBeforeItPublishes() throws Exception {
+    final FrameSlotAllocator allocator = allocator(16 * MIB, 1);
+    final FrameScratch source = allocator.scratch();
+    final ScratchLease first = new ScratchLease(allocator).acquire(128 * KIB, ScratchUse.READ);
+    final ScratchLease spare = new ScratchLease(allocator).acquire(128 * KIB, ScratchUse.READ);
+    final CountDownLatch publishing = new CountDownLatch(1);
+    final CountDownLatch proceed = new CountDownLatch(1);
+    try (ExecutorService worker = Executors.newSingleThreadExecutor()) {
+      first.close();
+      source.setSparePublicationHookForTesting(() -> {
+        publishing.countDown();
+        try {
+          proceed.await();
+        } catch (final InterruptedException failure) {
+          Thread.currentThread().interrupt();
+          throw new IllegalStateException(failure);
+        }
+      });
+      final Future<?> returning = worker.submit(spare::close);
+      try {
+        publishing.await();
+        assertThrows(IllegalStateException.class, allocator::shutdown);
+      } finally {
+        proceed.countDown();
+      }
+      returning.get();
+    } finally {
+      source.setSparePublicationHookForTesting(null);
+      first.close();
+      spare.close();
+    }
+    allocator.shutdown();
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, source.regionBytes());
+    assertEquals(0L, allocator.getRecycledSlabBytes());
   }
 
   @Test

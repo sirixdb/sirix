@@ -9,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -26,24 +25,25 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * Returned buffers retain their views and contents in thread-striped idle arrays. A warm borrow
  * takes one array entry by compare-and-set; a return publishes it the same way. Overflow goes to
- * spare stacks, bounded in bytes together with recycled cache slabs. Exactly sized buffers are
- * unmapped on return. Idle backing of every capacity can be reclaimed at commitment admission; lent
- * backing is never reclaimed or moved.
+ * intrusive spare lists per capacity, bounded in bytes together with recycled cache slabs. Exactly
+ * sized buffers are unmapped on return. Idle backing of every capacity can be reclaimed at
+ * commitment admission; lent backing is never reclaimed or moved.
  *
  * <h2>Budget</h2>
  *
  * Ordinary scratch may use the non-execution allowance, including the progress reserve left by page
  * frames and cache slabs. Aggregation regions charge an exclusive execution grant. On return, those
  * regions must transfer their commitment outside the execution floor before being retained. A
- * mandatory allocation that cannot fit reclaims idle backing, asks the page caches for relief, and
- * waits; an optional allocation can decline.
+ * request larger than its allowance is refused immediately. A mandatory request within its
+ * allowance reclaims idle backing, asks the page caches for relief, and waits; an optional request
+ * can decline.
  *
  * <h2>Cost</h2>
  *
  * Ordinary buffers up to 256 KiB retain their active charge from creation to destruction and do not
  * touch shared counters on an idle-array borrow or return. Their idle bytes are derived on demand.
  * Idle arrays bound that population; excess spares count against the recycle bound. Larger buffers
- * and grant-backed borrows update active and lent-region counters per borrow, and every spare-stack
+ * and grant-backed borrows update active and lent-region counters per borrow, and every spare-list
  * transfer updates the recycle charge.
  */
 final class FrameScratch extends ScratchSource {
@@ -101,7 +101,57 @@ final class FrameScratch extends ScratchSource {
    * Idle region-backed buffers that found the idle array of their capacity full, newest first; see
    * the class comment. Each counts against the allocator's recycle bound while it is here.
    */
-  private final ConcurrentLinkedDeque<ScratchCarrier>[] spareRegions;
+  private final SpareList[] spareRegions;
+  private volatile @Nullable Runnable sparePublicationHook;
+
+  private static final class SpareList {
+    private @Nullable ScratchCarrier first;
+    private @Nullable ScratchCarrier last;
+    private volatile int size;
+
+    synchronized void addFirst(final ScratchCarrier carrier) {
+      carrier.spareNext = first;
+      carrier.sparePrevious = null;
+      if (first == null) {
+        last = carrier;
+      } else {
+        first.sparePrevious = carrier;
+      }
+      first = carrier;
+      size++;
+    }
+
+    @Nullable
+    ScratchCarrier poll(final boolean newest) {
+      if (size == 0) {
+        return null;
+      }
+      synchronized (this) {
+        final ScratchCarrier carrier = newest
+            ? first
+            : last;
+        if (carrier == null) {
+          return null;
+        }
+        final ScratchCarrier previous = carrier.sparePrevious;
+        final ScratchCarrier next = carrier.spareNext;
+        if (previous == null) {
+          first = next;
+        } else {
+          previous.spareNext = next;
+        }
+        if (next == null) {
+          last = previous;
+        } else {
+          next.sparePrevious = previous;
+        }
+        carrier.sparePrevious = null;
+        carrier.spareNext = null;
+        size--;
+        return carrier;
+      }
+    }
+  }
 
   private final Object registryLock = new Object();
 
@@ -146,10 +196,9 @@ final class FrameScratch extends ScratchSource {
         : Integer.highestOneBit(idleBuffers) << 1;
     this.idleMask = slots - 1;
     this.idle = new ScratchCarrier[CLASS_COUNT][slots << IDLE_STRIDE_SHIFT];
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    final ConcurrentLinkedDeque<ScratchCarrier>[] spares = new ConcurrentLinkedDeque[CLASS_COUNT];
+    final SpareList[] spares = new SpareList[CLASS_COUNT];
     for (int capacityClass = 0; capacityClass < CLASS_COUNT; capacityClass++) {
-      spares[capacityClass] = new ConcurrentLinkedDeque<>();
+      spares[capacityClass] = new SpareList();
     }
     this.spareRegions = spares;
   }
@@ -252,7 +301,7 @@ final class FrameScratch extends ScratchSource {
         return carrier;
       }
     }
-    final ScratchCarrier spare = spareRegions[capacityClass].pollFirst();
+    final ScratchCarrier spare = spareRegions[capacityClass].poll(true);
     if (spare != null) {
       allocator.unreserveRecycledBytes(spare.capacity);
       prepareBorrow(spare, grant);
@@ -365,9 +414,6 @@ final class FrameScratch extends ScratchSource {
       LOGGER.warn("Rejected stale or repeated return of a {}-byte scratch buffer (era {})", carrier.capacity, era);
       return false;
     }
-    if (poisonOnReturn) {
-      carrier.segment.fill((byte) 0x5A);
-    }
     final int capacityClass = carrier.capacityClass;
     if (!small(carrier)) {
       lentRegionBytes.addAndGet(-carrier.capacity);
@@ -389,31 +435,62 @@ final class FrameScratch extends ScratchSource {
         allocator.adjustActiveBytes(carrier.capacity);
       }
     }
-    if (capacityClass == EXACT_CLASS || allocator.isTerminated()) {
-      destroy(carrier);
-      return true;
-    }
-    final boolean small = capacityClass < SMALL_CLASSES;
-    if (!small && !allocator.tryReserveRecycledBytes(carrier.capacity)) {
-      destroy(carrier);
-      return true;
-    }
-    final ScratchCarrier[] slots = idle[capacityClass];
-    final int home = home();
-    for (int probe = 0; probe <= idleMask; probe++) {
-      final int index = ((home + probe) & idleMask) << IDLE_STRIDE_SHIFT;
-      if (ScratchHandles.IDLE_SLOT.getAcquire(slots, index) == null
-          && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, null, carrier)) {
-        // The carrier is the next borrower's from here on: nothing below may touch it.
+    try {
+      if (poisonOnReturn) {
+        carrier.segment.fill((byte) 0x5A);
+      }
+      if (retain(carrier)) {
         return true;
       }
-    }
-    if (small && !allocator.tryReserveRecycledBytes(carrier.capacity)) {
+    } catch (final RuntimeException | Error failure) {
       destroy(carrier);
-      return true;
+      throw failure;
     }
-    spareRegions[capacityClass].addFirst(carrier);
+    destroy(carrier);
     return true;
+  }
+
+  private boolean retain(final ScratchCarrier carrier) {
+    final int capacityClass = carrier.capacityClass;
+    if (capacityClass == EXACT_CLASS || allocator.isTerminated()) {
+      return false;
+    }
+    final boolean small = capacityClass < SMALL_CLASSES;
+    boolean recycled = false;
+    try {
+      if (!small && !allocator.tryReserveRecycledBytes(carrier.capacity)) {
+        return false;
+      }
+      recycled = !small;
+      final ScratchCarrier[] slots = idle[capacityClass];
+      final int home = home();
+      for (int probe = 0; probe <= idleMask; probe++) {
+        final int index = ((home + probe) & idleMask) << IDLE_STRIDE_SHIFT;
+        if (ScratchHandles.IDLE_SLOT.getAcquire(slots, index) == null
+            && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, null, carrier)) {
+          return true;
+        }
+      }
+      if (small && !allocator.tryReserveRecycledBytes(carrier.capacity)) {
+        return false;
+      }
+      recycled = true;
+      final Runnable hook = sparePublicationHook;
+      if (hook != null) {
+        hook.run();
+      }
+      spareRegions[capacityClass].addFirst(carrier);
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      if (recycled) {
+        allocator.unreserveRecycledBytes(carrier.capacity);
+      }
+      throw failure;
+    }
+  }
+
+  void setSparePublicationHookForTesting(final @Nullable Runnable hook) {
+    sparePublicationHook = hook;
   }
 
   /**
@@ -425,7 +502,6 @@ final class FrameScratch extends ScratchSource {
 
   private void destroy(final ScratchCarrier carrier, final boolean aggregation) {
     unregister(carrier);
-    regionBytes.addAndGet(-carrier.capacity);
     mappedRegionBytes.addAndGet(-carrier.capacity);
     memory.release(carrier.segment);
     if (aggregation) {
@@ -436,6 +512,7 @@ final class FrameScratch extends ScratchSource {
       }
       allocator.refundCommittedBytes(carrier.capacity);
     }
+    regionBytes.addAndGet(-carrier.capacity);
     HftBoundaryTelemetry.nativeRelease();
   }
 
@@ -485,9 +562,9 @@ final class FrameScratch extends ScratchSource {
   long reclaimIdleRegions(final long wanted, final boolean includeSmallIdle) {
     long freed = 0L;
     for (int capacityClass = CLASS_COUNT - 1; capacityClass >= 0 && freed < wanted; capacityClass--) {
-      final ConcurrentLinkedDeque<ScratchCarrier> spares = spareRegions[capacityClass];
+      final SpareList spares = spareRegions[capacityClass];
       // The spare stack first, oldest first: the buffers least likely to be borrowed next.
-      for (ScratchCarrier spare; freed < wanted && (spare = spares.pollLast()) != null;) {
+      for (ScratchCarrier spare; freed < wanted && (spare = spares.poll(false)) != null;) {
         allocator.unreserveRecycledBytes(spare.capacity);
         freed += spare.capacity;
         destroy(spare);
