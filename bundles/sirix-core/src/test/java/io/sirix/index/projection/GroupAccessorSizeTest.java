@@ -80,6 +80,29 @@ final class GroupAccessorSizeTest {
     }
   }
 
+  @Test
+  void theWordKernelsHaveTheSizesTheirRowLoopsNeed() throws IOException {
+    // One kernel, three shapes by the rows of the word. In one method they measured about 540
+    // bytecodes,
+    // and every word paid a call: a third more instructions a row at one row a word.
+    final Map<String, Integer> scan = sizes(ProjectionColumnGroupScan.class);
+    for (final String shape : List.of("foldSumsWordLane", "foldSumsLoneRow", "foldSumsRowPair", "foldSumsColumns",
+        "foldNumericPlainLoneRow")) {
+      assertTrue(size(scan, shape) <= NEVER_INLINED, "ProjectionColumnGroupScan." + shape + " is " + size(scan, shape)
+          + " bytecodes: too large to be compiled into the word loop");
+    }
+    // The numeric-plain kernel for a word of several rows is the opposite case: just below the limit it
+    // was
+    // compiled into its caller or not depending on which of the two HotSpot compiled first, two speeds
+    // for
+    // one program. Above the limit it is always a call, which several rows share; a lone row never
+    // reaches
+    // it from a row loop (foldNumericPlainLoneRow).
+    assertTrue(size(scan, "foldNumericPlainWordLane") > NEVER_INLINED,
+        "ProjectionColumnGroupScan" + ".foldNumericPlainWordLane is " + size(scan, "foldNumericPlainWordLane")
+            + " bytecodes: small enough to be compiled into a caller in some runs and not in others");
+  }
+
   private static int size(final Map<String, Integer> sizes, final String method) {
     final Integer size = sizes.get(method);
     assertNotNull(size, "no method " + method);

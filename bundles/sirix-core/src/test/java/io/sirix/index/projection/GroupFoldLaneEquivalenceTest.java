@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The two forms of every group-fold kernel answer identically. A kernel either reads the lanes in
- * place ({@code foldSlicedLane}, {@code foldNumericPlainWordLane}, {@code foldSumsSlicedLane}) or
+ * place ({@code foldSlicedLane}, {@code foldNumericPlainWordLane}, {@code foldSumsWordLane}) or
  * folds the word's values from a gathered 64-row window ({@code foldSlicedWindow},
  * {@code foldNumericPlainWordWindow}, {@code foldSumsWindow}), and {@code gatherPays} picks between
  * them per word for speed alone. That is only legitimate while the two agree row for row, on native
@@ -194,7 +194,7 @@ final class GroupFoldLaneEquivalenceTest {
   }
 
   @Test
-  @DisplayName("foldSumsWindow equals foldSumsSlicedLane and the full stripe's count/sum pairs")
+  @DisplayName("foldSumsWindow equals foldSumsWordLane and the full stripe's count/sum pairs")
   void theSumsOnlyKernelAgreesOnBothForms() {
     final long[] full = oracleFull();
     final long[] expected = new long[SUMS_WIDTH];
@@ -359,14 +359,24 @@ final class GroupFoldLaneEquivalenceTest {
       final GroupBuffer slot = workspace.newBlock(SUMS_WIDTH);
       final long record = slot.accumulator(0, AGGS, 2);
       final long[] bases = new long[AGGS];
-      walk(segs, bases, windowed, (window, w, bit, row) -> {
-        if (window != null) {
-          GroupArrayReference.foldSumsWindow(record, window, presence, AGGS, w, bit, ALL_SUMS_EXACT);
-        } else {
-          ProjectionColumnGroupScan.foldSumsSlicedLane(record, segs, bases, presence, AGGS, w, bit, row,
+      if (windowed) {
+        walk(segs, bases, true, (window, w, bit, row) -> GroupArrayReference.foldSumsWindow(record, window, presence,
+            AGGS, w, bit, ALL_SUMS_EXACT));
+      } else {
+        // The lane kernel takes a word's rows at once, each with its accumulator; the rows' count is the
+        // caller's.
+        final long[] records = new long[64];
+        for (int w = 0; w < WORDS; w++) {
+          final long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, WORDS, ROWS);
+          final int rows = Long.bitCount(word);
+          for (int i = 0; i < rows; i++) {
+            records[i] = record;
+            GroupKernelLanes.increment(record, 0);
+          }
+          ProjectionColumnGroupScan.foldSumsWordLane(records, rows, word, segs, bases, presence, AGGS, w,
               ALL_SUMS_EXACT);
         }
-      });
+      }
       return GroupLanes.toArray(slot, 0, GroupLanes.count(slot));
     }
   }

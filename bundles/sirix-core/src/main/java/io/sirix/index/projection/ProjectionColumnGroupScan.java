@@ -314,7 +314,13 @@ public final class ProjectionColumnGroupScan {
           if (GroupLanes.get(missingAcc, 0) == 0) {
             GroupLanes.set(missingAcc, 1, leafOrdinalBase | (rowBase + Long.numberOfTrailingZeros(missing)));
           }
-          foldNumericPlainWordLane(missingRecord, aggSeg, aggBase, aggPresence, aggCount, w, missing, sumExactMask);
+          if ((missing & (missing - 1L)) == 0L) {
+            // One row without a key, the usual word where keys are seldom missing: its fold directly, because
+            // the kernel for whole words is a call once it has been compiled on its own.
+            foldNumericPlainLoneRow(missingRecord, missing, aggSeg, aggBase, aggPresence, aggCount, w, sumExactMask);
+          } else {
+            foldNumericPlainWordLane(missingRecord, aggSeg, aggBase, aggPresence, aggCount, w, missing, sumExactMask);
+          }
           word &= groupPresWord;
         }
         while (word != 0L) {
@@ -331,11 +337,22 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
-   * {@link #foldNumericPlainWordLane} reading the lanes in place: a column's lane segment is the same
-   * for all rows of the word, so its liveness is established once per column and word.
+   * Fold the rows {@code rows} of selection word {@code w} into {@code record}, reading the lanes in
+   * place: a column's lane segment is the same for all rows of the word, so its liveness is
+   * established once per column and word.
+   *
+   * <p>
+   * Larger than what HotSpot compiles into a caller ({@code GroupAccessorSizeTest} holds that), so it
+   * is always a call, which the rows of a word share. A row loop folds a lone row through
+   * {@link #foldNumericPlainLoneRow} instead; handed a lone row all the same, this kernel passes it
+   * on.
    */
   static void foldNumericPlainWordLane(final long record, final MemorySegment[] aggSeg, final long[] laneBases,
       final long[][] aggPresence, final int aggCount, final int w, final long rows, final long sumExactMask) {
+    if (rows != 0L && (rows & (rows - 1L)) == 0L) {
+      foldNumericPlainLoneRow(record, rows, aggSeg, laneBases, aggPresence, aggCount, w, sumExactMask);
+      return;
+    }
     GroupKernelLanes.add(record, 0, Long.bitCount(rows));
     // The word's first row, in bytes: 64 rows of 8 bytes each.
     final long wordOffset = (long) w << 9;
@@ -376,6 +393,34 @@ public final class ProjectionColumnGroupScan {
       }
       GroupKernelLanes.set(record, column + 2, min);
       GroupKernelLanes.set(record, column + 3, max);
+    }
+  }
+
+  /**
+   * {@link #foldNumericPlainWordLane} for a word of one row, {@code rowBit} being that row's bit.
+   *
+   * <p>
+   * A method of its own, and small, so that it is compiled into whatever calls it: a row loop calls
+   * it directly for a lone row. The kernel for whole words is large enough that HotSpot, once it has
+   * compiled it on its own, no longer compiles it into its callers ({@code -XX:InlineSmallCode}); a
+   * lone row then paid a call that cost a tenth of its fold in most forks of the fold benchmark and
+   * none in the others.
+   */
+  static void foldNumericPlainLoneRow(final long record, final long rowBit, final MemorySegment[] aggSeg,
+      final long[] laneBases, final long[][] aggPresence, final int aggCount, final int w, final long sumExactMask) {
+    GroupKernelLanes.increment(record, 0);
+    final long rowOffset = ((long) w << 9) + ((long) Long.numberOfTrailingZeros(rowBit) << 3);
+    for (int a = 0; a < aggCount; a++) {
+      if ((aggPresence[a][w] & rowBit) != 0L) {
+        final int column = 2 + 4 * a;
+        GroupKernelLanes.increment(record, column);
+        final long v = SegmentAccess.getLong(aggSeg[a], laneBases[a] + rowOffset);
+        if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+          GroupKernelLanes.set(record, column + 1, Math.addExact(GroupKernelLanes.get(record, column + 1), v));
+        }
+        GroupKernelLanes.min(record, column + 2, v);
+        GroupKernelLanes.max(record, column + 3, v);
+      }
     }
   }
 
@@ -946,22 +991,153 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
-   * Fold present-count/sum pairs through the integral lanes.
+   * Fold the rows of one selection word into a sums-only table, once every one of them holds its
+   * group: {@code handles[i]} is the group of the word's {@code i}-th row this pass owns, in row
+   * order, and {@code rows} has those rows' bits.
+   *
+   * <p>
+   * The handles were taken while the word's keys were resolved, and an acquisition that grows the
+   * table invalidates every earlier one. {@code rehashesBefore}, the table's count when the word
+   * began, tells: the rows are then acquired again from their saved probe hash and identity, which
+   * finds every group and so cannot grow the table a second time. Nothing of the word was folded
+   * before that.
+   *
+   * @param wordOrdinalBase the source ordinal of the word's row 0
+   * @param records scratch of at least {@code count} entries for the resolved accumulators
    */
-  static void foldSumsSlicedLane(final long record, final MemorySegment[] segs, final long[] laneBases,
-      final long[][] presence, final int columns, final int word, final int bit, final int row,
-      final long sumExactMask) {
-    GroupKernelLanes.increment(record, 0);
-    final long presentBit = 1L << bit;
-    final long rowOffset = (long) row << 3;
+  private static void foldSumsWord(final NumericGroupAggTable out, final int[] handles, final long[] hashes,
+      final long[] identities, final int identityWidth, final int count, final long rows, final int rehashesBefore,
+      final long wordOrdinalBase, final MemorySegment[] aggSeg, final long[] aggBase, final long[][] aggPresence,
+      final int aggCount, final int word, final long sumExactMask, final long[] records) {
+    final boolean moved = out.rehashes() != rehashesBefore;
+    long remaining = rows;
+    for (int i = 0; i < count; i++) {
+      final long ordinal = wordOrdinalBase | Long.numberOfTrailingZeros(remaining);
+      remaining &= remaining - 1L;
+      final int handle = moved
+          ? out.acquireExact(hashes[i], ordinal, identities, i * identityWidth)
+          : handles[i];
+      // Resolved after the word's last acquisition: nothing below moves a stripe.
+      final long record = out.accumulatorAt(handle, aggCount, 2);
+      if (GroupKernelLanes.get(record, 0) == 0L) {
+        out.setAuxAtAccBase(handle, ordinal);
+      }
+      GroupKernelLanes.increment(record, 0);
+      records[i] = record;
+    }
+    foldSumsWordLane(records, count, rows, aggSeg, aggBase, aggPresence, aggCount, word, sumExactMask);
+  }
+
+  /**
+   * Fold present-count/sum pairs of one selection word through the integral lanes: {@code records[i]}
+   * is the accumulator of the word's {@code i}-th selected row in the order of the bits of
+   * {@code rows}; the rows' own count (lane 0) is the caller's.
+   *
+   * <p>
+   * One kernel in three shapes by the number of rows, each a method of its own so that each stays
+   * within what HotSpot compiles into a hot caller ({@code GroupAccessorSizeTest} holds the sizes):
+   * together they are too large, and a word would then pay a call.
+   */
+  static void foldSumsWordLane(final long[] records, final int count, final long rows, final MemorySegment[] segs,
+      final long[] laneBases, final long[][] presence, final int columns, final int word, final long sumExactMask) {
+    if (count == 1) {
+      foldSumsLoneRow(records[0], rows, segs, laneBases, presence, columns, word, sumExactMask);
+    } else if (count == 2) {
+      foldSumsRowPair(records[0], records[1], rows, segs, laneBases, presence, columns, word, sumExactMask);
+    } else {
+      foldSumsColumns(records, count, rows, segs, laneBases, presence, columns, word, sumExactMask);
+    }
+  }
+
+  /**
+   * {@link #foldSumsWordLane} for a lone row, which is every row of a sparse selection: entering a
+   * counted loop per column would cost more than the row's fold.
+   */
+  private static void foldSumsLoneRow(final long record, final long rowBit, final MemorySegment[] segs,
+      final long[] laneBases, final long[][] presence, final int columns, final int word, final long sumExactMask) {
+    final long rowOffset = ((long) word << 9) + ((long) Long.numberOfTrailingZeros(rowBit) << 3);
     for (int a = 0; a < columns; a++) {
-      if ((presence[a][word] & presentBit) != 0L) {
+      if ((presence[a][word] & rowBit) != 0L) {
         final int at = 2 + 2 * a;
         GroupKernelLanes.increment(record, at);
         if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
           // The operand first: its checked read then has no accumulator lane to keep alive across it.
           final long v = SegmentAccess.getLong(segs[a], laneBases[a] + rowOffset);
           GroupKernelLanes.set(record, at + 1, Math.addExact(GroupKernelLanes.get(record, at + 1), v));
+        }
+      }
+    }
+  }
+
+  /**
+   * {@link #foldSumsWordLane} for a pair of rows: both rows of a column in one pass over the columns,
+   * so that what a column's read needs is loaded once for the two, without a counted loop to enter
+   * per column.
+   */
+  private static void foldSumsRowPair(final long first, final long second, final long rows, final MemorySegment[] segs,
+      final long[] laneBases, final long[][] presence, final int columns, final int word, final long sumExactMask) {
+    final long firstBit = rows & -rows;
+    final long secondBit = rows ^ firstBit;
+    final long wordOffset = (long) word << 9;
+    final long firstOffset = wordOffset + ((long) Long.numberOfTrailingZeros(firstBit) << 3);
+    final long secondOffset = wordOffset + ((long) Long.numberOfTrailingZeros(secondBit) << 3);
+    for (int a = 0; a < columns; a++) {
+      final long present = presence[a][word];
+      if ((present & rows) == 0L) {
+        continue;
+      }
+      final int at = 2 + 2 * a;
+      final boolean exact = NumericGroupAggTable.sumsExact(sumExactMask, a);
+      final MemorySegment lane = segs[a];
+      final long base = laneBases[a];
+      if ((present & firstBit) != 0L) {
+        GroupKernelLanes.increment(first, at);
+        if (exact) {
+          final long v = SegmentAccess.getLong(lane, base + firstOffset);
+          GroupKernelLanes.set(first, at + 1, Math.addExact(GroupKernelLanes.get(first, at + 1), v));
+        }
+      }
+      if ((present & secondBit) != 0L) {
+        GroupKernelLanes.increment(second, at);
+        if (exact) {
+          final long v = SegmentAccess.getLong(lane, base + secondOffset);
+          GroupKernelLanes.set(second, at + 1, Math.addExact(GroupKernelLanes.get(second, at + 1), v));
+        }
+      }
+    }
+  }
+
+  /**
+   * {@link #foldSumsWordLane} for three rows and more, column by column: the lane is then one segment
+   * for the whole inner loop, so what a checked read needs besides its bounds comparison is loaded
+   * once per column and word instead of once per row.
+   */
+  private static void foldSumsColumns(final long[] records, final int count, final long rows,
+      final MemorySegment[] segs, final long[] laneBases, final long[][] presence, final int columns, final int word,
+      final long sumExactMask) {
+    final long wordOffset = (long) word << 9;
+    for (int a = 0; a < columns; a++) {
+      final long present = presence[a][word];
+      if ((present & rows) == 0L) {
+        continue;
+      }
+      final int at = 2 + 2 * a;
+      final boolean exact = NumericGroupAggTable.sumsExact(sumExactMask, a);
+      final MemorySegment lane = segs[a];
+      final long base = laneBases[a] + wordOffset;
+      long remaining = rows;
+      // Counted by the word's rows: a trip count of at most 64 needs no safepoint poll.
+      for (int i = 0; i < count; i++) {
+        final int bit = Long.numberOfTrailingZeros(remaining);
+        remaining &= remaining - 1L;
+        if ((present >>> bit & 1L) != 0L) {
+          final long record = records[i];
+          GroupKernelLanes.increment(record, at);
+          if (exact) {
+            // The operand first: its checked read then has no accumulator lane to keep alive across it.
+            final long v = SegmentAccess.getLong(lane, base + ((long) bit << 3));
+            GroupKernelLanes.set(record, at + 1, Math.addExact(GroupKernelLanes.get(record, at + 1), v));
+          }
         }
       }
     }
@@ -1236,6 +1412,26 @@ public final class ProjectionColumnGroupScan {
     // One row-sized scratch, hoisted: the kernel writes it per row and acquireExact copies out of
     // it, so a composite group-by allocates nothing per row.
     final long[] identity = new long[identityWidth];
+    // A sums-only aggregate folds a selection word at once (foldSumsWord): the handles of the word's
+    // rows
+    // wait here until every row of the word holds its group, beside the probe hash and identity that
+    // acquire a row again should one of the word's own insertions have grown the table meanwhile.
+    final boolean wordSums = !countOnly && out.sumsOnly();
+    final int[] wordHandles = wordSums
+        ? new int[WINDOW_ROWS]
+        : null;
+    final long[] wordHashes = wordSums
+        ? new long[WINDOW_ROWS]
+        : null;
+    final long[] wordIdentities = wordSums
+        ? new long[WINDOW_ROWS * identityWidth]
+        : null;
+    final long[] wordRecords = wordSums
+        ? new long[WINDOW_ROWS]
+        : null;
+    int pending = 0;
+    long pendingRows = 0L;
+    int seenRehashes = out.rehashes();
     // Which components own a second identity lane, so a row that leaves one unwritten cannot
     // inherit the previous row's secondary hash.
     final boolean[] twoLane = new boolean[keyCount];
@@ -1625,9 +1821,17 @@ public final class ProjectionColumnGroupScan {
             if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
               continue;
             }
+            if (wordSums) {
+              // Folded with the rest of its word once every row of the word holds its group (foldSumsWord).
+              wordHandles[pending] = handle;
+              wordHashes[pending] = h;
+              System.arraycopy(identity, 0, wordIdentities, pending * identityWidth, identityWidth);
+              pendingRows |= 1L << bit;
+              pending++;
+              continue;
+            }
             // Resolved AFTER the acquisition: growth can move the stripe to another chunk.
-            final boolean sums = out.sumsOnly();
-            final long record = out.accumulatorAt(handle, aggCount, sums
+            final long record = out.accumulatorAt(handle, aggCount, out.sumsOnly()
                 ? 2
                 : 4);
             if (GroupKernelLanes.get(record, 0) == 0L) {
@@ -1635,12 +1839,18 @@ public final class ProjectionColumnGroupScan {
             }
             if (countOnly) {
               GroupKernelLanes.increment(record, 0);
-            } else if (sums) {
-              foldSumsSlicedLane(record, aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
             } else {
               foldSlicedLane(record, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
                   distinctBlock, null, budget, null, null, null, null, null, sumExactMask, null, distinctOut, h);
             }
+          }
+          if (pending != 0) {
+            foldSumsWord(out, wordHandles, wordHashes, wordIdentities, identityWidth, pending, pendingRows,
+                seenRehashes, leafOrdinalBase | rowBase, aggSeg, aggBase, aggPresence, aggCount, w, sumExactMask,
+                wordRecords);
+            seenRehashes = out.rehashes();
+            pending = 0;
+            pendingRows = 0L;
           }
         }
         continue;
@@ -1798,9 +2008,17 @@ public final class ProjectionColumnGroupScan {
           if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
             continue;
           }
+          if (wordSums) {
+            // Folded with the rest of its word once every row of the word holds its group (foldSumsWord).
+            wordHandles[pending] = handle;
+            wordHashes[pending] = h;
+            System.arraycopy(identity, 0, wordIdentities, pending * identityWidth, identityWidth);
+            pendingRows |= 1L << bit;
+            pending++;
+            continue;
+          }
           // Resolved AFTER the acquisition: growth can move the stripe to another chunk.
-          final boolean sums = out.sumsOnly();
-          final long record = out.accumulatorAt(handle, aggCount, sums
+          final long record = out.accumulatorAt(handle, aggCount, out.sumsOnly()
               ? 2
               : 4);
           if (GroupKernelLanes.get(record, 0) == 0L) {
@@ -1808,12 +2026,17 @@ public final class ProjectionColumnGroupScan {
           }
           if (countOnly) {
             GroupKernelLanes.increment(record, 0);
-          } else if (sums) {
-            foldSumsSlicedLane(record, aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
           } else {
             foldSlicedLane(record, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
                 distinctBlock, null, budget, null, null, null, null, null, sumExactMask, null, distinctOut, h);
           }
+        }
+        if (pending != 0) {
+          foldSumsWord(out, wordHandles, wordHashes, wordIdentities, identityWidth, pending, pendingRows, seenRehashes,
+              leafOrdinalBase | rowBase, aggSeg, aggBase, aggPresence, aggCount, w, sumExactMask, wordRecords);
+          seenRehashes = out.rehashes();
+          pending = 0;
+          pendingRows = 0L;
         }
       }
     }

@@ -1179,7 +1179,7 @@ public class ProjectionFoldKernelBenchmark {
         for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
           hoistLeaf(this, leaf, arm, values, segments, bases, presenceWords);
           foldLeaf(maskWords, 0, aggCount, slot, values, segments, bases, presenceWords, arm, kernel,
-              new long[MAX_GROUP_AGGS][64]);
+              new long[MAX_GROUP_AGGS][64], new long[64]);
         }
         return GroupLanes.toArray(slot, 0, SLOT_LANES);
       }
@@ -1240,6 +1240,8 @@ public class ProjectionFoldKernelBenchmark {
     final int[][] lengthTables = new int[MAX_GROUP_AGGS][];
     /** 64 rows per column: the whole scratch is 2 KiB at the widest arm, reused for every word. */
     final long[][] gathered = new long[MAX_GROUP_AGGS][64];
+    /** The accumulators of one word's rows, as the sums kernel takes them. */
+    final long[] records = new long[64];
 
     @Setup
     public void setUp() {
@@ -1304,7 +1306,7 @@ public class ProjectionFoldKernelBenchmark {
    */
   private static void foldLeaf(final long[] maskWords, final int wordBase, final int aggCount, final GroupBuffer slot,
       final long[][] values, final MemorySegment[] segments, final long[] bases, final long[][] presence, final Arm arm,
-      final Kernel kernel, final long[][] gathered) {
+      final Kernel kernel, final long[][] gathered, final long[] records) {
     final boolean arrays = readsArrays(arm);
     // What a kernel does with an accumulator that never moves (its missing-key block): resolve it
     // once, outside the row loop. A table's group is resolved per row by its acquisition instead,
@@ -1330,10 +1332,26 @@ public class ProjectionFoldKernelBenchmark {
           foldNumericPlainWordArray(record, gathered, 0, presence, aggCount, w, word, ALL_SUMS_EXACT);
         } else if (arrays) {
           foldNumericPlainWordArray(record, values, w << 6, presence, aggCount, w, word, ALL_SUMS_EXACT);
+        } else if ((word & (word - 1L)) == 0L) {
+          // A lone row directly, as the dense arm's row loop folds it.
+          ProjectionColumnGroupScan.foldNumericPlainLoneRow(record, word, segments, bases, presence, aggCount, w,
+              ALL_SUMS_EXACT);
         } else {
           ProjectionColumnGroupScan.foldNumericPlainWordLane(record, segments, bases, presence, aggCount, w, word,
               ALL_SUMS_EXACT);
         }
+        continue;
+      }
+      if (kernel == Kernel.SUMS && !gather && !arrays) {
+        // The sums kernel takes a word's rows at once, each with the accumulator its acquisition resolved;
+        // here that is the one that never moves. The rows' own count is the caller's, as in the scan.
+        final int rows = Long.bitCount(word);
+        for (int i = 0; i < rows; i++) {
+          records[i] = record;
+          GroupKernelLanes.increment(record, 0);
+        }
+        ProjectionColumnGroupScan.foldSumsWordLane(records, rows, word, segments, bases, presence, aggCount, w,
+            ALL_SUMS_EXACT);
         continue;
       }
       long remaining = word;
@@ -1366,12 +1384,10 @@ public class ProjectionFoldKernelBenchmark {
       }
       case NUMERIC_PLAIN -> throw new AssertionError("the plain kernels fold a word at once, in foldLeaf");
       case SUMS -> {
-        if (arrays) {
-          foldArrayRow(record, values, presence, aggCount, w, bit, rowIdx, true);
-        } else {
-          ProjectionColumnGroupScan.foldSumsSlicedLane(record, segments, bases, presence, aggCount, w, bit, rowIdx,
-              ALL_SUMS_EXACT);
+        if (!arrays) {
+          throw new AssertionError("the sums lane kernel folds a word at once, in foldLeaf");
         }
+        foldArrayRow(record, values, presence, aggCount, w, bit, rowIdx, true);
       }
     }
   }
@@ -1457,7 +1473,7 @@ public class ProjectionFoldKernelBenchmark {
     for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
       hoistLeaf(s, leaf, arm, g.values, g.segments, g.bases, g.presence);
       foldLeaf(m.candidates, leaf * WORDS_PER_BLOCK, s.aggCount, g.slot, g.values, g.segments, g.bases, g.presence, arm,
-          kernel, g.gathered);
+          kernel, g.gathered, g.records);
     }
     final GroupBuffer slot = g.slot;
     return GroupLanes.get(slot, 0) ^ GroupLanes.get(slot, 2) ^ GroupLanes.get(slot, 3) ^ GroupLanes.get(slot, 4)
