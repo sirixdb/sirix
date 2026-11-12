@@ -220,7 +220,8 @@ final class FileChannelReadScratchTest {
       assertEquals(6, after.acquisitions(ScratchUse.READ) - before.acquisitions(ScratchUse.READ),
           "prefix buffer, then body buffer");
       assertTrue(after.created()[large] - before.created()[large] <= 1, "the larger buffer is mapped once at most");
-      assertEquals(lentBuffersBefore, after.totalLentBuffers(), "the prefix buffer and the body buffer were both returned");
+      assertEquals(lentBuffersBefore, after.totalLentBuffers(),
+          "the prefix buffer and the body buffer were both returned");
     }
   }
 
@@ -245,7 +246,8 @@ final class FileChannelReadScratchTest {
       assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references()[MEMBERS - 1], CONFIG));
       assertEquals(lentBuffersBefore, stats().totalLentBuffers(), "a short read returned its buffer");
       assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references(), CONFIG));
-      assertEquals(lentBuffersBefore, stats().totalLentBuffers(), "a run whose last body comes up short returned its buffer");
+      assertEquals(lentBuffersBefore, stats().totalLentBuffers(),
+          "a run whose last body comes up short returned its buffer");
     }
 
     // A length header that no page of this file can have.
