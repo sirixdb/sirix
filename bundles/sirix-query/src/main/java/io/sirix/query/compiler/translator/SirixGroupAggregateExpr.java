@@ -1,5 +1,8 @@
 package io.sirix.query.compiler.translator;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
@@ -305,6 +308,7 @@ public final class SirixGroupAggregateExpr implements Expr {
         new SirixVectorizedExecutor.GroupRouting(keys, computedLanes, values, columns -> prepared[0] = columns);
     final SirixVectorizedExecutor.GroupMembership normalizedMembership = routing.membership();
     MaskedColumns columns = null;
+    Throwable primary = null;
     try {
       final SirixVectorizedExecutor.ServedGroups served = serveRoutedGroup(executor, ctx, routing);
       if (served != null || normalizedMembership == null) {
@@ -322,14 +326,27 @@ public final class SirixGroupAggregateExpr implements Expr {
       final long[] selected =
           columns.recordKeysByMembership(0, normalizedMembership.values(), normalizedMembership.anti());
       return serveRoutedGroup(executor, ctx, new SirixVectorizedExecutor.GroupRouting(selected, computedLanes));
+    } catch (final Throwable failure) {
+      primary = failure;
+      throw failure;
     } finally {
       // This evaluation owns the prepared view (and any fallback view); a native one leases a snapshot.
+      Throwable failure = primary;
       if (prepared[0] != null) {
-        prepared[0].close();
+        try {
+          prepared[0].close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
       if (columns != null && columns != prepared[0]) {
-        columns.close();
+        try {
+          columns.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
+      rethrowCleanupFailure(failure);
     }
   }
 

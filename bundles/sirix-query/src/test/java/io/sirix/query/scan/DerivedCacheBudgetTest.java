@@ -103,6 +103,8 @@ final class DerivedCacheBudgetTest {
     private final FrameSlotAllocator delegate;
     private boolean fail;
     private boolean error;
+    private boolean failRelease;
+    private int releases;
 
     private FailingAllocator(final FrameSlotAllocator delegate) {
       this.delegate = delegate;
@@ -122,7 +124,12 @@ final class DerivedCacheBudgetTest {
 
     @Override
     public boolean releaseSlab(final MemorySegment slab) {
-      return delegate.releaseSlab(slab);
+      final boolean released = delegate.releaseSlab(slab);
+      releases++;
+      if (failRelease) {
+        throw new OutOfMemoryError("injected release failure");
+      }
+      return released;
     }
 
     @Override
@@ -158,6 +165,91 @@ final class DerivedCacheBudgetTest {
     @Override
     public void resetSegment(final MemorySegment segment) {
       delegate.resetSegment(segment);
+    }
+  }
+
+  @Test
+  void handoffFailureRefundsTheReservationAndAllowsAnotherFill() {
+    final FrameSlotAllocator allocator = new FrameSlotAllocator(4L << 20);
+    final DerivedCacheBudget budget = new DerivedCacheBudget(allocator, 8000, 800);
+    final MemorySegment warm = allocator.allocateSlab(100);
+    assertNotNull(warm);
+    allocator.releaseSlab(warm);
+    final long committed = allocator.getPhysicalMemoryBytes();
+    try {
+      for (final String point : new String[] {"reservation", "publication"}) {
+        final OutOfMemoryError failure = new OutOfMemoryError("injected " + point);
+        DerivedCacheBudget.handoffHookForTesting = stage -> {
+          if (point.equals(stage)) {
+            throw failure;
+          }
+        };
+        assertSame(failure, assertThrows(OutOfMemoryError.class, () -> {
+          try (Reservation reservation = budget.numeric().reserve(100)) {
+            assertNotNull(reservation);
+            final Stub entry = new Stub(new Object(), null);
+            try {
+              reservation.publish(entry);
+            } finally {
+              entry.release();
+            }
+          }
+        }));
+        DerivedCacheBudget.handoffHookForTesting = null;
+        assertEquals(0, allocator.getSlabBytes());
+        assertEquals(committed, allocator.getPhysicalMemoryBytes());
+        assertEquals(0, budget.metrics().inFlightBytes());
+        assertEquals(0, budget.metrics().retainedBytes());
+        assertEquals(0, budget.metrics().retiredLeasedBytes());
+        publish(budget.numeric(), 100, new Object(), null);
+        budget.numeric().clear();
+        assertEquals(0, allocator.getSlabBytes());
+      }
+    } finally {
+      DerivedCacheBudget.handoffHookForTesting = null;
+      allocator.shutdown();
+    }
+  }
+
+  @Test
+  void cleanupDrainsEveryEntryAndCallbackDespiteReleaseAndDependentFailures() {
+    final FrameSlotAllocator delegate = new FrameSlotAllocator(4L << 20);
+    final FailingAllocator allocator = new FailingAllocator(delegate);
+    final DerivedCacheBudget budget = new DerivedCacheBudget(allocator, 8000, 800);
+    final int[] released = {0};
+    final OutOfMemoryError evictionFailure = new OutOfMemoryError("dependent eviction failed");
+    try {
+      for (int i = 0; i < 2; i++) {
+        try (Reservation reservation = budget.numeric().reserve(100)) {
+          assertNotNull(reservation);
+          final Entry entry = new Entry() {
+            @Override
+            protected void evicted() {
+              throw evictionFailure;
+            }
+
+            @Override
+            protected void released() {
+              released[0]++;
+            }
+          };
+          reservation.publish(entry);
+          entry.release();
+        }
+      }
+      allocator.failRelease = true;
+      assertSame(evictionFailure, assertThrows(OutOfMemoryError.class, () -> budget.numeric().clear()));
+      assertEquals(2, released[0], "each parent's final callback runs despite dependent and native release failures");
+      assertEquals(2, allocator.releases);
+      assertEquals(0, delegate.getSlabBytes());
+      assertEquals(0, budget.metrics().retainedBytes());
+      assertEquals(0, budget.metrics().retiredLeasedBytes());
+      assertEquals(0, budget.metrics().numeric().entries());
+      allocator.failRelease = false;
+      publish(budget.numeric(), 100, new Object(), null);
+      budget.numeric().clear();
+    } finally {
+      delegate.shutdown();
     }
   }
 

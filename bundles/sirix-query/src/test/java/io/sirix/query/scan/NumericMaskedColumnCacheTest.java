@@ -21,6 +21,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.reflect.Method;
@@ -69,12 +71,109 @@ final class NumericMaskedColumnCacheTest {
 
   @AfterEach
   void releaseEverySlab() {
+    DerivedCacheBudget.handoffHookForTesting = null;
     budget.numeric().clear();
     budget.packed().clear();
     assertEquals(0, allocator.getSlabBytes(), "no slab outlives the views and entries of a test");
     allocator.shutdown();
     assertEquals(processSlabBytesBefore, Allocators.getInstance().getSlabBytes(),
         "resident columns and query-local slabs went back to the process allocator");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"publisher", "cleaner", "publication"})
+  void failedPublisherAdoptionReturnsPinsAndReservation(final String point) {
+    final ProjectionColumnStore store = store();
+    store.column(0, NO_FETCH);
+    final int[] pinned = {0};
+    final OutOfMemoryError failure = new OutOfMemoryError("injected " + point);
+    try (Reservation reservation = reserveLanes(store)) {
+      final MaskedColumns view = view(store, store.column(0, NO_FETCH));
+      view.markImmutableRevision();
+      try (view) {
+        DerivedCacheBudget.handoffHookForTesting = stage -> {
+          if (point.equals(stage)) {
+            throw failure;
+          }
+        };
+        assertSame(failure,
+            assertThrows(OutOfMemoryError.class, () -> cache.publish(reservation, store, FIELDS, KEYS, view, pinned)));
+      } finally {
+        DerivedCacheBudget.handoffHookForTesting = null;
+      }
+    }
+    assertEquals(0, budget.metrics().retainedBytes());
+    assertEquals(0, budget.metrics().inFlightBytes());
+    assertEquals(0, budget.metrics().retiredLeasedBytes());
+    assertEquals(0, allocator.getSlabBytes());
+    assertEquals(0, store.residencyPins(0));
+    store.retire();
+    assertEquals(processSlabBytesBefore, Allocators.getInstance().getSlabBytes(), "the failed publisher left no pin");
+    final ProjectionColumnStore following = store();
+    publish(following);
+    try (MaskedColumns view = cache.lookup(following, FIELDS, KEYS)) {
+      assertNotNull(view);
+      assertEquals(2, view.longValue(0, 0, 1));
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"resources", "cleaner"})
+  void failedLocalOwnerAdoptionRollsBackEveryPin(final String point) {
+    final ProjectionColumnStore store = store();
+    final ColumnSlice[] slices = store.column(0, NO_FETCH);
+    final MemorySegment slab = Allocators.getInstance().allocateSlab(4096);
+    assertNotNull(slab);
+    final OutOfMemoryError failure = new OutOfMemoryError("injected " + point);
+    try (MaskedColumns view = view(store, slices)) {
+      DerivedCacheBudget.handoffHookForTesting = stage -> {
+        if (point.equals(stage)) {
+          throw failure;
+        }
+      };
+      assertSame(failure, assertThrows(OutOfMemoryError.class, () -> view.ownResources(slab, new int[] {0})));
+      assertEquals(0, store.residencyPins(0));
+    } finally {
+      DerivedCacheBudget.handoffHookForTesting = null;
+      Allocators.getInstance().releaseSlab(slab);
+      store.retire();
+    }
+    assertEquals(processSlabBytesBefore, Allocators.getInstance().getSlabBytes());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"lookup", "view", "cleaner", "task-lease"})
+  void failedReaderAdoptionDoesNotLeaveAnOutstandingLease(final String point) {
+    final ProjectionColumnStore store = store();
+    publish(store);
+    final OutOfMemoryError failure = new OutOfMemoryError("injected " + point);
+    try (MaskedColumns owner = cache.lookup(store, FIELDS, KEYS)) {
+      assertNotNull(owner);
+      DerivedCacheBudget.handoffHookForTesting = stage -> {
+        if (point.equals(stage)) {
+          throw failure;
+        }
+      };
+      try {
+        assertSame(failure, assertThrows(OutOfMemoryError.class, () -> {
+          if (point.equals("task-lease")) {
+            owner.acquireTaskLease();
+          } else {
+            cache.lookup(store, FIELDS, KEYS);
+          }
+        }));
+      } finally {
+        DerivedCacheBudget.handoffHookForTesting = null;
+      }
+    }
+    budget.numeric().clear();
+    assertEquals(0, allocator.getSlabBytes());
+    assertEquals(0, budget.metrics().retiredLeasedBytes());
+    publish(store);
+    try (MaskedColumns following = cache.lookup(store, FIELDS, KEYS)) {
+      assertNotNull(following);
+      assertEquals(2, following.longValue(0, 0, 1));
+    }
   }
 
   @Test

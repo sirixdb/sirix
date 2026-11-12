@@ -26,6 +26,8 @@ import java.nio.file.Path;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -84,6 +86,7 @@ final class GroupRouteLaneSlabReleaseTest {
 
   @AfterEach
   void tearDown() {
+    DerivedCacheBudget.handoffHookForTesting = null;
     if (previousGlobalDictMode == null) {
       System.clearProperty("sirix.projection.globalDict");
     } else {
@@ -120,6 +123,35 @@ final class GroupRouteLaneSlabReleaseTest {
     Databases.removeDatabase(dbDir.resolve(DB));
     assertEquals(slabBytesBefore, Allocators.getInstance().getSlabBytes(),
         "the route slab and the store's column slabs are all back with the allocator");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"roster", "computed", "bucket"})
+  void failedSlabHandoffReturnsEveryRouteOwner(final String point) throws Exception {
+    final String query = switch (point) {
+      case "bucket" -> "for $h in " + DOC + " let $g := $h.g, $b := $h.id idiv 100 group by $g, $b order by $g, $b"
+          + " return {\"g\":$g,\"b\":$b,\"c\":count($h)}";
+      case "computed" ->
+        "for $h in " + DOC + " where $h.id lt 12000 let $value := $h.v + $h.id, $g := $h.g group by $g order by $g"
+            + " return {\"g\":$g,\"s\":sum($value)}";
+      default -> "for $h in " + DOC + " where $h.id lt 12000 let $g := $h.g group by $g order by $g"
+          + " return {\"g\":$g,\"s\":sum($h.v)}";
+    };
+    final String expected = run(query, false);
+    final OutOfMemoryError failure = new OutOfMemoryError("injected " + point);
+    DerivedCacheBudget.handoffHookForTesting = stage -> {
+      if (point.equals(stage)) {
+        throw failure;
+      }
+    };
+    try {
+      assertSame(failure, assertThrows(OutOfMemoryError.class, () -> run(query, true)));
+    } finally {
+      DerivedCacheBudget.handoffHookForTesting = null;
+    }
+    assertEquals(expected, run(query, true));
+    Databases.removeDatabase(dbDir.resolve(DB));
+    assertEquals(0, Allocators.getInstance().getSlabBytes());
   }
 
   private String run(final String query, final boolean vectorized) throws Exception {

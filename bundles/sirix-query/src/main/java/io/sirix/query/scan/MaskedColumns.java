@@ -1,6 +1,8 @@
 package io.sirix.query.scan;
 
 import static java.util.Objects.requireNonNull;
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 
 import io.sirix.cache.Allocators;
 import io.sirix.index.projection.NumericLane;
@@ -123,8 +125,9 @@ public final class MaskedColumns implements AutoCloseable {
    * {@link #close()}, or by the cleaner backstop for a view that is never closed.
    */
   void adoptLease(final DerivedCacheBudget.Entry held, final DerivedCacheBudget.Lease lease) {
+    requireNonNull(held);
     adoptRelease(lease);
-    entry = requireNonNull(held);
+    entry = held;
   }
 
   void ownResources(final @Nullable MemorySegment slab, final int[] pinnedColumns) {
@@ -132,18 +135,34 @@ public final class MaskedColumns implements AutoCloseable {
       throw new IllegalStateException("view already holds a lease or a slab");
     }
     final int[] pins = pinnedColumns.clone();
-    for (final int col : pins) {
-      store.retainColumn(col);
+    final SlabRelease owner = new SlabRelease(store, slab, pins);
+    int retained = 0;
+    try {
+      for (final int col : pins) {
+        store.retainColumn(col);
+        retained++;
+      }
+      DerivedCacheBudget.handoff("resources");
+      adoptRelease(owner);
+    } catch (final Throwable failure) {
+      for (int i = 0; i < retained; i++) {
+        try {
+          store.releaseColumn(pins[i]);
+        } catch (final Throwable cleanup) {
+          retainCleanupFailure(failure, cleanup);
+        }
+      }
+      throw failure;
     }
-    adoptRelease(new SlabRelease(store, slab, pins));
   }
 
   private void adoptRelease(final Runnable once) {
     if (release != null) {
       throw new IllegalStateException("view already holds a lease or a slab");
     }
-    release = once;
+    DerivedCacheBudget.handoff("cleaner");
     CLEANER.register(this, once);
+    release = once;
   }
 
   /**
@@ -169,10 +188,12 @@ public final class MaskedColumns implements AutoCloseable {
     if (held == null) {
       return null;
     }
+    final DerivedCacheBudget.Lease lease = new DerivedCacheBudget.Lease(held);
+    DerivedCacheBudget.handoff("task-lease");
     if (!held.tryAcquire()) {
       throw new IllegalStateException("a leased entry cannot have been freed");
     }
-    return new DerivedCacheBudget.Lease(held);
+    return lease;
   }
 
   /** Release what this view holds (its entry lease or its slab); idempotent. */
@@ -202,15 +223,22 @@ public final class MaskedColumns implements AutoCloseable {
     @Override
     public void run() {
       if (released.compareAndSet(false, true)) {
+        Throwable failure = null;
         try {
           if (slab != null) {
             Allocators.getInstance().releaseSlab(slab);
           }
-        } finally {
-          for (final int col : pinnedColumns) {
+        } catch (final Throwable cleanup) {
+          failure = cleanup;
+        }
+        for (final int col : pinnedColumns) {
+          try {
             store.releaseColumn(col);
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
           }
         }
+        rethrowCleanupFailure(failure);
       }
     }
   }

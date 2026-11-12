@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.sirix.cache.Allocators;
 import java.lang.foreign.MemorySegment;
 import java.util.concurrent.atomic.AtomicReferenceArray;
@@ -51,11 +54,17 @@ final class ColumnSlabs implements Runnable {
   /** Release every slab still mapped — the backstop for a store that was never retired. */
   @Override
   public void run() {
+    Throwable failure = null;
     for (int col = 0; col < slabs.length(); col++) {
       final MemorySegment slab = slabs.getAndSet(col, null);
       if (slab != null) {
-        Allocators.getInstance().releaseSlab(slab);
+        try {
+          Allocators.getInstance().releaseSlab(slab);
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
     }
+    rethrowCleanupFailure(failure);
   }
 }

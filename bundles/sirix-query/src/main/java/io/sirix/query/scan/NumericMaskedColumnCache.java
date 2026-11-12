@@ -6,6 +6,7 @@ import io.sirix.query.scan.DerivedCacheBudget.Lease;
 import io.sirix.query.scan.DerivedCacheBudget.Partition;
 import io.sirix.query.scan.DerivedCacheBudget.Reservation;
 import org.jspecify.annotations.Nullable;
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
 
 /**
  * Immutable masked selections ({@link LaneSnapshot}) within the numeric share of the derived
@@ -44,7 +45,19 @@ public final class NumericMaskedColumnCache {
     if (entry == null) {
       return null;
     }
-    return ((LaneSnapshot) entry).view(new Lease(entry));
+    final Lease lease;
+    try {
+      DerivedCacheBudget.handoff("lookup");
+      lease = new Lease(entry);
+    } catch (final Throwable failure) {
+      try {
+        entry.release();
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
+    }
+    return ((LaneSnapshot) entry).view(lease);
   }
 
   /**
@@ -74,15 +87,25 @@ public final class NumericMaskedColumnCache {
     }
     final LaneSnapshot entry = new LaneSnapshot(store, fields, keys, masks, view.keyLanes(), view.slices(),
         view.kinds(), view.rows(), view.presenceMemo(), pinnedColumns);
+    Lease lease = null;
     try {
+      DerivedCacheBudget.handoff("publisher");
+      lease = new Lease(entry);
+      view.adoptLease(entry, lease);
+      view.adoptIdentity(entry.rowIdentity());
       reservation.publish(entry);
-    } catch (final RuntimeException | Error failure) {
-      entry.discard(); // the pins of an entry that was never published go back
+      return view;
+    } catch (final Throwable failure) {
+      try {
+        if (lease != null) {
+          lease.run();
+        } else {
+          entry.release();
+        }
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
       throw failure;
     }
-    // The publisher's view adopts its lease (the publisher's, held by the entry) and the identity.
-    view.adoptLease(entry, new Lease(entry));
-    view.adoptIdentity(entry.rowIdentity());
-    return view;
   }
 }

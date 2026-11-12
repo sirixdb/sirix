@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.sirix.cache.Allocators;
 import io.sirix.cache.AggregationGrant;
 import io.sirix.cache.MemorySegmentAllocator;
@@ -100,13 +103,18 @@ public final class GroupWorkspace implements AutoCloseable {
     private boolean returned;
     private AggregationGrant grant;
 
-    synchronized void add(final ScratchLease lease) {
+    synchronized void prepare() {
       if (returned) {
-        lease.close();
         throw new IllegalStateException("the grouped scan's workspace is closed");
       }
       if (count == leases.length) {
         leases = Arrays.copyOf(leases, count << 1);
+      }
+    }
+
+    synchronized void add(final ScratchLease lease) {
+      if (returned) {
+        throw new IllegalStateException("the grouped scan's workspace is closed");
       }
       leases[count++] = lease;
     }
@@ -122,16 +130,27 @@ public final class GroupWorkspace implements AutoCloseable {
         return;
       }
       returned = true;
+      Throwable failure = null;
       for (int i = 0; i < count; i++) {
-        leases[i].close();
+        final ScratchLease lease = leases[i];
         leases[i] = null;
+        try {
+          lease.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
       count = 0;
       if (grant != null) {
-        grant.close();
+        try {
+          grant.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
         grant = null;
       }
       CLOSED.increment();
+      rethrowCleanupFailure(failure);
     }
   }
 
@@ -352,11 +371,16 @@ public final class GroupWorkspace implements AutoCloseable {
       // Incremental tools-only workspaces grow on demand. A planned scan spends only its grant,
       // including capacity rounding, and uses a smaller last region when the growth ramp won't fit.
       final long regionBytes = regionBytes(bytes, nextRegionBytes, remaining);
+      regions.prepare();
       final ScratchLease lease = grant.borrow(regionBytes);
       try {
         regions.add(lease);
-      } catch (final RuntimeException | Error failure) {
-        lease.close();
+      } catch (final Throwable failure) {
+        try {
+          lease.close();
+        } catch (final Throwable cleanup) {
+          retainCleanupFailure(failure, cleanup);
+        }
         throw failure;
       }
       borrowedBytes += lease.capacity();

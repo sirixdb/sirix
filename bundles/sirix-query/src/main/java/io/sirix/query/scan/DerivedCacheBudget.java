@@ -11,6 +11,10 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
+import java.util.function.Consumer;
+
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 
 /**
  * One allowance for cached masked selections and packed join sides, carved from the persisted-page
@@ -30,6 +34,15 @@ import java.util.function.Predicate;
  */
 public final class DerivedCacheBudget {
   public static final String MAX_BYTES_PROPERTY = "sirix.derivedCache.maxBytes";
+
+  static volatile @Nullable Consumer<String> handoffHookForTesting;
+
+  static void handoff(final String point) {
+    final Consumer<String> hook = handoffHookForTesting;
+    if (hook != null) {
+      hook.accept(point);
+    }
+  }
 
   private final MemorySegmentAllocator allocator;
   private final long configuredBytes;
@@ -182,8 +195,8 @@ public final class DerivedCacheBudget {
 
   /**
    * A slab-owning cache entry. One lease belongs to the cache while the entry is published, one to
-   * each reader view and background task, and the publisher receives one on publication. Leases are
-   * counted per view, never per element. When the count reaches zero the slab is released and its
+   * each reader view and background task, and one belongs to the creator from construction. Leases
+   * are counted per view, never per element. When the count reaches zero the slab is released and its
    * bytes refunded; a reader can only acquire a lease while the count is positive, so a freed slab is
    * never resurrected.
    */
@@ -193,7 +206,6 @@ public final class DerivedCacheBudget {
     private long bytes;
     private final AtomicInteger leases = new AtomicInteger(1);
     private long lastUse;
-    private boolean published;
 
     /** The slab this entry owns; valid only while a lease is held. */
     public final MemorySegment slab() {
@@ -226,7 +238,12 @@ public final class DerivedCacheBudget {
     public final void release() {
       final int remaining = leases.decrementAndGet();
       if (remaining == 0) {
-        Objects.requireNonNull(partition).freed(this);
+        final Partition owner = partition;
+        if (owner == null) {
+          released();
+        } else {
+          owner.freed(this);
+        }
       } else if (remaining < 0) {
         throw new IllegalStateException("lease released more often than acquired");
       }
@@ -306,6 +323,7 @@ public final class DerivedCacheBudget {
       if (bytes <= 0) {
         throw new IllegalArgumentException("Construction weight must be positive");
       }
+      final Reservation reservation = new Reservation(this, bytes);
       synchronized (this) {
         if (bytes > maximumBytes) {
           reject(bytes);
@@ -322,23 +340,30 @@ public final class DerivedCacheBudget {
         }
         inFlight += bytes;
       }
-      final MemorySegment slab;
       try {
-        slab = budget.allocator.allocateSlab(bytes);
-      } catch (final RuntimeException | Error failure) {
+        reservation.slab = budget.allocator.allocateSlab(bytes);
+        handoff("reservation");
+      } catch (final Throwable failure) {
+        if (reservation.slab != null) {
+          try {
+            budget.allocator.releaseSlab(reservation.slab());
+          } catch (final Throwable cleanup) {
+            retainCleanupFailure(failure, cleanup);
+          }
+        }
         synchronized (this) {
           inFlight -= bytes;
         }
         throw failure;
       }
-      if (slab == null) {
+      if (reservation.slab == null) {
         synchronized (this) {
           inFlight -= bytes;
           reject(bytes);
         }
         return null;
       }
-      return new Reservation(this, slab, bytes);
+      return reservation;
     }
 
     private void reject(final long bytes) {
@@ -346,12 +371,18 @@ public final class DerivedCacheBudget {
     }
 
     private void reapStale() {
+      Throwable failure = null;
       for (int i = entries.size() - 1; i >= 0; i--) {
         final Entry entry = entries.get(i);
         if (entry.isStale()) {
-          evictLocked(entry);
+          try {
+            evictLocked(entry);
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
       }
+      rethrowCleanupFailure(failure);
     }
 
     /** The least recently acquired entry whose only lease is the cache's own. */
@@ -369,43 +400,65 @@ public final class DerivedCacheBudget {
       if (!entries.remove(entry)) {
         return;
       }
-      entry.published = false;
       retained -= entry.bytes;
       retiredLeased += entry.bytes;
-      entry.evicted();
-      entry.release();
+      Throwable failure = null;
+      try {
+        entry.evicted();
+      } catch (final Throwable cleanup) {
+        failure = cleanup;
+      }
+      try {
+        entry.release();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+      rethrowCleanupFailure(failure);
     }
 
-    /** The final lease dropped: free the slab (a resident entry owns none) and refund the share. */
     private void freed(final Entry entry) {
-      final MemorySegment slab = entry.slab;
-      if (slab != null) {
-        budget.allocator.releaseSlab(slab);
+      Throwable failure = null;
+      try {
+        if (entry.slab != null) {
+          budget.allocator.releaseSlab(entry.slab);
+        }
+      } catch (final Throwable cleanup) {
+        failure = cleanup;
+      } finally {
+        synchronized (this) {
+          retiredLeased -= entry.bytes;
+        }
       }
-      synchronized (this) {
-        retiredLeased -= entry.bytes;
+      try {
+        entry.released();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
       }
-      entry.released();
+      rethrowCleanupFailure(failure);
     }
 
-    private void publish(final Reservation reservation, final Entry entry) {
-      synchronized (this) {
-        inFlight -= reservation.bytes;
-        retained += reservation.bytes;
-        entry.partition = this;
-        entry.slab = reservation.slab;
-        entry.bytes = reservation.bytes;
-        entry.published = true;
-        entry.lastUse = ++clock;
-        entries.add(entry);
+    private synchronized void publish(final Reservation reservation, final Entry entry) {
+      if (entry.partition != null || entry.leases.get() != 1) {
+        throw new IllegalStateException("publication requires a fresh entry");
       }
+      entries.ensureCapacity(entries.size() + 1);
+      handoff("publication");
+      entries.add(entry);
+      entry.partition = this;
+      entry.slab = reservation.slab;
+      entry.bytes = reservation.bytes;
+      entry.lastUse = ++clock;
+      entry.leases.incrementAndGet();
+      inFlight -= reservation.bytes;
+      retained += reservation.bytes;
+      reservation.published = true;
     }
 
     private void abort(final Reservation reservation) {
       synchronized (this) {
         inFlight -= reservation.bytes;
       }
-      budget.allocator.releaseSlab(reservation.slab);
+      budget.allocator.releaseSlab(reservation.slab());
     }
 
     /**
@@ -434,20 +487,33 @@ public final class DerivedCacheBudget {
 
     /** Evict every entry that derives from {@code identity}. */
     public synchronized void evictDependents(final Object identity) {
+      Throwable failure = null;
       for (int i = entries.size() - 1; i >= 0; i--) {
         final Entry entry = entries.get(i);
         if (entry.dependsOn(identity)) {
-          evictLocked(entry);
+          try {
+            evictLocked(entry);
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
       }
+      rethrowCleanupFailure(failure);
     }
 
     /** Evict every published entry; leased slabs free when their readers finish. */
     public synchronized void clear() {
+      Throwable failure = null;
       for (int i = entries.size() - 1; i >= 0; i--) {
-        evictLocked(entries.get(i));
+        try {
+          evictLocked(entries.get(i));
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
+      rethrowCleanupFailure(failure);
     }
+
 
     public synchronized PartitionMetrics metrics() {
       return new PartitionMetrics(maximumBytes, retained, inFlight, retiredLeased, rejected, entries.size());
@@ -460,18 +526,17 @@ public final class DerivedCacheBudget {
    */
   public static final class Reservation implements AutoCloseable {
     private final Partition partition;
-    private final MemorySegment slab;
+    private @Nullable MemorySegment slab;
     private final long bytes;
     private boolean published;
 
-    private Reservation(final Partition partition, final MemorySegment slab, final long bytes) {
+    private Reservation(final Partition partition, final long bytes) {
       this.partition = partition;
-      this.slab = slab;
       this.bytes = bytes;
     }
 
     public MemorySegment slab() {
-      return slab;
+      return Objects.requireNonNull(slab);
     }
 
     public long bytes() {
@@ -487,10 +552,6 @@ public final class DerivedCacheBudget {
       if (published) {
         throw new IllegalStateException("reservation already published");
       }
-      if (!entry.tryAcquire()) {
-        throw new IllegalStateException("a fresh entry must accept the publisher's lease");
-      }
-      published = true;
       partition.publish(this, entry);
     }
 

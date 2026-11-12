@@ -49,6 +49,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -74,6 +77,26 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   /** Work counter: bucketed sides built for the dense extrema kernel (a cache hit builds none). */
   private static final LongAdder BUCKETED_SIDES_BUILT = new LongAdder();
   private static volatile @Nullable Executor packingExecutorForTesting;
+
+  static volatile @Nullable Consumer<String> handoffHookForTesting;
+
+  private static void handoff(final String point) {
+    final Consumer<String> hook = handoffHookForTesting;
+    if (hook != null) {
+      hook.accept(point);
+    }
+  }
+
+  static int inFlightPackingCountForTesting() {
+    return BucketedSideCache.IN_FLIGHT.size();
+  }
+
+  static @Nullable CompletableFuture<?> inFlightPackingForTesting() {
+    for (final CompletableFuture<?> future : BucketedSideCache.IN_FLIGHT.values()) {
+      return future;
+    }
+    return null;
+  }
 
   /** Test seam for isolated fixtures that hold an optional packing task before execution. */
   public static @Nullable Executor setPackingExecutorForTesting(final @Nullable Executor executor) {
@@ -318,6 +341,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
     }
     final MaskedColumns[] columns = new MaskedColumns[2];
+    Throwable primary = null;
     try {
       for (int side = 0; side < 2; side++) {
         columns[side] = columns(ctx, side, keys[side], revisions[side]);
@@ -345,13 +369,22 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       } catch (final ArithmeticException overflow) {
         return decline("exact arithmetic overflow");
       }
+    } catch (final Throwable failure) {
+      primary = failure;
+      throw failure;
     } finally {
       // Native views lease their resident snapshot; the result sequence no longer reads them.
+      Throwable failure = primary;
       for (final MaskedColumns side : columns) {
         if (side != null) {
-          side.close();
+          try {
+            side.close();
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
       }
+      rethrowCleanupFailure(failure);
     }
   }
 
@@ -843,10 +876,21 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
 
     static SideHandle leased(final BucketedSideCache.PackedSide entry) {
-      return new SideHandle(entry.side, entry, null);
+      try {
+        handoff("side-handle");
+        return new SideHandle(entry.side, entry, null);
+      } catch (final Throwable failure) {
+        try {
+          entry.release();
+        } catch (final Throwable cleanup) {
+          retainCleanupFailure(failure, cleanup);
+        }
+        throw failure;
+      }
     }
 
     static SideHandle owned(final BucketedSide side, final MemorySegment slab) {
+      handoff("owned-handle");
       return new SideHandle(side, null, slab);
     }
 
@@ -962,64 +1006,95 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       if (!columns.isImmutableRevision()) {
         return;
       }
+      final InFlightKey key = new InFlightKey(new WeakReference<>(columns.store()), columns.rowIdentity(), signature);
+      final CompletableFuture<PackedSide> packing = new CompletableFuture<>();
+      final int[] bucketStart = new int[slots + 1];
       final DerivedCacheBudget.Lease lease = columns.acquireTaskLease();
       if (lease == null) {
         return;
       }
-      final InFlightKey key = new InFlightKey(new WeakReference<>(columns.store()), columns.rowIdentity(), signature);
-      final CompletableFuture<PackedSide> packing = new CompletableFuture<>();
-      if (IN_FLIGHT.putIfAbsent(key, packing) != null) {
-        lease.run();
-        return;
-      }
-      final Reservation reservation;
-      final int[] bucketStart = new int[slots + 1];
-      final int total;
+      Reservation reservation = null;
+      boolean submitted = false;
+      Throwable failure = null;
       try {
-        total = BucketedSide.count(lanes, keyMinimum, slots, bucketStart);
+        if (IN_FLIGHT.putIfAbsent(key, packing) != null) {
+          return;
+        }
+        handoff("packing");
+        final int total = BucketedSide.count(lanes, keyMinimum, slots, bucketStart);
         reservation = DerivedCacheBudget.global().packed().reserve(BucketedSide.slabBytes(slots, total));
-      } catch (final RuntimeException | Error e) {
-        lease.run();
-        packing.completeExceptionally(e);
-        IN_FLIGHT.remove(key, packing);
-        throw e;
-      }
-      if (reservation == null) {
-        lease.run();
-        packing.complete(null);
-        IN_FLIGHT.remove(key, packing);
-        return;
-      }
-      BUCKETED_SIDES_BUILT.increment();
-      try {
+        if (reservation == null) {
+          return;
+        }
+        BUCKETED_SIDES_BUILT.increment();
+        final Reservation owned = reservation;
         final Runnable task = () -> {
-          try (reservation) {
+          PackedSide packed = null;
+          Throwable taskFailure = null;
+          try {
             final BucketedSide side =
-                BucketedSide.pack(reservation.slab(), lanes, keyMinimum, slots, groupMinimum, bucketStart, total);
-            final PackedSide packed = new PackedSide(key.rows(), signature, side);
-            reservation.publish(packed);
-            packed.release();
-            packing.complete(packed);
-          } catch (final RuntimeException | Error e) {
-            packing.completeExceptionally(e);
+                BucketedSide.pack(owned.slab(), lanes, keyMinimum, slots, groupMinimum, bucketStart, total);
+            packed = new PackedSide(key.rows(), signature, side);
+            owned.publish(packed);
+          } catch (final Throwable caught) {
+            taskFailure = caught;
           } finally {
-            lease.run();
-            IN_FLIGHT.remove(key, packing);
+            if (packed != null) {
+              try {
+                packed.release();
+              } catch (final Throwable cleanup) {
+                taskFailure = retainCleanupFailure(taskFailure, cleanup);
+              }
+            }
+            finishPacking(key, packing, lease, owned, packed, taskFailure);
           }
         };
+        handoff("submission");
         final Executor executor = packingExecutorForTesting;
         if (executor == null) {
           CompletableFuture.runAsync(task);
         } else {
           CompletableFuture.runAsync(task, executor);
         }
-      } catch (final RuntimeException | Error e) {
-        reservation.close();
-        lease.run();
-        packing.completeExceptionally(e);
-        IN_FLIGHT.remove(key, packing);
-        throw e;
+        submitted = true;
+      } catch (final Throwable caught) {
+        failure = caught;
+        throw caught;
+      } finally {
+        if (!submitted) {
+          finishPacking(key, packing, lease, reservation, null, failure);
+        }
       }
+    }
+
+    private static void finishPacking(final InFlightKey key, final CompletableFuture<PackedSide> packing,
+        final DerivedCacheBudget.Lease lease, final @Nullable Reservation reservation,
+        final @Nullable PackedSide packed, final @Nullable Throwable primary) {
+      Throwable failure = primary;
+      if (reservation != null) {
+        try {
+          reservation.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
+      }
+      try {
+        lease.run();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+      try {
+        if (failure == null) {
+          packing.complete(packed);
+        } else {
+          packing.completeExceptionally(failure);
+        }
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      } finally {
+        IN_FLIGHT.remove(key, packing);
+      }
+      rethrowCleanupFailure(failure);
     }
   }
 
@@ -1056,9 +1131,18 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             BucketedSide.pack(reservation.slab(), lanes, keyMinimum, slots, groupMinimum, bucketStart, total);
         final BucketedSideCache.PackedSide packed =
             new BucketedSideCache.PackedSide(columns.rowIdentity(), signature, side);
-        reservation.publish(packed);
-        // The publisher's lease carries this query's read; the cache keeps its own.
-        return SideHandle.leased(packed);
+        final SideHandle handle = SideHandle.leased(packed);
+        try {
+          reservation.publish(packed);
+          return handle;
+        } catch (final Throwable failure) {
+          try {
+            handle.close();
+          } catch (final Throwable cleanup) {
+            retainCleanupFailure(failure, cleanup);
+          }
+          throw failure;
+        }
       }
     }
     // The synchronous build side is required query workspace even when cache admission is refused.

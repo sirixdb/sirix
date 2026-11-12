@@ -8,6 +8,7 @@ import org.jspecify.annotations.Nullable;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Objects;
 
 /**
  * One scratch region of an allocator: its backing, the views over it, and the counters of the
@@ -70,6 +71,7 @@ final class ScratchCarrier {
   private @Nullable ByteBuffer buffer;
 
   ScratchCarrier(final ScratchSource source, final int capacityClass, final MemorySegment segment) {
+    Objects.requireNonNull(ScratchHandles.ERA);
     this.source = source;
     this.capacityClass = capacityClass;
     this.segment = segment;

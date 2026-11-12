@@ -7,7 +7,8 @@ import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import java.util.Arrays;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicBoolean;
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 
 /**
  * A cached masked selection whose numeric lanes were decoded straight into this entry's slab (a
@@ -36,12 +37,10 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
   private final Object rowIdentity = new Object();
   /** Store columns this entry pinned resident because its views read their slabs in place. */
   private final int[] pinnedColumns;
-  private final AtomicBoolean unpinned = new AtomicBoolean();
 
   /**
    * @param pinnedColumns the store columns whose resident slabs the slices read; pinned here,
-   *        unpinned when the final lease drops ({@link #released()}) or the entry is
-   *        {@link #discard()}ed
+   *        unpinned when the final lease drops ({@link #released()})
    */
   LaneSnapshot(final ProjectionColumnStore store, final String[] fields, final long[] keys, final long[][] masks,
       final KeyLanes recordKeys, final ColumnSlice[][] slices, final byte[] kinds, final long rows,
@@ -56,8 +55,21 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
     this.rows = rows;
     this.presenceMemo = Objects.requireNonNull(presenceMemo);
     this.pinnedColumns = pinnedColumns.clone();
-    for (final int col : this.pinnedColumns) {
-      store.retainColumn(col);
+    int retained = 0;
+    try {
+      for (final int col : this.pinnedColumns) {
+        store.retainColumn(col);
+        retained++;
+      }
+    } catch (final Throwable failure) {
+      for (int i = 0; i < retained; i++) {
+        try {
+          store.releaseColumn(this.pinnedColumns[i]);
+        } catch (final Throwable cleanup) {
+          retainCleanupFailure(failure, cleanup);
+        }
+      }
+      throw failure;
     }
   }
 
@@ -70,10 +82,20 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
    * A view holding {@code lease} on this entry: shared slices and key lanes, this view's own masks.
    */
   MaskedColumns view(final DerivedCacheBudget.Lease lease) {
-    final MaskedColumns view = new MaskedColumns(store, MaskedColumns.copyMasks(masks), recordKeys, slices, kinds, rows,
-        rowIdentity, masks, presenceMemo);
-    view.adoptLease(this, lease);
-    return view;
+    try {
+      DerivedCacheBudget.handoff("view");
+      final MaskedColumns view = new MaskedColumns(store, MaskedColumns.copyMasks(masks), recordKeys, slices, kinds,
+          rows, rowIdentity, masks, presenceMemo);
+      view.adoptLease(this, lease);
+      return view;
+    } catch (final Throwable failure) {
+      try {
+        lease.run();
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
+    }
   }
 
   Object rowIdentity() {
@@ -97,16 +119,15 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
     unpin();
   }
 
-  /** Undo the constructor's pins for an entry that was never published. */
-  void discard() {
-    unpin();
-  }
-
   private void unpin() {
-    if (unpinned.compareAndSet(false, true)) {
-      for (final int col : pinnedColumns) {
+    Throwable failure = null;
+    for (final int col : pinnedColumns) {
+      try {
         store.releaseColumn(col);
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
       }
     }
+    rethrowCleanupFailure(failure);
   }
 }

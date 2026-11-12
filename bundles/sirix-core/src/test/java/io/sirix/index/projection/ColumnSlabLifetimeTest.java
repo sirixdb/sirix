@@ -16,6 +16,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -84,6 +85,68 @@ final class ColumnSlabLifetimeTest {
     ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
     HeapHeadroom.setHeadroomForTesting(previousHeadroom);
     ProjectionColumnStore.sampleHeadroomShare();
+  }
+
+  @Test
+  void slabBackstopDrainsEveryOwnerAfterAReleaseThrows() {
+    final MemorySegment first = allocator.allocateSlab(4096);
+    final MemorySegment second = allocator.allocateSlab(4096);
+    assertNotNull(first);
+    assertNotNull(second);
+    final ColumnSlabs owners = new ColumnSlabs(2);
+    owners.set(0, first);
+    owners.set(1, second);
+    final MemorySegmentAllocator failing = mock(MemorySegmentAllocator.class);
+    final OutOfMemoryError failure = new OutOfMemoryError("injected release failure");
+    when(failing.releaseSlab(first)).thenAnswer(invocation -> {
+      allocator.releaseSlab(first);
+      throw failure;
+    });
+    when(failing.releaseSlab(second)).thenAnswer(invocation -> allocator.releaseSlab(second));
+    try (MockedStatic<Allocators> allocators = mockStatic(Allocators.class)) {
+      allocators.when(Allocators::getInstance).thenReturn(failing);
+      assertSame(failure, assertThrows(OutOfMemoryError.class, owners::run));
+      owners.run();
+    }
+    verify(failing).releaseSlab(first);
+    verify(failing).releaseSlab(second);
+    assertNull(owners.get(0));
+    assertNull(owners.get(1));
+    assertEquals(0, slabDelta());
+  }
+
+  @Test
+  void retiredScopeDrainsAllPinsAndRefundsColumnsAfterOneReleaseThrows() {
+    final Fixture first = build(1, 100);
+    final Fixture second = build(1, 100);
+    final ProjectionResidencyScope scope = ProjectionResidencyScope.open();
+    first.store().column(0, first.fetcher());
+    second.store().column(0, second.fetcher());
+    first.store().retire();
+    second.store().retire();
+    assertEquals(1, first.store().residencyPins(0));
+    assertEquals(1, second.store().residencyPins(0));
+    final MemorySegmentAllocator failing = mock(MemorySegmentAllocator.class);
+    final OutOfMemoryError failure = new OutOfMemoryError("injected release failure");
+    final int[] released = {0};
+    when(failing.releaseSlab(any(MemorySegment.class))).thenAnswer(invocation -> {
+      allocator.releaseSlab(invocation.getArgument(0));
+      if (++released[0] == 1) {
+        throw failure;
+      }
+      return true;
+    });
+    try (MockedStatic<Allocators> allocators = mockStatic(Allocators.class)) {
+      allocators.when(Allocators::getInstance).thenReturn(failing);
+      assertSame(failure, assertThrows(OutOfMemoryError.class, scope::close));
+      scope.close();
+    }
+    assertEquals(2, released[0]);
+    assertEquals(0, first.store().residencyPins(0));
+    assertEquals(0, second.store().residencyPins(0));
+    assertEquals(0, first.store().retainedFillBytes());
+    assertEquals(0, second.store().retainedFillBytes());
+    assertEquals(0, slabDelta());
   }
 
   private long slabDelta() {

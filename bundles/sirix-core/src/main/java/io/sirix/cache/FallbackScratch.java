@@ -3,6 +3,8 @@
  */
 package io.sirix.cache;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
@@ -93,20 +95,24 @@ final class FallbackScratch extends ScratchSource {
   @Override
   ScratchCarrier acquireAggregation(final long minBytes, final AggregationGrant grant) {
     final long bytes = aggregationCapacity(minBytes);
-    grant.claim(bytes);
     final VirtualMemory memory = VirtualMemory.forCurrentPlatform();
+    grant.claim(bytes);
     MemorySegment region = null;
     try {
       region = memory.reserve(bytes);
       memory.commitFresh(region);
       final ScratchCarrier carrier = new ScratchCarrier(this, MAPPED_CLASS, region);
       carrier.aggregationGrant = grant;
-      aggregationBytes.addAndGet(bytes);
       carrier.lend(minBytes, ScratchUse.AGGREGATION);
+      aggregationBytes.addAndGet(bytes);
       return carrier;
     } catch (final RuntimeException | Error failure) {
       if (region != null) {
-        memory.release(region);
+        try {
+          memory.release(region);
+        } catch (final Throwable cleanup) {
+          retainCleanupFailure(failure, cleanup);
+        }
       }
       grant.refund(bytes);
       throw failure;
@@ -123,7 +129,11 @@ final class FallbackScratch extends ScratchSource {
       try {
         carrier = new ScratchCarrier(this, FRAME_CLASS, segment);
       } catch (final RuntimeException | Error failure) {
-        allocator.release(segment);
+        try {
+          allocator.release(segment);
+        } catch (final Throwable cleanup) {
+          retainCleanupFailure(failure, cleanup);
+        }
         throw failure;
       }
     } else {
@@ -145,7 +155,11 @@ final class FallbackScratch extends ScratchSource {
           memory.commitFresh(region);
           carrier = new ScratchCarrier(this, MAPPED_CLASS, region);
         } catch (final RuntimeException | Error failure) {
-          memory.release(region);
+          try {
+            memory.release(region);
+          } catch (final Throwable cleanup) {
+            retainCleanupFailure(failure, cleanup);
+          }
           throw failure;
         }
       } catch (final RuntimeException | Error failure) {
@@ -178,14 +192,17 @@ final class FallbackScratch extends ScratchSource {
     if (carrier.capacityClass == FRAME_CLASS) {
       allocator.release(carrier.segment);
     } else {
-      VirtualMemory.forCurrentPlatform().release(carrier.segment);
-      final AggregationGrant grant = carrier.aggregationGrant;
-      if (grant == null) {
-        mappedBytes.addAndGet(-carrier.capacity);
-      } else {
-        carrier.aggregationGrant = null;
-        aggregationBytes.addAndGet(-carrier.capacity);
-        grant.refund(carrier.capacity);
+      try {
+        VirtualMemory.forCurrentPlatform().release(carrier.segment);
+      } finally {
+        final AggregationGrant grant = carrier.aggregationGrant;
+        if (grant == null) {
+          mappedBytes.addAndGet(-carrier.capacity);
+        } else {
+          carrier.aggregationGrant = null;
+          aggregationBytes.addAndGet(-carrier.capacity);
+          grant.refund(carrier.capacity);
+        }
       }
     }
     return true;

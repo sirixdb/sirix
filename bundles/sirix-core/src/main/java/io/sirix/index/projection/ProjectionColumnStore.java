@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.sirix.cache.Allocators;
 import io.sirix.cache.HeapCacheBudget;
 import io.sirix.cache.MemorySegmentAllocator;
@@ -2103,29 +2106,46 @@ public final class ProjectionColumnStore {
     // Fill OUTSIDE the monitor: the fetch+decode is the store's only I/O and must not
     // serialize other columns (or evidence readers) behind it. A same-column race does the
     // work twice with identical results — first publish wins.
-    slices = fillColumn(col, fetcher);
     pinResident(col);
-    synchronized (this) {
-      final ColumnSlice[] existing = columns[col];
-      if (existing != null) {
-        releaseLaneSlab(laneSlabOf(slices)); // the race's loser frees its slab; the winner's lanes serve
-        return existing;
+    final ColumnSlice[][] next = new ColumnSlice[columnKinds.length][];
+    slices = fillColumn(col, fetcher);
+    final MemorySegment slab = laneSlabOf(slices);
+    boolean adopted = false;
+    Throwable failure = null;
+    try {
+      synchronized (this) {
+        final ColumnSlice[] existing = columns[col];
+        if (existing != null) {
+          return existing;
+        }
+        System.arraycopy(columns, 0, next, 0, next.length);
+        next[col] = slices;
+        final long charged = incrementalFillBytes(col, projected);
+        if (slab != null) {
+          columnSlabs.set(col, slab);
+        }
+        adopted = true;
+        chargedSliceBytes[col] = charged;
+        retainedFillBytes.addAndGet(charged);
+        columns = next;
       }
-      // Publish via a fresh array write so the unsynchronized volatile read stays safe.
-      final ColumnSlice[][] next = columns.clone();
-      next[col] = slices;
-      columns = next;
-      final MemorySegment slab = laneSlabOf(slices);
-      if (slab != null) {
-        columnSlabs.set(col, slab);
+      return slices;
+    } catch (final Throwable primary) {
+      failure = primary;
+      throw primary;
+    } finally {
+      if (!adopted) {
+        try {
+          releaseLaneSlab(slab);
+        } catch (final Throwable cleanup) {
+          if (failure != null) {
+            retainCleanupFailure(failure, cleanup);
+          } else {
+            throw cleanup;
+          }
+        }
       }
-      // Re-priced HERE, not reused from the check: the fill above ran the inner raw-BODY door,
-      // which may have published and charged that chain in between. Same helper, later moment.
-      final long charged = incrementalFillBytes(col, projected);
-      chargedSliceBytes[col] = charged;
-      retainedFillBytes.addAndGet(charged);
     }
-    return slices;
   }
 
   /**
@@ -2574,6 +2594,7 @@ public final class ProjectionColumnStore {
       return false;
     }
     long freed = 0L;
+    Throwable failure = null;
     int evictions = 0;
     synchronized (this) {
       long retained = retainedFillBytes.get();
@@ -2620,16 +2641,26 @@ public final class ProjectionColumnStore {
         } else if (bestColumn < 0 || bestBytes <= 0L) {
           break; // the dry pass admitted this fit, so this is unreachable; fail closed if it is not
         } else {
-          bestBytes = releaseColumnLanes(bestColumn);
+          try {
+            bestBytes = releaseColumnLanes(bestColumn);
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+            kept[bestColumn] = true;
+            retained = retainedFillBytes.get();
+            continue;
+          }
           if (bestBytes == 0L) {
             kept[bestColumn] = true; // a reader pinned it meanwhile: it stays, and is not asked again
             continue;
           }
         }
-        retained = retainedFillBytes.addAndGet(-bestBytes);
+        retained = keys
+            ? retainedFillBytes.addAndGet(-bestBytes)
+            : retainedFillBytes.get();
         freed += bestBytes;
         evictions++;
       }
+      rethrowCleanupFailure(failure);
       if (retained + needed > budget) {
         return false;
       }
@@ -2672,6 +2703,7 @@ public final class ProjectionColumnStore {
   /** Drop the pins one closing scope holds, named by the set bits of {@code bits}. */
   void dropPins(final long[] bits) {
     final int slots = pinSlotCount();
+    Throwable failure = null;
     for (int word = 0; word < bits.length; word++) {
       long remaining = bits[word];
       while (remaining != 0) {
@@ -2679,10 +2711,15 @@ public final class ProjectionColumnStore {
         remaining &= remaining - 1;
         final int slot = (word << 6) + bit;
         if (slot < slots && residencyPins.decrementAndGet(slot) == 0 && retired) {
-          releaseRetiredSlot(slot);
+          try {
+            releaseRetiredSlot(slot);
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
       }
     }
+    rethrowCleanupFailure(failure);
   }
 
   /**
@@ -2719,15 +2756,21 @@ public final class ProjectionColumnStore {
         return;
       }
       retired = true;
+      Throwable failure = null;
       for (int col = 0; col < columnKinds.length; col++) {
-        freed += releaseColumnLanes(col);
+        try {
+          freed += releaseColumnLanes(col);
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
       if (recordKeySlices != null && residencyPins.get(keysPinSlot()) == 0) {
         recordKeySlices = null;
         freed += chargedKeysBytes;
+        retainedFillBytes.addAndGet(-chargedKeysBytes);
         chargedKeysBytes = 0L;
       }
-      retainedFillBytes.addAndGet(-freed);
+      rethrowCleanupFailure(failure);
     }
     if (freed > 0L) {
       RESIDENCY_RELEASED_BYTES.add(freed);
@@ -2747,12 +2790,12 @@ public final class ProjectionColumnStore {
         if (recordKeySlices != null && residencyPins.get(slot) == 0) {
           recordKeySlices = null;
           freed = chargedKeysBytes;
+          retainedFillBytes.addAndGet(-chargedKeysBytes);
           chargedKeysBytes = 0L;
         }
       } else {
         freed = releaseColumnLanes(slot);
       }
-      retainedFillBytes.addAndGet(-freed);
     }
     if (freed > 0L) {
       RESIDENCY_RELEASED_BYTES.add(freed);
@@ -2804,6 +2847,7 @@ public final class ProjectionColumnStore {
       return;
     }
     long freed = 0L;
+    Throwable failure = null;
     int releases = 0;
     synchronized (this) {
       long retained = retainedFillBytes.get();
@@ -2839,17 +2883,27 @@ public final class ProjectionColumnStore {
           recordKeySlices = null;
           chargedKeysBytes = 0L;
         } else {
-          bestBytes = releaseColumnLanes(bestColumn);
+          try {
+            bestBytes = releaseColumnLanes(bestColumn);
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+            kept[bestColumn] = true;
+            retained = retainedFillBytes.get();
+            continue;
+          }
           if (bestBytes == 0L) {
             kept[bestColumn] = true;
             continue;
           }
         }
-        retained = retainedFillBytes.addAndGet(-bestBytes);
+        retained = keys
+            ? retainedFillBytes.addAndGet(-bestBytes)
+            : retainedFillBytes.get();
         freed += bestBytes;
         releases++;
       }
     }
+    rethrowCleanupFailure(failure);
     if (freed > 0L) {
       RESIDENCY_RELEASED_BYTES.add(freed);
       RESIDENCY_RELEASES.add(releases);
@@ -2863,7 +2917,7 @@ public final class ProjectionColumnStore {
 
   /**
    * Drop every published lane of {@code col} unless a query holds it; the caller holds the monitor
-   * and subtracts the returned bytes from the ledger. The slot is unpublished BEFORE the pins are
+   * and receives the released bytes from the ledger. The slot is unpublished BEFORE the pins are
    * checked a second time: a reader pins and then re-reads the slot ({@link #column},
    * {@link #columnFilled}), so a pin seen after the unpublish may belong to a reader that holds these
    * slices, and the column is republished instead of freed. An off-heap lane is unmapped only when no
@@ -2891,6 +2945,7 @@ public final class ProjectionColumnStore {
     chargedSliceBytes[col] = 0L;
     chargedIdentityBytes[col] = 0L;
     chargedBodyBytes[col] = 0L;
+    retainedFillBytes.addAndGet(-bytes);
     releaseLaneSlab(columnSlabs.take(col));
     return bytes;
   }
@@ -2899,21 +2954,21 @@ public final class ProjectionColumnStore {
   private void publishColumn(final int col, final ColumnSlice @Nullable [] slices,
       final ColumnSlice @Nullable [] identity, final byte[] @Nullable [] bodies) {
     assert Thread.holdsLock(this);
-    if (columns[col] != slices) {
-      final ColumnSlice[][] next = columns.clone();
-      next[col] = slices;
-      columns = next;
-    }
-    if (identityColumns[col] != identity) {
-      final ColumnSlice[][] next = identityColumns.clone();
-      next[col] = identity;
-      identityColumns = next;
-    }
-    if (columnBytes[col] != bodies) {
-      final byte[][][] next = columnBytes.clone();
-      next[col] = bodies;
-      columnBytes = next;
-    }
+    final ColumnSlice[][] nextColumns = columns[col] != slices
+        ? columns.clone()
+        : columns;
+    final ColumnSlice[][] nextIdentity = identityColumns[col] != identity
+        ? identityColumns.clone()
+        : identityColumns;
+    final byte[][][] nextBodies = columnBytes[col] != bodies
+        ? columnBytes.clone()
+        : columnBytes;
+    nextColumns[col] = slices;
+    nextIdentity[col] = identity;
+    nextBodies[col] = bodies;
+    columns = nextColumns;
+    identityColumns = nextIdentity;
+    columnBytes = nextBodies;
   }
 
   /** Whether {@code col}'s raw BODY chain is already published — and therefore already charged. */
@@ -3740,13 +3795,21 @@ public final class ProjectionColumnStore {
     try {
       owner = new MaskedColumnSlab(allocator, allocation);
     } catch (final RuntimeException | Error failure) {
-      allocator.releaseSlab(allocation);
+      try {
+        allocator.releaseSlab(allocation);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
       throw failure;
     }
     try {
       return columnMasked(col, fetcher, keepWords, owner.segment(), bases);
     } catch (final RuntimeException | Error failure) {
-      owner.run();
+      try {
+        owner.run();
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
       throw failure;
     }
   }
@@ -3914,45 +3977,66 @@ public final class ProjectionColumnStore {
       // Decline the store, but do NOT record this column as corrupt: that memo is store-wide and
       // lives for the process, so one mis-dispatch would permanently disable every fast path on a
       // column whose bytes were never in question (task #50).
-      releaseLaneSlab(slab);
+      try {
+        releaseLaneSlab(slab);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(inconsistent, cleanup);
+      }
       throw inconsistent;
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
-      releaseLaneSlab(slab);
+      try {
+        releaseLaneSlab(slab);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(corrupt, cleanup);
+      }
       throw corrupt;
     } catch (final RuntimeException | Error failure) {
-      releaseLaneSlab(slab);
+      try {
+        releaseLaneSlab(slab);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
       throw failure;
     }
-    if (FILL_DIAG) {
-      final long tDone = System.nanoTime();
-      long decoded = 0;
-      long raw = 0;
-      for (final ColumnSlice s : slices) {
-        decoded += sliceRetainedBytes(s);
-      }
-      for (final byte[] b : segments) {
-        raw += b == null
-            ? 0
-            : b.length;
-      }
-      if (dictSegments != null) {
-        for (final byte[] b : dictSegments) {
+    try {
+      if (FILL_DIAG) {
+        final long tDone = System.nanoTime();
+        long decoded = 0;
+        long raw = 0;
+        for (final ColumnSlice s : slices) {
+          decoded += sliceRetainedBytes(s);
+        }
+        for (final byte[] b : segments) {
           raw += b == null
               ? 0
               : b.length;
         }
+        if (dictSegments != null) {
+          for (final byte[] b : dictSegments) {
+            raw += b == null
+                ? 0
+                : b.length;
+          }
+        }
+        final long total = FILL_DECODED_BYTES.addAndGet(decoded);
+        final long rawTotal = FILL_RAW_BYTES.addAndGet(raw);
+        System.err.printf(
+            "[fill] col=%d kind=%d leaves=%d decoded=%.1f MB raw=%.1f MB | body=%.1f ms dict=%.1f ms "
+                + "decode=%.1f ms (par=%s) | t=%.1f..%.1f | store totals: decoded=%.1f MB raw=%.1f MB%n",
+            col, columnKinds[col], n, decoded / 1048576.0, raw / 1048576.0, (tBody - tEnter) / 1e6,
+            (tDict - tBody) / 1e6, (tDone - tDict) / 1e6, n >= PARALLEL_DECODE_MIN, tEnter / 1e6, tDone / 1e6,
+            total / 1048576.0, rawTotal / 1048576.0);
       }
-      final long total = FILL_DECODED_BYTES.addAndGet(decoded);
-      final long rawTotal = FILL_RAW_BYTES.addAndGet(raw);
-      System.err.printf(
-          "[fill] col=%d kind=%d leaves=%d decoded=%.1f MB raw=%.1f MB | body=%.1f ms dict=%.1f ms "
-              + "decode=%.1f ms (par=%s) | t=%.1f..%.1f | store totals: decoded=%.1f MB raw=%.1f MB%n",
-          col, columnKinds[col], n, decoded / 1048576.0, raw / 1048576.0, (tBody - tEnter) / 1e6, (tDict - tBody) / 1e6,
-          (tDone - tDict) / 1e6, n >= PARALLEL_DECODE_MIN, tEnter / 1e6, tDone / 1e6, total / 1048576.0,
-          rawTotal / 1048576.0);
+      return slices;
+    } catch (final Throwable failure) {
+      try {
+        releaseLaneSlab(slab);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
     }
-    return slices;
   }
 
   /**

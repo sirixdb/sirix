@@ -6,6 +6,9 @@
  */
 package io.sirix.query.scan;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.sirix.index.projection.GroupBuffer;
 
 import io.sirix.utils.ChildCounts;
@@ -15433,12 +15436,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (bytes <= 0L) {
         return; // every surviving leaf is rowless
       }
+      final int[] roster = Arrays.copyOf(wanted, distinct);
+      DerivedCacheBudget.handoff("roster");
       final MemorySegment memory = Allocators.getInstance().allocateSlab(bytes);
       if (memory == null) {
         ProjectionColumnStore.noteSlabFillDeclined();
         throw new ProjectionColumnStore.FillBudgetExceededException("allocator refused group route lanes");
       }
-      cols = Arrays.copyOf(wanted, distinct);
+      cols = roster;
       bases = laneBases;
       slab = memory;
     }
@@ -16397,16 +16402,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   operandSlab.target(operandCols[o]));
             }
             final long bytes = ProjectionComputedColumn.byteSize(operands, derivedKeep);
-            final MemorySegment memory = bytes == 0L
-                ? MemorySegment.NULL
-                : Allocators.getInstance().allocateSlab(bytes);
-            if (memory == null) {
-              ProjectionColumnStore.noteSlabFillDeclined();
-              throw new ProjectionColumnStore.FillBudgetExceededException("allocator refused computed lanes");
-            }
-            if (bytes != 0L) {
-              computedSlabs.add(memory);
-            }
+            final MemorySegment memory = allocateGroupSlab(computedSlabs, bytes, "computed");
             computedLaneSlices[a] = ProjectionComputedColumn.evaluate(operands, derivedLanes[a].code(),
                 derivedLanes[a].consts(), derivedKeep, memory);
           }
@@ -16846,16 +16842,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 for (int leaf = 0; leaf < groupStore.rowGroupCount(); leaf++) {
                   bytes = Math.addExact(bytes, (long) groupStore.rowCount(leaf) * Long.BYTES);
                 }
-                final MemorySegment memory = bytes == 0L
-                    ? MemorySegment.NULL
-                    : Allocators.getInstance().allocateSlab(bytes);
-                if (memory == null) {
-                  ProjectionColumnStore.noteSlabFillDeclined();
-                  throw new ProjectionColumnStore.FillBudgetExceededException("allocator refused bucket lanes");
-                }
-                if (bytes != 0L) {
-                  computedSlabs.add(memory);
-                }
+                final MemorySegment memory = allocateGroupSlab(computedSlabs, bytes, "bucket");
                 cKeyCols[k] = groupStore.numericBucketKeyColumn(groupCols[k], cFetcher, keyOffsetsEff == null
                     ? 0L
                     : keyOffsetsEff[k], keyDivModEff[2 * k], keyDivModEff[2 * k + 1], memory);
@@ -17445,6 +17432,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                 winnerLeaves[distinct++] = winnerLeaves[i];
               }
             }
+            leafAccesses.ensureCapacity(leafAccesses.size() + 1);
             final ProjectionColumnStore.LeafColumnAccess emitAccess =
                 groupStore.leafSetAccess(columnFetcher(), null, winnerLeaves, 0, distinct);
             leafAccesses.add(emitAccess);
@@ -17609,6 +17597,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final ProjectionColumnStore.ColumnSlice[][] sAggCols;
         // Winner emission reads the leaf dictionary of each winner once; windowed, that is a one-leaf
         // access.
+        leafAccesses.ensureCapacity(leafAccesses.size() + 1);
         final ProjectionColumnStore.LeafColumnAccess sEmit = windowedSlices && stringSlicedArm
             ? groupStore.windowedLeafAccess(columnFetcher(), null, 1, ProjectionColumnStore.LEAF_ACCESS_WINDOW)
             : null;
@@ -18444,16 +18433,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (routing != null && routing.rowKeys() != null) {
         return declineGroupAgg("column fill over budget on the masked route");
       }
-      for (final ProjectionColumnStore.LeafColumnAccess access : leafAccesses) {
-        access.close();
-      }
-      leafAccesses.clear();
-      for (final MemorySegment memory : computedSlabs) {
-        Allocators.getInstance().releaseSlab(memory);
-      }
-      computedSlabs.clear();
-      laneSlab.close();
-      workspace.close();
+      releaseGroupResources(leafAccesses, computedSlabs, laneSlab, workspace);
       return groupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames,
           orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits,
           keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having, budgetRefused, !budgetRefused,
@@ -18467,14 +18447,56 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     } finally {
       // Every arm has materialized its winners by now (an ItemSequence over copied lanes), so no
       // slice outlives the route and the slab goes back to the allocator here.
-      for (final ProjectionColumnStore.LeafColumnAccess access : leafAccesses) {
-        access.close();
-      }
-      for (final MemorySegment memory : computedSlabs) {
-        Allocators.getInstance().releaseSlab(memory);
-      }
-      laneSlab.close();
+      releaseGroupResources(leafAccesses, computedSlabs, laneSlab, null);
     }
+  }
+
+  private static MemorySegment allocateGroupSlab(final ArrayList<MemorySegment> owners, final long bytes,
+      final String kind) {
+    if (bytes == 0L) {
+      return MemorySegment.NULL;
+    }
+    owners.ensureCapacity(owners.size() + 1);
+    final MemorySegment memory = Allocators.getInstance().allocateSlab(bytes);
+    if (memory == null) {
+      ProjectionColumnStore.noteSlabFillDeclined();
+      throw new ProjectionColumnStore.FillBudgetExceededException("allocator refused " + kind + " lanes");
+    }
+    owners.add(memory);
+    DerivedCacheBudget.handoff(kind);
+    return memory;
+  }
+
+  private static void releaseGroupResources(final ArrayList<ProjectionColumnStore.LeafColumnAccess> accesses,
+      final ArrayList<MemorySegment> slabs, final RouteLaneSlab lanes, final @Nullable GroupWorkspace workspace) {
+    Throwable failure = null;
+    while (!accesses.isEmpty()) {
+      try {
+        accesses.removeLast().close();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+    }
+    while (!slabs.isEmpty()) {
+      try {
+        Allocators.getInstance().releaseSlab(slabs.removeLast());
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+    }
+    try {
+      lanes.close();
+    } catch (final Throwable cleanup) {
+      failure = retainCleanupFailure(failure, cleanup);
+    }
+    if (workspace != null) {
+      try {
+        workspace.close();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+    }
+    rethrowCleanupFailure(failure);
   }
 
   private static ArrayList<String> groupRequiredFields(final String @Nullable [] keyCondFields,
@@ -31777,6 +31799,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
       }
     }
+    Throwable primary = null;
     try {
       final boolean[] residentColumn = new boolean[cols.length];
       int resident = 0;
@@ -31814,14 +31837,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           NumericMaskedColumnCache.global().publish(reservation, store, fields, cacheKeys, view, pinned);
       reservation = null;
       return published;
+    } catch (final Throwable failure) {
+      primary = failure;
+      throw failure;
     } finally {
       // Whatever was not handed to the view or the cache goes back: a failed decode, a refused fill.
+      Throwable failure = primary;
       if (reservation != null) {
-        reservation.close();
+        try {
+          reservation.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
       if (owned != null) {
-        Allocators.getInstance().releaseSlab(owned);
+        try {
+          Allocators.getInstance().releaseSlab(owned);
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
+      rethrowCleanupFailure(failure);
     }
   }
 

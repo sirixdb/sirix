@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import java.util.Arrays;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -79,20 +82,27 @@ public final class ProjectionResidencyScope implements AutoCloseable {
    */
   public static ProjectionResidencyScope open() {
     final ProjectionResidencyScope scope = new ProjectionResidencyScope();
-    synchronized (REGISTRY_LOCK) {
-      final ProjectionResidencyScope[] current = active;
-      final ProjectionResidencyScope[] next = Arrays.copyOf(current, current.length + 1);
-      next[current.length] = scope;
-      active = next;
-    }
-    OPENED.increment();
-    // Sample the headroom ONCE per query boundary, so every planner predicate and every fill door of
-    // the query that is starting price against the SAME budget. A budget that moved mid-query would
-    // let a route be admitted as resident and then refused at its second fill — the whole-leaf
-    // re-entry the combined-fit rule already exists to prevent. Only the headroom-gated budget reads
-    // the sample; with the gate off the scope exists for its pins alone and costs no heap walk.
     if (ProjectionColumnStore.residencyHeadroomEnabled()) {
       ProjectionColumnStore.sampleHeadroomShare();
+    }
+    OPENED.increment();
+    synchronized (REGISTRY_LOCK) {
+      final ProjectionResidencyScope[] current = active;
+      int count = 0;
+      for (final ProjectionResidencyScope held : current) {
+        if (held != null) {
+          count++;
+        }
+      }
+      final ProjectionResidencyScope[] next = new ProjectionResidencyScope[count + 1];
+      int at = 0;
+      for (final ProjectionResidencyScope held : current) {
+        if (held != null) {
+          next[at++] = held;
+        }
+      }
+      next[count] = scope;
+      active = next;
     }
     return scope;
   }
@@ -116,7 +126,10 @@ public final class ProjectionResidencyScope implements AutoCloseable {
   static void pin(final ProjectionColumnStore store, final int slot) {
     final ProjectionResidencyScope[] scopes = active;
     for (int i = 0; i < scopes.length; i++) {
-      scopes[i].pinIn(store, slot);
+      final ProjectionResidencyScope scope = scopes[i];
+      if (scope != null) {
+        scope.pinIn(store, slot);
+      }
     }
   }
 
@@ -139,8 +152,10 @@ public final class ProjectionResidencyScope implements AutoCloseable {
       }
       if (index < 0) {
         if (storeCount == stores.length) {
-          stores = Arrays.copyOf(stores, storeCount << 1);
-          pins = Arrays.copyOf(pins, storeCount << 1);
+          final ProjectionColumnStore[] nextStores = Arrays.copyOf(stores, storeCount << 1);
+          final long[][] nextPins = Arrays.copyOf(pins, storeCount << 1);
+          stores = nextStores;
+          pins = nextPins;
         }
         bits = new long[(store.pinSlotCount() + 63) >>> 6];
         stores[storeCount] = store;
@@ -175,10 +190,14 @@ public final class ProjectionResidencyScope implements AutoCloseable {
         }
       }
       if (at >= 0) {
-        final ProjectionResidencyScope[] next = new ProjectionResidencyScope[current.length - 1];
-        System.arraycopy(current, 0, next, 0, at);
-        System.arraycopy(current, at + 1, next, at, current.length - at - 1);
-        active = next;
+        current[at] = null;
+        boolean remaining = false;
+        for (final ProjectionResidencyScope scope : current) {
+          remaining |= scope != null;
+        }
+        active = remaining
+            ? current
+            : NONE;
       }
     }
     final ProjectionColumnStore[] touched;
@@ -192,25 +211,32 @@ public final class ProjectionResidencyScope implements AutoCloseable {
       count = storeCount;
       touched = stores;
       held = pins;
-      stores = new ProjectionColumnStore[0];
-      pins = new long[0][];
+      stores = null;
+      pins = null;
       storeCount = 0;
     }
-    // Re-sample at the query's END too: the release decides against the memory situation the query
-    // actually left behind, not the one it started from.
-    if (ProjectionColumnStore.residencyHeadroomEnabled()) {
-      ProjectionColumnStore.sampleHeadroomShare();
-    }
-    // Drop every pin BEFORE sweeping any store: a query that filled two columns of one store must
-    // see both unpinned when the first sweep runs, or the sweep would keep the second for no reason.
-    // The store monitor is taken by the sweep, never while this scope's monitor is held — the pin
-    // path takes the scope monitor while a caller may hold the store monitor, so the one direction
-    // store -> scope is the only nesting that ever happens.
-    for (int i = 0; i < count; i++) {
-      touched[i].dropPins(held[i]);
+    Throwable failure = null;
+    try {
+      if (ProjectionColumnStore.residencyHeadroomEnabled()) {
+        ProjectionColumnStore.sampleHeadroomShare();
+      }
+    } catch (final Throwable cleanup) {
+      failure = cleanup;
     }
     for (int i = 0; i < count; i++) {
-      touched[i].releaseUnpinnedOverBudget();
+      try {
+        touched[i].dropPins(held[i]);
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
     }
+    for (int i = 0; i < count; i++) {
+      try {
+        touched[i].releaseUnpinnedOverBudget();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+    }
+    rethrowCleanupFailure(failure);
   }
 }

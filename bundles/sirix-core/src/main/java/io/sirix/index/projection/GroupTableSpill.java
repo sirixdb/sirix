@@ -1,5 +1,8 @@
 package io.sirix.index.projection;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
@@ -427,13 +430,20 @@ public final class GroupTableSpill {
 
     /** Hand every chunk back to the scan's workspace and empty the buffer. */
     void release(final GroupWorkspace workspace) {
+      Throwable failure = null;
       for (int i = 0; i < chunkCount; i++) {
-        workspace.giveChunk(chunks[i]);
+        final GroupBuffer chunk = chunks[i];
         chunks[i] = null;
         used[i] = 0;
+        try {
+          workspace.giveChunk(chunk);
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
       chunkCount = 0;
       stripes = 0L;
+      rethrowCleanupFailure(failure);
     }
   }
 
@@ -1031,7 +1041,12 @@ public final class GroupTableSpill {
    * this spill may be read afterwards.
    */
   public void close() {
-    releaseTables();
+    Throwable failure = null;
+    try {
+      releaseTables();
+    } catch (final Throwable cleanup) {
+      failure = cleanup;
+    }
     final GroupWorkspace own;
     synchronized (this) {
       own = privateWorkspace
@@ -1039,8 +1054,13 @@ public final class GroupTableSpill {
           : null;
     }
     if (own != null) {
-      own.close();
+      try {
+        own.close();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
     }
+    rethrowCleanupFailure(failure);
   }
 
   private int localTableHint() {
@@ -1484,6 +1504,7 @@ public final class GroupTableSpill {
    * and before re-planning; the spill is not reused.
    */
   public void releaseTables() {
+    Throwable failure = null;
     for (int p = 0; p < partitions; p++) {
       synchronized (locks[p]) {
         final NumericGroupAggTable table = shared[p];
@@ -1491,7 +1512,11 @@ public final class GroupTableSpill {
           sharedRehashes.add(table.rehashes());
           shared[p] = null;
           // Its storage is the restart's tables: hand it back to the workspace.
-          table.retire();
+          try {
+            table.retire();
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
         if (stripeBuffers != null && stripeBuffers[p] != null) {
           // The counters the estimate reads survive a release (they are what the pass SAW), so the
@@ -1501,15 +1526,25 @@ public final class GroupTableSpill {
             buffered.add(-held);
             spilled.add(held);
           }
-          stripeBuffers[p].release(workspace());
+          try {
+            stripeBuffers[p].release(workspace());
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
         if (p == 0 && zeroGroups != null) {
-          zeroGroups.retire();
+          final NumericGroupAggTable zero = zeroGroups;
           zeroGroups = null;
+          try {
+            zero.retire();
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
       }
     }
     RELEASES.increment();
+    rethrowCleanupFailure(failure);
   }
 
   /**
