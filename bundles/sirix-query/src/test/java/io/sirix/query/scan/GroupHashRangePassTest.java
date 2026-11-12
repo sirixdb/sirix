@@ -74,9 +74,12 @@ final class GroupHashRangePassTest {
   private long previousBudget;
   private int previousThreshold;
   private int previousSubChunk;
+  private String previousPartitions;
 
   @BeforeEach
   void setUp() throws Exception {
+    // Keep partition tails within CI's native grant to exercise the budget-triggered restart.
+    previousPartitions = System.setProperty(SirixVectorizedExecutor.GROUP_MERGE_PARTITIONS_PROPERTY, "32");
     previousBudget = GroupTableSpill.setGroupBudgetForTesting(32L);
     previousThreshold = GroupTableSpill.setFlushGroupsForTesting(8);
     previousSubChunk = GroupTableSpill.setSubChunkLeavesForTesting(1);
@@ -119,6 +122,11 @@ final class GroupHashRangePassTest {
 
   @AfterEach
   void tearDown() {
+    if (previousPartitions == null) {
+      System.clearProperty(SirixVectorizedExecutor.GROUP_MERGE_PARTITIONS_PROPERTY);
+    } else {
+      System.setProperty(SirixVectorizedExecutor.GROUP_MERGE_PARTITIONS_PROPERTY, previousPartitions);
+    }
     GroupTableSpill.setGroupBudgetForTesting(previousBudget);
     GroupTableSpill.setFlushGroupsForTesting(previousThreshold);
     GroupTableSpill.setSubChunkLeavesForTesting(previousSubChunk);
