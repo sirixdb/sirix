@@ -28,7 +28,38 @@ public final class GroupLanes {
 
   private static final VarHandle LANE = ValueLayout.JAVA_LONG_UNALIGNED.varHandle();
 
+  /**
+   * Debug mode's atomic lane accesses. Declared here, not beside their one user
+   * {@link GroupDebugRecords}: a segment handle is a constant of a native image only in a class
+   * initialized at build time, which this class is and one with per-thread state cannot be.
+   */
+  private static final VarHandle ATOMIC_LANE = ValueLayout.JAVA_LONG.varHandle();
+
   private GroupLanes() {}
+
+  /** Lane {@code lane} of the bounded view {@code view}, read opaquely. */
+  static long boundedGetOpaque(final GroupBuffer view, final int lane) {
+    view.requireLive();
+    final long result = (long) ATOMIC_LANE.getOpaque(view.segment, (long) lane << 3);
+    Reference.reachabilityFence(view);
+    return result;
+  }
+
+  /** Compare-and-exchange on lane {@code lane} of the bounded view {@code view}. */
+  static long boundedCompareAndExchange(final GroupBuffer view, final int lane, final long expected, final long value) {
+    view.requireLive();
+    final long result = (long) ATOMIC_LANE.compareAndExchange(view.segment, (long) lane << 3, expected, value);
+    Reference.reachabilityFence(view);
+    return result;
+  }
+
+  /** Atomic add to lane {@code lane} of the bounded view {@code view}; the value before it. */
+  static long boundedGetAndAdd(final GroupBuffer view, final int lane, final long value) {
+    view.requireLive();
+    final long result = (long) ATOMIC_LANE.getAndAdd(view.segment, (long) lane << 3, value);
+    Reference.reachabilityFence(view);
+    return result;
+  }
 
   /** Lane {@code lane} of {@code lanes}. */
   public static long get(final GroupBuffer lanes, final int lane) {

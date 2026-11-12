@@ -3,9 +3,6 @@
  */
 package io.sirix.index.projection;
 
-import java.lang.foreign.ValueLayout;
-import java.lang.invoke.VarHandle;
-import java.lang.ref.Reference;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -30,8 +27,6 @@ import java.util.Map;
 final class GroupDebugRecords {
 
   /** Marks a record as a filing number: never a valid address, in either mode. */
-  private static final VarHandle ATOMIC_LANE = ValueLayout.JAVA_LONG.varHandle();
-
   private static final long TAG = Long.MIN_VALUE;
 
   /** Filings beyond which the dead ones are looked for. */
@@ -82,29 +77,17 @@ final class GroupDebugRecords {
 
   static long getOpaque(final long record, final int lane) {
     final GroupBuffer view = view(record);
-    final int checkedLane = lane(view, lane);
-    view.requireLive();
-    final long result = (long) ATOMIC_LANE.getOpaque(view.segment, (long) checkedLane << 3);
-    Reference.reachabilityFence(view);
-    return result;
+    return GroupLanes.boundedGetOpaque(view, lane(view, lane));
   }
 
   static long compareAndExchange(final long record, final int lane, final long expected, final long value) {
     final GroupBuffer view = view(record);
-    final int checkedLane = lane(view, lane);
-    view.requireLive();
-    final long result = (long) ATOMIC_LANE.compareAndExchange(view.segment, (long) checkedLane << 3, expected, value);
-    Reference.reachabilityFence(view);
-    return result;
+    return GroupLanes.boundedCompareAndExchange(view, lane(view, lane), expected, value);
   }
 
   static long getAndAdd(final long record, final int lane, final long value) {
     final GroupBuffer view = view(record);
-    final int checkedLane = lane(view, lane);
-    view.requireLive();
-    final long result = (long) ATOMIC_LANE.getAndAdd(view.segment, (long) checkedLane << 3, value);
-    Reference.reachabilityFence(view);
-    return result;
+    return GroupLanes.boundedGetAndAdd(view, lane(view, lane), value);
   }
 
   static void add(final long record, final int lane, final long delta) {
