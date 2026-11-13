@@ -3,17 +3,19 @@
  */
 package io.sirix.index.projection;
 
+import java.lang.ref.WeakReference;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * Debug mode's records ({@link GroupKernelLanes#DEBUG}): the bounded views that stand in for the
  * addresses the aggregation kernels use in production.
  *
  * <p>
- * Resolving a record in debug mode cuts a view of exactly the resolved footprint from its
- * allocation and files it here; the record the kernel receives is that filing's number, not an
- * address. Each lane access looks the view up again and goes through its bounded segment, so a lane
+ * Resolving a record in debug mode files the resolved footprint of its allocation here; the record
+ * the kernel receives is that filing's number, not an address. Each lane access looks the footprint
+ * up again, checks its bounds and goes through the allocation's bounded segment, so a lane
  * outside the footprint fails even when it lies inside the same chunk (the neighbouring stripe),
  * and a view of a chunk that has been handed back fails even after another table took the same
  * memory: the number names one footprint of one generation of one allocation, for as long as it is
@@ -36,12 +38,30 @@ final class GroupDebugRecords {
   @SuppressWarnings("java:S5164")
   private static final ThreadLocal<GroupDebugRecords> OF_THREAD = ThreadLocal.withInitial(GroupDebugRecords::new);
 
-  /** One footprint of one allocation; the allocation compares by identity. */
-  private record Footprint(GroupBuffer allocation, int first, int lanes) {
+  private record Footprint(int first, int lanes) {
   }
 
-  private final Map<Footprint, Long> numbers = new HashMap<>();
-  private final Map<Long, GroupBuffer> views = new HashMap<>();
+  private record View(WeakReference<GroupBuffer> allocation, int first, int lanes) {
+    private View(final GroupBuffer bounded) {
+      this(new WeakReference<>(bounded.allocation()), bounded.firstLane(), bounded.viewLanes());
+    }
+
+    private GroupBuffer buffer() {
+      final GroupBuffer buffer = allocation.get();
+      if (buffer == null) {
+        throw new IllegalStateException("aggregation allocation is no longer reachable");
+      }
+      return buffer;
+    }
+
+    private boolean isLive() {
+      final GroupBuffer buffer = allocation.get();
+      return buffer != null && buffer.isLive();
+    }
+  }
+
+  private final Map<GroupBuffer, Map<Footprint, Long>> numbers = new WeakHashMap<>();
+  private final Map<Long, View> views = new HashMap<>();
   private long filed;
   private int sweepAt = SWEEP_AT;
 
@@ -53,43 +73,44 @@ final class GroupDebugRecords {
    */
   static long open(final GroupBuffer source, final int first, final int lanes) {
     final GroupDebugRecords file = OF_THREAD.get();
-    final Footprint footprint = new Footprint(source.allocation(), first, lanes);
-    final Long known = file.numbers.get(footprint);
-    if (known != null) {
-      return known;
-    }
     if (file.views.size() >= file.sweepAt) {
       file.sweep();
     }
+    final Map<Footprint, Long> footprints = file.numbers.computeIfAbsent(source.allocation(), _ -> new HashMap<>());
+    final Footprint footprint = new Footprint(first, lanes);
+    final Long known = footprints.get(footprint);
+    if (known != null) {
+      return known;
+    }
     final long groupRecord = TAG | file.filed++;
-    file.numbers.put(footprint, groupRecord);
-    file.views.put(groupRecord, source.view(first, lanes));
+    footprints.put(footprint, groupRecord);
+    file.views.put(groupRecord, new View(source.view(first, lanes)));
     return groupRecord;
   }
 
   static long get(final long groupRecord, final int lane) {
-    final GroupBuffer view = view(groupRecord);
-    return GroupLanes.get(view, view.firstLane() + lane(view, lane));
+    final View view = view(groupRecord);
+    return GroupLanes.get(view.buffer(), lane(view, lane));
   }
 
   static void set(final long groupRecord, final int lane, final long value) {
-    final GroupBuffer view = view(groupRecord);
-    GroupLanes.set(view, view.firstLane() + lane(view, lane), value);
+    final View view = view(groupRecord);
+    GroupLanes.set(view.buffer(), lane(view, lane), value);
   }
 
   static long getOpaque(final long groupRecord, final int lane) {
-    final GroupBuffer view = view(groupRecord);
-    return GroupLanes.boundedGetOpaque(view, lane(view, lane));
+    final View view = view(groupRecord);
+    return GroupLanes.boundedGetOpaque(view.buffer(), lane(view, lane));
   }
 
   static long compareAndExchange(final long groupRecord, final int lane, final long expected, final long value) {
-    final GroupBuffer view = view(groupRecord);
-    return GroupLanes.boundedCompareAndExchange(view, lane(view, lane), expected, value);
+    final View view = view(groupRecord);
+    return GroupLanes.boundedCompareAndExchange(view.buffer(), lane(view, lane), expected, value);
   }
 
   static long getAndAdd(final long groupRecord, final int lane, final long value) {
-    final GroupBuffer view = view(groupRecord);
-    return GroupLanes.boundedGetAndAdd(view, lane(view, lane), value);
+    final View view = view(groupRecord);
+    return GroupLanes.boundedGetAndAdd(view.buffer(), lane(view, lane), value);
   }
 
   static void add(final long groupRecord, final int lane, final long delta) {
@@ -108,8 +129,8 @@ final class GroupDebugRecords {
     }
   }
 
-  private static GroupBuffer view(final long groupRecord) {
-    final GroupBuffer view = groupRecord < 0L
+  private static View view(final long groupRecord) {
+    final View view = groupRecord < 0L
         ? OF_THREAD.get().views.get(groupRecord)
         : null;
     if (view == null) {
@@ -118,24 +139,19 @@ final class GroupDebugRecords {
     return view;
   }
 
-  /**
-   * {@code lane} unchanged when it lies in the view; the view's own range check words the failure.
-   */
-  private static int lane(final GroupBuffer view, final int lane) {
-    if (lane < 0 || lane >= view.viewLanes()) {
-      throw new IndexOutOfBoundsException("lane " + lane + " outside a record of " + view.viewLanes() + " lanes");
+  private static int lane(final View view, final int lane) {
+    if (lane < 0 || lane >= view.lanes()) {
+      throw new IndexOutOfBoundsException("lane " + lane + " outside a record of " + view.lanes() + " lanes");
     }
-    return lane;
+    return view.first() + lane;
   }
 
   /** Drop the filings whose allocation was handed back or whose workspace is closed. */
   private void sweep() {
-    numbers.entrySet().removeIf(filing -> {
-      if (views.get(filing.getValue()).isLive()) {
-        return false;
-      }
-      views.remove(filing.getValue());
-      return true;
+    views.values().removeIf(view -> !view.isLive());
+    numbers.values().removeIf(footprints -> {
+      footprints.values().removeIf(number -> !views.containsKey(number));
+      return footprints.isEmpty();
     });
     sweepAt = Math.max(SWEEP_AT, views.size() << 1);
   }

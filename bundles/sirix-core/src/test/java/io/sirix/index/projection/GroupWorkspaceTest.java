@@ -11,6 +11,7 @@ import io.sirix.cache.ScratchUse;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.parallel.Isolated;
 
 import java.lang.foreign.MemorySegment;
@@ -378,6 +379,34 @@ final class GroupWorkspaceTest {
   private static void borrowInAWorkspaceNobodyKeeps() {
     final GroupWorkspace workspace = GroupWorkspace.selfReturning();
     assertEquals(FULL_CHUNK, GroupLanes.count(workspace.takeChunk(FULL_CHUNK)));
+  }
+
+  @Test
+  @EnabledIfSystemProperty(named = "sirix.aggregation.debug", matches = "true")
+  void debugRecordsDoNotRetainADroppedStandaloneTablesWorkspace() throws InterruptedException {
+    assertTrue(GroupKernelLanes.DEBUG);
+    final ScratchStats before = stats();
+    final long closedBefore = GroupWorkspace.closedCount();
+    final long grantedBefore = Allocators.getInstance().aggregationBudget().grantedBytes();
+    final long groupRecord = acquireInATableNobodyKeeps();
+    assertTrue(borrows(stats()) > borrows(before));
+
+    letDroppedWorkspacesReturn();
+
+    assertEquals(closedBefore + 1, GroupWorkspace.closedCount(), "the dropped table's workspace was never returned");
+    assertEquals(before.totalLentBuffers(), stats().totalLentBuffers(), "its regions are the allocator's again");
+    assertEquals(grantedBefore, Allocators.getInstance().aggregationBudget().grantedBytes());
+    assertEquals(0, stats().staleReleases() - before.staleReleases());
+    assertThrows(IllegalStateException.class, () -> GroupKernelLanes.get(groupRecord, 0));
+  }
+
+  private static long acquireInATableNobodyKeeps() {
+    final NumericGroupAggTable table = new NumericGroupAggTable(1, 16);
+    final int handle = table.acquire(1L, 0L);
+    final long groupRecord = table.accumulatorAt(handle, 1, 4);
+    GroupKernelLanes.set(groupRecord, 0, 7L);
+    assertEquals(7L, GroupKernelLanes.get(groupRecord, 0));
+    return groupRecord;
   }
 
   @Test

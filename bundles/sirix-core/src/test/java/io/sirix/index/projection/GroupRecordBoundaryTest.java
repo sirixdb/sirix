@@ -4,12 +4,47 @@
 package io.sirix.index.projection;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+
+import java.lang.ref.Reference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class GroupRecordBoundaryTest {
+  @Test
+  @EnabledIfSystemProperty(named = "sirix.aggregation.debug", matches = "true")
+  void debugRecordsPreserveLiveFootprintsAcrossCollection() {
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final GroupBuffer buffer = workspace.takeChunk(32);
+      final long groupRecord = buffer.recordAt(13, 13);
+      System.gc();
+      assertEquals(groupRecord, buffer.recordAt(13, 13));
+      GroupKernelLanes.set(groupRecord, 12, 55L);
+      assertEquals(55L, GroupKernelLanes.getOpaque(groupRecord, 12));
+      assertEquals(55L, GroupKernelLanes.compareAndExchange(groupRecord, 12, 55L, 56L));
+      assertEquals(56L, GroupKernelLanes.getAndAdd(groupRecord, 12, 3L));
+      assertEquals(59L, GroupLanes.get(buffer, 25));
+      for (final int outside : new int[] {-1, 13}) {
+        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.get(groupRecord, outside));
+        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.set(groupRecord, outside, 1L));
+        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.getOpaque(groupRecord, outside));
+        assertThrows(IndexOutOfBoundsException.class,
+            () -> GroupKernelLanes.compareAndExchange(groupRecord, outside, 0L, 1L));
+        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.getAndAdd(groupRecord, outside, 1L));
+      }
+      assertEquals(0L, GroupLanes.get(buffer, 12));
+      assertEquals(0L, GroupLanes.get(buffer, 26));
+      workspace.giveChunk(buffer);
+      assertThrows(IllegalStateException.class, () -> GroupKernelLanes.getOpaque(groupRecord, 12));
+      assertThrows(IllegalStateException.class,
+          () -> GroupKernelLanes.compareAndExchange(groupRecord, 12, 59L, 0L));
+      assertThrows(IllegalStateException.class, () -> GroupKernelLanes.getAndAdd(groupRecord, 12, 1L));
+      Reference.reachabilityFence(buffer);
+    }
+  }
+
   @Test
   void completeFootprintsCoverNarrowWideAndIdentityLayouts() {
     try (GroupWorkspace workspace = new GroupWorkspace()) {
