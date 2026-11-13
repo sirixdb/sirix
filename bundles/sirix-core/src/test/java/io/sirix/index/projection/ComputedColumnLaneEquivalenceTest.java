@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.util.Random;
+import java.util.function.IntToLongFunction;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -210,7 +211,8 @@ final class ComputedColumnLaneEquivalenceTest {
   @Test
   @DisplayName("a leaf the keep mask drops is the pruned sentinel and is never read")
   void aDroppedLeafIsThePrunedSentinel() {
-    final Program program = new Program("cost*qty", MUL, NO_CONSTS, 2);
+    final Program program = new Program("cost*qty", MUL, NO_CONSTS, 2,
+        (final int row) -> Math.multiplyExact(values[0][row], values[1][row]));
     final long[][] presence = allPresent(2);
     try (Arena arena = Arena.ofConfined()) {
       final ColumnSlice[][] single = slabOperands(arena, presence, 2);
@@ -284,7 +286,7 @@ final class ComputedColumnLaneEquivalenceTest {
   // ==================== harness ====================
 
   /** One postfix program with the operand width it needs. */
-  private record Program(String name, int[] code, long[] consts, int operands) {
+  private record Program(String name, int[] code, long[] consts, int operands, IntToLongFunction expectedValue) {
     @Override
     public String toString() {
       return name;
@@ -292,9 +294,13 @@ final class ComputedColumnLaneEquivalenceTest {
   }
 
   /** One unary, one binary and one ternary program: the counted read serves the first two. */
-  private static Program[] programs() {
-    return new Program[] {new Program("cost+7", PLUS_CONST, CONSTS, 1), new Program("cost*qty", MUL, NO_CONSTS, 2),
-        new Program("cost*qty+fee", MUL_PLUS_OPERAND, NO_CONSTS, 3)};
+  private Program[] programs() {
+    return new Program[] {
+        new Program("cost+7", PLUS_CONST, CONSTS, 1, (final int row) -> Math.addExact(values[0][row], 7L)),
+        new Program("cost*qty", MUL, NO_CONSTS, 2,
+            (final int row) -> Math.multiplyExact(values[0][row], values[1][row])),
+        new Program("cost*qty+fee", MUL_PLUS_OPERAND, NO_CONSTS, 3,
+            (final int row) -> Math.addExact(Math.multiplyExact(values[0][row], values[1][row]), values[2][row]))};
   }
 
   private long[][] presenceOf(final String density, final int operandCount) {
@@ -436,24 +442,7 @@ final class ComputedColumnLaneEquivalenceTest {
         continue;
       }
       words[w] |= 1L << (row & 63);
-      int depth = 0;
-      final long[] stack = new long[8];
-      for (final int op : program.code()) {
-        if (op >= ProjectionIndexByteScan.COMPUTED_CONST_BASE) {
-          stack[depth++] = program.consts()[op - ProjectionIndexByteScan.COMPUTED_CONST_BASE];
-        } else if (op >= 0) {
-          stack[depth++] = values[op][row];
-        } else {
-          final long b = stack[--depth];
-          final long a = stack[--depth];
-          stack[depth++] = op == ProjectionIndexByteScan.COMPUTED_OP_MUL
-              ? Math.multiplyExact(a, b)
-              : op == ProjectionIndexByteScan.COMPUTED_OP_ADD
-                  ? Math.addExact(a, b)
-                  : Math.subtractExact(a, b);
-        }
-      }
-      final long v = stack[0];
+      final long v = program.expectedValue().applyAsLong(row);
       expected[row] = v;
       min = Math.min(min, v);
       max = Math.max(max, v);
