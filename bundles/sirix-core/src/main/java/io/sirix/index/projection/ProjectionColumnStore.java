@@ -809,7 +809,8 @@ public final class ProjectionColumnStore {
       if (this == other) {
         return true;
       }
-      return other instanceof LaneLayout that && (Arrays.equals(leafBases, that.leafBases) && bytes == that.bytes);
+      return other instanceof LaneLayout(long[] otherBases, long otherBytes) && Arrays.equals(leafBases, otherBases)
+          && bytes == otherBytes;
     }
 
     @Override
@@ -2151,18 +2152,14 @@ public final class ProjectionColumnStore {
    *
    * @throws IllegalStateException on missing/corrupt segments or a non-sliceable column
    */
-  // Cleanup is rethrown only without a primary failure; otherwise it is suppressed on that failure.
+  // Sonar S1143, S1163: cleanup is rethrown only without a primary failure. Otherwise it is
+  // suppressed
+  // on that failure.
   // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
   // failure is rethrown with later ones attached.
-  @SuppressWarnings({"java:S1143", "java:S1181"})
+  @SuppressWarnings({"java:S1143", "java:S1163", "java:S1181"})
   public ColumnSlice[] column(final int col, final ColumnSegmentFetcher fetcher) {
-    if (!columnSliceable(col)) {
-      throw new IllegalStateException("Column " + col + " is not sliceable (kind="
-          + (col >= 0 && col < columnKinds.length
-              ? columnKinds[col]
-              : -1)
-          + ")");
-    }
+    requireSliceable(col);
     ColumnSlice[] slices = columns[col];
     if (slices != null) {
       // Pin FIRST, then re-read the slot: a release that unpublished the slot after the first read
@@ -2230,6 +2227,16 @@ public final class ProjectionColumnStore {
           }
         }
       }
+    }
+  }
+
+  private void requireSliceable(final int col) {
+    if (!columnSliceable(col)) {
+      throw new IllegalStateException("Column " + col + " is not sliceable (kind="
+          + (col >= 0 && col < columnKinds.length
+              ? columnKinds[col]
+              : -1)
+          + ")");
     }
   }
 
@@ -2670,9 +2677,6 @@ public final class ProjectionColumnStore {
    * @param keepKeys whether the caller is about to read the resident KEYS lane
    * @return {@code true} when the fill fits, after any eviction it needed
    */
-  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
-  // failure is rethrown with later ones attached.
-  @SuppressWarnings("java:S1181")
   private boolean fitsMakingRoom(final long needed, final int[] keep, final boolean keepKeys) {
     final long budget = residencyBudgetBytes();
     if (retainedFillBytes.get() + needed <= budget) {
@@ -2681,78 +2685,32 @@ public final class ProjectionColumnStore {
     if (!residencyEvict || needed > budget) {
       return false;
     }
-    long freed = 0L;
-    Throwable failure = null;
-    int evictions = 0;
+    final Reclaimed evicted = new Reclaimed();
     synchronized (this) {
-      long retained = retainedFillBytes.get();
+      final long retained = retainedFillBytes.get();
       if (retained + needed <= budget) {
         return true;
       }
-      final boolean[] kept = new boolean[columnKinds.length];
-      for (final int col : keep) {
-        if (col >= 0 && col < kept.length) {
-          kept[col] = true;
-        }
-      }
-      final int keysSlot = keysPinSlot();
-      final boolean keysEvictable = !keepKeys && residencyPins.get(keysSlot) == 0;
-      long evictable = keysEvictable
+      final boolean[] kept = keptColumns(keep);
+      final boolean keysEvictable = !keepKeys && residencyPins.get(keysPinSlot()) == 0;
+      final long evictable = releasableColumnBytes(kept) + (keysEvictable
           ? chargedKeysBytes
-          : 0L;
-      for (int col = 0; col < columnKinds.length; col++) {
-        if (!kept[col] && residencyPins.get(col) == 0) {
-          evictable += chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
-        }
-      }
+          : 0L);
       if (retained - evictable + needed > budget) {
         return false; // could not fit even with everything evictable gone: touch nothing
       }
-      while (retained + needed > budget) {
-        int bestColumn = -1;
-        long bestBytes = 0L;
-        for (int col = 0; col < columnKinds.length; col++) {
-          if (kept[col] || residencyPins.get(col) != 0) {
-            continue;
-          }
-          final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
-          if (bytes > bestBytes) {
-            bestBytes = bytes;
-            bestColumn = col;
-          }
-        }
-        final boolean keys = keysEvictable && chargedKeysBytes > bestBytes;
-        if (keys) {
-          bestBytes = chargedKeysBytes;
-          recordKeySlices = null;
-          chargedKeysBytes = 0L;
-        } else if (bestColumn < 0 || bestBytes <= 0L) {
-          break; // the dry pass admitted this fit, so this is unreachable; fail closed if it is not
-        } else {
-          try {
-            bestBytes = releaseColumnLanes(bestColumn);
-          } catch (final Throwable cleanup) {
-            failure = retainCleanupFailure(failure, cleanup);
-            kept[bestColumn] = true;
-            retained = retainedFillBytes.get();
-            continue;
-          }
-          if (bestBytes == 0L) {
-            kept[bestColumn] = true; // a reader pinned it meanwhile: it stays, and is not asked again
-            continue;
-          }
-        }
-        retained = keys
-            ? retainedFillBytes.addAndGet(-bestBytes)
-            : retainedFillBytes.get();
-        freed += bestBytes;
-        evictions++;
+      // The dry pass admitted this fit, so running out of units is unreachable; fail closed if it is not.
+      boolean more = true;
+      while (more && retainedFillBytes.get() + needed > budget) {
+        more = releaseLargestUnit(kept, keysEvictable, evicted);
       }
-      rethrowCleanupFailure(failure);
-      if (retained + needed > budget) {
+      rethrowCleanupFailure(evicted.failure);
+      if (retainedFillBytes.get() + needed > budget) {
         return false;
       }
     }
+    final int evictions = evicted.units;
+    final long freed = evicted.bytes;
     RESIDENCY_EVICTIONS.add(evictions);
     RESIDENCY_EVICTED_BYTES.add(freed);
     if (Boolean.getBoolean(PROJ_DIAG_PROPERTY)) {
@@ -2932,9 +2890,6 @@ public final class ProjectionColumnStore {
    * small — the same economics that made them charged-but-never-refused.
    * </p>
    */
-  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
-  // failure is rethrown with later ones attached.
-  @SuppressWarnings("java:S1181")
   void releaseUnpinnedOverBudget() {
     if (!residencyHeadroom) {
       return; // kill switch: retain for the store's lifetime, exactly as before R1
@@ -2943,59 +2898,99 @@ public final class ProjectionColumnStore {
     if (retainedFillBytes.get() <= budget) {
       return;
     }
-    long freed = 0L;
-    Throwable failure = null;
-    int releases = 0;
+    final Reclaimed released = new Reclaimed();
     synchronized (this) {
-      long retained = retainedFillBytes.get();
       final int keysSlot = keysPinSlot();
       // A column whose release found a reader (see releaseColumnLanes) stays and is not asked again.
       final boolean[] kept = new boolean[columnKinds.length];
-      while (retained > budget) {
-        // Largest releasable unit first: not an LRU (no recency is consulted, and none is recorded),
-        // simply the choice that reaches the budget in the fewest drops and therefore re-fetches the
-        // fewest columns if they are wanted again.
-        final int bestColumn = largestReleasableColumn(kept);
-        long bestBytes = bestColumn < 0
-            ? 0L
-            : chargedColumnBytes(bestColumn);
-        final boolean keys = residencyPins.get(keysSlot) == 0 && chargedKeysBytes > bestBytes;
-        if (keys) {
-          bestBytes = chargedKeysBytes;
-        } else if (bestColumn < 0) {
-          break; // everything left is pinned or already released
-        }
-        if (bestBytes <= 0L) {
-          break;
-        }
-        if (keys) {
-          recordKeySlices = null;
-          chargedKeysBytes = 0L;
-        } else {
-          try {
-            bestBytes = releaseColumnLanes(bestColumn);
-          } catch (final Throwable cleanup) {
-            failure = retainCleanupFailure(failure, cleanup);
-            kept[bestColumn] = true;
-            retained = retainedFillBytes.get();
-            continue;
-          }
-          if (bestBytes == 0L) {
-            kept[bestColumn] = true;
-            continue;
-          }
-        }
-        retained = keys
-            ? retainedFillBytes.addAndGet(-bestBytes)
-            : retainedFillBytes.get();
-        freed += bestBytes;
-        releases++;
+      boolean more = true;
+      while (more && retainedFillBytes.get() > budget) {
+        more = releaseLargestUnit(kept, residencyPins.get(keysSlot) == 0, released);
       }
     }
-    rethrowCleanupFailure(failure);
-    if (freed > 0L) {
-      noteResidencyRelease(freed, releases, budget);
+    rethrowCleanupFailure(released.failure);
+    if (released.bytes > 0L) {
+      noteResidencyRelease(released.bytes, released.units, budget);
     }
+  }
+
+  /** The running totals of one eviction or release round. */
+  private static final class Reclaimed {
+    private long bytes;
+    private int units;
+    private @Nullable Throwable failure;
+  }
+
+  /**
+   * Release the largest unit that may go, under the monitor: the resident KEYS lane when
+   * {@code keysReleasable} and it is larger than every releasable column, else the largest column
+   * that is neither kept nor pinned. Largest first is not an LRU (no recency is consulted, and none
+   * is recorded), simply the choice that reaches a budget in the fewest drops and therefore
+   * re-fetches the fewest columns if they are wanted again. A column whose release fails or finds a
+   * reader is marked in {@code kept} and not asked again.
+   *
+   * @return {@code false} when nothing releasable is left, {@code true} while another call may free
+   *         more
+   */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
+  private boolean releaseLargestUnit(final boolean[] kept, final boolean keysReleasable, final Reclaimed totals) {
+    assert Thread.holdsLock(this);
+    final int bestColumn = largestReleasableColumn(kept);
+    final long largestColumnBytes = bestColumn < 0
+        ? 0L
+        : chargedColumnBytes(bestColumn);
+    if (keysReleasable && chargedKeysBytes > largestColumnBytes) {
+      final long keysBytes = chargedKeysBytes;
+      recordKeySlices = null;
+      chargedKeysBytes = 0L;
+      retainedFillBytes.addAndGet(-keysBytes);
+      totals.bytes += keysBytes;
+      totals.units++;
+      return true;
+    }
+    if (bestColumn < 0) {
+      return false; // everything left is pinned or already released
+    }
+    final long released;
+    try {
+      released = releaseColumnLanes(bestColumn);
+    } catch (final Throwable cleanup) {
+      totals.failure = retainCleanupFailure(totals.failure, cleanup);
+      kept[bestColumn] = true;
+      return true;
+    }
+    if (released == 0L) {
+      kept[bestColumn] = true; // a reader pinned it meanwhile: it stays, and is not asked again
+      return true;
+    }
+    totals.bytes += released;
+    totals.units++;
+    return true;
+  }
+
+  /** The columns of {@code keep} as marks: what a caller is about to read is never evicted. */
+  private boolean[] keptColumns(final int[] keep) {
+    final boolean[] kept = new boolean[columnKinds.length];
+    for (final int col : keep) {
+      if (col >= 0 && col < kept.length) {
+        kept[col] = true;
+      }
+    }
+    return kept;
+  }
+
+  /** What the ledger holds for every column that is neither kept nor pinned. */
+  private long releasableColumnBytes(final boolean[] kept) {
+    assert Thread.holdsLock(this);
+    long bytes = 0L;
+    for (int col = 0; col < columnKinds.length; col++) {
+      if (!kept[col] && residencyPins.get(col) == 0) {
+        bytes += chargedColumnBytes(col);
+      }
+    }
+    return bytes;
   }
 
   /**
@@ -3078,15 +3073,15 @@ public final class ProjectionColumnStore {
   private void publishColumn(final int col, final ColumnSlice @Nullable [] slices,
       final ColumnSlice @Nullable [] identity, final byte[] @Nullable [] bodies) {
     assert Thread.holdsLock(this);
-    final ColumnSlice[][] nextColumns = columns[col] != slices
-        ? columns.clone()
-        : columns;
-    final ColumnSlice[][] nextIdentity = identityColumns[col] != identity
-        ? identityColumns.clone()
-        : identityColumns;
-    final byte[][][] nextBodies = columnBytes[col] != bodies
-        ? columnBytes.clone()
-        : columnBytes;
+    final ColumnSlice[][] nextColumns = columns[col] == slices
+        ? columns
+        : columns.clone();
+    final ColumnSlice[][] nextIdentity = identityColumns[col] == identity
+        ? identityColumns
+        : identityColumns.clone();
+    final byte[][][] nextBodies = columnBytes[col] == bodies
+        ? columnBytes
+        : columnBytes.clone();
     nextColumns[col] = slices;
     nextIdentity[col] = identity;
     nextBodies[col] = bodies;
@@ -4222,11 +4217,11 @@ public final class ProjectionColumnStore {
     b += s.presenceWords() == null
         ? 0
         : s.presenceWords().length * 8L;
-    b += s.lane() != null
-        ? 8L * s.rowCount()
-        : s.numericValues() == null
-            ? 0
-            : s.numericValues().length * 8L;
+    if (s.lane() != null) {
+      b += 8L * s.rowCount();
+    } else if (s.numericValues() != null) {
+      b += s.numericValues().length * 8L;
+    }
     b += s.boolWords() == null
         ? 0
         : s.boolWords().length * 8L;
@@ -5272,8 +5267,8 @@ public final class ProjectionColumnStore {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable");
     }
-    final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
-    final boolean string = set || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+    final boolean string = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+        || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
     final byte[][] bodies =
         fetchLeafSegments(leaves, base, len, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
             ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher);
@@ -5292,17 +5287,30 @@ public final class ProjectionColumnStore {
       final byte[] dictSeg = dicts != null
           ? dicts[i]
           : null;
-      decoded[i] = columnLongLane(col)
-          ? ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, bodySeg, col,
-              requireNonNull(lanes, "numeric leaf decode needs allocator memory"), laneBase)
-          : set
-              ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col)
-              : string
-                  ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col)
-                  : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col);
+      decoded[i] = decodeLeafSlice(col, descriptor, bodySeg, dictSeg, lanes, laneBase);
       laneBase += (long) decoded[i].rowCount() * Long.BYTES;
     }
     return decoded;
+  }
+
+  /**
+   * One leaf's slice of {@code col}, decoded by the column's kind: a long lane into {@code lanes} at
+   * {@code laneBase}, a string set or a dictionary string from its BODY and DICT segments, anything
+   * else from its BODY segment alone.
+   */
+  private ColumnSlice decodeLeafSlice(final int col, final byte[] descriptor, final byte[] bodySeg,
+      final byte @Nullable [] dictSeg, final @Nullable MemorySegment lanes, final long laneBase) {
+    if (columnLongLane(col)) {
+      return ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, bodySeg, col,
+          requireNonNull(lanes, "numeric leaf decode needs allocator memory"), laneBase);
+    }
+    if (columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      return ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col);
+    }
+    if (columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      return ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col);
+    }
+    return ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col);
   }
 
   /** Bytes the long lanes of leaves {@code [base, base + len)} occupy back to back: eight per row. */

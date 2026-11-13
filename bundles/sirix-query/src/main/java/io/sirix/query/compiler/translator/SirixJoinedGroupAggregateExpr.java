@@ -96,8 +96,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return BucketedSideCache.IN_FLIGHT.size();
   }
 
-  static @Nullable CompletableFuture<?> inFlightPackingForTesting() {
-    final Iterator<? extends CompletableFuture<?>> futures = BucketedSideCache.IN_FLIGHT.values().iterator();
+  static @Nullable CompletableFuture<BucketedSideCache.PackedSide> inFlightPackingForTesting() {
+    final Iterator<CompletableFuture<BucketedSideCache.PackedSide>> futures =
+        BucketedSideCache.IN_FLIGHT.values().iterator();
     return futures.hasNext()
         ? futures.next()
         : null;
@@ -309,10 +310,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   }
 
   private static String capturedLeavesReport() {
-    final String report = String.format("build leaves one-segment %d, split %d; probe leaves one-segment %d, split %d",
+    return String.format("build leaves one-segment %d, split %d; probe leaves one-segment %d, split %d",
         CAPTURED_SHARED[0].sumThenReset(), CAPTURED_SPLIT[0].sumThenReset(), CAPTURED_SHARED[1].sumThenReset(),
         CAPTURED_SPLIT[1].sumThenReset());
-    return report;
   }
 
   private static @Nullable Sequence decline(final String why) {
@@ -336,11 +336,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           return decline("side " + side + " has no routed rows");
         }
         if (rows.keys().length == 0) {
-          if (side == 1 && sides[0].routed() == null) {
-            return decline("an empty inner mask requires the ordinary outer source evaluation");
-          }
-          SirixVectorizedExecutor.noteJoinGroupServed();
-          return new ItemSequence();
+          return emptySide(side);
         }
         keys[side] = rows.keys();
         revisions[side] = rows.revision();
@@ -351,38 +347,72 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final MaskedColumns[] columns = new MaskedColumns[2];
     Throwable primary = null;
     try {
-      for (int side = 0; side < 2; side++) {
-        columns[side] = columns(ctx, side, keys[side], revisions[side]);
-        if (columns[side] == null) {
-          return decline("side " + side + " has no masked columns");
-        }
-        if (!columns[side].isLong(0)) {
-          return decline("join field of side " + side + " is not a long column");
-        }
-      }
-      final boolean[] stringKeys = new boolean[keyFields.length];
-      final boolean[] timestampKeys = new boolean[keyFields.length];
-      final String invalid = invalidColumns(columns, stringKeys, timestampKeys);
-      if (invalid != null) {
-        return decline(invalid);
-      }
-      // Hash the smaller side; string ids of both sides live in the build side's interner.
-      final int build = columns[0].rows() <= columns[1].rows()
-          ? 0
-          : 1;
-      final int probe = 1 - build;
-      columns[build].adopt(columns[probe]);
-      try {
-        return join(columns[build], build, columns[probe], probe, stringKeys, timestampKeys);
-      } catch (final ArithmeticException overflow) {
-        return decline("exact arithmetic overflow");
-      }
+      final String refused = loadSides(ctx, keys, revisions, columns);
+      return refused != null
+          ? decline(refused)
+          : joinSides(columns);
     } catch (final Throwable failure) {
       primary = failure;
       throw failure;
     } finally {
       // Native views lease their resident snapshot; the result sequence no longer reads them.
       closeSides(columns, primary);
+    }
+  }
+
+  /**
+   * The answer for a routed side without rows: the join is empty, unless only the inner side is
+   * routed, where the ordinary outer source evaluation has to run.
+   */
+  private @Nullable Sequence emptySide(final int side) {
+    if (side == 1 && sides[0].routed() == null) {
+      return decline("an empty inner mask requires the ordinary outer source evaluation");
+    }
+    SirixVectorizedExecutor.noteJoinGroupServed();
+    return new ItemSequence();
+  }
+
+  /**
+   * Loads the masked columns of both sides into {@code columns}; a side that is loaded stays there
+   * for the caller to close.
+   *
+   * @return why the join cannot be served, or {@code null} when both sides are loaded
+   */
+  private @Nullable String loadSides(final QueryContext ctx, final long[][] keys, final int[] revisions,
+      final MaskedColumns[] columns) {
+    for (int side = 0; side < 2; side++) {
+      columns[side] = columns(ctx, side, keys[side], revisions[side]);
+      if (columns[side] == null) {
+        return "side " + side + " has no masked columns";
+      }
+      if (!columns[side].isLong(0)) {
+        return "join field of side " + side + " is not a long column";
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Joins the two loaded sides, hashing the smaller one; declines on a column the join cannot read
+   * and on an exact arithmetic overflow.
+   */
+  private @Nullable Sequence joinSides(final MaskedColumns[] columns) throws QueryException {
+    final boolean[] stringKeys = new boolean[keyFields.length];
+    final boolean[] timestampKeys = new boolean[keyFields.length];
+    final String invalid = invalidColumns(columns, stringKeys, timestampKeys);
+    if (invalid != null) {
+      return decline(invalid);
+    }
+    // Hash the smaller side; string ids of both sides live in the build side's interner.
+    final int build = columns[0].rows() <= columns[1].rows()
+        ? 0
+        : 1;
+    final int probe = 1 - build;
+    columns[build].adopt(columns[probe]);
+    try {
+      return join(columns[build], build, columns[probe], probe, stringKeys, timestampKeys);
+    } catch (final ArithmeticException _) {
+      return decline("exact arithmetic overflow");
     }
   }
 
@@ -520,9 +550,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         denseHeads, firstRow, denseBuild);
   }
 
-  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
-  // measuring rigs read them there.
-  @SuppressWarnings("java:S106")
   private Sequence probeJoin(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
       final int probeSide, final boolean[] stringKeys, final boolean[] timestampKeys, final BuildRows buildRows,
       final int[] nextRow, final int @Nullable [] denseHeads, final Long2IntOpenHashMap firstRow,
@@ -537,9 +564,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final boolean[] probeTimestamps = new boolean[probeFieldCount];
     if (denseProbe) {
       Arrays.fill(probePresent, true);
-      for (int field = 0; field < probeFieldCount; field++) {
-        probeTimestamps[field] = probeColumns.isTimestamp(field);
-      }
+      markTimestamps(probeColumns, probeTimestamps);
     }
     final Map<GroupKey, GroupState> groups = rowOutput
         ? Map.of()
@@ -551,11 +576,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final RowOrder rowOrder;
     final ColumnarRecordSequence.Builder rowColumns;
     if (rowOutput) {
-      final boolean[] textKeys = new boolean[stringKeys.length];
-      for (int key = 0; key < textKeys.length; key++) {
-        textKeys[key] = stringKeys[key] || timestampKeys[key];
-      }
-      rowColumns = new ColumnarRecordSequence.Builder(outputNames, textKeys, 256);
+      rowColumns = new ColumnarRecordSequence.Builder(outputNames, textKeys(stringKeys, timestampKeys), 256);
       if (denseBuild && denseProbe && longOrderKeys(stringKeys, timestampKeys)) {
         // Every ordering key is a long present on every row: no item, tuple or array per emitted row.
         rowOrder = new RowOrder(orderAsc, rowColumns, 256);
@@ -575,11 +596,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final int emittedRows = probeRows(buildColumns, buildSide, probeColumns, probeSide, stringKeys, timestampKeys,
         buildRows, nextRow, denseHeads, firstRow, distinctCapacity, distinctDomains, probeValues, probePresent,
         denseProbe, probeTimestamps, groups, singleGroups, rowOrdering, rowOrder, rowColumns, denseBuild && denseProbe);
-    if (DIAG) {
-      System.err.printf("[join-serve] %s join: %d build rows, %d probe rows, %d emitted; %s%n", rowOutput
-          ? "row"
-          : "group", buildRows.count, probeColumns.rows(), emittedRows, capturedLeavesReport());
-    }
+    diagServed(buildRows, probeColumns, emittedRows);
     SirixVectorizedExecutor.noteJoinGroupServed();
     if (rowOrder != null) {
       return rowOrder.columns.build(rowOrder.sorted());
@@ -587,6 +604,33 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return rowOrdering != null
         ? orderedRows(rowOrdering, emittedRows, rowColumns)
         : emit(groups, buildColumns, stringKeys, timestampKeys);
+  }
+
+  /** Which fields of a dense probe side are timestamps. */
+  private static void markTimestamps(final MaskedColumns probeColumns, final boolean[] probeTimestamps) {
+    for (int field = 0; field < probeTimestamps.length; field++) {
+      probeTimestamps[field] = probeColumns.isTimestamp(field);
+    }
+  }
+
+  /** The output keys that are written as text: strings and timestamps. */
+  private static boolean[] textKeys(final boolean[] stringKeys, final boolean[] timestampKeys) {
+    final boolean[] textKeys = new boolean[stringKeys.length];
+    for (int key = 0; key < textKeys.length; key++) {
+      textKeys[key] = stringKeys[key] || timestampKeys[key];
+    }
+    return textKeys;
+  }
+
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
+  @SuppressWarnings("java:S106")
+  private void diagServed(final BuildRows buildRows, final MaskedColumns probeColumns, final int emittedRows) {
+    if (DIAG) {
+      System.err.printf("[join-serve] %s join: %d build rows, %d probe rows, %d emitted; %s%n", rowOutput
+          ? "row"
+          : "group", buildRows.count, probeColumns.rows(), emittedRows, capturedLeavesReport());
+    }
   }
 
   /** Whether every ordering key is a plain long output column (neither string nor timestamp). */
@@ -982,8 +1026,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         if (other == this) {
           return true;
         }
-        return other instanceof InFlightKey key && store.get() != null && key.store.get() == store.get()
-            && key.rows == rows && Arrays.equals(key.signature, signature);
+        return other instanceof InFlightKey(WeakReference<ProjectionColumnStore> otherStore, Object otherRows, long[] otherSignature)
+            && store.get() != null && otherStore.get() == store.get() && otherRows == rows
+            && Arrays.equals(otherSignature, signature);
       }
 
       @Override
@@ -1212,6 +1257,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * groups by their keys. A probe side that is not cached yet is streamed from its lanes while it is
    * packed in the background for the next execution.
    */
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
+  @SuppressWarnings("java:S106")
   private Sequence joinExtrema(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
       final DenseExtrema plan, final boolean[] stringKeys, final boolean[] timestampKeys) throws QueryException {
     final long started = DIAG
@@ -1256,27 +1304,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         final long merged = DIAG
             ? System.nanoTime()
             : 0L;
-        final long[] groupMinimum = fold.groupMinimum;
-        final long[] groupMaximum = fold.groupMaximum;
-        final Map<GroupKey, GroupState> result = new LinkedHashMap<>();
-        final int width = 1 + 4 * aggKinds.length;
-        final int minBase = 1 + 4 * plan.minimum();
-        final int maxBase = 1 + 4 * plan.maximum();
-        int seen = 0;
-        for (int group = 0; group < groups; group++) {
-          if (groupMaximum[group] == Long.MIN_VALUE && groupMinimum[group] == Long.MAX_VALUE) {
-            continue;
-          }
-          seen++;
-          final long[] acc = new long[width];
-          acc[minBase] = 1;
-          acc[maxBase] = 1;
-          acc[minBase + 2] = groupMinimum[group];
-          acc[maxBase + 3] = groupMaximum[group];
-          final DistinctValues[] distinctSets = new DistinctValues[aggKinds.length];
-          distinctSets[plan.distinct()] = new DistinctValues(fold.distinctCount(group));
-          result.put(new GroupKey(new long[] {plan.groupMinimum() + group, 0}), new GroupState(acc, distinctSets));
-        }
+        final Map<GroupKey, GroupState> result = extremaGroups(fold, plan, groups);
         if (DIAG) {
           final SideLanes probeMasks = SideLanes.capture(probeColumns, plan.probeFromSlot(), plan.probeToSlot(),
               plan.probeMarginSlot(), probeDistinctSlot, -1);
@@ -1287,8 +1315,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
                   ? "merge"
                   : "chained, packing in background",
               (built - started) / 1e6, (packed - built) / 1e6, (merged - packed) / 1e6,
-              (System.nanoTime() - merged) / 1e6, build.side.count, probeRows, slots, seen, probeMasks.fullWords,
-              probeMasks.partialWords);
+              (System.nanoTime() - merged) / 1e6, build.side.count, probeRows, slots, result.size(),
+              probeMasks.fullWords, probeMasks.partialWords);
         }
         SirixVectorizedExecutor.noteJoinGroupServed();
         return emit(result, buildColumns, stringKeys, timestampKeys);
@@ -1298,6 +1326,32 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         }
       }
     }
+  }
+
+  /**
+   * One group state for each group the fold reached: its minimum, its maximum and its distinct count.
+   */
+  private Map<GroupKey, GroupState> extremaGroups(final ExtremaFold fold, final DenseExtrema plan, final int groups) {
+    final long[] groupMinimum = fold.groupMinimum;
+    final long[] groupMaximum = fold.groupMaximum;
+    final Map<GroupKey, GroupState> result = new LinkedHashMap<>();
+    final int width = 1 + 4 * aggKinds.length;
+    final int minBase = 1 + 4 * plan.minimum();
+    final int maxBase = 1 + 4 * plan.maximum();
+    for (int group = 0; group < groups; group++) {
+      if (groupMaximum[group] == Long.MIN_VALUE && groupMinimum[group] == Long.MAX_VALUE) {
+        continue;
+      }
+      final long[] acc = new long[width];
+      acc[minBase] = 1;
+      acc[maxBase] = 1;
+      acc[minBase + 2] = groupMinimum[group];
+      acc[maxBase + 3] = groupMaximum[group];
+      final DistinctValues[] distinctSets = new DistinctValues[aggKinds.length];
+      distinctSets[plan.distinct()] = new DistinctValues(fold.distinctCount(group));
+      result.put(new GroupKey(new long[] {plan.groupMinimum() + group, 0}), new GroupState(acc, distinctSets));
+    }
+    return result;
   }
 
   private static boolean denseNumeric(final MaskedColumns columns, final int fields) {

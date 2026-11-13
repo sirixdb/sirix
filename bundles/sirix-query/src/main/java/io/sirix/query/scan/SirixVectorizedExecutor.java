@@ -14351,6 +14351,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
 
     /**
+     * The group ceiling without a test override: what the workspace can hold, else what the share
+     * plans.
+     */
+    private long derivedCeiling() {
+      if (workspace != null) {
+        return workspace.usableGroupBytes() / GroupTableSpill.bytesPerGroup(strideLanes);
+      }
+      return bounded
+          ? GroupTableSpill.boundedGroupBudgetCeiling(strideLanes)
+          : GroupTableSpill.groupBudgetCeiling(strideLanes);
+    }
+
+    /**
      * Re-read the budget when {@link #refreshWorthIt} says the allocator's whole budget would save a
      * pass. Group tables live in allocator memory, so the budget derives from the allocator's own count
      * of what it has committed: exact at the moment it is read, with nothing a collection could
@@ -14373,11 +14386,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final long testingCeiling = ceilingForTesting;
       final long ceiling = testingCeiling >= 0L
           ? testingCeiling
-          : workspace != null
-              ? workspace.usableGroupBytes() / GroupTableSpill.bytesPerGroup(strideLanes)
-              : bounded
-                  ? GroupTableSpill.boundedGroupBudgetCeiling(strideLanes)
-                  : GroupTableSpill.groupBudgetCeiling(strideLanes);
+          : derivedCeiling();
       if (!refreshWorthIt(groups, budget, ceiling, partitions)) {
         return;
       }
@@ -19860,11 +19869,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (!identityDistinctOperand && !globalTaughtLane && slicedStore.columnKind(aggCols[a]) != expected) {
             throw new IllegalStateException("aggColumn " + aggCols[a] + " kind mismatch (expected " + expected + ")");
           }
-          slicedAggCols[a] = computedLaneSlices != null && computedLaneSlices[a] != null
-              ? computedLaneSlices[a] // the derived lane, never its proxy column
-              : groupKeep == null && distinctIdentityOperand(cdStringDict, a, cdBlockIdx, aggCols[a], slicedStore)
-                  ? slicedStore.columnDistinctIdentity(aggCols[a], fetcher)
-                  : slicedStore.columnMaskedView(aggCols[a], fetcher, groupKeep, laneSlab.target(aggCols[a]));
+          if (computedLaneSlices != null && computedLaneSlices[a] != null) {
+            slicedAggCols[a] = computedLaneSlices[a]; // the derived lane, never its proxy column
+          } else if (groupKeep == null
+              && distinctIdentityOperand(cdStringDict, a, cdBlockIdx, aggCols[a], slicedStore)) {
+            slicedAggCols[a] = slicedStore.columnDistinctIdentity(aggCols[a], fetcher);
+          } else {
+            slicedAggCols[a] =
+                slicedStore.columnMaskedView(aggCols[a], fetcher, groupKeep, laneSlab.target(aggCols[a]));
+          }
         }
       } else {
         slicedPredCols = null;
@@ -20673,6 +20686,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Drain a worker's flat table into the legacy map shape: key = group VALUE, acc lane 1 = first-seen
    * row ordinal ({@code initBlock} stamped it), zero-key slot under key 0.
    */
+  // Sonar S1172: called from the worker lambdas of the grouped scans, which are hot compiled units.
+  // Dropping the unused argument changes their bytecode.
+  @SuppressWarnings("java:S1172")
   private static Long2ObjectOpenHashMap<GroupBuffer> drainNumericGroupTable(final GroupWorkspace workspace,
       final NumericGroupAggTable t, final int unusedAggColumns) {
     final Long2ObjectOpenHashMap<GroupBuffer> map = new Long2ObjectOpenHashMap<>();
@@ -20708,6 +20724,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * {@link #drainStringGroupTable(GroupWorkspace, NumericGroupAggTable, int, ProjectionColumnStore.ColumnSlice[])}
    * over a leaf access.
    */
+  // Sonar S1172: called from the worker lambdas of the grouped scans, which are hot compiled units.
+  // Dropping the unused argument changes their bytecode.
+  @SuppressWarnings("java:S1172")
   private static Object2ObjectOpenHashMap<String, GroupBuffer> drainStringGroupTable(final GroupWorkspace workspace,
       final NumericGroupAggTable t, final int unusedAggColumns, final ProjectionColumnStore.LeafColumnAccess access,
       final int groupCol) {
@@ -20741,6 +20760,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S1172: called from the worker lambdas of the grouped scans, which are hot compiled units.
+  // Dropping the unused argument changes their bytecode.
+  @SuppressWarnings("java:S1172")
   private static Object2ObjectOpenHashMap<String, GroupBuffer> drainStringGroupTable(final GroupWorkspace workspace,
       final NumericGroupAggTable t, final int unusedAggColumns,
       final ProjectionColumnStore.ColumnSlice[] groupColSlices) {
@@ -31720,33 +31742,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return;
         }
 
-        Throwable firstFailure = submissionFailure;
-        boolean interrupted = false;
-        for (int i = 0; i < submitted; i++) {
-          final Future<?> future = futures[i];
-          boolean completed = false;
-          while (!completed) {
-            try {
-              future.get();
-              completed = true;
-            } catch (final InterruptedException failure) {
-              // Future.get clears the interrupt status. Re-wait THIS future, then every later one,
-              // before restoring it so no worker can escape the method's lifecycle boundary.
-              interrupted = true;
-              if (firstFailure == null) {
-                firstFailure = failure;
-              }
-            } catch (final Exception failure) {
-              completed = true;
-              if (firstFailure == null) {
-                firstFailure = failure;
-              }
-            }
-          }
-        }
-        if (interrupted) {
-          Thread.currentThread().interrupt();
-        }
+        final Throwable firstFailure = joinAll(futures, submitted, submissionFailure);
         if (firstFailure instanceof Error error) {
           throw error;
         }
@@ -31754,27 +31750,76 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           throw exception;
         }
       } catch (Exception e) {
-        // Surface the root cause's message in the RuntimeException so call-site logs show what
-        // actually failed. The original exception remains the cause for full stack traces.
-        Throwable cause = e.getCause() != null
-            ? e.getCause()
-            : e;
-        while (cause.getCause() != null && cause.getCause() != cause) {
-          cause = cause.getCause();
-        }
-        // Kernel-level IllegalStateExceptions and exact-math overflows are fallback signals.
-        if (cause instanceof IllegalStateException ise) {
-          throw ise;
-        }
-        if (cause instanceof ArithmeticException ae) {
-          throw ae;
-        }
-        final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
-        throw new RuntimeException("Parallel scan failed — " + msg, e);
+        throw scanFailure(e);
       }
     } finally {
       leaveExecution();
     }
+  }
+
+  /**
+   * Waits for the first {@code submitted} futures, every one of them whatever fails, so that no
+   * worker escapes the caller's lifecycle boundary; an interrupt is restored once all of them have
+   * ended.
+   *
+   * @return the earliest failure: {@code submissionFailure} when there is one, else the first one a
+   *         future reported, else {@code null}
+   */
+  private static @Nullable Throwable joinAll(final Future<?>[] futures, final int submitted,
+      final @Nullable Throwable submissionFailure) {
+    Throwable firstFailure = submissionFailure;
+    boolean interrupted = false;
+    for (int i = 0; i < submitted; i++) {
+      final Future<?> future = futures[i];
+      boolean completed = false;
+      while (!completed) {
+        try {
+          future.get();
+          completed = true;
+        } catch (final InterruptedException failure) {
+          // Future.get clears the interrupt status. Re-wait THIS future, then every later one,
+          // before restoring it so no worker can escape the method's lifecycle boundary.
+          interrupted = true;
+          firstFailure = earliest(firstFailure, failure);
+        } catch (final Exception failure) {
+          completed = true;
+          firstFailure = earliest(firstFailure, failure);
+        }
+      }
+    }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
+    return firstFailure;
+  }
+
+  private static Throwable earliest(final @Nullable Throwable first, final Throwable next) {
+    return first == null
+        ? next
+        : first;
+  }
+
+  /**
+   * What a failed parallel scan throws. Kernel-level IllegalStateExceptions and exact-math overflows
+   * are fallback signals and pass as they are; anything else is wrapped with the root cause's message
+   * in front, so call-site logs show what actually failed, and with the original exception as the
+   * cause for full stack traces.
+   */
+  private static RuntimeException scanFailure(final Exception e) {
+    Throwable cause = e.getCause() != null
+        ? e.getCause()
+        : e;
+    while (cause.getCause() != null && cause.getCause() != cause) {
+      cause = cause.getCause();
+    }
+    if (cause instanceof IllegalStateException ise) {
+      return ise;
+    }
+    if (cause instanceof ArithmeticException ae) {
+      return ae;
+    }
+    final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
+    return new RuntimeException("Parallel scan failed — " + msg, e);
   }
 
   private void runChunk(final ChunkTask task, final int index) throws Exception {
@@ -31873,12 +31918,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     MemorySegment owned = null;
     MemorySegment slab = null;
     if (slabBytes > 0L) {
-      if (cacheKeys != null && numericSnapshotKinds(kinds) && numericSnapshotDense(store, rowMasks, rows)) {
-        reservation = NumericMaskedColumnCache.global().reserve(slabBytes);
-        slab = reservation == null
-            ? null
-            : reservation.slab();
-      }
+      reservation = cacheReservation(cacheKeys, kinds, store, rowMasks, rows, slabBytes);
+      slab = reservation == null
+          ? null
+          : reservation.slab();
       if (slab == null) {
         owned = Allocators.getInstance().allocateSlab(slabBytes);
         slab = owned;
@@ -31918,6 +31961,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * A reservation of the numeric partition for a cacheable selection, an immutable revision with a
+   * key roster over dense numeric columns; {@code null} for any other selection and when the
+   * partition refuses the bytes.
+   */
+  private static DerivedCacheBudget.@Nullable Reservation cacheReservation(final long @Nullable [] cacheKeys,
+      final byte[] kinds, final ProjectionColumnStore store, final long[][] rowMasks, final long rows,
+      final long slabBytes) {
+    if (cacheKeys != null && numericSnapshotKinds(kinds) && numericSnapshotDense(store, rowMasks, rows)) {
+      return NumericMaskedColumnCache.global().reserve(slabBytes);
+    }
+    return null;
+  }
+
+  /**
    * Lay out, after one another from byte zero, the long lanes of {@code cols} the store does not hold
    * resident: one base per leaf in {@code laneBases[i]} for each such column. Nothing is laid out for
    * a selection without a keep mask.
@@ -31939,6 +31996,20 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
+   * Where the long lane of {@code col} decodes: nowhere for a column without one, else its laid-out
+   * place in {@code slab}, else lanes of the store's own.
+   */
+  private static ProjectionColumnStore.@Nullable LaneTarget laneTarget(final ProjectionColumnStore store, final int col,
+      final @Nullable MemorySegment slab, final long @Nullable [] laneBase) {
+    if (!store.columnLongLane(col)) {
+      return null;
+    }
+    return slab != null && laneBase != null
+        ? new ProjectionColumnStore.LaneTarget(slab, laneBase)
+        : new ProjectionColumnStore.LaneTarget();
+  }
+
+  /**
    * The masked view of every column into {@code slices}, long lanes decoded into {@code slab} where
    * they were laid out; {@code residentColumn[i]} is set for a column the store served from its own
    * resident lanes.
@@ -31954,11 +32025,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final boolean[] residentColumn) {
     int resident = 0;
     for (int i = 0; i < cols.length; i++) {
-      final ProjectionColumnStore.LaneTarget target = !store.columnLongLane(cols[i])
-          ? null
-          : slab != null && laneBases[i] != null
-              ? new ProjectionColumnStore.LaneTarget(slab, laneBases[i])
-              : new ProjectionColumnStore.LaneTarget();
+      final ProjectionColumnStore.LaneTarget target = laneTarget(store, cols[i], slab, laneBases[i]);
       slices[i] = store.columnMaskedView(cols[i], fetcher, keep, target);
       if (target != null && target.resident()) {
         residentColumn[i] = true;

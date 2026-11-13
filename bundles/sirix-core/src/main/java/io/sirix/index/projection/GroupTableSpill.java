@@ -625,7 +625,7 @@ public final class GroupTableSpill {
    */
   public static long groupBudgetFor(final long maxMemory, final long headroom, final int strideLanes) {
     final long planned = AggregationShare.plannedBytes(maxMemory, headroom) / bytesPerGroup(strideLanes);
-    return Math.max(0L, Math.min(1L << 26, planned));
+    return Math.clamp(planned, 0L, 1L << 26);
   }
 
   /**
@@ -735,7 +735,7 @@ public final class GroupTableSpill {
       return groupBudgetFor(maxMemory, headroom, strideLanes);
     }
     final long planned = AggregationShare.plannedBoundedBytes(maxMemory, headroom) / boundedBytesPerGroup(strideLanes);
-    return Math.max(0L, Math.min(1L << 26, planned));
+    return Math.clamp(planned, 0L, 1L << 26);
   }
 
   /**
@@ -1509,51 +1509,63 @@ public final class GroupTableSpill {
    * from instead of borrowing fresh regions next to them. Call after the parallel section has joined
    * and before re-planning; the spill is not reused.
    */
-  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
-  // failure is rethrown with later ones attached.
-  @SuppressWarnings("java:S1181")
   public void releaseTables() {
     Throwable failure = null;
     for (int p = 0; p < partitions; p++) {
       synchronized (locks[p]) {
-        final NumericGroupAggTable table = shared[p];
-        if (table != null) {
-          sharedRehashes.add(table.rehashes());
-          shared[p] = null;
-          // Its storage is the restart's tables: hand it back to the workspace.
-          try {
-            table.retire();
-          } catch (final Throwable cleanup) {
-            failure = retainCleanupFailure(failure, cleanup);
-          }
-        }
-        if (stripeBuffers != null && stripeBuffers[p] != null) {
-          // The counters the estimate reads survive a release (they are what the pass SAW), so the
-          // buffered stripes move to the spilled total rather than vanishing with their chunks.
-          final long held = stripeBuffers[p].stripes();
-          if (held > 0L) {
-            buffered.add(-held);
-            spilled.add(held);
-          }
-          try {
-            stripeBuffers[p].release(workspace());
-          } catch (final Throwable cleanup) {
-            failure = retainCleanupFailure(failure, cleanup);
-          }
-        }
-        if (p == 0 && zeroGroups != null) {
-          final NumericGroupAggTable zero = zeroGroups;
-          zeroGroups = null;
-          try {
-            zero.retire();
-          } catch (final Throwable cleanup) {
-            failure = retainCleanupFailure(failure, cleanup);
-          }
-        }
+        failure = releasePartition(p, failure);
       }
     }
     RELEASES.increment();
     rethrowCleanupFailure(failure);
+  }
+
+  /**
+   * Under the lock of partition {@code p}: its shared table, its buffered stripes and, with partition
+   * 0, the zero groups go back to the workspace.
+   *
+   * @return the first failure so far, later ones attached to it
+   */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
+  private @Nullable Throwable releasePartition(final int p, final @Nullable Throwable failureSoFar) {
+    Throwable failure = failureSoFar;
+    final NumericGroupAggTable table = shared[p];
+    if (table != null) {
+      sharedRehashes.add(table.rehashes());
+      shared[p] = null;
+      // Its storage is the restart's tables: hand it back to the workspace.
+      try {
+        table.retire();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+    }
+    if (stripeBuffers != null && stripeBuffers[p] != null) {
+      // The counters the estimate reads survive a release (they are what the pass SAW), so the
+      // buffered stripes move to the spilled total rather than vanishing with their chunks.
+      final long held = stripeBuffers[p].stripes();
+      if (held > 0L) {
+        buffered.add(-held);
+        spilled.add(held);
+      }
+      try {
+        stripeBuffers[p].release(workspace());
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+    }
+    if (p == 0 && zeroGroups != null) {
+      final NumericGroupAggTable zero = zeroGroups;
+      zeroGroups = null;
+      try {
+        zero.retire();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+    }
+    return failure;
   }
 
   /**

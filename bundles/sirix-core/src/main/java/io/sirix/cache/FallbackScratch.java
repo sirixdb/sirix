@@ -125,26 +125,12 @@ final class FallbackScratch extends ScratchSource {
     }
   }
 
-  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
-  // failure is rethrown with later ones attached.
-  @SuppressWarnings("java:S1181")
   @Override
   @Nullable
   ScratchCarrier acquire(final long minBytes, final ScratchUse use, final boolean mandatory) {
     final ScratchCarrier carrier;
     if (minBytes <= LARGEST_SEGMENT_BYTES) {
-      // The allocator's own budgeted path; it waits for its page caches itself.
-      final MemorySegment segment = allocator.allocate(minBytes);
-      try {
-        carrier = new ScratchCarrier(this, FRAME_CLASS, segment);
-      } catch (final RuntimeException | Error failure) {
-        try {
-          allocator.release(segment);
-        } catch (final Throwable cleanup) {
-          retainCleanupFailure(failure, cleanup);
-        }
-        throw failure;
-      }
+      carrier = frameCarrier(minBytes);
     } else {
       final long mapped = minBytes > Long.MAX_VALUE - PAGE_BYTES
           ? Long.MAX_VALUE
@@ -156,28 +142,70 @@ final class FallbackScratch extends ScratchSource {
         throw new OutOfMemoryError("scratch borrow of " + minBytes + " bytes exceeds the " + largeLimitBytes()
             + "-byte bound on mapped scratch buffers (" + mappedBytes.get() + " bytes lent)");
       }
-      final MemorySegment region;
-      try {
-        final VirtualMemory memory = VirtualMemory.forCurrentPlatform();
-        region = memory.reserve(mapped);
-        try {
-          memory.commitFresh(region);
-          carrier = new ScratchCarrier(this, MAPPED_CLASS, region);
-        } catch (final RuntimeException | Error failure) {
-          try {
-            memory.release(region);
-          } catch (final Throwable cleanup) {
-            retainCleanupFailure(failure, cleanup);
-          }
-          throw failure;
-        }
-      } catch (final RuntimeException | Error failure) {
-        mappedBytes.addAndGet(-mapped);
-        throw failure;
-      }
+      carrier = mappedCarrier(mapped);
     }
     carrier.lend(minBytes, use);
     return carrier;
+  }
+
+  /**
+   * A carrier on a segment of the allocator's own budgeted path, which waits for its page caches
+   * itself.
+   */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
+  private ScratchCarrier frameCarrier(final long minBytes) {
+    final MemorySegment segment = allocator.allocate(minBytes);
+    try {
+      return new ScratchCarrier(this, FRAME_CLASS, segment);
+    } catch (final RuntimeException | Error failure) {
+      try {
+        allocator.release(segment);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
+    }
+  }
+
+  /**
+   * A carrier on a fresh mapping of {@code mapped} bytes, which the caller has reserved and this
+   * refunds on failure.
+   */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure
+  // is rethrown.
+  @SuppressWarnings("java:S1181")
+  private ScratchCarrier mappedCarrier(final long mapped) {
+    try {
+      final VirtualMemory memory = VirtualMemory.forCurrentPlatform();
+      return committedCarrier(memory, memory.reserve(mapped));
+    } catch (final RuntimeException | Error failure) {
+      mappedBytes.addAndGet(-mapped);
+      throw failure;
+    }
+  }
+
+  /**
+   * Commits {@code region} and wraps it; a region that cannot be committed or wrapped is unmapped
+   * again.
+   */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
+  private ScratchCarrier committedCarrier(final VirtualMemory memory, final MemorySegment region) {
+    try {
+      memory.commitFresh(region);
+      return new ScratchCarrier(this, MAPPED_CLASS, region);
+    } catch (final RuntimeException | Error failure) {
+      try {
+        memory.release(region);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
+    }
   }
 
   private boolean reserveMapped(final long bytes) {

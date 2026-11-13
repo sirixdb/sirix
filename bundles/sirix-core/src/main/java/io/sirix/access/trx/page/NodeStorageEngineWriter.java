@@ -5303,7 +5303,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
   // failure is rethrown with later ones attached.
-  @SuppressWarnings("java:S1181")
+  // Sonar S3776: one linear teardown in which every owner is closed in a fixed, documented order
+  // whatever the earlier ones did. A split would put that order behind calls.
+  @SuppressWarnings({"java:S1181", "java:S3776"})
   @Override
   public void close() {
     if (isClosed) {

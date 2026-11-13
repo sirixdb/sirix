@@ -183,26 +183,7 @@ public final class ProjectionResidencyScope implements AutoCloseable {
   public void close() {
     // Unregister FIRST: a pin that reads the registry after this point cannot reach a scope that is
     // about to drain, and one that read it before is stopped by the closed flag inside the monitor.
-    synchronized (REGISTRY_LOCK) {
-      final ProjectionResidencyScope[] current = active;
-      int at = -1;
-      for (int i = 0; i < current.length; i++) {
-        if (current[i] == this) {
-          at = i;
-          break;
-        }
-      }
-      if (at >= 0) {
-        current[at] = null;
-        boolean remaining = false;
-        for (final ProjectionResidencyScope scope : current) {
-          remaining |= scope != null;
-        }
-        active = remaining
-            ? current
-            : NONE;
-      }
-    }
+    unregister();
     final ProjectionColumnStore[] touched;
     final long[][] held;
     final int count;
@@ -241,5 +222,29 @@ public final class ProjectionResidencyScope implements AutoCloseable {
       }
     }
     rethrowCleanupFailure(failure);
+  }
+
+  /** Takes this scope out of the registry of active scopes; nothing happens when it is not in it. */
+  private void unregister() {
+    synchronized (REGISTRY_LOCK) {
+      final ProjectionResidencyScope[] current = active;
+      int at = -1;
+      for (int i = 0; i < current.length; i++) {
+        if (current[i] == this) {
+          at = i;
+          break;
+        }
+      }
+      if (at >= 0) {
+        current[at] = null;
+        boolean remaining = false;
+        for (final ProjectionResidencyScope scope : current) {
+          remaining |= scope != null;
+        }
+        active = remaining
+            ? current
+            : NONE;
+      }
+    }
   }
 }

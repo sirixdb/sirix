@@ -19,6 +19,7 @@ import java.lang.foreign.ValueLayout;
 import java.lang.ref.Cleaner;
 import java.util.Arrays;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.IntFunction;
 
 import static java.util.Objects.requireNonNull;
 
@@ -82,6 +83,9 @@ public final class GroupWorkspace implements AutoCloseable {
   private static final LongAdder OPENED_TOTAL = new LongAdder();
   private static final LongAdder CLOSED_TOTAL = new LongAdder();
   private static final LongAdder REUSED_TOTAL = new LongAdder();
+
+  /** The spare stack of a chunk length that has none yet. */
+  private static final IntFunction<Spare> NEW_SPARE = _ -> new Spare();
 
   /**
    * Returns the regions of self-returning workspaces; created with the first one, never in a query.
@@ -314,12 +318,7 @@ public final class GroupWorkspace implements AutoCloseable {
       if (closed) {
         return;
       }
-      Spare spare = spareByLanes.get(lanes);
-      if (spare == null) {
-        spare = new Spare();
-        spareByLanes.put(lanes, spare);
-      }
-      spare.push(chunk.segment);
+      spareByLanes.computeIfAbsent(lanes, NEW_SPARE).push(chunk.segment);
       chunksGiven++;
     }
   }
@@ -432,11 +431,7 @@ public final class GroupWorkspace implements AutoCloseable {
       if (bytes > tail) {
         final long regionCapacity = grant.allocationCapacity(regionBytes(bytes, nextBytes, remaining));
         if (regionCapacity > remaining) {
-          if (openingGrant) {
-            grant.close();
-            regions.grant = null;
-          }
-          return false;
+          return refuseAllocation(openingGrant, grant);
         }
         remaining -= regionCapacity;
         tail = regionCapacity;
@@ -483,6 +478,21 @@ public final class GroupWorkspace implements AutoCloseable {
    */
   private static final long PARTITION_FIRST_CHUNK_STRIPES = 64L;
 
+  /** A probe that does not fit: the grant it opened for itself goes back. Always {@code false}. */
+  private boolean refuseAllocation(final boolean openingGrant, final AggregationGrant grant) {
+    if (openingGrant) {
+      grant.close();
+      regions.grant = null;
+    }
+    return false;
+  }
+
+  private static void requirePlanGeometry(final int workers, final int partitions, final int strideLanes) {
+    if (workers <= 0 || partitions <= 0 || strideLanes <= 0) {
+      throw new IllegalArgumentException("invalid aggregation planning geometry");
+    }
+  }
+
   private AggregationGrant grant() {
     return grant(FIRST_REGION_BYTES);
   }
@@ -504,9 +514,7 @@ public final class GroupWorkspace implements AutoCloseable {
    */
   public synchronized long preparePlan(final int workers, final int partitions, final int strideLanes) {
     requireOpen();
-    if (workers <= 0 || partitions <= 0 || strideLanes <= 0) {
-      throw new IllegalArgumentException("invalid aggregation planning geometry");
-    }
+    requirePlanGeometry(workers, partitions, strideLanes);
     if (plannedBytes == 0L) {
       int hint = GroupTableSpill.workerTableHint();
       int threshold = GroupTableSpill.effectiveFlushThreshold();
@@ -523,7 +531,7 @@ public final class GroupWorkspace implements AutoCloseable {
         final long shared =
             Math.addExact(2 * MAX_REGION_BYTES + PARTITION_TAIL_BYTES, GroupTableSpill.bytesPerGroup(strideLanes));
         final long available = capacity - (capacity + 15L) / 16L - shared;
-        fittedWorkers = (int) Math.min(workers, Math.max(0L, available / perWorker));
+        fittedWorkers = Math.clamp(available / perWorker, 0, workers);
         if (fittedWorkers > 0) {
           fixed = Math.addExact(Math.multiplyExact(perWorker, fittedWorkers), 2 * MAX_REGION_BYTES);
           final long needed =

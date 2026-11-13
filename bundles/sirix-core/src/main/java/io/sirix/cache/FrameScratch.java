@@ -214,8 +214,8 @@ final class FrameScratch extends ScratchSource {
   /** The configured number of idle buffers per capacity. */
   static int defaultIdleBuffers() {
     final int processors = Runtime.getRuntime().availableProcessors();
-    final int byDefault = Math.max(8, Math.min(64, 2 * processors));
-    return Math.max(1, Math.min(256, Integer.getInteger(IDLE_BUFFERS_PROPERTY, byDefault)));
+    final int byDefault = Math.clamp(2L * processors, 8, 64);
+    return Math.clamp(Integer.getInteger(IDLE_BUFFERS_PROPERTY, byDefault), 1, 256);
   }
 
   /** Test seam for {@link #populateReadBuffers}; returns the previous setting. */
@@ -618,27 +618,42 @@ final class FrameScratch extends ScratchSource {
   long reclaimIdleRegions(final long wanted, final boolean includeSmallIdle) {
     long freed = 0L;
     for (int capacityClass = CLASS_COUNT - 1; capacityClass >= 0 && freed < wanted; capacityClass--) {
-      final SpareList spares = spareRegions[capacityClass];
       // The spare stack first, oldest first: the buffers least likely to be borrowed next.
-      for (ScratchCarrier spare; freed < wanted && (spare = spares.poll(false)) != null;) {
-        allocator.unreserveRecycledBytes(spare.capacity);
-        freed += spare.capacity;
-        destroy(spare);
+      freed = reclaimSpares(capacityClass, wanted, freed);
+      if (includeSmallIdle || capacityClass >= SMALL_CLASSES) {
+        freed = reclaimIdleSlots(capacityClass, wanted, freed);
       }
-      if (!includeSmallIdle && capacityClass < SMALL_CLASSES) {
-        continue;
-      }
-      final ScratchCarrier[] slots = idle[capacityClass];
-      for (int slot = 0; slot <= idleMask && freed < wanted; slot++) {
-        final int index = slot << IDLE_STRIDE_SHIFT;
-        final ScratchCarrier carrier = (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, index);
-        if (carrier != null && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
-          if (capacityClass >= SMALL_CLASSES) {
-            allocator.unreserveRecycledBytes(carrier.capacity);
-          }
-          freed += carrier.capacity;
-          destroy(carrier);
+    }
+    return freed;
+  }
+
+  /**
+   * Unmaps spares of one capacity, oldest first, until {@code wanted} bytes are freed; the new total.
+   */
+  private long reclaimSpares(final int capacityClass, final long wanted, final long freedSoFar) {
+    final SpareList spares = spareRegions[capacityClass];
+    long freed = freedSoFar;
+    for (ScratchCarrier spare; freed < wanted && (spare = spares.poll(false)) != null;) {
+      allocator.unreserveRecycledBytes(spare.capacity);
+      freed += spare.capacity;
+      destroy(spare);
+    }
+    return freed;
+  }
+
+  /** Unmaps idle buffers of one capacity until {@code wanted} bytes are freed; the new total. */
+  private long reclaimIdleSlots(final int capacityClass, final long wanted, final long freedSoFar) {
+    final ScratchCarrier[] slots = idle[capacityClass];
+    long freed = freedSoFar;
+    for (int slot = 0; slot <= idleMask && freed < wanted; slot++) {
+      final int index = slot << IDLE_STRIDE_SHIFT;
+      final ScratchCarrier carrier = (ScratchCarrier) ScratchHandles.IDLE_SLOT.getAcquire(slots, index);
+      if (carrier != null && ScratchHandles.IDLE_SLOT.compareAndSet(slots, index, carrier, null)) {
+        if (capacityClass >= SMALL_CLASSES) {
+          allocator.unreserveRecycledBytes(carrier.capacity);
         }
+        freed += carrier.capacity;
+        destroy(carrier);
       }
     }
     return freed;

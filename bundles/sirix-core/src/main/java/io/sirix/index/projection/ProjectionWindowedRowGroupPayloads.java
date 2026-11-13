@@ -113,7 +113,7 @@ public final class ProjectionWindowedRowGroupPayloads {
         ? 0
         : 1 + (rowGroupCount - 1) / windowLeaves;
     // No floor may silently exceed the declared byte allowance. Zero streams without retention.
-    this.residentCap = Math.max(0, Math.min(residentCap, windowCount));
+    this.residentCap = Math.clamp(residentCap, 0, windowCount);
     this.fetcher = fetcher;
     this.windows = new AtomicReferenceArray<>(windowCount);
     this.touched = new AtomicIntegerArray(windowCount);

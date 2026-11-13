@@ -650,9 +650,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     slabBytes.addAndGet(mapped);
   }
 
-  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
-  // failure is rethrown.
-  @SuppressWarnings("java:S1181")
   @Override
   public @Nullable MemorySegment allocateSlab(final long bytes) {
     if (bytes <= 0) {
@@ -670,61 +667,87 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       if (mapped > contentCommitLimit()) {
         return null;
       }
-      // A recycled slab of this size first: its pages are mapped and committed already (dirty, never
-      // zeroed), so the reuse costs no system call and no page fault. The caller gets a FRESH
-      // global-scope view over the same pages: the instance handed out before stays rejected by the
-      // exact-instance check of releaseSlab, so a stale double release cannot free the new owner's slab.
-      final ConcurrentLinkedDeque<SlabAllocation> free = recycledSlabs.get(mapped);
-      if (free != null) {
-        final SlabAllocation recycled = free.pollFirst();
-        if (recycled != null) {
-          recycledSlabBytes.addAndGet(-mapped);
-          try {
-            final MemorySegment reused = MemorySegment.ofAddress(recycled.segment().address()).reinterpret(mapped);
-            if (poisonRecycledSlabs) {
-              reused.fill((byte) 0x5A);
-            }
-            publishSlab(reused, mapped);
-            return reused;
-          } catch (final RuntimeException | Error failure) {
-            unmapSlab(recycled.segment(), mapped);
-            throw failure;
-          }
-        }
-      }
-      // Charged against the whole budget like an oversized allocation: slab bytes return on release.
-      // A refusal is reported, never retried through page-cache pressure: the caller owns reclaimable
-      // images of its own and must give those up before a persisted page loses its frame. Recycled
-      // slabs that would not fit beside the request are unmapped first (reserveCommittedBytesUpTo).
-      if (!reserveCommittedBytes(mapped)) {
-        return null;
-      }
-      final MemorySegment segment;
-      try {
-        segment = VM.reserve(mapped);
-      } catch (final RuntimeException | Error failure) {
-        refundCommittedBytes(mapped);
-        throw failure;
-      }
-      try {
-        VM.commitFresh(segment);
-        if (!prepareSlabPages(segment, mapped)) {
-          // The kernel cannot back the pages: reported like a budget refusal, never thrown.
-          VM.release(segment);
-          refundCommittedBytes(mapped);
-          return null;
-        }
-        HftBoundaryTelemetry.nativeAllocation();
-        publishSlab(segment, mapped);
-      } catch (final RuntimeException | Error failure) {
-        VM.release(segment);
-        refundCommittedBytes(mapped);
-        throw failure;
-      }
-      return segment;
+      final MemorySegment reused = reuseRecycledSlab(mapped);
+      return reused != null
+          ? reused
+          : mapFreshSlab(mapped);
     } finally {
       slabOperations.decrementAndGet();
     }
+  }
+
+  /**
+   * A recycled slab of {@code mapped} bytes, or {@code null} when none is idle: its pages are mapped
+   * and committed already (dirty, never zeroed), so the reuse costs no system call and no page fault.
+   * The caller gets a FRESH global-scope view over the same pages: the instance handed out before
+   * stays rejected by the exact-instance check of releaseSlab, so a stale double release cannot free
+   * the new owner's slab.
+   */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure
+  // is rethrown.
+  @SuppressWarnings("java:S1181")
+  private @Nullable MemorySegment reuseRecycledSlab(final long mapped) {
+    final ConcurrentLinkedDeque<SlabAllocation> free = recycledSlabs.get(mapped);
+    final SlabAllocation recycled = free == null
+        ? null
+        : free.pollFirst();
+    if (recycled == null) {
+      return null;
+    }
+    recycledSlabBytes.addAndGet(-mapped);
+    try {
+      final MemorySegment reused = MemorySegment.ofAddress(recycled.segment().address()).reinterpret(mapped);
+      if (poisonRecycledSlabs) {
+        reused.fill((byte) 0x5A);
+      }
+      publishSlab(reused, mapped);
+      return reused;
+    } catch (final RuntimeException | Error failure) {
+      unmapSlab(recycled.segment(), mapped);
+      throw failure;
+    }
+  }
+
+  /**
+   * A freshly mapped and committed slab of {@code mapped} bytes, or {@code null} when the budget or
+   * the kernel refuses it. Charged against the whole budget like an oversized allocation: slab bytes
+   * return on release. A refusal is reported, never retried through page-cache pressure: the caller
+   * owns reclaimable images of its own and must give those up before a persisted page loses its
+   * frame. Recycled slabs that would not fit beside the request are unmapped first
+   * (reserveCommittedBytesUpTo).
+   */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure
+  // is rethrown.
+  @SuppressWarnings("java:S1181")
+  private @Nullable MemorySegment mapFreshSlab(final long mapped) {
+    if (!reserveCommittedBytes(mapped)) {
+      return null;
+    }
+    final MemorySegment segment;
+    try {
+      segment = VM.reserve(mapped);
+    } catch (final RuntimeException | Error failure) {
+      refundCommittedBytes(mapped);
+      throw failure;
+    }
+    try {
+      VM.commitFresh(segment);
+      if (!prepareSlabPages(segment, mapped)) {
+        // The kernel cannot back the pages: reported like a budget refusal, never thrown.
+        VM.release(segment);
+        refundCommittedBytes(mapped);
+        return null;
+      }
+      HftBoundaryTelemetry.nativeAllocation();
+      publishSlab(segment, mapped);
+    } catch (final RuntimeException | Error failure) {
+      VM.release(segment);
+      refundCommittedBytes(mapped);
+      throw failure;
+    }
+    return segment;
   }
 
   /**
@@ -854,9 +877,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     initInternal(granted);
   }
 
-  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
-  // failure is rethrown.
-  @SuppressWarnings("java:S1181")
   private void initInternal(final long budgetBytes) {
     if (budgetBytes < SIZE_CLASSES[SIZE_CLASSES.length - 1]) {
       throw new IllegalArgumentException(
@@ -890,16 +910,29 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // Carved out of the oversized headroom, so page frames commit exactly what they did before, and
     // zero wherever that headroom is zero (tiny test budgets keep their exhaustion semantics).
     final long configuredScratchReserve = Long.getLong(SCRATCH_RESERVE_BYTES_PROPERTY, -1L);
+    final long defaultScratchReserve = Math.min(oversizedHeadroomBytes / 4, 256L << 20);
     this.scratchReserveBytes = Math.min(oversizedHeadroomBytes, configuredScratchReserve >= 0
         ? configuredScratchReserve
-        : Math.min(oversizedHeadroomBytes / 4, 256L << 20));
+        : defaultScratchReserve);
     this.scratch = new FrameScratch(this, scratchIdleBuffers > 0
         ? scratchIdleBuffers
         : FrameScratch.defaultIdleBuffers());
+    this.classes = reserveSizeClasses(budgetBytes);
+    this.initialized.set(true);
+  }
+
+  /**
+   * Reserves the virtual region of every size class; a failure releases the regions reserved so far.
+   * Per-class virtual reservation is workload-independent; MAP_NORESERVE means physical pages only
+   * commit when touched. The number of slots is capped to bound version metadata; its fixed-size
+   * chunks avoid persistent G1 humongous arrays without adding hot-path allocation.
+   */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure
+  // is rethrown.
+  @SuppressWarnings("java:S1181")
+  private static SizeClass[] reserveSizeClasses(final long budgetBytes) {
     final SizeClass[] cls = new SizeClass[SIZE_CLASSES.length];
-    // Per-class virtual reservation is workload-independent; MAP_NORESERVE means physical pages
-    // only commit when touched. Cap the number of slots to bound version metadata; its fixed-size
-    // chunks avoid persistent G1 humongous arrays without adding hot-path allocation.
     MemorySegment pending = null;
     try {
       for (int i = 0; i < SIZE_CLASSES.length; i++) {
@@ -926,8 +959,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       }
       throw failure;
     }
-    this.classes = cls;
-    this.initialized.set(true);
+    return cls;
   }
 
   @Override

@@ -12,34 +12,18 @@ import java.lang.foreign.MemorySegment;
  * segment has the global scope (allocator-owned, freed explicitly by the store), so reads carry no
  * liveness check; kernels keep the segment in a local and read linear offsets through the typed
  * handle ({@link SegmentAccess}).
+ *
+ * @param segment the slab holding the lane
+ * @param base byte offset of row 0 within {@code segment}
+ * @param rows the rows of the lane
  */
-public final class NumericLane {
-  private final MemorySegment segment;
-  private final long base;
-  private final int rows;
+public record NumericLane(MemorySegment segment, long base, int rows) {
 
-  public NumericLane(final MemorySegment segment, final long base, final int rows) {
+  public NumericLane {
     if (base < 0 || rows < 0 || base + 8L * rows > segment.byteSize()) {
       throw new IllegalArgumentException(
           "lane [" + base + ", +" + rows + " rows) outside a slab of " + segment.byteSize() + " bytes");
     }
-    this.segment = segment;
-    this.base = base;
-    this.rows = rows;
-  }
-
-  /** The slab holding the lane. */
-  public MemorySegment segment() {
-    return segment;
-  }
-
-  /** Byte offset of row 0 within {@link #segment()}. */
-  public long base() {
-    return base;
-  }
-
-  public int rows() {
-    return rows;
   }
 
   /** The value of {@code row}; kernels hoist {@link #segment()} and {@link #base()} instead. */

@@ -353,11 +353,14 @@ public final class ProjectionColumnScan {
           break;
         }
       }
-      cols[i] = shared != null
-          ? shared
-          : store.columnMaskedView(column, fetcher, keep, targets == null
-              ? null
-              : targets.apply(column));
+      if (shared != null) {
+        cols[i] = shared;
+      } else {
+        final @Nullable LaneTarget target = targets == null
+            ? null
+            : targets.apply(column);
+        cols[i] = store.columnMaskedView(column, fetcher, keep, target);
+      }
     }
     return cols;
   }

@@ -1144,18 +1144,7 @@ public final class FileChannelReader extends AbstractReader {
       final ByteBuffer buffer = lease.buffer();
       final long fileOffset = IOStorage.revisionsFileOffset(fromRevision);
       buffer.clear().limit(byteCount);
-      int bytesRead = 0;
-      while (buffer.hasRemaining()) {
-        final int read = readAt(revisionsOffsetFileChannel, buffer, fileOffset + bytesRead);
-        if (read <= 0) {
-          // Crash-shortened revisions file (or a zero-byte read, legal per the FileChannel
-          // contract): under lazy revision records the trailing records may never have reached
-          // the file — each missing one is salvaged from the uber-beacon tail-log below (and the
-          // file healed) instead of failing the whole range.
-          break;
-        }
-        bytesRead += read;
-      }
+      final int bytesRead = readRevisionRecords(buffer, fileOffset);
       final RevisionFileData[] result = new RevisionFileData[count];
       // Both beacon slots, read at most ONCE for the whole range and only when something actually
       // needs salvaging — the ring is a salvage source, not a second opinion on a valid record.
@@ -1168,20 +1157,10 @@ public final class FileChannelReader extends AbstractReader {
           throw new SirixIOException("Truncated tombstone record for revision " + revision);
         }
         if (base + IOStorage.REVISIONS_FILE_RECORD_SIZE <= bytesRead) {
-          final long offset = buffer.getLong(base);
-          final long timestamp = buffer.getLong(base + 8);
-          final long storedChecksum = buffer.getLong(base + 16);
-          final long pageHash = buffer.getLong(base + 24);
-          try {
-            result[i] = IOStorage.decodeRevisionRecord(revision, offset, timestamp, storedChecksum, pageHash);
+          final RevisionFileData stored = storedRevisionRecord(buffer, base, revision);
+          if (stored != null) {
+            result[i] = stored;
             continue;
-          } catch (final SirixIOException corruption) {
-            // Never resurrect a tombstone (even a torn one) from an obsolete beacon tail-log.
-            // A checksum-valid invalid identity is corruption, not a recoverable torn write.
-            if (offset == IOStorage.PRUNED_REVISION_OFFSET || pageHash == IOStorage.PRUNED_REVISION_TAG
-                || storedChecksum == IOStorage.revisionRecordChecksum(offset, timestamp, pageHash)) {
-              throw corruption;
-            }
           }
         }
         if (slots == null) {
@@ -1202,6 +1181,52 @@ public final class FileChannelReader extends AbstractReader {
       return result;
     } catch (IOException e) {
       throw new SirixIOException(e);
+    }
+  }
+
+  /**
+   * Fills {@code buffer} from the revisions file at {@code fileOffset} as far as the file reaches.
+   *
+   * @return the bytes read, fewer than the buffer holds for a crash-shortened file
+   */
+  private int readRevisionRecords(final ByteBuffer buffer, final long fileOffset) throws IOException {
+    int bytesRead = 0;
+    while (buffer.hasRemaining()) {
+      final int read = readAt(revisionsOffsetFileChannel, buffer, fileOffset + bytesRead);
+      if (read <= 0) {
+        // Crash-shortened revisions file (or a zero-byte read, legal per the FileChannel
+        // contract): under lazy revision records the trailing records may never have reached
+        // the file — each missing one is salvaged from the uber-beacon tail-log by the caller (and
+        // the file healed) instead of failing the whole range.
+        break;
+      }
+      bytesRead += read;
+    }
+    return bytesRead;
+  }
+
+  /**
+   * The record of {@code revision} stored at {@code base} of {@code buffer}, or {@code null} when it
+   * is torn in a way the uber-beacon tail-log may repair.
+   *
+   * @throws SirixIOException for a tombstone, torn or not, and for a checksum-valid invalid identity
+   */
+  private static @Nullable RevisionFileData storedRevisionRecord(final ByteBuffer buffer, final int base,
+      final int revision) {
+    final long offset = buffer.getLong(base);
+    final long timestamp = buffer.getLong(base + 8);
+    final long storedChecksum = buffer.getLong(base + 16);
+    final long pageHash = buffer.getLong(base + 24);
+    try {
+      return IOStorage.decodeRevisionRecord(revision, offset, timestamp, storedChecksum, pageHash);
+    } catch (final SirixIOException corruption) {
+      // Never resurrect a tombstone (even a torn one) from an obsolete beacon tail-log.
+      // A checksum-valid invalid identity is corruption, not a recoverable torn write.
+      if (offset == IOStorage.PRUNED_REVISION_OFFSET || pageHash == IOStorage.PRUNED_REVISION_TAG
+          || storedChecksum == IOStorage.revisionRecordChecksum(offset, timestamp, pageHash)) {
+        throw corruption;
+      }
+      return null;
     }
   }
 
