@@ -31781,17 +31781,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // closes. Resident columns are served pruned from their own slabs; a cached view pins them
     // through its entry.
     final long[][] laneBases = new long[cols.length][];
-    long slabBytes = 0L;
-    if (keep != null) {
-      for (int i = 0; i < cols.length; i++) {
-        if (store.columnLongLane(cols[i]) && !store.columnFilled(cols[i])) {
-          laneBases[i] = new long[leaves];
-          slabBytes = store.maskedLaneLayout(cols[i], keep, laneBases[i], slabBytes);
-        }
-      }
-    }
     final long[] keyBases = new long[leaves];
-    slabBytes = KeyLanes.layout(store, keep, keyBases, slabBytes);
+    final long slabBytes =
+        KeyLanes.layout(store, keep, keyBases, maskedLaneLayout(store, cols, keep, leaves, laneBases));
     DerivedCacheBudget.Reservation reservation = null;
     MemorySegment owned = null;
     MemorySegment slab = null;
@@ -31814,31 +31806,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     Throwable primary = null;
     try {
       final boolean[] residentColumn = new boolean[cols.length];
-      int resident = 0;
-      for (int i = 0; i < cols.length; i++) {
-        final ProjectionColumnStore.LaneTarget target = !store.columnLongLane(cols[i])
-            ? null
-            : slab != null && laneBases[i] != null
-                ? new ProjectionColumnStore.LaneTarget(slab, laneBases[i])
-                : new ProjectionColumnStore.LaneTarget();
-        slices[i] = store.columnMaskedView(cols[i], fetcher, keep, target);
-        if (target != null && target.resident()) {
-          residentColumn[i] = true;
-          resident++;
-        }
-      }
+      final int resident = maskedColumnViews(store, fetcher, cols, keep, slab, laneBases, slices, residentColumn);
       final long[][] decodedKeys = store.recordKeysMasked(fetcher, keep);
       final KeyLanes keyLanes = slab != null
           ? KeyLanes.copyInto(slab, keyBases, decodedKeys, store)
           : KeyLanes.onHeap(decodedKeys);
       final MaskedColumns view = new MaskedColumns(store, rowMasks, keyLanes, slices, kinds, rows);
-      final int[] pinned = new int[resident];
-      resident = 0;
-      for (int i = 0; i < cols.length; i++) {
-        if (residentColumn[i]) {
-          pinned[resident++] = cols[i];
-        }
-      }
+      final int[] pinned = residentColumns(cols, residentColumn, resident);
       if (cacheKeys == null || reservation == null) {
         view.ownResources(owned, pinned);
         owned = null;
@@ -31854,23 +31828,94 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       throw failure;
     } finally {
       // Whatever was not handed to the view or the cache goes back: a failed decode, a refused fill.
-      Throwable failure = primary;
-      if (reservation != null) {
-        try {
-          reservation.close();
-        } catch (final Throwable cleanup) {
-          failure = retainCleanupFailure(failure, cleanup);
-        }
-      }
-      if (owned != null) {
-        try {
-          Allocators.getInstance().releaseSlab(owned);
-        } catch (final Throwable cleanup) {
-          failure = retainCleanupFailure(failure, cleanup);
-        }
-      }
-      rethrowCleanupFailure(failure);
+      releaseMaskedLanes(reservation, owned, primary);
     }
+  }
+
+  /**
+   * Lay out, after one another from byte zero, the long lanes of {@code cols} the store does not hold
+   * resident: one base per leaf in {@code laneBases[i]} for each such column. Nothing is laid out for
+   * a selection without a keep mask.
+   *
+   * @return the bytes the lanes take
+   */
+  private static long maskedLaneLayout(final ProjectionColumnStore store, final int[] cols,
+      final long @Nullable [] keep, final int leaves, final long[][] laneBases) {
+    long slabBytes = 0L;
+    if (keep != null) {
+      for (int i = 0; i < cols.length; i++) {
+        if (store.columnLongLane(cols[i]) && !store.columnFilled(cols[i])) {
+          laneBases[i] = new long[leaves];
+          slabBytes = store.maskedLaneLayout(cols[i], keep, laneBases[i], slabBytes);
+        }
+      }
+    }
+    return slabBytes;
+  }
+
+  /**
+   * The masked view of every column into {@code slices}, long lanes decoded into {@code slab} where
+   * they were laid out; {@code residentColumn[i]} is set for a column the store served from its own
+   * resident lanes.
+   *
+   * @return the number of such resident columns
+   */
+  private static int maskedColumnViews(final ProjectionColumnStore store,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int[] cols, final long @Nullable [] keep,
+      final @Nullable MemorySegment slab, final long[][] laneBases, final ProjectionColumnStore.ColumnSlice[][] slices,
+      final boolean[] residentColumn) {
+    int resident = 0;
+    for (int i = 0; i < cols.length; i++) {
+      final ProjectionColumnStore.LaneTarget target = !store.columnLongLane(cols[i])
+          ? null
+          : slab != null && laneBases[i] != null
+              ? new ProjectionColumnStore.LaneTarget(slab, laneBases[i])
+              : new ProjectionColumnStore.LaneTarget();
+      slices[i] = store.columnMaskedView(cols[i], fetcher, keep, target);
+      if (target != null && target.resident()) {
+        residentColumn[i] = true;
+        resident++;
+      }
+    }
+    return resident;
+  }
+
+  /**
+   * The {@code resident} columns of {@code cols} that {@code residentColumn} marks, in column order.
+   */
+  private static int[] residentColumns(final int[] cols, final boolean[] residentColumn, final int resident) {
+    final int[] pinned = new int[resident];
+    int next = 0;
+    for (int i = 0; i < cols.length; i++) {
+      if (residentColumn[i]) {
+        pinned[next++] = cols[i];
+      }
+    }
+    return pinned;
+  }
+
+  /**
+   * Return a reservation and a query-local slab that were not handed to a view or to the cache; a
+   * failure of returning them is kept on {@code primary} when there is one.
+   */
+  private static void releaseMaskedLanes(final DerivedCacheBudget.@Nullable Reservation reservation,
+      final @Nullable MemorySegment owned, final @Nullable Throwable primary) {
+    Throwable failure = primary;
+    if (reservation != null) {
+      try {
+        reservation.close();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+    }
+    if (owned != null) {
+      try {
+        Allocators.getInstance().releaseSlab(owned);
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+    }
+    rethrowCleanupFailure(failure);
   }
 
 }

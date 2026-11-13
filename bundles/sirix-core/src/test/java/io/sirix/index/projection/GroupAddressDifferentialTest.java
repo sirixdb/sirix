@@ -56,6 +56,15 @@ final class GroupAddressDifferentialTest {
       table.useDenseIndex();
     }
     final long[][] expected = new long[GROUPS][WIDTH];
+    final long[] identity = new long[2];
+    foldRows(table, expected, identity, identities, round, resolution);
+    assertTrue(table.rehashes() > 0, "the fixture must move live records");
+    assertRecordsMatchOracle(table, expected, identity, dense, identities, resolution);
+    table.release();
+  }
+
+  private static void foldRows(final NumericGroupAggTable table, final long[][] expected, final long[] identity,
+      final boolean identities, final int round, final Resolution resolution) {
     final long[][] window = new long[COLUMNS][1];
     final MemorySegment[] lanes = new MemorySegment[COLUMNS];
     final long[] bases = new long[COLUMNS];
@@ -63,7 +72,6 @@ final class GroupAddressDifferentialTest {
       lanes[column] = MemorySegment.ofArray(window[column]);
     }
     final long[][] present = new long[COLUMNS][1];
-    final long[] identity = new long[2];
     final Random random = new Random(0x5AFEL + round);
     for (int row = 0; row < ROWS; row++) {
       final int key = row < GROUPS
@@ -92,22 +100,29 @@ final class GroupAddressDifferentialTest {
           oracle[base + 3] = Math.max(oracle[base + 3], value);
         }
       }
-      final long record;
-      if (!identities && key == 0) {
-        record = table.acquireZero(row).accumulator(0, COLUMNS, 4);
-      } else if (!identities && resolution == Resolution.FUSED) {
-        record = table.acquireAccumulator(key, row, COLUMNS, 4);
-      } else {
-        final int handle = identities
-            ? acquireIdentity(table, identity, key, row)
-            : table.acquire(key, row);
-        record = resolution == Resolution.CHUNK
-            ? table.storageAtAccBase(handle).accumulator(table.offsetAtAccBase(handle), COLUMNS, 4)
-            : table.accumulatorAt(handle, COLUMNS, 4);
-      }
+      final long record = acquireRecord(table, identity, identities, resolution, key, row);
       ProjectionColumnGroupScan.foldNumericPlainWordLane(record, lanes, bases, present, COLUMNS, 0, 1L, -1L);
     }
-    assertTrue(table.rehashes() > 0, "the fixture must move live records");
+  }
+
+  private static long acquireRecord(final NumericGroupAggTable table, final long[] identity, final boolean identities,
+      final Resolution resolution, final int key, final int row) {
+    if (!identities && key == 0) {
+      return table.acquireZero(row).accumulator(0, COLUMNS, 4);
+    } else if (!identities && resolution == Resolution.FUSED) {
+      return table.acquireAccumulator(key, row, COLUMNS, 4);
+    } else {
+      final int handle = identities
+          ? acquireIdentity(table, identity, key, row)
+          : table.acquire(key, row);
+      return resolution == Resolution.CHUNK
+          ? table.storageAtAccBase(handle).accumulator(table.offsetAtAccBase(handle), COLUMNS, 4)
+          : table.accumulatorAt(handle, COLUMNS, 4);
+    }
+  }
+
+  private static void assertRecordsMatchOracle(final NumericGroupAggTable table, final long[][] expected,
+      final long[] identity, final boolean dense, final boolean identities, final Resolution resolution) {
     for (int key = 0; key < GROUPS; key++) {
       final int handle = identities
           ? acquireIdentity(table, identity, key, ROWS)
@@ -125,7 +140,6 @@ final class GroupAddressDifferentialTest {
             "dense=" + dense + ", identities=" + identities + ", " + resolution + ", key=" + key + ", lane=" + lane);
       }
     }
-    table.release();
   }
 
   private static int acquireIdentity(final NumericGroupAggTable table, final long[] identity, final int key,

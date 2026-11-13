@@ -1960,82 +1960,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // the store-buffering outcome in which both sides miss the other's publication.
     terminated.set(true);
     try {
-      // A granted scan owns capacity even before its first mapping. Admission checks the terminal
-      // flag under the budget monitor; taking that monitor here completes the shutdown handshake.
-      final long liveAggregationCapacity = aggregationBudget.grantedBytes();
-      if (liveAggregationCapacity != 0L) {
-        throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveAggregationCapacity
-            + " bytes granted to aggregation; close the scans before shutdown");
-      }
-      // Idle scratch buffers are read by nobody: give their regions back first, so that only
-      // memory somebody still holds can stop the shutdown below.
-      final FrameScratch scratchBuffers = scratch;
-      if (scratchBuffers != null) {
-        scratchBuffers.reclaimAllIdle();
-      }
-      final long liveSlotBytes = activeSlotBytes.get();
-      if (liveSlotBytes != 0L) {
-        throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveSlotBytes
-            + " active frame-slot bytes; release all slot owners before shutdown");
-      }
-      final long liveScratchRegionBytes = scratchBuffers == null
-          ? 0L
-          : scratchBuffers.regionBytes();
-      if (liveScratchRegionBytes != 0L) {
-        throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveScratchRegionBytes
-            + " bytes of lent scratch regions; close their leases before shutdown");
-      }
-      final int oversizedOperations = oversizedAllocationOperations.get();
-      if (oversizedOperations != 0) {
-        throw new IllegalStateException("FrameSlotAllocator shutdown raced " + oversizedOperations
-            + " oversized allocation operation(s); retry after admission completes");
-      }
-      final int pendingSlabOperations = slabOperations.get();
-      if (pendingSlabOperations != 0) {
-        throw new IllegalStateException("FrameSlotAllocator shutdown raced " + pendingSlabOperations
-            + " slab operation(s); retry after admission completes");
-      }
-      // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
-      // lease; unmapping it here would be a use-after-free.
-      drainRecycledSlabs(Long.MAX_VALUE, true);
-      final long liveSlabBytes = slabBytes.get();
-      if (liveSlabBytes != 0L) {
-        throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveSlabBytes
-            + " live slab bytes; clear the derived caches that own them before shutdown");
-      }
-
-      // Confined arenas preserve the same-thread, allocation-free normal release path. Validate all
-      // owners before closing any so a foreign-thread leak fails atomically instead of leaving a
-      // half-shut-down allocator. The owning thread can release it and retry shutdown.
-      final Thread shutdownThread = Thread.currentThread();
-      for (final OversizedAllocation oversized : oversizedByAddress.values()) {
-        if (oversized.owner() != shutdownThread) {
-          throw new IllegalStateException("FrameSlotAllocator shutdown cannot close an oversized allocation owned by "
-              + oversized.owner().getName() + "; release it on its allocating thread first");
-        }
-      }
-
-      Throwable cleanupFailure = null;
-      for (final var entry : oversizedByAddress.entrySet()) {
-        final Long address = entry.getKey();
-        final OversizedAllocation oversized = entry.getValue();
-        try {
-          oversized.arena().close();
-          if (!oversizedByAddress.remove(address, oversized)) {
-            throw new IllegalStateException("oversized allocation ownership changed during shutdown at " + address);
-          }
-          activeBytes.addAndGet(-oversized.bytes());
-          refundCommittedBytes(oversized.bytes());
-          HftBoundaryTelemetry.allocatorRelease();
-          HftBoundaryTelemetry.nativeRelease();
-        } catch (final RuntimeException | Error failure) {
-          cleanupFailure = retainCleanupFailure(cleanupFailure, failure);
-        }
-      }
-
-      if (cleanupFailure != null) {
-        rethrowCleanupFailure(cleanupFailure);
-      }
+      requireNoLiveOwners();
+      closeOversizedAllocations();
     } catch (final RuntimeException | Error failure) {
       terminated.set(false);
       throw failure;
@@ -2052,6 +1978,95 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     classes = null;
     initialized.setRelease(false);
+  }
+
+  /**
+   * The first half of {@link #shutdown}: return what nobody reads (idle scratch, recycled slabs) and
+   * fail while anything else is still held or an admission is in flight.
+   */
+  private void requireNoLiveOwners() {
+    // A granted scan owns capacity even before its first mapping. Admission checks the terminal
+    // flag under the budget monitor; taking that monitor here completes the shutdown handshake.
+    final long liveAggregationCapacity = aggregationBudget.grantedBytes();
+    if (liveAggregationCapacity != 0L) {
+      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveAggregationCapacity
+          + " bytes granted to aggregation; close the scans before shutdown");
+    }
+    // Idle scratch buffers are read by nobody: give their regions back first, so that only
+    // memory somebody still holds can stop the shutdown below.
+    final FrameScratch scratchBuffers = scratch;
+    if (scratchBuffers != null) {
+      scratchBuffers.reclaimAllIdle();
+    }
+    final long liveSlotBytes = activeSlotBytes.get();
+    if (liveSlotBytes != 0L) {
+      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveSlotBytes
+          + " active frame-slot bytes; release all slot owners before shutdown");
+    }
+    final long liveScratchRegionBytes = scratchBuffers == null
+        ? 0L
+        : scratchBuffers.regionBytes();
+    if (liveScratchRegionBytes != 0L) {
+      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveScratchRegionBytes
+          + " bytes of lent scratch regions; close their leases before shutdown");
+    }
+    final int oversizedOperations = oversizedAllocationOperations.get();
+    if (oversizedOperations != 0) {
+      throw new IllegalStateException("FrameSlotAllocator shutdown raced " + oversizedOperations
+          + " oversized allocation operation(s); retry after admission completes");
+    }
+    final int pendingSlabOperations = slabOperations.get();
+    if (pendingSlabOperations != 0) {
+      throw new IllegalStateException("FrameSlotAllocator shutdown raced " + pendingSlabOperations
+          + " slab operation(s); retry after admission completes");
+    }
+    // Recycled slabs are read by nobody: unmap them now. A live slab may still be read through a
+    // lease; unmapping it here would be a use-after-free.
+    drainRecycledSlabs(Long.MAX_VALUE, true);
+    final long liveSlabBytes = slabBytes.get();
+    if (liveSlabBytes != 0L) {
+      throw new IllegalStateException("FrameSlotAllocator shutdown with " + liveSlabBytes
+          + " live slab bytes; clear the derived caches that own them before shutdown");
+    }
+  }
+
+  /**
+   * The second half of {@link #shutdown}: close the oversized allocations of the shutting-down
+   * thread, after checking that no other thread owns one.
+   */
+  private void closeOversizedAllocations() {
+    // Confined arenas preserve the same-thread, allocation-free normal release path. Validate all
+    // owners before closing any so a foreign-thread leak fails atomically instead of leaving a
+    // half-shut-down allocator. The owning thread can release it and retry shutdown.
+    final Thread shutdownThread = Thread.currentThread();
+    for (final OversizedAllocation oversized : oversizedByAddress.values()) {
+      if (oversized.owner() != shutdownThread) {
+        throw new IllegalStateException("FrameSlotAllocator shutdown cannot close an oversized allocation owned by "
+            + oversized.owner().getName() + "; release it on its allocating thread first");
+      }
+    }
+
+    Throwable cleanupFailure = null;
+    for (final var entry : oversizedByAddress.entrySet()) {
+      final Long address = entry.getKey();
+      final OversizedAllocation oversized = entry.getValue();
+      try {
+        oversized.arena().close();
+        if (!oversizedByAddress.remove(address, oversized)) {
+          throw new IllegalStateException("oversized allocation ownership changed during shutdown at " + address);
+        }
+        activeBytes.addAndGet(-oversized.bytes());
+        refundCommittedBytes(oversized.bytes());
+        HftBoundaryTelemetry.allocatorRelease();
+        HftBoundaryTelemetry.nativeRelease();
+      } catch (final RuntimeException | Error failure) {
+        cleanupFailure = retainCleanupFailure(cleanupFailure, failure);
+      }
+    }
+
+    if (cleanupFailure != null) {
+      rethrowCleanupFailure(cleanupFailure);
+    }
   }
 
   private static Throwable retainCleanupFailure(final Throwable primary, final Throwable secondary) {

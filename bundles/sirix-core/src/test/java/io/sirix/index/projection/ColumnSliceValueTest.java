@@ -18,7 +18,8 @@ final class ColumnSliceValueTest {
       assertNotEquals(expected, slice(component), "different slice component " + component);
     }
     assertNotEquals(expected, null);
-    assertNotEquals(expected, "slice");
+    final Object unrelated = "slice";
+    assertNotEquals(expected, unrelated);
     assertEquals("ColumnSlice[rowCount=1, flags=1, min=1, max=1, presenceWords=[1], numericValues=[1], "
         + "boolWords=[1], stringDictIds=[1], dictBytes=[1], dictOffsets=[1], setCounts=[1], dictHashes=[1], "
         + "packedStringIds=null, lane=null]", expected.toString());

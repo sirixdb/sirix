@@ -17,7 +17,8 @@ final class ScratchStatsValueTest {
       assertNotEquals(expected, snapshot(component), "different metric component " + component);
     }
     assertNotEquals(expected, null);
-    assertNotEquals(expected, "metrics");
+    final Object unrelated = "metrics";
+    assertNotEquals(expected, unrelated);
   }
 
   @Test

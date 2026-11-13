@@ -379,18 +379,25 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       throw failure;
     } finally {
       // Native views lease their resident snapshot; the result sequence no longer reads them.
-      Throwable failure = primary;
-      for (final MaskedColumns side : columns) {
-        if (side != null) {
-          try {
-            side.close();
-          } catch (final Throwable cleanup) {
-            failure = retainCleanupFailure(failure, cleanup);
-          }
+      closeSides(columns, primary);
+    }
+  }
+
+  /**
+   * Close the views of both sides; a failure of closing is kept on {@code primary} when there is one.
+   */
+  private static void closeSides(final MaskedColumns[] columns, final @Nullable Throwable primary) {
+    Throwable failure = primary;
+    for (final MaskedColumns side : columns) {
+      if (side != null) {
+        try {
+          side.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
         }
       }
-      rethrowCleanupFailure(failure);
     }
+    rethrowCleanupFailure(failure);
   }
 
   /** One side's masked columns: the routed rows or every row of the literal document. */

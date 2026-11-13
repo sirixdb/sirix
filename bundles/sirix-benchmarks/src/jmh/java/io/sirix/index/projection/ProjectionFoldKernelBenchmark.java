@@ -1095,40 +1095,48 @@ public class ProjectionFoldKernelBenchmark {
               ? -1L
               : 0x8102040810204081L >>> (word & 3);
         }
-        final long[] expectedCounts = new long[aggCount];
-        final long[] expectedSums = new long[aggCount];
-        long expectedRows = 0L;
-        for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
-          for (int row = 0; row < BLOCK_VALUES; row++) {
-            if ((selected[row >>> 6] & 1L << (row & 63)) == 0L) {
-              continue;
-            }
-            expectedRows++;
-            for (int a = 0; a < aggCount; a++) {
-              if ((presence[leaf][a][row >>> 6] & 1L << (row & 63)) != 0L) {
-                expectedCounts[a]++;
-                expectedSums[a] += heapValues[leaf][a][row];
-              }
-            }
+        verifySelectedRowsAgainstScalarOracle(selected);
+      }
+      verifyFullMaskArmsAgree();
+    }
+
+    private void verifySelectedRowsAgainstScalarOracle(final long[] selected) {
+      final long[] expectedCounts = new long[aggCount];
+      final long[] expectedSums = new long[aggCount];
+      long expectedRows = 0L;
+      for (int leaf = 0; leaf < POOL_BLOCKS; leaf++) {
+        for (int row = 0; row < BLOCK_VALUES; row++) {
+          if ((selected[row >>> 6] & 1L << (row & 63)) == 0L) {
+            continue;
           }
-        }
-        for (final Arm arm : Arm.values()) {
-          for (final Kernel kernel : Kernel.values()) {
-            final long[] actual = foldWholePool(selected, arm, kernel);
-            if (actual[0] != expectedRows) {
-              throw new AssertionError("row count disagrees with scalar oracle: " + arm + "/" + kernel);
-            }
-            final int stride = kernel == Kernel.SUMS
-                ? 2
-                : 4;
-            for (int a = 0; a < aggCount; a++) {
-              if (actual[2 + stride * a] != expectedCounts[a] || actual[3 + stride * a] != expectedSums[a]) {
-                throw new AssertionError("aggregate disagrees with scalar oracle: " + arm + "/" + kernel + "/" + a);
-              }
+          expectedRows++;
+          for (int a = 0; a < aggCount; a++) {
+            if ((presence[leaf][a][row >>> 6] & 1L << (row & 63)) != 0L) {
+              expectedCounts[a]++;
+              expectedSums[a] += heapValues[leaf][a][row];
             }
           }
         }
       }
+      for (final Arm arm : Arm.values()) {
+        for (final Kernel kernel : Kernel.values()) {
+          final long[] actual = foldWholePool(selected, arm, kernel);
+          if (actual[0] != expectedRows) {
+            throw new AssertionError("row count disagrees with scalar oracle: " + arm + "/" + kernel);
+          }
+          final int stride = kernel == Kernel.SUMS
+              ? 2
+              : 4;
+          for (int a = 0; a < aggCount; a++) {
+            if (actual[2 + stride * a] != expectedCounts[a] || actual[3 + stride * a] != expectedSums[a]) {
+              throw new AssertionError("aggregate disagrees with scalar oracle: " + arm + "/" + kernel + "/" + a);
+            }
+          }
+        }
+      }
+    }
+
+    private void verifyFullMaskArmsAgree() {
       final long[] full = new long[WORDS_PER_BLOCK];
       Arrays.fill(full, -1L);
       final long[] fromArrays = foldWholePool(full, Arm.ARRAY, Kernel.SLICED);

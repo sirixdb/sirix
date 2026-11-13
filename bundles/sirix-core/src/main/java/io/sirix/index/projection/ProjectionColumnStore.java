@@ -2928,18 +2928,10 @@ public final class ProjectionColumnStore {
         // Largest releasable unit first: not an LRU (no recency is consulted, and none is recorded),
         // simply the choice that reaches the budget in the fewest drops and therefore re-fetches the
         // fewest columns if they are wanted again.
-        int bestColumn = -1;
-        long bestBytes = 0L;
-        for (int col = 0; col < columnKinds.length; col++) {
-          if (kept[col] || residencyPins.get(col) != 0) {
-            continue;
-          }
-          final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
-          if (bytes > bestBytes) {
-            bestBytes = bytes;
-            bestColumn = col;
-          }
-        }
+        final int bestColumn = largestReleasableColumn(kept);
+        long bestBytes = bestColumn < 0
+            ? 0L
+            : chargedColumnBytes(bestColumn);
         final boolean keys = residencyPins.get(keysSlot) == 0 && chargedKeysBytes > bestBytes;
         if (keys) {
           bestBytes = chargedKeysBytes;
@@ -2975,13 +2967,45 @@ public final class ProjectionColumnStore {
     }
     rethrowCleanupFailure(failure);
     if (freed > 0L) {
-      RESIDENCY_RELEASED_BYTES.add(freed);
-      RESIDENCY_RELEASES.add(releases);
-      if (Boolean.getBoolean("sirix.projDiag")) {
-        System.err.println(
-            "[proj] residency release: " + releases + " column(s), " + (freed >> 20) + " MB returned, retained "
-                + (retainedFillBytes.get() >> 20) + " MB of a " + (budget >> 20) + " MB budget");
+      noteResidencyRelease(freed, releases, budget);
+    }
+  }
+
+  /**
+   * What the ledger holds for the lanes of {@code col}: slices, identity slices and raw BODY bytes.
+   */
+  private long chargedColumnBytes(final int col) {
+    return chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+  }
+
+  /**
+   * The unpinned column holding the most charged bytes among those not in {@code kept}, or {@code -1}
+   * when none of them holds any; the caller holds the monitor.
+   */
+  private int largestReleasableColumn(final boolean[] kept) {
+    assert Thread.holdsLock(this);
+    int bestColumn = -1;
+    long bestBytes = 0L;
+    for (int col = 0; col < columnKinds.length; col++) {
+      if (kept[col] || residencyPins.get(col) != 0) {
+        continue;
       }
+      final long bytes = chargedColumnBytes(col);
+      if (bytes > bestBytes) {
+        bestBytes = bytes;
+        bestColumn = col;
+      }
+    }
+    return bestColumn;
+  }
+
+  /** Count a residency release and, under {@code sirix.projDiag}, say what it returned. */
+  private void noteResidencyRelease(final long freed, final int releases, final long budget) {
+    RESIDENCY_RELEASED_BYTES.add(freed);
+    RESIDENCY_RELEASES.add(releases);
+    if (Boolean.getBoolean("sirix.projDiag")) {
+      System.err.println("[proj] residency release: " + releases + " column(s), " + (freed >> 20)
+          + " MB returned, retained " + (retainedFillBytes.get() >> 20) + " MB of a " + (budget >> 20) + " MB budget");
     }
   }
 
@@ -3891,16 +3915,7 @@ public final class ProjectionColumnStore {
    */
   private ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords,
       final @Nullable MemorySegment providedSlab, final long @Nullable [] providedBases) {
-    if (!columnSliceable(col)) {
-      throw new IllegalStateException("Column " + col + " is not sliceable (kind="
-          + (col >= 0 && col < columnKinds.length
-              ? columnKinds[col]
-              : -1)
-          + ")");
-    }
-    if (corruptColumns[col] != 0) {
-      throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
-    }
+    requireSliceableUncorrupted(col);
     // Priced INCREMENTALLY, like every residency decision: a column whose body bytes are already
     // retained (an identity fill, a previous plain fill) adds nothing the ledger has not counted, and
     // re-charging its masked projection against a budget it already fills declined q19 at 100M/8 GB.
@@ -3931,29 +3946,7 @@ public final class ProjectionColumnStore {
         ? providedBases
         : null;
     try {
-      if (n >= PARALLEL_DECODE_MIN) {
-        // Across the common pool, exactly as the unmasked fill decodes — and for the SAME reason,
-        // with more at stake: masked slices are predicate-specific and therefore never cached, so
-        // every execution of a pruning query pays this decode again. Serially it is the whole hot
-        // time of a repeated group-by (measured: ~1.33 s of a 1.35 s JSONBench Q4 at 100M rows,
-        // 97,656 leaves, on the CALLING thread while twenty scan workers waited for it).
-        final AtomicReference<Throwable> failed = new AtomicReference<>();
-        IntStream.range(0, n).parallel().forEach(i -> {
-          if (failed.get() != null) {
-            return;
-          }
-          try {
-            slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
-          } catch (final RuntimeException | Error failure) {
-            failed.compareAndSet(null, failure);
-          }
-        });
-        rethrowParallelFailure(failed.get());
-      } else {
-        for (int i = 0; i < n; i++) {
-          slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
-        }
-      }
+      decodeMaskedSlices(slices, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
     } catch (final ProjectionStoreInconsistentException inconsistent) {
       // Leaves that disagree about a column's encoding are a WRITER fault, not undecodable bytes.
       // Decline the store, but do NOT record this column as corrupt: that memo is store-wide and
@@ -3965,6 +3958,53 @@ public final class ProjectionColumnStore {
       throw corrupt;
     }
     return slices;
+  }
+
+  /** A masked fill reads only a sliceable column whose BODY segments are not known to be corrupt. */
+  private void requireSliceableUncorrupted(final int col) {
+    if (!columnSliceable(col)) {
+      throw new IllegalStateException("Column " + col + " is not sliceable (kind="
+          + (col >= 0 && col < columnKinds.length
+              ? columnKinds[col]
+              : -1)
+          + ")");
+    }
+    if (corruptColumns[col] != 0) {
+      throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
+    }
+  }
+
+  /**
+   * Every leaf of a masked fill into {@code slices}: across the common pool from the parallel minimum
+   * on.
+   */
+  private void decodeMaskedSlices(final ColumnSlice[] slices, final int col, final boolean set, final boolean string,
+      final byte[][] segments, final byte[][] dictSegments, final long[] keepWords,
+      final @Nullable MemorySegment laneSlab, final long @Nullable [] laneBases) {
+    final int n = slices.length;
+    if (n >= PARALLEL_DECODE_MIN) {
+      // Across the common pool, exactly as the unmasked fill decodes — and for the SAME reason,
+      // with more at stake: masked slices are predicate-specific and therefore never cached, so
+      // every execution of a pruning query pays this decode again. Serially it is the whole hot
+      // time of a repeated group-by (measured: ~1.33 s of a 1.35 s JSONBench Q4 at 100M rows,
+      // 97,656 leaves, on the CALLING thread while twenty scan workers waited for it).
+      final AtomicReference<Throwable> failed = new AtomicReference<>();
+      IntStream.range(0, n).parallel().forEach(i -> {
+        if (failed.get() != null) {
+          return;
+        }
+        try {
+          slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
+        } catch (final RuntimeException | Error failure) {
+          failed.compareAndSet(null, failure);
+        }
+      });
+      rethrowParallelFailure(failed.get());
+    } else {
+      for (int i = 0; i < n; i++) {
+        slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
+      }
+    }
   }
 
   /** One leaf of a masked fill: the canonical pruned slice, or the same decode the full fill does. */

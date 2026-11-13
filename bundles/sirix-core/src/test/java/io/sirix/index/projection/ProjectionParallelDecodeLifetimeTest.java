@@ -66,14 +66,7 @@ final class ProjectionParallelDecodeLifetimeTest {
     final Random random = new Random(20261111L);
     long nextOffset = 1_000L;
     for (int leaf = 0; leaf < LEAVES; leaf++) {
-      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS.clone());
-      final long[] values = new long[KINDS.length];
-      final boolean[] booleans = new boolean[KINDS.length];
-      final String[] strings = new String[KINDS.length];
-      for (int row = 0; row < 200 - leaf; row++) {
-        values[0] = random.nextLong();
-        page.appendRow(leaf * 1_000L + row + 1, values, booleans, strings);
-      }
+      final ProjectionIndexRowGroupPage page = randomRowGroup(leaf, random);
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
           ProjectionIndexColumnSegmentCodec.encode(page.serialize());
       final int[] ids = encoded.columnSegmentIds().clone();
@@ -130,16 +123,7 @@ final class ProjectionParallelDecodeLifetimeTest {
       releaseAttempted.countDown();
       return null;
     }).when(observed).releaseSlab(any(MemorySegment.class));
-    final Thread controller = new Thread(() -> {
-      try {
-        errorInjected.await();
-        releaseAttempted.await(1L, TimeUnit.SECONDS);
-      } catch (final InterruptedException interrupted) {
-        Thread.currentThread().interrupt();
-      } finally {
-        finishBlocker.countDown();
-      }
-    }, "parallel-decode-release-observer");
+    final Thread controller = releaseObserver(errorInjected, releaseAttempted, finishBlocker);
     final long previousHeadroom = HeapHeadroom.setHeadroomForTesting(-1L);
     final long previousBudget = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(Long.MAX_VALUE >> 1);
     final boolean previousResidency = ProjectionColumnStore.setResidencyHeadroomForTesting(false);
@@ -182,5 +166,31 @@ final class ProjectionParallelDecodeLifetimeTest {
       HeapHeadroom.setHeadroomForTesting(previousHeadroom);
       ProjectionColumnStore.sampleHeadroomShare();
     }
+  }
+
+  private static ProjectionIndexRowGroupPage randomRowGroup(final int leaf, final Random random) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS.clone());
+    final long[] values = new long[KINDS.length];
+    final boolean[] booleans = new boolean[KINDS.length];
+    final String[] strings = new String[KINDS.length];
+    for (int row = 0; row < 200 - leaf; row++) {
+      values[0] = random.nextLong();
+      page.appendRow(leaf * 1_000L + row + 1, values, booleans, strings);
+    }
+    return page;
+  }
+
+  private static Thread releaseObserver(final CountDownLatch errorInjected, final CountDownLatch releaseAttempted,
+      final CountDownLatch finishBlocker) {
+    return new Thread(() -> {
+      try {
+        errorInjected.await();
+        releaseAttempted.await(1L, TimeUnit.SECONDS);
+      } catch (final InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+      } finally {
+        finishBlocker.countDown();
+      }
+    }, "parallel-decode-release-observer");
   }
 }

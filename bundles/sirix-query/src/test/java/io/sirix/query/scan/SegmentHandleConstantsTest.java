@@ -132,6 +132,15 @@ final class SegmentHandleConstantsTest {
   @Test
   void everyAllowedClassIsConfiguredForBuildTimeInitializationAndHoldsOnlyAccessMetadata() throws Exception {
     final ClassLoader loader = SegmentHandleConstantsTest.class.getClassLoader();
+    final Set<String> configured = configuredBuildTimeClasses(loader);
+    for (final String name : BUILD_TIME_INITIALIZED) {
+      assertTrue(configured.contains(name), name + " is allowed to hold segment handles but no shared "
+          + "native-image.properties initializes it at build time: " + configured);
+      assertClassHoldsOnlyAccessMetadata(name, loader);
+    }
+  }
+
+  private static Set<String> configuredBuildTimeClasses(final ClassLoader loader) throws IOException {
     final Set<String> configured = new HashSet<>();
     for (final String configuration : CONFIGURATIONS) {
       final Enumeration<URL> resources = loader.getResources(configuration);
@@ -148,43 +157,48 @@ final class SegmentHandleConstantsTest {
         }
       }
     }
-    for (final String name : BUILD_TIME_INITIALIZED) {
-      assertTrue(configured.contains(name), name + " is allowed to hold segment handles but no shared "
-          + "native-image.properties initializes it at build time: " + configured);
-      // Build-time initialization captures the class's static state in the image heap, so the class
-      // may hold immutable access metadata only. The internal aggregation holder also captures
-      // its build-time debug switch, a constant zero-address segment and the constant mask its
-      // addresses are validated against; no owned memory.
-      for (final Field field : Class.forName(name, false, loader).getDeclaredFields()) {
-        if (!Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
-          continue;
-        }
-        final boolean aggregationMetadata = name.equals("io.sirix.index.projection.GroupKernelLanes")
-            && ((field.getName().equals("DEBUG") && field.getType() == boolean.class)
-                || (field.getName().equals("ADDRESS_MASK") && field.getType() == long.class)
-                || (field.getName().equals("ADDRESS_SPACE") && field.getType() == MemorySegment.class));
-        assertTrue(
-            Modifier.isFinal(field.getModifiers())
-                && (VarHandle.class.isAssignableFrom(field.getType()) || aggregationMetadata),
-            name + "." + field.getName() + " is static state in a build-time-initialized class; only final "
-                + "access metadata belongs there");
-        if (aggregationMetadata && field.getType() == long.class) {
-          field.setAccessible(true);
-          final long mask = field.getLong(null);
-          // Lane-aligned, positive, and with room above it for the largest lane offset an int
-          // lane expresses: a masked record plus any lane stays inside the spanning segment.
-          assertEquals(0L, mask & 7L);
-          assertTrue(mask > 0L && mask <= Long.MAX_VALUE - Long.BYTES - (0xFFFF_FFFFL << 3));
-        }
-        if (aggregationMetadata && field.getType() == MemorySegment.class) {
-          field.setAccessible(true);
-          final MemorySegment addressSpace = (MemorySegment) field.get(null);
-          assertEquals(0L, addressSpace.address());
-          assertEquals(Long.MAX_VALUE, addressSpace.byteSize());
-          assertTrue(addressSpace.scope().isAlive());
-        }
+    return configured;
+  }
+
+  private static void assertClassHoldsOnlyAccessMetadata(final String name, final ClassLoader loader)
+      throws ClassNotFoundException, IllegalAccessException {
+    // Build-time initialization captures the class's static state in the image heap, so the class
+    // may hold immutable access metadata only. The internal aggregation holder also captures
+    // its build-time debug switch, a constant zero-address segment and the constant mask its
+    // addresses are validated against; no owned memory.
+    for (final Field field : Class.forName(name, false, loader).getDeclaredFields()) {
+      if (!Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) {
+        continue;
+      }
+      final boolean aggregationMetadata = isAggregationMetadata(name, field);
+      assertTrue(
+          Modifier.isFinal(field.getModifiers())
+              && (VarHandle.class.isAssignableFrom(field.getType()) || aggregationMetadata),
+          name + "." + field.getName() + " is static state in a build-time-initialized class; only final "
+              + "access metadata belongs there");
+      if (aggregationMetadata && field.getType() == long.class) {
+        field.setAccessible(true);
+        final long mask = field.getLong(null);
+        // Lane-aligned, positive, and with room above it for the largest lane offset an int
+        // lane expresses: a masked record plus any lane stays inside the spanning segment.
+        assertEquals(0L, mask & 7L);
+        assertTrue(mask > 0L && mask <= Long.MAX_VALUE - Long.BYTES - (0xFFFF_FFFFL << 3));
+      }
+      if (aggregationMetadata && field.getType() == MemorySegment.class) {
+        field.setAccessible(true);
+        final MemorySegment addressSpace = (MemorySegment) field.get(null);
+        assertEquals(0L, addressSpace.address());
+        assertEquals(Long.MAX_VALUE, addressSpace.byteSize());
+        assertTrue(addressSpace.scope().isAlive());
       }
     }
+  }
+
+  private static boolean isAggregationMetadata(final String name, final Field field) {
+    return name.equals("io.sirix.index.projection.GroupKernelLanes")
+        && ((field.getName().equals("DEBUG") && field.getType() == boolean.class)
+            || (field.getName().equals("ADDRESS_MASK") && field.getType() == long.class)
+            || (field.getName().equals("ADDRESS_SPACE") && field.getType() == MemorySegment.class));
   }
 
   @Test
