@@ -429,6 +429,9 @@ public final class GroupTableSpill {
     }
 
     /** Hand every chunk back to the scan's workspace and empty the buffer. */
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     void release(final GroupWorkspace workspace) {
       Throwable failure = null;
       for (int i = 0; i < chunkCount; i++) {
@@ -1040,6 +1043,9 @@ public final class GroupTableSpill {
    * Releases this spill's tables and returns a private workspace to the allocator. Nothing built from
    * this spill may be read afterwards.
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   public void close() {
     Throwable failure = null;
     try {
@@ -1503,6 +1509,9 @@ public final class GroupTableSpill {
    * from instead of borrowing fresh regions next to them. Call after the parallel section has joined
    * and before re-planning; the spill is not reused.
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   public void releaseTables() {
     Throwable failure = null;
     for (int p = 0; p < partitions; p++) {

@@ -956,6 +956,9 @@ public final class FileChannelReader extends AbstractReader {
    * One coalesced run [{@code from}, {@code to}]: span pread + last-body pread + per-page
    * deserialize.
    */
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings("java:S3776")
   private void readRun(final PageReference[] references, final Page[] pages, final int[] order, final int from,
       final int to, final @Nullable ResourceConfiguration resourceConfiguration, final long batchFileSize,
       final boolean compactHOTFragments) {

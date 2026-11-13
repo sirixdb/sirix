@@ -97,6 +97,8 @@ public final class MaskedColumns implements AutoCloseable {
    * store's resident columns) and key lanes, this view's own mask copy, the entry's identity and
    * original masks. The entry attaches the lease through {@link #adoptLease}.
    */
+  // Sonar S107: a plain carrier with one argument for each of its fields.
+  @SuppressWarnings("java:S107")
   MaskedColumns(final ProjectionColumnStore store, final long[][] masks, final KeyLanes keys,
       final ColumnSlice[][] slices, final byte[] kinds, final long rows, final Object rowIdentity,
       final long @Nullable [][] immutableMasks, final byte[] presenceMemo) {
@@ -130,6 +132,9 @@ public final class MaskedColumns implements AutoCloseable {
     entry = held;
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   void ownResources(final @Nullable MemorySegment slab, final int[] pinnedColumns) {
     if (release != null) {
       throw new IllegalStateException("view already holds a lease or a slab");
@@ -220,6 +225,9 @@ public final class MaskedColumns implements AutoCloseable {
       this.pinnedColumns = pinnedColumns;
     }
 
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     @Override
     public void run() {
       if (released.compareAndSet(false, true)) {
@@ -554,6 +562,9 @@ public final class MaskedColumns implements AutoCloseable {
    * true}) — the interpreter's semi- and anti-join over an equality: a missing field matches nothing,
    * so it survives an anti-join and fails a semi-join.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public long[] recordKeysByMembership(final int field, final LongOpenHashSet values, final boolean anti) {
     final LongArrayList out = new LongArrayList();
     final ColumnSlice[] fieldSlices = slices[field];

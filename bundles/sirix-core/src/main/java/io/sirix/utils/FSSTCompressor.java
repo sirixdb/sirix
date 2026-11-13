@@ -1802,6 +1802,9 @@ public final class FSSTCompressor {
    * @return the staging array to pass to the next call: {@code staging}, or the larger array a row
    *         made necessary unless that exceeds {@link #MAX_RETAINED_BATCH_STAGING_BYTES}
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   public static byte[] batchDecode(final MemorySegment[] pages, final int[] pageIndices, final int[] offsets,
       final int[] lengths, final boolean[] isCompressed, final int[] selectionVector, final int selectionCount,
       final byte[][][] symbolsByPage, final String[] output, final byte[] staging) {

@@ -1499,6 +1499,11 @@ public final class ProjectionIndexByteScan {
    * {@code missingAcc} (the null-key group) instead of a string group. Accumulator layout:
    * {@link #groupAggSlots}. Dict interning mirrors {@link #conjunctiveCountByGroup}.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S3776"})
   public static void conjunctiveAggregateByGroup(final GroupWorkspace workspace, final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final Object2ObjectOpenHashMap<String, GroupBuffer> out, final GroupBuffer missingAcc, final int leafIndexBase) {
@@ -2103,6 +2108,11 @@ public final class ProjectionIndexByteScan {
    * @throws ArithmeticException on a per-group sum overflow — a DECLINE
    * @throws IllegalStateException on kind drift or an unreadable presence tail — a DECLINE
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S3776"})
   public static void conjunctiveAggregateByGroupNumeric(final GroupWorkspace workspace,
       final List<byte[]> rowGroupPayloads, final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int groupColumn, final int[] aggColumns, final Long2ObjectOpenHashMap<GroupBuffer> out,
@@ -2219,6 +2229,9 @@ public final class ProjectionIndexByteScan {
    * into its sum lane after the partition-wise union (merging partial SIZES would double-count values
    * shared between threads).
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void conjunctiveAggregateByGroupNumericFlat(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final GroupBuffer missingAcc, final int leafIndexBase, final int distinctBlock,
@@ -2464,6 +2477,9 @@ public final class ProjectionIndexByteScan {
    * Keep the count loop in its own compilation unit: switching distinct/string-aggregate shapes can
    * invalidate the larger scan's OSR code while its normal entry is still being compiled.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static void countNumericGroups(final byte[] payload, final int rowCount, final int groupPresOff,
       final int groupValOff, final long leafOrdinalBase, final long[] scanMask, final NumericGroupAggTable out,
       final GroupBuffer missingAcc) {
@@ -2519,6 +2535,9 @@ public final class ProjectionIndexByteScan {
    * distinct block's operand as STRING_DICT — see {@link #foldRowDistinct} for the leaf-local-id →
    * content-hash identity it feeds the set.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void conjunctiveAggregateByGroupStringFlat(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final GroupBuffer missingAcc, final int leafIndexBase, final int distinctBlock,
@@ -3089,6 +3108,9 @@ public final class ProjectionIndexByteScan {
    * @param identityRegistry shared across this scan's workers, or {@code null} when every component
    *        is numeric or substring-cast and therefore already exact in one lane
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void conjunctiveAggregateByGroupCompositeFlat(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
       final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
@@ -3584,6 +3606,9 @@ public final class ProjectionIndexByteScan {
   }
 
   /** Count by leaf-local dictionary ID before resolving each selected group once in the table. */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static void countStringGroups(final byte[] payload, final int rowCount, final int groupPresOff,
       final int idsOff, final int lenHeaderOff, final long leafOrdinalBase, final long[] scanMask,
       final int[] dictByteOff, final long[] dictCounts, final int[] firstRows, final NumericGroupAggTable out,
@@ -3646,7 +3671,9 @@ public final class ProjectionIndexByteScan {
   }
 
   /** Count untransformed composite keys while retaining canonical byte proofs and pass ownership. */
-  @SuppressWarnings("NullAway") // needsProof implies that registry and proofCache are present.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"NullAway", "java:S3776"}) // needsProof implies that registry and proofCache are present.
   private static boolean countCompositeGroups(final byte[] payload, final int rowCount, final long leafOrdinalBase,
       final long[] scanMask, final byte[] kinds, final int[] presOff, final int[] valOff, final long[][] hashes,
       final long[][] idA, final long[][] idB, final int[][] dictOff, final int[] lenOff, final long[][] proven,
@@ -3733,6 +3760,9 @@ public final class ProjectionIndexByteScan {
    * use the executor's resolved literal id, in the same exact domain as the stored ids. Local
    * dictionaries and arithmetic/string transforms retain the general proof-bearing kernel.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static void countByLongComposite(final List<byte[]> payloads, final ColumnPredicate[] predicates,
       final int[] columns, final NumericGroupAggTable out, final int leafIndexBase, final PredicateTree tree,
       final long[] budget, final long[] declineFlag, final ProjectionStringIdentityRegistry identityRegistry,
@@ -4692,6 +4722,9 @@ public final class ProjectionIndexByteScan {
   }
 
   /** Global-string capable packed-substring overload; a non-null view resolves global-id cells. */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void conjunctiveAggregateByGroupPackedSubstringFlat(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int subStart,
       final int subLen, final int[] aggColumns, final NumericGroupAggTable out, final int leafIndexBase,
@@ -4835,6 +4868,9 @@ public final class ProjectionIndexByteScan {
    * ({@link NumericGroupAggTable#acquireAccumulator}, {@link NumericGroupAggTable#accumulatorAt},
    * {@link GroupBuffer#accumulator}); the caller keeps what it was resolved from alive.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private static void foldRow(final long record, final byte[] payload, final int[] aggPresOff, final int[] aggValOff,
       final int aggCount, final int w, final int bit, final int rowIdx, final long sumExactMask) {
     foldRow(record, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, null, null, null, sumExactMask);
@@ -4844,6 +4880,11 @@ public final class ProjectionIndexByteScan {
    * {@link #foldRow} with string-length operand modes: a transformed string aggregate folds the
    * entry's precomputed codepoint or UTF-8-byte count, and a missing operand folds zero.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S3776"})
   private static void foldRow(final long record, final byte[] payload, final int[] aggPresOff, final int[] aggValOff,
       final int aggCount, final int w, final int bit, final int rowIdx, final byte[] stringLengthModes,
       final int[][] stringLengths, final int[][] globalLengthTables, final long sumExactMask) {
@@ -4877,6 +4918,9 @@ public final class ProjectionIndexByteScan {
   }
 
   /** {@link #foldRowDistinct} without string operand modes — every agg block is NUMERIC_LONG. */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private static void foldRowDistinct(final long record, final byte[] payload, final int[] aggPresOff,
       final int[] aggValOff, final int aggCount, final int distinctBlock, final GroupDistinctAccumulator.Sink dset,
       final long[] budget, final int w, final int bit, final int rowIdx, final long sumExactMask) {
@@ -4894,6 +4938,13 @@ public final class ProjectionIndexByteScan {
    * ({@code 0} = not yet hashed). Identity is therefore exact up to a 64-bit hash collision — the
    * SAME standard the composite group-key identity already accepts.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S1172: the row fold and this set-feeding form take the same operands from four row loops.
+  // Dropping the unused one changes those compiled calls.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S1172", "java:S3776"})
   private static void foldRowDistinct(final long record, final byte[] payload, final int[] aggPresOff,
       final int[] aggValOff, final int aggCount, final int distinctBlock, final GroupDistinctAccumulator.Sink dset,
       final long[] unusedBudget, final int w, final int bit, final int rowIdx, final byte[] stringLengthModes,
@@ -5116,6 +5167,9 @@ public final class ProjectionIndexByteScan {
    * through a per-leaf combo cache, so the steady-state row cost is one packed-long hash probe — no
    * string work, no allocation.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void conjunctiveAggregateByGroupMulti(final GroupWorkspace workspace,
       final List<byte[]> rowGroupPayloads, final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int[] groupColumns, final int[] aggColumns, final Object2ObjectOpenHashMap<GroupKey, GroupBuffer> out,

@@ -269,6 +269,9 @@ final class FusedSliceAndScan implements AutoCloseable {
      * exhausted and refuses appends. Idempotent, and safe to call from a second thread once the thread
      * that read the chunk has finished with it.
      */
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     synchronized void release() {
       if (released) {
         return;
@@ -497,6 +500,9 @@ final class FusedSliceAndScan implements AutoCloseable {
   }
 
   /** The next member-aligned chunk with its metadata, or {@code null} at the array's end. */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   Chunk nextChunk() throws IOException {
     if (arrayClosed) {
       return null;

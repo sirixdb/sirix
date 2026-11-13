@@ -322,6 +322,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return null;
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private @Nullable Sequence serve(final QueryContext ctx, final Tuple tuple) throws QueryException {
     final long[][] keys = new long[2][];
     final int[] revisions = new int[2];
@@ -386,6 +389,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   /**
    * Close the views of both sides; a failure of closing is kept on {@code primary} when there is one.
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private static void closeSides(final MaskedColumns[] columns, final @Nullable Throwable primary) {
     Throwable failure = primary;
     for (final MaskedColumns side : columns) {
@@ -514,6 +520,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         denseHeads, firstRow, denseBuild);
   }
 
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
+  @SuppressWarnings("java:S106")
   private Sequence probeJoin(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
       final int probeSide, final boolean[] stringKeys, final boolean[] timestampKeys, final BuildRows buildRows,
       final int[] nextRow, final int @Nullable [] denseHeads, final Long2IntOpenHashMap firstRow,
@@ -662,6 +671,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * reads through the view's per-row accessors. One representation, one loop. A row-output join reads
    * the probe record key from the key lane per emitted pair.
    */
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S135", "java:S3776"})
   private int probeRows(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
       final int probeSide, final boolean[] stringKeys, final boolean[] timestampKeys, final BuildRows buildRows,
       final int[] nextRow, final int @Nullable [] denseHeads, final Long2IntOpenHashMap firstRow,
@@ -887,6 +901,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       this.owned = owned;
     }
 
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     static SideHandle leased(final BucketedSideCache.PackedSide entry) {
       try {
         handoff("side-handle");
@@ -1017,7 +1034,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
      * its entry keeps the lanes the task reads alive after the query closed its view: the task holds a
      * lease on it), or when the same side is already being packed.
      */
-    @SuppressWarnings("FutureReturnValueIgnored") // Failures complete the separately tracked packing future.
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings({"FutureReturnValueIgnored", "java:S1181"}) // Failures complete the separately tracked packing
+                                                                  // future.
     static void packAsync(final MaskedColumns columns, final long[] signature, final SideLanes lanes,
         final long keyMinimum, final int slots, final long groupMinimum) {
       if (!columns.isImmutableRevision()) {
@@ -1084,6 +1104,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
     }
 
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     private static void finishPacking(final InFlightKey key, final CompletableFuture<PackedSide> packing,
         final DerivedCacheBudget.Lease lease, final @Nullable Reservation reservation,
         final @Nullable PackedSide packed, final @Nullable Throwable primary) {
@@ -1124,6 +1147,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * The cached side, or one packed now (the build side is small; packing it is cheaper than a chain).
    * A refused or disabled cache packs into query-owned workspace from the same allocator.
    */
+  // Sonar S107: the resolved inputs of this step, passed as they are. An object around them would
+  // only move the list into a constructor.
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings({"java:S107", "java:S1181"})
   private static SideHandle bucketedSide(final MaskedColumns columns, final long keyMinimum, final int slots,
       final int fromSlot, final int toSlot, final int marginSlot, final int distinctSlot, final int groupSlot,
       final long groupMinimum) {
@@ -1681,6 +1709,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
   }
 
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S135", "java:S3776"})
   private static int[] build(final MaskedColumns buildColumns, final int buildFieldCount, final BuildRows buildRows,
       final boolean denseNumeric) {
     buildRows.nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8L, buildColumns.rows()))];
@@ -1762,6 +1795,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * values then go straight into the row table. The same rows, chains and key domain as the general
    * loop.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private static void buildLeafOneSegment(final BuildRows buildRows, final int fieldCount, final MemorySegment lane,
       final long[] bases, final long keyBase, final boolean[] timestamps, final long[] mask, final long[] values) {
     final long joinBase = bases[0];
@@ -1854,6 +1890,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   }
 
   /** {@link #emitRow} for all-long, all-present ordering keys: no item, tuple or array per row. */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private void emitRowPrimitive(final int keyCount, final int buildSide, final int buildFieldCount,
       final BuildRows buildRows, final int at, final long[] probeValues, final boolean[] stringKeys,
       final boolean[] timestampKeys, final MaskedColumns buildColumns, final long probeKey, final RowOrder rowOrder) {

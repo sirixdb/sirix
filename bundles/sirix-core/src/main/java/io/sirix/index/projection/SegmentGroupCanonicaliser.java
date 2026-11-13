@@ -522,6 +522,9 @@ public final class SegmentGroupCanonicaliser {
    *         dictionary is not walkable, no present cell at all, or no cell left unsettled — after
    *         saying so; the row loop then resolves per cell
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private @Nullable Marked markReferenced(final ColumnSlice[] slices, final long @Nullable [] keep,
       final long @Nullable [] @Nullable [] rowKeep) {
     Long2ObjectOpenHashMap<long[]> markedBySegment = null;
@@ -1273,6 +1276,9 @@ public final class SegmentGroupCanonicaliser {
     return out;
   }
 
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private boolean canonicaliseMemoisedRange(final ColumnSlice[] slices, final long @Nullable [] keep,
       final long @Nullable [] @Nullable [] rowKeep, final ColumnSlice[] out, final int from, final int to,
       final boolean settledOnly, final CanonicalAllocation @Nullable [] stats, final int range) {
@@ -1523,6 +1529,9 @@ public final class SegmentGroupCanonicaliser {
   /**
    * The row loop of {@link #observe}: every kept present cell must resolve, through the memo or once.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private boolean observeMemoised(final ColumnSlice[] slices, final long @Nullable [] @Nullable [] rowKeep) {
     for (int i = 0; i < slices.length; i++) {
       final ColumnSlice slice = slices[i];

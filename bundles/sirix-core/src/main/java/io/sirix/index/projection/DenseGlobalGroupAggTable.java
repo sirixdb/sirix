@@ -296,6 +296,9 @@ public final class DenseGlobalGroupAggTable {
    *        because folding it elsewhere or dropping it are both wrong answers
    * @throws ArithmeticException when a READ sum lane overflows, exactly as the hash kernels throw
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   public void foldLane(final long id, final long firstSeenOrdinal, final MemorySegment[] aggSeg, final long[] laneBases,
       final long[][] aggPresence, final int aggCount, final int w, final int bit, final int rowIdx,
       final IdRoster roster, final long[] decline) {

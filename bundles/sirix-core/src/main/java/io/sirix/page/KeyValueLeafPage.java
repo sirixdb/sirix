@@ -1645,6 +1645,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
   }
 
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private void resizeRecordFieldOffFrame(final FlyweightNode fn, final long nodeKey, final int slotIndex,
       final int fieldIndex, final int fieldCount, final DeltaVarIntCodec.FieldEncoder encoder, final long oldRecordBase,
       final int oldRecordOnlyLength, final int oldTotalLength, final int nodeKindId, final int deweyIdLength,
@@ -2661,6 +2664,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     return SIDE_SLOT_IMAGE_SCRATCH.get().acquire(OverflowSlotSidecar.MAX_IMAGE_BYTES, ScratchUse.PAGE);
   }
 
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings("java:S3776")
   private void installCanonicalOverflowCarrier(final DataRecord record, final byte[] recordBytes, final int slotNumber,
       final byte[] deweyIdBytes, final MemorySegment scratch) {
     if (record == null) {

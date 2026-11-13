@@ -630,6 +630,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /** Publish a live slab: the exact instance the caller received, by address. */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private void publishSlab(final MemorySegment segment, final long mapped) {
     final Long address = segment.address();
     final SlabAllocation allocation = new SlabAllocation(segment, mapped);
@@ -647,6 +650,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     slabBytes.addAndGet(mapped);
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   @Override
   public @Nullable MemorySegment allocateSlab(final long bytes) {
     if (bytes <= 0) {
@@ -742,6 +748,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   @Override
   public boolean releaseSlab(final MemorySegment slab) {
     slabOperations.incrementAndGet();
@@ -845,6 +854,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     initInternal(granted);
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private void initInternal(final long budgetBytes) {
     if (budgetBytes < SIZE_CLASSES[SIZE_CLASSES.length - 1]) {
       throw new IllegalArgumentException(
@@ -1036,6 +1048,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * {@link #allocate(long)} when you want explicit slot metadata (class index, slot index, version)
    * for optimistic reads. Returns {@code null} if the class has no free slots.
    */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   public FrameSlot allocateSlot(final long requestedBytes) {
     ensureInitialized();
     final int classIdx = indexForSize(requestedBytes);
@@ -1061,6 +1076,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * Reserve one slot in {@code c}, returning its primitive index. The slot is exclusively owned when
    * this method returns; no handle, map entry, boxed address, or free-list node is created.
    */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private int acquireSlot(final SizeClass c) {
     // Publish in-flight ownership before touching a region. shutdown() closes admission first and
     // then reads this counter, so an allocation that passed ensureInitialized() immediately before
@@ -1124,6 +1142,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * @return the slot's index, or {@code -1} when the budget or the class's region has no room
    */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private int commitFreshSlot(final SizeClass c) {
     final boolean reserved = reserveSlabCommittedBytes(c.slotSize);
     if (!reserved) {
@@ -1376,7 +1397,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // handed to the OversizedAllocation registered in #oversizedByAddress and outlives this call,
   // until release(MemorySegment) closes it on the allocating thread. Its own catch block closes it
   // on every failure path before registration completes.
-  @SuppressWarnings("MustBeClosedChecker")
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"MustBeClosedChecker", "java:S1181", "java:S3776"})
   @Override
   public MemorySegment allocate(final long size) {
     if (size <= 0) {
@@ -1961,6 +1986,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * Tear down all mmap'd regions. Not called during normal operation; the allocator is expected to
    * live for the JVM's lifetime.
    */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   public synchronized void shutdown() {
     if (terminated.get()) {
       return;

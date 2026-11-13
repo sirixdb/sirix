@@ -298,6 +298,9 @@ public final class SirixGroupAggregateExpr implements Expr {
         && keyStringify == null && having == null && limit < 0 && totallyOrderedGroups();
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private SirixVectorizedExecutor.@Nullable ServedGroups serveRoutedMembership(final SirixVectorizedExecutor executor,
       final QueryContext ctx, final long[] keys, final SirixVectorizedExecutor.@Nullable GroupMembership values) {
     if (values == null) {

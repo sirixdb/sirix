@@ -1804,6 +1804,9 @@ public final class ProjectionIndexColumnSegmentCodec {
     private long @Nullable [] fullPresence;
 
     /** Called only after ProjectionNumericProofs.Chunk verifies source identity and every mirror. */
+    // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+    // and holds in registers.
+    @SuppressWarnings("java:S3776")
     ProjectionColumnStore.@Nullable ColumnSlice decodeFullPresenceProof(final int rows, final long min,
         final long max) {
       if (!oneQuotient(min, max, offset, divisor)) {

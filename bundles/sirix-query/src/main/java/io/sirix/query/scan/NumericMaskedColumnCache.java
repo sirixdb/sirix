@@ -38,6 +38,9 @@ public final class NumericMaskedColumnCache {
   }
 
   /** A leased view over the cached selection, or {@code null}; the caller closes the view. */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   @Nullable
   MaskedColumns lookup(final ProjectionColumnStore store, final String[] fields, final long[] keys) {
     final Entry entry =
@@ -76,6 +79,9 @@ public final class NumericMaskedColumnCache {
    * {@code pinnedColumns} are the store columns the view reads resident; the entry pins them until
    * its final lease drops.
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   MaskedColumns publish(final Reservation reservation, final ProjectionColumnStore store, final String[] fields,
       final long[] keys, final MaskedColumns view, final int[] pinnedColumns) {
     if (view.store() != store) {

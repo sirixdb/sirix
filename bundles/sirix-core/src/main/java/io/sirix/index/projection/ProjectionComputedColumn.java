@@ -94,6 +94,9 @@ public final class ProjectionComputedColumn {
     return out;
   }
 
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static ColumnSlice evaluateLeaf(final ColumnSlice[][] operands, final int leaf, final int[] code,
       final long[] consts, final long[] stack, final long[] operandValues, final MemorySegment[] operandSeg,
       final long[] operandBase, final long[][] operandPresence, final MemorySegment target, final long laneBase) {

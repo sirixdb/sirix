@@ -176,6 +176,9 @@ public final class ProjectionResidencyScope implements AutoCloseable {
    * Drop this scope's pins and let each store it touched release what is now unpinned and over the
    * headroom share. Idempotent.
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   @Override
   public void close() {
     // Unregister FIRST: a pin that reads the registry after this point cannot reach a scope that is

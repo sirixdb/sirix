@@ -261,6 +261,8 @@ public final class DerivedCacheBudget {
     }
 
     /** Whether this entry derives from {@code identity}; such entries are evicted with it. */
+    // Sonar S1172: an overridable hook whose subclasses read the argument.
+    @SuppressWarnings("java:S1172")
     protected boolean dependsOn(final Object identity) {
       return false;
     }
@@ -326,7 +328,9 @@ public final class DerivedCacheBudget {
      * the allocator refuses the slab.
      */
     // The caller owns the returned reservation; failed mapping is unwound here.
-    @SuppressWarnings("java:S2095")
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings({"java:S2095", "java:S1181"})
     public @Nullable Reservation reserve(final long bytes) {
       if (bytes <= 0) {
         throw new IllegalArgumentException("Construction weight must be positive");
@@ -378,6 +382,9 @@ public final class DerivedCacheBudget {
       rejected = saturatedAdd(rejected, bytes);
     }
 
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     private void reapStale() {
       Throwable failure = null;
       for (int i = entries.size() - 1; i >= 0; i--) {
@@ -404,6 +411,9 @@ public final class DerivedCacheBudget {
       return coldest;
     }
 
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     private void evictLocked(final Entry entry) {
       if (!entries.remove(entry)) {
         return;
@@ -424,6 +434,9 @@ public final class DerivedCacheBudget {
       rethrowCleanupFailure(failure);
     }
 
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     private void freed(final Entry entry) {
       Throwable failure = null;
       try {
@@ -494,6 +507,9 @@ public final class DerivedCacheBudget {
     }
 
     /** Evict every entry that derives from {@code identity}. */
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     public synchronized void evictDependents(final Object identity) {
       Throwable failure = null;
       for (int i = entries.size() - 1; i >= 0; i--) {
@@ -510,6 +526,9 @@ public final class DerivedCacheBudget {
     }
 
     /** Evict every published entry; leased slabs free when their readers finish. */
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     public synchronized void clear() {
       Throwable failure = null;
       for (int i = entries.size() - 1; i >= 0; i--) {

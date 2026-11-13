@@ -60,6 +60,9 @@ final class FallbackScratch extends ScratchSource {
     return budget - 2 * (budget / AggregationBudget.DIVISOR);
   }
 
+  // Sonar S3824: the entry is a weak reference: one that is present but cleared is replaced as well,
+  // which the suggested map method cannot express.
+  @SuppressWarnings("java:S3824")
   static FallbackScratch of(final MemorySegmentAllocator allocator) {
     synchronized (SOURCES) {
       final WeakReference<FallbackScratch> reference = SOURCES.get(allocator);
@@ -92,6 +95,9 @@ final class FallbackScratch extends ScratchSource {
     return (minBytes + PAGE_BYTES - 1) & -PAGE_BYTES;
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   @Override
   ScratchCarrier acquireAggregation(final long minBytes, final AggregationGrant grant) {
     final long bytes = aggregationCapacity(minBytes);
@@ -119,6 +125,9 @@ final class FallbackScratch extends ScratchSource {
     }
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   @Override
   @Nullable
   ScratchCarrier acquire(final long minBytes, final ScratchUse use, final boolean mandatory) {

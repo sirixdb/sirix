@@ -1038,6 +1038,9 @@ public final class NumericGroupAggTable {
    * at any cardinality; the partitioning is the post-scan merge's own, so a partition's groups
    * complete within one pass.
    */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   public void setPassRange(final int shift, final int lo, final int hi) {
     requireLiveTable();
     if (shift < 0 || shift > 64) {
@@ -1123,6 +1126,9 @@ public final class NumericGroupAggTable {
    * @throws IndexOutOfBoundsException if the fold does not fit the layout
    * @throws IllegalStateException if the table is released
    */
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  @SuppressWarnings("java:S135")
   long acquireAccumulator(final long key, final long firstSeenOrdinal, final int columns, final int lanesPerColumn) {
     if (lanesPerColumn <= 0 || columns < 0 || columns > (Integer.MAX_VALUE - 2) / lanesPerColumn) {
       throw new IllegalArgumentException("invalid aggregation column count: " + columns);
@@ -1263,6 +1269,11 @@ public final class NumericGroupAggTable {
    * its identity lanes match too, and is otherwise a collision the probe walks past. The identity
    * lanes of the stripe just probed are read in place, for the reason its key lane is.
    */
+  // Sonar S1119: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S1119", "java:S3776"})
   private int probeExact(final long key, final long[] identity, final int identityOffset) {
     requireProbeable();
     if (outOfPass(key)) {
@@ -1323,6 +1334,11 @@ public final class NumericGroupAggTable {
    * @param identity the group's identity lanes, whose bounds the caller has validated; {@code null}
    *        when the key lane is the whole identity
    */
+  // Sonar S1119: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S1119", "java:S3776"})
   private int insertInterleaved(final long key, final long firstSeenOrdinal, final int bucket,
       final long @Nullable [] identity, final int identityOffset) {
     // A failed growth leaves a table that can only be released: it may have lost stripes.
@@ -1447,6 +1463,11 @@ public final class NumericGroupAggTable {
    * "Code shape" in the class comment); the reads of the tag probe are spelled out because this IS
    * the row path of a dense table.
    */
+  // Sonar S135, S1119: the exits of this hot loop are its compiled shape. Funnelling them through one
+  // exit adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S135", "java:S1119", "java:S3776"})
   private int acquireIndexed(final long key, final long firstSeenOrdinal, final long @Nullable [] identity,
       final int identityOffset) {
     requireProbeable();
@@ -1550,6 +1571,9 @@ public final class NumericGroupAggTable {
   }
 
   /** A partial worker table past its sample: one bounded cache probe, else append a record. */
+  // Sonar S9435: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  @SuppressWarnings("java:S9435")
   private int acquirePartial(final long key, final long firstSeenOrdinal, final long @Nullable [] identity,
       final int identityOffset) {
     final long hash;
@@ -1605,6 +1629,9 @@ public final class NumericGroupAggTable {
    * {@link #acquireIndexed}'s miss: append the record and enter it in the index at {@code bucket},
    * the empty entry its probe stopped at.
    */
+  // Sonar S9435: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  @SuppressWarnings("java:S9435")
   private int insertDense(final long key, final long firstSeenOrdinal, final long @Nullable [] identity,
       final int identityOffset, final long hash, final int bucket) {
     requireLiveTable();
@@ -1625,6 +1652,9 @@ public final class NumericGroupAggTable {
   }
 
   /** Rebuild only the compact index; accumulator handles remain dense record ordinals. */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private void rehashDense(final int capacity) {
     if (partialProbeBudget == 0) {
       // The fixed cache holds record ordinals, which survive payload growth. It is intentionally
@@ -1668,6 +1698,9 @@ public final class NumericGroupAggTable {
     recycleChunks(previousIndex);
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private void growDenseStorage(final int capacity) {
     final int chunkBuckets = bucketsPerChunk(capacity);
     final GroupBuffer[] previous = storage;
@@ -1765,6 +1798,11 @@ public final class NumericGroupAggTable {
     }
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S1181", "java:S3776"})
   private void growTable() {
     final int oldCap = mask + 1;
     if (oldCap >= MAX_CAPACITY) {
@@ -1892,6 +1930,9 @@ public final class NumericGroupAggTable {
    * handles: after one chunk resolution, a stripe's key is at {@code offset - 1} and its aux at
    * {@code offset + slotWidth()}.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public int[][] buildPartitionIndex(final int partitions, final int shift) {
     if (partitions <= 0) {
       throw new IllegalArgumentException("partitions must be > 0");
@@ -1966,6 +2007,9 @@ public final class NumericGroupAggTable {
    * @param denseUnfiltered this table is a dense, unfiltered merge target, which cannot switch to
    *        partial probing: its acquisition path is chosen once per run instead of once per stripe
    */
+  // Sonar S3358, S9435: hot path: the branch layout is the measured shape, rewriting it changes the
+  // compiled method.
+  @SuppressWarnings({"java:S3358", "java:S9435"})
   private void mergeStripe(final GroupBuffer source, final int stripe, final boolean denseUnfiltered) {
     // The complete source stripe, validated once: key, accumulator, aux and identity.
     final long from = source.record(stripe, stride);
@@ -2006,6 +2050,11 @@ public final class NumericGroupAggTable {
    * Sum lanes merge with {@link Math#addExact} — the same interpreter-promotes-on-overflow discipline
    * the row fold enforces; the caller treats the {@link ArithmeticException} as a decline.
    */
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S135", "java:S3776"})
   public static void mergePartition(final NumericGroupAggTable[] sources, final int partition, final int shift,
       final NumericGroupAggTable into) {
     final int slotWidth = into.slotWidth;

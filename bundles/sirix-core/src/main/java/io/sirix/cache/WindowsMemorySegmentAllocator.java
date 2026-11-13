@@ -159,6 +159,11 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
    * @param size The size to allocate.
    * @return The allocated MemorySegment.
    */
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"java:S135", "java:S3776"})
   @Override
   public MemorySegment allocate(final long size) {
     if (!initialized) {

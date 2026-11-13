@@ -285,6 +285,9 @@ final class FrameScratch extends ScratchSource {
         : capacityOf(capacityClass);
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   @Override
   ScratchCarrier acquireAggregation(final long minBytes, final AggregationGrant grant) {
     final long capacity = aggregationCapacity(minBytes);
@@ -392,6 +395,9 @@ final class FrameScratch extends ScratchSource {
   }
 
   /** A fresh buffer on a mapped region of {@code bytes}, or {@code null} when refused. */
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private @Nullable ScratchCarrier mapRegion(final int capacityClass, final long bytes, final long minBytes,
       final boolean mandatory, final @Nullable AggregationGrant grant) {
     regionBytes.addAndGet(bytes);
@@ -452,6 +458,9 @@ final class FrameScratch extends ScratchSource {
     refusedBytes.addAndGet(minBytes);
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   @Override
   boolean release(final ScratchCarrier carrier, final long era) {
     if (!carrier.takeBack(era)) {
@@ -495,6 +504,9 @@ final class FrameScratch extends ScratchSource {
     return true;
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private boolean retain(final ScratchCarrier carrier) {
     final int capacityClass = carrier.capacityClass;
     if (capacityClass == EXACT_CLASS || allocator.isTerminated()) {

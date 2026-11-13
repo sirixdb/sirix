@@ -769,6 +769,9 @@ public final class ProjectionColumnScan {
    * matching row MISSING any order key goes to {@code missingKeysOut}; the caller declines on any
    * such row (the interpreter owns empty-order-key placement).
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void collectMatchingSortTuples(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int[] sortColumns, final LongArrayList valuesOut, final LongArrayList keysOut,
       final LongArrayList missingKeysOut, final ColumnSegmentFetcher fetcher) {
@@ -1814,6 +1817,9 @@ public final class ProjectionColumnScan {
    * @return the number of values pushed to {@code sink}, or {@link #FIELD_VALUES_DECLINED} — after
    *         which the caller must DISCARD everything the sink received
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static long matchingFieldValues(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int valueColumn, final long maxMatches, final long limit, final boolean missingDeclines,
       final ColumnSegmentFetcher fetcher, final FieldValueSink sink) {
@@ -2475,6 +2481,9 @@ public final class ProjectionColumnScan {
   }
 
   /** The mask kernel proper: {@code slices[i]} is predicate {@code i}'s slice on {@code leaf}. */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static int evaluateMaskOnSlices(final ColumnPredicate[] predicates, final ColumnSlice[] slices,
       final int leaf, final int rowCount, final long[] mask) {
     if (rowCount <= 0) {
@@ -2565,6 +2574,9 @@ public final class ProjectionColumnScan {
    * to keep in step — and no caller can reach a value except through the lane.
    * </p>
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static void evalNumeric(final MemorySegment lane, final long laneBase, final int rowCount,
       final ColumnPredicate p, final long[] presence, final long[] mask) {
     final int stride = (rowCount + 63) >>> 6;
@@ -3276,6 +3288,9 @@ public final class ProjectionColumnScan {
    * @throws DistinctHash128Set.ByteBudgetExceededException when the set behind the sink is refused a
    *         growth
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static boolean distinctLongs(final ColumnSlice[] slices, final int fromSlice, final int toSlice,
       final DistinctLongSink sink) {
     for (int at = fromSlice; at < toSlice; at++) {
@@ -3323,6 +3338,9 @@ public final class ProjectionColumnScan {
    *         outside {@code [min, min + 64 * seen.length)} — the caller declines; {@code true} when
    *         every slice was folded in
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static boolean distinctBitset(final ColumnSlice[] slices, final int fromSlice, final int toSlice,
       final long min, final long[] seen) {
     final long slots = (long) seen.length << 6;

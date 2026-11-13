@@ -1195,6 +1195,9 @@ final class ProjectionIndexRowGroupCodec {
    * Segment twin of {@link #unpackInto(byte[], int, int, int, long, long[], int)}: the same bit walk,
    * each value stored through the typed handle at {@code outBase + 8 * i}.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   static int unpackInto(final byte[] src, final int pos, final int count, final int width, final long base,
       final MemorySegment out, final long outBase) {
     if (width == 0) {

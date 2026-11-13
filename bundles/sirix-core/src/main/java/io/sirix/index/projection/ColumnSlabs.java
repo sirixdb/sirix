@@ -52,6 +52,9 @@ final class ColumnSlabs implements Runnable {
   }
 
   /** Release every slab still mapped — the backstop for a store that was never retired. */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   @Override
   public void run() {
     Throwable failure = null;

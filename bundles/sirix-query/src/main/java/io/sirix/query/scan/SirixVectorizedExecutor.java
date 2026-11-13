@@ -215,6 +215,9 @@ import java.util.concurrent.atomic.LongAdder;
  * declines. Every fast path is fail-closed: a shape, encoding or page it cannot serve returns no
  * claim and the caller's generic pipeline answers.
  */
+// Sonar S6539: the one entry that routes every vectorized query shape to its kernel, so it names
+// all of them.
+@SuppressWarnings("java:S6539")
 public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
@@ -12644,6 +12647,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return (long) values.size();
   }
 
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private @Nullable Long projectionNumericDistinct(final ProjectionIndexRegistry.Handle handle, final int column) {
     final byte distinctKind = handle.rowGroupCount() == 0
         ? -1
@@ -12890,6 +12896,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * {@code ProjectionLaneKernelParityTest} can run it over a slab lane and over the heap array of the
    * same values and compare the answers.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   static long distinctViaBitset(final ProjectionColumnStore.ColumnSlice[] slices, final long min, final long span) {
     final long[] seen = new long[(int) ((span >> 6) + 1)];
     long distinct = 0L;
@@ -13573,6 +13582,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * and the generic pipeline behind this route promotes rather than wraps. On overflow the fold
    * declines and that pipeline answers.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   static long foldBinaryNumeric(final ProjectionColumnStore.ColumnSlice[] left,
       final ProjectionColumnStore.ColumnSlice[] right, final String op) {
     final int rowGroups = Math.min(left.length, right.length);
@@ -14224,6 +14236,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       this(handle, fingerprint, budget, partitions, strideLanes, bounded, null);
     }
 
+    // Sonar S6885: the lower bound may exceed the upper one, in which case the upper wins. The clamp
+    // method rejects such bounds.
+    @SuppressWarnings("java:S6885")
     GroupPasses(final ProjectionIndexRegistry.Handle handle, final long fingerprint, final long budget,
         final int partitions, final int strideLanes, final boolean bounded, final @Nullable GroupWorkspace workspace) {
       this.workspace = workspace;
@@ -14335,6 +14350,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
      * recorded as live, which right after a large grouped query still counted that query's dead tables;
      * this method then forced one collection per plan to make the record true.
      */
+    // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+    // measuring rigs read them there.
+    @SuppressWarnings("java:S106")
     private void refreshBudget(final long groups) {
       if (!REFRESH_BUDGET) {
         return;
@@ -14623,6 +14641,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    *
    * @return the selecting predicate, or {@code null} when the rewrite does not apply
    */
+  // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
+  // changes the compiled loops, which are measured as they are.
+  @SuppressWarnings("java:S3776")
   private @Nullable PredicateNode anyKGroupsPredicate(final ProjectionIndexRegistry.Handle handle,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final String[] groupFields, final int k) {
     final long t0 = System.nanoTime();
@@ -15492,6 +15513,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S107: the resolved plan of one grouped scan, passed as it is. An object around it would
+  // only move the list into a constructor.
+  // Sonar S2093: the buffer goes back to its workspace for reuse at the end, it is not closed.
+  // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
+  // changes the compiled loops, which are measured as they are.
+  @SuppressWarnings({"java:S107", "java:S2093", "java:S3776"})
   private @Nullable ServedGroups groupByAggregateInWorkspace(final GroupWorkspace workspace, final QueryContext ctx,
       final String[] sourcePath, final @Nullable PredicateNode predicateOrNull, final String[] groupFields,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
@@ -18452,6 +18479,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private static MemorySegment allocateGroupSlab(final ArrayList<MemorySegment> owners, final long bytes,
       final String kind) {
     if (bytes == 0L) {
@@ -18477,6 +18507,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private static void releaseGroupResources(final ArrayList<ProjectionColumnStore.LeafColumnAccess> accesses,
       final ArrayList<MemorySegment> slabs, final RouteLaneSlab lanes, final @Nullable GroupWorkspace workspace) {
     Throwable failure = null;
@@ -18902,6 +18935,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S107: the resolved plan of one grouped scan, passed as it is. An object around it would
+  // only move the list into a constructor.
+  // Sonar S2093: the buffer goes back to its workspace for reuse at the end, it is not closed.
+  // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
+  // changes the compiled loops, which are measured as they are.
+  @SuppressWarnings({"java:S107", "java:S2093", "java:S3776"})
   private Sequence constGroupAggregateInWorkspace(final GroupWorkspace workspace, final QueryContext ctx,
       final String[] sourcePath, final PredicateNode predicateOrNull, final String[] funcs, final String[] aggFields,
       final long[] offsets, final String[] outNames, final boolean wholeLeafOnly, final boolean budgetRefused) {
@@ -19172,6 +19211,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S107: the resolved plan of one grouped scan, passed as it is. An object around it would
+  // only move the list into a constructor.
+  // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
+  // changes the compiled loops, which are measured as they are.
+  @SuppressWarnings({"java:S107", "java:S3776"})
   private ServedGroups packedSubstringGroupAggregateInWorkspace(final GroupWorkspace workspace,
       final List<byte[]> rowGroupPayloads, final boolean windowedSlices, final ProjectionColumnStore slicedStore,
       final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree tree,
@@ -19519,6 +19563,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S107: the resolved plan of one grouped scan, passed as it is. An object around it would
+  // only move the list into a constructor.
+  // Sonar S2093: the buffer goes back to its workspace for reuse at the end, it is not closed.
+  // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
+  // changes the compiled loops, which are measured as they are.
+  @SuppressWarnings({"java:S107", "java:S2093", "java:S3776"})
   private @Nullable ServedGroups numericGroupAggregateInWorkspace(final GroupWorkspace workspace,
       final List<byte[]> rowGroupPayloads, final boolean windowedSlices, final ProjectionColumnStore slicedStore,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol, final int[] aggCols,
@@ -20319,6 +20369,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * The MISSING-key group stays per-worker and unsynchronized: it has no id, it is one accumulator
    * rather than millions, and merging {@code eff} of them costs nothing.
    */
+  // Sonar S107: the resolved plan of one grouped scan, passed as it is. An object around it would
+  // only move the list into a constructor.
+  // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
+  // changes the compiled loops, which are measured as they are.
+  @SuppressWarnings({"java:S107", "java:S3776"})
   private ServedGroups denseGlobalGroupAggregateInWorkspace(final GroupWorkspace workspace,
       final RouteLaneSlab laneSlab, final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree predTree,
@@ -23009,6 +23064,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
      * comparison of heap copies stays an array read and the comparison of table stripes sees native
      * memory only.
      */
+    // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+    // operand object would cost a load at every use.
+    // Sonar S3358: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+    // method.
+    // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+    // and holds in registers.
+    @SuppressWarnings({"java:S107", "java:S3358", "java:S3776"})
     int compare(final GroupBuffer arrA, final int baseA, final boolean hasKeyA, final long keyA, final GroupBuffer arrB,
         final int baseB, final boolean hasKeyB, final long keyB) {
       for (int i = 0; i < kinds.length; i++) {
@@ -31585,6 +31647,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * with its slowest chunk, and the spread between the fastest and the slowest chunk is the wall the
    * partitioning gives away. {@code null} records nothing and costs one branch per chunk.
    */
+  // Sonar S1181: a worker's failure, an Error included, is handed to the calling thread, which
+  // rethrows it.
+  @SuppressWarnings("java:S1181")
   void parallel(int n, ChunkTask task, long[] chunkNanos) {
     enterExecution();
     try {
@@ -31746,7 +31811,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   // Returned views or cache entries own the resources; finally releases anything not handed off.
-  @SuppressWarnings("java:S2095")
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  // Sonar S2093: on success the result owns what was acquired here, and it is handed back only on
+  // failure. Nothing is closed at the end of a block.
+  @SuppressWarnings({"java:S2095", "java:S1181", "java:S2093"})
   private @Nullable MaskedColumns readMaskedColumns(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final long @Nullable [] rowKeys, final int[] cols,
       final byte[] kinds, final String[] fields, final long @Nullable [] cacheKeys, final boolean ownLanes) {
@@ -31851,6 +31920,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    *
    * @return the number of such resident columns
    */
+  // Sonar S107: the resolved inputs of this step, passed as they are. An object around them would
+  // only move the list into a constructor.
+  @SuppressWarnings("java:S107")
   private static int maskedColumnViews(final ProjectionColumnStore store,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final int[] cols, final long @Nullable [] keep,
       final @Nullable MemorySegment slab, final long[][] laneBases, final ProjectionColumnStore.ColumnSlice[][] slices,
@@ -31889,6 +31961,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Return a reservation and a query-local slab that were not handed to a view or to the cache; a
    * failure of returning them is kept on {@code primary} when there is one.
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private static void releaseMaskedLanes(final DerivedCacheBudget.@Nullable Reservation reservation,
       final @Nullable MemorySegment owned, final @Nullable Throwable primary) {
     Throwable failure = primary;

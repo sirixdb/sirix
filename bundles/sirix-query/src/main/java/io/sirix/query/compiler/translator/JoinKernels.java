@@ -106,6 +106,9 @@ final class JoinKernels {
    * @param count the rows to order
    * @return row indexes in order
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   static int[] sortRows(final long[][] keyColumns, final int count) {
     if (count < 0) {
       throw new IllegalArgumentException("negative row count " + count);
@@ -184,6 +187,8 @@ final class JoinKernels {
     final int fullWords;
     final int partialWords;
 
+    // Sonar S107: a plain carrier with one argument for each of its fields.
+    @SuppressWarnings("java:S107")
     SideLanes(final long[] @Nullable [] masks, final MemorySegment[] joinSeg, final long[] joinBase,
         final MemorySegment[] fromSeg, final long[] fromBase, final MemorySegment[] toSeg, final long[] toBase,
         final MemorySegment[] marginSeg, final long[] marginBase, final MemorySegment @Nullable [] distinctSeg,
@@ -317,6 +322,9 @@ final class JoinKernels {
     }
 
     /** Count the rows whose key lies in the domain into {@code bucketStart[slot + 1]}; the total. */
+    // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+    // and holds in registers.
+    @SuppressWarnings("java:S3776")
     static int count(final SideLanes lanes, final long keyMinimum, final int slots, final int[] bucketStart) {
       if (slots < 0 || bucketStart.length != slots + 1) {
         throw new IllegalArgumentException("one bucket start per slot and one past the end");
@@ -394,6 +402,11 @@ final class JoinKernels {
       return new BucketedSide(slab, rowsBase, total, slots);
     }
 
+    // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+    // operand object would cost a load at every use.
+    // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+    // and holds in registers.
+    @SuppressWarnings({"java:S107", "java:S3776"})
     private static void fillLeaf(final MemorySegment slab, final long rowsBase, final SideLanes lanes, final int leaf,
         final long[] mask, final int[] fill, final long keyMinimum, final int slots, final long groupMinimum) {
       final MemorySegment join = lanes.joinSeg[leaf];
@@ -453,6 +466,9 @@ final class JoinKernels {
       }
     }
 
+    // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+    // operand object would cost a load at every use.
+    @SuppressWarnings("java:S107")
     private static void putRecord(final MemorySegment slab, final long at, final MemorySegment from,
         final long fromBase, final MemorySegment to, final long toBase, final MemorySegment margin,
         final long marginBase, final boolean hasDistinct, final MemorySegment distinct, final long distinctBase,
@@ -529,6 +545,11 @@ final class JoinKernels {
      * the chained fold's order: a loop over record offsets, which the kernel benchmark measured as the
      * fastest handle form on C2 (an ordinal-indexed loop and a vector load per record were slower).
      */
+    // Sonar S1905: the cast to long is the call-site type of the handle read. Without it the call no
+    // longer matches the handle exactly.
+    // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+    // and holds in registers.
+    @SuppressWarnings({"java:S1905", "java:S3776"})
     void pair(final long from, final long to, final long margin, final long probeValue, final int buildBegin,
         final int buildEnd) {
       final MemorySegment slab = this.buildSlab;
@@ -574,6 +595,11 @@ final class JoinKernels {
      * The build record's five values are read once; a probe record costs two reads unless it overlaps,
      * then its margin and, when the probe carries it, its distinct operand.
      */
+    // Sonar S1905: the cast to long is the call-site type of the handle read. Without it the call no
+    // longer matches the handle exactly.
+    // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+    // and holds in registers.
+    @SuppressWarnings({"java:S1905", "java:S3776"})
     void bucket(final int buildBegin, final int buildEnd, final MemorySegment probeSlab, final long probeBegin,
         final long probeEnd) {
       final MemorySegment slab = this.buildSlab;
@@ -638,7 +664,9 @@ final class JoinKernels {
       set.add(distinctValue);
     }
 
-    @SuppressWarnings("NullAway") // The constructor allocates sets exactly when bits is null.
+    // Sonar S3358: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+    // method.
+    @SuppressWarnings({"NullAway", "java:S3358"}) // The constructor allocates sets exactly when bits is null.
     long distinctCount(final int group) {
       return bits != null
           ? distinctCounts[group]
@@ -681,6 +709,9 @@ final class JoinKernels {
    * so a process-cold execution pays only the lane reads, with the same fold state as
    * {@link #foldMerge}. Returns the admitted probe rows (those whose key lies in the domain).
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   static int foldChained(final ExtremaFold fold, final BucketedSide build, final SideLanes lanes, final long keyMinimum,
       final int slots) {
     if (build.slots != slots) {
@@ -734,6 +765,9 @@ final class JoinKernels {
   }
 
   /** One probe row of {@link #foldChained}: 1 when its key lies in the domain, else 0. */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private static int chainRow(final ExtremaFold fold, final MemorySegment buildSlab, final MemorySegment join,
       final long joinBase, final MemorySegment from, final long fromBase, final MemorySegment to, final long toBase,
       final MemorySegment margin, final long marginBase, final boolean hasDistinct, final MemorySegment distinct,

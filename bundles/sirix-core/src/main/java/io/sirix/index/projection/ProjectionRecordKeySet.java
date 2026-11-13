@@ -284,6 +284,9 @@ public final class ProjectionRecordKeySet {
    * @param mask the conjunctive mask, updated in place
    * @return how many rows of the leaf are members (independent of the incoming mask)
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static int andMembership(final MemorySegment keyLane, final long keyBase, final int rowCount,
       final long[] sortedKeys, final long[] mask) {
     final int stride = (rowCount + 63) >>> 6;

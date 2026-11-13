@@ -181,6 +181,9 @@ public final class SirixMetricsRegistry {
    * initialized; otherwise 0. A scrape must neither initialize the allocator nor propagate an
    * exception.
    */
+  // Sonar S1181: a metrics scrape must never fail, whatever the allocator raises. The figure reads
+  // zero instead.
+  @SuppressWarnings("java:S1181")
   private static long scratchStat(final ToLongFunction<ScratchStats> figure) {
     try {
       final MemorySegmentAllocator allocator = Allocators.getInstance();

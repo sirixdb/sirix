@@ -171,6 +171,9 @@ public final class GroupBuffer {
     }
   }
 
+  // Sonar S2178: the eager OR is deliberate: two plain loads and one branch, where the short-circuit
+  // form adds a branch to every lane access.
+  @SuppressWarnings("java:S2178")
   void requireLive() {
     // Plain reads: closing or handing back never races an access (GroupWorkspace's contract), and a
     // volatile read here would keep the compiler from hoisting anything across a lane access.
@@ -198,6 +201,9 @@ public final class GroupBuffer {
   }
 
   /** Whether this buffer may still be accessed: {@link #requireLive}'s test, as a question. */
+  // Sonar S2178: the eager OR is deliberate: two plain loads and one branch, where the short-circuit
+  // form adds a branch to every lane access.
+  @SuppressWarnings("java:S2178")
   boolean isLive() {
     return !((returned | owner.ended) || (GroupKernelLanes.DEBUG && staleView()));
   }
@@ -213,6 +219,9 @@ public final class GroupBuffer {
   }
 
   /** Aggregation buffers always have native backing. No address is exposed publicly. */
+  // Sonar S3400: part of the buffer's public face: callers ask the buffer about its backing instead
+  // of assuming it.
+  @SuppressWarnings("java:S3400")
   public boolean isNative() {
     return true;
   }

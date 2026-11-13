@@ -723,7 +723,11 @@ public final class ParallelBulkJsonImporter {
   }
 
   // The coordinator finally shuts down the pool; no worker starts before that guard.
-  @SuppressWarnings("java:S2095")
+  // Sonar S2093: the failure is handed to the coordinator before the scanner returns its buffers. A
+  // resource block would close first.
+  // Sonar S3776: who owns each chunk at every step of the hand-off is decided in this one method. A
+  // split would spread that protocol over several.
+  @SuppressWarnings({"java:S2095", "java:S2093", "java:S3776"})
   private void run(final InputStream input, final int parallelism) throws IOException {
 
     final RootArray rootArray = openRootArray();
@@ -1025,6 +1029,9 @@ public final class ParallelBulkJsonImporter {
   }
 
   /** Runs one chunk build on the calling thread: decode, run, verify. */
+  // Sonar S107: the resolved inputs of this step, passed as they are. An object around them would
+  // only move the list into a constructor.
+  @SuppressWarnings("java:S107")
   private List<KeyValueLeafPage> buildChunk(final WorkerPageBuilder builder,
       final FusedSliceAndScan.ChunkBuffer chunkBytes, final int chunkByteLength, final long firstKey,
       final long lastKey, final long rootArrayKey, final long rootArrayPcr, final long leftBoundaryKey,

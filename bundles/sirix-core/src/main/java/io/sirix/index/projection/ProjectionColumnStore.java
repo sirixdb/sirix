@@ -172,6 +172,9 @@ public final class ProjectionColumnStore {
       byte @Nullable [] dictBytes, int @Nullable [] dictOffsets, int @Nullable [] setCounts,
       long @Nullable [] dictHashes, @Nullable PackedDictionaryIds packedStringIds, @Nullable NumericLane lane) {
 
+    // Sonar S6878: a record pattern would bind all fourteen components under second names. The typed
+    // variable keeps the comparison readable.
+    @SuppressWarnings("java:S6878")
     @Override
     public boolean equals(final Object other) {
       if (this == other) {
@@ -1388,6 +1391,9 @@ public final class ProjectionColumnStore {
    * ranges run concurrently without coordination. One pass over the lane, branch-light: the two
    * candidates per side are kept as running values and a distinct-count of how many are set.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static void longExtremaOfLeaf(final @Nullable ColumnSlice slice, final int leaf, final long[] values,
       final long[] present) {
     if (slice == null || slice.rowCount() <= 0) {
@@ -1858,6 +1864,9 @@ public final class ProjectionColumnStore {
    * the first failure rethrown on the caller after every range stopped. A range that ends up empty
    * (more ranges than 64-leaf blocks) is skipped, and its part stays {@code null}.
    */
+  // Sonar S1181: a worker's failure, an Error included, is handed to the calling thread, which
+  // rethrows it.
+  @SuppressWarnings("java:S1181")
   private static void forEachMemoRange(final int n, final int ranges, final LeafRangeTask task) {
     if (ranges <= 1) {
       task.run(0, n, 0);
@@ -2140,7 +2149,9 @@ public final class ProjectionColumnStore {
    * @throws IllegalStateException on missing/corrupt segments or a non-sliceable column
    */
   // Cleanup is rethrown only without a primary failure; otherwise it is suppressed on that failure.
-  @SuppressWarnings("java:S1143")
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings({"java:S1143", "java:S1181"})
   public ColumnSlice[] column(final int col, final ColumnSegmentFetcher fetcher) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable (kind="
@@ -2656,6 +2667,9 @@ public final class ProjectionColumnStore {
    * @param keepKeys whether the caller is about to read the resident KEYS lane
    * @return {@code true} when the fill fits, after any eviction it needed
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private boolean fitsMakingRoom(final long needed, final int[] keep, final boolean keepKeys) {
     final long budget = residencyBudgetBytes();
     if (retainedFillBytes.get() + needed <= budget) {
@@ -2772,6 +2786,9 @@ public final class ProjectionColumnStore {
   }
 
   /** Drop the pins one closing scope holds, named by the set bits of {@code bits}. */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   void dropPins(final long[] bits) {
     final int slots = pinSlotCount();
     Throwable failure = null;
@@ -2820,6 +2837,9 @@ public final class ProjectionColumnStore {
    * afterwards leaves the same way, or through the {@link ColumnSlabs} backstop once the store is
    * unreachable. Idempotent.
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   public void retire() {
     long freed = 0L;
     synchronized (this) {
@@ -2909,6 +2929,9 @@ public final class ProjectionColumnStore {
    * small — the same economics that made them charged-but-never-refused.
    * </p>
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   void releaseUnpinnedOverBudget() {
     if (!residencyHeadroom) {
       return; // kill switch: retain for the store's lifetime, exactly as before R1
@@ -3001,6 +3024,9 @@ public final class ProjectionColumnStore {
   }
 
   /** Count a residency release and, under {@code sirix.projDiag}, say what it returned. */
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
+  @SuppressWarnings("java:S106")
   private void noteResidencyRelease(final long freed, final int releases, final long budget) {
     RESIDENCY_RELEASED_BYTES.add(freed);
     RESIDENCY_RELEASES.add(releases);
@@ -3371,6 +3397,11 @@ public final class ProjectionColumnStore {
    * @return the identity slices, or {@code null} when NO leaf carries a hash segment (the caller
    *         falls back to the full fill wholesale rather than decoding dictionaries twice)
    */
+  // Sonar S1181: a worker's failure, an Error included, is handed to the calling thread, which
+  // rethrows it.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"java:S1181", "java:S3776"})
   private ColumnSlice @Nullable [] fillIdentityColumn(final int col, final ColumnSegmentFetcher fetcher) {
     final boolean diag = Boolean.getBoolean("sirix.projDiag");
     final long startNanos = diag
@@ -3871,6 +3902,9 @@ public final class ProjectionColumnStore {
     return cursor;
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   public ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords) {
     if (!columnLongLane(col)) {
       return columnMasked(col, fetcher, keepWords, null, null);
@@ -3979,6 +4013,11 @@ public final class ProjectionColumnStore {
    * Every leaf of a masked fill into {@code slices}: across the common pool from the parallel minimum
    * on.
    */
+  // Sonar S107: the resolved inputs of this step, passed as they are. An object around them would
+  // only move the list into a constructor.
+  // Sonar S1181: a worker's failure, an Error included, is handed to the calling thread, which
+  // rethrows it.
+  @SuppressWarnings({"java:S107", "java:S1181"})
   private void decodeMaskedSlices(final ColumnSlice[] slices, final int col, final boolean set, final boolean string,
       final byte[][] segments, final byte[][] dictSegments, final long[] keepWords,
       final @Nullable MemorySegment laneSlab, final long @Nullable [] laneBases) {
@@ -4019,6 +4058,13 @@ public final class ProjectionColumnStore {
   }
 
 
+  // Sonar S1181: a worker's failure, an Error included, is handed to the calling thread, which
+  // rethrows it.
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"java:S1181", "java:S3776"})
   private ColumnSlice[] fillColumn(final int col, final ColumnSegmentFetcher fetcher) {
     final long tEnter = FILL_DIAG
         ? System.nanoTime()
@@ -5273,6 +5319,9 @@ public final class ProjectionColumnStore {
    *
    * @param lanes at least {@link #laneBytes} bytes; the caller owns it and every lane handed out
    */
+  // Sonar S3398: the lane form of the leaf decode above, kept beside it. Both read the directories
+  // and the fetch path of the store.
+  @SuppressWarnings("java:S3398")
   private ColumnSlice[] decodeLeafLanesInto(final int col, final int base, final int len,
       final ColumnSegmentFetcher fetcher, final MemorySegment lanes, final SparePresenceWords presence) {
     final byte[][] bodies =
@@ -5385,6 +5434,9 @@ public final class ProjectionColumnStore {
       return pos - from;
     }
 
+    // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+    // failure is rethrown.
+    @SuppressWarnings("java:S1181")
     @Override
     public ColumnSlice slice(final int col, final int leaf) {
       final ColumnSlice[] resident = retained[col];
@@ -5441,6 +5493,9 @@ public final class ProjectionColumnStore {
       return set[position(leaf)];
     }
 
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     @Override
     public void close() {
       Throwable failure = null;
@@ -5647,6 +5702,9 @@ public final class ProjectionColumnStore {
       }
     }
 
+    // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+    // failure is rethrown.
+    @SuppressWarnings("java:S1181")
     private ColumnSlice[] decodeWindow(final int col, final int window) {
       final int from = window * windowLeaves;
       final int len = Math.min(from + windowLeaves, leafCount) - from;
@@ -5680,6 +5738,9 @@ public final class ProjectionColumnStore {
       }
     }
 
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     @Override
     public void close() {
       for (final Int2ObjectLinkedOpenHashMap<ColumnSlice> cache : leafCache) {

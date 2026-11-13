@@ -648,6 +648,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     bufferedBytes.clear();
   }
 
+  // Sonar S4087: the lease is reused: closing it here hands the header buffer back before the payload
+  // buffer is borrowed.
+  @SuppressWarnings("java:S4087")
   @Override
   public void copySpilledPage(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
       final BytesOut<?> bufferedBytes) {
@@ -858,6 +861,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
+  // Sonar S107: the resolved inputs of this step, passed as they are. An object around them would
+  // only move the list into a constructor.
+  @SuppressWarnings("java:S107")
   private static ValidatedFrame validateRevisionRootFrame(final FileChannel channel,
       final RevisionFileData revisionFileData, final int revision, final long fileSize, final long expectedFrameEnd,
       final String context, final long frameOffset, final ByteBuffer window) throws IOException {
@@ -1229,6 +1235,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings("java:S3776")
   private long bufferSerializedPage(final ResourceConfiguration resourceConfiguration, final Page page,
       final BytesOut<?> bufferedBytes, final int pageAlignmentPadding) throws IOException {
     final var pipeline = resourceConfiguration.byteHandlePipeline;

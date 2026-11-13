@@ -1820,6 +1820,9 @@ public final class ProjectionIndexRowGroupPage {
    * @param sliceSetRowStart for a STRING_SET column, where the row's run starts in the element lane
    * @return {@code false} when this page is full
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   boolean appendSingleColumnRowFromSlice(final long recordKey, final ProjectionColumnStore.ColumnSlice slice,
       final int sliceRow, final byte rule, final int @Nullable [] sliceDictIds, final int @Nullable [] dictionaryIdMemo,
       final int sliceSetRowStart) {

@@ -2367,6 +2367,9 @@ public enum PageKind {
       }
     }
 
+    // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+    // operand object would cost a load at every use.
+    @SuppressWarnings("java:S107")
     private static void encodeBody(final BytesOut<?> sink, final MemorySegment slottedPage, final int populatedCount,
         final int[] slotKindIds, final byte[] slotFieldCounts, final int[] slotHeapOffs, final int[] slotDataLens,
         final short[] slotBits, final int[] slotRegionAbsIdx, final boolean deweyIdsStored, final boolean chunkedBody,
@@ -8945,6 +8948,9 @@ public enum PageKind {
       depth++;
     }
 
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     void exit() {
       if (--depth == 0) {
         blob = null;

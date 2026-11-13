@@ -69,6 +69,9 @@ public final class ProjectionColumnGroupScan {
    * distinct block's operand as STRING_DICT — see {@link #foldSlicedLane} for the leaf-local-id →
    * content-hash identity it feeds the set.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final @Nullable PredicateTree treeOrNull,
       final ColumnSlice @Nullable [][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
@@ -258,6 +261,9 @@ public final class ProjectionColumnGroupScan {
    * @param roster this worker's created-id list, which the selection walks instead of the id space
    * @param decline set to {@code 1} when a row carries an id the table was not sized for
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void aggregateByGroupNumericDense(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
       final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols, final int fromLeaf,
@@ -346,6 +352,13 @@ public final class ProjectionColumnGroupScan {
    * {@link #foldNumericPlainLoneRow} instead; handed a lone row all the same, this kernel passes it
    * on.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S135", "java:S3776"})
   static void foldNumericPlainWordLane(final long record, final MemorySegment[] aggSeg, final long[] laneBases,
       final long[][] aggPresence, final int aggCount, final int w, final long rows, final long sumExactMask) {
     if (rows != 0L && (rows & (rows - 1L)) == 0L) {
@@ -405,6 +418,9 @@ public final class ProjectionColumnGroupScan {
    * lone row then paid a call that cost a tenth of its fold in most forks of the fold benchmark and
    * none in the others.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   static void foldNumericPlainLoneRow(final long record, final long rowBit, final MemorySegment[] aggSeg,
       final long[] laneBases, final long[][] aggPresence, final int aggCount, final int w, final long sumExactMask) {
     GroupKernelLanes.increment(record, 0);
@@ -504,6 +520,9 @@ public final class ProjectionColumnGroupScan {
    * {@code cdStringDict} marks the distinct block's operand as STRING_DICT — see
    * {@link #foldSlicedLane} for the leaf-local-id → content-hash identity it feeds the set.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void aggregateByGroupStringFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
       final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
@@ -829,6 +848,9 @@ public final class ProjectionColumnGroupScan {
    * Fold each used dictionary entry once per leaf. The row pass touches only compact ID counters; the
    * table receives the same hash, count and earliest source ordinal as the general row kernel.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static void countByLocalDictionary(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final PredicateTree tree, final ColumnSlice[][] treeCols,
       final ColumnSlice[] groups, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
@@ -1004,6 +1026,9 @@ public final class ProjectionColumnGroupScan {
    * @param wordOrdinalBase the source ordinal of the word's row 0
    * @param records scratch of at least {@code count} entries for the resolved accumulators
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private static void foldSumsWord(final NumericGroupAggTable out, final int[] handles, final long[] hashes,
       final long[] identities, final int identityWidth, final int count, final long rows, final int rehashesBefore,
       final long wordOrdinalBase, final MemorySegment[] aggSeg, final long[] aggBase, final long[][] aggPresence,
@@ -1037,6 +1062,11 @@ public final class ProjectionColumnGroupScan {
    * within what HotSpot compiles into a hot caller ({@code GroupAccessorSizeTest} holds the sizes):
    * together they are too large, and a word would then pay a call.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S6880: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  @SuppressWarnings({"java:S107", "java:S6880"})
   static void foldSumsWordLane(final long[] records, final int count, final long rows, final MemorySegment[] segs,
       final long[] laneBases, final long[][] presence, final int columns, final int word, final long sumExactMask) {
     if (count == 1) {
@@ -1052,6 +1082,9 @@ public final class ProjectionColumnGroupScan {
    * {@link #foldSumsWordLane} for a lone row, which is every row of a sparse selection: entering a
    * counted loop per column would cost more than the row's fold.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private static void foldSumsLoneRow(final long record, final long rowBit, final MemorySegment[] segs,
       final long[] laneBases, final long[][] presence, final int columns, final int word, final long sumExactMask) {
     final long rowOffset = ((long) word << 9) + ((long) Long.numberOfTrailingZeros(rowBit) << 3);
@@ -1073,6 +1106,9 @@ public final class ProjectionColumnGroupScan {
    * so that what a column's read needs is loaded once for the two, without a counted loop to enter
    * per column.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private static void foldSumsRowPair(final long first, final long second, final long rows, final MemorySegment[] segs,
       final long[] laneBases, final long[][] presence, final int columns, final int word, final long sumExactMask) {
     final long firstBit = rows & -rows;
@@ -1111,6 +1147,9 @@ public final class ProjectionColumnGroupScan {
    * for the whole inner loop, so what a checked read needs besides its bounds comparison is loaded
    * once per column and word instead of once per row.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
   private static void foldSumsColumns(final long[] records, final int count, final long rows,
       final MemorySegment[] segs, final long[] laneBases, final long[][] presence, final int columns, final int word,
       final long sumExactMask) {
@@ -1146,6 +1185,13 @@ public final class ProjectionColumnGroupScan {
    * {@link #foldSlicedLane} reading the lanes in place instead of a gathered window: one checked
    * segment read per surviving row, which is the cheaper side below the gather crossover.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S3358: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S3358", "java:S3776"})
   static void foldSlicedLane(final long record, final MemorySegment[] aggSeg, final long[] laneBases,
       final long[][] aggPresence, final int[][] aggIds, final int @Nullable [][] stringLengths,
       final byte @Nullable [] stringLengthModes, final int aggCount, final int w, final int bit, final int rowIdx,
@@ -1350,6 +1396,13 @@ public final class ProjectionColumnGroupScan {
    * Worker-scratch overload. A cache may span sequential subchunks, but must never be shared by
    * concurrent workers. Null retains invocation-local allocation, only when identity proof is needed.
    */
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S1871: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S135", "java:S1871", "java:S3776"})
   public static void aggregateByGroupCompositeFlat(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
       final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[][] keyCols,
@@ -2155,6 +2208,11 @@ public final class ProjectionColumnGroupScan {
   }
 
   /** Global-string substring-cast capable winner materialisation; views align to key components. */
+  // Sonar S1871: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S1871", "java:S3776"})
   public static void readRowKeyPartsSliced(final ColumnSlice[][] keyCols, final byte[] keyKinds,
       final ColumnSlice[][] condCols, final int leaf, final int rowIdx, final String[] outStrings,
       final long[] outLongs, final boolean[] outPresent, final boolean[] outIsLong, final long[] keyOffsets,
@@ -2261,6 +2319,9 @@ public final class ProjectionColumnGroupScan {
   }
 
   /** Global-string capable packed-substring overload; a non-null view selects global-id cells. */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   public static void aggregateByGroupPackedSubstringFlat(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
       final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol,
@@ -2582,6 +2643,11 @@ public final class ProjectionColumnGroupScan {
    * lane. Plain adds throughout; the leaf's contribution is proven exact from its own extrema before
    * it is committed, otherwise re-summed with {@code addExact}.
    */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S3776"})
   private static void foldNumericLaneFlat(final GroupBuffer acc, final int aggBase, final MemorySegment lane,
       final long laneBase, final long @Nullable [] presence, final long[] mask, final int stride, final int rowCount) {
     long cnt = 0L;

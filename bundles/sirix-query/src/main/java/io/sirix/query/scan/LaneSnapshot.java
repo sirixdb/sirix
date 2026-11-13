@@ -42,6 +42,10 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
    * @param pinnedColumns the store columns whose resident slabs the slices read; pinned here,
    *        unpinned when the final lease drops ({@link #released()})
    */
+  // Sonar S107: a plain carrier with one argument for each of its fields.
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings({"java:S107", "java:S1181"})
   LaneSnapshot(final ProjectionColumnStore store, final String[] fields, final long[] keys, final long[][] masks,
       final KeyLanes recordKeys, final ColumnSlice[][] slices, final byte[] kinds, final long rows,
       final byte[] presenceMemo, final int[] pinnedColumns) {
@@ -82,7 +86,9 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
    * A view holding {@code lease} on this entry: shared slices and key lanes, this view's own masks.
    */
   // The returned view owns the adopted lease; failed adoption returns the lease here.
-  @SuppressWarnings("java:S2095")
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings({"java:S2095", "java:S1181"})
   MaskedColumns view(final DerivedCacheBudget.Lease lease) {
     try {
       DerivedCacheBudget.handoff("view");
@@ -121,6 +127,9 @@ final class LaneSnapshot extends DerivedCacheBudget.Entry {
     unpin();
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private void unpin() {
     Throwable failure = null;
     for (final int col : pinnedColumns) {

@@ -1040,6 +1040,9 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     LOGGER.debug("====================================================\n");
   }
 
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings("java:S3776")
   @Override
   public MemorySegment allocate(long size) {
     // Auto-initialize if not yet initialized (with default 16GB budget)

@@ -3182,6 +3182,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"java:S1181", "java:S3776"})
   private void executeSnapshotWrite() {
     if (HFT_TELEMETRY_ENABLED && !isSnapshotAppendWorkerThread()) {
       hftCallerThreadAppendRuns++;
@@ -4118,6 +4123,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /** Close and null out any copies left in a snapshot window after a failed flush. */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private static void closeWindowLeftovers(final KeyValueLeafPage[] window) {
     Throwable failure = null;
     for (int i = 0; i < window.length; i++) {
@@ -5293,6 +5301,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return isClosed;
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   @Override
   public void close() {
     if (isClosed) {

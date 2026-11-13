@@ -180,6 +180,9 @@ public final class ProjectionChangeLog implements AutoCloseable {
     }
   }
 
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   void before(final long[] records, final ProjectionColumnStore.ColumnSlice[] slices) {
     // Lanes hoisted once per column, not per captured cell: a slab-backed slice is read in place
     // through its segment, a heap-backed one through the array view the slice hands out. Two small

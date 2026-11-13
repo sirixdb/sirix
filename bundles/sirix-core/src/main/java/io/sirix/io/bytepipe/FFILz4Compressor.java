@@ -411,6 +411,9 @@ public final class FFILz4Compressor implements ByteHandler {
    * @param source uncompressed data (can be heap or native)
    * @return compressed data in a MemorySegment
    */
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings("java:S3776")
   @Override
   public MemorySegment compress(MemorySegment source) {
     if (source.byteSize() > Integer.MAX_VALUE) {
@@ -522,6 +525,13 @@ public final class FFILz4Compressor implements ByteHandler {
    * @param compressed compressed data (with 4-byte header containing decompressed size)
    * @return scoped result; must be closed to return buffer to allocator
    */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  // Sonar S2093: on success the result owns what was acquired here, and it is handed back only on
+  // failure. Nothing is closed at the end of a block.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"java:S1181", "java:S2093", "java:S3776"})
   @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
     // No native-availability gate here: the stored-uncompressed path needs no LZ4 at all, and

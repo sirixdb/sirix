@@ -124,6 +124,9 @@ public final class GroupWorkspace implements AutoCloseable {
     }
 
     /** Return every region to the allocator, once. */
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
     @Override
     public synchronized void run() {
       if (returned) {
@@ -363,6 +366,9 @@ public final class GroupWorkspace implements AutoCloseable {
   }
 
   /** Carve {@code bytes} from the current region, borrowing the next one when it does not fit. */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private MemorySegment carve(final long bytes) {
     MemorySegment region = carving;
     if (region == null || carved + bytes > region.byteSize()) {
