@@ -88,6 +88,10 @@ final class FrameScratch extends ScratchSource {
    */
   private static volatile boolean poisonOnReturn = Boolean.getBoolean("sirix.allocator.poisonScratch");
 
+  /** See {@link FrameSlotAllocator#READ_SCRATCH_POPULATE_PROPERTY}. */
+  private static volatile boolean populateReadBuffers =
+      !"false".equalsIgnoreCase(System.getProperty(FrameSlotAllocator.READ_SCRATCH_POPULATE_PROPERTY, "true"));
+
   private final FrameSlotAllocator allocator;
   private final VirtualMemory memory;
 
@@ -182,6 +186,9 @@ final class FrameScratch extends ScratchSource {
   /** Lent bytes accounted per borrow: large buffers and grant-backed buffers. */
   private final AtomicLong lentRegionBytes = new AtomicLong();
 
+  /** Bytes of small buffers whose pages were populated at their first read borrow. */
+  private final AtomicLong populatedReadBytes = new AtomicLong();
+
   /**
    * @param allocator the allocator these buffers belong to
    * @param idleBuffers idle buffers to keep per capacity; rounded up to a power of two
@@ -209,6 +216,21 @@ final class FrameScratch extends ScratchSource {
     final int processors = Runtime.getRuntime().availableProcessors();
     final int byDefault = Math.max(8, Math.min(64, 2 * processors));
     return Math.max(1, Math.min(256, Integer.getInteger(IDLE_BUFFERS_PROPERTY, byDefault)));
+  }
+
+  /** Test seam for {@link #populateReadBuffers}; returns the previous setting. */
+  static boolean setReadPagePreparationForTesting(final boolean populate) {
+    final boolean previous = populateReadBuffers;
+    populateReadBuffers = populate;
+    return previous;
+  }
+
+  /**
+   * Bytes of small buffers populated at their first read borrow; see
+   * {@link FrameSlotAllocator#READ_SCRATCH_POPULATE_PROPERTY}.
+   */
+  long populatedReadBytes() {
+    return populatedReadBytes.get();
   }
 
   /** Test seam for {@link #poisonOnReturn}; returns the previous setting. */
@@ -322,8 +344,31 @@ final class FrameScratch extends ScratchSource {
       lentRegionBytes.addAndGet(carrier.capacity);
       allocator.adjustActiveBytes(carrier.capacity);
     }
+    if (use == ScratchUse.READ && !carrier.preparedForReads) {
+      prepareForReads(carrier);
+    }
     carrier.lend(minBytes, use);
     return carrier;
+  }
+
+  /**
+   * The first read borrow of {@code carrier}, held exclusively by this thread: populate a small
+   * buffer's pages in one call, so that the reads landing in it never fault. Larger regions serve
+   * coalesced runs and are left to fault as far as a read reaches; so is a buffer whose pages the
+   * kernel cannot back right now, which is not a reason to refuse the read.
+   */
+  private void prepareForReads(final ScratchCarrier carrier) {
+    carrier.preparedForReads = true;
+    if (!populateReadBuffers || carrier.capacityClass >= SMALL_CLASSES) {
+      return;
+    }
+    try {
+      if (memory.populate(carrier.segment)) {
+        populatedReadBytes.addAndGet(carrier.capacity);
+      }
+    } catch (final OutOfMemoryError refused) {
+      LOGGER.debug("read buffer of {} bytes left to fault lazily: {}", carrier.capacity, refused.getMessage());
+    }
   }
 
   private static long pageRounded(final long bytes) {

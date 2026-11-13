@@ -504,6 +504,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       !"false".equalsIgnoreCase(System.getProperty(SLAB_POPULATE_PROPERTY, "true"));
 
   /**
+   * Pre-fault a small scratch buffer's pages in one call ({@link VirtualMemory#populate}) the first
+   * time a read borrows it. A positional read copies its bytes out in the kernel, so every page of
+   * the buffer a read is the first to reach costs a fault inside that read (2.4 us each measured); in
+   * a fresh process those reads are its first query's. The reader's pool of direct buffers this
+   * scratch replaced was zeroed, and with that resident, when the reader class initialized.
+   * {@code false} turns it off. A buffer is populated once: it stays mapped until the allocator shuts
+   * down or reclaims it.
+   */
+  public static final String READ_SCRATCH_POPULATE_PROPERTY = "sirix.allocator.readScratchPopulate";
+
+  /**
    * Bytes of fresh slabs whose pages were populated on allocation; recycled reuses are not counted.
    */
   private final AtomicLong populatedSlabBytes = new AtomicLong();

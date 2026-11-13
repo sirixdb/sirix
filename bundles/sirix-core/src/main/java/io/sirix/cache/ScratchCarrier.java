@@ -58,6 +58,12 @@ final class ScratchCarrier {
   @Nullable
   AggregationGrant aggregationGrant;
 
+  /**
+   * Whether a read has borrowed this buffer before, which is when the source prepared its pages for
+   * reads. Read and written only by the thread that holds the buffer exclusively.
+   */
+  boolean preparedForReads;
+
   /** Accessed through {@link ScratchHandles#ACQUISITIONS}. */
   long acquisitions;
 
