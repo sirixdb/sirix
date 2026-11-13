@@ -61,56 +61,56 @@ final class GroupDebugRecords {
     if (file.views.size() >= file.sweepAt) {
       file.sweep();
     }
-    final long record = TAG | file.filed++;
-    file.numbers.put(footprint, record);
-    file.views.put(record, source.view(first, lanes));
-    return record;
+    final long groupRecord = TAG | file.filed++;
+    file.numbers.put(footprint, groupRecord);
+    file.views.put(groupRecord, source.view(first, lanes));
+    return groupRecord;
   }
 
-  static long get(final long record, final int lane) {
-    final GroupBuffer view = view(record);
+  static long get(final long groupRecord, final int lane) {
+    final GroupBuffer view = view(groupRecord);
     return GroupLanes.get(view, view.firstLane() + lane(view, lane));
   }
 
-  static void set(final long record, final int lane, final long value) {
-    final GroupBuffer view = view(record);
+  static void set(final long groupRecord, final int lane, final long value) {
+    final GroupBuffer view = view(groupRecord);
     GroupLanes.set(view, view.firstLane() + lane(view, lane), value);
   }
 
-  static long getOpaque(final long record, final int lane) {
-    final GroupBuffer view = view(record);
+  static long getOpaque(final long groupRecord, final int lane) {
+    final GroupBuffer view = view(groupRecord);
     return GroupLanes.boundedGetOpaque(view, lane(view, lane));
   }
 
-  static long compareAndExchange(final long record, final int lane, final long expected, final long value) {
-    final GroupBuffer view = view(record);
+  static long compareAndExchange(final long groupRecord, final int lane, final long expected, final long value) {
+    final GroupBuffer view = view(groupRecord);
     return GroupLanes.boundedCompareAndExchange(view, lane(view, lane), expected, value);
   }
 
-  static long getAndAdd(final long record, final int lane, final long value) {
-    final GroupBuffer view = view(record);
+  static long getAndAdd(final long groupRecord, final int lane, final long value) {
+    final GroupBuffer view = view(groupRecord);
     return GroupLanes.boundedGetAndAdd(view, lane(view, lane), value);
   }
 
-  static void add(final long record, final int lane, final long delta) {
-    set(record, lane, get(record, lane) + delta);
+  static void add(final long groupRecord, final int lane, final long delta) {
+    set(groupRecord, lane, get(groupRecord, lane) + delta);
   }
 
-  static void min(final long record, final int lane, final long value) {
-    if (value < get(record, lane)) {
-      set(record, lane, value);
+  static void min(final long groupRecord, final int lane, final long value) {
+    if (value < get(groupRecord, lane)) {
+      set(groupRecord, lane, value);
     }
   }
 
-  static void max(final long record, final int lane, final long value) {
-    if (value > get(record, lane)) {
-      set(record, lane, value);
+  static void max(final long groupRecord, final int lane, final long value) {
+    if (value > get(groupRecord, lane)) {
+      set(groupRecord, lane, value);
     }
   }
 
-  private static GroupBuffer view(final long record) {
-    final GroupBuffer view = record < 0L
-        ? OF_THREAD.get().views.get(record)
+  private static GroupBuffer view(final long groupRecord) {
+    final GroupBuffer view = groupRecord < 0L
+        ? OF_THREAD.get().views.get(groupRecord)
         : null;
     if (view == null) {
       throw new IllegalStateException("not an aggregation record this thread resolved");

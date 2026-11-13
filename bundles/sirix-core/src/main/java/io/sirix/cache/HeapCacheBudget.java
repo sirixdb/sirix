@@ -5,7 +5,6 @@ import org.jspecify.annotations.Nullable;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
 
 /**
  * Startup allocation of disjoint retained-cache ceilings within half the runtime heap. The other
@@ -63,8 +62,15 @@ public final class HeapCacheBudget {
     return RuntimeBudget.INSTANCE;
   }
 
+  /** Looks a configuration property up; answers {@code null} for a property that is not set. */
+  @FunctionalInterface
+  public interface PropertyLookup {
+    @Nullable
+    String valueOf(String property);
+  }
+
   /** Pure policy seam: property values are read once; no allocator or runtime sampling is needed. */
-  public HeapCacheBudget(final long heapBytes, final Function<String, @Nullable String> properties) {
+  public HeapCacheBudget(final long heapBytes, final PropertyLookup properties) {
     if (heapBytes < 0) {
       throw new IllegalArgumentException("Negative runtime heap allowance");
     }
@@ -96,16 +102,16 @@ public final class HeapCacheBudget {
         new Limit(fillConfigured, fillCeiling, fill));
   }
 
-  private static void assign(final EnumMap<Pool, Limit> limits, final Function<String, @Nullable String> properties,
-      final Pool pool, final long ceiling) {
+  private static void assign(final EnumMap<Pool, Limit> limits, final PropertyLookup properties, final Pool pool,
+      final long ceiling) {
     final long requested = configured(properties, pool.property());
     limits.put(pool, new Limit(requested, ceiling, requested < 0
         ? ceiling
         : Math.min(requested, ceiling)));
   }
 
-  private static long configured(final Function<String, @Nullable String> properties, final String property) {
-    final String value = properties.apply(property);
+  private static long configured(final PropertyLookup properties, final String property) {
+    final String value = properties.valueOf(property);
     if (value == null) {
       return -1;
     }

@@ -1287,8 +1287,7 @@ public final class ProjectionIndexCatalog {
     // sized by the projected per-leaf weight (conservative — includes decode expansion, so the cap
     // errs toward fewer resident windows). A worker-count floor would exceed tiny declared budgets.
     final long projectedWindowBytes = Math.max(1L, projectedWeightBytes / Math.max(1, rowGroupCount)) * windowSize;
-    final int residentCap =
-        (int) Math.min(Integer.MAX_VALUE, Math.max(0L, (eagerMaterializeBytes / 4) / projectedWindowBytes));
+    final int residentCap = Math.clamp((eagerMaterializeBytes / 4) / projectedWindowBytes, 0, Integer.MAX_VALUE);
     if (DIAG) {
       System.err.println("[cat] windowed payloads: defId=" + defId + " rowGroups=" + rowGroupCount + " projected="
           + (projectedWeightBytes >> 20) + "MB windowLeaves=" + windowSize + " residentCap=" + residentCap);

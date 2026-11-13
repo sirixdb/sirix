@@ -138,11 +138,18 @@ final class PosixVirtualMemory implements VirtualMemory {
           + " bytes of slab memory with physical pages (ENOMEM)");
     }
     if (errno == EINVAL) {
-      populateUnsupported = true;
+      markPopulateUnsupported();
     }
-    LOGGER.debug("MADV_POPULATE_WRITE rc={} errno={} on address 0x{} ({} bytes)", rc, errno,
-        Long.toHexString(segment.address()), segment.byteSize());
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug("MADV_POPULATE_WRITE rc={} errno={} on address 0x{} ({} bytes)", rc, errno,
+          Long.toHexString(segment.address()), segment.byteSize());
+    }
     return false;
+  }
+
+  /** Latches the refusal for the whole process: the kernel lacks the advice, not this instance. */
+  private static void markPopulateUnsupported() {
+    populateUnsupported = true;
   }
 
   /** The calling thread's {@code errno}, or {@code -1} when the platform exposes none. */
@@ -153,7 +160,7 @@ final class PosixVirtualMemory implements VirtualMemory {
     try {
       final MemorySegment location = (MemorySegment) ERRNO_LOCATION.invokeExact();
       return location.reinterpret(Integer.BYTES).get(ValueLayout.JAVA_INT, 0L);
-    } catch (final Throwable t) {
+    } catch (final Throwable _) {
       return -1;
     }
   }

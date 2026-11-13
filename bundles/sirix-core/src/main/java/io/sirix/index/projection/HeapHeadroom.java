@@ -213,7 +213,8 @@ public final class HeapHeadroom {
    * @return the planned per-consumer share of the heap, in bytes
    */
   public static long plannedShareBytes() {
-    return Math.max(0L, Math.min(HeapCacheBudget.global().queryWorkspaceBytes(), headroomBytes() / 4));
+    // The bounds cannot cross: headroomBytes() is never negative.
+    return Math.clamp(HeapCacheBudget.global().queryWorkspaceBytes(), 0L, headroomBytes() / 4);
   }
 
   /**

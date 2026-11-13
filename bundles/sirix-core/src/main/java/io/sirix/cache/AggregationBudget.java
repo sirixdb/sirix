@@ -51,7 +51,7 @@ public final class AggregationBudget {
       try {
         wait();
         requireOpen();
-      } catch (final InterruptedException interrupted) {
+      } catch (final InterruptedException _) {
         Thread.currentThread().interrupt();
         throw new CancellationException("interrupted while waiting for aggregation capacity");
       }
@@ -93,7 +93,7 @@ public final class AggregationBudget {
       try {
         wait();
         requireOpen();
-      } catch (final InterruptedException interrupted) {
+      } catch (final InterruptedException _) {
         Thread.currentThread().interrupt();
         throw new CancellationException("interrupted while waiting for aggregation capacity");
       }

@@ -40,7 +40,7 @@ public final class PooledGrowingSegment implements AutoCloseable {
   /** Initial borrow of a page serialization: 128 KiB holds most pages without growing. */
   public static final long PAGE_BUFFER_BYTES = 128L * 1024;
 
-  private static final MemorySegment CLOSED = MemorySegment.ofArray(new byte[0]);
+  private static final MemorySegment CLOSED_SEGMENT = MemorySegment.ofArray(new byte[0]);
 
   /**
    * The caller's buffer this writer starts in and returns to on {@link #reset()}, or {@code null}.
@@ -142,7 +142,7 @@ public final class PooledGrowingSegment implements AutoCloseable {
     if (base != null) {
       currentSegment = base;
     } else {
-      currentSegment = CLOSED;
+      currentSegment = CLOSED_SEGMENT;
       closed = true;
     }
   }

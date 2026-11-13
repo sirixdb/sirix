@@ -31,6 +31,8 @@ public final class AggregationShare {
    * @param headroom ungranted execution capacity plus the scan's own exclusive grant
    * @return {@code min(budget / 8, headroom)}, never negative
    */
+  // A negative headroom or budget saturates to zero here; Math.clamp throws when its bounds cross.
+  @SuppressWarnings("java:S6885")
   public static long plannedBytes(final long budget, final long headroom) {
     return Math.max(0L, Math.min(budget / BUDGET_DIVISOR, headroom));
   }

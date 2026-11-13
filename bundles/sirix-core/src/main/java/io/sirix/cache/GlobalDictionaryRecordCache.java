@@ -52,14 +52,14 @@ public final class GlobalDictionaryRecordCache implements Cache<GlobalDictionary
                     .maximumWeight(maxWeightBytes / unit)
                     .executor(Runnable::run)
                     .weigher((GlobalDictionaryRecordCacheKey key,
-                        DataRecord record) -> HeapCacheBudget.weight(retainedBytes(record), unit))
+                        DataRecord dictionaryRecord) -> HeapCacheBudget.weight(retainedBytes(dictionaryRecord), unit))
                     .scheduler(scheduler)
                     .build();
   }
 
   /** Price every dictionary array without copying it or decoding its values. */
-  private static long retainedBytes(final DataRecord record) {
-    final long payload = switch (record) {
+  private static long retainedBytes(final DataRecord dictionaryRecord) {
+    final long payload = switch (dictionaryRecord) {
       case ValueDictionaryValueBlockNode block -> block.rawBytes().length + 4L * (block.size() + 1L);
       case ValueDictionaryValueBucketNode bucket -> 16L * bucket.blockCount() + 12L * bucket.spillCount();
       case ValueDictionaryRadixNode radix -> 9L * radix.childCount();

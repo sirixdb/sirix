@@ -1256,6 +1256,9 @@ public final class ProjectionIndexRegistry {
      * is a {@code List<byte[]>} on the Java heap, so the default is a quarter of the heap, itself
      * capped so a huge heap does not authorise a huge speculative materialization.
      */
+    // Sonar S6885: the upper bound comes from the heap budget. Saturating keeps this parse total
+    // whatever that bound is, where the clamp method throws for crossed bounds.
+    @SuppressWarnings("java:S6885")
     private static long promoteMaxBytes() {
       final String configured = System.getProperty("sirix.projection.promoteMaxBytes");
       if (configured != null && !configured.isEmpty()) {
