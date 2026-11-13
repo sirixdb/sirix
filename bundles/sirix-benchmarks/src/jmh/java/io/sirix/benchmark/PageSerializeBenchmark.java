@@ -96,12 +96,12 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>
  * Run with:
- * 
+ *
  * <pre>
  * ./gradlew :sirix-benchmarks:jmh -Pjmh.includes=PageSerializeBenchmark \
  *     -Pjmh.warmupIterations=5 -Pjmh.iterations=10
  * </pre>
- * 
+ *
  * The module's Gradle config overrides the iteration annotations below; its defaults (2 warmup, 3
  * measurement) leave the error bars wider than the effects worth chasing.
  */

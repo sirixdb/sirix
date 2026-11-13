@@ -50,6 +50,8 @@ public final class ProjectionComputedColumn {
    * @param code the postfix program
    * @param consts the constants the program pushes
    * @param keepWords the leaf keep mask, or {@code null} for every leaf
+   * @param target caller-owned storage for the derived lanes; it must remain live until every
+   *        returned slice is no longer used
    * @return one slice per leaf; a dropped or rowless leaf is a shared rowless sentinel
    * @throws ArithmeticException when any evaluated row overflows a {@code long}
    * @throws IllegalArgumentException on a malformed program or mismatched operand shapes

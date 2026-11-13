@@ -110,7 +110,7 @@ public final class AggregationBudget {
   }
 
   private void requireOpen() {
-    if (!allocator.isInitialized() || allocator instanceof FrameSlotAllocator frames && frames.isTerminated()) {
+    if (!allocator.isInitialized() || (allocator instanceof FrameSlotAllocator frames && frames.isTerminated())) {
       throw new IllegalStateException("allocator is not open for aggregation admission");
     }
   }

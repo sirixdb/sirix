@@ -133,6 +133,15 @@ owned and cannot be reclaimed. The small idle arrays keep their warm buffers wit
 slab recycle allowance. Extra small buffers and all larger idle regions share that allowance, with
 spares reused before mapping replacements. Exactly sized buffers above 16 MiB are unmapped on return.
 
+With `FrameSlotAllocator`, a buffer's first `ScratchUse.READ` borrow at capacities through 256 KiB
+attempts one `madvise(MADV_POPULATE_WRITE)` call to populate its pages. This is enabled by default; set
+`-Dsirix.allocator.readScratchPopulate=false` at process startup to disable it. Population is
+Linux-only and falls back to lazy faults on unsupported kernels and platforms. An `ENOMEM`
+response also leaves the buffer to fault lazily rather than refusing the read. Larger capacities
+serve coalesced runs and fault only as far as the read reaches; other scratch uses do not trigger
+population. The buffer records the attempt while exclusively borrowed, so reuse does not repeat it.
+`ReadScratchPopulateTest` covers the switch, capacity and use boundaries, and reuse.
+
 **Group tables.** The accumulators a grouped aggregate folds into are allocator memory too. Each
 grouped scan opens one `GroupWorkspace` (`io.sirix.index.projection`), which borrows regions from the
 allocator's scratch facility (`ScratchUse.AGGREGATION`, 64 KiB doubling to 2 MiB) and carves them
@@ -185,7 +194,7 @@ suites cover ownership, capacity, exact answers and cleanup.
 
 `DerivedCacheBudget` derives one combined allowance `D = A / 8` from the allocator's effective
 allowance `A` (its first-initialization grant, including the physical-headroom clamp). At the
-default 8 GiB persisted allowance that is 1 GiB: cached selections receive `floor(3D / 4)`, packed
+effective allowance of 8 GiB that is 1 GiB: cached selections receive `floor(3D / 4)`, packed
 sides `floor(D / 4)`. `sirix.derivedCache.maxBytes` replaces the automatic target with an explicit
 byte count, capped by `A`; zero disables both caches. The configuration is read at runtime in JVM
 and native-image deployments. Column lanes are outside this allowance: they are priced by the

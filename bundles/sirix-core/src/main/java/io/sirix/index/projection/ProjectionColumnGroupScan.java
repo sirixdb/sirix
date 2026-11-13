@@ -268,7 +268,6 @@ public final class ProjectionColumnGroupScan {
       throw new IllegalArgumentException("predicates, out, missingAcc, aggCols, roster and decline must not be null");
     }
     final long[] mask = MASK.get();
-    final DictScratch ds = DICT_SCRATCH.get();
     final long sumExactMask = out.sumExactMask();
     final int aggCount = aggCols.length;
     // The missing-key accumulator is a block that never moves: resolved once for the whole run.
@@ -1365,7 +1364,6 @@ public final class ProjectionColumnGroupScan {
       throw new IllegalArgumentException("predicates, out, aggCols and keyCols must not be null");
     }
     final long[] mask = MASK.get();
-    final DictScratch ds = DICT_SCRATCH.get();
     // The SUM lanes the query actually reads. Every other lane goes unfolded, so a query
     // that asks only for min/max/count can never decline on an overflow no answer depends
     // on — see NumericGroupAggTable#sumsExact for the rule the merge obeys too.

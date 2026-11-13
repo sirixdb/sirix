@@ -4896,7 +4896,7 @@ public final class ProjectionIndexByteScan {
    */
   private static void foldRowDistinct(final long record, final byte[] payload, final int[] aggPresOff,
       final int[] aggValOff, final int aggCount, final int distinctBlock, final GroupDistinctAccumulator.Sink dset,
-      final long[] budget, final int w, final int bit, final int rowIdx, final byte[] stringLengthModes,
+      final long[] unusedBudget, final int w, final int bit, final int rowIdx, final byte[] stringLengthModes,
       final int[][] stringLengths, final int[][] globalLengthTables, final int[] cdOff, final int[] cdLen,
       final long[] cdHash, final long sumExactMask) {
     GroupKernelLanes.increment(record, 0);

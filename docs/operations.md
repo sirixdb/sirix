@@ -257,9 +257,9 @@ embedders can wire the same gauges into their own registry by implementing
 | `sirix_hot_leaf_page_cache_size_bytes` / `_max_bytes` | gauge | `BufferManagerImpl` |
 | `sirix_allocator_physical_memory_bytes` | gauge | the active allocator (`Allocators.getInstance()`) |
 | `sirix_allocator_scratch_lent_bytes` / `_idle_bytes` | gauge | `ScratchStats`: scratch buffers lent now / kept resident for the next borrow |
-| `sirix_allocator_scratch_requested_bytes_total` / `_rounded_bytes_total` | counter | `ScratchStats`: bytes borrows asked for / were served with |
-| `sirix_allocator_scratch_acquisitions_total` / `_created_total` / `_reclaimed_total` | counter | `ScratchStats`: borrows served / buffers given fresh backing / backing returned |
-| `sirix_allocator_scratch_refused_total` / `_refused_bytes_total` | counter | `ScratchStats`: borrows the budget had no room for |
+| `sirix_allocator_scratch_requested_bytes_total` / `_rounded_bytes_total` | gauge (cumulative total) | `ScratchStats`: bytes borrows asked for / were served with |
+| `sirix_allocator_scratch_acquisitions_total` / `_created_total` / `_reclaimed_total` | gauge (cumulative total) | `ScratchStats`: borrows served / buffers given fresh backing / backing returned |
+| `sirix_allocator_scratch_refused_total` / `_refused_bytes_total` | gauge (cumulative total) | `ScratchStats`: borrows the budget had no room for |
 
 Still on the production-readiness backlog: commit-queue depth and GC pause
 attribution. For these, use JFR (`-XX:StartFlightRecording`) plus the Sirix

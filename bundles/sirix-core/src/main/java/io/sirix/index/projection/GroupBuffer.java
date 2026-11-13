@@ -174,7 +174,7 @@ public final class GroupBuffer {
   void requireLive() {
     // Plain reads: closing or handing back never races an access (GroupWorkspace's contract), and a
     // volatile read here would keep the compiler from hoisting anything across a lane access.
-    if (returned | owner.ended || GroupKernelLanes.DEBUG && staleView()) {
+    if ((returned | owner.ended) || (GroupKernelLanes.DEBUG && staleView())) {
       throw new IllegalStateException("aggregation buffer belongs to a closed or returned generation");
     }
   }
@@ -199,7 +199,7 @@ public final class GroupBuffer {
 
   /** Whether this buffer may still be accessed: {@link #requireLive}'s test, as a question. */
   boolean isLive() {
-    return !(returned | owner.ended || GroupKernelLanes.DEBUG && staleView());
+    return !((returned | owner.ended) || (GroupKernelLanes.DEBUG && staleView()));
   }
 
   /** First allocation lane this buffer covers: {@code 0} except for a debug record view. */

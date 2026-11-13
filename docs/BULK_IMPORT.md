@@ -110,9 +110,10 @@ the 4 MiB scheduling target but are chains of reusable 256 KiB slabs, decoded th
 reader; there is no chunk-sized `byte[]`, chunk copy, or chunk-sized `char[]`. Projection row counts
 also close a chunk before any row-indexed lane can exceed a 256 KiB payload. String bytes use 64 KiB
 arena chunks, and pending record roots/ends use FIFO blocks with two 256 KiB primitive lanes. A very
-large single record may link more slabs while it is processed, but excess slabs are trimmed before
-the buffer returns to the pool. This keeps the general path non-humongous without reducing the
-scheduling granularity that amortizes dispatch and page stitching.
+large single record may link more slabs while it is processed. Each chunk returns all its slabs to
+allocator scratch when consumed or abandoned; reuse follows the
+[scratch ownership contract](DERIVED_QUERY_CACHES.md#column-lanes). This keeps the general path
+non-humongous without reducing the scheduling granularity that amortizes dispatch and page stitching.
 
 Under the async-flush pipeline, a record's row is fed only once its whole subtree has entered the
 intent log — the chunk's tail page is deliberately held out of the log until its successor's head

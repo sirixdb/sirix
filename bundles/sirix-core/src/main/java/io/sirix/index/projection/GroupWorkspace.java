@@ -358,7 +358,7 @@ public final class GroupWorkspace implements AutoCloseable {
       done += ZERO_PAGE_BYTES;
     }
     if (done < bytes) {
-      MemorySegment.copy(ZERO_PAGE, 0, memory, ValueLayout.JAVA_LONG_UNALIGNED, done, (int) (bytes - done >>> 3));
+      MemorySegment.copy(ZERO_PAGE, 0, memory, ValueLayout.JAVA_LONG_UNALIGNED, done, (int) ((bytes - done) >>> 3));
     }
   }
 

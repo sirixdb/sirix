@@ -19177,7 +19177,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree tree,
       final int groupCol, final int subStart, final int subLen, final int[] aggCols, final String[] keyNames,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
-      final int eff, final int chunkSize, final GroupOrderPlan orderPlan, final long limit, final long[] having,
+      final int eff, final int unusedChunkSize, final GroupOrderPlan orderPlan, final long limit, final long[] having,
       final long sumExactMask, final long globalDictionaryHeaderKey, final ProjectionIndexRegistry.Handle handle,
       final long groupShapeFp, final long @Nullable [] groupKeep, final RouteLaneSlab laneSlab) {
     if (orderPlan == null) {
@@ -20594,7 +20594,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * row ordinal ({@code initBlock} stamped it), zero-key slot under key 0.
    */
   private static Long2ObjectOpenHashMap<GroupBuffer> drainNumericGroupTable(final GroupWorkspace workspace,
-      final NumericGroupAggTable t, final int aggColumns) {
+      final NumericGroupAggTable t, final int unusedAggColumns) {
     final Long2ObjectOpenHashMap<GroupBuffer> map = new Long2ObjectOpenHashMap<>();
     try {
       final int stride = t.stride();
@@ -20625,13 +20625,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * String twin of {@link #drainNumericGroupTable}: keys materialize from the slice dict via each
    * group's aux {@code (leaf, dictId)} ref; the zero side slot holds the value whose FNV hash IS the
    * empty-bucket sentinel.
-   */
-  /**
    * {@link #drainStringGroupTable(GroupWorkspace, NumericGroupAggTable, int, ProjectionColumnStore.ColumnSlice[])}
    * over a leaf access.
    */
   private static Object2ObjectOpenHashMap<String, GroupBuffer> drainStringGroupTable(final GroupWorkspace workspace,
-      final NumericGroupAggTable t, final int aggColumns, final ProjectionColumnStore.LeafColumnAccess access,
+      final NumericGroupAggTable t, final int unusedAggColumns, final ProjectionColumnStore.LeafColumnAccess access,
       final int groupCol) {
     final Object2ObjectOpenHashMap<String, GroupBuffer> map = new Object2ObjectOpenHashMap<>();
     try {
@@ -20664,7 +20662,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   private static Object2ObjectOpenHashMap<String, GroupBuffer> drainStringGroupTable(final GroupWorkspace workspace,
-      final NumericGroupAggTable t, final int aggColumns, final ProjectionColumnStore.ColumnSlice[] groupColSlices) {
+      final NumericGroupAggTable t, final int unusedAggColumns,
+      final ProjectionColumnStore.ColumnSlice[] groupColSlices) {
     final Object2ObjectOpenHashMap<String, GroupBuffer> map = new Object2ObjectOpenHashMap<>();
     try {
       final int stride = t.stride();
@@ -23180,9 +23179,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     private final long[][] accs;
     /**
      * The entries' blocks while they still live in a group table's native chunks: allocated by the
-     * first {@link #offer(MemorySegment, int, boolean, long, Object, long) native offer}, and gone
-     * again once {@link #detachFromStorage} has copied them out. A selector holds its entries in one
-     * form at a time, heap arrays or table stripes, never a mixture.
+     * first {@link #offer(GroupBuffer, int, boolean, long, Object, long) native offer}, and gone again
+     * once {@link #detachFromStorage} has copied them out. A selector holds its entries in one form at
+     * a time, heap arrays or table stripes, never a mixture.
      */
     private GroupBuffer @Nullable [] stripes;
     private final int[] bases;
@@ -23365,14 +23364,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return inTable != null
           ? GroupLanes.toArray(inTable[i], base, lanes)
           : Arrays.copyOfRange(accs[i], base, base + lanes);
-    }
-
-    /** Lane {@code lane} past the base of slot {@code i}, whichever form the entry is held in. */
-    long laneAt(final int i, final int lane) {
-      final GroupBuffer[] inTable = stripes;
-      return inTable != null
-          ? GroupLanes.get(inTable[i], bases[i] + lane)
-          : accs[i][bases[i] + lane];
     }
 
     int baseAt(final int i) {

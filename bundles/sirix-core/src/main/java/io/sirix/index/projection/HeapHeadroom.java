@@ -17,13 +17,10 @@ import java.util.Map;
  * was LIVE after the last collection, not the maximum heap alone.
  *
  * <p>
- * A leg of queries retains state across queries — resident column fills, charged fingerprint
- * chains, payload windows, catalog descriptors — so a budget derived from {@code maxMemory} alone
- * plans the same group-table size for a query that runs first as for one that runs after 5.9 GB of
- * an 8 GB heap is already live; the latter dies in a worker with {@code OutOfMemoryError} instead
- * of splitting the key space into more passes (q32 at 100M/8 GB, second try inside a leg). The
- * post-collection usage of the heap pools is the JVM's own account of what is live; garbage is not
- * counted.
+ * Retained heap caches and metadata leave less room for subsequent queries' heap working sets. The
+ * post-collection usage of the heap pools accounts for that live state without counting reclaimable
+ * garbage. Native group tables instead plan against the allocator's exclusive aggregation grant;
+ * see {@link AggregationShare} and {@link GroupWorkspace#preparePlan}.
  * </p>
  */
 public final class HeapHeadroom {

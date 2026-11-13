@@ -150,13 +150,14 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * One leaf's decoded column: segment truth. {@code numericValues} is set for
-   * NUMERIC_LONG/NUMERIC_DOUBLE columns (transform domain for doubles), {@code boolWords} for
-   * BOOLEAN, and {@code stringDictIds}+{@code dictBytes}/{@code dictOffsets} for STRING_DICT — the
-   * BODY's per-row dict-ids beside the DICT segment's decoded entries, which is what lets a string
-   * equality run column-sliced instead of hydrating whole leaves. (Per-leaf dictionaries still
-   * resolve the literal per leaf; the R1 canonical-dictionary work removes that remap, not the
-   * slicing.) {@code presenceWords} is always populated for {@code rowCount > 0}.
+   * One leaf's decoded column: segment truth. Long-lane columns use {@code lane} (transform domain
+   * for doubles); {@code numericValues} remains for heap-backed keys and canonical ranks. Consumers
+   * use {@link #laneSegment()} and {@link #laneBase()} for either representation. {@code boolWords}
+   * is set for BOOLEAN, and {@code stringDictIds}+{@code dictBytes}/{@code dictOffsets} for
+   * STRING_DICT — the BODY's per-row dict-ids beside the DICT segment's decoded entries, which is
+   * what lets a string equality run column-sliced instead of hydrating whole leaves. (Per-leaf
+   * dictionaries still resolve the literal per leaf; the R1 canonical-dictionary work removes that
+   * remap, not the slicing.) {@code presenceWords} is always populated for {@code rowCount > 0}.
    *
    * <p>
    * <b>The dictionary is FLAT</b>: one contiguous byte run plus {@code dictSize + 1} offsets, not one
@@ -5325,10 +5326,6 @@ public final class ProjectionColumnStore {
       }
     }
 
-    /** Arrays held (tests). */
-    int held() {
-      return count;
-    }
   }
 
   /** Decode the record keys of a batch of leaves (addressed as in {@link #fetchLeafSegments}). */

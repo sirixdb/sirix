@@ -12,7 +12,7 @@ length validation, short-read detection, and configured checksum verification re
 
 A bounded prefix read can fetch a small page's header and body together. The checksum and
 deserializer receive exactly the declared body, excluding following bytes. Larger pages fetch
-their remaining body through the existing pooled buffer. With batch-input borrowing enabled,
+their remaining body through allocator scratch. With batch-input borrowing enabled,
 coalesced runs decode bounded views from the exclusively owned buffer when the byte pipeline
 supports memory segments. Stream-only handlers
 retain their page-copy path. Checksum views have independent positions and exact per-page limits.
@@ -32,12 +32,9 @@ hinted exactly up to it. Hints do not queue Java tasks, retain page objects, or 
 integrity checks. Descriptor discovery is lazy; single-page readers and unsupported platforms keep
 ordinary reads. Whole-file access hints remain separate opt-in policies.
 
-Scratch buffers use the allocator's mapped regions, separate from page-frame slots. Padded atomic
-idle arrays transfer exclusive ownership without a common queue lock or per-thread retention.
-Each borrow scans its capacity's idle array and spares before mapping a replacement. Extra small
-buffers and larger idle regions share the allocator's recycle-byte allowance; all idle scratch
-regions can be reclaimed for another capacity, while lent regions remain mapped. Returned pages
-retain independently owned data, never a borrowed scratch view.
+Scratch backing, reuse, reclamation and first-read population are specified in the
+[scratch ownership contract](DERIVED_QUERY_CACHES.md#column-lanes). Returned pages retain
+independently owned data, never a borrowed scratch view.
 
 Frame recycling scans only the bitmap prefix that can contain previously allocated slots. Each
 bounded retry refreshes the monotonically advancing allocation limit; the scan wraps with an

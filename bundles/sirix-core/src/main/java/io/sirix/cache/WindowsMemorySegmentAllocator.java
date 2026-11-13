@@ -159,6 +159,7 @@ public final class WindowsMemorySegmentAllocator implements MemorySegmentAllocat
    * @param size The size to allocate.
    * @return The allocated MemorySegment.
    */
+  @Override
   public MemorySegment allocate(final long size) {
     if (!initialized) {
       throw new IllegalStateException("allocator must be initialized before borrowing memory");

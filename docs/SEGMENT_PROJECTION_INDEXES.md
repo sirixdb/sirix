@@ -1173,7 +1173,7 @@ incremented **after** a try completes, so a suite that fails part way is not jud
 | numericGroupBys | numeric group arms (`SVE:2022`, `3715`, `19004`, `19274`) | one key of kind NUMERIC_LONG/temporal, STRING_GLOBAL or STRING_SEGMENT | id and long lanes | slot walk or generic |
 | groupSliced | sliced serves of the group arms (`SVE:16714`, `17079`, `17329`, `17451`, `18332`, `19006`, `19276`) | a group serve that read column slices instead of whole leaves | `ProjectionColumnStore` slices of the needed columns | whole-leaf kernels |
 | groupSummary | `serveScalarValueCounts` (`SVE:14702`) | no-predicate single-key value-count ordered by count desc | slot-0 metadata + set-summary blob only; no row groups (`proj/ProjectionIndexCatalog.java:356-400`) | normal group route |
-| groupDense | `denseGlobalGroupAggregate` (`SVE:19334`) | ordered group-by over one STRING_GLOBAL key | one id-indexed table ≤ `sirix.projection.groupDense.maxBytes` (default 1 GiB), with rounded table, zero-slot and worker-accumulator allocations fitting the scan's available aggregation grant | hash-partitioned table |
+| groupDense | `denseGlobalGroupAggregate` (`SVE:19334`) | ordered group-by over one STRING_GLOBAL key | one id-indexed table bounded by the dense-table limit ([A.5](#a5-query-serving)) and the scan's available aggregation grant, including rounded table, zero-slot and worker-accumulator allocations | hash-partitioned table |
 | sortedScans | `markSortedScanServed` (`SVE:20706`) | `for … [where] order by $r.f … return $r \| $r.f` (optionally top-K) | projection sort columns, then record pages of the winners | generic |
 | sortedGroupBys | `trySortedGroupTopK` (`SVE:17688`) | grouped min/max/span top-K ≤ 32 with equality predicates | sorted directory, leaf bounds, group summaries (§6.1); no row groups | rest of the group route |
 | predicateScans | `markPredicateScanServed` (`SVE:20724`) | `for … where p return $r \| $r.f`, conjunctive, ≤ `sirix.predScan.maxMatches` (100 000) | column slices → record keys → record pages | generic |
@@ -1384,10 +1384,10 @@ that other entry points silently ignore it (`kit/README.md:245-256`).
 | HOT complete leaves, raw fragments, resolved-slot mini pages and verified sorted payloads | committed page/slot identity → retained view or copied payload | [Residency and budgets](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | guarded clock caches; byte-bounded sets for private payloads and immutable validated descriptors | see owner |
 | page (metadata pages) | `PageReference` → `Page` | **50 000 entries** (the byte budget passed in is ignored) | Caffeine size | `sirix.cache.page.max.entries` |
 | revision root | (db, resource, revision) → `RevisionRootPage` | 20 000 entries | Caffeine | `sirix.cache.revisionRoot.max.entries` |
-| HOT lookup | `HOTLookupKey` → node keys | 1 024..65 536 entries, budget-derived | set-associative | `sirix.hotLookupCache.maxEntries` |
-| global verdicts / segment verdicts / dictionary records | … → bitsets, byte tables, records | 64 / 128 / 256 MiB | Caffeine weight | `sirix.projection.globalDict.verdictCacheBytes`, `sirix.projection.segmentDict.verdictCacheBytes`, `sirix.projection.globalDict.recordCacheBytes` |
+| HOT lookup | `HOTLookupKey` → node keys | [Budget and heap-share bounded](HOT_INDEX_SPECIFICATION.md#61-behaviour) | set-associative | `sirix.hotLookupCache.maxEntries` |
+| global verdicts / segment verdicts / dictionary records | … → bitsets, byte tables, records | [Heap-envelope shares](DERIVED_QUERY_CACHES.md#heap-envelope) | Caffeine weight | see owner |
 | revision file data | (resource, revision) → offset, timestamp, hash | 1 000 000 entries | Caffeine | `sirix.revision.file.data.cache.size` |
-| projection handles | (resource, defId, build revision) → decoded handle | 8 GiB weight | Caffeine | `sirix.projection.cacheBytes` |
+| projection handles | (resource, defId, build revision) → decoded handle | [Projection share of the heap envelope](DERIVED_QUERY_CACHES.md#heap-envelope) | Caffeine | `sirix.projection.cacheBytes` |
 
 Cites: `core/access/Databases.java:504-620`; `cache/BufferManagerImpl.java:83-139`, `:211-344`, `:463-520`;
 `cache/ShardedPageCache.java:27-51`, `:709-742`, `:1187-1259`; `cache/ClockSweeper.java:43-62`, `:134-250`;
@@ -2031,7 +2031,7 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 | `sirix.projection.serving.disabled` | F | disable all projection serving | `SVE:9206` |
 | `sirix.projection.prefetchAll` | false | whole-projection background hint sweep on first resolve | `SVE:9195-9203` |
 | `sirix.projection.groupSliced` | true | sliced group routes | `SVE:3026-3027` |
-| `sirix.projection.groupDense` / `.maxBytes` | true / min(1 GiB, maxHeap/8) | dense STRING_GLOBAL group arm | `SVE:19365-19377` |
+| `sirix.projection.groupDense` / `.maxBytes` | true / 1 GiB | dense STRING_GLOBAL group arm, additionally bounded by the scan's aggregation grant | `SirixVectorizedExecutor.groupDenseEnabled`, `groupDenseMaxBytes` |
 | `sirix.projection.dictCount` | true | set-membership counts from metadata and dictionaries | `SVE:8043` |
 | `sirix.projection.constantBucketSlices` | T | div/mod count keys from bucketed columns and proofs | `SVE:16082-16089` |
 | `sirix.projection.reuseWorkerProofCache` / `reuseGroupPredicateSlices` | true / true | reuse per worker / per query | `SVE:16216-16217`, `:3190` |

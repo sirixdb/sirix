@@ -416,9 +416,9 @@ public enum PageKind {
       }
     }
 
-    /**
-     * Decode one record page inside its thread's {@link BodyScratch}: whatever the decode borrows to
-     * stage the body goes back to the allocator when it returns or throws.
+    /*
+     * Decode one record page inside its thread's BodyScratch: whatever the decode borrows to stage the
+     * body goes back to the allocator when it returns or throws.
      */
     private Page deserializeSlottedPage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final boolean chunkedBody, final boolean hasOverflowSlotSidecar, final boolean lazyChunks) {
