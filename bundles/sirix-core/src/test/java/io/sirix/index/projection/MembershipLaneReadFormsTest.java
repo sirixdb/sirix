@@ -20,24 +20,15 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link ProjectionRecordKeySet#filterMembership} answers identically whichever way it reads its
- * value lane, and it has three ways. A leaf with a candidate in more than one row in eight stages
- * its whole lane with one counted copy; otherwise the choice is per selection word, gathering the
- * word's 64 values into a reused 512-byte window above the crossover
- * {@link ProjectionVectorKernels#FOLD_WALK_MAX_BITS} and reading the lane in place per candidate
- * row below it. Choosing on speed alone is legitimate only while the three agree row for row, on
- * native slab lanes and on the heap-array lanes an unconverted producer still hands out — which is
- * what this test pins.
+ * {@link ProjectionRecordKeySet#filterMembership} reads each selected, present value in place, with
+ * one checked lane read per candidate row. This test asserts the single read form's counter,
+ * {@link ProjectionRecordKeySet#membershipInPlaceWords()}.
  *
  * <p>
- * Every mask is checked against an INDEPENDENT oracle computed here from the fixture's own values
- * and presence, not only against another form, so a defect shared by two of them still fails. Which
- * form runs is steered by the candidate density alone, the only thing the dispatch looks at, and
- * the four leaves of one pass cover all three plus the no-read case: leaf 0 stages, leaf 1 mixes
- * gathered and in-place words inside one leaf, leaf 2 reads every word in place, leaf 3 has no
- * candidate at all. {@link ProjectionRecordKeySet#membershipStagedLeaves()} and its two siblings
- * are asserted, so a fixture that silently stopped reaching its form fails rather than passing
- * vacuously.
+ * Every mask is checked against an independent oracle computed from the fixture's own values,
+ * presence and selection, on native slab lanes and heap-array lanes. The four leaves have different
+ * candidate densities, including one with no candidate. Both membership and anti-membership are
+ * checked with populated and empty membership sets.
  * </p>
  */
 final class MembershipLaneReadFormsTest {
