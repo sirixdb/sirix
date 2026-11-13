@@ -248,9 +248,6 @@ final class ProjectionAlpEncoding {
   }
 
   /**
-   * {@link #decode} into a caller-owned array of length {@code rowCount}; every cell is overwritten.
-   */
-  /**
    * {@link #decodeInto(ProjectionIndexRowGroupCodec.Cursor, int, long[])} into a segment at
    * {@code outBase}.
    */
@@ -281,6 +278,9 @@ final class ProjectionAlpEncoding {
     }
   }
 
+  /**
+   * {@link #decode} into a caller-owned array of length {@code rowCount}; every cell is overwritten.
+   */
   static void decodeInto(final ProjectionIndexRowGroupCodec.Cursor in, final int rowCount, final long[] cells) {
     final int e = in.readByte() & 0xFF;
     final int f = in.readByte() & 0xFF;

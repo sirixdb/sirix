@@ -547,10 +547,10 @@ public final class GroupTableSpill {
     if (strideLanes <= 0) {
       throw new IllegalArgumentException("strideLanes must be positive: " + strideLanes);
     }
-    final long densePeak = ((long) strideLanes + 3L) * CAPACITY_SLACK;
+    final long densePeak = (strideLanes + 3L) * CAPACITY_SLACK;
     // At a 3/4-load rehash the old and doubled interleaved tables hold four stripes per
     // live group; a still-live source stripe buffer adds one more during compaction.
-    final long interleavedPeak = (long) strideLanes * (stripeSpillEnabled()
+    final long interleavedPeak = strideLanes * (stripeSpillEnabled()
         ? 5L
         : 4L);
     return (denseIndexEnabled(strideLanes)

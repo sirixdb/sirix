@@ -173,8 +173,8 @@ final class GroupRecordResolutionTest {
       assertEquals(missingRecord, missing.accumulator(0, COLUMNS, 4), "the same footprint is the same record");
       if (GroupKernelLanes.DEBUG) {
         // A debug record names its footprint, not only where it starts.
-        assertNotEquals(missingRecord, missing.record(0, 2));
-        final long twoLaneRecord = missing.record(0, 2);
+        assertNotEquals(missingRecord, missing.recordAt(0, 2));
+        final long twoLaneRecord = missing.recordAt(0, 2);
         assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.get(twoLaneRecord, 2));
       }
       for (int row = 0; row < 100_000; row++) {

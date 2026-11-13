@@ -29,7 +29,7 @@ final class GroupRecordBoundaryTest {
           // The table's own resolution names the same accumulator.
           assertEquals(17L, GroupKernelLanes.get(table.accumulatorAt(first, columns, 4), 0));
           // The complete stripe: key lane first, identity lanes last.
-          final long stripe = chunk.record(base - 1, table.stride());
+          final long stripe = chunk.recordAt(base - 1, table.stride());
           assertEquals(7L, GroupKernelLanes.get(stripe, 0));
           assertEquals(12L, GroupKernelLanes.get(stripe, table.stride() - 1));
           assertThrows(IndexOutOfBoundsException.class, () -> chunk.accumulator(base, columns + 1, 4));
@@ -93,10 +93,10 @@ final class GroupRecordBoundaryTest {
       final GroupBuffer buffer = workspace.newBlock(26);
       for (final int[] range : new int[][] {{-1, 1}, {0, -1}, {0, Integer.MAX_VALUE}, {Integer.MAX_VALUE, 1}, {20, 7},
           {27, 0}}) {
-        assertThrows(IndexOutOfBoundsException.class, () -> buffer.record(range[0], range[1]));
+        assertThrows(IndexOutOfBoundsException.class, () -> buffer.recordAt(range[0], range[1]));
       }
       assertThrows(IllegalArgumentException.class, () -> buffer.accumulator(0, Integer.MAX_VALUE, 4));
-      final long upperRecord = buffer.record(13, 13);
+      final long upperRecord = buffer.recordAt(13, 13);
       GroupKernelLanes.set(upperRecord, 12, 77L);
       assertEquals(77L, GroupLanes.get(buffer, 25), "a record's lanes are relative to its first");
       if (GroupKernelLanes.DEBUG) {
@@ -111,7 +111,7 @@ final class GroupRecordBoundaryTest {
   void reuseAndClosureInvalidateEveryOldView() {
     try (GroupWorkspace workspace = new GroupWorkspace(); GroupWorkspace other = new GroupWorkspace()) {
       final GroupBuffer original = workspace.takeChunk(128);
-      final long originalRecord = original.record(13, 13);
+      final long originalRecord = original.recordAt(13, 13);
       assertThrows(IllegalArgumentException.class, () -> other.giveChunk(original));
       workspace.giveChunk(original);
       assertThrows(IllegalStateException.class, () -> workspace.giveChunk(original));
@@ -120,7 +120,7 @@ final class GroupRecordBoundaryTest {
       assertNotEquals(original.generation, reused.generation);
       GroupLanes.set(reused, 13, 19L);
       assertThrows(IllegalStateException.class, () -> GroupLanes.get(original, 13));
-      assertThrows(IllegalStateException.class, () -> original.record(13, 13), "nor can it be resolved again");
+      assertThrows(IllegalStateException.class, () -> original.recordAt(13, 13), "nor can it be resolved again");
       if (GroupKernelLanes.DEBUG) {
         // The record names the generation it was resolved from, not the memory the next table took.
         assertThrows(IllegalStateException.class, () -> GroupKernelLanes.set(originalRecord, 0, 99L));

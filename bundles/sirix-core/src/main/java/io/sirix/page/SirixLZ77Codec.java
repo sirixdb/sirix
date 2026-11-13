@@ -618,7 +618,7 @@ public final class SirixLZ77Codec {
     } else {
       // Rare slow path: caller-provided segment has no tail slack. Use borrowed
       // scratch (oversized for wildCopy overshoot) + single bulk copy at the end.
-      final ScratchLease lease = DECODE_LEASE.get().acquire((long) uncompressed + 16L, ScratchUse.CODEC);
+      final ScratchLease lease = DECODE_LEASE.get().acquire(uncompressed + 16L, ScratchUse.CODEC);
       try {
         final MemorySegment scratch = lease.segment();
         produced = decodeCore(input, inPos, inEnd, scratch, 0L, uncompressed);

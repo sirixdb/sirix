@@ -600,7 +600,7 @@ public final class NumericGroupAggTable {
     if (stride < 3) {
       throw new IllegalArgumentException("dense indexing needs a stripe of at least three lanes");
     }
-    probeIndex = new GroupBuffer[(int) (((long) mask + 1L + PROBE_CHUNK_MASK) >>> PROBE_CHUNK_SHIFT)];
+    probeIndex = new GroupBuffer[(int) ((mask + 1L + PROBE_CHUNK_MASK) >>> PROBE_CHUNK_SHIFT)];
     probeAddress = new long[probeIndex.length];
     return this;
   }
@@ -1358,28 +1358,28 @@ public final class NumericGroupAggTable {
     }
     // The complete stripe is validated against its chunk before the first store. The aux lane keeps
     // the zero the chunk was handed out with.
-    final long record = chunk.record((bucket & chunkBucketMask) * st, st);
-    GroupKernelLanes.set(record, 0, key);
-    GroupKernelLanes.set(record, 1, 0L);
-    GroupKernelLanes.set(record, 2, firstSeenOrdinal);
+    final long groupRecord = chunk.recordAt((bucket & chunkBucketMask) * st, st);
+    GroupKernelLanes.set(groupRecord, 0, key);
+    GroupKernelLanes.set(groupRecord, 1, 0L);
+    GroupKernelLanes.set(groupRecord, 2, firstSeenOrdinal);
     final int end = 1 + slotWidth;
     if (sumsOnly) {
       for (int lane = 3; lane < end; lane++) {
-        GroupKernelLanes.set(record, lane, 0L);
+        GroupKernelLanes.set(groupRecord, lane, 0L);
       }
     } else {
       for (int lane = 3; lane < end; lane += 4) {
-        GroupKernelLanes.set(record, lane, 0L);
-        GroupKernelLanes.set(record, lane + 1, 0L);
-        GroupKernelLanes.set(record, lane + 2, Long.MAX_VALUE);
-        GroupKernelLanes.set(record, lane + 3, Long.MIN_VALUE);
+        GroupKernelLanes.set(groupRecord, lane, 0L);
+        GroupKernelLanes.set(groupRecord, lane + 1, 0L);
+        GroupKernelLanes.set(groupRecord, lane + 2, Long.MAX_VALUE);
+        GroupKernelLanes.set(groupRecord, lane + 3, Long.MIN_VALUE);
       }
     }
     final int idOff = 1 + idOffsetFromAcc;
     final int width = idWidth;
     if (identity != null) {
       for (int i = 0; i < width; i++) {
-        GroupKernelLanes.set(record, idOff + i, identity[identityOffset + i]);
+        GroupKernelLanes.set(groupRecord, idOff + i, identity[identityOffset + i]);
       }
     }
     Reference.reachabilityFence(chunk);
@@ -1430,27 +1430,27 @@ public final class NumericGroupAggTable {
    */
   private void initStripe(final GroupBuffer chunk, final int off, final long key, final long firstSeenOrdinal,
       final long @Nullable [] identity, final int identityOffset) {
-    final long record = chunk.record(off, stride);
-    GroupKernelLanes.set(record, 0, key);
-    GroupKernelLanes.set(record, 1, 0L);
-    GroupKernelLanes.set(record, 2, firstSeenOrdinal);
+    final long groupRecord = chunk.recordAt(off, stride);
+    GroupKernelLanes.set(groupRecord, 0, key);
+    GroupKernelLanes.set(groupRecord, 1, 0L);
+    GroupKernelLanes.set(groupRecord, 2, firstSeenOrdinal);
     final int end = 1 + slotWidth;
     if (sumsOnly) {
       for (int lane = 3; lane < end; lane++) {
-        GroupKernelLanes.set(record, lane, 0L);
+        GroupKernelLanes.set(groupRecord, lane, 0L);
       }
     } else {
       for (int lane = 3; lane < end; lane += 4) {
-        GroupKernelLanes.set(record, lane, 0L);
-        GroupKernelLanes.set(record, lane + 1, 0L);
-        GroupKernelLanes.set(record, lane + 2, Long.MAX_VALUE);
-        GroupKernelLanes.set(record, lane + 3, Long.MIN_VALUE);
+        GroupKernelLanes.set(groupRecord, lane, 0L);
+        GroupKernelLanes.set(groupRecord, lane + 1, 0L);
+        GroupKernelLanes.set(groupRecord, lane + 2, Long.MAX_VALUE);
+        GroupKernelLanes.set(groupRecord, lane + 3, Long.MIN_VALUE);
       }
     }
     if (identity != null) {
       final int first = 1 + idOffsetFromAcc;
       for (int i = 0; i < idWidth; i++) {
-        GroupKernelLanes.set(record, first + i, identity[identityOffset + i]);
+        GroupKernelLanes.set(groupRecord, first + i, identity[identityOffset + i]);
       }
     }
     Reference.reachabilityFence(chunk);
@@ -1836,7 +1836,7 @@ public final class NumericGroupAggTable {
         }
         final int oldLanes = GroupLanes.count(oldChunk);
         // The whole chunk is one record for the walk: resolved once, not once per bucket.
-        final long from = oldChunk.record(0, oldLanes);
+        final long from = oldChunk.recordAt(0, oldLanes);
         for (int o = 0; o < oldLanes; o += st) {
           final long key = GroupKernelLanes.get(from, o);
           if (key == 0L) {
@@ -1897,7 +1897,7 @@ public final class NumericGroupAggTable {
       GroupLanes.copy(source, first, target, to, lanes);
       return;
     }
-    GroupKernelLanes.copy(from, first, target.record(to, lanes), lanes);
+    GroupKernelLanes.copy(from, first, target.recordAt(to, lanes), lanes);
     Reference.reachabilityFence(source);
     Reference.reachabilityFence(target);
   }
@@ -2012,7 +2012,7 @@ public final class NumericGroupAggTable {
   @SuppressWarnings({"java:S3358", "java:S9435"})
   private void mergeStripe(final GroupBuffer source, final int stripe, final boolean denseUnfiltered) {
     // The complete source stripe, validated once: key, accumulator, aux and identity.
-    final long from = source.record(stripe, stride);
+    final long from = source.recordAt(stripe, stride);
     final long key = GroupKernelLanes.get(from, 0);
     final long firstSeen = GroupKernelLanes.get(from, 2);
     final int handle = denseUnfiltered
@@ -2025,7 +2025,7 @@ public final class NumericGroupAggTable {
     // AFTER the acquire: growth swaps the storage out from under any earlier resolution.
     final GroupBuffer chunk = storageAtAccBase(handle);
     final int width = slotWidth;
-    final long into = chunk.record(offsetAtAccBase(handle), withAux
+    final long into = chunk.recordAt(offsetAtAccBase(handle), withAux
         ? width + 1
         : width);
     if (withAux && GroupKernelLanes.get(into, 0) == 0L) {
@@ -2142,7 +2142,7 @@ public final class NumericGroupAggTable {
     if (fresh && src.withAux) {
       into.zeroAux = src.zeroAux;
     }
-    mergeBlock(dst.record(0, slotWidth), 0, srcZero.record(0, slotWidth), 0, slotWidth, into.sumExactMask,
+    mergeBlock(dst.recordAt(0, slotWidth), 0, srcZero.recordAt(0, slotWidth), 0, slotWidth, into.sumExactMask,
         into.sumsOnly);
     Reference.reachabilityFence(dst);
     Reference.reachabilityFence(srcZero);

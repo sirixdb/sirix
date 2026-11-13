@@ -2667,17 +2667,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
   // compiler inlines on that path.
   @SuppressWarnings("java:S3776")
-  private void installCanonicalOverflowCarrier(final DataRecord record, final byte[] recordBytes, final int slotNumber,
-      final byte[] deweyIdBytes, final MemorySegment scratch) {
-    if (record == null) {
+  private void installCanonicalOverflowCarrier(final DataRecord dataRecord, final byte[] recordBytes,
+      final int slotNumber, final byte[] deweyIdBytes, final MemorySegment scratch) {
+    if (dataRecord == null) {
       throw new NullPointerException("record");
     }
     if (recordBytes == null) {
       throw new NullPointerException("recordBytes");
     }
-    if (isCompressedStringRecord(record)) {
+    if (isCompressedStringRecord(dataRecord)) {
       throw new IllegalStateException(
-          "Overflow carrier must be canonical raw before installation: " + record.getNodeKey());
+          "Overflow carrier must be canonical raw before installation: " + dataRecord.getNodeKey());
     }
     checkSideSlotNumber(slotNumber);
     final int deweyIdLength = deweyIdBytes == null
@@ -2693,17 +2693,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final PageReference replacementReference = new PageReference();
     replacementReference.setPage(new OverflowPage(recordBytes));
 
-    final int kindId = ((NodeKind) record.getKind()).getId();
+    final int kindId = ((NodeKind) dataRecord.getKind()).getId();
     long sideToken = 0L;
     int inlineDescriptorBytes = 0;
 
-    if (record instanceof FlyweightNode flyweight && isFusedAnyObjectNamedKindId(kindId)) {
+    if (dataRecord instanceof FlyweightNode flyweight && isFusedAnyObjectNamedKindId(kindId)) {
       final int fullImageBytes = tryBuildCompleteSideImage(flyweight, scratch, deweyIdBytes);
       if (fullImageBytes >= 0) {
         // A record that is intrinsically inline-sized but hit the page-frame capacity ceiling keeps
         // its complete canonical flyweight image. Projection/name scans therefore lose nothing.
         sideToken = prepareSideSlot(kindId, scratch, fullImageBytes);
-      } else if (record instanceof ObjectNamedStringNode fusedStringNode) {
+      } else if (dataRecord instanceof ObjectNamedStringNode fusedStringNode) {
         // The string value itself is intrinsically large. Its fixed scan metadata remains sufficient;
         // value readers deliberately resolve the same-key OverflowPage.
         final int descriptorBytes = fusedStringNode.serializeOverflowDescriptorToHeap(scratch, 0L);
@@ -2715,7 +2715,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           MemorySegment.copy(scratch, 0L, slottedPage, descriptorOffset, descriptorBytes);
           inlineDescriptorBytes = descriptorBytes;
         }
-      } else if (record instanceof ObjectNamedNumberNode fusedNumberNode) {
+      } else if (dataRecord instanceof ObjectNamedNumberNode fusedNumberNode) {
         // Arbitrary-precision numeric payloads can themselves exceed 512 bytes. Keep their complete
         // scan metadata and the reserved unknown-value marker; scalar accessors decline that marker
         // and point reads resolve the authoritative same-key OverflowPage.
@@ -2730,7 +2730,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         }
       } else {
         throw new IllegalArgumentException("Fused overflow record has no bounded metadata carrier: kind=" + kindId
-            + ", nodeKey=" + record.getNodeKey());
+            + ", nodeKey=" + dataRecord.getNodeKey());
       }
     } else if (areDeweyIDsStored) {
       // Generic/non-fused records are read from their OverflowPage. Only their Dewey metadata needs
@@ -2752,7 +2752,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       removeSideSlot(slotNumber);
       clearInlineSlotForOverflow(slotNumber);
       if (inlineDescriptorBytes > 0) {
-        completeDirectWrite(kindId, record.getNodeKey(), slotNumber, inlineDescriptorBytes, deweyIdBytes);
+        completeDirectWrite(kindId, dataRecord.getNodeKey(), slotNumber, inlineDescriptorBytes, deweyIdBytes);
       }
     }
   }

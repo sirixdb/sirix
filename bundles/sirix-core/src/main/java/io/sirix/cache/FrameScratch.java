@@ -401,7 +401,7 @@ final class FrameScratch extends ScratchSource {
   private @Nullable ScratchCarrier mapRegion(final int capacityClass, final long bytes, final long minBytes,
       final boolean mandatory, final @Nullable AggregationGrant grant) {
     regionBytes.addAndGet(bytes);
-    boolean created = false;
+    boolean mapped = false;
     try {
       if (allocator.isTerminated()) {
         throw new IllegalStateException("FrameSlotAllocator has been shut down");
@@ -433,7 +433,7 @@ final class FrameScratch extends ScratchSource {
         if (small(carrier)) {
           allocator.adjustActiveBytes(bytes);
         }
-        created = true;
+        mapped = true;
         return carrier;
       } catch (final RuntimeException | Error failure) {
         if (region != null) {
@@ -447,7 +447,7 @@ final class FrameScratch extends ScratchSource {
         throw failure;
       }
     } finally {
-      if (!created) {
+      if (!mapped) {
         regionBytes.addAndGet(-bytes);
       }
     }

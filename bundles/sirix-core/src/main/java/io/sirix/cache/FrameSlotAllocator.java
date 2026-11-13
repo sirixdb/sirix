@@ -1157,7 +1157,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     final boolean committed;
     try {
-      committed = VM.commitFresh(c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize));
+      committed = VM.commitFresh(c.region.asSlice(slotIdx * c.slotSize, c.slotSize));
     } catch (final RuntimeException | Error failure) {
       refundCommittedBytes(c.slotSize);
       throw failure;
@@ -1786,8 +1786,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // deterministically. The version is already odd ("writer in progress"), so a
     // racing optimistic reader retries rather than observing the half-wiped slot.
     if (poisonOnRelease) {
-      final long end = (long) (slotIdx + 1) * c.slotSize;
-      for (long offset = (long) slotIdx * c.slotSize; offset < end; offset += Long.BYTES) {
+      final long end = (slotIdx + 1) * c.slotSize;
+      for (long offset = slotIdx * c.slotSize; offset < end; offset += Long.BYTES) {
         c.region.set(ValueLayout.JAVA_LONG, offset, 0L);
       }
     }

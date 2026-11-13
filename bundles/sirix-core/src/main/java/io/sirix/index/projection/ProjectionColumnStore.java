@@ -1827,8 +1827,11 @@ public final class ProjectionColumnStore {
     return built;
   }
 
+  /** The system property that switches the projection diagnostics on. */
+  private static final String PROJ_DIAG_PROPERTY = "sirix.projDiag";
+
   /** Diagnostics of the memo passes ({@code -Dsirix.projDiag}), read once. */
-  private static final boolean MEMO_DIAG = Boolean.getBoolean("sirix.projDiag");
+  private static final boolean MEMO_DIAG = Boolean.getBoolean(PROJ_DIAG_PROPERTY);
 
   /** Below this many leaves a memo pass stays serial: the fan-out's fixed cost exceeds the work. */
   private static final int MEMO_PASS_MIN = 4096;
@@ -2752,7 +2755,7 @@ public final class ProjectionColumnStore {
     }
     RESIDENCY_EVICTIONS.add(evictions);
     RESIDENCY_EVICTED_BYTES.add(freed);
-    if (Boolean.getBoolean("sirix.projDiag")) {
+    if (Boolean.getBoolean(PROJ_DIAG_PROPERTY)) {
       System.err.println("[proj] residency evict: " + evictions + " lane(s), " + (freed >> 20)
           + " MB returned to admit a " + (needed >> 20) + " MB fill; retained " + (retainedFillBytes.get() >> 20)
           + " MB of a " + (budget >> 20) + " MB budget");
@@ -3030,7 +3033,7 @@ public final class ProjectionColumnStore {
   private void noteResidencyRelease(final long freed, final int releases, final long budget) {
     RESIDENCY_RELEASED_BYTES.add(freed);
     RESIDENCY_RELEASES.add(releases);
-    if (Boolean.getBoolean("sirix.projDiag")) {
+    if (Boolean.getBoolean(PROJ_DIAG_PROPERTY)) {
       System.err.println("[proj] residency release: " + releases + " column(s), " + (freed >> 20)
           + " MB returned, retained " + (retainedFillBytes.get() >> 20) + " MB of a " + (budget >> 20) + " MB budget");
     }
@@ -3267,7 +3270,7 @@ public final class ProjectionColumnStore {
     }
     long needed = additionalBytes;
     final boolean[] counted = new boolean[columnKinds.length];
-    final StringBuilder diag = Boolean.getBoolean("sirix.projDiag")
+    final StringBuilder diag = Boolean.getBoolean(PROJ_DIAG_PROPERTY)
         ? new StringBuilder()
         : null;
     boolean keysPriced = false;
@@ -3403,7 +3406,7 @@ public final class ProjectionColumnStore {
   // compiler inlines on that path.
   @SuppressWarnings({"java:S1181", "java:S3776"})
   private ColumnSlice @Nullable [] fillIdentityColumn(final int col, final ColumnSegmentFetcher fetcher) {
-    final boolean diag = Boolean.getBoolean("sirix.projDiag");
+    final boolean diag = Boolean.getBoolean(PROJ_DIAG_PROPERTY);
     final long startNanos = diag
         ? System.nanoTime()
         : 0L;
@@ -4906,7 +4909,7 @@ public final class ProjectionColumnStore {
       // its own slots and retains the backend's ordinary batch/coalesced read behavior.
       return;
     }
-    final boolean diag = Boolean.getBoolean("sirix.projDiag");
+    final boolean diag = Boolean.getBoolean(PROJ_DIAG_PROPERTY);
     final long startNanos = diag
         ? System.nanoTime()
         : 0L;

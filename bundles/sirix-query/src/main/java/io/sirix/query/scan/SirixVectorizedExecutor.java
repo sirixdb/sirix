@@ -610,9 +610,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private final String projectionRegistryKey;
 
+  /** The value of a system property that switches a path off. */
+  private static final String FALSE = "false";
+
+  /** Why a grouped scan declines when its aggregation allowance is below the smallest working set. */
+  private static final String ALLOWANCE_TOO_SMALL = "aggregation allowance cannot hold the minimum grouped working set";
+
+  /** Labels shared by the grouped-scan diagnostic lines ({@code -Dsirix.projDiag}). */
+  private static final String DIAG_RANGE = " range=[";
+  private static final String DIAG_SPILLED = ") spilled=";
+  private static final String DIAG_ABANDONED = " abandoned=";
+  private static final String DIAG_ESTIMATED = " estimated=";
+  private static final String DIAG_BUDGET = " budget=";
+  private static final String DIAG_COMPLETED_SEED = " completedSeed=";
+
   /** Kill switch to bypass the PAX fast path for regression bisection. */
   private static final boolean PAX_FAST_PATH_ENABLED =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.pax.scan", "true"));
+      !FALSE.equalsIgnoreCase(System.getProperty("sirix.pax.scan", "true"));
 
   /**
    * Toggle the column-batched generic-predicate evaluator. When {@code true} (default),
@@ -623,7 +637,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * {@code -Dsirix.vec.batchGenericEval=false} for A/B regression bisection.
    */
   private static final boolean BATCH_GENERIC_EVAL_ENABLED =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.vec.batchGenericEval", "true"));
+      !FALSE.equalsIgnoreCase(System.getProperty("sirix.vec.batchGenericEval", "true"));
 
   /**
    * Toggle per-predicate JIT-style class generation via {@link java.lang.classfile}. When
@@ -634,7 +648,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Use {@code -Dsirix.vec.compiledPredicate=false} for A/B bisection.
    */
   private static final boolean COMPILED_PREDICATE_ENABLED =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.vec.compiledPredicate", "true"))
+      !FALSE.equalsIgnoreCase(System.getProperty("sirix.vec.compiledPredicate", "true"))
           // Runtime class definition (MethodHandles.Lookup.defineHiddenClass) is
           // unavailable in a GraalVM native image — every compileToClass attempt
           // throws UnsupportedFeatureError and falls back to the interpreter. Default
@@ -665,7 +679,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * bisection.
    */
   private static final boolean DIRECT_SLOT_COLUMNS_ENABLED =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.vec.directSlotColumns", "true"));
+      !FALSE.equalsIgnoreCase(System.getProperty("sirix.vec.directSlotColumns", "true"));
 
   /** Monotonic counter for generated-class name uniqueness (aids in debugger symbol tables). */
   private static final AtomicInteger COMPILED_PREDICATE_SEQ = new AtomicInteger();
@@ -689,7 +703,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * measurement plan.
    */
   private static final boolean RANGE_FUSION_ENABLED =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.projection.rangeFusion", "true"));
+      !FALSE.equalsIgnoreCase(System.getProperty("sirix.projection.rangeFusion", "true"));
 
   /**
    * Per-query scan counters — attributes where the hot loop spent its pages and records. Only
@@ -846,7 +860,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Behind the master switch, because it serves only {@code COLUMN_KIND_STRING_GLOBAL} columns.
    */
   private static final boolean GLOBAL_DICT_WARMUP = Boolean.getBoolean("sirix.projection.globalDict.rank")
-      && !"false".equalsIgnoreCase(System.getProperty("sirix.projection.globalDict.warmup", "true"));
+      && !FALSE.equalsIgnoreCase(System.getProperty("sirix.projection.globalDict.warmup", "true"));
 
   /**
    * Decoded bytes one dictionary may warm. Deliberately below the record cache's own weight bound so
@@ -1410,7 +1424,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           // headroom share, in a fit door, or when its handle leaves the catalog — knowing that no
           // query reads it. Nested and concurrent calls share the scope: the counter, not the
           // object, decides when the last one has left. Whether the headroom share LOWERS what a
-          // store retains is a separate switch (ProjectionColumnStore.residencyHeadroomEnabled()).
+          // store retains is a separate switch, the residency headroom flag of the column store.
           residencyScope = ProjectionResidencyScope.open();
         }
         activeCalls++;
@@ -3054,17 +3068,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * All predicate columns servable from slices: numeric compare/BETWEEN, boolean equality, and string
-   * equality — the string leaf reads two segments per leaf (BODY dict-ids + DICT entries) instead of
-   * hydrating whole leaves, which used to be the one predicate kind that forced the whole-leaf byte
-   * scan.
-   */
-  /**
    * Escape hatch for A/B timing: {@code -Dsirix.projection.groupSliced=false} forces the whole-leaf
    * group route in the same build.
    */
-  private static final boolean GROUP_SLICED_ENABLED =
-      !"false".equals(System.getProperty("sirix.projection.groupSliced"));
+  private static final boolean GROUP_SLICED_ENABLED = !FALSE.equals(System.getProperty("sirix.projection.groupSliced"));
 
   /**
    * Sliced serves per handle before HOT promotion (materialize once, byte kernels take over). Above
@@ -3256,7 +3263,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final ProjectionColumnStore.ColumnSlice[][] predCols,
       final ProjectionIndexScan.@Nullable PredicateTree tree,
       final ProjectionColumnStore.ColumnSlice @Nullable [][] treeCols) {
-    if (!"false".equals(System.getProperty("sirix.projection.reuseGroupPredicateSlices"))) {
+    if (!FALSE.equals(System.getProperty("sirix.projection.reuseGroupPredicateSlices"))) {
       // The tree is the complete WHERE when present. A separate conjunctive mask may not be used
       // to narrow an OR branch, so consult only the shape the kernel actually evaluates.
       final ProjectionIndexScan.ColumnPredicate[] leaves = tree == null
@@ -3316,6 +3323,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return false;
   }
 
+  /**
+   * All predicate columns servable from slices: numeric compare/BETWEEN, boolean equality, and string
+   * equality — the string leaf reads two segments per leaf (BODY dict-ids + DICT entries) instead of
+   * hydrating whole leaves, which used to be the one predicate kind that forced the whole-leaf byte
+   * scan.
+   */
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
@@ -7485,7 +7498,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Enable with {@code -Dsirix.projection.denseGroupBy=true}.
    */
   private static final boolean DENSE_GROUPBY_ENABLED =
-      Boolean.parseBoolean(System.getProperty("sirix.projection.denseGroupBy", "false"));
+      Boolean.parseBoolean(System.getProperty("sirix.projection.denseGroupBy", FALSE));
 
   /**
    * Dense COMPOSITE group-by gate. Unlike the single-key case (where the hashmap path's one
@@ -7520,7 +7533,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * {@link #COUNT_DISTINCT_DICT_CARD_LIMIT}) and, beyond that, to the row-wise group count.
    */
   private static final boolean COUNT_DISTINCT_DICT_UNION =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.projection.countDistinct.dictUnion", "true"));
+      !FALSE.equalsIgnoreCase(System.getProperty("sirix.projection.countDistinct.dictUnion", "true"));
 
   /**
    * Partition sets of the shared 128-bit distinct set the dictionary-union workers fill together: a
@@ -7568,7 +7581,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * with one array increment and, unlike the dict arm, pays no per-leaf remap to get there.
    */
   private static volatile boolean NUMERIC_DENSE_GROUPBY_ENABLED =
-      !"false".equals(System.getProperty("sirix.projection.numericGroupBy.dense"));
+      !FALSE.equals(System.getProperty("sirix.projection.numericGroupBy.dense"));
 
   /**
    * Cell ceiling of the dense numeric accumulator, PER WORKER. Below ~65,536 cells (512 KB) the array
@@ -8123,7 +8136,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Whether a bare set-membership count may be answered from the dictionaries alone. On by default; a
    * switch so the two routes can be INTERLEAVED in one build rather than compared across corpora.
    */
-  private static final boolean DICT_COUNT_ENABLED = !"false".equals(System.getProperty("sirix.projection.dictCount"));
+  private static final boolean DICT_COUNT_ENABLED = !FALSE.equals(System.getProperty("sirix.projection.dictCount"));
 
   /**
    * Predicate counts answered from a PROJECTION INDEX rather than from storage.
@@ -9307,7 +9320,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * whose later queries will touch most columns anyway.
    */
   private static final boolean PREFETCH_ALL_SEGMENTS =
-      Boolean.parseBoolean(System.getProperty("sirix.projection.prefetchAll", "false"));
+      Boolean.parseBoolean(System.getProperty("sirix.projection.prefetchAll", FALSE));
 
   /** Emergency/A-B switch; normal production serving remains enabled. */
   private static final boolean PROJECTION_SERVING_ENABLED = !Boolean.getBoolean("sirix.projection.serving.disabled");
@@ -9523,7 +9536,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         kept++;
       }
     }
-    return rows >= (totalRows + 3L) / 4L && (long) kept * 4L >= (long) masks.length * 3L;
+    return rows >= (totalRows + 3L) / 4L && kept * 4L >= masks.length * 3L;
   }
 
   private static @Nullable String maskedColumnLayout(final ProjectionIndexRegistry.Handle handle,
@@ -12732,7 +12745,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * {@code -Dsirix.projection.countDistinct.numericParallel=false} runs the one-thread arms only.
    */
   private static final boolean NUMERIC_DISTINCT_PARALLEL =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.projection.countDistinct.numericParallel", "true"));
+      !FALSE.equalsIgnoreCase(System.getProperty("sirix.projection.countDistinct.numericParallel", "true"));
 
   /**
    * Present rows below which a numeric count-distinct stays on one thread: the fan-out costs more
@@ -14054,7 +14067,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         .append(pass + 1)
         .append('/')
         .append(passes)
-        .append(" range=[")
+        .append(DIAG_RANGE)
         .append(passLo)
         .append(',')
         .append(passHi)
@@ -14173,13 +14186,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
      * alone.
      */
     private static final boolean SEED_COMPLETED =
-        !"false".equalsIgnoreCase(System.getProperty("sirix.projection.groupPasses.seedCompleted", "true"));
+        !FALSE.equalsIgnoreCase(System.getProperty("sirix.projection.groupPasses.seedCompleted", "true"));
     /**
      * Kill switch: {@code -Dsirix.projection.groupPasses.refreshBudget=false} keeps the budget a plan
      * was made at for all of its restarts — see {@link #refreshBudget}.
      */
     private static final boolean REFRESH_BUDGET =
-        !"false".equalsIgnoreCase(System.getProperty("sirix.projection.groupPasses.refreshBudget", "true"));
+        !FALSE.equalsIgnoreCase(System.getProperty("sirix.projection.groupPasses.refreshBudget", "true"));
     private static final int COMPLETED_SEED_TOLERANCE_PCT = 10;
     private static final int COMPLETED_PASS_MARGIN_PCT = 5;
     private static final int COMPLETED_PASS_MARGIN_SIGMAS = 6;
@@ -14457,6 +14470,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
      * second abort of one execution at least twice as many, so an estimate that keeps falling short
      * cannot cost a scan per extra pass.
      */
+    // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+    // measuring rigs read them there.
+    @SuppressWarnings("java:S106")
     void restart(final GroupTableSpill spill, final int rowGroupCount) {
       final long estimated = spill.estimatedTotalGroups(rowGroupCount);
       handle.noteObservedGroups(fingerprint, estimated);
@@ -14479,8 +14495,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       seededCompleted = false;
       Arrays.fill(partitionGroups, 0L);
       if (PROJ_DIAG) {
-        System.err.println("[proj] groupAgg restart: passes=" + before + " -> " + passes + " estimated=" + estimated
-            + " budget=" + budget + " aborts=" + aborts);
+        System.err.println("[proj] groupAgg restart: passes=" + before + " -> " + passes + DIAG_ESTIMATED + estimated
+            + DIAG_BUDGET + budget + " aborts=" + aborts);
       }
     }
 
@@ -14490,13 +14506,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
 
     /** Every pass completed: the partition counts sum to this shape's exact cardinality. */
+    // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+    // measuring rigs read them there.
+    @SuppressWarnings("java:S106")
     void complete() {
       long total = 0L;
       for (final long groups : partitionGroups) {
         total += groups;
       }
       if (GROUP_PLAN_DIAG) {
-        System.err.println("[groupPlan] groups=" + total + " passes=" + passes + " budget=" + budget + " passBudget="
+        System.err.println("[groupPlan] groups=" + total + " passes=" + passes + DIAG_BUDGET + budget + " passBudget="
             + passBudget + " stride=" + strideLanes + " bounded=" + bounded + " aborts=" + aborts + (workspace == null
                 ? ""
                 : " grantBytes=" + workspace.grantedBytes() + " usedBytes=" + workspace.usedBytes() + " peakBytes="
@@ -15513,12 +15532,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
   // Sonar S107: the resolved plan of one grouped scan, passed as it is. An object around it would
   // only move the list into a constructor.
   // Sonar S2093: the buffer goes back to its workspace for reuse at the end, it is not closed.
   // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
   // changes the compiled loops, which are measured as they are.
-  @SuppressWarnings({"java:S107", "java:S2093", "java:S3776"})
+  @SuppressWarnings({"java:S106", "java:S107", "java:S2093", "java:S3776"})
   private @Nullable ServedGroups groupByAggregateInWorkspace(final GroupWorkspace workspace, final QueryContext ctx,
       final String[] sourcePath, final @Nullable PredicateNode predicateOrNull, final String[] groupFields,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
@@ -16864,7 +16885,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
                   && keyDivModEff != null && keyDivModEff[2 * k] > 0 && keyDivModEff[2 * k + 1] >= 0
                   && (keyCondCols == null || keyCondCols[2 * k] < 0 && keyCondCols[2 * k + 1] < 0)
                   && (keySubstrEff == null || keySubstrEff[2 * k] == 0 && keySubstrEff[2 * k + 1] == 0)
-                  && groupKeep == null && !"false".equals(System.getProperty("sirix.projection.constantBucketSlices"));
+                  && groupKeep == null && !FALSE.equals(System.getProperty("sirix.projection.constantBucketSlices"));
               if (bucketKey) {
                 long bytes = 0L;
                 for (int leaf = 0; leaf < groupStore.rowGroupCount(); leaf++) {
@@ -17039,7 +17060,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
               cdBlock < 0 && boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderOnKeyLane;
           final long groupBudget = plannedGroupBudget(workspace, eff, partitions, strideLanes, boundedBudget);
           if (groupBudget <= 0L) {
-            return declineGroupAgg("aggregation allowance cannot hold the minimum grouped working set");
+            return declineGroupAgg(ALLOWANCE_TOO_SMALL);
           }
           // Set when a key-ordered pass meets a ZERO group, which an identity-mode table cannot hold
           // (acquireZero refuses one) and whose side slot carries no identity lanes to order on.
@@ -17218,9 +17239,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             if (spill.aborted()) {
               noteAbandonedLocals(spill, tables);
               if (PROJ_DIAG) {
-                System.err.println("[proj] groupAgg pass aborted: passes=" + passes + " range=[" + passLo + "," + passHi
-                    + ") spilled=" + spill.groupsSpilled() + " abandoned=" + spill.groupsAbandoned() + " estimated="
-                    + spill.estimatedTotalGroups(rowGroupCount) + " budget=" + plan.passBudget() + " completedSeed="
+                System.err.println("[proj] groupAgg pass aborted: passes=" + passes + DIAG_RANGE + passLo + "," + passHi
+                    + DIAG_SPILLED + spill.groupsSpilled() + DIAG_ABANDONED + spill.groupsAbandoned() + DIAG_ESTIMATED
+                    + spill.estimatedTotalGroups(rowGroupCount) + DIAG_BUDGET + plan.passBudget() + DIAG_COMPLETED_SEED
                     + plan.seededCompleted() + " leaves=" + rowGroupCount);
               }
               if (passes >= partitionsF) {
@@ -17717,7 +17738,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             cdBlock < 0 && boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
         final long groupBudget = plannedGroupBudget(workspace, eff, partitions, strideLanes, boundedBudget);
         if (groupBudget <= 0L) {
-          return declineGroupAgg("aggregation allowance cannot hold the minimum grouped working set");
+          return declineGroupAgg(ALLOWANCE_TOO_SMALL);
         }
         final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
         long[] missingMergedFlatHeld = null;
@@ -17901,10 +17922,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           if (spill.aborted()) {
             noteAbandonedLocals(spill, tables);
             if (PROJ_DIAG) {
-              System.err.println("[proj] groupAgg pass aborted (string): passes=" + passes + " range=[" + passLo + ","
-                  + passHi + ") spilled=" + spill.groupsSpilled() + " abandoned=" + spill.groupsAbandoned()
-                  + " estimated=" + spill.estimatedTotalGroups(rowGroupCount) + " budget=" + plan.passBudget()
-                  + " completedSeed=" + plan.seededCompleted());
+              System.err.println("[proj] groupAgg pass aborted (string): passes=" + passes + DIAG_RANGE + passLo + ","
+                  + passHi + DIAG_SPILLED + spill.groupsSpilled() + DIAG_ABANDONED + spill.groupsAbandoned()
+                  + DIAG_ESTIMATED + spill.estimatedTotalGroups(rowGroupCount) + DIAG_BUDGET + plan.passBudget()
+                  + DIAG_COMPLETED_SEED + plan.seededCompleted());
             }
             if (passes >= partitionsF) {
               return declineGroupAgg("string group state exceeds the per-pass budget even at one pass per partition");
@@ -18739,7 +18760,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * fold.
    */
   private static final boolean CONST_GROUP_SEGMENT_FOLD =
-      !"false".equals(System.getProperty("sirix.projection.constGroup.segmentFold"));
+      !FALSE.equals(System.getProperty("sirix.projection.constGroup.segmentFold"));
 
   /**
    * The const-group twin of {@link #declineGroupAgg}: a decline that falls to the generic pipeline
@@ -19211,11 +19232,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
   // Sonar S107: the resolved plan of one grouped scan, passed as it is. An object around it would
   // only move the list into a constructor.
   // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
   // changes the compiled loops, which are measured as they are.
-  @SuppressWarnings({"java:S107", "java:S3776"})
+  @SuppressWarnings({"java:S106", "java:S107", "java:S3776"})
   private ServedGroups packedSubstringGroupAggregateInWorkspace(final GroupWorkspace workspace,
       final List<byte[]> rowGroupPayloads, final boolean windowedSlices, final ProjectionColumnStore slicedStore,
       final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree tree,
@@ -19289,7 +19312,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final boolean boundedBudget = boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
       final long groupBudget = plannedGroupBudget(workspace, eff, partitions, strideLanes, boundedBudget);
       if (groupBudget <= 0L) {
-        return declineGroupAgg("aggregation allowance cannot hold the minimum grouped working set");
+        return declineGroupAgg(ALLOWANCE_TOO_SMALL);
       }
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
       // HASH-RANGE PASSES — see the composite arm; seeded from the same handle memo.
@@ -19394,10 +19417,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (spill.aborted()) {
           noteAbandonedLocals(spill, tables);
           if (PROJ_DIAG) {
-            System.err.println("[proj] groupAgg pass aborted (packed): passes=" + passes + " range=[" + passLo + ","
-                + passHi + ") spilled=" + spill.groupsSpilled() + " abandoned=" + spill.groupsAbandoned()
-                + " estimated=" + spill.estimatedTotalGroups(rowGroupCount) + " budget=" + plan.passBudget()
-                + " completedSeed=" + plan.seededCompleted());
+            System.err.println("[proj] groupAgg pass aborted (packed): passes=" + passes + DIAG_RANGE + passLo + ","
+                + passHi + DIAG_SPILLED + spill.groupsSpilled() + DIAG_ABANDONED + spill.groupsAbandoned()
+                + DIAG_ESTIMATED + spill.estimatedTotalGroups(rowGroupCount) + DIAG_BUDGET + plan.passBudget()
+                + DIAG_COMPLETED_SEED + plan.seededCompleted());
           }
           if (passes >= partitionsF) {
             return declineGroupAgg(
@@ -19563,12 +19586,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     }
   }
 
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
   // Sonar S107: the resolved plan of one grouped scan, passed as it is. An object around it would
   // only move the list into a constructor.
   // Sonar S2093: the buffer goes back to its workspace for reuse at the end, it is not closed.
   // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
   // changes the compiled loops, which are measured as they are.
-  @SuppressWarnings({"java:S107", "java:S2093", "java:S3776"})
+  @SuppressWarnings({"java:S106", "java:S107", "java:S2093", "java:S3776"})
   private @Nullable ServedGroups numericGroupAggregateInWorkspace(final GroupWorkspace workspace,
       final List<byte[]> rowGroupPayloads, final boolean windowedSlices, final ProjectionColumnStore slicedStore,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol, final int[] aggCols,
@@ -19860,7 +19885,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           cdBlockIdx < 0 && boundedSelection(limit) && orderPlan.kinds.length > 0 && !orderPlan.ordersOnKey();
       final long groupBudget = plannedGroupBudget(workspace, eff, partitions, strideLanes, boundedBudget);
       if (groupBudget <= 0L) {
-        return declineGroupAgg("aggregation allowance cannot hold the minimum grouped working set");
+        return declineGroupAgg(ALLOWANCE_TOO_SMALL);
       }
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
       long[] missingMergedHeld = null;
@@ -19998,10 +20023,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (spill.aborted()) {
           noteAbandonedLocals(spill, tables);
           if (PROJ_DIAG) {
-            System.err.println("[proj] groupAgg pass aborted (numeric): passes=" + passes + " range=[" + passLo + ","
-                + passHi + ") spilled=" + spill.groupsSpilled() + " abandoned=" + spill.groupsAbandoned()
-                + " estimated=" + spill.estimatedTotalGroups(rowGroupCount) + " budget=" + plan.passBudget()
-                + " completedSeed=" + plan.seededCompleted());
+            System.err.println("[proj] groupAgg pass aborted (numeric): passes=" + passes + DIAG_RANGE + passLo + ","
+                + passHi + DIAG_SPILLED + spill.groupsSpilled() + DIAG_ABANDONED + spill.groupsAbandoned()
+                + DIAG_ESTIMATED + spill.estimatedTotalGroups(rowGroupCount) + DIAG_BUDGET + plan.passBudget()
+                + DIAG_COMPLETED_SEED + plan.seededCompleted());
           }
           if (passes >= partitionsF) {
             return declineGroupAgg("numeric group state exceeds the per-pass budget even at one pass per partition");
@@ -20525,7 +20550,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * agree.
    */
   private static boolean groupDenseEnabled() {
-    return !"false".equals(System.getProperty("sirix.projection.groupDense"));
+    return !FALSE.equals(System.getProperty("sirix.projection.groupDense"));
   }
 
   /**
@@ -25304,7 +25329,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * records on any doubt, so the only reason to turn it off is A/B measurement.
    */
   private static final boolean REGION_ONLY_COUNT_DEFAULT =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.scan.regionsOnly", "true"));
+      !FALSE.equalsIgnoreCase(System.getProperty("sirix.scan.regionsOnly", "true"));
 
   /**
    * Kill switch for THIS executor, seeded from {@link #REGION_ONLY_COUNT_DEFAULT}.
@@ -25377,7 +25402,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * with {@code -Dsirix.scan.numberDefer=false} to measure against it.
    */
   private static final boolean NUMBER_COLUMN_DEFER =
-      !"false".equalsIgnoreCase(System.getProperty("sirix.scan.numberDefer"));
+      !FALSE.equalsIgnoreCase(System.getProperty("sirix.scan.numberDefer"));
 
   /**
    * Same, for a string-equality count: the dictionary column, the field-name column, and the

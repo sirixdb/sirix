@@ -993,7 +993,7 @@ public final class ParallelBulkJsonImporter {
           return !abandoned.get() || !handoff.remove(item);
         }
       }
-    } catch (final InterruptedException e) {
+    } catch (final InterruptedException _) {
       Thread.currentThread().interrupt();
     }
     return false;
@@ -1013,7 +1013,7 @@ public final class ParallelBulkJsonImporter {
         releaseQueuedChunks(handoff);
         feeder.join(10);
       }
-    } catch (final InterruptedException e) {
+    } catch (final InterruptedException _) {
       Thread.currentThread().interrupt();
     }
     releaseQueuedChunks(handoff);
@@ -1082,7 +1082,7 @@ public final class ParallelBulkJsonImporter {
     buildPool.shutdownNow();
     try {
       buildPool.awaitTermination(UNWIND_WAIT_MILLIS, TimeUnit.MILLISECONDS);
-    } catch (final InterruptedException interrupted) {
+    } catch (final InterruptedException _) {
       Thread.currentThread().interrupt();
     }
   }

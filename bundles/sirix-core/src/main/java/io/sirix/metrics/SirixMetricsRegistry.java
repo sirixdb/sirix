@@ -191,7 +191,7 @@ public final class SirixMetricsRegistry {
         return 0L;
       }
       return figure.applyAsLong(allocator.scratchStats());
-    } catch (final Throwable t) {
+    } catch (final Throwable _) {
       return 0L;
     }
   }

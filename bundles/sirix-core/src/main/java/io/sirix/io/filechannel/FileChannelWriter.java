@@ -943,7 +943,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
     private void refill(final long offset) {
       windowStart = offset;
-      final int bytes = Math.min(FRAME_HASH_WINDOW_CAPACITY, Math.toIntExact((long) length - offset));
+      final int bytes = Math.min(FRAME_HASH_WINDOW_CAPACITY, Math.toIntExact(length - offset));
       window.clear().limit(bytes);
       try {
         readFully(channel, window, Math.addExact(payloadOffset, offset));

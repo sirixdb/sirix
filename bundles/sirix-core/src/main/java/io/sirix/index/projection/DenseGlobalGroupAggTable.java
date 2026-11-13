@@ -134,7 +134,7 @@ public final class DenseGlobalGroupAggTable {
     if (maxId < 0L || maxId > (Long.MAX_VALUE / Long.BYTES) / slotWidthOf(aggColumns) - 1L) {
       throw new IllegalArgumentException("invalid dictionary id count: " + maxId);
     }
-    return (long) slotWidthOf(aggColumns) * (maxId + 1L) * Long.BYTES;
+    return slotWidthOf(aggColumns) * (maxId + 1L) * Long.BYTES;
   }
 
   /** Longs per accumulator block for {@code aggColumns} aggregate columns. */

@@ -139,7 +139,7 @@ final class AggregationGrantTest {
     final FutureTask<Long> second = new FutureTask<>(() -> {
       starting.countDown();
       try (AggregationGrant grant = budget.acquire(budget.capacity(), budget.capacity());
-          ScratchLease _ = grant.borrow(64L << 10)) {
+          var _ = grant.borrow(64L << 10)) {
         assertTrue(budget.grantedBytes() <= budget.capacity());
         return grant.capacity();
       }
@@ -167,7 +167,7 @@ final class AggregationGrantTest {
     final CountDownLatch starting = new CountDownLatch(1);
     final FutureTask<Boolean> second = new FutureTask<>(() -> {
       starting.countDown();
-      try (AggregationGrant _ = budget.acquire(budget.capacity(), budget.capacity())) {
+      try (var _ = budget.acquire(budget.capacity(), budget.capacity())) {
         throw new AssertionError("the first scan still owns all capacity");
       } catch (final CancellationException _) {
         return Thread.currentThread().isInterrupted();

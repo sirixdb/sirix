@@ -392,7 +392,7 @@ final class JoinKernelsTest {
 
   private BucketedSide pack(final SideLanes lanes, final long keyMinimum, final int slots, final long groupMinimum) {
     final int[] bucketStart = new int[slots + 1];
-    final int total = BucketedSide.count(lanes, keyMinimum, slots, bucketStart);
+    final int total = BucketedSide.countByBucket(lanes, keyMinimum, slots, bucketStart);
     final MemorySegment slab = slab(BucketedSide.slabBytes(slots, total));
     return BucketedSide.pack(slab, lanes, keyMinimum, slots, groupMinimum, bucketStart, total);
   }
@@ -613,7 +613,7 @@ final class JoinKernelsTest {
     final HeapSide build = side(random, 2, slots, 1.0, false, true, 2);
     final SideLanes lanes = lanes(build);
     final int[] bucketStart = new int[slots + 1];
-    final int total = BucketedSide.count(lanes, 0L, slots, bucketStart);
+    final int total = BucketedSide.countByBucket(lanes, 0L, slots, bucketStart);
     assertTrue(BucketedSide.slabBytes(slots, total) > 4096L, "the side needs more than one slab page");
     final MemorySegment small = slab(4096L); // slabs round up to whole pages: one page is too small
     final int[] bucketStartCopy = bucketStart.clone();

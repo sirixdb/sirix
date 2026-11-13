@@ -717,22 +717,22 @@ public final class HOTIndirectPage implements Page {
    */
   private int computeMultiMaskPartialKeySIMD(final byte[] key, final int keyLen) {
     final int vectorLen = BYTE_SPECIES.length();
-    final int gatherLoadOffset = this.gatherLoadOffset;
+    final int loadOffset = this.gatherLoadOffset;
 
     // Load key bytes into vector. If key is shorter than the load window, pad with zeros.
     final ByteVector keyVec;
-    if (gatherLoadOffset + vectorLen <= keyLen) {
+    if (loadOffset + vectorLen <= keyLen) {
       // Fast path: entire load window fits in key
-      keyVec = ByteVector.fromArray(BYTE_SPECIES, key, gatherLoadOffset);
+      keyVec = ByteVector.fromArray(BYTE_SPECIES, key, loadOffset);
     } else {
       // Key is shorter than load window — copy available bytes into the per-thread padded
       // scratch and zero-pad the rest. Steady-state zero-alloc: the scratch is allocated once
       // per worker thread and re-used across calls. Touch only the bytes we're not going to
       // overwrite from the key (`available .. vectorLen`) so the prefix is filled fresh.
       final byte[] padded = SIMD_PADDED_SCRATCH.get();
-      final int available = Math.max(0, keyLen - gatherLoadOffset);
+      final int available = Math.max(0, keyLen - loadOffset);
       if (available > 0) {
-        System.arraycopy(key, gatherLoadOffset, padded, 0, available);
+        System.arraycopy(key, loadOffset, padded, 0, available);
       }
       if (available < vectorLen) {
         Arrays.fill(padded, available, vectorLen, (byte) 0);

@@ -79,9 +79,9 @@ public final class GroupWorkspace implements AutoCloseable {
   /** The size regions grow to; allocator regions of this size are unmapped when nobody needs them. */
   static final long MAX_REGION_BYTES = 2L << 20;
 
-  private static final LongAdder OPENED = new LongAdder();
-  private static final LongAdder CLOSED = new LongAdder();
-  private static final LongAdder REUSED = new LongAdder();
+  private static final LongAdder OPENED_TOTAL = new LongAdder();
+  private static final LongAdder CLOSED_TOTAL = new LongAdder();
+  private static final LongAdder REUSED_TOTAL = new LongAdder();
 
   /**
    * Returns the regions of self-returning workspaces; created with the first one, never in a query.
@@ -152,7 +152,7 @@ public final class GroupWorkspace implements AutoCloseable {
         }
         grant = null;
       }
-      CLOSED.increment();
+      CLOSED_TOTAL.increment();
       rethrowCleanupFailure(failure);
     }
   }
@@ -217,7 +217,7 @@ public final class GroupWorkspace implements AutoCloseable {
   private GroupWorkspace(final MemorySegmentAllocator allocator, final boolean selfReturning, final boolean scan) {
     this.allocator = requireNonNull(allocator, "allocator");
     this.scan = scan;
-    OPENED.increment();
+    OPENED_TOTAL.increment();
     // Last: the registration must not see a half-built workspace, and the action holds the regions
     // only.
     this.selfReturn = selfReturning
@@ -283,7 +283,7 @@ public final class GroupWorkspace implements AutoCloseable {
       final Spare spare = spareByLanes.get(lanes);
       if (spare != null && spare.count > 0) {
         chunksReused++;
-        REUSED.increment();
+        REUSED_TOTAL.increment();
         chunk = spare.pop();
       } else {
         chunk = carve((long) lanes << 3);
@@ -731,7 +731,7 @@ public final class GroupWorkspace implements AutoCloseable {
 
   /** Workspaces opened, process-wide (test observability). */
   public static long openedCount() {
-    return OPENED.sum();
+    return OPENED_TOTAL.sum();
   }
 
   /**
@@ -739,7 +739,7 @@ public final class GroupWorkspace implements AutoCloseable {
    * {@link #openedCount()} when no scan is running and no self-returning workspace is alive.
    */
   public static long closedCount() {
-    return CLOSED.sum();
+    return CLOSED_TOTAL.sum();
   }
 
   /**
@@ -747,6 +747,6 @@ public final class GroupWorkspace implements AutoCloseable {
    * (test observability: a query's workspace is not reachable from outside it).
    */
   public static long reusedCount() {
-    return REUSED.sum();
+    return REUSED_TOTAL.sum();
   }
 }

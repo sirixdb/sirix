@@ -13,8 +13,8 @@ import java.util.Objects;
  * <p>
  * Lane access from outside the aggregation kernels goes through {@link GroupLanes}, which checks
  * every access against this buffer: that it is live, and that the lane lies inside it. The kernels
- * instead resolve a complete <em>record</em> once ({@link #record}, {@link #accumulator}) and then
- * address its lanes without further checks through {@link GroupKernelLanes}; the resolution is
+ * instead resolve a complete <em>record</em> once ({@link #recordAt}, {@link #accumulator}) and
+ * then address its lanes without further checks through {@link GroupKernelLanes}; the resolution is
  * where the bound is established, so it validates the whole footprint the kernel is about to touch.
  *
  * <p>
@@ -107,7 +107,7 @@ public final class GroupBuffer {
    * @throws IllegalStateException if the buffer was handed back or its workspace is closed
    * @throws IndexOutOfBoundsException if the range does not lie inside this buffer
    */
-  long record(final int first, final int count) {
+  long recordAt(final int first, final int count) {
     checkRange(first, count);
     return GroupKernelLanes.DEBUG
         ? GroupDebugRecords.open(this, first, count)
@@ -126,7 +126,7 @@ public final class GroupBuffer {
   /**
    * Resolve the accumulator a fold of {@code columns} aggregate columns of {@code lanesPerColumn}
    * lanes each writes: {@code [count, firstSeen]} and the columns, starting at {@code first}. Beyond
-   * {@link #record}'s range check, {@code first} must be where this buffer's layout puts an
+   * {@link #recordAt}'s range check, {@code first} must be where this buffer's layout puts an
    * accumulator and the fold must fit the accumulator the layout declares, so a fold that was handed
    * a wrong offset or column count fails here instead of writing a neighbouring group.
    *
@@ -142,7 +142,7 @@ public final class GroupBuffer {
     if (first < 0 || strideRemainder(first) != accumulatorOffset || count > accumulatorLanes) {
       throw new IndexOutOfBoundsException("fold does not fit the aggregation record layout");
     }
-    return record(first, count);
+    return recordAt(first, count);
   }
 
   /**

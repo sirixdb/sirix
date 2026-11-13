@@ -13,7 +13,7 @@ import java.lang.invoke.VarHandle;
  *
  * <p>
  * <b>Records.</b> A kernel does not address lanes of a chunk. It asks the chunk's
- * {@link GroupBuffer} for a <em>record</em> ({@link GroupBuffer#record},
+ * {@link GroupBuffer} for a <em>record</em> ({@link GroupBuffer#recordAt},
  * {@link GroupBuffer#accumulator}), or its table for the record of a handle
  * ({@link NumericGroupAggTable#accumulatorAt}): the resolution checks once that the memory is live
  * and that the complete footprint lies inside it, and answers a {@code long} naming that footprint.
@@ -78,77 +78,78 @@ final class GroupKernelLanes {
 
   private GroupKernelLanes() {}
 
-  /** Lane {@code lane} of {@code record}. */
-  static long get(final long record, final int lane) {
+  /** Lane {@code lane} of {@code groupRecord}. */
+  static long get(final long groupRecord, final int lane) {
     if (DEBUG) {
-      return GroupDebugRecords.get(record, lane);
+      return GroupDebugRecords.get(groupRecord, lane);
     }
-    return (long) LANE.get(ADDRESS_SPACE, at(record, lane));
+    return (long) LANE.get(ADDRESS_SPACE, at(groupRecord, lane));
   }
 
-  /** Store {@code value} in lane {@code lane} of {@code record}. */
-  static void set(final long record, final int lane, final long value) {
+  /** Store {@code value} in lane {@code lane} of {@code groupRecord}. */
+  static void set(final long groupRecord, final int lane, final long value) {
     if (DEBUG) {
-      GroupDebugRecords.set(record, lane, value);
+      GroupDebugRecords.set(groupRecord, lane, value);
       return;
     }
-    LANE.set(ADDRESS_SPACE, at(record, lane), value);
+    LANE.set(ADDRESS_SPACE, at(groupRecord, lane), value);
   }
 
-  /** Add {@code delta} to lane {@code lane} of {@code record} (wrapping, like {@code +=}). */
-  static void add(final long record, final int lane, final long delta) {
+  /** Add {@code delta} to lane {@code lane} of {@code groupRecord} (wrapping, like {@code +=}). */
+  static void add(final long groupRecord, final int lane, final long delta) {
     if (DEBUG) {
-      GroupDebugRecords.add(record, lane, delta);
+      GroupDebugRecords.add(groupRecord, lane, delta);
       return;
     }
-    addAt(at(record, lane), delta);
+    addAt(at(groupRecord, lane), delta);
   }
 
-  static long getOpaque(final long record, final int lane) {
+  static long getOpaque(final long groupRecord, final int lane) {
     if (DEBUG) {
-      return GroupDebugRecords.getOpaque(record, lane);
+      return GroupDebugRecords.getOpaque(groupRecord, lane);
     }
-    return (long) ATOMIC_LANE.getOpaque(ADDRESS_SPACE, at(record, lane));
+    return (long) ATOMIC_LANE.getOpaque(ADDRESS_SPACE, at(groupRecord, lane));
   }
 
-  static long compareAndExchange(final long record, final int lane, final long expected, final long value) {
+  static long compareAndExchange(final long groupRecord, final int lane, final long expected, final long value) {
     if (DEBUG) {
-      return GroupDebugRecords.compareAndExchange(record, lane, expected, value);
+      return GroupDebugRecords.compareAndExchange(groupRecord, lane, expected, value);
     }
-    return (long) ATOMIC_LANE.compareAndExchange(ADDRESS_SPACE, at(record, lane), expected, value);
+    return (long) ATOMIC_LANE.compareAndExchange(ADDRESS_SPACE, at(groupRecord, lane), expected, value);
   }
 
-  static long getAndAdd(final long record, final int lane, final long value) {
+  static long getAndAdd(final long groupRecord, final int lane, final long value) {
     if (DEBUG) {
-      return GroupDebugRecords.getAndAdd(record, lane, value);
+      return GroupDebugRecords.getAndAdd(groupRecord, lane, value);
     }
-    return (long) ATOMIC_LANE.getAndAdd(ADDRESS_SPACE, at(record, lane), value);
+    return (long) ATOMIC_LANE.getAndAdd(ADDRESS_SPACE, at(groupRecord, lane), value);
   }
 
-  /** Add one to lane {@code lane} of {@code record}. */
-  static void increment(final long record, final int lane) {
-    add(record, lane, 1L);
+  /** Add one to lane {@code lane} of {@code groupRecord}. */
+  static void increment(final long groupRecord, final int lane) {
+    add(groupRecord, lane, 1L);
   }
 
   /**
-   * Lower lane {@code lane} of {@code record} to {@code value}. Called for every value, so the rare
-   * store stays inside an operation the row loop inlines instead of behind a cold call of its own.
+   * Lower lane {@code lane} of {@code groupRecord} to {@code value}. Called for every value, so the
+   * rare store stays inside an operation the row loop inlines instead of behind a cold call of its
+   * own.
    */
-  static void min(final long record, final int lane, final long value) {
+  static void min(final long groupRecord, final int lane, final long value) {
     if (DEBUG) {
-      GroupDebugRecords.min(record, lane, value);
+      GroupDebugRecords.min(groupRecord, lane, value);
       return;
     }
-    minAt(at(record, lane), value);
+    minAt(at(groupRecord, lane), value);
   }
 
-  /** Raise lane {@code lane} of {@code record} to {@code value}; see {@link #min}. */
-  static void max(final long record, final int lane, final long value) {
+  /** Raise lane {@code lane} of {@code groupRecord} to {@code value}; see {@link #min}. */
+  static void max(final long groupRecord, final int lane, final long value) {
     if (DEBUG) {
-      GroupDebugRecords.max(record, lane, value);
+      GroupDebugRecords.max(groupRecord, lane, value);
       return;
     }
-    maxAt(at(record, lane), value);
+    maxAt(at(groupRecord, lane), value);
   }
 
   /**
@@ -177,12 +178,12 @@ final class GroupKernelLanes {
   }
 
   /**
-   * The address of lane {@code lane} of {@code record}. The mask bounds the record and the unsigned
-   * widening bounds the lane, so the sum provably lies inside the spanning segment and its check is
-   * compiled away; a negative lane is a kernel defect that debug mode reports.
+   * The address of lane {@code lane} of {@code groupRecord}. The mask bounds the record and the
+   * unsigned widening bounds the lane, so the sum provably lies inside the spanning segment and its
+   * check is compiled away; a negative lane is a kernel defect that debug mode reports.
    */
-  private static long at(final long record, final int lane) {
-    return (record & ADDRESS_MASK) + (Integer.toUnsignedLong(lane) << 3);
+  private static long at(final long groupRecord, final int lane) {
+    return (groupRecord & ADDRESS_MASK) + (Integer.toUnsignedLong(lane) << 3);
   }
 
   /**

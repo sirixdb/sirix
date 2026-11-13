@@ -1058,7 +1058,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           return;
         }
         handoff("packing");
-        final int total = BucketedSide.count(lanes, keyMinimum, slots, bucketStart);
+        final int total = BucketedSide.countByBucket(lanes, keyMinimum, slots, bucketStart);
         reservation = DerivedCacheBudget.global().packed().reserve(BucketedSide.slabBytes(slots, total));
         if (reservation == null) {
           return;
@@ -1163,7 +1163,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
     final SideLanes lanes = SideLanes.capture(columns, fromSlot, toSlot, marginSlot, distinctSlot, groupSlot);
     final int[] bucketStart = new int[slots + 1];
-    final int total = BucketedSide.count(lanes, keyMinimum, slots, bucketStart);
+    final int total = BucketedSide.countByBucket(lanes, keyMinimum, slots, bucketStart);
     final long bytes = BucketedSide.slabBytes(slots, total);
     final DerivedCacheBudget budget = DerivedCacheBudget.global();
     final Reservation reservation = columns.isImmutableRevision()

@@ -325,7 +325,7 @@ final class JoinKernels {
     // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
     // and holds in registers.
     @SuppressWarnings("java:S3776")
-    static int count(final SideLanes lanes, final long keyMinimum, final int slots, final int[] bucketStart) {
+    static int countByBucket(final SideLanes lanes, final long keyMinimum, final int slots, final int[] bucketStart) {
       if (slots < 0 || bucketStart.length != slots + 1) {
         throw new IllegalArgumentException("one bucket start per slot and one past the end");
       }
@@ -370,8 +370,8 @@ final class JoinKernels {
 
     /**
      * Write the bucket starts and scatter the records into {@code slab}, sized by {@link #slabBytes};
-     * {@code bucketStart} holds the per-bucket counts from {@link #count} and leaves as the prefix
-     * sums.
+     * {@code bucketStart} holds the per-bucket counts from {@link #countByBucket} and leaves as the
+     * prefix sums.
      */
     static BucketedSide pack(final MemorySegment slab, final SideLanes lanes, final long keyMinimum, final int slots,
         final long groupMinimum, final int[] bucketStart, final int total) {
@@ -604,16 +604,16 @@ final class JoinKernels {
         final long probeEnd) {
       final MemorySegment slab = this.buildSlab;
       final long rows = this.buildRows;
-      final boolean distinctBuild = this.distinctBuild;
-      final boolean buildMinusProbe = this.buildMinusProbe;
-      final int groups = this.groups;
+      final boolean distinct = this.distinctBuild;
+      final boolean buildFirst = this.buildMinusProbe;
+      final int groupCount = this.groups;
       for (int i = buildBegin; i < buildEnd; i++) {
         final long b = rows + i * BucketedSide.STRIDE_BYTES;
         final long buildFrom = (long) SLAB_LONG.get(slab, b + BucketedSide.FROM);
         final long buildTo = (long) SLAB_LONG.get(slab, b + BucketedSide.TO);
         final long buildMargin = (long) SLAB_LONG.get(slab, b + BucketedSide.MARGIN);
         final int group = (int) (long) SLAB_LONG.get(slab, b + BucketedSide.META);
-        final long buildDistinct = distinctBuild
+        final long buildDistinct = distinct
             ? (long) SLAB_LONG.get(slab, b + BucketedSide.DISTINCT)
             : 0L;
         for (long p = probeBegin; p < probeEnd; p += BucketedSide.STRIDE_BYTES) {
@@ -622,7 +622,7 @@ final class JoinKernels {
             continue;
           }
           final long margin = (long) SLAB_LONG.get(probeSlab, p + BucketedSide.MARGIN);
-          final long value = buildMinusProbe
+          final long value = buildFirst
               ? Math.subtractExact(buildMargin, margin)
               : Math.subtractExact(margin, buildMargin);
           if (value < groupMinimum[group]) {
@@ -631,11 +631,11 @@ final class JoinKernels {
           if (value > groupMaximum[group]) {
             groupMaximum[group] = value;
           }
-          final long distinctValue = distinctBuild
+          final long distinctValue = distinct
               ? buildDistinct
               : (long) SLAB_LONG.get(probeSlab, p + BucketedSide.DISTINCT);
           if (bits != null) {
-            final long bitIndex = (distinctValue - domainMinimum) * groups + group;
+            final long bitIndex = (distinctValue - domainMinimum) * groupCount + group;
             final int bitWord = (int) (bitIndex >>> 6);
             final long bit = 1L << bitIndex;
             final long prior = bits[bitWord];
