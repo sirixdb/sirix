@@ -219,24 +219,25 @@ final class FileChannelReadScratchTest {
   @Test
   void everyFailingReadReturnsItsBuffer() throws IOException {
     final Batch batch = Batch.create();
+    final PageReference[] references = batch.references();
     final ScratchStats before = stats();
 
     // A member's body fails its checksum in the middle of a coalesced run.
     final byte[] corrupted = batch.file().clone();
     corrupted[Math.toIntExact(batch.offsets()[MEMBERS / 2] + batch.frames()[MEMBERS / 2].length - 1)] ^= 1;
     try (FileChannelReader reader = reader(corrupted)) {
-      assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references(), CONFIG));
+      assertThrows(SirixRuntimeException.class, () -> reader.read(references, CONFIG));
       assertEquals(0, stats().totalLentBuffers(), "a failed run returned its span buffer");
-      assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references()[MEMBERS / 2], CONFIG));
+      assertThrows(SirixRuntimeException.class, () -> reader.read(references[MEMBERS / 2], CONFIG));
       assertEquals(0, stats().totalLentBuffers(), "a failed page read returned its buffer");
     }
 
     // The file ends inside a page body: the body read comes up short.
     final byte[] truncated = Arrays.copyOf(batch.file(), batch.file().length - 8);
     try (FileChannelReader reader = reader(truncated)) {
-      assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references()[MEMBERS - 1], CONFIG));
+      assertThrows(SirixRuntimeException.class, () -> reader.read(references[MEMBERS - 1], CONFIG));
       assertEquals(0, stats().totalLentBuffers(), "a short read returned its buffer");
-      assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references(), CONFIG));
+      assertThrows(SirixRuntimeException.class, () -> reader.read(references, CONFIG));
       assertEquals(0, stats().totalLentBuffers(), "a run whose last body comes up short returned its buffer");
     }
 
@@ -244,7 +245,7 @@ final class FileChannelReadScratchTest {
     final byte[] garbled = batch.file().clone();
     ByteBuffer.wrap(garbled).order(ByteOrder.LITTLE_ENDIAN).putInt(Math.toIntExact(batch.offsets()[3]), -5);
     try (FileChannelReader reader = reader(garbled)) {
-      assertThrows(SirixRuntimeException.class, () -> reader.read(batch.references()[3], CONFIG));
+      assertThrows(SirixRuntimeException.class, () -> reader.read(references[3], CONFIG));
       assertEquals(0, stats().totalLentBuffers(), "a rejected length header returned its buffer");
     }
 

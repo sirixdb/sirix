@@ -344,7 +344,8 @@ final class ColumnSlabLifetimeTest {
     }
     assertFalse(f.store().columnFilled(0), "…and its exit releases it, nothing pinning it any more");
     assertEquals(0L, slabDelta());
-    assertThrows(IllegalStateException.class, () -> f.store().releaseColumn(0), "more releases than retains");
+    final ProjectionColumnStore store = f.store();
+    assertThrows(IllegalStateException.class, () -> store.releaseColumn(0), "more releases than retains");
   }
 
   @Test
@@ -402,7 +403,8 @@ final class ColumnSlabLifetimeTest {
       }
       return bytes;
     };
-    assertThrows(IllegalStateException.class, () -> f.store().column(0, corrupting));
+    final ProjectionColumnStore store = f.store();
+    assertThrows(IllegalStateException.class, () -> store.column(0, corrupting));
     assertFalse(f.store().columnFilled(0));
     assertEquals(0L, slabDelta(), "a failed fill maps nothing that stays");
     assertEquals(0L, f.store().retainedFillBytes());

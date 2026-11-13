@@ -101,7 +101,7 @@ final class SegmentHandleConstantsTest {
         try {
           type = Class.forName(name, false, loader);
           fields = type.getDeclaredFields();
-        } catch (final ClassNotFoundException | LinkageError error) {
+        } catch (final ClassNotFoundException | LinkageError _) {
           unloadable.add(name);
           continue;
         }

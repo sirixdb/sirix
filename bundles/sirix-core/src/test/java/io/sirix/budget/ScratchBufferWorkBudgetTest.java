@@ -302,8 +302,9 @@ final class ScratchBufferWorkBudgetTest {
         try (final JsonResourceSession session = database.beginResourceSession(resource)) {
           final WorkReport failed = CAPTURE.run(() -> {
             try (final JsonNodeTrx trx = session.beginNodeTrx()) {
-              assertThrows(RuntimeException.class, () -> ParallelBulkJsonImporter.assembleBytes(trx,
-                  new ByteArrayInputStream(input), IMPORT_CHUNK_BYTES, 3));
+              final ByteArrayInputStream stream = new ByteArrayInputStream(input);
+              assertThrows(RuntimeException.class,
+                  () -> ParallelBulkJsonImporter.assembleBytes(trx, stream, IMPORT_CHUNK_BYTES, 3));
               trx.rollback();
             }
           });
@@ -340,8 +341,9 @@ final class ScratchBufferWorkBudgetTest {
         final WorkReport failed = CAPTURE.run(() -> {
           try (final JsonNodeTrx trx = session.beginNodeTrx()) {
             lentBeforeTheLoad[0] = Allocators.getInstance().scratchStats().totalLentBuffers();
-            assertThrows(IllegalStateException.class, () -> ParallelBulkJsonImporter.assembleBytes(trx,
-                new ByteArrayInputStream(document), IMPORT_CHUNK_BYTES, 3));
+            final ByteArrayInputStream stream = new ByteArrayInputStream(document);
+            assertThrows(IllegalStateException.class,
+                () -> ParallelBulkJsonImporter.assembleBytes(trx, stream, IMPORT_CHUNK_BYTES, 3));
             trx.rollback();
           }
         });

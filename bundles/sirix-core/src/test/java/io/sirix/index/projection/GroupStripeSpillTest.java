@@ -325,10 +325,11 @@ final class GroupStripeSpillTest {
       final GroupBuffer stripes = workspace.newBlock(into.stride() * 2);
       GroupLanes.set(stripes, 0, 5L);
       GroupLanes.set(stripes, into.stride(), 6L);
-      assertThrows(IllegalArgumentException.class, () -> into.mergeStripes(stripes, 0, into.stride() - 1),
+      final int stride = into.stride();
+      assertThrows(IllegalArgumentException.class, () -> into.mergeStripes(stripes, 0, stride - 1),
           "a partial stripe run would fold lane-misaligned");
       final GroupBuffer emptyKey = workspace.newBlock(into.stride());
-      assertThrows(IllegalStateException.class, () -> into.mergeStripes(emptyKey, 0, into.stride()),
+      assertThrows(IllegalStateException.class, () -> into.mergeStripes(emptyKey, 0, stride),
           "an empty key lane is not a spilled stripe");
       into.mergeStripes(stripes, 0, GroupLanes.count(stripes));
       assertEquals(2, into.size());

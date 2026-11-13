@@ -121,14 +121,13 @@ final class FrameSlotAllocatorSlabTest {
       allocator.setSlabPublicationHookForTesting(() -> {
         throw failure;
       });
-      final OutOfMemoryError thrown = assertThrows(OutOfMemoryError.class, () -> {
-        if (transition == SlabTransition.RELEASED) {
-          assertNotNull(existing);
-          allocator.releaseSlab(existing);
-        } else {
-          allocator.allocateSlab(8192L);
-        }
-      });
+      final OutOfMemoryError thrown;
+      if (transition == SlabTransition.RELEASED) {
+        assertNotNull(existing);
+        thrown = assertThrows(OutOfMemoryError.class, () -> allocator.releaseSlab(existing));
+      } else {
+        thrown = assertThrows(OutOfMemoryError.class, () -> allocator.allocateSlab(8192L));
+      }
       assertSame(failure, thrown);
       assertEquals(0L, allocator.getPhysicalMemoryBytes());
       assertEquals(0L, allocator.nonExecutionCommittedBytes());

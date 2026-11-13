@@ -75,7 +75,8 @@ final class NumericGroupSumTableTest {
       final GroupBuffer first = lanes(workspace, 7L, 1L, 2L, 1L, Long.MAX_VALUE);
       final GroupBuffer second = lanes(workspace, 7L, 1L, 1L, 1L, 1L);
       table.mergeStripes(first, 0, GroupLanes.count(first));
-      assertThrows(ArithmeticException.class, () -> table.mergeStripes(second, 0, GroupLanes.count(second)));
+      final int secondLanes = GroupLanes.count(second);
+      assertThrows(ArithmeticException.class, () -> table.mergeStripes(second, 0, secondLanes));
       // Equal slot widths alone do not make ordinary and compact blocks compatible.
       final NumericGroupAggTable compact =
           NumericGroupAggTable.sumsOnly(2, 16, false, 1L, 0).attachWorkspace(workspace);

@@ -319,6 +319,8 @@ final class GroupWindowedSlicesTest {
    * finish before the lent-buffer gauge and the workspace counters are read: collect until every
    * workspace is back, or until collecting changes nothing any more.
    */
+  // Waits for the collector and a cleaner thread: neither signals an event a test could wait on.
+  @SuppressWarnings("java:S2925")
   private static void letDroppedWorkspacesReturn() throws InterruptedException {
     int unchangedRounds = 0;
     long closed = GroupWorkspace.closedCount();

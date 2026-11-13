@@ -17,6 +17,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -65,6 +66,8 @@ final class FrameScratchReclamationTest {
     assertEquals(0L, allocator.getRecycledSlabBytes());
   }
 
+  // The leases fill an array, are returned in borrow order and are borrowed again after that.
+  @SuppressWarnings("java:S2093")
   @Test
   void sparesAreBorrowedNewestFirstAndReclaimedOldestFirst() {
     final FrameSlotAllocator allocator = new FrameSlotAllocator(4 * MIB, 1);
@@ -146,6 +149,8 @@ final class FrameScratchReclamationTest {
     assertEquals(0L, allocator.getRecycledSlabBytes());
   }
 
+  // The leases fill an array; two are returned early and borrowed again while four stay lent.
+  @SuppressWarnings("java:S2093")
   @ParameterizedTest
   @CsvSource({"FRAME, 4", "SLAB, 4", "REGION, 4", "FRAME, 1", "SLAB, 1", "REGION, 1"})
   void lentSmallBuffersCannotFundImpossibleAdmission(final Target target, final int idleBuffers) {
@@ -181,7 +186,7 @@ final class FrameScratchReclamationTest {
         final long address = leases[buffer].segment().address();
         assertTrue(address == addresses[0] || address == addresses[1]);
       }
-      assertTrue(leases[0].segment().address() != leases[1].segment().address());
+      assertNotEquals(leases[0].segment().address(), leases[1].segment().address());
       for (int buffer = 2; buffer < leases.length; buffer++) {
         assertEquals(buffer + 1L, SegmentAccess.getLong(leases[buffer].segment(), 0L));
       }
@@ -201,6 +206,8 @@ final class FrameScratchReclamationTest {
     assertEquals(0L, allocator.nonExecutionCommittedBytes());
   }
 
+  // The leases are held in a list and returned in borrow order mid-test, not at a block's end.
+  @SuppressWarnings("java:S2093")
   @Test
   void admissionReclaimsTheRealShortfallAboveTheFrameLimit() {
     final long budget = 64 * MIB;
@@ -247,6 +254,8 @@ final class FrameScratchReclamationTest {
     assertEquals(0L, allocator.getActiveMemoryBytes());
   }
 
+  // The leases are held in a list and returned in borrow order mid-test, not at a block's end.
+  @SuppressWarnings("java:S2093")
   @Test
   void idleSmallRegionsMakeRoomForALargerMandatoryBorrow() {
     final FrameSlotAllocator allocator = new FrameSlotAllocator(MIB, 4);
@@ -284,6 +293,8 @@ final class FrameScratchReclamationTest {
     }
   }
 
+  // The leases are held in a list and returned in borrow order mid-test, not at a block's end.
+  @SuppressWarnings("java:S2093")
   @Test
   void smallerIdleRegionsAlsoServeALargerSmallCapacity() {
     final FrameSlotAllocator allocator = new FrameSlotAllocator(MIB, 8);
@@ -309,6 +320,8 @@ final class FrameScratchReclamationTest {
     }
   }
 
+  // The leases are held in a list and returned in borrow order mid-test, not at a block's end.
+  @SuppressWarnings("java:S2093")
   @ParameterizedTest
   @EnumSource(Target.class)
   void everyAdmissionFamilyCanReclaimIdleSmallRegions(final Target target) {
@@ -389,9 +402,11 @@ final class FrameScratchReclamationTest {
     final FrameSlotAllocator allocator = new FrameSlotAllocator(MIB, 2);
     try {
       allocator.setSlabRecycleLimitBytesForTesting(MIB);
-      new ScratchLease(allocator).acquire(512 * KIB, ScratchUse.READ).close();
-      new ScratchLease(allocator).acquire(256 * KIB, ScratchUse.READ).close();
-      new ScratchLease(allocator).acquire(128 * KIB, ScratchUse.READ).close();
+      for (final long idleBytes : new long[] {512 * KIB, 256 * KIB, 128 * KIB}) {
+        try (var _ = new ScratchLease(allocator).acquire(idleBytes, ScratchUse.READ)) {
+          // Returned at once: the test starts from the three idle regions these borrows leave behind.
+        }
+      }
       assertEquals(896 * KIB, allocator.getPhysicalMemoryBytes());
       try (ScratchLease smaller = new ScratchLease(allocator).acquire(64 * KIB, ScratchUse.CODEC)) {
         assertTrue(smaller.capacity() >= 64 * KIB);
@@ -405,6 +420,8 @@ final class FrameScratchReclamationTest {
     }
   }
 
+  // The three leases are returned in borrow order, which try-with-resources would reverse.
+  @SuppressWarnings("java:S2093")
   @Test
   void loweringTheRecycleLimitSkipsUnchargedLargerIdleArrays() {
     final FrameSlotAllocator allocator = new FrameSlotAllocator(16 * MIB, 1);

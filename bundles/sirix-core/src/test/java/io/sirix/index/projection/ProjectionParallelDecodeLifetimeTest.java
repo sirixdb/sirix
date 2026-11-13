@@ -131,13 +131,9 @@ final class ProjectionParallelDecodeLifetimeTest {
     try (MockedStatic<Allocators> allocators = mockStatic(Allocators.class)) {
       allocators.when(Allocators::getInstance).thenReturn(observed);
       try {
-        final OutOfMemoryError failure = assertThrows(OutOfMemoryError.class, () -> {
-          if (masked) {
-            store.columnMasked(0, fetcher, new long[] {-1L, -1L});
-          } else {
-            store.column(0, fetcher);
-          }
-        });
+        final OutOfMemoryError failure = masked
+            ? assertThrows(OutOfMemoryError.class, () -> store.columnMasked(0, fetcher, new long[] {-1L, -1L}))
+            : assertThrows(OutOfMemoryError.class, () -> store.column(0, fetcher));
         assertSame(injected, failure);
         controller.join();
         assertTrue(blockerClaimed.get());
@@ -186,7 +182,7 @@ final class ProjectionParallelDecodeLifetimeTest {
       try {
         errorInjected.await();
         releaseAttempted.await(1L, TimeUnit.SECONDS);
-      } catch (final InterruptedException interrupted) {
+      } catch (final InterruptedException _) {
         Thread.currentThread().interrupt();
       } finally {
         finishBlocker.countDown();

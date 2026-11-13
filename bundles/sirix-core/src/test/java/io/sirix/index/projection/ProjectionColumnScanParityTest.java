@@ -1333,7 +1333,8 @@ final class ProjectionColumnScanParityTest {
         }
         return bytes;
       };
-      assertThrows(IllegalStateException.class, () -> bucketColumn(fixture.store(), 0, corrupting, 0, 10_000, 24));
+      final ProjectionColumnStore store = fixture.store();
+      assertThrows(IllegalStateException.class, () -> bucketColumn(store, 0, corrupting, 0, 10_000, 24));
       assertFalse(fixture.store().columnFilled(0));
       assertThrows(IllegalStateException.class, () -> fixture.store().columnBytes(0, fixture.fetcher()));
     }

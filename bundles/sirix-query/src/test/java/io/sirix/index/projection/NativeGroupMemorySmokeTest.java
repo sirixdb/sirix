@@ -39,10 +39,10 @@ final class NativeGroupMemorySmokeTest {
           for (int round = 0; round < ROUNDS; round++) {
             for (int key = 1; key <= GROUPS; key++) {
               // The kernels' two resolutions in turn: one step, and through the handle.
-              final long record = (round & 1) == 0
+              final long groupRecord = (round & 1) == 0
                   ? table.acquireAccumulator(key, key, 1, 4)
                   : table.accumulatorAt(table.acquire(key, key), 1, 4);
-              ProjectionColumnGroupScan.foldNumericPlainWordLane(record, values, bases, presence, 1, 0, 1L, -1L);
+              ProjectionColumnGroupScan.foldNumericPlainWordLane(groupRecord, values, bases, presence, 1, 0, 1L, -1L);
             }
           }
           assertTrue(table.rehashes() > 0);
@@ -56,8 +56,8 @@ final class NativeGroupMemorySmokeTest {
             assertEquals(7L, GroupLanes.get(buffer, base + 4));
             assertEquals(7L, GroupLanes.get(buffer, base + 5));
             if (GroupKernelLanes.DEBUG) {
-              final long record = buffer.accumulator(base, 1, 4);
-              assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.get(record, 6));
+              final long groupRecord = buffer.accumulator(base, 1, 4);
+              assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.get(groupRecord, 6));
             }
             last = buffer;
           }

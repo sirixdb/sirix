@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -41,7 +42,7 @@ final class DenseIndexChunkReuseTest {
       assertSame(workspace, first.workspace());
       final NumericGroupAggTable firstTable = fillAndVerify(first, 40_000, 5L);
       // A seven-lane stripe's full chunk is not an index chunk's length: the two never share a free list.
-      assertTrue(firstTable.chunkLanes() != INDEX_CHUNK_LANES);
+      assertNotEquals(INDEX_CHUNK_LANES, firstTable.chunkLanes());
       assertEquals(0, workspace.spareChunks(INDEX_CHUNK_LANES), "a live table's index is never handed out");
       firstTable.release();
       first.releaseTables();

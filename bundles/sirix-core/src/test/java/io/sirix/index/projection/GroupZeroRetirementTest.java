@@ -89,7 +89,7 @@ final class GroupZeroRetirementTest {
       final NumericGroupAggTable table = new NumericGroupAggTable(1, 16).attachWorkspace(workspace);
       final GroupBuffer original = table.acquireZero(7L);
       GroupLanes.set(original, 0, 11L);
-      final long record = original.accumulator(0, 1, 4);
+      final long originalRecord = original.accumulator(0, 1, 4);
       table.release();
       assertEquals(11L, GroupLanes.get(table.zeroSlot(), 0));
       assertEquals(7L, GroupLanes.get(table.zeroSlot(), 1));
@@ -104,7 +104,7 @@ final class GroupZeroRetirementTest {
       assertNotEquals(original.generation, reused.generation);
       GroupLanes.set(reused, 0, 17L);
       if (GroupKernelLanes.DEBUG) {
-        assertThrows(IllegalStateException.class, () -> GroupKernelLanes.set(record, 0, 19L));
+        assertThrows(IllegalStateException.class, () -> GroupKernelLanes.set(originalRecord, 0, 19L));
       }
       assertEquals(17L, GroupLanes.get(reused, 0));
       next.retire();

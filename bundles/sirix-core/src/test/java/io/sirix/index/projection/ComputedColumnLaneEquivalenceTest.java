@@ -20,6 +20,7 @@ import java.util.Random;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -113,11 +114,11 @@ final class ComputedColumnLaneEquivalenceTest {
         allPresentRows += Long.bitCount(full);
         final long mixed = derivedWord(mixedPresence(operands), w, operands);
         mixedRows += Long.bitCount(mixed);
-        assertTrue(mixed != fullMask, "word " + w + " of the mixed fixture must not be full");
+        assertNotEquals(fullMask, mixed, "word " + w + " of the mixed fixture must not be full");
         if ((w & 1) == 0) {
           assertTrue(GroupArrayReference.gatherPays(mixed), "the mixed fixture must gather word " + w);
         } else {
-          assertTrue(mixed != 0L, "word " + w + " of the mixed fixture must keep rows");
+          assertNotEquals(0L, mixed, "word " + w + " of the mixed fixture must keep rows");
           assertFalse(GroupArrayReference.gatherPays(mixed), "the mixed fixture must read word " + w + " per row");
         }
         assertFalse(GroupArrayReference.gatherPays(derivedWord(sparsePresence(operands), w, operands)),
@@ -247,7 +248,9 @@ final class ComputedColumnLaneEquivalenceTest {
             }
             operands[c][0] = new ColumnSlice(64, (byte) 0, 0L, 0L, presence[c], new NumericLane(slab, 0L, 64));
           }
-          assertThrows(ArithmeticException.class, () -> evaluate(operands, program.code(), program.consts(), null),
+          final int[] code = program.code();
+          final long[] consts = program.consts();
+          assertThrows(ArithmeticException.class, () -> evaluate(operands, code, consts, null),
               "an exact " + program + " that overflows must decline, not wrap, at " + bits + " rows per word");
         }
       }

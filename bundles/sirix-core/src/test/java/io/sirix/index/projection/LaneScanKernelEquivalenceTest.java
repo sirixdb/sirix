@@ -322,9 +322,11 @@ final class LaneScanKernelEquivalenceTest {
     final int rows = 4;
     final ColumnSlice booleans =
         new ColumnSlice(rows, NO_FLAGS, 0L, 1L, allPresent(rows), null, new long[] {0b1010L}, null, null, null);
+    final long[] selected = allPresent(rows);
+    final LongOpenHashSet wanted = new LongOpenHashSet(new long[] {1L});
     final IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
-        () -> ProjectionRecordKeySet.filterMembership(new long[][] {allPresent(rows)}, new long[][] {{1L, 2L, 3L, 4L}},
-            new ColumnSlice[] {booleans}, leaf -> leaf + 1L, new LongOpenHashSet(new long[] {1L}), false));
+        () -> ProjectionRecordKeySet.filterMembership(new long[][] {selected}, new long[][] {{1L, 2L, 3L, 4L}},
+            new ColumnSlice[] {booleans}, leaf -> leaf + 1L, wanted, false));
     assertTrue(refused.getMessage().contains("integral column"), refused.getMessage());
   }
 

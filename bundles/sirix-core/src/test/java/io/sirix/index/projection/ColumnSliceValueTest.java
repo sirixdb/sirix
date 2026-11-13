@@ -17,7 +17,9 @@ final class ColumnSliceValueTest {
     for (int component = 0; component < 12; component++) {
       assertNotEquals(expected, slice(component), "different slice component " + component);
     }
-    assertNotEquals(expected, null);
+    // equals(null) is the call under test: with null first, JUnit would never ask the slice.
+    final Object absent = null;
+    assertNotEquals(expected, absent);
     final Object unrelated = "slice";
     assertNotEquals(expected, unrelated);
     assertEquals("ColumnSlice[rowCount=1, flags=1, min=1, max=1, presenceWords=[1], numericValues=[1], "

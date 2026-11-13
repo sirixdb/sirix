@@ -750,7 +750,7 @@ class FrameSlotAllocatorTest {
       assertEquals(allocator.budgetBytes() - allocator.budgetBytes() / 8 - allocator.oversizedHeadroomBytes(),
           frameBytes);
       final long small = 64L * 1024L;
-      try (ScratchLease scratch = new ScratchLease(allocator).acquire(small, ScratchUse.READ)) {
+      try (var _ = new ScratchLease(allocator).acquire(small, ScratchUse.READ)) {
         assertEquals(frameBytes + small, allocator.getPhysicalMemoryBytes());
       }
       assertNull(allocator.allocateSlot(small));

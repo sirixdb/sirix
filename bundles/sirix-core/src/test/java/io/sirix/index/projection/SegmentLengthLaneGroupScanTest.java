@@ -331,10 +331,12 @@ final class SegmentLengthLaneGroupScanTest {
     final int[][][] tables = f.lengthTables(SegmentLengthLaneGroupScanTest::utf8Length);
     try (GroupWorkspace workspace = new GroupWorkspace()) {
       final GroupBuffer missing = ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE);
+      final ProjectionColumnStore store = f.store();
+      final int rowGroups = store.rowGroupCount();
+      final NumericGroupAggTable out = new NumericGroupAggTable(1, 64).attachWorkspace(workspace);
       assertThrows(IllegalArgumentException.class,
-          () -> ProjectionColumnGroupScan.aggregateByGroupNumericFlat(f.store(), none, predCols, null, null, groupCol,
-              aggCols, null, 0, f.store().rowGroupCount(), new NumericGroupAggTable(1, 64).attachWorkspace(workspace),
-              missing, -1, null, null, null, false, null, tables),
+          () -> ProjectionColumnGroupScan.aggregateByGroupNumericFlat(store, none, predCols, null, null, groupCol,
+              aggCols, null, 0, rowGroups, out, missing, -1, null, null, null, false, null, tables),
           "segment tables without a length mode per aggregate name no operand");
     }
   }

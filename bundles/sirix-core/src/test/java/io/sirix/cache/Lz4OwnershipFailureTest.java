@@ -69,8 +69,8 @@ final class Lz4OwnershipFailureTest {
           throw failure;
         });
       };
-      assertSame(failure,
-          assertThrows(OutOfMemoryError.class, () -> codec.decompressScoped(MemorySegment.ofArray(encoded))));
+      final MemorySegment encodedSegment = MemorySegment.ofArray(encoded);
+      assertSame(failure, assertThrows(OutOfMemoryError.class, () -> codec.decompressScoped(encodedSegment)));
       afterDecode[0] = null;
       allocator.scratch().setSparePublicationHookForTesting(null);
       assertEquals(committed, allocator.getPhysicalMemoryBytes());

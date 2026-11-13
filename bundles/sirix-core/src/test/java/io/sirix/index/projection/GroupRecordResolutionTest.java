@@ -54,15 +54,15 @@ final class GroupRecordResolutionTest {
       int owned = 0;
       for (int key = 1; key <= 4_000; key++) {
         final boolean inPass = NumericGroupAggTable.partitionOf(key, shift) == 1;
-        final long record = table.acquireAccumulator(key, key, COLUMNS, 4);
-        GroupKernelLanes.increment(record, 0);
+        final long oneStepRecord = table.acquireAccumulator(key, key, COLUMNS, 4);
+        GroupKernelLanes.increment(oneStepRecord, 0);
         final int handle = table.acquire(key, key);
         assertEquals(inPass, handle != NumericGroupAggTable.DISCARD_HANDLE);
         if (inPass) {
           owned++;
           assertEquals(1L, GroupKernelLanes.get(table.accumulatorAt(handle, COLUMNS, 4), 0));
         } else {
-          assertEquals(GroupKernelLanes.get(record, 0),
+          assertEquals(GroupKernelLanes.get(oneStepRecord, 0),
               GroupKernelLanes.get(table.accumulatorAt(handle, COLUMNS, 4), 0),
               "the discard handle resolves to the block the one step folded into");
         }
@@ -96,6 +96,8 @@ final class GroupRecordResolutionTest {
     }
   }
 
+  // The chain is the call under test: debug mode refuses in storageAtAccBase, else in accumulator.
+  @SuppressWarnings("java:S5778")
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void aTableOfAClosedWorkspaceRefusesToProbe(final boolean dense) {
@@ -149,9 +151,9 @@ final class GroupRecordResolutionTest {
       assertTrue(table.storageChunkCount() > 8, "the table spans many full chunks");
       assertTrue(workspace.chunksReused() > 0, "chunks a growth emptied served a grown table");
       for (int key = 1; key <= groups; key++) {
-        final long record = table.accumulatorAt(table.acquire(key, -1L), COLUMNS, 4);
-        assertEquals(key, GroupKernelLanes.get(record, 0));
-        assertEquals(key, GroupKernelLanes.get(record, 1));
+        final long groupRecord = table.accumulatorAt(table.acquire(key, -1L), COLUMNS, 4);
+        assertEquals(key, GroupKernelLanes.get(groupRecord, 0));
+        assertEquals(key, GroupKernelLanes.get(groupRecord, 1));
       }
       assertEquals(groups, table.size());
       final long live = workspace.chunksCarved() + workspace.chunksReused() - workspace.chunksGiven();
@@ -172,7 +174,8 @@ final class GroupRecordResolutionTest {
       if (GroupKernelLanes.DEBUG) {
         // A debug record names its footprint, not only where it starts.
         assertNotEquals(missingRecord, missing.record(0, 2));
-        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.get(missing.record(0, 2), 2));
+        final long twoLaneRecord = missing.record(0, 2);
+        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.get(twoLaneRecord, 2));
       }
       for (int row = 0; row < 100_000; row++) {
         GroupKernelLanes.increment(missingRecord, 0);

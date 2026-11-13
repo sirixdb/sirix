@@ -96,6 +96,8 @@ final class FallbackScratchTest {
     }
   }
 
+  // The lease's repeated close() is what is asserted; the allocator has shutdown(), not close().
+  @SuppressWarnings("java:S2093")
   @Test
   void aBorrowWithinTheLargestSegmentIsTheAllocatorsOwnAllocation() {
     final FrameSlotAllocator frames = new FrameSlotAllocator(64 * MIB);

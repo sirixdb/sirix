@@ -212,7 +212,7 @@ final class GroupTableSpillPassPlanTest {
   @DisplayName("the dense layout's index chunks follow the stripes: reused by the next table, handed back by the release, returned by the scan's close")
   void releasedIndexChunksAreTheNextTablesIndex() {
     final GroupWorkspace workspace = new GroupWorkspace();
-    try {
+    try (workspace) {
       // Eight lanes per stripe is above the dense crossing, and a hint whose capacity spans whole
       // index chunks gives the index the stripes' chunk length: one free list serves both.
       final GroupTableSpill spill =
@@ -263,8 +263,6 @@ final class GroupTableSpillPassPlanTest {
       assertTrue(workspace.spareChunks(lanes) > 0, "the released pass's chunks wait for the restart");
       assertEquals(borrowed, workspace.borrowedBytes());
       assertEquals(regions, workspace.regions(), "a release returns nothing to the allocator");
-    } finally {
-      workspace.close();
     }
     assertEquals(0, workspace.regions(), "the scan's close returns every region");
     assertTrue(workspace.isClosed());

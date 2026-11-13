@@ -323,7 +323,7 @@ final class ProjectionLaneKernelParityTest {
           });
         }
       }
-    } catch (final ArithmeticException overflow) {
+    } catch (final ArithmeticException _) {
       return Long.MIN_VALUE;
     }
     return total;
@@ -384,6 +384,8 @@ final class ProjectionLaneKernelParityTest {
       final boolean[] cellPresent = new boolean[KINDS.length];
       long recordKey = leaf * 100_000L + 1L;
       for (int row = 0; row < rows; row++) {
+        // The seed pins every row through this draw; nextLong(bound) would draw other values.
+        @SuppressWarnings("java:S2140")
         final long value = low == Long.MIN_VALUE && high == Long.MAX_VALUE
             ? rnd.nextLong()
             : low + (long) Math.floor(rnd.nextDouble() * (high - low + 1));

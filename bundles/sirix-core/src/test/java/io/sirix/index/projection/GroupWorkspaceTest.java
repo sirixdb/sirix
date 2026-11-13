@@ -65,6 +65,8 @@ final class GroupWorkspaceTest {
   }
 
   /** See {@link #settle()}; shared with the other tests that read the process allocator's figures. */
+  // The collector and a cleaner thread return a dropped workspace: there is no event to wait on.
+  @SuppressWarnings("java:S2925")
   static void letDroppedWorkspacesReturn() throws InterruptedException {
     int unchangedRounds = 0;
     long closed = GroupWorkspace.closedCount();
@@ -328,8 +330,8 @@ final class GroupWorkspaceTest {
       assertEquals(regions, workspace.regions(), "a table does not close the workspace of its scan");
       assertFalse(workspace.isClosed());
       try (GroupWorkspace other = new GroupWorkspace()) {
-        assertThrows(IllegalStateException.class,
-            () -> new NumericGroupAggTable(1, 64).attachWorkspace(workspace).attachWorkspace(other));
+        final NumericGroupAggTable attached = new NumericGroupAggTable(1, 64).attachWorkspace(workspace);
+        assertThrows(IllegalStateException.class, () -> attached.attachWorkspace(other));
       }
     }
     assertEquals(before.totalLentBuffers(), stats().totalLentBuffers());
@@ -353,6 +355,8 @@ final class GroupWorkspaceTest {
     assertThrows(IllegalStateException.class, () -> workspace.takeChunk(FULL_CHUNK));
   }
 
+  // The collector and a cleaner thread return the dropped workspace: there is no event to wait on.
+  @SuppressWarnings("java:S2925")
   @Test
   void aDroppedSelfReturningWorkspaceGivesItsRegionsBack() throws InterruptedException {
     final ScratchStats before = stats();

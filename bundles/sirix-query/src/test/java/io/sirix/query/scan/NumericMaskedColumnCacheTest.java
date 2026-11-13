@@ -154,13 +154,11 @@ final class NumericMaskedColumnCacheTest {
         }
       };
       try {
-        assertSame(failure, assertThrows(OutOfMemoryError.class, () -> {
-          if (point.equals("task-lease")) {
-            owner.acquireTaskLease();
-          } else {
-            cache.lookup(store, FIELDS, KEYS);
-          }
-        }));
+        if (point.equals("task-lease")) {
+          assertSame(failure, assertThrows(OutOfMemoryError.class, owner::acquireTaskLease));
+        } else {
+          assertSame(failure, assertThrows(OutOfMemoryError.class, () -> cache.lookup(store, FIELDS, KEYS)));
+        }
       } finally {
         DerivedCacheBudget.handoffHookForTesting = null;
       }
@@ -175,6 +173,8 @@ final class NumericMaskedColumnCacheTest {
     }
   }
 
+  // One entry's life from reservation to eviction, checked step by step on the state it shares.
+  @SuppressWarnings("java:S5961")
   @Test
   void aReservedSelectionIsPublishedOnceAndServedThroughLeasedViews() {
     final ProjectionColumnStore store = store();
@@ -451,8 +451,9 @@ final class NumericMaskedColumnCacheTest {
         view(store, store.columnMaskedView(0, NO_FETCH, KEEP, new LaneTarget(reservation.slab(), bases)));
     assertFalse(view.isImmutableRevision(), "never marked: a mutable revision's view");
     assertThrows(IllegalStateException.class, () -> cache.publish(reservation, store, FIELDS, KEYS, view, new int[0]));
+    final ProjectionColumnStore anotherStore = store();
     assertThrows(IllegalArgumentException.class,
-        () -> cache.publish(reservation, store(), FIELDS, KEYS, view, new int[0]), "a view belongs to its store");
+        () -> cache.publish(reservation, anotherStore, FIELDS, KEYS, view, new int[0]), "a view belongs to its store");
     reservation.close();
     assertEquals(0, budget.metrics().inFlightBytes(), "a reservation closed unpublished refunds the share");
     assertEquals(0, allocator.getSlabBytes());
@@ -729,8 +730,9 @@ final class NumericMaskedColumnCacheTest {
       assertSame(lanes.firstKeyArrays(), lanes.firstKeyArrays(), "built once");
       assertThrows(IllegalStateException.class, () -> KeyLanes.copyInto(slab, bases, new long[][] {{10L}}, store),
           "a lane holds every row of its leaf");
-      assertThrows(IllegalArgumentException.class,
-          () -> KeyLanes.copyInto(slab, new long[] {slab.byteSize()}, store.recordKeysMasked(NO_FETCH, KEEP), store),
+      final long[] baseOutsideTheSlab = {slab.byteSize()};
+      final long[][] recordKeys = store.recordKeysMasked(NO_FETCH, KEEP);
+      assertThrows(IllegalArgumentException.class, () -> KeyLanes.copyInto(slab, baseOutsideTheSlab, recordKeys, store),
           "a lane outside the slab (slabs round up to whole pages)");
       final KeyLanes pruned = KeyLanes.copyInto(slab, new long[] {-1L}, new long[][] {new long[0]}, store);
       assertFalse(pruned.has(0));
@@ -739,6 +741,10 @@ final class NumericMaskedColumnCacheTest {
     } finally {
       Allocators.getInstance().releaseSlab(slab);
     }
+  }
+
+  @Test
+  void keyLanesOnHeapViewTheirArraysInPlace() {
     final KeyLanes heap = KeyLanes.onHeap(new long[][] {{10L, 11L}, new long[0], null});
     assertTrue(heap.has(0));
     assertFalse(heap.segment(0).isNative(), "the allocator-refused fallback views the array");

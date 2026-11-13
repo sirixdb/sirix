@@ -100,8 +100,8 @@ final class GroupAddressDifferentialTest {
           oracle[base + 3] = Math.max(oracle[base + 3], value);
         }
       }
-      final long record = acquireRecord(table, identity, identities, resolution, key, row);
-      ProjectionColumnGroupScan.foldNumericPlainWordLane(record, lanes, bases, present, COLUMNS, 0, 1L, -1L);
+      final long groupRecord = acquireRecord(table, identity, identities, resolution, key, row);
+      ProjectionColumnGroupScan.foldNumericPlainWordLane(groupRecord, lanes, bases, present, COLUMNS, 0, 1L, -1L);
     }
   }
 

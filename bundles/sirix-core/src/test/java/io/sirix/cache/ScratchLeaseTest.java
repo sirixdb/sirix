@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -87,7 +88,7 @@ final class ScratchLeaseTest {
   }
 
   @Test
-  void aBorrowIsRoundedUpToTheNextCapacity() {
+  void aSizeMapsToTheSmallestCapacityThatHoldsIt() {
     assertEquals(SMALL_4K, FrameScratch.classForSize(1));
     assertEquals(SMALL_4K, FrameScratch.classForSize(4 * KIB));
     assertEquals(1, FrameScratch.classForSize(4 * KIB + 1));
@@ -108,7 +109,10 @@ final class ScratchLeaseTest {
       assertEquals(capacityClass, FrameScratch.classForSize(capacity));
       assertEquals(capacityClass, FrameScratch.classForSize(capacity - 1));
     }
+  }
 
+  @Test
+  void aBorrowIsRoundedUpToTheNextCapacity() {
     final FrameSlotAllocator allocator = allocator(BUDGET, IDLE);
     try (ScratchLease slot = new ScratchLease(allocator).acquire(100, ScratchUse.READ);
         ScratchLease region = new ScratchLease(allocator).acquire(300 * KIB, ScratchUse.READ);
@@ -209,7 +213,7 @@ final class ScratchLeaseTest {
     assertEquals(5 * 80_000, after.totalAcquisitions() - before.totalAcquisitions());
     assertEquals(0, after.totalCreated() - before.totalCreated(), "every borrow reused a resident buffer");
     assertEquals(0, leastAllocated, "a warm borrow builds no view, no handle and no bookkeeping object");
-    assertTrue(sink != 0L);
+    assertNotEquals(0L, sink);
   }
 
   /**
@@ -362,6 +366,8 @@ final class ScratchLeaseTest {
     assertEquals(1, allocator.scratchStats().totalIdleBuffers());
   }
 
+  // The finally stops the pool; the lease is returned by the racing closes that are under test.
+  @SuppressWarnings("java:S2093")
   @Test
   void aBorrowCanBeHandedToAnotherThreadAndRacingClosesReturnItOnce() throws Exception {
     final FrameSlotAllocator allocator = allocator(BUDGET, IDLE);
@@ -470,6 +476,8 @@ final class ScratchLeaseTest {
     }
   }
 
+  // Fourteen leases are held at once, in a list: a resource specification cannot declare them.
+  @SuppressWarnings("java:S2093")
   @Test
   void idleLargerCapacitiesServeOtherClassesAtTheCommitmentLimit() {
     for (final boolean mandatory : new boolean[] {true, false}) {
@@ -547,6 +555,8 @@ final class ScratchLeaseTest {
     }
   }
 
+  // The finally restores the pressure listener; the lease holds nothing, as every borrow fails.
+  @SuppressWarnings("java:S2093")
   @Test
   void aMandatoryBorrowThatNoBudgetHoldsFailsAtOnce() {
     final FrameSlotAllocator allocator = allocator(4 * MIB, IDLE);
@@ -718,6 +728,8 @@ final class ScratchLeaseTest {
     assertEquals(0, stats.staleReleases());
   }
 
+  // The finally restores the poison seam; each close of the lease is a step of the scenario.
+  @SuppressWarnings("java:S2093")
   @Test
   @ResourceLock(POISON_LOCK)
   void aBufferIsNotZeroedAndTheTestSeamPoisonsAReturnedOne() {
@@ -744,6 +756,8 @@ final class ScratchLeaseTest {
     }
   }
 
+  // The finally stops the pool; each worker returns its two leases every round, as a tested step.
+  @SuppressWarnings("java:S2093")
   @Test
   void concurrentBorrowersNeverShareABuffer() throws Exception {
     final int workers = 8;
@@ -832,7 +846,8 @@ final class ScratchLeaseTest {
     final ScratchStats stats = allocator.scratchStats();
     assertEquals(0, stats.totalIdleBuffers());
     assertEquals(stats.totalCreated(), stats.totalReclaimed());
-    assertThrows(IllegalStateException.class, () -> new ScratchLease(allocator).acquire(4 * KIB, ScratchUse.PAGE));
+    final ScratchLease afterShutdown = new ScratchLease(allocator);
+    assertThrows(IllegalStateException.class, () -> afterShutdown.acquire(4 * KIB, ScratchUse.PAGE));
   }
 
   @Test

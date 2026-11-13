@@ -85,13 +85,16 @@ final class DenseGlobalGroupAggTableTest {
       table.foldLane(2L, 11L, values, bases, presence, 1, 0, 0, 0, roster, decline);
       assertArrayEquals(new long[] {1L, 9L, 1L, 17L, 17L, 17L}, GroupLanes.toArray(table.zeroSlot(), 0, 6));
       assertArrayEquals(new long[] {1L, 11L, 1L, 17L, 17L, 17L}, GroupLanes.toArray(table.lanes(), 6, 6));
-      assertThrows(IndexOutOfBoundsException.class, () -> table.lanes().accumulator(1, 1, 4));
-      assertThrows(IndexOutOfBoundsException.class, () -> table.lanes().accumulator(0, 2, 4));
+      final GroupBuffer lanes = table.lanes();
+      assertThrows(IndexOutOfBoundsException.class, () -> lanes.accumulator(1, 1, 4));
+      assertThrows(IndexOutOfBoundsException.class, () -> lanes.accumulator(0, 2, 4));
       table.foldLane(3L, 1L, values, bases, presence, 1, 0, 0, 0, roster, decline);
       assertEquals(1L, decline[0]);
       workspace.close();
-      assertThrows(IllegalStateException.class, () -> GroupLanes.get(table.zeroSlot(), 0));
-      assertThrows(IllegalStateException.class, () -> GroupLanes.get(table.lanes(), 0));
+      final GroupBuffer closedZeroSlot = table.zeroSlot();
+      assertThrows(IllegalStateException.class, () -> GroupLanes.get(closedZeroSlot, 0));
+      final GroupBuffer closedLanes = table.lanes();
+      assertThrows(IllegalStateException.class, () -> GroupLanes.get(closedLanes, 0));
       assertThrows(IllegalStateException.class,
           () -> table.foldLane(1L, 1L, values, bases, presence, 1, 0, 0, 0, roster, decline));
     } finally {

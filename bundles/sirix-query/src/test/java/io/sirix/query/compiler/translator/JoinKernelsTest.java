@@ -6,6 +6,7 @@ package io.sirix.query.compiler.translator;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -384,7 +385,7 @@ final class JoinKernelsTest {
 
   private MemorySegment slab(final long bytes) {
     final MemorySegment slab = allocator.allocateSlab(bytes);
-    assertTrue(slab != null, "the test allocator refused " + bytes + " bytes");
+    assertNotNull(slab, "the test allocator refused " + bytes + " bytes");
     slabs.add(slab);
     return slab;
   }
@@ -433,13 +434,13 @@ final class JoinKernelsTest {
     }
     // Records: the slab lays them out (from, to, margin, meta, distinct); the heap (.., distinct,
     // meta).
-    for (int record = 0; record < expected.count; record++) {
-      final long at = packed.rowsBase + record * BucketedSide.STRIDE_BYTES;
-      assertEquals(expected.rows[record * STRIDE], SegmentAccess.getLong(packed.slab, at + BucketedSide.FROM));
-      assertEquals(expected.rows[record * STRIDE + 1], SegmentAccess.getLong(packed.slab, at + BucketedSide.TO));
-      assertEquals(expected.rows[record * STRIDE + 2], SegmentAccess.getLong(packed.slab, at + BucketedSide.MARGIN));
-      assertEquals(expected.rows[record * STRIDE + 3], SegmentAccess.getLong(packed.slab, at + BucketedSide.DISTINCT));
-      assertEquals(expected.rows[record * STRIDE + 4], SegmentAccess.getLong(packed.slab, at + BucketedSide.META));
+    for (int row = 0; row < expected.count; row++) {
+      final long at = packed.rowsBase + row * BucketedSide.STRIDE_BYTES;
+      assertEquals(expected.rows[row * STRIDE], SegmentAccess.getLong(packed.slab, at + BucketedSide.FROM));
+      assertEquals(expected.rows[row * STRIDE + 1], SegmentAccess.getLong(packed.slab, at + BucketedSide.TO));
+      assertEquals(expected.rows[row * STRIDE + 2], SegmentAccess.getLong(packed.slab, at + BucketedSide.MARGIN));
+      assertEquals(expected.rows[row * STRIDE + 3], SegmentAccess.getLong(packed.slab, at + BucketedSide.DISTINCT));
+      assertEquals(expected.rows[row * STRIDE + 4], SegmentAccess.getLong(packed.slab, at + BucketedSide.META));
     }
   }
 
@@ -544,7 +545,8 @@ final class JoinKernelsTest {
     for (int r = 0; r < ROWS; r++) {
       assertEquals(values[r], (long) JoinKernels.SLAB_LONG.get(view, base + 8L * r), "row " + r);
     }
-    assertThrows(IndexOutOfBoundsException.class, () -> JoinKernels.SLAB_LONG.get(view, slab.byteSize() - 4L),
+    final long offsetStraddlingTheEnd = slab.byteSize() - 4L;
+    assertThrows(IndexOutOfBoundsException.class, () -> JoinKernels.SLAB_LONG.get(view, offsetStraddlingTheEnd),
         "the view keeps the slab's bounds");
     // The view is a reader's handle, never the allocation: releasing through it is rejected, and the
     // slab goes back through the instance the allocator handed out (releaseSlabs).
@@ -614,7 +616,8 @@ final class JoinKernelsTest {
     final int total = BucketedSide.count(lanes, 0L, slots, bucketStart);
     assertTrue(BucketedSide.slabBytes(slots, total) > 4096L, "the side needs more than one slab page");
     final MemorySegment small = slab(4096L); // slabs round up to whole pages: one page is too small
+    final int[] bucketStartCopy = bucketStart.clone();
     assertThrows(IllegalArgumentException.class,
-        () -> BucketedSide.pack(small, lanes, 0L, slots, 7L, bucketStart.clone(), total));
+        () -> BucketedSide.pack(small, lanes, 0L, slots, 7L, bucketStartCopy, total));
   }
 }

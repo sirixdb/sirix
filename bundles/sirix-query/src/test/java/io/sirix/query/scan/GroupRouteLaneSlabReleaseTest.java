@@ -170,11 +170,12 @@ final class GroupRouteLaneSlabReleaseTest {
           SequentialPipelineStrategy.setVectorizedExecutor(exec);
         }
         final Sequence result = new Query(chain, query).execute(ctx);
-        final StringWriter out = new StringWriter();
-        try (PrintWriter pw = new PrintWriter(out)) {
-          new StringSerializer(pw).serialize(result);
+        try (StringWriter out = new StringWriter()) {
+          try (PrintWriter pw = new PrintWriter(out)) {
+            new StringSerializer(pw).serialize(result);
+          }
+          return out.toString();
         }
-        return out.toString();
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         if (exec != null) {

@@ -86,6 +86,8 @@ final class ParallelBulkChunkOwnershipTest {
     }
   }
 
+  // NeverTerminatingExecutor never terminates: ExecutorService.close() would wait on it forever.
+  @SuppressWarnings("java:S2093")
   @Test
   void interruptedAdoptionLeavesItsPendingChunkAvailableForUnwind(final @TempDir Path directory) throws Exception {
     final Path databasePath = directory.resolve("adoption-interrupt");
@@ -123,6 +125,8 @@ final class ParallelBulkChunkOwnershipTest {
     }
   }
 
+  // NeverTerminatingExecutor never terminates: ExecutorService.close() would wait on it forever.
+  @SuppressWarnings("java:S2093")
   @Test
   void aRunningBuildKeepsItsBufferUntilItLeaves() throws Exception {
     final ScratchStats before = Allocators.getInstance().scratchStats();
@@ -138,7 +142,8 @@ final class ParallelBulkChunkOwnershipTest {
         try {
           finish.await();
           permitted = true;
-        } catch (final InterruptedException ignored) {
+        } catch (final InterruptedException _) {
+          // The unwind cancels this build with an interrupt; it stays running until the test lets it go.
         }
       }
       try {

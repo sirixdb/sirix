@@ -139,7 +139,7 @@ final class AggregationGrantTest {
     final FutureTask<Long> second = new FutureTask<>(() -> {
       starting.countDown();
       try (AggregationGrant grant = budget.acquire(budget.capacity(), budget.capacity());
-          ScratchLease region = grant.borrow(64L << 10)) {
+          ScratchLease _ = grant.borrow(64L << 10)) {
         assertTrue(budget.grantedBytes() <= budget.capacity());
         return grant.capacity();
       }
@@ -167,9 +167,9 @@ final class AggregationGrantTest {
     final CountDownLatch starting = new CountDownLatch(1);
     final FutureTask<Boolean> second = new FutureTask<>(() -> {
       starting.countDown();
-      try (AggregationGrant ignored = budget.acquire(budget.capacity(), budget.capacity())) {
+      try (AggregationGrant _ = budget.acquire(budget.capacity(), budget.capacity())) {
         throw new AssertionError("the first scan still owns all capacity");
-      } catch (final CancellationException expected) {
+      } catch (final CancellationException _) {
         return Thread.currentThread().isInterrupted();
       }
     });
@@ -197,7 +197,8 @@ final class AggregationGrantTest {
       assertThrows(OutOfMemoryError.class, () -> lease.grow(4097, 1));
       assertEquals(4096, lease.capacity());
       assertEquals(4096, grant.usedBytes(), "a refused growth retains only the original region");
-      assertThrows(OutOfMemoryError.class, () -> budget.acquire(budget.capacity() + 1, budget.capacity() + 1));
+      final long beyondCapacity = budget.capacity() + 1;
+      assertThrows(OutOfMemoryError.class, () -> budget.acquire(beyondCapacity, beyondCapacity));
     } finally {
       allocator.shutdown();
     }

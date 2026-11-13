@@ -85,6 +85,8 @@ final class FusedSliceAndScanTest {
     assertEquals(0, stats().staleReleases() - before.staleReleases(), "a repeated release returns nothing twice");
   }
 
+  // ChunkBuffer's close() is the no-op InputStream gives it: only release() returns the slabs.
+  @SuppressWarnings("java:S2093")
   @Test
   void chunkBufferCopiesRangesThatCrossSlabs() {
     final int slabBytes = FusedSliceAndScan.ChunkBuffer.SLAB_BYTES;
@@ -108,7 +110,7 @@ final class FusedSliceAndScanTest {
   }
 
   @Test
-  void aReleasedChunkBufferReadsAsExhaustedAndRefusesAppends() throws IOException {
+  void aReleasedChunkBufferReadsAsExhaustedAndRefusesAppends() {
     final FusedSliceAndScan.ChunkBuffer buffer = new FusedSliceAndScan.ChunkBuffer();
     final byte[] prior = patternedBytes(FusedSliceAndScan.ChunkBuffer.SLAB_BYTES + 1, 3);
     buffer.append(prior, 0, prior.length);
@@ -234,18 +236,18 @@ final class FusedSliceAndScanTest {
   void namesCutByARefillResolveLikeNamesReadWhole() throws IOException {
     final StringBuilder json = new StringBuilder("[");
     final String longName = "n".repeat(300);
-    for (int record = 0; record < 60; record++) {
-      if (record > 0) {
+    for (int member = 0; member < 60; member++) {
+      if (member > 0) {
         json.append(',');
       }
-      if (record % 7 == 3) {
+      if (member % 7 == 3) {
         // Another key order and another key set: the per-position prediction misses.
-        json.append("{\"tags\":[\"a\",{\"id\":").append(record).append("}],\"id\":").append(record).append('}');
+        json.append("{\"tags\":[\"a\",{\"id\":").append(member).append("}],\"id\":").append(member).append('}');
       } else {
         json.append("{\"id\":")
-            .append(record)
+            .append(member)
             .append(",\"na\\\"me\":\"x")
-            .append(record)
+            .append(member)
             .append("\",\"")
             .append(longName)
             .append("\":null,\"gr\u00fc\u00dfe\":{\"id\":true,\"tags\":[1,2]}}");

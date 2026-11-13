@@ -183,17 +183,7 @@ final class DerivedCacheBudgetTest {
             throw failure;
           }
         };
-        assertSame(failure, assertThrows(OutOfMemoryError.class, () -> {
-          try (Reservation reservation = budget.numeric().reserve(100)) {
-            assertNotNull(reservation);
-            final Stub entry = new Stub(new Object(), null);
-            try {
-              reservation.publish(entry);
-            } finally {
-              entry.release();
-            }
-          }
-        }));
+        assertSame(failure, assertThrows(OutOfMemoryError.class, () -> fill(budget)));
         DerivedCacheBudget.handoffHookForTesting = null;
         assertEquals(0, allocator.getSlabBytes());
         assertEquals(committed, allocator.getPhysicalMemoryBytes());
@@ -207,6 +197,22 @@ final class DerivedCacheBudgetTest {
     } finally {
       DerivedCacheBudget.handoffHookForTesting = null;
       allocator.shutdown();
+    }
+  }
+
+  /**
+   * One fill of the numeric share as a publisher performs it: reserve, publish, drop the publisher's
+   * lease whatever the publication did, close the reservation.
+   */
+  private static void fill(final DerivedCacheBudget budget) {
+    try (Reservation reservation = budget.numeric().reserve(100)) {
+      assertNotNull(reservation);
+      final Stub entry = new Stub(new Object(), null);
+      try {
+        reservation.publish(entry);
+      } finally {
+        entry.release();
+      }
     }
   }
 
@@ -237,7 +243,8 @@ final class DerivedCacheBudgetTest {
         }
       }
       allocator.failRelease = true;
-      assertSame(evictionFailure, assertThrows(OutOfMemoryError.class, () -> budget.numeric().clear()));
+      final Partition numeric = budget.numeric();
+      assertSame(evictionFailure, assertThrows(OutOfMemoryError.class, numeric::clear));
       assertEquals(2, released[0], "each parent's final callback runs despite dependent and native release failures");
       assertEquals(2, allocator.releases);
       assertEquals(0, delegate.getSlabBytes());
@@ -407,7 +414,7 @@ final class DerivedCacheBudgetTest {
     // Release whatever a failed assertion left behind so the allocator can shut down.
     try {
       allocator.shutdown();
-    } catch (final IllegalStateException leaked) {
+    } catch (final IllegalStateException _) {
       // Reported through the failing assertion; the virtual reservation ends with the process.
     }
   }
@@ -433,7 +440,8 @@ final class DerivedCacheBudgetTest {
       reservation.close();
       assertEquals(0, budget.metrics().inFlightBytes(), "closing twice releases once");
       assertEquals(0, allocator.getSlabBytes());
-      assertThrows(IllegalArgumentException.class, () -> budget.numeric().reserve(0));
+      final Partition numeric = budget.numeric();
+      assertThrows(IllegalArgumentException.class, () -> numeric.reserve(0));
       final DerivedCacheBudget disabled = new DerivedCacheBudget(allocator, 800, 0);
       assertNull(disabled.numeric().reserve(1));
       assertNull(disabled.packed().reserve(1));

@@ -56,8 +56,10 @@ final class MapGroupWorkspaceTest {
       assertTrue(strings.get("a").isNative());
       assertTrue(numeric.get(7L).isNative());
       workspace.close();
-      assertThrows(IllegalStateException.class, () -> GroupLanes.get(strings.get("a"), 0));
-      assertThrows(IllegalStateException.class, () -> GroupLanes.get(numeric.get(7L), 0));
+      final GroupBuffer closedStringGroup = strings.get("a");
+      assertThrows(IllegalStateException.class, () -> GroupLanes.get(closedStringGroup, 0));
+      final GroupBuffer closedNumericGroup = numeric.get(7L);
+      assertThrows(IllegalStateException.class, () -> GroupLanes.get(closedNumericGroup, 0));
       for (final GroupBuffer buffer : composite.values()) {
         assertThrows(IllegalStateException.class, () -> GroupLanes.get(buffer, 0));
       }
@@ -75,9 +77,10 @@ final class MapGroupWorkspaceTest {
       page.appendRow(0L, new long[] {7L}, new boolean[1], new String[1]);
       workspace.newBlock(16_382);
       final GroupBuffer missing = ProjectionIndexByteScan.newGroupAggAcc(workspace, 0, Long.MAX_VALUE);
-      assertThrows(OutOfMemoryError.class,
-          () -> ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(workspace, List.of(page.serialize()),
-              new ProjectionIndexScan.ColumnPredicate[0], 0, new int[0], new Long2ObjectOpenHashMap<>(), missing, 0));
+      final List<byte[]> leaves = List.of(page.serialize());
+      final Long2ObjectOpenHashMap<GroupBuffer> out = new Long2ObjectOpenHashMap<>();
+      assertThrows(OutOfMemoryError.class, () -> ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(workspace,
+          leaves, new ProjectionIndexScan.ColumnPredicate[0], 0, new int[0], out, missing, 0));
     } finally {
       assertEquals(0L, allocator.aggregationBudget().grantedBytes());
       allocator.shutdown();

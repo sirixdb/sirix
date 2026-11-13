@@ -16,7 +16,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The serialization sink owns no storage: it writes into allocator scratch, grows by borrowing the
@@ -173,7 +172,7 @@ final class PooledGrowingSegmentTest {
       }
       assertEquals(lentBefore + 1, stats().totalLentBuffers(),
           "closing a sink over a segment handed to it leaves the segment to its borrower");
-      assertTrue(segment.position() == chunk.length);
+      assertEquals(chunk.length, segment.position());
     }
     assertEquals(lentBefore, stats().totalLentBuffers());
   }

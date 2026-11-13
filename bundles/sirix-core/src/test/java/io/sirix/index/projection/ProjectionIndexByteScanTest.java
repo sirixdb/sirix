@@ -1079,10 +1079,12 @@ final class ProjectionIndexByteScanTest {
       page.appendRow(i, new long[] {1L, Long.MAX_VALUE / 2}, new boolean[2], new String[2]);
     }
     try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final List<byte[]> leaves = List.of(page.serialize());
+      final Long2ObjectOpenHashMap<GroupBuffer> out = new Long2ObjectOpenHashMap<>();
+      final GroupBuffer missingAcc = ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE);
       assertThrows(ArithmeticException.class,
-          () -> ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(workspace, List.of(page.serialize()),
-              new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, new Long2ObjectOpenHashMap<>(),
-              ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE), 0));
+          () -> ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(workspace, leaves,
+              new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, out, missingAcc, 0));
     }
   }
 

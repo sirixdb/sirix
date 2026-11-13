@@ -13,6 +13,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -142,8 +143,8 @@ final class CodecScratchTest {
     final FFILz4Compressor failing = spy(new FFILz4Compressor());
     doThrow(failure).when(failing).decompressSegment(any(MemorySegment.class), any(MemorySegment.class), anyInt());
     doThrow(failure).when(failing).decompressSegmentFast(any(MemorySegment.class), any(MemorySegment.class), anyInt());
-    assertSame(failure,
-        assertThrows(OutOfMemoryError.class, () -> failing.decompressScoped(MemorySegment.ofArray(encoded))));
+    final MemorySegment encodedSegment = MemorySegment.ofArray(encoded);
+    assertSame(failure, assertThrows(OutOfMemoryError.class, () -> failing.decompressScoped(encodedSegment)));
     assertEquals(before.lentBytes(), stats().lentBytes());
     assertEquals(active, allocator.getActiveMemoryBytes());
     assertEquals(committed, allocator.getPhysicalMemoryBytes());
@@ -168,7 +169,8 @@ final class CodecScratchTest {
     final ScratchStats start = stats();
     final long activeBefore =
         assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance()).getActiveMemoryBytes();
-    assertThrows(SirixIOException.class, () -> lz4.decompressScoped(MemorySegment.ofArray(lying)));
+    final MemorySegment lyingSegment = MemorySegment.ofArray(lying);
+    assertThrows(SirixIOException.class, () -> lz4.decompressScoped(lyingSegment));
     final ScratchStats refused = stats();
     assertEquals(1, borrows(refused) - borrows(start), "the refused payload had its native input copy");
     assertEquals(start.totalLentBuffers(), refused.totalLentBuffers(), "which went back on the way out");
@@ -210,8 +212,9 @@ final class CodecScratchTest {
 
     // A payload cut short inside its compressed bytes is refused; the landing area goes back.
     final byte[] truncated = Arrays.copyOf(wire, wire.length - 16);
+    final BytesIn<MemorySegment> truncatedSource = Bytes.wrapForRead(nativeCopy(truncated));
     assertThrows(RuntimeException.class,
-        () -> persister.deserializePage(CONFIG, Bytes.wrapForRead(nativeCopy(truncated)), SerializationType.DATA));
+        () -> persister.deserializePage(CONFIG, truncatedSource, SerializationType.DATA));
     assertEquals(lent, stats().totalLentBuffers(), "a refused payload returned its landing area");
   }
 

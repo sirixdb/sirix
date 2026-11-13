@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /** A steady-state row must not allocate a resolved record or a lane wrapper. */
 final class GroupRecordAllocationTest {
   private static final int ROWS = 100_000;
+  // Write-only on purpose: each resolved buffer escapes here, so scalar replacement hides none.
+  @SuppressWarnings("java:S1068")
   private static volatile GroupBuffer retained;
 
   @Test
@@ -58,12 +60,12 @@ final class GroupRecordAllocationTest {
       // A caller may retain the resolved chunk: do not let scalar replacement hide wrappers.
       retained = buffer;
       // Each of the three resolutions a kernel can use, in turn.
-      final long record = switch (row % 3) {
+      final long groupRecord = switch (row % 3) {
         case 0 -> buffer.accumulator(table.offsetAtAccBase(handle), 1, 4);
         case 1 -> table.accumulatorAt(handle, 1, 4);
         default -> table.acquireAccumulator(key, row, 1, 4);
       };
-      ProjectionColumnGroupScan.foldNumericPlainWordLane(record, values, bases, presence, 1, 0, 1L, -1L);
+      ProjectionColumnGroupScan.foldNumericPlainWordLane(groupRecord, values, bases, presence, 1, 0, 1L, -1L);
     }
   }
 }

@@ -96,12 +96,12 @@ final class GroupRecordBoundaryTest {
         assertThrows(IndexOutOfBoundsException.class, () -> buffer.record(range[0], range[1]));
       }
       assertThrows(IllegalArgumentException.class, () -> buffer.accumulator(0, Integer.MAX_VALUE, 4));
-      final long record = buffer.record(13, 13);
-      GroupKernelLanes.set(record, 12, 77L);
+      final long upperRecord = buffer.record(13, 13);
+      GroupKernelLanes.set(upperRecord, 12, 77L);
       assertEquals(77L, GroupLanes.get(buffer, 25), "a record's lanes are relative to its first");
       if (GroupKernelLanes.DEBUG) {
-        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.set(record, -1, 1L));
-        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.set(record, 13, 1L));
+        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.set(upperRecord, -1, 1L));
+        assertThrows(IndexOutOfBoundsException.class, () -> GroupKernelLanes.set(upperRecord, 13, 1L));
       }
       assertEquals(0L, GroupLanes.get(buffer, 12));
     }
@@ -111,7 +111,7 @@ final class GroupRecordBoundaryTest {
   void reuseAndClosureInvalidateEveryOldView() {
     try (GroupWorkspace workspace = new GroupWorkspace(); GroupWorkspace other = new GroupWorkspace()) {
       final GroupBuffer original = workspace.takeChunk(128);
-      final long record = original.record(13, 13);
+      final long originalRecord = original.record(13, 13);
       assertThrows(IllegalArgumentException.class, () -> other.giveChunk(original));
       workspace.giveChunk(original);
       assertThrows(IllegalStateException.class, () -> workspace.giveChunk(original));
@@ -123,7 +123,7 @@ final class GroupRecordBoundaryTest {
       assertThrows(IllegalStateException.class, () -> original.record(13, 13), "nor can it be resolved again");
       if (GroupKernelLanes.DEBUG) {
         // The record names the generation it was resolved from, not the memory the next table took.
-        assertThrows(IllegalStateException.class, () -> GroupKernelLanes.set(record, 0, 99L));
+        assertThrows(IllegalStateException.class, () -> GroupKernelLanes.set(originalRecord, 0, 99L));
       }
       assertEquals(19L, GroupLanes.get(reused, 13));
       workspace.close();

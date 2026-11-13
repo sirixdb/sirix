@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /** The metrics snapshot is a value: equal counter contents must not depend on array identity. */
 final class ScratchStatsValueTest {
+  // assertNotEquals calls unexpected.equals(actual): the snapshot comes first to test equals(null).
+  @SuppressWarnings("java:S3415")
   @Test
   void comparesEveryCounterAndArrayByValue() {
     final ScratchStats expected = snapshot(-1);
