@@ -7,8 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /** The metrics snapshot is a value: equal counter contents must not depend on array identity. */
 final class ScratchStatsValueTest {
-  // assertNotEquals calls unexpected.equals(actual): the snapshot comes first to test equals(null).
-  @SuppressWarnings("java:S3415")
   @Test
   void comparesEveryCounterAndArrayByValue() {
     final ScratchStats expected = snapshot(-1);
@@ -18,7 +16,9 @@ final class ScratchStatsValueTest {
     for (int component = 0; component < 15; component++) {
       assertNotEquals(expected, snapshot(component), "different metric component " + component);
     }
-    assertNotEquals(expected, null);
+    // equals(null) is the call under test: with null first, JUnit would never ask the snapshot.
+    final Object absent = null;
+    assertNotEquals(expected, absent);
     final Object unrelated = "metrics";
     assertNotEquals(expected, unrelated);
   }

@@ -684,8 +684,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * the new owner's slab.
    */
   // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
-  // failure
-  // is rethrown.
+  // failure is rethrown.
   @SuppressWarnings("java:S1181")
   private @Nullable MemorySegment reuseRecycledSlab(final long mapped) {
     final ConcurrentLinkedDeque<SlabAllocation> free = recycledSlabs.get(mapped);
@@ -718,8 +717,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * (reserveCommittedBytesUpTo).
    */
   // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
-  // failure
-  // is rethrown.
+  // failure is rethrown.
   @SuppressWarnings("java:S1181")
   private @Nullable MemorySegment mapFreshSlab(final long mapped) {
     if (!reserveCommittedBytes(mapped)) {
@@ -928,8 +926,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * chunks avoid persistent G1 humongous arrays without adding hot-path allocation.
    */
   // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
-  // failure
-  // is rethrown.
+  // failure is rethrown.
   @SuppressWarnings("java:S1181")
   private static SizeClass[] reserveSizeClasses(final long budgetBytes) {
     final SizeClass[] cls = new SizeClass[SIZE_CLASSES.length];

@@ -75,7 +75,7 @@ final class GroupAccessorSizeTest {
           + size(table, outlined) + " bytecodes: small enough to be compiled into acquire, which then is not inlined");
     }
     final Map<String, Integer> buffer = sizes(GroupBuffer.class);
-    for (final String resolution : List.of("record", "accumulator")) {
+    for (final String resolution : List.of("recordAt", "accumulator")) {
       assertTrue(size(buffer, resolution) <= NEVER_INLINED);
     }
   }

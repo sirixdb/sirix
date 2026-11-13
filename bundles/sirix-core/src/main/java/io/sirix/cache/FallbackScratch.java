@@ -174,8 +174,7 @@ final class FallbackScratch extends ScratchSource {
    * refunds on failure.
    */
   // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
-  // failure
-  // is rethrown.
+  // failure is rethrown.
   @SuppressWarnings("java:S1181")
   private ScratchCarrier mappedCarrier(final long mapped) {
     try {

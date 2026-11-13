@@ -2153,8 +2153,7 @@ public final class ProjectionColumnStore {
    * @throws IllegalStateException on missing/corrupt segments or a non-sliceable column
    */
   // Sonar S1143, S1163: cleanup is rethrown only without a primary failure. Otherwise it is
-  // suppressed
-  // on that failure.
+  // suppressed on that failure.
   // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
   // failure is rethrown with later ones attached.
   @SuppressWarnings({"java:S1143", "java:S1163", "java:S1181"})
