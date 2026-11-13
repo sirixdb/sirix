@@ -111,8 +111,8 @@ final class KeyLanes {
   }
 
   /**
-   * The allocator-refused fallback: the decoded heap arrays viewed as heap segments. A leaf without a
-   * key array has no lane; a pruned or rowless leaf's empty array is an empty lane.
+   * Decoded heap arrays viewed as heap segments when no slab is needed. A leaf without a key array
+   * has no lane; a pruned or rowless leaf's empty array is an empty lane.
    */
   static KeyLanes onHeap(final long[][] keys) {
     final MemorySegment[] segments = new MemorySegment[keys.length];

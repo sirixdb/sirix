@@ -246,7 +246,7 @@ public class JoinKernelBenchmark {
 
     private BucketedSide shippedPack(final SideLanes lanes) {
       final int[] bucketStart = new int[slots + 1];
-      final int total = BucketedSide.count(lanes, 0L, slots, bucketStart);
+      final int total = BucketedSide.countByBucket(lanes, 0L, slots, bucketStart);
       final MemorySegment slab = allocate(BucketedSide.slabBytes(slots, total));
       slabs.add(slab);
       return BucketedSide.pack(slab, lanes, 0L, slots, 0L, bucketStart, total);
@@ -1140,7 +1140,7 @@ public class JoinKernelBenchmark {
   public long packShipped(final Packed packed, final PackScratch scratch) {
     final int[] bucketStart = scratch.bucketStart;
     Arrays.fill(bucketStart, 0);
-    final int total = BucketedSide.count(packed.probeLanes, 0L, packed.slots, bucketStart);
+    final int total = BucketedSide.countByBucket(packed.probeLanes, 0L, packed.slots, bucketStart);
     final BucketedSide side =
         BucketedSide.pack(scratch.slab, packed.probeLanes, 0L, packed.slots, 0L, bucketStart, total);
     return side.count + SegmentAccess.getLong(side.slab, side.rowsBase);

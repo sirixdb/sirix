@@ -43,10 +43,10 @@ public final class ProjectionColumnGroupScan {
 
   private ProjectionColumnGroupScan() {}
 
-  /** Rows per selection word, hence rows per gathered value window. */
+  /** Rows per selection word. */
   static final int WINDOW_ROWS = 64;
 
-  /** A query with no conditional key component: no condition lane to resolve or to gather. */
+  /** A query with no conditional key component: no condition lane to resolve. */
   private static final MemorySegment[] NO_COND_SEGMENTS = new MemorySegment[0];
 
   private static final long[] NO_COND_BASES = new long[0];
@@ -1184,8 +1184,7 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
-   * {@link #foldSlicedLane} reading the lanes in place instead of a gathered window: one checked
-   * segment read per surviving row, which is the cheaper side below the gather crossover.
+   * Fold one surviving row through checked segment reads, with no gathered value window.
    */
   // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
   // operand object would cost a load at every use.

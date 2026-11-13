@@ -16,21 +16,12 @@ import java.util.concurrent.atomic.LongAdder;
  *
  * <p>
  * <b>Pins are also the proof that a column may be freed.</b> A store's numeric columns live in
- * allocator slabs that are unmapped on release, so a release must know that no query reads them:
- * every executor-driven read runs inside a scope (the executor opens one per top-level call whether
- * or not the headroom share gates retention), and a store frees a column only when its pin count is
- * zero — at a scope exit over the share, when a fit door makes room, and when its handle leaves the
- * catalog ({@link ProjectionColumnStore#retire()}). See docs/DERIVED_QUERY_CACHES.md, "Column
- * lanes".
- * </p>
- *
- * <p>
- * <b>Why a scope and not an LRU.</b> A published fill is handed to running scan workers as plain
- * arrays. Evicting one on a size trigger, from a maintenance thread or a cache listener, would drop
- * the store's slot under a kernel that is mid-scan: correct in Java (the worker's own reference
- * keeps the arrays alive) but the ledger would then under-count live bytes and admit a second fill
- * beside the first. Tying the release to a query boundary removes both the timer and the guesswork:
- * at the moment the last query that observed a column resident has left, nothing is scanning it.
+ * allocator slabs that may be recycled or unmapped on release, so a release must know that no query
+ * reads them: every executor-driven read runs inside a scope (the executor opens one per top-level
+ * call whether or not the headroom share gates retention), and a store frees a column only when its
+ * pin count is zero — at a scope exit over the share, when a fit door makes room, and when its
+ * handle leaves the catalog ({@link ProjectionColumnStore#retire()}). See
+ * docs/DERIVED_QUERY_CACHES.md, "Column lanes".
  * </p>
  *
  * <p>
@@ -39,8 +30,7 @@ import java.util.concurrent.atomic.LongAdder;
  * fill to "the" query would need the query identity threaded through every fill call and through
  * the worker pools that run them; over-pinning needs nothing, and its only effect is to postpone a
  * release by one query boundary. Under-pinning, by contrast, would let one query's close drop a
- * column a concurrent query had already routed itself onto — the mid-route decline this design
- * exists to avoid.
+ * column a concurrent query is reading, allowing its slab to be reused or unmapped mid-scan.
  * </p>
  *
  * <p>

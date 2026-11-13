@@ -209,6 +209,8 @@ public final class ProjectionColumnStore {
       return result;
     }
 
+    // Packed dictionary views are identified here, not expanded into diagnostic value arrays.
+    @SuppressWarnings("ObjectToString")
     @Override
     public String toString() {
       return "ColumnSlice[rowCount=" + rowCount + ", flags=" + flags + ", min=" + min + ", max=" + max
@@ -219,7 +221,7 @@ public final class ProjectionColumnStore {
           + ", packedStringIds=" + packedStringIds + ", lane=" + lane + "]";
     }
 
-    /** The shape every producer but the slab fill uses: no off-heap lane. */
+    /** Array-backed slice shape, also used for non-numeric columns and derived canonical IDs. */
     public ColumnSlice(final int rowCount, final byte flags, final long min, final long max, final long[] presenceWords,
         final long @Nullable [] numericValues, final long @Nullable [] boolWords, final int @Nullable [] stringDictIds,
         final byte @Nullable [] dictBytes, final int @Nullable [] dictOffsets, final int @Nullable [] setCounts,
@@ -240,8 +242,8 @@ public final class ProjectionColumnStore {
     }
 
     /**
-     * The numeric lane as a segment for the in-place kernels: the slab lane, or, for a producer not yet
-     * converted, its heap array viewed as a heap segment. Hoisted per leaf, never read per row.
+     * The numeric lane as a segment for the in-place kernels: native storage for decoded columns, or a
+     * heap-array view for record keys and derived canonical IDs. Hoisted per leaf, never read per row.
      */
     public MemorySegment laneSegment() {
       final NumericLane resident = lane;
@@ -790,7 +792,7 @@ public final class ProjectionColumnStore {
   /** Backstop for a store dropped without {@link #retire()}; see {@link ColumnSlabs#run()}. */
   private static final Cleaner SLAB_CLEANER = Cleaner.create();
   /**
-   * Fills that wanted a slab the allocator refused and decoded to the heap instead (observability).
+   * Slab fills the allocator refused, causing the caller to take its budget-decline path.
    */
   private static final LongAdder SLAB_FILLS_DECLINED = new LongAdder();
   /**
@@ -802,6 +804,8 @@ public final class ProjectionColumnStore {
   /**
    * Byte base of every leaf's lane in a whole-column slab (64-byte aligned, leaf order), its size.
    */
+  // The bases are immutable shared metadata; content equality and hashing are implemented below.
+  @SuppressWarnings("ArrayRecordComponent")
   private record LaneLayout(long[] leafBases, long bytes) {
 
     @Override
@@ -838,8 +842,8 @@ public final class ProjectionColumnStore {
    * from {@link #maskedLaneLayout}. After the call, exactly one of {@link #filled()} (the view reads
    * this slab) and {@link #resident()} (the view is the store's resident column, pruned; the caller
    * keeps that column pinned for as long as a view that outlives its query scope reads it) is set, or
-   * neither (the column decoded to heap arrays: no slab was given, the column carries no long lane,
-   * or the allocator refused the memory).
+   * neither (the view owns a separate masked slab, the column carries no long lane, or it is the KEYS
+   * column). Allocator refusal throws {@link FillBudgetExceededException}.
    */
   public static final class LaneTarget {
     private final @Nullable MemorySegment slab;
@@ -2156,7 +2160,7 @@ public final class ProjectionColumnStore {
   // suppressed on that failure.
   // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
   // failure is rethrown with later ones attached.
-  @SuppressWarnings({"java:S1143", "java:S1163", "java:S1181"})
+  @SuppressWarnings({"java:S1143", "java:S1163", "java:S1181", "Finally"})
   public ColumnSlice[] column(final int col, final ColumnSegmentFetcher fetcher) {
     requireSliceable(col);
     ColumnSlice[] slices = columns[col];
@@ -3069,6 +3073,8 @@ public final class ProjectionColumnStore {
   }
 
   /** Publish (or unpublish, with nulls) the three retained representations of {@code col} at once. */
+  // Identity decides whether the published array can be reused without cloning it.
+  @SuppressWarnings("ReferenceEquality")
   private void publishColumn(final int col, final ColumnSlice @Nullable [] slices,
       final ColumnSlice @Nullable [] identity, final byte[] @Nullable [] bodies) {
     assert Thread.holdsLock(this);
@@ -3668,8 +3674,8 @@ public final class ProjectionColumnStore {
   /**
    * {@link #columnMaskedView(int, ColumnSegmentFetcher, long[])} decoding a non-resident long-lane
    * column's surviving leaves into {@code target} (laid out by {@link #maskedLaneLayout}) instead of
-   * heap arrays, and reporting through it how the view was served. A resident column is served pruned
-   * from its own slab, whatever the target.
+   * a separately owned masked slab, and reporting through it how the view was served. A resident
+   * column is served pruned from its own slab, whatever the target.
    */
   public ColumnSlice[] columnMaskedView(final int col, final ColumnSegmentFetcher fetcher,
       final long @Nullable [] keepWords, final @Nullable LaneTarget target) {

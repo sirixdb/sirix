@@ -46,7 +46,7 @@ import static java.util.Objects.requireNonNull;
  * <p>
  * <b>Everything handed out is zero.</b> Allocator memory holds its previous borrower's bytes, a
  * returned chunk its last table's, and an all-zero chunk is what a group table reads as "every
- * bucket empty". A chunk is therefore cleared when it is taken, carved or returned alike, and not
+ * bucket empty". A chunk is therefore cleared when it is taken, whether carved or reused, and not
  * when it is given back: what is cleared is then in the cache for the table that asked for it, and
  * a chunk nobody takes again is never cleared at all. Returned buffer generations are permanently
  * invalid, even when a later table reuses the same bytes.
@@ -77,7 +77,7 @@ public final class GroupWorkspace implements AutoCloseable {
   /** The first region a workspace borrows: a small group-by never needs more. */
   static final long FIRST_REGION_BYTES = 64L << 10;
 
-  /** The size regions grow to; allocator regions of this size are unmapped when nobody needs them. */
+  /** The size regions grow to; returned regions follow the allocator's scratch recycling policy. */
   static final long MAX_REGION_BYTES = 2L << 20;
 
   private static final LongAdder OPENED_TOTAL = new LongAdder();
@@ -85,6 +85,8 @@ public final class GroupWorkspace implements AutoCloseable {
   private static final LongAdder REUSED_TOTAL = new LongAdder();
 
   /** The spare stack of a chunk length that has none yet. */
+  // The map key is unused; a helper would only adapt the no-argument constructor to IntFunction.
+  @SuppressWarnings("UnnecessaryLambda")
   private static final IntFunction<Spare> NEW_SPARE = _ -> new Spare();
 
   /**

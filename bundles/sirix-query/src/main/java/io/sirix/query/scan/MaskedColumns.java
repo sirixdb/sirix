@@ -338,8 +338,8 @@ public final class MaskedColumns implements AutoCloseable {
 
   /**
    * The segment holding the record keys of {@code leaf} (an admitted leaf): the slab of the cache
-   * entry, this view's own slab, or (allocator refusal) the heap array viewed as a segment. Row
-   * {@code r}'s key lies {@code 8 * r} bytes past {@link #keyBase(int)}.
+   * entry, this view's own slab, or a heap-array view when no slab is needed. Row {@code r}'s key
+   * lies {@code 8 * r} bytes past {@link #keyBase(int)}.
    */
   public MemorySegment keySegment(final int leaf) {
     return keys.segment(leaf);

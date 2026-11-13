@@ -2571,10 +2571,10 @@ public final class ProjectionColumnScan {
    * offset {@code laneBase}, ANDed into {@code mask}.
    *
    * <p>
-   * The lane is a store-owned slab for a decoded column and a heap array viewed as a segment for the
-   * producers that still decode to the heap (windowed slices, the KEYS chain). Both reach this kernel
-   * through {@link ColumnSlice#laneSegment()}, so there is no second array-shaped copy of this kernel
-   * to keep in step — and no caller can reach a value except through the lane.
+   * Decoded columns use store-owned slabs or borrowed window buffers; the KEYS chain uses a heap
+   * array viewed as a segment. Both reach this kernel through {@link ColumnSlice#laneSegment()}, so
+   * there is no second array-shaped copy of this kernel to keep in step — and no caller can reach a
+   * value except through the lane.
    * </p>
    */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines

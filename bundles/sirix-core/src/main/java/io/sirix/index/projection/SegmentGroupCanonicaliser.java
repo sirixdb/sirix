@@ -43,7 +43,7 @@ import static java.util.Objects.requireNonNull;
  * One dictionary resolve and one hash per DISTINCT CELL, cached for the whole query — never per
  * row. A leaf holds at most {@link ProjectionIndexRowGroupPage#MAX_ROWS} rows and therefore at most
  * that many distinct cells, and repeats across leaves cost a single {@code long} lookup. The
- * per-row work is one array read and one map lookup into a table that stays in cache.
+ * per-row work is one lane read and one map lookup into a table that stays in cache.
  *
  * <h2>Threading: a lock-free steady state</h2>
  *

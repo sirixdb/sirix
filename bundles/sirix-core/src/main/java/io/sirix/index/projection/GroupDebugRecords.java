@@ -15,16 +15,17 @@ import java.util.WeakHashMap;
  * <p>
  * Resolving a record in debug mode files the resolved footprint of its allocation here; the record
  * the kernel receives is that filing's number, not an address. Each lane access looks the footprint
- * up again, checks its bounds and goes through the allocation's bounded segment, so a lane
- * outside the footprint fails even when it lies inside the same chunk (the neighbouring stripe),
- * and a view of a chunk that has been handed back fails even after another table took the same
- * memory: the number names one footprint of one generation of one allocation, for as long as it is
- * used.
+ * up again, checks its bounds and goes through the allocation's bounded segment, so a lane outside
+ * the footprint fails even when it lies inside the same chunk (the neighbouring stripe), and a view
+ * of a chunk that has been handed back fails even after another table took the same memory: the
+ * number names one footprint of one generation of one allocation, for as long as it is used.
  *
  * <p>
  * The filings are per thread, because a record is used by the thread that resolved it, and the same
  * footprint resolved again answers the same number, so a row loop that resolves per row files once
- * per group. Filings of allocations that are gone are dropped when the file has grown.
+ * per group. Both indexes refer weakly to allocations so debug records cannot keep a workspace
+ * alive and prevent its automatic cleanup. Filings of allocations that are gone are dropped when
+ * the file has grown.
  */
 final class GroupDebugRecords {
 
@@ -146,7 +147,7 @@ final class GroupDebugRecords {
     return view.first() + lane;
   }
 
-  /** Drop the filings whose allocation was handed back or whose workspace is closed. */
+  /** Drop filings whose allocation was collected, handed back, or belongs to a closed workspace. */
   private void sweep() {
     views.values().removeIf(view -> !view.isLive());
     numbers.values().removeIf(footprints -> {

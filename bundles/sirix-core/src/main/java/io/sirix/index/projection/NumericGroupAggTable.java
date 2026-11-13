@@ -2091,7 +2091,7 @@ public final class NumericGroupAggTable {
    * into a per-partition append buffer instead of being probed into a shared table, and the
    * partition's table is built here, once, from those buffers after the scan. Semantics are those of
    * {@link #mergePartitionIndexed} — first-arrival aux, minimum first-seen ordinal, exact sums under
-   * the mask, identity lanes deciding membership — with one source array instead of a table.
+   * the mask, identity lanes deciding membership — with one source buffer instead of a table.
    *
    * @param stripes the buffer chunk; every stripe starts at a multiple of {@link #stride()} from
    *        {@code fromLane} and its key lane is non-zero
