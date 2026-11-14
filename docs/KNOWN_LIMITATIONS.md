@@ -201,26 +201,6 @@ else falls back to the generic (always correct) pipeline.
   publish/lookup guards exclude only the `-1` missing sentinel, so scans
   anchored on negative-hash fields populate and reuse the page-skip bitmap
   like everyone else (was: permanent full page sweeps).
-- **Multi-key group-by with a sparse anchor — re-anchor on a PROVABLY-DENSE
-  group field (scan path).** An anchor-based scan never visits a record missing
-  the anchor field, so a SPARSE anchor used to fail loudly even when another
-  group field was present on every record. The unpredicated multi-key kernel now
-  chooses the scan anchor among the group fields by PROVABLE density: a field is
-  dense iff the path summary's OBJECT_KEY reference count for its (unambiguously
-  resolved, query-scoped) path equals the top-level array's record total —
-  `getReferences()` is incremented once per referencing node, and for a
-  top-level array of objects a key occurs at most once per record, so equality
-  proves presence on every record. The scan then anchors on the dense field,
-  visits every record, and the remaining (possibly sparse) keys fall out as
-  their values, including the `'m'` missing bucket the typed encoder already
-  emits. Works for the dense field in ANY group-key position and across
-  provenance (jn:store / shredder). Density is never guessed: if NO group field
-  is provably dense (path summary off, nested source, ambiguous path, or every
-  candidate genuinely sparse) the kernel keeps the loud bail / projection
-  fallback. It also REFUSES to re-anchor when the FIRST group field is absent on
-  EVERY record — brackit's interpreter collapses such a grouping to a single
-  all-null tuple (an empty FIRST grouping key swallows the whole tuple), which a
-  dense-anchored scan cannot reproduce, so that shape fails closed.
 - **Aggregate edge semantics.** `avg`/`min`/`max` over zero contributing rows
   return the empty sequence (was a fabricated 0); `count(... return $u.f)`
   counts non-empty derefs of ANY value type (was: numeric values only, and
@@ -236,8 +216,9 @@ else falls back to the generic (always correct) pipeline.
   which HALF_EVEN-rounded terminating quotients away (`1.0 div 2.0` = 0,
   `10.2 div 4` = 2.6).
 
-- **Top-level multi-key grouping with all keys sparse (fixed):** when the top-level
-  record total is known, the scan completes a pass per group field, counts each
+- **Top-level multi-key grouping (fixed):** the scan prefers a provably dense
+  group field as its anchor. If all keys are sparse and the top-level record total
+  is known, the scan completes a pass per group field, counts each
   record under the first key it carries, and reconstructs the all-missing group
   from the total. A covering projection is no longer required for this case.
   [`TypedGroupByDifferentialTest`](../bundles/sirix-query/src/test/java/io/sirix/query/scan/TypedGroupByDifferentialTest.java)
@@ -277,7 +258,7 @@ else falls back to the generic (always correct) pipeline.
   is explicit: drop the catalog definition, commit, then create it again so a
   fresh physical index id is initialized. There is no force-rebuild property.
 
-The `TypedGroupByDifferentialTest` suite (89 cases) pins vectorized ≡
+The `TypedGroupByDifferentialTest` suite pins vectorized ≡
 interpreted for the supported shapes, including typed (numeric/boolean/double)
 and multi-key group keys, the negative-hash nameKey regressions, adversarial
 sparse shapes (missing-on-30%, missing-on-all, present-but-null, mixed-kind
@@ -286,9 +267,8 @@ double/decimal predicate family across scan and projection paths, exact
 decimal/genuine-double aggregate parity (jn:store vs shredder provenance), and
 the multi-key dense-anchor selection (sparse anchor + dense second key in both
 orders, dense anchor as the 2nd/3rd key, numeric dense anchor, mixed
-provenance, plus the fail-closed cases: both-sparse-no-projection loud bail with
-the same query correct via a covering projection, and absent-first-key loud
-bail).
+provenance). See the fixed top-level grouping entry above for sparse completion
+and the absent-first-key guard.
 
 ## Cleanup actions queued
 

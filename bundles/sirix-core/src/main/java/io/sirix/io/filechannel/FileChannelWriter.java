@@ -92,7 +92,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   /**
    * Write-through (DSYNC) channel to the SAME data file, used exclusively for the two uber-page
-   * beacon slot writes — see the constructor javadoc.
+   * beacon slot writes when {@link #bufferedBeacons} is inactive — see the constructor javadoc.
    */
   private final FileChannel beaconDurableChannel;
 
@@ -363,17 +363,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * Constructor.
    *
    * @param dataFileChannel the data file channel
-   * @param revisionsOffsetFileChannel the channel to the file, which holds pointers to the revision
-   *        root pages — MUST be opened with {@link java.nio.file.StandardOpenOption#DSYNC}: the
-   *        32-byte revision record (and the one-time superblock) are written through it, and the
-   *        commit protocol relies on those writes being durable at write-return instead of paying a
-   *        separate fsync per commit
+   * @param revisionsOffsetFileChannel the channel holding revision-root pointers; its open mode must
+   *        match {@code lazyRevisionRecords}: buffered for tail-log protection, write-through for
+   *        synchronous revision records
    * @param beaconDurableChannel a SECOND channel to the data file, opened with
-   *        {@link java.nio.file.StandardOpenOption#DSYNC}, used ONLY for the two uber-page beacon
-   *        slot writes. Write-through gives the dual-beacon ordering (secondary durable before the
-   *        primary is even issued) and the commit acknowledge (primary durable at write-return)
-   *        without any explicit fsync — on NVMe these map to FUA writes, far cheaper than full cache
-   *        flushes. The bulk data channel stays buffered.
+   *        {@link java.nio.file.StandardOpenOption#DSYNC}, used for ordered beacon writes when
+   *        buffered beacons are inactive. Write-through makes SECONDARY durable before PRIMARY is
+   *        issued and makes PRIMARY durable at write-return; the buffered profile instead uses
+   *        {@link #dataFileChannel} and an explicit force. The bulk data channel stays buffered.
    * @param serializationType the serialization type (for the transaction log or the data file)
    * @param pagePersister transforms in-memory pages into byte-arrays and back
    * @param cache the revision file data cache
@@ -1616,10 +1613,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // allocation is still metadata-dirty and forceDataFile upgrades this one barrier to
       // force(true), coalescing allocation + page-tail durability before either beacon is written.
       forceDataFile(!preallocatedCommit);
-      // The revisions file needs NO explicit barrier: its only writes — the 32-byte record for
-      // the new revision (during page serialization) and the one-time superblock — go through a
-      // DSYNC-opened channel and are durable at write-return, well before any beacon advertises
-      // the new revisionCount.
+      // Synchronous revision records are already durable through their write-through channel. In
+      // the lazy profile, the forced tail log protects them; bootstrap and eviction barriers
+      // ensure the superblock and records leaving that ring are durable before publication.
 
       writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, IOStorage.PRIMARY_BEACON_OFFSET);
       writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, IOStorage.SECONDARY_BEACON_OFFSET);
@@ -1655,8 +1651,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         // IS the commit acknowledge — no explicit fsync needed for either. At every instant at
         // least one intact copy exists: the primary tearing leaves the new secondary; crashing
         // before the primary write leaves the old primary (whose data is intact, since the new
-        // revision was never acknowledged). Residual risk: both copies share one 4 KiB filesystem
-        // block, so block-granularity tearing remains a (format-level) exposure.
+        // revision was never acknowledged). The slots occupy separate BEACON_SLOT_BYTES blocks.
         final ByteBuffer secondary = buffer.duplicate();
         secondary.position(slot).limit(2 * slot);
         writeFully(beaconDurableChannel, secondary, IOStorage.SECONDARY_BEACON_OFFSET);

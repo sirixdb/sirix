@@ -31,7 +31,7 @@ Git solves this for files—but you can't query a Git repository. Event sourcing
 SirixDB is a database where **every revision is a first-class citizen**. Not an afterthought. Not a log you replay.
 
 ```java
-// Query revision 1 - instant, not reconstructed
+// Open the first committed revision
 session.beginNodeReadOnlyTrx(1)
 
 // Query by timestamp - which revision was current at 3am last Tuesday?
@@ -308,9 +308,10 @@ Register that binary in your MCP client with `--database-path /path/to/data` (ad
 implementation("io.sirix:sirix-core:1.0.0-beta7")
 ```
 
-Use **JDK 25** and Maven 3.9 or newer. The complete example below creates an isolated
-temporary database, commits two revisions and verifies the original value survives.
-It is included with a standalone Maven project in
+Use **JDK 25** and Maven 3.9 or newer. The
+[runnable example](docs/examples/embedded/src/main/java/io/sirix/examples/EmbeddedFirstRun.java)
+creates an isolated temporary database, commits two revisions and verifies the
+original value survives. Its standalone Maven project is in
 [`docs/examples/embedded`](docs/examples/embedded); from a fresh checkout run:
 
 ```bash
@@ -323,45 +324,6 @@ Expected output includes `hello`, then `updated`, then the database path. Depend
 are resolved from Maven Central. The example uses the published beta7 library; source
 builds of this branch use the Brackit snapshot described in
 [operations](docs/operations.md#10-known-limitations-and-operational-caveats).
-
-```java
-import io.sirix.access.DatabaseConfiguration;
-import io.sirix.access.Databases;
-import io.sirix.access.ResourceConfiguration;
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-public final class EmbeddedFirstRun {
-    public static void main(final String[] args) throws Exception {
-        final Path dbPath = Files.createTempDirectory("sirix-first-run-").resolve("database");
-        Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
-        try (final var database = Databases.openJsonDatabase(dbPath)) {
-            database.createResource(ResourceConfiguration.newBuilder("message").build());
-            try (final var session = database.beginResourceSession("message")) {
-                try (final var wtx = session.beginNodeTrx()) {
-                    wtx.insertStringValueAsFirstChild("hello");
-                    wtx.commit(); // revision 1
-                    wtx.setStringValue("updated");
-                    wtx.commit(); // revision 2
-                }
-                try (final var rtx = session.beginNodeReadOnlyTrx(1)) {
-                    if (!rtx.moveToFirstChild() || !"hello".equals(rtx.getValue())) {
-                        throw new IllegalStateException("Revision 1 did not retain hello");
-                    }
-                    System.out.println(rtx.getValue()); // hello
-                }
-                try (final var rtx = session.beginNodeReadOnlyTrx()) {
-                    if (!rtx.moveToFirstChild() || !"updated".equals(rtx.getValue())) {
-                        throw new IllegalStateException("Latest revision did not retain updated");
-                    }
-                    System.out.println(rtx.getValue()); // updated
-                }
-            }
-        }
-        System.out.println("Database retained at " + dbPath);
-    }
-}
-```
 
 For XML collections, the `sirix-query` module provides
 [`BasicXmlDBStore`](bundles/sirix-query/src/main/java/io/sirix/query/node/BasicXmlDBStore.java).

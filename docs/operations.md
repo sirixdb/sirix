@@ -210,7 +210,7 @@ For read compatibility and write fallback when `liblz4` is unavailable, see
 |---|---|---|
 | `ulimit -n` | ≥ 65,536 | Each storage engine reader holds an open file handle to the resource; a busy server with hundreds of concurrent transactions will exceed the default 1024. |
 | `vm.max_map_count` | ≥ 262144 | MemorySegment-backed allocations + memory-mapped file I/O can use many mappings. |
-| Huge pages | enable `vm.nr_hugepages` (or `transparent_hugepage=always`) | `-XX:+UseLargePages` is the JVM default and falls back silently if huge pages aren't available, but you give up TLB efficiency on hot pages. |
+| Huge pages | Optional; configure host support before requesting `-XX:+UseLargePages` | See [GC](#gc) for the Gradle test setting; huge pages are not enabled by default in the JVM or Docker command. |
 | Disk | local NVMe SSD strongly preferred | Sirix's read path is page-random; spinning disks are roughly 100× slower per page read. |
 | Filesystem | ext4 or xfs | btrfs and ZFS work but add their own copy-on-write layer that interacts oddly with Sirix's CoW page format. |
 | Time source | NTP-synced | Sirix records commit timestamps; clock skew shows up as out-of-order revisions. |
@@ -364,8 +364,8 @@ resource at the desired revision number or timestamp via
 6. **Crash-recovery test coverage.**
    [`CrashRecoveryTest`](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java)
    covers markers, orphan tails, torn beacons and recovery, including stale-forward
-   secondary-beacon repair. Uber beacons are in **`sirix.data` at offsets 4096
-   and 8192**, in separate 4096-byte slots; `sirix.revisions` holds revision records.
+   secondary-beacon repair. The [file layout](DISK_FORMAT.md#1-files) owns
+   beacon placement and revision-record geometry.
    [`CrashRecoveryOrderingTest`](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryOrderingTest.java)
    verifies truncation precedes recovery reads.
    [`FaultInjectingWriterTest`](../bundles/sirix-core/src/test/java/io/sirix/io/fault/FaultInjectingWriterTest.java)
@@ -386,30 +386,10 @@ resource at the desired revision number or timestamp via
 
 ## 11. Quick-start: launch the REST API server
 
-```bash
-java \
-  --enable-preview \
-  --enable-native-access=ALL-UNNAMED \
-  --add-modules=jdk.incubator.vector \
-  --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED \
-  --add-exports=java.base/sun.nio.ch=ALL-UNNAMED \
-  --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED \
-  --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED \
-  --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED \
-  --add-opens=java.base/java.lang=ALL-UNNAMED \
-  --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \
-  --add-opens=java.base/java.io=ALL-UNNAMED \
-  --add-opens=java.base/java.util=ALL-UNNAMED \
-  -Xms4g -Xmx8g \
-  -XX:+UseZGC -XX:+AlwaysPreTouch -XX:MaxDirectMemorySize=1g \
-  -Dsirix.cache.recordPage=4294967296 \
-  -Dsirix.cache.recordPageFragment=1610612736 \
-  -jar bundles/sirix-rest-api/build/libs/sirix-rest-api-1.0.0-alpha10-fat.jar \
-  -conf bundles/sirix-rest-api/src/main/resources/sirix-conf.json
-```
-
-`/metrics` will be available on the configured port immediately; database
-directories are created lazily under the path configured in `sirix-conf.json`.
+For the local Docker first run, see the [README](../README.md#using-docker-and-the-rest-api).
+For fat-JAR startup with or without Keycloak and the Docker Compose workflow, see
+the [quickstart](QUICKSTART.md). Use this guide's [heap and GC guidance](#3-heap-sizing-and-gc-choice)
+and [cache budgets](#4-cache-budgets) when sizing a production deployment.
 
 ---
 
