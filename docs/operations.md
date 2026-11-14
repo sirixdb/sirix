@@ -62,7 +62,8 @@ Notes:
 Sirix is built around **off-heap** `MemorySegment`-allocated page memory. The
 on-heap budget covers (a) the JVM and Brackit's query state, (b) per-thread
 buffers and caches, (c) intermediate query result objects, and (d) on-heap
-references to off-heap pages held by transactions. A typical production sizing:
+references to off-heap pages held by transactions. The following are starting points
+for capacity planning, not measured minimums or latency guarantees:
 
 | Workload | `-Xms` | `-Xmx` | `-XX:MaxDirectMemorySize` |
 |---|---|---|---|
@@ -70,36 +71,26 @@ references to off-heap pages held by transactions. A typical production sizing:
 | `sirix-rest-api` server, mixed workload | 4 GB | 8 GB | 1 GB |
 | Analytical workload over multi-GB data (Chicago-scale) | 5 GB | 12 GB | 2 GB |
 
-Defaults inside the gradle `:test` JVM are `-Xms5g -Xmx12g` (build.gradle:251) —
-not because tests need 12 GB, but because they pre-touch the heap (`AlwaysPreTouch`)
-to make GC behavior comparable across runs.
+The Gradle test JVM defaults to `-Xms5g -Xmx12g`, overridable with
+`-PtestHeapMin` and `-PtestHeapMax`. These are test settings, not REST server
+requirements. The [Dockerfile](../Dockerfile) defaults to `SIRIX_XMS=256m`,
+`SIRIX_XMX=2g` and `SIRIX_MAX_DIRECT=2g`, without pre-touching the heap.
+Allow additional RAM for Sirix's allocator, the OS page cache and other processes.
 
 ### GC
 
-The reference GC is **ZGC** with always-pretouch and large-pages, configured in
-the project's gradle test-JVM as:
+The [test JVM configuration in build.gradle](../build.gradle) selects ZGC and
+string deduplication. `AlwaysPreTouch` is **opt-in**: setting
+`SIRIX_TEST_PRETOUCH` (documented convention: `SIRIX_TEST_PRETOUCH=1`) adds it;
+leave the variable unset to disable it. Large pages are requested only on Linux
+and require host configuration. Setting `SIRIX_GC_LOG` adds debug GC logging;
+it is otherwise disabled. Both environment switches check presence, so `=0`
+still enables them.
 
-```
--XX:+UseZGC
--XX:+AlwaysPreTouch
--XX:+UseLargePages
--XX:+UseStringDeduplication
--XX:+HeapDumpOnOutOfMemoryError
--XX:ReservedCodeCacheSize=1000m
--XX:EliminateAllocationArraySizeLimit=1024
-```
-
-Z is preferred because:
-
-- Sirix's hot path is largely off-heap, so old-gen pressure is dominated by long-
-  lived caches, not transient objects. Z's region-based collector handles this
-  well.
-- Sirix expects sub-second pause budgets; G1's 50–200 ms pauses on a 12 GB heap
-  with deep object graphs are too disruptive.
-
-Generational ZGC (`-XX:+ZGenerational`) is supported but currently commented out
-in the build because some workloads regress versus single-gen Z; benchmark
-before flipping it on.
+The commented `ZGenerational` flag is not an active setting. JDK 25's ZGC is
+already generational; do not copy historical collector flags into a deployment.
+Choose heap, collector and allocator budgets from measurements of your workload,
+including tail latency and total resident memory, rather than from test-JVM defaults.
 
 ### Direct memory
 
@@ -315,9 +306,14 @@ resource at the desired revision number or timestamp via
    `tryAcquire` timeout. Plan for serialised writes; do batch ingestion in one
    writer.
 
-2. **Brackit dependency.** Sirix depends on the released `io.sirix:brackit:1.0-alpha1`,
-   so builds are reproducible from Maven Central with no local install or commit-hash
-   pinning required. (Brackit is itself in its 1.0 alpha series alongside Sirix.)
+2. **Brackit dependency.** Source builds consume
+   `io.sirix:brackit:1.0-alpha10-SNAPSHOT`, as declared in
+   [`libraries.gradle`](../libraries.gradle). This is a moving snapshot, not a
+   released Maven Central alpha1. The repository and changing-module cache
+   policy are configured in [`build.gradle`](../build.gradle). Preserve the
+   resolved snapshot artifacts and metadata when reproducing a source build;
+   refreshing dependencies can select a different Brackit build. Published
+   Sirix artifacts may declare a different Brackit version; inspect their POM.
 
 3. **Storage upgrades.** Follow the compatibility and migration policy in
    [DISK_FORMAT.md](DISK_FORMAT.md).
@@ -341,15 +337,26 @@ resource at the desired revision number or timestamp via
    manually by removing the `@Disabled` annotation and running locally on a
    machine with ≥ 16 GB RAM.
 
-6. **Crash-recovery test coverage.** `CrashRecoveryTest` exercises seven
-   scenarios: stale-marker no-op, marker-driven partial-write truncation
-   (single + multi-revision), missing marker normal case, **torn-write
-   without `.commit` marker (orphan tail bytes don't lose committed data)**,
-   **dual-beacon torn write in `sirix.revisions` (recovery falls back to
-   the second beacon at offset 512)**, and **concurrent reader survives
-   writer crash + recovery**. A full Writer-decorator fault-injection
-   harness for testing failure DURING the commit flush sequence (vs. after)
-   is still on the backlog.
+6. **Crash-recovery test coverage.**
+   [`CrashRecoveryTest`](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java)
+   covers markers, orphan tails, torn beacons and recovery, including stale-forward
+   secondary-beacon repair. Uber beacons are in **`sirix.data` at offsets 4096
+   and 8192**, in separate 4096-byte slots; `sirix.revisions` holds revision records.
+   [`CrashRecoveryOrderingTest`](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryOrderingTest.java)
+   verifies truncation precedes recovery reads.
+   [`FaultInjectingWriterTest`](../bundles/sirix-core/src/test/java/io/sirix/io/fault/FaultInjectingWriterTest.java)
+   exercises the Writer decorator's before/after failure points.
+   [`CrashRecoveryInjectionTest`](../bundles/sirix-core/src/test/java/io/sirix/crash/CrashRecoveryInjectionTest.java)
+   is an opt-in SIGKILL loop checking acknowledged revisions, full traversal and
+   writer reuse. SIGKILL retains the OS page cache; it is not a power-loss test.
+   [`PowerLossSimulationTest`](../bundles/sirix-core/src/test/java/io/sirix/crash/PowerLossSimulationTest.java)
+   separately records writes and force barriers and materializes bounded, seeded
+   lost/reordered/torn-write states (`-Dsirix.crash.run=true`).
+   [`ExplicitRollbackCrashSimulationTest`](../bundles/sirix-core/src/test/java/io/sirix/crash/ExplicitRollbackCrashSimulationTest.java)
+   covers crash instants during explicit rollback. These model-based tests
+   complement process-crash coverage; they cannot prove that a device or
+   filesystem honors durability barriers. See [the commit protocol and integrity
+   limits](DISK_FORMAT.md) before relying on durability or corruption detection.
 
 ---
 

@@ -41,17 +41,13 @@ Categories used:
 
 ### Async pre-flush (`KEEP_OPEN_ASYNC_FLUSH`) caveats
 
-- **Rollback + preallocated commits (NOW ON BY DEFAULT):** an async-flushed transaction that
-  ROLLS BACK leaves its already-appended (never-published) pages in the data file, and
-  pages the transaction re-read from those offsets in the shared record/fragment caches.
-  Under the legacy grow path (offset derivation from physical file size) the orphaned
-  region is never reused and the stale cache entries are unreachable. With preallocated
-  commits — the default since the durable-commit fast path was enabled by default — the
-  next writer re-derives its append frontier from the last committed revision and can
-  REUSE those offsets: a retried import then writes different pages at offsets the caches
-  still associate with the aborted transaction's content. Until per-resource cache
-  invalidation on rollback lands, run async-flush bulk imports that may be retried after
-  failure with `-Dsirix.commit.preallocated=false`.
+- **Rollback and reused offsets (fixed):** rollback now fences outstanding async flush
+  work and invalidates caches for aborted, uncommitted writes before the offsets can
+  be reused. Preallocated commits remain enabled by default; disabling them is no
+  longer required for retryable async imports. See
+  [`NodeStorageEngineWriter.invalidateCachesForAbortedUncommittedWrites` and `rollback`](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java)
+  and the all-versioning-strategies regression
+  [`AsyncFlushColdReopenVersioningTest.rollbackInvalidatesReclaimableAsyncPageOffsets`](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushColdReopenVersioningTest.java).
 - **Crash durability:** async-flush imports mint NO intermediate revisions — nothing of
   the import is durable until the single final commit publishes. The synchronous
   auto-commit mode (`-Dsirix.import.asyncFlush=false`) restores
@@ -240,19 +236,21 @@ else falls back to the generic (always correct) pipeline.
   which HALF_EVEN-rounded terminating quotients away (`1.0 div 2.0` = 0,
   `10.2 div 4` = 2.6).
 
+- **Top-level multi-key grouping with all keys sparse (fixed):** when the top-level
+  record total is known, the scan completes a pass per group field, counts each
+  record under the first key it carries, and reconstructs the all-missing group
+  from the total. A covering projection is no longer required for this case.
+  [`TypedGroupByDifferentialTest`](../bundles/sirix-query/src/test/java/io/sirix/query/scan/TypedGroupByDifferentialTest.java)
+  covers both-sparse keys, a further absent key, and reversed key order in
+  `multiKeyBothSparseWithoutProjectionIsCompletedNotRefused`,
+  `multiKeyBothSparsePlusAbsentKeyIsCompleted` and
+  `multiKeySparseKeyOrderDoesNotChangeTheGrouping`. An entirely absent **first**
+  group key still fails closed rather than reproducing the interpreter's
+  order-dependent all-null grouping; see `multiKeyAbsentFirstKeyFailsLoudEvenWithDenseSecond`.
+  Do not extend the top-level guarantee to nested sources or unknown record totals.
+
 ### Remaining limitations
 
-- **Multi-key group-by where NO group field is provably dense (scan path).**
-  Re-anchoring (see fixed gaps) handles a sparse anchor whenever ANOTHER group
-  field is provably dense. When density cannot be proven for ANY group field —
-  every candidate genuinely sparse, the source is nested (record total not
-  cheaply known), the path summary is off, or the path is ambiguous — the anchor
-  walk still cannot reconstruct the secondary key values of unvisited records,
-  so it fails LOUDLY (`QueryException` naming the anchor field). A covering
-  projection index serves the same query correctly (presence bitmaps see every
-  record). Likewise an entirely-absent FIRST group field fails closed: the
-  interpreter collapses that grouping to one all-null tuple, which the scan
-  cannot reproduce.
 - **Nested sources with sparse group fields (scan path).** The record total
   is only cheaply known for top-level array sources; for nested sources a
   sparse single group key still yields silently-partial groups (pre-existing,
