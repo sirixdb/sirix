@@ -108,15 +108,18 @@ Error Prone 2.51.0 ([upstream bug](https://github.com/google/error-prone/issues/
 
 The `Run Sonarqube` job in [`gradle.yml`](../.github/workflows/gradle.yml) runs on pushes to
 `main` and eligible pull requests targeting `main`, after both Linux core lanes and the query/Kotlin
-lane succeed. Those lanes generate JaCoCo reports and upload coverage artifacts; the scanner restores
-the same run's compiled modules and reports and never reruns tests. The checkout matches the producing
+lane succeed. The core lanes upload raw JaCoCo probes and test results; the query/Kotlin lane uploads
+reports and test results. The scanner restores the same run's compiled modules and reports and never
+reruns tests. The checkout matches the producing
 lanes (the PR merge ref on pull requests), so coverage probes and analyzed bytecode use the same sources.
 It waits for the quality gate, so a successful upload alone cannot make the check green.
 The required quality-gate policy is **no new bugs or vulnerabilities on new code**;
 configure its conditions in SonarCloud.
 PR analysis uses GitHub Actions' automatic PR parameters and a full-history checkout.
 Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
-Scheduled and release-branch CI do not run Sonar. The REST integration suite remains outside the
+Scheduled and release-branch CI do not run Sonar. Instrumentation, coverage reports, coverage uploads,
+and the additional MCP/offline REST tests run only for Sonar-eligible events, using the shared
+`Build` job's `sonar-enabled` output. The REST integration suite remains outside the
 coverage handoff. The query lane also runs the MCP tests and the offline REST authorization tests
 that the former serial Sonar build ran; offline REST needs neither Docker nor Keycloak, and its
 JaCoCo execution data feeds both the REST and query reports. The analyzed module set is unchanged.

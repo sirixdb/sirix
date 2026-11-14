@@ -16,6 +16,12 @@ on:
 jobs:
   Build:
     name: Compile and package
+    outputs:
+      sonar-enabled: >-
+        ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+            (github.event_name == 'pull_request' && github.base_ref == 'main' &&
+             github.event.pull_request.head.repo.full_name == github.repository &&
+             github.actor != 'dependabot[bot]') }}
     # Run the deterministic static-analysis gate once; downstream jobs reuse build output.
     env:
       ORG_GRADLE_PROJECT_errorProne: 'true'
@@ -75,15 +81,17 @@ jobs:
             **/build
           key: build-${{ github.run_id }}
       - name: Test sirix-core
-        run: ./gradlew :sirix-core:test :sirix-core:jacocoTestReport -PcoreTestLane=${{ matrix.lane }} --info --stacktrace
+        run: >-
+          ./gradlew :sirix-core:test -PcoreTestLane=${{ matrix.lane }}
+          ${{ needs.Build.outputs.sonar-enabled == 'true' && '-Pcoverage' || '' }} --info --stacktrace
       - name: Upload core coverage
+        if: needs.Build.outputs.sonar-enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-core-${{ matrix.lane }}
           overwrite: true
           path: |
             bundles/sirix-core/build/jacoco/*.exec
-            bundles/sirix-core/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
             bundles/sirix-core/build/test-results/**/*.xml
           if-no-files-found: error
           retention-days: 3
@@ -115,15 +123,17 @@ jobs:
       - name: Test sirix-query, sirix-kotlin-api, and sirix-kotlin-cli
         run: >-
           ./gradlew :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test
-          -Pcoverage --parallel --info --stacktrace
+          ${{ needs.Build.outputs.sonar-enabled == 'true' && '-Pcoverage' || '' }} --parallel --info --stacktrace
       # These also ran in the old Sonar build. Keep their probes, including offline REST's
       # contribution to the query report, without starting the Docker-backed REST suite.
       - name: Test MCP and report offline REST coverage
+        if: needs.Build.outputs.sonar-enabled == 'true'
         run: >-
           ./gradlew :sirix-query:jacocoTestReport :sirix-kotlin-api:jacocoTestReport
           :sirix-kotlin-cli:jacocoTestReport :sirix-mcp:jacocoTestReport :sirix-rest-api:jacocoTestReport
           -x :sirix-rest-api:test --info --stacktrace
       - name: Upload query, Kotlin, MCP, and offline REST coverage
+        if: needs.Build.outputs.sonar-enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-query
@@ -144,14 +154,10 @@ jobs:
 
   Sonar:
     name: Run Sonarqube
-    needs: [TestCore, TestQuery]
+    needs: [Build, TestCore, TestQuery]
     # Same secret boundary as the former sonarqube.yml; no privileged follow-up workflow.
     # Release-branch and scheduled CI keep their existing behavior (no Sonar analysis).
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' && github.base_ref == 'main' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.actor != 'dependabot[bot]')
+    if: needs.Build.outputs.sonar-enabled == 'true'
     permissions:
       contents: read
       pull-requests: read
