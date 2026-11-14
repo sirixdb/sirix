@@ -128,8 +128,10 @@ JaCoCo execution data feeds both the REST and query reports. The analyzed module
 The independent `Python mutation tooling` job runs the script's adversarial and CLI tests with
 branch coverage (85% minimum) and uploads `coverage-python`. Sonar requires this lane, downloads
 its XML to `build/reports/python/python-coverage.xml`, verifies the report exists, and imports it
-through `sonar.python.coverage.reportPaths`. Python source remains in analysis; the tests are not
-counted as production coverage. This small Python lane does not change the existing test lanes'
+through `sonar.python.coverage.reportPaths`. The root Python test directory is explicitly
+classified with `sonar.tests` and test-inclusion patterns that also preserve module Java/Kotlin
+tests. Python production source remains in analysis; tests are analyzed as tests and do not count
+toward production coverage. This small Python lane does not change the existing test lanes'
 dependencies or run a local JVM.
 
 The core XML report merges both lanes' raw execution data, including the isolated test forks,

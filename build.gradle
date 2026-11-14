@@ -35,6 +35,9 @@ sonarqube {
         property "sonar.organization", "sirixdb"
         property "sonar.host.url", "https://sonarcloud.io"
         property "sonar.python.coverage.reportPaths", "${rootDir}/build/reports/python/python-coverage.xml"
+        // Root-level Python tests need an explicit test scope; keep module Java/Kotlin tests too.
+        property "sonar.tests", "${rootDir}/.github/scripts/tests"
+        property "sonar.test.inclusions", ".github/scripts/tests/**,**/src/test/**"
     }
 }
 

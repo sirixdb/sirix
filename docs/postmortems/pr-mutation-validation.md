@@ -8,7 +8,9 @@
   shell interpretation but do not stop a value beginning with `-` from becoming a Git option.
   Tests ran without collecting or handing Python coverage to Sonar.
 - Root cause: the subprocess boundary assumed GitHub-supplied values and Git paths were trusted,
-  and the existing Java coverage handoff was assumed to cover a new language.
+  and the existing Java coverage handoff was assumed to cover a new language. Sonar also
+  classified the root Python test directory as production: its API reported 134 test-file lines
+  to cover before an explicit test scope was configured.
 - Why tests missed it: fixtures supplied only ordinary refs/paths; no hostile tracked filename or
   coverage-import acceptance check existed.
 - Regression: `SelectionTest` rejects option-like revisions, traversal/absolute/option-like paths,
