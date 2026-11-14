@@ -128,7 +128,7 @@ subprojects {
     // loaded class and adds a probe write per branch, which taxes every `gradlew test` run.
     //
     // The task graph also enables coverage when a JaCoCo report or Sonar is requested, so
-    // `build jacocoTestReport` in sonarqube.yml produces coverage without a separate flag.
+    // CI test lanes request jacocoTestReport to produce coverage without a separate flag.
     // A bare `gradlew test` stays uninstrumented.
     gradle.taskGraph.whenReady { graph ->
         final boolean coverageWanted = project.hasProperty('coverage') || graph.allTasks.any {
