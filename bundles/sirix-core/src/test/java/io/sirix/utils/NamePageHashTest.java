@@ -35,6 +35,35 @@ public class NamePageHashTest {
   }
 
   @Test
+  public void testEveryBitHasExactlyItsDocumentedOffset() {
+    assertArrayEquals(new int[] {0, 0}, NamePageHash.generateOffsets(0));
+    assertArrayEquals(new int[] {127, 127}, NamePageHash.generateOffsets(-1));
+    assertArrayEquals(new int[] {0, 0}, NamePageHash.generateOffsets(Integer.MIN_VALUE));
+    assertArrayEquals(new int[] {127, 127}, NamePageHash.generateOffsets(Integer.MAX_VALUE));
+    for (int bit = 0; bit < Integer.SIZE; bit++) {
+      final int first = bit < 7
+          ? 1 << bit
+          : 0;
+      final int second = bit >= 7 && bit < 14
+          ? 1 << (bit - 7)
+          : 0;
+      assertArrayEquals(new int[] {first, second}, NamePageHash.generateOffsets(1 << bit));
+    }
+  }
+
+  @Test
+  public void testOffsetsAgainstUnsignedDivisionOracle() {
+    // Fixed exploration stream: independent arithmetic oracle, reproducible under PIT.
+    int key = 0x13579bdf;
+    for (int sample = 0; sample < 4096; sample++) {
+      key = key * 1664525 + 1013904223;
+      final int first = Integer.remainderUnsigned(key, 128);
+      final int second = Integer.remainderUnsigned(Integer.divideUnsigned(key, 128), 128);
+      assertArrayEquals(new int[] {first, second}, NamePageHash.generateOffsets(key));
+    }
+  }
+
+  @Test
   public void testGenerateHashForString() {
     final int hash = "foo".hashCode();
     assertEquals(hash, NamePageHash.generateHashForString("foo"));
