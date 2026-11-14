@@ -78,6 +78,32 @@ final class PageCacheConfigurationTest {
   }
 
   @Test
+  void legacyEntryBoundaryIsCheckedWithoutWrapping() {
+    System.setProperty(PageCache.LEGACY_BYTES_PROPERTY, "2147483647999");
+    assertEquals(Integer.MAX_VALUE, new PageCache(50_000_000L).maxEntries());
+    System.setProperty(PageCache.LEGACY_BYTES_PROPERTY, "2147483648000");
+    final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+        () -> new PageCache(50_000_000L));
+    assertTrue(failure.getMessage().contains(PageCache.LEGACY_BYTES_PROPERTY));
+    assertTrue(failure.getMessage().contains("2147483648000"));
+    System.setProperty(PageCache.MAX_ENTRIES_PROPERTY, "2147483647");
+    assertEquals(Integer.MAX_VALUE, new PageCache(50_000_000L).maxEntries(),
+        "a valid explicit entry cap takes precedence over an unrepresentable legacy estimate");
+  }
+
+  @Test
+  void invalidEntryOverrideNeverFallsBackToLegacyBytes() {
+    System.setProperty(PageCache.LEGACY_BYTES_PROPERTY, "3000");
+    for (final String value : new String[] {"", "typo", "0", "-1", "2147483648"}) {
+      System.setProperty(PageCache.MAX_ENTRIES_PROPERTY, value);
+      final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+          () -> new PageCache(50_000_000L));
+      assertTrue(failure.getMessage().contains(PageCache.MAX_ENTRIES_PROPERTY));
+      assertTrue(failure.getMessage().contains("=" + value));
+    }
+  }
+
+  @Test
   void creationLogReportsTheEffectiveEntries() {
     final Logger logger = (Logger) LoggerFactory.getLogger(PageCache.class);
     final ListAppender<ILoggingEvent> events = new ListAppender<>();

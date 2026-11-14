@@ -6,6 +6,9 @@ import java.lang.ref.Cleaner.Cleanable;
 import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -31,6 +34,33 @@ final class SirixCleanerTest {
     assertEquals(1, calls.get());
     assertSame(Thread.currentThread(), thread.get());
     Reference.reachabilityFence(owner);
+  }
+
+  @Test
+  void concurrentExplicitCloseReleasesExactlyOnce() throws Exception {
+    try (final ExecutorService workers = Executors.newFixedThreadPool(2)) {
+      for (int round = 0; round < 32; round++) {
+        final Object owner = new Object();
+        final AtomicInteger calls = new AtomicInteger();
+        final Cleanable cleanup = SirixCleaner.register(owner, calls::incrementAndGet);
+        final CountDownLatch start = new CountDownLatch(1);
+        final Future<?> first = workers.submit(() -> {
+          start.await();
+          cleanup.clean();
+          return null;
+        });
+        final Future<?> second = workers.submit(() -> {
+          start.await();
+          cleanup.clean();
+          return null;
+        });
+        start.countDown();
+        first.get(10, TimeUnit.SECONDS);
+        second.get(10, TimeUnit.SECONDS);
+        assertEquals(1, calls.get(), "two closing threads must return the resource exactly once");
+        Reference.reachabilityFence(owner);
+      }
+    }
   }
 
   @Test

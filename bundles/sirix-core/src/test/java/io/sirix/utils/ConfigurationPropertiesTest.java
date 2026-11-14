@@ -5,6 +5,8 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.math.BigInteger;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,6 +31,41 @@ final class ConfigurationPropertiesTest {
         () -> ConfigurationProperties.parsePositiveBytes(PROPERTY, value));
     assertTrue(failure.getMessage().contains(PROPERTY));
     assertTrue(failure.getMessage().contains("=" + value));
+  }
+
+  @Test
+  void binaryUnitBoundariesMatchAnArbitraryPrecisionOracle() {
+    // Binary unit definitions and signed-long limits are the oracle, independent of checked-long
+    // multiplication in the parser. Include the first rejected value for every unit.
+    final String[] suffixes = {"", "K", "kb", "M", "mB", "G", "gb"};
+    final int[] shifts = {0, 10, 10, 20, 20, 30, 30};
+    final BigInteger maximum = BigInteger.valueOf(Long.MAX_VALUE);
+    for (int unit = 0; unit < suffixes.length; unit++) {
+      final BigInteger limit = maximum.shiftRight(shifts[unit]);
+      final BigInteger[] numbers = {BigInteger.ZERO, BigInteger.ONE, BigInteger.TWO,
+          limit.subtract(BigInteger.ONE), limit, limit.add(BigInteger.ONE), maximum, maximum.add(BigInteger.ONE)};
+      for (final BigInteger number : numbers) {
+        final String input = number + suffixes[unit];
+        final BigInteger bytes = number.shiftLeft(shifts[unit]);
+        if (bytes.signum() > 0 && bytes.compareTo(maximum) <= 0) {
+          assertEquals(bytes.longValueExact(), ConfigurationProperties.parsePositiveBytes(PROPERTY, input), input);
+        } else {
+          final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+              () -> ConfigurationProperties.parsePositiveBytes(PROPERTY, input), input);
+          assertTrue(failure.getMessage().contains(PROPERTY), input);
+          assertTrue(failure.getMessage().contains(input), input);
+        }
+      }
+    }
+  }
+
+  @Test
+  void rejectsMissingInputAndInvalidDefaults() {
+    assertThrows(IllegalArgumentException.class, () -> ConfigurationProperties.parsePositiveBytes(PROPERTY, null));
+    assertThrows(IllegalArgumentException.class, () -> ConfigurationProperties.positiveBytes(PROPERTY, 0));
+    assertThrows(IllegalArgumentException.class, () -> ConfigurationProperties.positiveBytes(PROPERTY, -1));
+    assertThrows(IllegalArgumentException.class, () -> ConfigurationProperties.positiveInt(PROPERTY, 0));
+    assertThrows(IllegalArgumentException.class, () -> ConfigurationProperties.positiveInt(PROPERTY, -1));
   }
 
   @Test
