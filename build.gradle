@@ -34,6 +34,7 @@ sonarqube {
         property "sonar.projectKey", "sirixdb_sirix"
         property "sonar.organization", "sirixdb"
         property "sonar.host.url", "https://sonarcloud.io"
+        property "sonar.python.coverage.reportPaths", "${rootDir}/build/reports/python/python-coverage.xml"
     }
 }
 

@@ -125,6 +125,13 @@ coverage handoff. The query lane also runs the MCP tests and the offline REST au
 that the former serial Sonar build ran; offline REST needs neither Docker nor Keycloak, and its
 JaCoCo execution data feeds both the REST and query reports. The analyzed module set is unchanged.
 
+The independent `Python mutation tooling` job runs the script's adversarial and CLI tests with
+branch coverage (85% minimum) and uploads `coverage-python`. Sonar requires this lane, downloads
+its XML to `build/reports/python/python-coverage.xml`, verifies the report exists, and imports it
+through `sonar.python.coverage.reportPaths`. Python source remains in analysis; the tests are not
+counted as production coverage. This small Python lane does not change the existing test lanes'
+dependencies or run a local JVM.
+
 The core XML report merges both lanes' raw execution data, including the isolated test forks,
 using `:sirix-core:jacocoMergedReport`. Merging probes before generating XML preserves the union of
 branch coverage when both lanes visit the same method. Missing lane/fork data or module reports fails
@@ -151,15 +158,19 @@ a short reason explaining the performance cost; do not weaken allocation or work
 ## PR mutation testing
 
 `PIT changed-source mutation testing` in [gradle.yml](../.github/workflows/gradle.yml) runs
-independently of the test lanes after `Build` and reuses that run's compiled output. It adds no
-dependency to the test, Sonar or deploy lanes. Its **30-minute job limit** is below the longest
-existing test lane (45 minutes); PIT processes share a **22-minute execution budget**, leaving
+independently of the test lanes after `Build` and the short `Python mutation tooling` job,
+and reuses that run's compiled output. It adds no dependency to the test, Sonar or deploy lanes.
+Its **30-minute job limit** is below the Linux query test lane (45 minutes); PIT processes share a **22-minute execution budget**, leaving
 room for setup and report upload. A deadline kills the process group, preserves partial reports
 and explicitly reports incomplete analysis. A large diff may need follow-up focused runs;
 timeouts and missing evidence are never a clean score.
 
 Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
 main Java/Kotlin sources only, excluding deleted files, tests, docs and package/module descriptors.
+Both diff revisions must be full hexadecimal commit IDs; option-like values are rejected
+before Git runs. Diff paths must be canonical relative paths and selected sources must exist in
+the head commit. Literal pathspecs follow `--`; source symlinks cannot escape the module. Every
+subprocess uses an argument list with `shell=False`.
 The checkout is the PR merge revision, matching `Build`. JVM `SourceFile` attributes map source
 files to **exact compiled class names**, including nested/anonymous classes, extra top-level
 classes and Kotlin file facades. No prefix glob or whole-module fallback broadens mutation scope.
@@ -200,7 +211,8 @@ Local reproduction (JDK 25; compile the selected modules' `classes testClasses` 
 
 ```bash
 python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation.py'
-python3 .github/scripts/pr_mutation.py select --base origin/main --head HEAD --output /tmp/pr-mutation
+python3 .github/scripts/pr_mutation.py select \
+  --base "$(git rev-parse origin/main)" --head "$(git rev-parse HEAD)" --output /tmp/pr-mutation
 python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1320
 # Add --blocking to reject undetected mutants and incomplete analysis locally.
 ```
