@@ -837,6 +837,10 @@ graalvmNative {
         forTestTask(tasks.named("nativeImageSmokeTest"))
     }
     binaries {
+        configureEach {
+            // Group-kernel bounds mode is an image build choice; the final field is folded away.
+            buildArgs.add("-Dsirix.aggregation.debug=${System.getProperty('sirix.aggregation.debug', 'false')}")
+        }
         // Smoke test binary (compiled to native image via nativeSmokeTest task)
         smokeTest {
             // Preview features and vector API
@@ -861,8 +865,6 @@ graalvmNative {
             // Jackson - build time
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Sirix FFI components - run time
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
             buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
             // JLine terminal providers - run time
             buildArgs.add('--initialize-at-run-time=org.jline.terminal.impl')
@@ -935,8 +937,6 @@ graalvmNative {
             buildArgs.add('library-support.jar')
             buildArgs.add('META-INF/native-image/.*')
             // Sirix FFI components - run time
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
             buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
             // JLine terminal providers - run time (they detect terminal at runtime)
             buildArgs.add('--initialize-at-run-time=org.jline.terminal.impl')
@@ -967,6 +967,15 @@ graalvmNative {
             }
             if (project.hasProperty('pgo')) {
                 buildArgs.add("--pgo=${project.findProperty('pgo')}")
+                // PGO compiles every unit outside the top 99.9 % of the profile mass as "cold"
+                // (economy configuration: no inlining, GC slow-path allocation). Which units fall
+                // into that set changes from one training run to the next, and for the
+                // sub-millisecond queries it has included the parser, the AST rewrites and the
+                // tuple/ordering code, moving their latency by about 10 % between two trainings.
+                // Full coverage compiles every unit at the regular tier: those queries run 20-30 %
+                // faster and two trainings agree within 1-3 %, for a larger binary (62 -> 126 MB).
+                // Oracle GraalVM only, like --pgo itself (requires -H:+UnlockExperimentalVMOptions).
+                buildArgs.add('-H:CAIRegularCompilationCoverage=1.0')
             }
 
             // Enable verbose output for debugging

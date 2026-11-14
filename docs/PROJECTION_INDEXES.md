@@ -170,10 +170,10 @@ unresolvable or corrupt touched unit fails the owning transaction and requires r
 
 Serving is memory-bounded, not all-or-nothing. Kernels that want a column's whole byte image get
 it eagerly while the projection's worst-case resident size fits
-`-Dsirix.projection.eagerMaterializeBytes` (default: the smaller of half the projection cache
-budget and a quarter of the heap); above that the same kernels read through bounded 128-leaf
-windows instead, and a column fill that would exceed the budget declines: the query re-enters the
-windowed whole-leaf route where one exists, and otherwise falls back to the record path.
+`-Dsirix.projection.eagerMaterializeBytes` (the default and override ceiling are specified in the
+[heap-envelope policy](DERIVED_QUERY_CACHES.md#heap-envelope)); above that the same kernels read
+through bounded 128-leaf windows instead, and a column fill that would exceed the budget declines:
+the query re-enters the windowed whole-leaf route where one exists, and otherwise falls back to the record path.
 Index-routed and computed requests follow the stricter budget rules in
 [Index-routed row source](INDEX_ROUTED_ROW_SOURCE.md#serving-a-grouped-aggregate-under-a-row-mask).
 Declining is a routing decision, not a corruption signal — the index stays valid and keeps

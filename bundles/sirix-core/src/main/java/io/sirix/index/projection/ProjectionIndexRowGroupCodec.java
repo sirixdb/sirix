@@ -3,7 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.node.SegmentAccess;
 import java.io.ByteArrayOutputStream;
+import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
@@ -1158,6 +1160,97 @@ final class ProjectionIndexRowGroupCodec {
       throw new IllegalStateException("Reserved numeric-encoding escape " + width + " — written by a newer version");
     }
     unpackInto(in, rowCount, width, base, out, 0);
+  }
+
+  /**
+   * {@link #decodeForBitPackedColumnInto(Cursor, int, long[])} written straight into {@code out} at
+   * byte offset {@code outBase}, eight bytes per row: the off-heap lane of a column slab.
+   */
+  static void decodeForBitPackedColumnInto(final Cursor in, final int rowCount, final MemorySegment out,
+      final long outBase) {
+    final long base = in.readLong();
+    final int width = in.readByte() & 0xFF;
+    if (width == ProjectionAlpEncoding.WIDTH_ESCAPE_ALP) {
+      ProjectionAlpEncoding.decodeInto(in, rowCount, out, outBase);
+      return;
+    }
+    if (width > 64) {
+      throw new IllegalStateException("Reserved numeric-encoding escape " + width + " — written by a newer version");
+    }
+    in.pos = unpackInto(in.buf, in.pos, rowCount, width, base, out, outBase);
+  }
+
+  /** {@link #decodePlainForBitPackedInto(Cursor, int, long[])} into a segment at {@code outBase}. */
+  static void decodePlainForBitPackedInto(final Cursor in, final int rowCount, final MemorySegment out,
+      final long outBase) {
+    final long base = in.readLong();
+    final int width = in.readByte() & 0xFF;
+    if (width > 64) {
+      throw new IllegalStateException("Corrupt nested numeric-encoding escape " + width);
+    }
+    in.pos = unpackInto(in.buf, in.pos, rowCount, width, base, out, outBase);
+  }
+
+  /**
+   * Segment twin of {@link #unpackInto(byte[], int, int, int, long, long[], int)}: the same bit walk,
+   * each value stored through the typed handle at {@code outBase + 8 * i}.
+   */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
+  static int unpackInto(final byte[] src, final int pos, final int count, final int width, final long base,
+      final MemorySegment out, final long outBase) {
+    if (width == 0) {
+      for (int i = 0; i < count; i++) {
+        SegmentAccess.putLong(out, outBase + ((long) i << 3), base);
+      }
+      return pos;
+    }
+    if (width == 64) {
+      for (int i = 0; i < count; i++) {
+        SegmentAccess.putLong(out, outBase + ((long) i << 3), base + getLongLE(src, pos + (i << 3)));
+      }
+      return pos + (count << 3);
+    }
+    final int end = pos + ((count * width + 7) >>> 3);
+    final long mask = (1L << width) - 1L;
+    int i = 0;
+    if (width <= 57) {
+      long bitPos = 0;
+      final int safeBytes = src.length - 8;
+      while (i < count) {
+        final int bytePos = pos + (int) (bitPos >>> 3);
+        if (bytePos > safeBytes) {
+          break;
+        }
+        SegmentAccess.putLong(out, outBase + ((long) i << 3),
+            base + ((getLongLE(src, bytePos) >>> (bitPos & 7)) & mask));
+        bitPos += width;
+        i++;
+      }
+    }
+    if (i < count) {
+      long bitPos = (long) i * width;
+      int bytePos = pos + (int) (bitPos >>> 3);
+      long acc = 0L;
+      int avail = 0;
+      final int skew = (int) (bitPos & 7);
+      if (skew != 0) {
+        acc = (src[bytePos++] & 0xFFL) >>> skew;
+        avail = 8 - skew;
+      }
+      while (i < count) {
+        while (avail < width) {
+          acc |= (long) (src[bytePos++] & 0xFF) << avail;
+          avail += 8;
+        }
+        SegmentAccess.putLong(out, outBase + ((long) i << 3), base + (acc & mask));
+        acc >>>= width;
+        avail -= width;
+        i++;
+      }
+    }
+    return end;
   }
 
   /**

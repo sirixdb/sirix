@@ -6,8 +6,10 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.AggregationShare;
 import io.sirix.index.projection.GroupTableSpill;
-import io.sirix.index.projection.LongChunkPool;
+import io.sirix.index.projection.GroupWorkspace;
+import io.sirix.index.projection.NumericGroupAggTable;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -132,7 +134,8 @@ final class GroupHashRangePassTest {
   void passesAgreeWithTheInterpreter() throws Exception {
     final long restartsBefore = SirixVectorizedExecutor.groupPassRestartsCount();
     final long releasesBefore = GroupTableSpill.releaseCount();
-    final long poolHitsBefore = LongChunkPool.totalHits();
+    final long privateWorkspacesBefore = NumericGroupAggTable.privateWorkspaceCount();
+    final long reusedBefore = GroupWorkspace.reusedCount();
     final long presizedBefore = GroupTableSpill.presizedSharedCount();
     for (final String query : QUERIES) {
       final String generic = run(query, false);
@@ -145,20 +148,24 @@ final class GroupHashRangePassTest {
         "a restarted pass plans from the abort estimate: its shared tables must be created at that share");
     assertTrue(SirixVectorizedExecutor.groupPassRestartsCount() > restartsBefore,
         "no arm ever restarted with more passes: the budget seam did not take, the agreement above is vacuous");
-    // Every restart released the aborted pass's tables BEFORE re-planning — a budget refreshed by a
-    // forced collection must not read the pass it is replacing as live heap.
+    // Every restart released the aborted pass's tables BEFORE re-planning — their chunks are what the
+    // restart builds its tables from, and what its budget re-read counts as the scan's own.
     assertEquals(SirixVectorizedExecutor.groupPassRestartsCount() - restartsBefore,
         GroupTableSpill.releaseCount() - releasesBefore, "one table release per restart, in every arm");
-    assertTrue(LongChunkPool.totalHits() > poolHitsBefore,
-        "a later pass never took a chunk an earlier pass released: the pool does not span the passes");
+    // A later pass takes the chunks an earlier pass released only if every table of every pass draws
+    // from the ONE workspace of its scan.
+    assertTrue(GroupWorkspace.reusedCount() > reusedBefore,
+        "a later pass never took a chunk an earlier pass released: the scan's workspace does not span the passes");
+    assertEquals(privateWorkspacesBefore, NumericGroupAggTable.privateWorkspaceCount(),
+        "a table of a served query opened a private workspace instead of drawing from its scan's");
   }
 
   @Test
   @DisplayName("a per-pass budget raised the way more headroom raises it costs no pass restart")
   void aRaisedPerPassBudgetCostsNoRestart() throws Exception {
-    // The budget -> pass-count half of the chain R1 shortens. The other half (more headroom raises
-    // the shared figure, which raises this budget) is HeapHeadroomBudgetTest's; end to end the
-    // effect needs a group state above the 2^20-group floor, which is the 100M leg, not a fixture.
+    // The budget -> pass-count half of the chain. The other half (more allocator headroom raises the
+    // aggregation share, which raises this budget) is AggregationShareTest's; end to end the effect
+    // needs a group state above the 2^20-group floor, which is the 100M leg, not a fixture.
     final String query = QUERIES.get(0);
     final String generic = run(query, false);
 
@@ -169,14 +176,14 @@ final class GroupHashRangePassTest {
     assertTrue(SirixVectorizedExecutor.groupPassRestartsCount() > starvedBefore,
         "the starved budget must force at least one restart, or the comparison below is vacuous");
 
-    // Exactly what an empty heap plans through the shared headroom share.
-    final long maxMemory = Runtime.getRuntime().maxMemory();
-    GroupTableSpill.setGroupBudgetForTesting(GroupTableSpill.groupBudgetFor(maxMemory, maxMemory));
+    // Exactly what an uncommitted allocator plans through the aggregation share.
+    final long allocatorBudget = AggregationShare.budgetBytes();
+    GroupTableSpill.setGroupBudgetForTesting(GroupTableSpill.groupBudgetFor(allocatorBudget, allocatorBudget));
     final long roomyBefore = SirixVectorizedExecutor.groupPassRestartsCount();
     final String roomy = run(query, true);
     assertEquals(generic, roomy, "the roomy budget must answer the same");
     assertEquals(roomyBefore, SirixVectorizedExecutor.groupPassRestartsCount(),
-        "a budget raised the way released residency raises it must cost no restart at all");
+        "a budget raised the way freed allocator headroom raises it must cost no restart at all");
   }
 
   @Test

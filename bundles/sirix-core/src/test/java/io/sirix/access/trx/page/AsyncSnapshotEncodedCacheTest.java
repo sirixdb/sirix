@@ -9,11 +9,13 @@ import io.sirix.cache.Allocators;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchStats;
+import io.sirix.cache.ScratchUse;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.io.IOTestHelper;
 import io.sirix.io.Reader;
-import io.sirix.io.SerializationBufferPool;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -49,6 +51,8 @@ import java.lang.foreign.ValueLayout;
 import java.lang.management.BufferPoolMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -232,13 +236,11 @@ final class AsyncSnapshotEncodedCacheTest {
         new ResourceConfiguration.Builder("async-cache-pool-reuse").byteHandlerPipeline(new ByteHandlerPipeline())
                                                                    .build();
     final KeyValueLeafPage original = new KeyValueLeafPage(3L, IndexType.DOCUMENT, config, 1, null, null, false);
-    final SerializationBufferPool pool = SerializationBufferPool.INSTANCE;
-    // A stripe holds at most two buffers. Holding both makes the production serializer allocate a
-    // temporary buffer; release inserts that exact buffer into the empty stripe, so the subsequent
-    // acquire reuses the source whose lifetime the test is pinning down.
-    final PooledGrowingSegment heldFirst = pool.acquire();
-    final PooledGrowingSegment heldSecond = pool.acquire();
-    PooledGrowingSegment reusedSource = null;
+    // The serializer returns its scratch to the allocator, which keeps it resident for the next
+    // borrow of that capacity. Borrowing that capacity until the allocator has to create a buffer
+    // therefore takes every resident one, the serializer's source among them, whichever idle slot it
+    // went back to.
+    final List<ScratchLease> reborrowed = new ArrayList<>();
     KeyValueLeafPage copy = null;
     try {
       original.setSlot(new byte[] {11, 22, 33, 44, 55}, 9);
@@ -247,22 +249,84 @@ final class AsyncSnapshotEncodedCacheTest {
 
       final MemorySegment encoded = copy.getCompressedSegment();
       final byte[] expected = encoded.toArray(ValueLayout.JAVA_BYTE);
-      reusedSource = pool.acquire();
-      reusedSource.getCurrentSegment().fill((byte) 0xA5);
+      final long createdBefore = Allocators.getInstance().scratchStats().totalCreated();
+      assertTrue(Allocators.getInstance().scratchStats().totalIdleBuffers() > 0,
+          "the serializer's scratch must be resident for the allocator's next borrower");
+      do {
+        final ScratchLease lease = ScratchLease.of(PooledGrowingSegment.PAGE_BUFFER_BYTES, ScratchUse.SERIALIZATION);
+        reborrowed.add(lease);
+        lease.segment().fill((byte) 0xA5);
+      } while (Allocators.getInstance().scratchStats().totalCreated() == createdBefore);
 
       assertArrayEquals(expected, encoded.toArray(ValueLayout.JAVA_BYTE),
-          "the published cache must own the frame, never alias the resettable pooled source");
+          "the published cache must own the frame, never alias the returned scratch of the serializer");
       assertEquals(copy.getSlottedPage().address(), encoded.address());
     } finally {
-      if (reusedSource != null) {
-        pool.release(reusedSource);
+      for (final ScratchLease lease : reborrowed) {
+        lease.close();
       }
-      pool.release(heldFirst);
-      pool.release(heldSecond);
       if (copy != null) {
         copy.close();
       }
       original.close();
+    }
+  }
+
+  @Test
+  @DisplayName("Snapshot serialization borrows one resident scratch buffer and returns it on every outcome")
+  void snapshotSerializationBorrowsAllocatorScratchAndReturnsItOnEveryOutcome() {
+    final ResourceConfiguration identity =
+        new ResourceConfiguration.Builder("async-cache-scratch").byteHandlerPipeline(new ByteHandlerPipeline()).build();
+    final ResourceConfiguration failing =
+        new ResourceConfiguration.Builder("async-cache-scratch-failure")
+                                                                        .byteHandlerPipeline(new ByteHandlerPipeline(
+                                                                            new FailingMemorySegmentHandler()))
+                                                                        .build();
+    final ResourceConfiguration erroring =
+        new ResourceConfiguration.Builder("async-cache-scratch-error")
+                                                                      .byteHandlerPipeline(new ByteHandlerPipeline(
+                                                                          new ErrorMemorySegmentHandler()))
+                                                                      .build();
+    final KeyValueLeafPage original = new KeyValueLeafPage(12L, IndexType.DOCUMENT, identity, 1, null, null, false);
+    final KeyValueLeafPage failingOriginal =
+        new KeyValueLeafPage(13L, IndexType.DOCUMENT, failing, 1, null, null, false);
+    final KeyValueLeafPage erroringOriginal =
+        new KeyValueLeafPage(14L, IndexType.DOCUMENT, erroring, 1, null, null, false);
+    try {
+      writeObjectNumber(original, 0, 17, 42L);
+      writeObjectNumber(failingOriginal, 0, 23, 99L);
+      writeObjectNumber(erroringOriginal, 0, 31, 101L);
+
+      // Warm: the first serialization on this thread may have to create the buffer.
+      serializeAndCloseNumericCopy(identity, original);
+      final ScratchStats before = allocator.scratchStats();
+
+      for (int i = 0; i < 64; i++) {
+        serializeAndCloseNumericCopy(identity, original);
+      }
+      for (int i = 0; i < 32; i++) {
+        serializeFailingCopy(failing, failingOriginal);
+      }
+      for (int i = 0; i < 16; i++) {
+        serializeErrorCopy(erroring, erroringOriginal);
+      }
+
+      final ScratchStats after = allocator.scratchStats();
+      assertEquals(64 + 32 + 16,
+          after.acquisitions(ScratchUse.SERIALIZATION) - before.acquisitions(ScratchUse.SERIALIZATION),
+          "one borrow per page serialization, whether it succeeds, fails or dies with an Error");
+      assertEquals((64 + 32 + 16) * PooledGrowingSegment.PAGE_BUFFER_BYTES,
+          after.requestedBytes(ScratchUse.SERIALIZATION) - before.requestedBytes(ScratchUse.SERIALIZATION),
+          "small pages never outgrow the page buffer");
+      assertEquals(0, after.totalCreated() - before.totalCreated(),
+          "every serialization reuses the buffer the allocator kept resident");
+      assertEquals(before.totalLentBuffers(), after.totalLentBuffers(),
+          "every outcome returned its scratch: a failing handler and an Error unwind through the same close");
+      assertEquals(0, after.staleReleases() - before.staleReleases());
+    } finally {
+      original.close();
+      failingOriginal.close();
+      erroringOriginal.close();
     }
   }
 

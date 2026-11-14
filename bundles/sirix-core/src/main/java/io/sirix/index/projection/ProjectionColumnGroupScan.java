@@ -10,8 +10,11 @@ import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.PredicateTree;
 import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import io.sirix.node.SegmentAccess;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.ref.Reference;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.regex.Pattern;
@@ -40,6 +43,14 @@ public final class ProjectionColumnGroupScan {
 
   private ProjectionColumnGroupScan() {}
 
+  /** Rows per selection word. */
+  static final int WINDOW_ROWS = 64;
+
+  /** A query with no conditional key component: no condition lane to resolve. */
+  private static final MemorySegment[] NO_COND_SEGMENTS = new MemorySegment[0];
+
+  private static final long[] NO_COND_BASES = new long[0];
+
   /** Per-thread predicate mask over one leaf (MAX_ROWS bound — same bound the scans use). */
   private static final ThreadLocal<long[]> MASK =
       ThreadLocal.withInitial(() -> new long[(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6]);
@@ -55,14 +66,19 @@ public final class ProjectionColumnGroupScan {
    * table the whole-leaf twin and the composite arm consume); a STRING_SEGMENT length operand
    * supplies {@code segmentLengthTables[a][segment]}, one such table per segment dictionary, and the
    * leaf's zone bounds choose the table ({@link #leafLengthTable}). {@code cdStringDict} marks the
-   * distinct block's operand as STRING_DICT — see {@link #foldSliced} for the leaf-local-id →
+   * distinct block's operand as STRING_DICT — see {@link #foldSlicedLane} for the leaf-local-id →
    * content-hash identity it feeds the set.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final @Nullable PredicateTree treeOrNull,
       final ColumnSlice @Nullable [][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
       final byte @Nullable [] stringLengthModes, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
-      final long[] missingAcc, final int distinctBlock, final @Nullable Worker distinctOut,
+      final GroupBuffer missingAcc, final int distinctBlock, final @Nullable Worker distinctOut,
       final @Nullable Sink distinctMissing, final long @Nullable [] budget, final boolean cdStringDict,
       final int @Nullable [][] globalLengthTables, final int @Nullable [][][] segmentLengthTables) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null) {
@@ -83,12 +99,15 @@ public final class ProjectionColumnGroupScan {
     // COUNT-ONLY: no aggregate lanes and no distinct set, so a row is one increment into a
     // [key, count, firstSeen] stripe. Decided ONCE, never per row.
     final boolean countOnly = aggCount == 0 && distinctBlock < 0;
+    // The missing-key accumulator is a block that never moves: resolved once for the whole run.
+    final long missingRecord = missingAcc.accumulator(0, aggCount, 4);
     if (stringLengthModes != null && (ds.stringLengths == null || ds.stringLengths.length < aggCount)) {
       ds.stringLengths = new int[Math.max(4, aggCount)][];
     }
     // Hoisted per leaf — the record accessors and double indirection must stay out of the
     // per-row loop (1M-row group scans pay every load in it).
-    final long[][] aggValues = new long[aggCount][];
+    final MemorySegment[] aggSeg = new MemorySegment[aggCount];
+    final long[] aggBase = new long[aggCount];
     final long[][] aggPresence = new long[aggCount][];
     final int[][] aggIds = new int[aggCount][];
     final int[][] leafLengthTables = new int[aggCount][];
@@ -105,7 +124,8 @@ public final class ProjectionColumnGroupScan {
         continue;
       }
       final ColumnSlice group = groupCol[leaf];
-      final long[] groupValues = group.numericValues();
+      final MemorySegment groupSeg = group.laneSegment();
+      final long groupBase = group.laneBase();
       final long[] groupPresence = group.presenceWords();
       byte[] cdDictBytes = null;
       int[] cdDictOffsets = null;
@@ -121,7 +141,8 @@ public final class ProjectionColumnGroupScan {
             // fold reads table[(int) idLane[row]] and no dictionary bytes are touched. A GLOBAL
             // column's table serves every leaf; a SEGMENT column's is its own segment's, chosen once
             // per leaf just now.
-            aggValues[a] = agg.numericValues();
+            aggSeg[a] = agg.laneSegment();
+            aggBase[a] = agg.laneBase();
             aggIds[a] = null;
           } else {
             precomputeStringLengths(ds, a, agg, stringLengthModes[a]);
@@ -132,7 +153,7 @@ public final class ProjectionColumnGroupScan {
               // such a lane, so reaching here is a contract breach — refused by name, not by NPE.
               throw new IllegalStateException("length lane " + a + " has no per-leaf dictionary and no length table");
             }
-            aggValues[a] = null;
+            aggSeg[a] = null;
           }
         } else if (cdStringDict && a == distinctBlock) {
           cdHash = cdHashesFor(ds, agg);
@@ -143,9 +164,10 @@ public final class ProjectionColumnGroupScan {
               ? null
               : agg.dictOffsets();
           aggIds[a] = agg.stringDictIds();
-          aggValues[a] = null;
+          aggSeg[a] = null;
         } else {
-          aggValues[a] = agg.numericValues();
+          aggSeg[a] = agg.laneSegment();
+          aggBase[a] = agg.laneBase();
           aggIds[a] = null;
         }
       }
@@ -154,26 +176,27 @@ public final class ProjectionColumnGroupScan {
       if (countOnly) {
         for (int w = 0; w < stride; w++) {
           long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+          if (word == 0L) {
+            continue;
+          }
           final long groupPresWord = groupPresence[w];
           final int rowBase = w << 6;
+          // One decision per word, before the walk consumes it.
           while (word != 0L) {
             final int bit = Long.numberOfTrailingZeros(word);
             word &= word - 1L;
             final int rowIdx = rowBase + bit;
             if ((groupPresWord & 1L << bit) == 0L) {
-              if (missingAcc[0] == 0) {
-                missingAcc[1] = leafOrdinalBase | rowIdx;
+              if (GroupLanes.get(missingAcc, 0) == 0) {
+                GroupLanes.set(missingAcc, 1, leafOrdinalBase | rowIdx);
               }
-              missingAcc[0]++;
+              GroupLanes.increment(missingAcc, 0);
             } else {
-              final long gv = groupValues[rowIdx];
+              final long gv = SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3));
               if (gv == 0L) {
-                out.acquireZero(leafOrdinalBase | rowIdx)[0]++;
+                GroupLanes.increment(out.acquireZero(leafOrdinalBase | rowIdx), 0);
               } else {
-                // Resolve storage AFTER acquire: growth can move the stripe to another chunk.
-                final int handle = out.acquire(gv, leafOrdinalBase | rowIdx);
-                final long[] block = out.storageAtAccBase(handle);
-                block[out.offsetAtAccBase(handle)]++;
+                GroupKernelLanes.increment(out.acquireAccumulator(gv, leafOrdinalBase | rowIdx, aggCount, 4), 0);
               }
             }
           }
@@ -182,46 +205,45 @@ public final class ProjectionColumnGroupScan {
       }
       for (int w = 0; w < stride; w++) {
         long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+        if (word == 0L) {
+          continue;
+        }
         final long groupPresWord = groupPresence[w];
         final int rowBase = w << 6;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
           final int rowIdx = rowBase + bit;
-          final long[] slotArr;
-          final int base;
+          final long groupRecord;
           Sink dset = null;
           final boolean groupMissing = (groupPresWord & 1L << bit) == 0L;
           final long distinctGroup = groupMissing
               ? 0L
-              : groupValues[rowIdx];
+              : SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3));
           if (groupMissing) {
-            slotArr = missingAcc;
-            base = 0;
-            if (slotArr[0] == 0) {
-              slotArr[1] = leafOrdinalBase | rowIdx;
+            if (GroupKernelLanes.get(missingRecord, 0) == 0) {
+              GroupKernelLanes.set(missingRecord, 1, leafOrdinalBase | rowIdx);
             }
+            groupRecord = missingRecord;
             dset = distinctMissing;
           } else {
             final long gv = distinctGroup;
-            if (gv == 0L) {
-              slotArr = out.acquireZero(leafOrdinalBase | rowIdx);
-              base = 0;
-            } else {
-              final int handle = out.acquire(gv, leafOrdinalBase | rowIdx);
-              slotArr = out.storageAtAccBase(handle);
-              base = out.offsetAtAccBase(handle);
-            }
+            groupRecord = gv == 0L
+                ? out.acquireZero(leafOrdinalBase | rowIdx).accumulator(0, aggCount, 4)
+                : out.acquireAccumulator(gv, leafOrdinalBase | rowIdx, aggCount, 4);
           }
-          foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
-              bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null, sumExactMask,
-              leafLengthTables, groupMissing
+          foldSlicedLane(groupRecord, aggSeg, aggBase, aggPresence, aggIds, ds.stringLengths, stringLengthModes,
+              aggCount, w, bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, null, null,
+              sumExactMask, leafLengthTables, groupMissing
                   ? null
                   : distinctOut,
               distinctGroup);
         }
       }
     }
+    // The rows folded into records of these two; keep both alive past the last of them.
+    Reference.reachabilityFence(out);
+    Reference.reachabilityFence(missingAcc);
   }
 
   /**
@@ -241,10 +263,15 @@ public final class ProjectionColumnGroupScan {
    * @param roster this worker's created-id list, which the selection walks instead of the id space
    * @param decline set to {@code 1} when a row carries an id the table was not sized for
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupNumericDense(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
       final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols, final int fromLeaf,
-      final int toLeaf, final DenseGlobalGroupAggTable out, final long[] missingAcc,
+      final int toLeaf, final DenseGlobalGroupAggTable out, final GroupBuffer missingAcc,
       final DenseGlobalGroupAggTable.IdRoster roster, final long[] decline) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null || roster == null
         || decline == null) {
@@ -253,9 +280,12 @@ public final class ProjectionColumnGroupScan {
     final long[] mask = MASK.get();
     final long sumExactMask = out.sumExactMask();
     final int aggCount = aggCols.length;
+    // The missing-key accumulator is a block that never moves: resolved once for the whole run.
+    final long missingRecord = missingAcc.accumulator(0, aggCount, 4);
     // Hoisted per leaf, exactly as the hash kernel hoists them: the record accessors and the double
     // indirection must stay out of the per-row loop.
-    final long[][] aggValues = new long[aggCount][];
+    final MemorySegment[] aggSeg = new MemorySegment[aggCount];
+    final long[] aggBase = new long[aggCount];
     final long[][] aggPresence = new long[aggCount][];
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       if (decline[0] != 0L) {
@@ -268,69 +298,156 @@ public final class ProjectionColumnGroupScan {
         continue;
       }
       final ColumnSlice group = groupCol[leaf];
-      final long[] groupValues = group.numericValues();
+      final MemorySegment groupSeg = group.laneSegment();
+      final long groupBase = group.laneBase();
       final long[] groupPresence = group.presenceWords();
       for (int a = 0; a < aggCount; a++) {
         final ColumnSlice agg = aggCols[a][leaf];
         aggPresence[a] = agg.presenceWords();
-        aggValues[a] = agg.numericValues();
+        aggSeg[a] = agg.laneSegment();
+        aggBase[a] = agg.laneBase();
       }
       final long leafOrdinalBase = (long) leaf << 20;
       final int stride = (rowCount + 63) >>> 6;
       for (int w = 0; w < stride; w++) {
         long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+        if (word == 0L) {
+          continue;
+        }
         final long groupPresWord = groupPresence[w];
         final int rowBase = w << 6;
+        // The rows without a group key all fold into the one missing-key accumulator, so the word's
+        // are folded together, column by column; the keyed rows then go to the table one by one.
+        final long missing = word & ~groupPresWord;
+        if (missing != 0L) {
+          if (GroupLanes.get(missingAcc, 0) == 0) {
+            GroupLanes.set(missingAcc, 1, leafOrdinalBase | (rowBase + Long.numberOfTrailingZeros(missing)));
+          }
+          if ((missing & (missing - 1L)) == 0L) {
+            // One row without a key, the usual word where keys are seldom missing: its fold directly, because
+            // the kernel for whole words is a call once it has been compiled on its own.
+            foldNumericPlainLoneRow(missingRecord, missing, aggSeg, aggBase, aggPresence, aggCount, w, sumExactMask);
+          } else {
+            foldNumericPlainWordLane(missingRecord, aggSeg, aggBase, aggPresence, aggCount, w, missing, sumExactMask);
+          }
+          word &= groupPresWord;
+        }
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
           final int rowIdx = rowBase + bit;
-          if ((groupPresWord & 1L << bit) == 0L) {
-            if (missingAcc[0] == 0) {
-              missingAcc[1] = leafOrdinalBase | rowIdx;
-            }
-            foldNumericPlain(missingAcc, 0, aggValues, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
-          } else {
-            out.fold(groupValues[rowIdx], leafOrdinalBase | rowIdx, aggValues, aggPresence, aggCount, w, bit, rowIdx,
-                roster, decline);
-          }
+          out.foldLane(SegmentAccess.getLong(groupSeg, groupBase + ((long) rowIdx << 3)), leafOrdinalBase | rowIdx,
+              aggSeg, aggBase, aggPresence, aggCount, w, bit, rowIdx, roster, decline);
+
         }
       }
+    }
+    Reference.reachabilityFence(missingAcc);
+  }
+
+  /**
+   * Fold the rows {@code rows} of selection word {@code w} into {@code record}, reading the lanes in
+   * place: a column's lane segment is the same for all rows of the word, so its liveness is
+   * established once per column and word.
+   *
+   * <p>
+   * Larger than what HotSpot compiles into a caller ({@code GroupAccessorSizeTest} holds that), so it
+   * is always a call, which the rows of a word share. A row loop folds a lone row through
+   * {@link #foldNumericPlainLoneRow} instead; handed a lone row all the same, this kernel passes it
+   * on.
+   */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S135", "java:S3776"})
+  static void foldNumericPlainWordLane(final long groupRecord, final MemorySegment[] aggSeg, final long[] laneBases,
+      final long[][] aggPresence, final int aggCount, final int w, final long rows, final long sumExactMask) {
+    if (rows != 0L && (rows & (rows - 1L)) == 0L) {
+      foldNumericPlainLoneRow(groupRecord, rows, aggSeg, laneBases, aggPresence, aggCount, w, sumExactMask);
+      return;
+    }
+    GroupKernelLanes.add(groupRecord, 0, Long.bitCount(rows));
+    // The word's first row, in bytes: 64 rows of 8 bytes each.
+    final long wordOffset = (long) w << 9;
+    for (int a = 0; a < aggCount; a++) {
+      long present = aggPresence[a][w] & rows;
+      if (present == 0L) {
+        continue;
+      }
+      final int column = 2 + 4 * a;
+      final boolean exact = NumericGroupAggTable.sumsExact(sumExactMask, a);
+      final MemorySegment lane = aggSeg[a];
+      final long base = laneBases[a] + wordOffset;
+      final int count = Long.bitCount(present);
+      GroupKernelLanes.add(groupRecord, column, count);
+      if (count == 1) {
+        final long v = SegmentAccess.getLong(lane, base + ((long) Long.numberOfTrailingZeros(present) << 3));
+        if (exact) {
+          GroupKernelLanes.set(groupRecord, column + 1,
+              Math.addExact(GroupKernelLanes.get(groupRecord, column + 1), v));
+        }
+        GroupKernelLanes.min(groupRecord, column + 2, v);
+        GroupKernelLanes.max(groupRecord, column + 3, v);
+        continue;
+      }
+      long sum = GroupKernelLanes.get(groupRecord, column + 1);
+      long min = GroupKernelLanes.get(groupRecord, column + 2);
+      long max = GroupKernelLanes.get(groupRecord, column + 3);
+      for (int i = 0; i < count; i++) {
+        final long v = SegmentAccess.getLong(lane, base + ((long) Long.numberOfTrailingZeros(present) << 3));
+        present &= present - 1L;
+        if (exact) {
+          sum = Math.addExact(sum, v);
+        }
+        min = Math.min(min, v);
+        max = Math.max(max, v);
+      }
+      if (exact) {
+        GroupKernelLanes.set(groupRecord, column + 1, sum);
+      }
+      GroupKernelLanes.set(groupRecord, column + 2, min);
+      GroupKernelLanes.set(groupRecord, column + 3, max);
     }
   }
 
   /**
-   * {@link #foldSliced} restricted to plain numeric aggregate lanes — the shape the missing-key
-   * accumulator of the dense arm needs, where no distinct set, no string-length operand and no
-   * dictionary state can occur. Kept beside its atomic twin ({@link DenseGlobalGroupAggTable#fold})
-   * so the lane order of the two is read together.
+   * {@link #foldNumericPlainWordLane} for a word of one row, {@code rowBit} being that row's bit.
+   *
+   * <p>
+   * A method of its own, and small, so that it is compiled into whatever calls it: a row loop calls
+   * it directly for a lone row. The kernel for whole words is large enough that HotSpot, once it has
+   * compiled it on its own, no longer compiles it into its callers ({@code -XX:InlineSmallCode}); a
+   * lone row then paid a call that cost a tenth of its fold in most forks of the fold benchmark and
+   * none in the others.
    */
-  private static void foldNumericPlain(final long[] acc, final int base, final long[][] aggValues,
-      final long[][] aggPresence, final int aggCount, final int w, final int bit, final int rowIdx,
-      final long sumExactMask) {
-    acc[base]++;
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  static void foldNumericPlainLoneRow(final long groupRecord, final long rowBit, final MemorySegment[] aggSeg,
+      final long[] laneBases, final long[][] aggPresence, final int aggCount, final int w, final long sumExactMask) {
+    GroupKernelLanes.increment(groupRecord, 0);
+    final long rowOffset = ((long) w << 9) + ((long) Long.numberOfTrailingZeros(rowBit) << 3);
     for (int a = 0; a < aggCount; a++) {
-      if ((aggPresence[a][w] & 1L << bit) == 0L) {
-        continue;
-      }
-      final long v = aggValues[a][rowIdx];
-      final int aggBase = base + 2 + 4 * a;
-      acc[aggBase]++;
-      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
-        acc[aggBase + 1] = Math.addExact(acc[aggBase + 1], v);
-      }
-      if (v < acc[aggBase + 2]) {
-        acc[aggBase + 2] = v;
-      }
-      if (v > acc[aggBase + 3]) {
-        acc[aggBase + 3] = v;
+      if ((aggPresence[a][w] & rowBit) != 0L) {
+        final int column = 2 + 4 * a;
+        GroupKernelLanes.increment(groupRecord, column);
+        final long v = SegmentAccess.getLong(aggSeg[a], laneBases[a] + rowOffset);
+        if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+          GroupKernelLanes.set(groupRecord, column + 1,
+              Math.addExact(GroupKernelLanes.get(groupRecord, column + 1), v));
+        }
+        GroupKernelLanes.min(groupRecord, column + 2, v);
+        GroupKernelLanes.max(groupRecord, column + 3, v);
       }
     }
   }
 
   /**
    * Zero the per-leaf hash memo for a STRING_DICT count-distinct operand and hand it back: one
-   * {@code long} per dict entry, hashed lazily on first reference by {@link #foldSliced}.
+   * {@code long} per dict entry, hashed lazily on first reference by {@link #foldSlicedLane}.
    */
   /**
    * The distinct operand's {@code dictId -> content hash} table for ONE leaf.
@@ -339,8 +456,8 @@ public final class ProjectionColumnGroupScan {
    * A slice filled in DISTINCT-IDENTITY mode carries the table already — read straight off the leaf's
    * {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_DICT_HASHES} segment, so no dictionary byte was
    * fetched, decoded or hashed for it. Its array is SHARED and must stay read-only, which is what the
-   * {@code cdDictBytes == null} guard in {@link #foldSliced} enforces: with no bytes to hash from,
-   * there is nothing to memoize back. Otherwise the per-thread scratch carries the same hashes,
+   * {@code cdDictBytes == null} guard in {@link #foldSlicedLane} enforces: with no bytes to hash
+   * from, there is nothing to memoize back. Otherwise the per-thread scratch carries the same hashes,
    * filled lazily per referenced entry.
    */
   private static long[] cdHashesFor(final DictScratch ds, final ColumnSlice agg) {
@@ -406,14 +523,19 @@ public final class ProjectionColumnGroupScan {
    * {@code ""}, a REAL key the missing-key arm must not absorb. {@code stringLengthModes[a]} selects
    * codepoint or UTF-8-byte counts with missing-is-zero semantics; {@code globalLengthTables} and
    * {@code segmentLengthTables} are the id-lane length tables the numeric twin documents.
-   * {@code cdStringDict} marks the distinct block's operand as STRING_DICT — see {@link #foldSliced}
-   * for the leaf-local-id → content-hash identity it feeds the set.
+   * {@code cdStringDict} marks the distinct block's operand as STRING_DICT — see
+   * {@link #foldSlicedLane} for the leaf-local-id → content-hash identity it feeds the set.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupStringFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
       final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
       final byte[] stringLengthModes, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
-      final long[] missingAcc, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
+      final GroupBuffer missingAcc, final int distinctBlock, final GroupDistinctAccumulator.Worker distinctOut,
       final GroupDistinctAccumulator.Sink distinctMissing, final long[] budget, final boolean cdStringDict,
       final Pattern keyRegex, final String keyRegexRepl, final long[] regexDecline,
       final GroupDistinctBitmaps distinctBitmaps, final int[][] globalLengthTables, final int[][][] segmentLengthTables,
@@ -459,7 +581,10 @@ public final class ProjectionColumnGroupScan {
     if (stringLengthModes != null && (ds.stringLengths == null || ds.stringLengths.length < aggCount)) {
       ds.stringLengths = new int[Math.max(4, aggCount)][];
     }
-    final long[][] aggValues = new long[aggCount][];
+    // The missing-key accumulator is a block that never moves: resolved once for the whole run.
+    final long missingRecord = missingAcc.accumulator(0, aggCount, 4);
+    final MemorySegment[] aggSeg = new MemorySegment[aggCount];
+    final long[] aggBase = new long[aggCount];
     final long[][] aggPresence = new long[aggCount][];
     final int[][] aggIds = new int[aggCount][];
     final int[][] leafLengthTables = new int[aggCount][];
@@ -474,12 +599,15 @@ public final class ProjectionColumnGroupScan {
         continue;
       }
       final ColumnSlice group = groupCol[leaf];
-      final long[] globalGids = globalGroup
-          ? group.numericValues()
-          : null;
-      if (globalGroup && globalGids == null) {
+      if (globalGroup && !group.hasNumericLane()) {
         throw new IllegalStateException("global regex group column has no id lane in leaf " + leaf);
       }
+      final MemorySegment globalGidSeg = globalGroup
+          ? group.laneSegment()
+          : null;
+      final long globalGidBase = globalGroup
+          ? group.laneBase()
+          : 0L;
       final byte[] dictBytes = globalGroup
           ? null
           : group.dictBytes();
@@ -514,7 +642,8 @@ public final class ProjectionColumnGroupScan {
             // fold reads table[(int) idLane[row]] and no dictionary bytes are touched. A GLOBAL
             // column's table serves every leaf; a SEGMENT column's is its own segment's, chosen once
             // per leaf just now.
-            aggValues[a] = agg.numericValues();
+            aggSeg[a] = agg.laneSegment();
+            aggBase[a] = agg.laneBase();
             aggIds[a] = null;
           } else {
             precomputeStringLengths(ds, a, agg, stringLengthModes[a]);
@@ -525,7 +654,7 @@ public final class ProjectionColumnGroupScan {
               // such a lane, so reaching here is a contract breach — refused by name, not by NPE.
               throw new IllegalStateException("length lane " + a + " has no per-leaf dictionary and no length table");
             }
-            aggValues[a] = null;
+            aggSeg[a] = null;
           }
         } else if (cdStringDict && a == distinctBlock) {
           // The operand's own dict — a SEPARATE memo from the group key's (ds.hash), because the
@@ -538,9 +667,10 @@ public final class ProjectionColumnGroupScan {
               ? null
               : agg.dictOffsets();
           aggIds[a] = agg.stringDictIds();
-          aggValues[a] = null;
+          aggSeg[a] = null;
         } else {
-          aggValues[a] = agg.numericValues();
+          aggSeg[a] = agg.laneSegment();
+          aggBase[a] = agg.laneBase();
           aggIds[a] = null;
         }
       }
@@ -548,14 +678,17 @@ public final class ProjectionColumnGroupScan {
       final int stride = (rowCount + 63) >>> 6;
       for (int w = 0; w < stride; w++) {
         long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+        if (word == 0L) {
+          continue;
+        }
         final long groupPresWord = groupPresence[w];
         final int rowBase = w << 6;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
           word &= word - 1L;
           final int rowIdx = rowBase + bit;
-          final long[] slotArr;
-          final int base;
+          // The row's accumulator, resolved AFTER its acquisition: growth can move the stripe.
+          final long groupRecord;
           GroupDistinctAccumulator.Sink dset = null;
           long[] dwords = null;
           if ((groupPresWord & 1L << bit) == 0L) {
@@ -564,11 +697,10 @@ public final class ProjectionColumnGroupScan {
               regexDecline[0] = 1;
               return;
             }
-            slotArr = missingAcc;
-            base = 0;
-            if (slotArr[0] == 0) {
-              slotArr[1] = leafOrdinalBase | rowIdx;
+            if (GroupKernelLanes.get(missingRecord, 0) == 0) {
+              GroupKernelLanes.set(missingRecord, 1, leafOrdinalBase | rowIdx);
             }
+            groupRecord = missingRecord;
             dset = distinctMissing;
             if (localWords != null) {
               // The missing-key group is a real group with a real distinct count; give it the same
@@ -579,7 +711,8 @@ public final class ProjectionColumnGroupScan {
               }
             }
           } else if (globalGroup) {
-            final long gid = globalGids[rowIdx];
+            final long gid = SegmentAccess.getLong(requireNonNull(globalGidSeg, "a global group needs its id lane"),
+                globalGidBase + ((long) rowIdx << 3));
             final long ordinal = leafOrdinalBase | rowIdx;
             // One array load per row; the per-leaf dict memo does not apply (ids are resource-wide
             // and the table IS the memo). Hash 0 = the transformed key hashed to the empty-bucket
@@ -587,12 +720,12 @@ public final class ProjectionColumnGroupScan {
             final long h = globalKeyHashes[(int) gid];
             if (h == 0L) {
               final boolean fresh = !out.hasZeroKey();
-              final long[] zero = out.acquireZero(ordinal);
+              final GroupBuffer zero = out.acquireZero(ordinal);
               if (fresh) {
                 out.setZeroAux(gid);
               }
               if (countOnly) {
-                zero[0]++;
+                GroupLanes.increment(zero, 0);
               } else {
                 long[] zeroWords = null;
                 if (distinctBlock >= 0 && localWords != null) {
@@ -601,19 +734,18 @@ public final class ProjectionColumnGroupScan {
                     return;
                   }
                 }
-                foldSliced(zero, 0, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
-                    bit, rowIdx, distinctBlock, distinctBlock >= 0 && localWords == null
+                foldSlicedLane(zero.accumulator(0, aggCount, 4), aggSeg, aggBase, aggPresence, aggIds, ds.stringLengths,
+                    stringLengthModes, aggCount, w, bit, rowIdx, distinctBlock, distinctBlock >= 0 && localWords == null
                         ? distinctOut.sinkFor(0L)
                         : null,
                     budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask,
-                    leafLengthTables);
+                    leafLengthTables, null, 0L);
               }
               continue;
             }
             final int cached = out.acquire(h, ordinal);
-            final long[] cachedStorage = out.storageAtAccBase(cached);
-            final int cachedOffset = out.offsetAtAccBase(cached);
-            if (cachedStorage[cachedOffset] == 0L) {
+            final long acquired = out.accumulatorAt(cached, aggCount, 4);
+            if (GroupKernelLanes.get(acquired, 0) == 0L) {
               // Aux carries the GLOBAL ID itself — resource-wide, so no (leaf, dictId) packing;
               // the executor's winner materialization resolves it through the dictionary.
               out.setAuxAtAccBase(cached, gid);
@@ -628,8 +760,7 @@ public final class ProjectionColumnGroupScan {
                 dset = distinctOut.sinkFor(h);
               }
             }
-            slotArr = cachedStorage;
-            base = cachedOffset;
+            groupRecord = acquired;
           } else {
             final int dictId = ids[rowIdx];
             final long ordinal = leafOrdinalBase | rowIdx;
@@ -660,12 +791,12 @@ public final class ProjectionColumnGroupScan {
               if (h == 0L) {
                 // A value whose FNV hash IS the empty-bucket sentinel: zero side slot.
                 final boolean fresh = !out.hasZeroKey();
-                final long[] zero = out.acquireZero(ordinal);
+                final GroupBuffer zero = out.acquireZero(ordinal);
                 if (fresh) {
                   out.setZeroAux(leafOrdinalBase | dictId);
                 }
                 if (countOnly) {
-                  zero[0]++;
+                  GroupLanes.increment(zero, 0);
                 } else {
                   long[] zeroWords = null;
                   if (distinctBlock >= 0 && localWords != null) {
@@ -674,21 +805,22 @@ public final class ProjectionColumnGroupScan {
                       return;
                     }
                   }
-                  foldSliced(zero, 0, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
-                      bit, rowIdx, distinctBlock, distinctBlock >= 0 && localWords == null
+                  foldSlicedLane(zero.accumulator(0, aggCount, 4), aggSeg, aggBase, aggPresence, aggIds,
+                      ds.stringLengths, stringLengthModes, aggCount, w, bit, rowIdx, distinctBlock,
+                      distinctBlock >= 0 && localWords == null
                           ? distinctOut.sinkFor(0L)
                           : null,
                       budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, zeroWords, sumExactMask,
-                      leafLengthTables);
+                      leafLengthTables, null, 0L);
                 }
                 continue;
               }
               cached = out.acquire(h, ordinal);
               // Every acquire is followed by a fold, so count 0 means the entry was created
               // just now — stamp the source reference exactly once.
-              final long[] cachedStorage = out.storageAtAccBase(cached);
+              final GroupBuffer cachedStorage = out.storageAtAccBase(cached);
               final int cachedOffset = out.offsetAtAccBase(cached);
-              if (cachedStorage[cachedOffset] == 0L) {
+              if (GroupLanes.get(cachedStorage, cachedOffset) == 0L) {
                 out.setAuxAtAccBase(cached, leafOrdinalBase | dictId);
               }
               dictBase[dictId] = cached;
@@ -703,29 +835,34 @@ public final class ProjectionColumnGroupScan {
                 dset = distinctOut.sinkFor(h);
               }
             }
-            slotArr = out.storageAtAccBase(cached);
-            base = out.offsetAtAccBase(cached);
+            groupRecord = out.accumulatorAt(cached, aggCount, 4);
           }
           if (countOnly) {
-            slotArr[base]++;
+            GroupKernelLanes.increment(groupRecord, 0);
           } else {
-            foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.stringLengths, stringLengthModes, aggCount, w,
-                bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, distinctBitmaps, dwords,
-                sumExactMask, leafLengthTables);
+            foldSlicedLane(groupRecord, aggSeg, aggBase, aggPresence, aggIds, ds.stringLengths, stringLengthModes,
+                aggCount, w, bit, rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash,
+                distinctBitmaps, dwords, sumExactMask, leafLengthTables, null, 0L);
           }
         }
       }
     }
+    // The rows folded into records of these two; keep both alive past the last of them.
+    Reference.reachabilityFence(out);
+    Reference.reachabilityFence(missingAcc);
   }
 
   /**
    * Fold each used dictionary entry once per leaf. The row pass touches only compact ID counters; the
    * table receives the same hash, count and earliest source ordinal as the general row kernel.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static void countByLocalDictionary(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final PredicateTree tree, final ColumnSlice[][] treeCols,
       final ColumnSlice[] groups, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
-      final long[] missingAcc, final long[] budget, final long[] mask, final DictScratch scratch) {
+      final GroupBuffer missingAcc, final long[] budget, final long[] mask, final DictScratch scratch) {
     final boolean packedCounts = !"false".equals(System.getProperty("sirix.projection.packedDictionaryCounts"));
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       if (budget != null && budget[1] != 0L) {
@@ -754,10 +891,10 @@ public final class ProjectionColumnGroupScan {
       final long ordinalBase = (long) leaf << 20;
       final int missing = counts[dictSize];
       if (missing != 0) {
-        if (missingAcc[0] == 0L) {
-          missingAcc[1] = ordinalBase | firstRows[dictSize];
+        if (GroupLanes.get(missingAcc, 0) == 0L) {
+          GroupLanes.set(missingAcc, 1, ordinalBase | firstRows[dictSize]);
         }
-        missingAcc[0] += missing;
+        GroupLanes.add(missingAcc, 0, missing);
       }
       final byte[] bytes = group.dictBytes();
       final int[] offsets = group.dictOffsets();
@@ -771,24 +908,24 @@ public final class ProjectionColumnGroupScan {
         final long ordinal = ordinalBase | firstRows[id];
         if (hash == 0L) {
           final boolean fresh = !out.hasZeroKey();
-          final long[] zero = out.acquireZero(ordinal);
-          if (fresh || ordinal < zero[1]) {
-            zero[1] = ordinal;
+          final GroupBuffer zero = out.acquireZero(ordinal);
+          if (fresh || ordinal < GroupLanes.get(zero, 1)) {
+            GroupLanes.set(zero, 1, ordinal);
             out.setZeroAux(ordinalBase | id);
           }
-          zero[0] += count;
+          GroupLanes.add(zero, 0, count);
         } else {
           final int handle = out.acquire(hash, ordinal);
           if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
             continue;
           }
-          final long[] values = out.storageAtAccBase(handle);
+          final GroupBuffer values = out.storageAtAccBase(handle);
           final int base = out.offsetAtAccBase(handle);
-          if (values[base] == 0L || ordinal < values[base + 1]) {
-            values[base + 1] = ordinal;
+          if (GroupLanes.get(values, base) == 0L || ordinal < GroupLanes.get(values, base + 1)) {
+            GroupLanes.set(values, base + 1, ordinal);
             out.setAuxAtAccBase(handle, ordinalBase | id);
           }
-          values[base] += count;
+          GroupLanes.add(values, base, count);
         }
       }
     }
@@ -882,56 +1019,194 @@ public final class ProjectionColumnGroupScan {
     }
   }
 
-  /** Fold integral operands into present-count/sum pairs; missing operands retain a zero count. */
-  private static void foldSumsSliced(final long[] accumulator, final int base, final long[][] values,
-      final long[][] presence, final int columns, final int word, final int bit, final int row,
-      final long sumExactMask) {
-    accumulator[base]++;
-    final long presentBit = 1L << bit;
+  /**
+   * Fold the rows of one selection word into a sums-only table, once every one of them holds its
+   * group: {@code handles[i]} is the group of the word's {@code i}-th row this pass owns, in row
+   * order, and {@code rows} has those rows' bits.
+   *
+   * <p>
+   * The handles were taken while the word's keys were resolved, and an acquisition that grows the
+   * table invalidates every earlier one. {@code rehashesBefore}, the table's count when the word
+   * began, tells: the rows are then acquired again from their saved probe hash and identity, which
+   * finds every group and so cannot grow the table a second time. Nothing of the word was folded
+   * before that.
+   *
+   * @param wordOrdinalBase the source ordinal of the word's row 0
+   * @param records scratch of at least {@code count} entries for the resolved accumulators
+   */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  private static void foldSumsWord(final NumericGroupAggTable out, final int[] handles, final long[] hashes,
+      final long[] identities, final int identityWidth, final int count, final long rows, final int rehashesBefore,
+      final long wordOrdinalBase, final MemorySegment[] aggSeg, final long[] aggBase, final long[][] aggPresence,
+      final int aggCount, final int word, final long sumExactMask, final long[] records) {
+    final boolean moved = out.rehashes() != rehashesBefore;
+    long remaining = rows;
+    for (int i = 0; i < count; i++) {
+      final long ordinal = wordOrdinalBase | Long.numberOfTrailingZeros(remaining);
+      remaining &= remaining - 1L;
+      final int handle = moved
+          ? out.acquireExact(hashes[i], ordinal, identities, i * identityWidth)
+          : handles[i];
+      // Resolved after the word's last acquisition: nothing below moves a stripe.
+      final long groupRecord = out.accumulatorAt(handle, aggCount, 2);
+      if (GroupKernelLanes.get(groupRecord, 0) == 0L) {
+        out.setAuxAtAccBase(handle, ordinal);
+      }
+      GroupKernelLanes.increment(groupRecord, 0);
+      records[i] = groupRecord;
+    }
+    foldSumsWordLane(records, count, rows, aggSeg, aggBase, aggPresence, aggCount, word, sumExactMask);
+  }
+
+  /**
+   * Fold present-count/sum pairs of one selection word through the integral lanes: {@code records[i]}
+   * is the accumulator of the word's {@code i}-th selected row in the order of the bits of
+   * {@code rows}; the rows' own count (lane 0) is the caller's.
+   *
+   * <p>
+   * One kernel in three shapes by the number of rows, each a method of its own so that each stays
+   * within what HotSpot compiles into a hot caller ({@code GroupAccessorSizeTest} holds the sizes):
+   * together they are too large, and a word would then pay a call.
+   */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S6880: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  @SuppressWarnings({"java:S107", "java:S6880"})
+  static void foldSumsWordLane(final long[] records, final int count, final long rows, final MemorySegment[] segs,
+      final long[] laneBases, final long[][] presence, final int columns, final int word, final long sumExactMask) {
+    if (count == 1) {
+      foldSumsLoneRow(records[0], rows, segs, laneBases, presence, columns, word, sumExactMask);
+    } else if (count == 2) {
+      foldSumsRowPair(records[0], records[1], rows, segs, laneBases, presence, columns, word, sumExactMask);
+    } else {
+      foldSumsColumns(records, count, rows, segs, laneBases, presence, columns, word, sumExactMask);
+    }
+  }
+
+  /**
+   * {@link #foldSumsWordLane} for a lone row, which is every row of a sparse selection: entering a
+   * counted loop per column would cost more than the row's fold.
+   */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  private static void foldSumsLoneRow(final long groupRecord, final long rowBit, final MemorySegment[] segs,
+      final long[] laneBases, final long[][] presence, final int columns, final int word, final long sumExactMask) {
+    final long rowOffset = ((long) word << 9) + ((long) Long.numberOfTrailingZeros(rowBit) << 3);
     for (int a = 0; a < columns; a++) {
-      if ((presence[a][word] & presentBit) != 0L) {
-        final int at = base + 2 + 2 * a;
-        accumulator[at]++;
+      if ((presence[a][word] & rowBit) != 0L) {
+        final int at = 2 + 2 * a;
+        GroupKernelLanes.increment(groupRecord, at);
         if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
-          accumulator[at + 1] = Math.addExact(accumulator[at + 1], values[a][row]);
+          // The operand first: its checked read then has no accumulator lane to keep alive across it.
+          final long v = SegmentAccess.getLong(segs[a], laneBases[a] + rowOffset);
+          GroupKernelLanes.set(groupRecord, at + 1, Math.addExact(GroupKernelLanes.get(groupRecord, at + 1), v));
         }
       }
     }
   }
 
   /**
-   * One row's aggregate fold over hoisted slice arrays — the byte kernel's foldRow twin.
-   *
-   * <p>
-   * {@code cdHash != null} marks the distinct block's operand as STRING_DICT: dict ids are
-   * LEAF-LOCAL, so the set member is the entry's 64-bit content hash. Either the leaf's DICT_HASHES
-   * segment supplied the whole table ({@code cdDictBytes == null} — read-only, nothing to compute),
-   * or it is built once per referenced entry per leaf into a per-thread scratch ({@code 0} = not yet
-   * hashed; an entry whose hash IS 0 re-hashes per row, correct and vanishingly rare). Both fill it
-   * with the same function over the same bytes, so the two are interchangeable within one column.
-   * Identity is exact up to a 64-bit hash collision — the SAME standard the composite group-key
-   * identity already accepts.
+   * {@link #foldSumsWordLane} for a pair of rows: both rows of a column in one pass over the columns,
+   * so that what a column's read needs is loaded once for the two, without a counted loop to enter
+   * per column.
    */
-  private static void foldSliced(final long[] slotArr, final int base, final long[][] aggValues,
-      final long[][] aggPresence, final int[][] aggIds, final int @Nullable [][] stringLengths,
-      final byte @Nullable [] stringLengthModes, final int aggCount, final int w, final int bit, final int rowIdx,
-      final int distinctBlock, final @Nullable Sink dset, final long @Nullable [] budget,
-      final byte @Nullable [] cdDictBytes, final int @Nullable [] cdDictOffsets, final long @Nullable [] cdHash,
-      final @Nullable GroupDistinctBitmaps bitmaps, final long @Nullable [] dwords, final long sumExactMask,
-      final int[][] leafLengthTables) {
-    foldSliced(slotArr, base, aggValues, aggPresence, aggIds, stringLengths, stringLengthModes, aggCount, w, bit,
-        rowIdx, distinctBlock, dset, budget, cdDictBytes, cdDictOffsets, cdHash, bitmaps, dwords, sumExactMask,
-        leafLengthTables, null, 0L);
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  private static void foldSumsRowPair(final long first, final long second, final long rows, final MemorySegment[] segs,
+      final long[] laneBases, final long[][] presence, final int columns, final int word, final long sumExactMask) {
+    final long firstBit = rows & -rows;
+    final long secondBit = rows ^ firstBit;
+    final long wordOffset = (long) word << 9;
+    final long firstOffset = wordOffset + ((long) Long.numberOfTrailingZeros(firstBit) << 3);
+    final long secondOffset = wordOffset + ((long) Long.numberOfTrailingZeros(secondBit) << 3);
+    for (int a = 0; a < columns; a++) {
+      final long present = presence[a][word];
+      if ((present & rows) == 0L) {
+        continue;
+      }
+      final int at = 2 + 2 * a;
+      final boolean exact = NumericGroupAggTable.sumsExact(sumExactMask, a);
+      final MemorySegment lane = segs[a];
+      final long base = laneBases[a];
+      if ((present & firstBit) != 0L) {
+        GroupKernelLanes.increment(first, at);
+        if (exact) {
+          final long v = SegmentAccess.getLong(lane, base + firstOffset);
+          GroupKernelLanes.set(first, at + 1, Math.addExact(GroupKernelLanes.get(first, at + 1), v));
+        }
+      }
+      if ((present & secondBit) != 0L) {
+        GroupKernelLanes.increment(second, at);
+        if (exact) {
+          final long v = SegmentAccess.getLong(lane, base + secondOffset);
+          GroupKernelLanes.set(second, at + 1, Math.addExact(GroupKernelLanes.get(second, at + 1), v));
+        }
+      }
+    }
   }
 
-  private static void foldSliced(final long[] slotArr, final int base, final long[][] aggValues,
+  /**
+   * {@link #foldSumsWordLane} for three rows and more, column by column: the lane is then one segment
+   * for the whole inner loop, so what a checked read needs besides its bounds comparison is loaded
+   * once per column and word instead of once per row.
+   */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  private static void foldSumsColumns(final long[] records, final int count, final long rows,
+      final MemorySegment[] segs, final long[] laneBases, final long[][] presence, final int columns, final int word,
+      final long sumExactMask) {
+    final long wordOffset = (long) word << 9;
+    for (int a = 0; a < columns; a++) {
+      final long present = presence[a][word];
+      if ((present & rows) == 0L) {
+        continue;
+      }
+      final int at = 2 + 2 * a;
+      final boolean exact = NumericGroupAggTable.sumsExact(sumExactMask, a);
+      final MemorySegment lane = segs[a];
+      final long base = laneBases[a] + wordOffset;
+      long remaining = rows;
+      // Counted by the word's rows: a trip count of at most 64 needs no safepoint poll.
+      for (int i = 0; i < count; i++) {
+        final int bit = Long.numberOfTrailingZeros(remaining);
+        remaining &= remaining - 1L;
+        if ((present >>> bit & 1L) != 0L) {
+          final long groupRecord = records[i];
+          GroupKernelLanes.increment(groupRecord, at);
+          if (exact) {
+            // The operand first: its checked read then has no accumulator lane to keep alive across it.
+            final long v = SegmentAccess.getLong(lane, base + ((long) bit << 3));
+            GroupKernelLanes.set(groupRecord, at + 1, Math.addExact(GroupKernelLanes.get(groupRecord, at + 1), v));
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Fold one surviving row through checked segment reads, with no gathered value window.
+   */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S3358: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S3358", "java:S3776"})
+  static void foldSlicedLane(final long groupRecord, final MemorySegment[] aggSeg, final long[] laneBases,
       final long[][] aggPresence, final int[][] aggIds, final int @Nullable [][] stringLengths,
       final byte @Nullable [] stringLengthModes, final int aggCount, final int w, final int bit, final int rowIdx,
       final int distinctBlock, final @Nullable Sink dset, final long @Nullable [] budget,
       final byte @Nullable [] cdDictBytes, final int @Nullable [] cdDictOffsets, final long @Nullable [] cdHash,
       final @Nullable GroupDistinctBitmaps bitmaps, final long @Nullable [] dwords, final long sumExactMask,
       final int[][] leafLengthTables, final @Nullable Worker directDistinct, final long distinctGroup) {
-    slotArr[base]++;
+    GroupKernelLanes.increment(groupRecord, 0);
     for (int a = 0; a < aggCount; a++) {
       final boolean stringLengthAgg =
           stringLengthModes != null && stringLengthModes[a] != ProjectionIndexByteScan.STRING_LENGTH_NONE;
@@ -949,7 +1224,7 @@ public final class ProjectionColumnGroupScan {
         v = !present
             ? 0L
             : leafLengthTables[a] != null
-                ? leafLengthTables[a][(int) aggValues[a][rowIdx]]
+                ? leafLengthTables[a][(int) SegmentAccess.getLong(aggSeg[a], laneBases[a] + ((long) rowIdx << 3))]
                 : requireNonNull(stringLengths,
                     "a dictionary length operand requires its length table")[a][aggIds[a][rowIdx]];
       } else if (cdHash != null && a == distinctBlock) {
@@ -965,7 +1240,7 @@ public final class ProjectionColumnGroupScan {
         }
         v = h;
       } else {
-        v = aggValues[a][rowIdx];
+        v = SegmentAccess.getLong(aggSeg[a], laneBases[a] + ((long) rowIdx << 3));
       }
       if (a == distinctBlock) {
         // Dense global ids go to the shared per-group bitmap, which is exact at any cardinality and
@@ -982,20 +1257,17 @@ public final class ProjectionColumnGroupScan {
         }
         continue;
       }
-      final int aggBase = base + 2 + 4 * a;
-      slotArr[aggBase]++;
+      final int aggBase = 2 + 4 * a;
+      GroupKernelLanes.increment(groupRecord, aggBase);
       // Exact sum or DECLINE — the interpreter promotes an overflowing xs:integer sum. A lane no
       // sum/avg reads is not folded at all: declining a min-only query over an unread sum would
       // refuse an answer the accumulator's fixed [count, sum, min, max] shape never needed.
       if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
-        slotArr[aggBase + 1] = Math.addExact(slotArr[aggBase + 1], v);
+        GroupKernelLanes.set(groupRecord, aggBase + 1,
+            Math.addExact(GroupKernelLanes.get(groupRecord, aggBase + 1), v));
       }
-      if (v < slotArr[aggBase + 2]) {
-        slotArr[aggBase + 2] = v;
-      }
-      if (v > slotArr[aggBase + 3]) {
-        slotArr[aggBase + 3] = v;
-      }
+      GroupKernelLanes.min(groupRecord, aggBase + 2, v);
+      GroupKernelLanes.max(groupRecord, aggBase + 3, v);
     }
   }
 
@@ -1018,8 +1290,6 @@ public final class ProjectionColumnGroupScan {
     }
     return words;
   }
-
-
 
   /**
    * Descriptor-only twin of {@link ProjectionIndexByteScan#requireGroupSumsFitLong}: bound every
@@ -1134,6 +1404,15 @@ public final class ProjectionColumnGroupScan {
    * Worker-scratch overload. A cache may span sequential subchunks, but must never be shared by
    * concurrent workers. Null retains invocation-local allocation, only when identity proof is needed.
    */
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S1871: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S135", "java:S1871", "java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupCompositeFlat(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
       final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[][] keyCols,
@@ -1169,7 +1448,10 @@ public final class ProjectionColumnGroupScan {
     final int[][] compDictOffsets = new int[keyCount][];
     final long[][] compDictProven = new long[keyCount][];
     final boolean[] compNeedsProof = new boolean[keyCount];
-    final long[][] compValues = new long[keyCount][];
+    // Key components, condition columns and aggregates read their values from the lanes in place;
+    // a null segment marks a component with no value lane (a per-leaf dictionary one).
+    final MemorySegment[] compSeg = new MemorySegment[keyCount];
+    final long[] compBase = new long[keyCount];
     final int[][] compIds = new int[keyCount][];
     final long[][] compPresence = new long[keyCount][];
     if (identityRegistry == null && CompositeGroupIdentity.hasFingerprintedComponent(keyKinds, keySubstr)) {
@@ -1191,6 +1473,26 @@ public final class ProjectionColumnGroupScan {
     // One row-sized scratch, hoisted: the kernel writes it per row and acquireExact copies out of
     // it, so a composite group-by allocates nothing per row.
     final long[] identity = new long[identityWidth];
+    // A sums-only aggregate folds a selection word at once (foldSumsWord): the handles of the word's
+    // rows
+    // wait here until every row of the word holds its group, beside the probe hash and identity that
+    // acquire a row again should one of the word's own insertions have grown the table meanwhile.
+    final boolean wordSums = !countOnly && out.sumsOnly();
+    final int[] wordHandles = wordSums
+        ? new int[WINDOW_ROWS]
+        : null;
+    final long[] wordHashes = wordSums
+        ? new long[WINDOW_ROWS]
+        : null;
+    final long[] wordIdentities = wordSums
+        ? new long[WINDOW_ROWS * identityWidth]
+        : null;
+    final long[] wordRecords = wordSums
+        ? new long[WINDOW_ROWS]
+        : null;
+    int pending = 0;
+    long pendingRows = 0L;
+    int seenRehashes = out.rehashes();
     // Which components own a second identity lane, so a row that leaves one unwritten cannot
     // inherit the previous row's secondary hash.
     final boolean[] twoLane = new boolean[keyCount];
@@ -1231,9 +1533,14 @@ public final class ProjectionColumnGroupScan {
     final long[] condElseIdB = keyCondCols != null
         ? new long[keyCount]
         : null;
-    final long[][] condValues = keyCondCols != null
-        ? new long[2 * keyCount][]
-        : null;
+    // Non-null exactly when the query has conditional key components, which the per-row branch
+    // tests before reading them; resolved here so the row loop carries no null check of its own.
+    final MemorySegment[] condSeg = keyCondCols != null
+        ? new MemorySegment[2 * keyCount]
+        : NO_COND_SEGMENTS;
+    final long[] condBase = keyCondCols != null
+        ? new long[2 * keyCount]
+        : NO_COND_BASES;
     final long[][] condPresence = keyCondCols != null
         ? new long[2 * keyCount][]
         : null;
@@ -1285,7 +1592,8 @@ public final class ProjectionColumnGroupScan {
         }
       }
     }
-    final long[][] aggValues = new long[aggCount][];
+    final MemorySegment[] aggSeg = new MemorySegment[aggCount];
+    final long[] aggBase = new long[aggCount];
     final long[][] aggPresence = new long[aggCount][];
     // The compiler can supply neutral arrays for fn:string. Classify the key metadata once,
     // independently of the row count; missing-to-literal substitution still applies below.
@@ -1334,7 +1642,8 @@ public final class ProjectionColumnGroupScan {
               && (globalKeyViews == null || globalKeyViews.length != keyCount || globalKeyViews[k] == null)) {
             throw new IllegalStateException("global composite key requires a readable dictionary view");
           }
-          compValues[k] = slice.numericValues();
+          compSeg[k] = slice.laneSegment();
+          compBase[k] = slice.laneBase();
           compIds[k] = null;
         } else {
           final byte[] dictBytes = slice.dictBytes();
@@ -1417,21 +1726,23 @@ public final class ProjectionColumnGroupScan {
               && !slice.packedStringIds().isMaterialized()
                   ? null
                   : slice.stringDictIds();
-          compValues[k] = null;
+          compSeg[k] = null;
         }
       }
       if (keyCondCols != null) {
         for (int c2 = 0; c2 < 2 * keyCount; c2++) {
           if (keyCondCols[c2] >= 0) {
             final ColumnSlice cs = condCols[c2][leaf];
-            condValues[c2] = cs.numericValues();
+            condSeg[c2] = cs.laneSegment();
+            condBase[c2] = cs.laneBase();
             condPresence[c2] = cs.presenceWords();
           }
         }
       }
       for (int a = 0; a < aggCount; a++) {
         final ColumnSlice agg = aggCols[a][leaf];
-        aggValues[a] = agg.numericValues();
+        aggSeg[a] = agg.laneSegment();
+        aggBase[a] = agg.laneBase();
         aggPresence[a] = agg.presenceWords();
       }
       final long leafOrdinalBase = (long) leaf << 20;
@@ -1494,15 +1805,15 @@ public final class ProjectionColumnGroupScan {
           if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
             continue;
           }
-          final long[] slot = out.storageAtAccBase(handle);
+          final GroupBuffer slot = out.storageAtAccBase(handle);
           final int base = out.offsetAtAccBase(handle);
           // A missing-to-literal bucket can merge with a dictionary entry processed earlier.
           // Dictionary-id order must not replace document-first order for that shared identity.
-          if (slot[base] == 0L || first < slot[base + 1]) {
-            slot[base + 1] = first;
+          if (GroupLanes.get(slot, base) == 0L || first < GroupLanes.get(slot, base + 1)) {
+            GroupLanes.set(slot, base + 1, first);
             out.setAuxAtAccBase(handle, first);
           }
-          slot[base] += count;
+          GroupLanes.add(slot, base, count);
         }
         continue;
       }
@@ -1517,6 +1828,9 @@ public final class ProjectionColumnGroupScan {
       if (untransformedKeys) {
         for (int w = 0; w < stride; w++) {
           long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+          if (word == 0L) {
+            continue;
+          }
           final int rowBase = w << 6;
           while (word != 0L) {
             final int bit = Long.numberOfTrailingZeros(word);
@@ -1544,8 +1858,8 @@ public final class ProjectionColumnGroupScan {
                     identity[lane + 1] = 0L;
                   }
                 }
-              } else if (compValues[k] != null) {
-                final long v = compValues[k][rowIdx];
+              } else if (compSeg[k] != null) {
+                final long v = SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3));
                 compHash = HashCommon.mix(v);
                 identity[lane] = v;
               } else {
@@ -1568,25 +1882,45 @@ public final class ProjectionColumnGroupScan {
             if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
               continue;
             }
-            final long[] slotArr = out.storageAtAccBase(handle);
-            final int base = out.offsetAtAccBase(handle);
-            if (slotArr[base] == 0L) {
+            if (wordSums) {
+              // Folded with the rest of its word once every row of the word holds its group (foldSumsWord).
+              wordHandles[pending] = handle;
+              wordHashes[pending] = h;
+              System.arraycopy(identity, 0, wordIdentities, pending * identityWidth, identityWidth);
+              pendingRows |= 1L << bit;
+              pending++;
+              continue;
+            }
+            // Resolved AFTER the acquisition: growth can move the stripe to another chunk.
+            final long groupRecord = out.accumulatorAt(handle, aggCount, out.sumsOnly()
+                ? 2
+                : 4);
+            if (GroupKernelLanes.get(groupRecord, 0) == 0L) {
               out.setAuxAtAccBase(handle, leafOrdinalBase | rowIdx);
             }
             if (countOnly) {
-              slotArr[base]++;
-            } else if (out.sumsOnly()) {
-              foldSumsSliced(slotArr, base, aggValues, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
+              GroupKernelLanes.increment(groupRecord, 0);
             } else {
-              foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
+              foldSlicedLane(groupRecord, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
                   distinctBlock, null, budget, null, null, null, null, null, sumExactMask, null, distinctOut, h);
             }
+          }
+          if (pending != 0) {
+            foldSumsWord(out, wordHandles, wordHashes, wordIdentities, identityWidth, pending, pendingRows,
+                seenRehashes, leafOrdinalBase | rowBase, aggSeg, aggBase, aggPresence, aggCount, w, sumExactMask,
+                wordRecords);
+            seenRehashes = out.rehashes();
+            pending = 0;
+            pendingRows = 0L;
           }
         }
         continue;
       }
       for (int w = 0; w < stride; w++) {
         long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+        if (word == 0L) {
+          continue;
+        }
         final int rowBase = w << 6;
         while (word != 0L) {
           final int bit = Long.numberOfTrailingZeros(word);
@@ -1607,7 +1941,7 @@ public final class ProjectionColumnGroupScan {
                 }
                 if ((condPresence[c2][w] & 1L << bit) == 0L) {
                   condTrue = false; // missing condition operand: the comparison is false
-                } else if (condValues[c2][rowIdx] != keyCondLits[c2]) {
+                } else if (SegmentAccess.getLong(condSeg[c2], condBase[c2] + ((long) rowIdx << 3)) != keyCondLits[c2]) {
                   condTrue = false;
                 }
               }
@@ -1638,7 +1972,7 @@ public final class ProjectionColumnGroupScan {
               } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
                 // Conditional THEN over a global component: the id is the exact identity, in the
                 // same lane domain the resolved else id lives in.
-                final long gid = compValues[k][rowIdx];
+                final long gid = SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3));
                 compHash = HashCommon.mix(gid);
                 identity[lane] = gid;
               } else {
@@ -1679,7 +2013,7 @@ public final class ProjectionColumnGroupScan {
                 }
               }
             } else if (ProjectionIndexRowGroupPage.isOrderedLongKind(keyKinds[k])) {
-              long v = compValues[k][rowIdx];
+              long v = SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3));
               if (keyOffsets != null && keyOffsets[k] != 0L) {
                 final long shifted = v + keyOffsets[k];
                 if (((v ^ shifted) & (keyOffsets[k] ^ shifted)) < 0) {
@@ -1693,7 +2027,8 @@ public final class ProjectionColumnGroupScan {
               identity[lane] = v;
             } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
               if (subTransformed) {
-                final long transformed = globalKeyViews[k].xsIntegerOfSubstring(Math.toIntExact(compValues[k][rowIdx]),
+                final long transformed = globalKeyViews[k].xsIntegerOfSubstring(
+                    Math.toIntExact(SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3))),
                     keySubstr[2 * k], keySubstr[2 * k + 1]);
                 if (transformed == Long.MIN_VALUE) {
                   declineFlag[0] = 1;
@@ -1704,7 +2039,7 @@ public final class ProjectionColumnGroupScan {
               } else {
                 // Untransformed global component: the id IS the exact identity — no dictionary
                 // bytes read, no content hash, one lane.
-                final long gid = compValues[k][rowIdx];
+                final long gid = SegmentAccess.getLong(compSeg[k], compBase[k] + ((long) rowIdx << 3));
                 compHash = HashCommon.mix(gid);
                 identity[lane] = gid;
               }
@@ -1734,22 +2069,40 @@ public final class ProjectionColumnGroupScan {
           if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
             continue;
           }
-          final long[] slotArr = out.storageAtAccBase(handle);
-          final int base = out.offsetAtAccBase(handle);
-          if (slotArr[base] == 0L) {
+          if (wordSums) {
+            // Folded with the rest of its word once every row of the word holds its group (foldSumsWord).
+            wordHandles[pending] = handle;
+            wordHashes[pending] = h;
+            System.arraycopy(identity, 0, wordIdentities, pending * identityWidth, identityWidth);
+            pendingRows |= 1L << bit;
+            pending++;
+            continue;
+          }
+          // Resolved AFTER the acquisition: growth can move the stripe to another chunk.
+          final long groupRecord = out.accumulatorAt(handle, aggCount, out.sumsOnly()
+              ? 2
+              : 4);
+          if (GroupKernelLanes.get(groupRecord, 0) == 0L) {
             out.setAuxAtAccBase(handle, leafOrdinalBase | rowIdx);
           }
           if (countOnly) {
-            slotArr[base]++;
-          } else if (out.sumsOnly()) {
-            foldSumsSliced(slotArr, base, aggValues, aggPresence, aggCount, w, bit, rowIdx, sumExactMask);
+            GroupKernelLanes.increment(groupRecord, 0);
           } else {
-            foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx, distinctBlock,
-                null, budget, null, null, null, null, null, sumExactMask, null, distinctOut, h);
+            foldSlicedLane(groupRecord, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
+                distinctBlock, null, budget, null, null, null, null, null, sumExactMask, null, distinctOut, h);
           }
+        }
+        if (pending != 0) {
+          foldSumsWord(out, wordHandles, wordHashes, wordIdentities, identityWidth, pending, pendingRows, seenRehashes,
+              leafOrdinalBase | rowBase, aggSeg, aggBase, aggPresence, aggCount, w, sumExactMask, wordRecords);
+          seenRehashes = out.rehashes();
+          pending = 0;
+          pendingRows = 0L;
         }
       }
     }
+    // The rows folded into records of this table; keep it alive past the last of them.
+    Reference.reachabilityFence(out);
   }
 
   /** One dictionary component and otherwise numeric keys, with no string cast or conditional. */
@@ -1843,6 +2196,14 @@ public final class ProjectionColumnGroupScan {
   }
 
   /**
+   * ONE row's value from a numeric lane, read where it already lives. Never call this inside a row
+   * loop: a loop hoists the segment and the base once per leaf instead.
+   */
+  private static long laneValue(final ColumnSlice slice, final int rowIdx) {
+    return SegmentAccess.getLong(slice.laneSegment(), slice.laneBase() + ((long) rowIdx << 3));
+  }
+
+  /**
    * Sliced twin of {@link ProjectionIndexByteScan#readRowKeyParts}: materialize ONE winner row's key
    * parts from slices, applying the SAME transforms the kernel grouped by (winners emit the
    * TRANSFORMED value; a raise-case cannot appear — the kernel declined before a winner existed).
@@ -1857,6 +2218,11 @@ public final class ProjectionColumnGroupScan {
   }
 
   /** Global-string substring-cast capable winner materialisation; views align to key components. */
+  // Sonar S1871: hot path: the branch layout is the measured shape, rewriting it changes the compiled
+  // method.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S1871", "java:S3776"})
   public static void readRowKeyPartsSliced(final ColumnSlice[][] keyCols, final byte[] keyKinds,
       final ColumnSlice[][] condCols, final int leaf, final int rowIdx, final String[] outStrings,
       final long[] outLongs, final boolean[] outPresent, final boolean[] outIsLong, final long[] keyOffsets,
@@ -1874,7 +2240,7 @@ public final class ProjectionColumnGroupScan {
           final ColumnSlice cs = condCols[c2][leaf];
           if ((cs.presenceWords()[rowIdx >>> 6] & 1L << (rowIdx & 63)) == 0L) {
             condTrue = false;
-          } else if (cs.numericValues()[rowIdx] != keyCondLits[c2]) {
+          } else if (laneValue(cs, rowIdx) != keyCondLits[c2]) {
             condTrue = false;
           }
         }
@@ -1901,7 +2267,7 @@ public final class ProjectionColumnGroupScan {
       outPresent[k] = true;
       if (ProjectionIndexRowGroupPage.isOrderedLongKind(keyKinds[k])) {
         outIsLong[k] = true;
-        outLongs[k] = ProjectionIndexByteScan.applyDivMod(slice.numericValues()[rowIdx] + (keyOffsets != null
+        outLongs[k] = ProjectionIndexByteScan.applyDivMod(laneValue(slice, rowIdx) + (keyOffsets != null
             ? keyOffsets[k]
             : 0L), keyDivMod, k);
       } else if (ProjectionIndexRowGroupPage.isSegmentScopedIdKind(keyKinds[k])) {
@@ -1912,7 +2278,7 @@ public final class ProjectionColumnGroupScan {
           throw new IllegalStateException("segment-scoped composite winner requires a readable dictionary view");
         }
         outIsLong[k] = false;
-        outStrings[k] = globalKeyViews[k].valueOfCell(slice.numericValues()[rowIdx]);
+        outStrings[k] = globalKeyViews[k].valueOfCell(laneValue(slice, rowIdx));
         if (outStrings[k] == null) {
           throw new IllegalStateException("segment-scoped composite winner has no value in this revision");
         }
@@ -1922,13 +2288,13 @@ public final class ProjectionColumnGroupScan {
         }
         if (keySubstr != null && keySubstr[2 * k] > 0) {
           outIsLong[k] = true;
-          outLongs[k] = globalKeyViews[k].xsIntegerOfSubstring(Math.toIntExact(slice.numericValues()[rowIdx]),
+          outLongs[k] = globalKeyViews[k].xsIntegerOfSubstring(Math.toIntExact(laneValue(slice, rowIdx)),
               keySubstr[2 * k], keySubstr[2 * k + 1]);
         } else {
           // Untransformed (or conditional-then) global component: the winner's key part is the
           // interned value itself — one dictionary read per winner.
           outIsLong[k] = false;
-          outStrings[k] = globalKeyViews[k].valueAsString(Math.toIntExact(slice.numericValues()[rowIdx]));
+          outStrings[k] = globalKeyViews[k].valueAsString(Math.toIntExact(laneValue(slice, rowIdx)));
         }
       } else {
         final int dictId = slice.stringDictIds()[rowIdx];
@@ -1963,6 +2329,11 @@ public final class ProjectionColumnGroupScan {
   }
 
   /** Global-string capable packed-substring overload; a non-null view selects global-id cells. */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupPackedSubstringFlat(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
       final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol,
@@ -1981,7 +2352,8 @@ public final class ProjectionColumnGroupScan {
     final int aggCount = aggCols.length;
     // COUNT-ONLY: no aggregate lanes, so the fold is one increment into the group's stripe.
     final boolean countOnly = aggCount == 0;
-    final long[][] aggValues = new long[aggCount][];
+    final MemorySegment[] aggSeg = new MemorySegment[aggCount];
+    final long[] aggBase = new long[aggCount];
     final long[][] aggPresence = new long[aggCount][];
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       if (declineFlag[0] != 0) {
@@ -2004,9 +2376,12 @@ public final class ProjectionColumnGroupScan {
       final int[] ids = global
           ? null
           : group.stringDictIds();
-      final long[] globalIds = global
-          ? group.numericValues()
+      final MemorySegment globalIdSeg = global
+          ? group.laneSegment()
           : null;
+      final long globalIdBase = global
+          ? group.laneBase()
+          : 0L;
       final long[] groupPresence = group.presenceWords();
       final long[] dictPacked;
       if (global) {
@@ -2023,13 +2398,17 @@ public final class ProjectionColumnGroupScan {
       }
       for (int a = 0; a < aggCount; a++) {
         final ColumnSlice agg = aggCols[a][leaf];
-        aggValues[a] = agg.numericValues();
+        aggSeg[a] = agg.laneSegment();
+        aggBase[a] = agg.laneBase();
         aggPresence[a] = agg.presenceWords();
       }
       final long leafOrdinalBase = (long) leaf << 20;
       final int stride = (rowCount + 63) >>> 6;
       for (int w = 0; w < stride; w++) {
         long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+        if (word == 0L) {
+          continue;
+        }
         final long groupPresWord = groupPresence[w];
         final int rowBase = w << 6;
         while (word != 0L) {
@@ -2043,7 +2422,9 @@ public final class ProjectionColumnGroupScan {
             return;
           }
           final int dictId = global
-              ? Math.toIntExact(globalIds[rowIdx])
+              ? Math.toIntExact(SegmentAccess.getLong(
+                  requireNonNull(globalIdSeg, "a global packed-substring group needs its id lane"),
+                  globalIdBase + ((long) rowIdx << 3)))
               : ids[rowIdx];
           final long packed = global
               ? globalDictionaryView.packIsoMinuteSubstring(dictId, subStart, subLen)
@@ -2053,22 +2434,24 @@ public final class ProjectionColumnGroupScan {
             return;
           }
           final int handle = out.acquire(packed, leafOrdinalBase | rowIdx);
-          final long[] slotArr = out.storageAtAccBase(handle);
-          final int base = out.offsetAtAccBase(handle);
-          if (slotArr[base] == 0L) {
+          // Resolved AFTER the acquisition: growth can move the stripe to another chunk.
+          final long groupRecord = out.accumulatorAt(handle, aggCount, 4);
+          if (GroupKernelLanes.get(groupRecord, 0) == 0L) {
             out.setAuxAtAccBase(handle, global
                 ? dictId
                 : leafOrdinalBase | dictId);
           }
           if (countOnly) {
-            slotArr[base]++;
+            GroupKernelLanes.increment(groupRecord, 0);
           } else {
-            foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx, -1, null,
-                null, null, null, null, null, null, sumExactMask, null);
+            foldSlicedLane(groupRecord, aggSeg, aggBase, aggPresence, null, null, null, aggCount, w, bit, rowIdx, -1,
+                null, null, null, null, null, null, null, sumExactMask, null, null, 0L);
           }
         }
       }
     }
+    // The rows folded into records of this table; keep it alive past the last of them.
+    Reference.reachabilityFence(out);
   }
 
   /**
@@ -2217,7 +2600,7 @@ public final class ProjectionColumnGroupScan {
    * caller merges per-worker accumulators.
    *
    * <p>
-   * Lane-at-a-time, not row-at-a-time: the generic per-row {@code foldSliced} (a bit walk plus an
+   * Lane-at-a-time, not row-at-a-time: the generic per-row {@code foldSlicedLane} (a bit walk plus an
    * {@code addExact} per value) cost 16 ns/row on a resident column — 100M q29 spent 0.2 s hot on ONE
    * column. Each aggregate lane is folded over the matched-and-present words with a straight-line
    * loop on full words and a bit walk on partial ones, into leaf-local
@@ -2229,7 +2612,7 @@ public final class ProjectionColumnGroupScan {
    */
   public static void aggregateAllNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf,
-      final long[] acc) {
+      final GroupBuffer acc) {
     if (predicates == null || acc == null || aggCols == null) {
       throw new IllegalArgumentException("predicates, acc and aggCols must not be null");
     }
@@ -2248,14 +2631,14 @@ public final class ProjectionColumnGroupScan {
       if (matched == 0L) {
         continue;
       }
-      acc[0] += matched;
+      GroupLanes.add(acc, 0, matched);
       for (int a = 0; a < aggCount; a++) {
         final ColumnSlice agg = aggCols[a][leaf];
-        final long[] values = agg.numericValues();
-        if (values == null) {
+        if (!agg.hasNumericLane()) {
           throw new IllegalStateException("const-group aggregate over a column without a numeric lane on leaf " + leaf);
         }
-        foldNumericLaneFlat(acc, 2 + 4 * a, values, agg.presenceWords(), mask, stride, rowCount);
+        foldNumericLaneFlat(acc, 2 + 4 * a, agg.laneSegment(), agg.laneBase(), agg.presenceWords(), mask, stride,
+            rowCount);
       }
     }
   }
@@ -2266,13 +2649,19 @@ public final class ProjectionColumnGroupScan {
   private static final long EXACT_SUM_MAGNITUDE = 1L << 62;
 
   /**
-   * One aggregate lane of one leaf into {@code acc[aggBase..aggBase+3]} = {@code [count, sum, min,
+   * One aggregate lane of one leaf into {@code GroupLanes.get(acc, aggBase..aggBase+3)} =
+   * {@code [count, sum, min,
    * max]}: rows are those set in {@code mask} (already clipped to the leaf's rows) AND present in the
    * lane. Plain adds throughout; the leaf's contribution is proven exact from its own extrema before
    * it is committed, otherwise re-summed with {@code addExact}.
    */
-  private static void foldNumericLaneFlat(final long[] acc, final int aggBase, final long[] values,
-      final long @Nullable [] presence, final long[] mask, final int stride, final int rowCount) {
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S107", "java:S3776"})
+  private static void foldNumericLaneFlat(final GroupBuffer acc, final int aggBase, final MemorySegment lane,
+      final long laneBase, final long @Nullable [] presence, final long[] mask, final int stride, final int rowCount) {
     long cnt = 0L;
     long sum = 0L;
     long min = Long.MAX_VALUE;
@@ -2292,11 +2681,13 @@ public final class ProjectionColumnGroupScan {
         long s1 = 0L;
         long s2 = 0L;
         long s3 = 0L;
-        for (int i = rowBase; i < rowBase + 64; i += 4) {
-          final long v0 = values[i];
-          final long v1 = values[i + 1];
-          final long v2 = values[i + 2];
-          final long v3 = values[i + 3];
+        final long wordAt = laneBase + ((long) rowBase << 3);
+        for (int i = 0; i < 64; i += 4) {
+          final long at = wordAt + ((long) i << 3);
+          final long v0 = SegmentAccess.getLong(lane, at);
+          final long v1 = SegmentAccess.getLong(lane, at + 8L);
+          final long v2 = SegmentAccess.getLong(lane, at + 16L);
+          final long v3 = SegmentAccess.getLong(lane, at + 24L);
           s0 += v0;
           s1 += v1;
           s2 += v2;
@@ -2311,7 +2702,7 @@ public final class ProjectionColumnGroupScan {
       while (bits != 0L) {
         final int bit = Long.numberOfTrailingZeros(bits);
         bits &= bits - 1L;
-        final long v = values[rowBase + bit];
+        final long v = SegmentAccess.getLong(lane, laneBase + ((long) (rowBase + bit) << 3));
         sum += v;
         min = Math.min(min, v);
         max = Math.max(max, v);
@@ -2324,21 +2715,21 @@ public final class ProjectionColumnGroupScan {
     // Every partial sum is bounded by cnt × max|v|: below 2^62 the plain adds cannot have wrapped.
     final long bound = EXACT_SUM_MAGNITUDE / cnt;
     if (min <= -bound || max >= bound) {
-      sum = exactSumOfLane(values, presence, mask, stride, rowCount);
+      sum = exactSumOfLane(lane, laneBase, presence, mask, stride, rowCount);
     }
-    acc[aggBase] += cnt;
-    acc[aggBase + 1] = Math.addExact(acc[aggBase + 1], sum);
-    if (min < acc[aggBase + 2]) {
-      acc[aggBase + 2] = min;
+    GroupLanes.add(acc, aggBase, cnt);
+    GroupLanes.set(acc, aggBase + 1, Math.addExact(GroupLanes.get(acc, aggBase + 1), sum));
+    if (min < GroupLanes.get(acc, aggBase + 2)) {
+      GroupLanes.set(acc, aggBase + 2, min);
     }
-    if (max > acc[aggBase + 3]) {
-      acc[aggBase + 3] = max;
+    if (max > GroupLanes.get(acc, aggBase + 3)) {
+      GroupLanes.set(acc, aggBase + 3, max);
     }
   }
 
   /** The rare exact re-sum of a leaf whose extrema could not prove the plain fold wrap-free. */
-  private static long exactSumOfLane(final long[] values, final long @Nullable [] presence, final long[] mask,
-      final int stride, final int rowCount) {
+  private static long exactSumOfLane(final MemorySegment lane, final long laneBase, final long @Nullable [] presence,
+      final long[] mask, final int stride, final int rowCount) {
     long sum = 0L;
     for (int w = 0; w < stride; w++) {
       long bits = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
@@ -2349,7 +2740,7 @@ public final class ProjectionColumnGroupScan {
       while (bits != 0L) {
         final int bit = Long.numberOfTrailingZeros(bits);
         bits &= bits - 1L;
-        sum = Math.addExact(sum, values[rowBase + bit]);
+        sum = Math.addExact(sum, SegmentAccess.getLong(lane, laneBase + ((long) (rowBase + bit) << 3)));
       }
     }
     return sum;

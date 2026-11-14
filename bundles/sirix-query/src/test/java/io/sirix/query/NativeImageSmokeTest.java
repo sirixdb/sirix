@@ -3,7 +3,9 @@ package io.sirix.query;
 import io.brackit.query.Query;
 import io.brackit.query.util.io.IOUtils;
 import io.brackit.query.util.serialize.StringSerializer;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.cache.Allocators;
+import io.sirix.cache.MemorySegmentAllocator;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -13,6 +15,7 @@ import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Path;
 
 import static java.lang.foreign.ValueLayout.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -92,11 +95,8 @@ public class NativeImageSmokeTest {
 
   /**
    * Tests FFM downcall stubs registered in reachability-metadata.json. Calls mmap/munmap directly via
-   * FFM to verify the native image has the required downcall stubs for LinuxMemorySegmentAllocator.
-   *
-   * <p>
-   * Uses direct FFM calls instead of importing LinuxMemorySegmentAllocator to avoid pulling its large
-   * dependency graph into the native image.
+   * FFM to verify the native image has the downcall stubs the off-heap allocator maps its memory
+   * with.
    */
   @Test
   @DisplayName("FFM downcall - mmap/munmap")
@@ -105,7 +105,7 @@ public class NativeImageSmokeTest {
 
     var linker = Linker.nativeLinker();
 
-    // Same FunctionDescriptors as LinuxMemorySegmentAllocator
+    // Same FunctionDescriptors as PosixVirtualMemory, the allocator's mapping layer
     var mmap = linker.downcallHandle(linker.defaultLookup().find("mmap").orElseThrow(),
         FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_LONG));
 
@@ -128,39 +128,27 @@ public class NativeImageSmokeTest {
   }
 
   /**
-   * Tests sysconf downcall stub - used by LinuxMemorySegmentAllocator to detect the system page size.
+   * The configured allocator inside the image: it reserves its regions, lends a page frame that can
+   * be written and read, and takes it back.
    */
   @Test
-  @DisplayName("FFM downcall - sysconf page size")
-  void testFfmSysconf() throws Throwable {
-    Assumptions.assumeTrue(System.getProperty("os.name").toLowerCase().contains("linux"), "sysconf requires Linux");
+  @DisplayName("Configured allocator lends and takes back a page frame")
+  void testConfiguredAllocator() {
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    // The first call fixes the budget for the process. Asking for what a database asks for leaves
+    // the tests that open one unaffected, whichever runs first.
+    allocator.init(new DatabaseConfiguration(Path.of("unused")).getMaxSegmentAllocationSize());
 
-    var linker = Linker.nativeLinker();
-    var sysconf = linker.downcallHandle(linker.defaultLookup().find("sysconf").orElseThrow(),
-        FunctionDescriptor.of(JAVA_LONG, JAVA_INT));
+    final MemorySegment segment = allocator.allocate(4096);
+    try {
+      assertNotNull(segment);
+      assertEquals(4096, segment.byteSize());
 
-    // _SC_PAGESIZE = 30 on Linux
-    long pageSize = (long) sysconf.invokeExact(30);
-    assertNotEquals(0L, pageSize);
-    // Page size should be a power of 2, typically 4096
-    assertEquals(0, pageSize & (pageSize - 1), "Page size should be a power of 2");
-  }
-
-  @Test
-  @DisplayName("LinuxMemorySegmentAllocator mmap/munmap via FFM")
-  void testLinuxMemorySegmentAllocator() {
-    Assumptions.assumeTrue(System.getProperty("os.name").toLowerCase().contains("linux"),
-        "LinuxMemorySegmentAllocator requires Linux");
-
-    var allocator = LinuxMemorySegmentAllocator.getInstance();
-    MemorySegment segment = allocator.mapMemory(4096);
-    assertNotNull(segment);
-    assertEquals(4096, segment.byteSize());
-
-    segment.set(ValueLayout.JAVA_INT, 0, 42);
-    assertEquals(42, segment.get(ValueLayout.JAVA_INT, 0));
-
-    allocator.releaseMemory(segment, 4096);
+      segment.set(ValueLayout.JAVA_INT, 0, 42);
+      assertEquals(42, segment.get(ValueLayout.JAVA_INT, 0));
+    } finally {
+      allocator.release(segment);
+    }
   }
 
 }

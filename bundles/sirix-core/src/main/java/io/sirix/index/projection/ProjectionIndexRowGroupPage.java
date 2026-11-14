@@ -1792,7 +1792,7 @@ public final class ProjectionIndexRowGroupPage {
     final boolean byValue = switch (kind) {
       case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_TIMESTAMP, COLUMN_KIND_DATE,
           COLUMN_KIND_STRING_GLOBAL ->
-        slice.numericValues() != null;
+        slice.hasNumericLane();
       case COLUMN_KIND_BOOLEAN -> slice.boolWords() != null;
       case COLUMN_KIND_STRING_DICT ->
         slice.hasStringDictIds() && slice.dictBytes() != null && slice.dictOffsets() != null;
@@ -1820,6 +1820,9 @@ public final class ProjectionIndexRowGroupPage {
    * @param sliceSetRowStart for a STRING_SET column, where the row's run starts in the element lane
    * @return {@code false} when this page is full
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   boolean appendSingleColumnRowFromSlice(final long recordKey, final ProjectionColumnStore.ColumnSlice slice,
       final int sliceRow, final byte rule, final int @Nullable [] sliceDictIds, final int @Nullable [] dictionaryIdMemo,
       final int sliceSetRowStart) {
@@ -1858,9 +1861,17 @@ public final class ProjectionIndexRowGroupPage {
           COLUMN_KIND_STRING_GLOBAL -> {
         // A Z-suffixed timestamp keeps its epoch beside the lexical flag. A STRING_GLOBAL cell holds
         // its resolved resource-wide id; an absent one holds id 0.
-        final long v = present
-            ? Objects.requireNonNull(slice.numericValues())[sliceRow]
-            : 0L;
+        // One cell of one row: read the heap array when the slice has one, else the slab lane in
+        // place.
+        final long v;
+        if (!present) {
+          v = 0L;
+        } else {
+          final long[] heapValues = slice.numericValues();
+          v = heapValues != null
+              ? heapValues[sliceRow]
+              : Objects.requireNonNull(slice.lane()).get(sliceRow);
+        }
         numericCols[0][row] = v;
         if (clean) {
           columnMin[0] = Math.min(columnMin[0], v);

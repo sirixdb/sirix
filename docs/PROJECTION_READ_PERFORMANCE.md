@@ -12,7 +12,7 @@ length validation, short-read detection, and configured checksum verification re
 
 A bounded prefix read can fetch a small page's header and body together. The checksum and
 deserializer receive exactly the declared body, excluding following bytes. Larger pages fetch
-their remaining body through the existing pooled buffer. With batch-input borrowing enabled,
+their remaining body through allocator scratch. With batch-input borrowing enabled,
 coalesced runs decode bounded views from the exclusively owned buffer when the byte pipeline
 supports memory segments. Stream-only handlers
 retain their page-copy path. Checksum views have independent positions and exact per-page limits.
@@ -32,10 +32,9 @@ hinted exactly up to it. Hints do not queue Java tasks, retain page objects, or 
 integrity checks. Descriptor discovery is lazy; single-page readers and unsupported platforms keep
 ordinary reads. Whole-file access hints remain separate opt-in policies.
 
-Scratch buffers use a bounded unordered pool. Padded atomic slots transfer exclusive ownership
-without a common queue lock or per-thread retention. Each operation makes one bounded pass over
-the slots. An exhausted pool can allocate a temporary buffer; a full pool discards returned extras.
-Returned pages retain independently owned data, never a borrowed pool view.
+Scratch backing, reuse, reclamation and first-read population are specified in the
+[scratch ownership contract](DERIVED_QUERY_CACHES.md#column-lanes). Returned pages retain
+independently owned data, never a borrowed scratch view.
 
 Frame recycling scans only the bitmap prefix that can contain previously allocated slots. Each
 bounded retry refreshes the monotonically advancing allocation limit; the scan wraps with an
@@ -99,8 +98,8 @@ of 1,024 stripes, hashed from the resource and the durable key, so promoting one
 image normally neither serialises nor rejects a concurrent resolution of an unrelated leaf. A hash
 collision does reject one, which costs nothing but a correct answer left uncached. A bulk clear
 fences every stripe.
-Their budget is one sixteenth of the existing complete-HOT allowance, capped at 64 MiB and the
-heap ceiling below, taken from that complete allowance. Complete adoption discards the corresponding
+Their budget is one sixteenth of the existing complete-HOT allowance, capped by the mini-page
+share of the shared heap envelope and the compact-image ceiling, taken from that complete allowance. Complete adoption discards the corresponding
 mini page.
 
 Committed sorted slots also have a byte-bounded `ProjectionBlobCache`. It retains private copies of
@@ -156,10 +155,11 @@ unchanged. For a positive HOT allowance `q = maxRecordPageCacheWeight / 4`, the 
 share is `min(q/2, max(q/4, 32 × 64 KiB))`; the remainder is the complete-leaf allowance before
 reserving mini pages and sorted payloads. The compact half retains GC-owned native bytes plus heap
 metadata; the mini cache retains heap bytes. Each is charged its packed bytes plus the page's
-conservative fixed per-page heap estimate and bounded by `sirix.hotHeapCache.maxBytes` — one
-sixteenth of `Runtime.maxMemory()` by default, floored at
-32 × 64 KiB. The property accepts positive byte counts; malformed or non-positive values use the
-default. The compact half spends no native fragment allowance; the mini reservation comes from the
+conservative fixed per-page heap estimate. Compact images and mini pages have disjoint shares
+of the shared heap envelope; `sirix.hotHeapCache.maxBytes` bounds compact images and also caps
+the mini share. Overrides accept non-negative decimal byte counts, are capped by their shares,
+and zero disables retention. Malformed values fail configuration. See
+[Derived query-cache memory](DERIVED_QUERY_CACHES.md) for the allocation table. The compact half spends no native fragment allowance; the mini reservation comes from the
 complete-leaf share described above. Compact allocations have independent lifetimes, so retaining
 one image cannot pin unrelated images' storage. Neither compact fragments nor mini pages hold an
 allocator frame, so these caches have their own clock sweepers rather than relying on allocator
@@ -244,7 +244,7 @@ executables; the bounded overrides also support controlled comparisons on other 
 | `sirix.filechannel.prefetchBatch` | `32` | References per advisory `prefetch` batch, clamped to 0–1,024; 0 disables the advisory route. |
 | `sirix.projection.reuseWorkerProofCache` | `true` | Retain worker proof caches across subchunks; false restores invocation-local caches. |
 | `sirix.filechannel.batchFileSize` | `true` | Reuse one allocation bound within each batch. |
-| `sirix.filechannel.lockFreeBuffers` | `true` | Use atomic buffer slots; false restores the bounded queue. |
+| `sirix.filechannel.bufferBytes` | `131072` | Floor of every read's scratch-buffer request, clamped to 64 KiB–16 MiB, so ordinary page reads share one allocator capacity. |
 | `sirix.io.borrowOverflowInput` | `true` | Borrow overflow input only for an empty byte pipeline; false restores the owned temporary frame and, unless the batch switch is set, owned batch input. |
 | `sirix.filechannel.borrowBatchInput` | value of `sirix.io.borrowOverflowInput` | Decode coalesced page views while the read buffer remains exclusively owned; an explicit value overrides the overflow switch. |
 | `sirix.projection.batchPhysicalOrder` | `true` | Batch fence reads for bounded, dense committed physical orders. |
@@ -279,8 +279,12 @@ Build and write controls apply while a projection is built or a load flushes pag
 ## Validation entry points
 
 `FileChannelReaderBatchBoundsTest` checks body boundaries, checksum rejection, buffer reuse,
-append/truncation visibility, and stream-handler compatibility. `FileChannelBufferPoolTest` checks
-bounded retention, concurrent ownership, and memory publication with heap and direct buffers.
+append/truncation visibility, and stream-handler compatibility. The reader keeps no buffers of its
+own: every read borrows allocator scratch through a `ScratchLease`. `ScratchLeaseTest` checks the
+capacities, the budget and its scratch reserve, bounded resident reuse, exact-once return and
+concurrent ownership; `FileChannelReadScratchTest` checks that page, region and coalesced reads
+reuse resident buffers, return them on every failure path, and fall back to page reads when a span
+is refused.
 `FileChannelReadAheadTest` exercises real files, caller order across advisory windows, appends,
 corruption and truncation, plus unsupported-channel and invalid-hint handling.
 `ProjectionStringIdentityRegistryTest` forces fingerprint collisions, including after cache reuse

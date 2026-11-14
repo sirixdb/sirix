@@ -44,6 +44,13 @@ native reachability metadata.
 ./gradlew :sirix-query:nativeCompile -Ppgo=default.iprof
 ```
 
+The `-Ppgo` build also passes `-H:CAIRegularCompilationCoverage=1.0` (Oracle GraalVM). By default
+PGO compiles every unit outside the top 99.9 % of the profile mass as "cold" (economy configuration,
+no inlining, GC slow-path allocation), and for the sub-millisecond queries that set has included the
+parser, the AST rewrites and the tuple/ordering code, with membership changing by training run
+(about 10 % on those queries between two trainings of the same classes). Full coverage runs them
+20-30 % faster and makes two trainings agree within 1-3 %; the binary grows from 62 MB to 126 MB.
+
 ## Arena blocker — RESOLVED (`io.sirix.io.SharedArenas`)
 
 The write path is now native-clean. `MMStorage` (and the `ProjectionIndexHOTStorage`
@@ -200,6 +207,42 @@ here**, so the figures above describe the 25.1-dev EA build only. Re-measure
 them before quoting them for a stable GraalVM. This intrinsification is a
 separate matter from the build-time downcall-handle support that the next
 section depends on.
+
+## Segment handles are build-time constants
+
+A `VarHandle` read compiles to a plain load only where the compiler sees the handle as a constant.
+HotSpot C2 trusts every static final, so on the JVM a segment handle may live in any class. The image
+builder folds only the static finals of classes initialized at build time: by configuration
+(`--initialize-at-build-time`, which `native-image.properties` sets for `io.sirix.node.SegmentAccess`)
+or by its simulation of the class initializer, which a logger, a counter or a system-property read
+in the same class silently turns off. A segment handle held, or aliased, by a class the image
+initializes at run time is invoked through the generic method-handle path on every read.
+
+Measured on Oracle GraalVM 25 (`-O3 -march=native`, G1), one unaligned long read per row of a native
+slab: 2.3 ns through a constant handle (own or aliased from a build-time-initialized class), 105 ns
+and a boxed allocation per read through the alias of that same handle held by a run-time-initialized
+class; HotSpot C2 reads every form at 0.5 ns. In the derived-cache campaign the dense join loops of
+`SirixJoinedGroupAggregateExpr` (a run-time-initialized class) read their lanes through such an
+alias and the native PGO image lost 44 % on t1M warm Q4 and 39 % on Q9 while the same classes won
+36-41 % on C2; the kernels of `JoinKernels`, whose handle the builder had simulated into a constant,
+won 8x natively on Q10 in the same image. The allocation showed first: twice main's heap per query
+natively and less than main's on C2.
+
+The rule: a segment `VarHandle` lives only in a class that a shared `native-image.properties` lists
+for build-time initialization and that holds only constant access metadata. The configuration and
+`SegmentHandleConstantsTest` own the permitted holders and their allowed fields. Join kernels
+invoke a constant handle directly at their own bytecode (`JoinKernels.SLAB_LONG.get(...)`) rather
+than through a helper method or a static alias of their own. The direct invocation matters on HotSpot
+too: C2 compiles an inlined helper with the helper's process-wide type profile, which heap-array
+segment reads elsewhere make bimorphic, so the kernel's reads carry a type switch and an out-of-line
+call for the heap case (the helper form cost t250k warm Q10 60 % on C2 against the direct one).
+Aggregation accessors instead keep an exclusively native segment profile; their access and debug
+contracts are in [Derived query-cache memory](DERIVED_QUERY_CACHES.md#column-lanes).
+`SegmentHandleConstantsTest` (`:sirix-query:test`) scans the query and projection packages for static
+handles whose first coordinate is a `MemorySegment` outside the permitted holders, and checks the
+holders against the shared configuration and constant-metadata contract. The build report
+(`-H:BuildOutputJSONFile`, `--emit build-report`) shows the kind per class: a compiled `<clinit>`
+means run-time initialization.
 
 ## Optional constant FFM adapters for optimized builds
 

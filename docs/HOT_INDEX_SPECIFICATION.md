@@ -1906,7 +1906,7 @@ unless noted.
 |---|---|---|---|
 | `sirix.hot.prefetch.window` | 16 | sibling window width for range-scan hints; also the size of the hint scratch array | `hot/reader/HOTTrieReader.java:100`, `:279` |
 | `sirix.hot.prefetch.parallelism` | 0 | permits for virtual-thread sibling prefetch on non-advisory backends; 0 disables | `hot/reader/HOTTrieReader.java:168-183` |
-| `sirix.hotLookupCache.maxEntries` | budget-derived, 1 024 to 65 536 | lookup-cache capacity; 0 disables; negative or invalid values warn and use the default; values above 2^24 are clamped | `cache/BufferManagerImpl.java:139-190`, `:339-344` |
+| `sirix.hotLookupCache.maxEntries` | budget-derived, 1 024 to 65 536 before the heap-share bound | lookup-cache capacity; 0 disables; negative or invalid values warn and use the default; values above 2^24 are clamped. The [heap-envelope share](DERIVED_QUERY_CACHES.md#heap-envelope) further caps defaults and overrides; fewer than eight affordable entries disables retention | `cache/BufferManagerImpl.java:hotLookupCacheEntries` and constructor |
 | `hot.validate.structural.disable` | false (validation on) | skips post-publication detector and route validation | `hot/AbstractHOTIndexWriter.java:4946`, `:2296` |
 | `sirix.filechannel.prefetchBatch` | 32 (clamped 0..1024) | the batch size `FileChannelReader` advertises; 0 turns off the advisory route, so HOT falls back to the (disabled) virtual-thread route | `io/filechannel/FileChannelReader.java:117-118` |
 | `sirix.mm.prefetchBatch` / `sirix.mm.prefetchSpan` | 128 / 64 KiB | the same for the memory-mapped backend | `io/memorymapped/MMFileReader.java:248`, `:261` |

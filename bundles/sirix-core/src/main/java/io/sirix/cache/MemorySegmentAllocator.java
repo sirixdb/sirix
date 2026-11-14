@@ -1,6 +1,7 @@
 package io.sirix.cache;
 
 import com.sun.management.OperatingSystemMXBean;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.management.ManagementFactory;
@@ -68,6 +69,60 @@ public interface MemorySegmentAllocator {
   void release(MemorySegment segment);
 
   long getMaxBufferSize();
+
+  /**
+   * Allocate a cache-owned slab: a page-granular native region whose segment has the global scope, so
+   * reads carry no per-access liveness check and the owner frees it explicitly, from any thread, with
+   * {@link #releaseSlab(MemorySegment)}. The bytes are charged to this allocator's physical budget
+   * before the region is mapped. Release removes the live-slab charge exactly once; implementations
+   * may keep recycled backing committed until it is unmapped.
+   *
+   * @param bytes the requested size; the charged size is rounded up to whole pages
+   * @return the slab, or {@code null} when the budget cannot admit it. The caller reclaims its own
+   *         retained images first; this allocator never evicts page caches on behalf of a slab.
+   */
+  default @Nullable MemorySegment allocateSlab(final long bytes) {
+    return null;
+  }
+
+  /**
+   * Release a slab obtained from {@link #allocateSlab(long)}. Idempotent: a stale or repeated release
+   * is rejected and returns {@code false}.
+   *
+   * @param slab the exact segment returned by {@link #allocateSlab(long)}
+   * @return whether this call returned the slab to the allocator and removed its live-slab charge;
+   *         recycled backing may remain committed for reuse
+   */
+  default boolean releaseSlab(final MemorySegment slab) {
+    throw new UnsupportedOperationException(getClass().getName() + " does not own slabs");
+  }
+
+  /** Bytes currently committed to live slabs, included in {@link #getPhysicalMemoryBytes()}. */
+  default long getSlabBytes() {
+    return 0L;
+  }
+
+  /**
+   * Bytes of released slabs and idle scratch charged to an implementation's shared recycle bound,
+   * included in {@link #getPhysicalMemoryBytes()} and returned to the budget under pressure. Small
+   * scratch buffers retained outside that bound are reported by {@link #scratchStats()} instead.
+   */
+  default long getRecycledSlabBytes() {
+    return 0L;
+  }
+
+  /**
+   * What this allocator's scratch buffers ({@link ScratchLease}) were asked for, hold and refused.
+   * Implementations that lend no scratch report {@link ScratchStats#EMPTY}.
+   */
+  default ScratchStats scratchStats() {
+    return ScratchStats.EMPTY;
+  }
+
+  /** Exclusive aggregation capacity, owned by this allocator. */
+  default AggregationBudget aggregationBudget() {
+    throw new UnsupportedOperationException(getClass().getName() + " grants no execution capacity");
+  }
 
   /**
    * Physical off-heap bytes currently committed by this allocator. Used by metrics; implementations

@@ -135,22 +135,15 @@ public final class FSSTCompressor {
    */
   public static final double MIN_COMPRESSION_RATIO = 0.15;
 
-  /**
-   * Maximum size of the bounded buffer pool. Uses 2x CPU cores to handle concurrent virtual threads
-   * without explosion.
-   */
-  private static final int BUFFER_POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
+  /** Smallest staging array {@link #batchDecode} makes; most values fit and it grows for the rest. */
+  private static final int BATCH_DECODE_STAGING_BYTES = 4 * 1024;
 
   /**
-   * Default buffer size for encode operations (64KB covers most pages).
+   * Largest staging array {@link #batchDecode} hands back for the caller to keep. A larger one served
+   * an unusually long value and is left to the collector, so that one such value does not pin its
+   * size for the life of every batch that met it.
    */
-  private static final int DEFAULT_BUFFER_SIZE = 64 * 1024;
-
-  /**
-   * Bounded buffer pool for encode/decode operations. Loom-friendly: fixed size pool instead of
-   * unbounded ThreadLocal.
-   */
-  private static final ArrayDeque<byte[]> BUFFER_POOL = new ArrayDeque<>(BUFFER_POOL_SIZE);
+  public static final int MAX_RETAINED_BATCH_STAGING_BYTES = 1 << 20;
 
   /**
    * Reusable state for one synchronous train/trial/encode sequence.
@@ -484,38 +477,6 @@ public final class FSSTCompressor {
     synchronized (WORKSPACE_POOL) {
       if (WORKSPACE_POOL.size() < WORKSPACE_POOL_SIZE) {
         WORKSPACE_POOL.addFirst(workspace);
-      }
-    }
-  }
-
-  /**
-   * Acquire a buffer from the pool, or allocate a new one if pool is empty.
-   *
-   * @param minSize minimum required buffer size
-   * @return a byte array of at least minSize bytes
-   */
-  private static byte[] acquireBuffer(int minSize) {
-    synchronized (BUFFER_POOL) {
-      byte[] buf = BUFFER_POOL.pollFirst();
-      if (buf != null && buf.length >= minSize) {
-        return buf;
-      }
-    }
-    return new byte[Math.max(minSize, DEFAULT_BUFFER_SIZE)];
-  }
-
-  /**
-   * Release a buffer back to the pool if there's room.
-   *
-   * @param buf the buffer to release
-   */
-  private static void releaseBuffer(byte[] buf) {
-    if (buf == null || buf.length < DEFAULT_BUFFER_SIZE) {
-      return; // Don't pool small buffers
-    }
-    synchronized (BUFFER_POOL) {
-      if (BUFFER_POOL.size() < BUFFER_POOL_SIZE) {
-        BUFFER_POOL.addFirst(buf);
       }
     }
   }
@@ -1819,7 +1780,14 @@ public final class FSSTCompressor {
 
   /**
    * Batch-decode FSST values from MemorySegments, only for selected rows. Each row may reference a
-   * different page (multi-page batches). Reuses a single decode buffer to minimize allocation.
+   * different page (multi-page batches).
+   *
+   * <p>
+   * The decoder and {@code String} construction take a {@code byte[]}, so the page bytes are copied
+   * into one staging array row by row. That array is the caller's: it passes the array it kept from
+   * its previous batch (an empty one the first time) and keeps what this method returns, so a batch
+   * owner that decodes batch after batch allocates no staging at all once the array fits its rows.
+   * This class keeps no arrays for its callers.
    *
    * @param pages array of backing page MemorySegments
    * @param pageIndices per-row page index into pages array
@@ -1830,43 +1798,47 @@ public final class FSSTCompressor {
    * @param selectionCount number of valid entries in selectionVector
    * @param symbolsByPage per-page pre-parsed symbol tables (null entry = no FSST)
    * @param output output String[] (indexed by original row position)
+   * @param staging the caller's staging array, of any length; its contents are overwritten
+   * @return the staging array to pass to the next call: {@code staging}, or the larger array a row
+   *         made necessary unless that exceeds {@link #MAX_RETAINED_BATCH_STAGING_BYTES}
    */
-  public static void batchDecode(final MemorySegment[] pages, final int[] pageIndices, final int[] offsets,
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  public static byte[] batchDecode(final MemorySegment[] pages, final int[] pageIndices, final int[] offsets,
       final int[] lengths, final boolean[] isCompressed, final int[] selectionVector, final int selectionCount,
-      final byte[][][] symbolsByPage, final String[] output) {
+      final byte[][][] symbolsByPage, final String[] output, final byte[] staging) {
+    Objects.requireNonNull(staging, "staging must not be null");
 
-    byte[] buffer = acquireBuffer(4096);
-    try {
-      for (int i = 0; i < selectionCount; i++) {
-        final int row = selectionVector[i];
-        if (output[row] != null) {
-          continue; // already materialized
-        }
-        final int len = lengths[row];
-        if (len <= 0) {
-          output[row] = "";
-          continue;
-        }
-        // Grow buffer if needed — use max with DEFAULT_BUFFER_SIZE to keep poolable
-        if (buffer.length < len) {
-          releaseBuffer(buffer);
-          buffer = new byte[Math.max(len, DEFAULT_BUFFER_SIZE)];
-        }
-        final MemorySegment page = pages[pageIndices[row]];
-        MemorySegment.copy(page, ValueLayout.JAVA_BYTE, offsets[row], buffer, 0, len);
-
-        final byte[][] symbols;
-        if (isCompressed[row] && (symbols = symbolsByPage[pageIndices[row]]) != null && symbols.length > 0) {
-          // Decode directly from buffer slice — no copy needed (headerless page data)
-          final byte[] decoded = decodeRawCompressed(buffer, 0, len, symbols);
-          output[row] = new String(decoded, StandardCharsets.UTF_8);
-        } else {
-          output[row] = new String(buffer, 0, len, StandardCharsets.UTF_8);
-        }
+    byte[] buffer = staging;
+    for (int i = 0; i < selectionCount; i++) {
+      final int row = selectionVector[i];
+      if (output[row] != null) {
+        continue; // already materialized
       }
-    } finally {
-      releaseBuffer(buffer);
+      final int len = lengths[row];
+      if (len <= 0) {
+        output[row] = "";
+        continue;
+      }
+      if (buffer.length < len) {
+        buffer = new byte[Math.max(len, Math.max(BATCH_DECODE_STAGING_BYTES, buffer.length << 1))];
+      }
+      final MemorySegment page = pages[pageIndices[row]];
+      MemorySegment.copy(page, ValueLayout.JAVA_BYTE, offsets[row], buffer, 0, len);
+
+      final byte[][] symbols;
+      if (isCompressed[row] && (symbols = symbolsByPage[pageIndices[row]]) != null && symbols.length > 0) {
+        // Decode directly from buffer slice — no copy needed (headerless page data)
+        final byte[] decoded = decodeRawCompressed(buffer, 0, len, symbols);
+        output[row] = new String(decoded, StandardCharsets.UTF_8);
+      } else {
+        output[row] = new String(buffer, 0, len, StandardCharsets.UTF_8);
+      }
     }
+    return buffer.length <= MAX_RETAINED_BATCH_STAGING_BYTES
+        ? buffer
+        : staging;
   }
 
   /**

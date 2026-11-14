@@ -30,13 +30,19 @@ public final class GlobalVerdictCache implements Cache<GlobalVerdictCacheKey, lo
    * @param maxWeightBytes total verdict bytes retained; entries beyond it are evicted
    */
   public GlobalVerdictCache(final long maxWeightBytes) {
-    if (maxWeightBytes <= 0L) {
-      throw new IllegalArgumentException("verdict cache budget must be positive, got " + maxWeightBytes);
+    if (maxWeightBytes < 0L) {
+      throw new IllegalArgumentException("verdict cache budget must be non-negative, got " + maxWeightBytes);
     }
-    cache = Caffeine.newBuilder().maximumWeight(maxWeightBytes).weigher((GlobalVerdictCacheKey key, long[] verdict) -> {
-      final long bytes = (long) verdict.length * Long.BYTES;
-      return (int) Math.min(bytes, Integer.MAX_VALUE);
-    }).scheduler(scheduler).build();
+    final long unit = HeapCacheBudget.weightUnit(maxWeightBytes);
+    cache = Caffeine.newBuilder()
+                    .maximumWeight(maxWeightBytes / unit)
+                    .executor(Runnable::run)
+                    .weigher((GlobalVerdictCacheKey key, long[] verdict) -> {
+                      final long bytes = 128L + (long) verdict.length * Long.BYTES;
+                      return HeapCacheBudget.weight(bytes, unit);
+                    })
+                    .scheduler(scheduler)
+                    .build();
   }
 
   @Override

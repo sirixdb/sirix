@@ -1,12 +1,18 @@
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
+import static io.sirix.index.projection.NumericLaneTestSupport.numericValue;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.EncodedRowGroup;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import it.unimi.dsi.fastutil.HashCommon;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import java.lang.foreign.Arena;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -25,6 +31,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 final class ConstantBucketGroupCountTest {
+  private final Arena numericTargets = Arena.ofShared();
+
+  @AfterEach
+  void closeNumericTargets() {
+    numericTargets.close();
+  }
+
+  private ColumnSlice[] bucketColumn(final ProjectionColumnStore store, final int col,
+      final ColumnSegmentFetcher fetcher, final long offset, final long divisor, final long modulus) {
+    long bytes = 0L;
+    for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
+      bytes += (long) store.rowCount(leaf) * Long.BYTES;
+    }
+    return store.numericBucketKeyColumn(col, fetcher, offset, divisor, modulus,
+        numericTargets.allocate(Math.max(1L, bytes), 64));
+  }
+
   private static final byte DICT = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
   private static final byte LONG = ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
   private static final ColumnPredicate[] SELECTED = {ColumnPredicate.numeric(2, ProjectionIndexScan.Op.EQ, 1L)};
@@ -62,10 +85,10 @@ final class ConstantBucketGroupCountTest {
     }
     final long previous = ProjectionColumnStore.setColumnFillBudgetBytesForTesting(store.projectedColumnFillBytes(0));
     try {
-      final ColumnSlice[] slices = store.numericBucketKeyColumn(0, fetcher, 0L, 100L, 0L);
+      final ColumnSlice[] slices = bucketColumn(store, 0, fetcher, 0L, 100L, 0L);
       assertTrue(store.columnFilled(0), "the exact ordinary fill should remain available at its own budget");
       assertSame(slices, store.column(0, fetcher));
-      assertArrayEquals(new long[] {100L, 101L, 102L}, slices[0].numericValues());
+      assertArrayEquals(new long[] {100L, 101L, 102L}, copyNumericValues(slices[0]));
     } finally {
       ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previous);
     }
@@ -164,7 +187,7 @@ final class ConstantBucketGroupCountTest {
         0L, true);
   }
 
-  private static void assertScan(final List<List<Row>> blocks, final int dictionaryKey, final boolean substitute,
+  private void assertScan(final List<List<Row>> blocks, final int dictionaryKey, final boolean substitute,
       final boolean dense, final long shift, final long divisor, final long modulus, final boolean expectDecline) {
     assertScan(blocks, dictionaryKey, substitute, dense, shift, divisor, modulus, expectDecline, false);
     if (divisor > 0) {
@@ -172,7 +195,7 @@ final class ConstantBucketGroupCountTest {
     }
   }
 
-  private static void assertScan(final List<List<Row>> blocks, final int dictionaryKey, final boolean substitute,
+  private void assertScan(final List<List<Row>> blocks, final int dictionaryKey, final boolean substitute,
       final boolean dense, final long shift, final long divisor, final long modulus, final boolean expectDecline,
       final boolean bucketView) {
     final List<RowGroupDirectory> directories = new ArrayList<>();
@@ -213,7 +236,7 @@ final class ConstantBucketGroupCountTest {
     };
     for (int column = 0; column < columns.length; column++) {
       columns[column] = bucketView && column == 1
-          ? store.numericBucketKeyColumn(column, fetcher, shift, divisor, modulus)
+          ? bucketColumn(store, column, fetcher, shift, divisor, modulus)
           : store.column(column, fetcher);
     }
     if (bucketView) {
@@ -223,7 +246,7 @@ final class ConstantBucketGroupCountTest {
         for (int row = 0; row < blocks.get(block).size(); row++) {
           final Long number = blocks.get(block).get(row).number();
           if (number != null) {
-            assertEquals(number.longValue(), originals[block].numericValues()[row],
+            assertEquals(number.longValue(), numericValue(originals[block], row),
                 "ordinary reads must still see exact source values");
           }
         }
@@ -318,10 +341,10 @@ final class ConstantBucketGroupCountTest {
         hash = hash * ProjectionIndexByteScan.FNV_PRIME ^ component;
       }
       final int handle = table.acquireExact(hash, Long.MAX_VALUE, identity, 0);
-      final long[] storage = table.storageAtAccBase(handle);
+      final GroupBuffer storage = table.storageAtAccBase(handle);
       final int base = table.offsetAtAccBase(handle);
-      assertEquals(entry.getValue()[0], storage[base], "count for " + key);
-      assertEquals(entry.getValue()[1], storage[base + 1], "first selected row for " + key);
+      assertEquals(entry.getValue()[0], GroupLanes.get(storage, base), "count for " + key);
+      assertEquals(entry.getValue()[1], GroupLanes.get(storage, base + 1), "first selected row for " + key);
       assertEquals(entry.getValue()[1], table.auxAtAccBase(handle), "winner reference for " + key);
     }
     assertEquals(expected.size(), table.size(), "all expected groups already existed");

@@ -103,8 +103,17 @@ before flipping it on.
 
 ### Direct memory
 
-`-XX:MaxDirectMemorySize` should be at least **1 GB**. Sirix uses direct buffers
-for FFI (LZ4), file-channel reads, and certain serialization paths.
+The storage engine allocates no direct `ByteBuffer`s of its own. The buffers
+file-channel reads land in, the storage writer's own file I/O, page
+serialization, commit flush buffers and codec staging (LZ4's native copies
+included) are borrowed from the off-heap allocator and count against its
+budget (`sirix.allocator.maxSize`, see *Cache budgets* below); the
+`sirix_allocator_scratch_*` metrics report them.
+
+`-XX:MaxDirectMemorySize` therefore only has to cover what the JDK and the
+HTTP server use: the JDK's per-thread temporary buffers for channel I/O on
+heap buffers, and Vert.x/Netty's buffers in the REST server. The **1 GB** this
+guide has always asked for remains a safe setting for the server.
 
 ### Other flags worth knowing
 
@@ -132,9 +141,20 @@ and can be overridden via system properties.
 | `RecordPageFragmentCache` | 18.75% of budget | `sirix.cache.recordPageFragment` | Older revision fragments needed to reconstruct historical records |
 | `PageCache` | 6.25% of budget (min 100 MB) | `sirix.cache.page` | Index pages, RevisionRoot pages — metadata, not records |
 | `RevisionRootPageCache` | 5,000 entries (fixed count) | — | Revision root pointers |
-| `HOTLookupCache` | 1/32 of the record-page budget, clamped to 1,024–65,536 entries | `sirix.hotLookupCache.maxEntries` | Memoized committed-revision point lookups (`0` disables) |
+| `HOTLookupCache` | [Budget-derived and heap-share bounded](HOT_INDEX_SPECIFICATION.md#61-behaviour) | `sirix.hotLookupCache.maxEntries` | Memoized committed-revision point lookups (`0` disables) |
 | `NamesCache` | 500 entries (fixed) | — | Interned QName / property-name strings |
 | `PathSummaryCache` | 20 entries (fixed) | — | Per-resource path-summary readers |
+
+The budget is not the caches' alone. Transient buffers (reads, serialization, commits, imports) and the
+working memory of grouped scans (their group tables) are borrowed from the same allocator and counted by the
+same budget; the `sirix_allocator_scratch_*` metrics report them. The
+[derived-memory contract](DERIVED_QUERY_CACHES.md) owns aggregation execution grants, derived-cache
+allowances and the separate retained heap-cache envelope, including their override and disable controls.
+
+One allocator, `FrameSlotAllocator`, serves all of it on every platform. The `sirix.allocator` property
+once selected between it and two pool allocators, which are removed. It may be left unset or set to
+`frame`; any other value, `pool` and `windowspool` included, stops the process at the allocator's first
+use. Remove the property from launch scripts that still set it.
 
 Set explicit byte counts when you know your working set:
 
@@ -240,7 +260,11 @@ embedders can wire the same gauges into their own registry by implementing
 | `sirix_record_page_cache_size_bytes` / `_max_bytes` | gauge | `BufferManagerImpl` |
 | `sirix_record_page_fragment_cache_size_bytes` / `_max_bytes` | gauge | `BufferManagerImpl` |
 | `sirix_hot_leaf_page_cache_size_bytes` / `_max_bytes` | gauge | `BufferManagerImpl` |
-| `sirix_allocator_physical_memory_bytes` | gauge | `LinuxMemorySegmentAllocator` |
+| `sirix_allocator_physical_memory_bytes` | gauge | the active allocator (`Allocators.getInstance()`) |
+| `sirix_allocator_scratch_lent_bytes` / `_idle_bytes` | gauge | `ScratchStats`: scratch buffers lent now / kept resident for the next borrow |
+| `sirix_allocator_scratch_requested_bytes_total` / `_rounded_bytes_total` | gauge (cumulative total) | `ScratchStats`: bytes borrows asked for / were served with |
+| `sirix_allocator_scratch_acquisitions_total` / `_created_total` / `_reclaimed_total` | gauge (cumulative total) | `ScratchStats`: borrows served / buffers given fresh backing / backing returned |
+| `sirix_allocator_scratch_refused_total` / `_refused_bytes_total` | gauge (cumulative total) | `ScratchStats`: borrows the budget had no room for |
 
 Still on the production-readiness backlog: commit-queue depth and GC pause
 attribution. For these, use JFR (`-XX:StartFlightRecording`) plus the Sirix
@@ -252,7 +276,7 @@ storage allocator decisions, and ClockSweeper progress at INFO. Logger names:
 - `io.sirix.access.Databases` — startup, BufferManager init.
 - `io.sirix.cache.BufferManagerImpl` / `io.sirix.cache.ShardedPageCache` — cache lifecycle.
 - `io.sirix.cache.ClockSweeper` — eviction sweeps (PostgreSQL bgwriter pattern).
-- `io.sirix.cache.LinuxMemorySegmentAllocator` — off-heap allocator events.
+- `io.sirix.cache.FrameSlotAllocator` — off-heap allocator events.
 - `io.sirix.access.Databases$Databases` — close/cleanup warnings.
 
 ---

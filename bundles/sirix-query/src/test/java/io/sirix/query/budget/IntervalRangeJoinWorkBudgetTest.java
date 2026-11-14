@@ -20,19 +20,29 @@ import io.sirix.query.bench.bitemporal.BitemporalProjections;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.ValidTimeIndexes;
 import io.sirix.query.scan.SirixVectorizedExecutor;
+import io.sirix.cache.Allocators;
+import io.sirix.query.scan.DerivedCacheBudget;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /** A selective overlap join must avoid both array scans and unselected projection column bodies. */
 @Isolated
@@ -165,8 +175,160 @@ final class IntervalRangeJoinWorkBudgetTest {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(longs = {0, 4096, 8L << 20})
+  void constrainedDerivedBudgetsKeepExactAnswersAndDeclineUnretainableBackgroundWork(final long bytes)
+      throws Exception {
+    final int rows = 1000;
+    build(VersioningType.FULL, true, rows);
+    final DerivedCacheBudget budget = new DerivedCacheBudget(Allocators.getInstance(), bytes * 8, bytes);
+    final DerivedCacheBudget previous = DerivedCacheBudget.setForTesting(budget);
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      final String expected = "{\"category\":1,\"n\":" + rows + ",\"minimum\":16,\"maximum\":16}";
+      assertEquals(expected, run(chain, ctx));
+      final WorkCapture.Captured<String> repeated =
+          WorkCapture.of(JOINED).and(BUCKETED_SIDES).call(() -> run(chain, ctx));
+      assertEquals(expected, repeated.result());
+      assertEquals(run(generic, ctx), repeated.result());
+      repeated.work().assertExactly(JOINED, 1, "budget refusal must preserve the exact column join");
+      repeated.work()
+              .assertExactly(BUCKETED_SIDES, bytes < (8L << 20)
+                  ? 1
+                  : 0, "only the required synchronous side is rebuilt when the optional probe cannot be retained");
+      final DerivedCacheBudget.Metrics metrics = budget.metrics();
+      assertEquals(0, metrics.inFlightBytes(), "the repeated query joins any admitted background build");
+      assertTrue(metrics.retainedBytes() <= bytes);
+      if (bytes < (8L << 20)) {
+        assertTrue(metrics.rejectedBytes() > 0);
+      } else {
+        assertTrue(metrics.retainedBytes() > 0);
+        assertEquals(0, metrics.rejectedBytes());
+        assertTrue(metrics.numeric().entries() >= 2, "both sides' numeric selections are resident");
+        assertEquals(2, metrics.packed().entries(), "both packed sides are resident");
+      }
+    } finally {
+      DerivedCacheBudget.setForTesting(previous);
+      budget.numeric().clear();
+      budget.packed().clear();
+      assertEquals(0, budget.metrics().retiredLeasedBytes(), "no view outlives its query");
+    }
+  }
+
+  /**
+   * Skewed bucket shapes of the slab-resident merge. One product id shared by 2100 products (the
+   * smaller, bucketed build side) and 2200 contracts: one build bucket holds the whole side. Each
+   * shape gets its own database directory: the global projection catalog is keyed by path and
+   * revision.
+   */
+  @Test
+  void anOversizedBuildBucketMergesExactly() throws Exception {
+    build(VersioningType.FULL, skewed("contracts", 2200), skewed("products", 2100));
+    assertMergesTwice("{\"category\":1,\"n\":2200,\"minimum\":16,\"maximum\":16}");
+  }
+
+  /** One product and 9000 contracts in its bucket: one probe bucket holds the whole side. */
+  @Test
+  void anOversizedProbeBucketMergesExactly() throws Exception {
+    build(VersioningType.FULL, skewed("contracts", 9000), skewed("products", 1));
+    assertMergesTwice("{\"category\":1,\"n\":9000,\"minimum\":16,\"maximum\":16}");
+  }
+
+  /** 5000 keys, two contracts each: 10000 probe records across 5000 buckets. */
+  @Test
+  void aDenseDomainMergesAcrossManyBucketsExactly() throws Exception {
+    build(VersioningType.FULL, true, 10000);
+    assertMergesTwice("{\"category\":1,\"n\":10000,\"minimum\":16,\"maximum\":16}");
+  }
+
+  private void assertMergesTwice(final String expected) throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store);
+        var generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+      assertEquals(expected, run(chain, ctx), "first execution streams the probe lanes");
+      final WorkCapture.Captured<String> repeated =
+          WorkCapture.of(JOINED).and(BUCKETED_SIDES).call(() -> run(chain, ctx));
+      assertEquals(expected, repeated.result(), "second execution merges the resident packed sides");
+      assertEquals(run(generic, ctx), repeated.result());
+      repeated.work().assertExactly(JOINED, 1, "the column join serves both executions");
+      repeated.work().assertExactly(BUCKETED_SIDES, 0, "both packed sides are resident for the repeat");
+    } finally {
+      DerivedCacheBudget.global().numeric().clear();
+      DerivedCacheBudget.global().packed().clear();
+    }
+  }
+
+  /** {@code rowCount} rows of {@code resource} that all share join key 1 over the same year. */
+  private static String skewed(final String resource, final int rowCount) {
+    final boolean contracts = resource.equals("contracts");
+    final StringBuilder json = new StringBuilder(rowCount * 120).append('[');
+    for (int row = 0; row < rowCount; row++) {
+      if (row > 0) {
+        json.append(',');
+      }
+      json.append("{\"id\":")
+          .append(contracts
+              ? row + 1
+              : 1);
+      json.append(contracts
+          ? ",\"pid\":1,\"cost\":4"
+          : ",\"category\":1,\"retail\":20");
+      json.append(",\"vf\":\"2024-01-01T00:00:00Z\",\"vt\":\"2024-12-31T00:00:00Z\"}");
+    }
+    return json.append(']').toString();
+  }
+
   private void build(final VersioningType versioning, final boolean dense) {
     build(versioning, dense, ROWS);
+  }
+
+  @Test
+  void concurrentReaderReusesReservedPackingWithoutDuplicatingItsConstruction() throws Exception {
+    build(VersioningType.FULL, true, 1000);
+    final long bytes = 8L << 20;
+    final DerivedCacheBudget budget = new DerivedCacheBudget(Allocators.getInstance(), bytes * 8, bytes);
+    final DerivedCacheBudget previous = DerivedCacheBudget.setForTesting(budget);
+    final AtomicReference<Runnable> pending = new AtomicReference<>();
+    final Executor previousExecutor = SirixJoinedGroupAggregateExpr.setPackingExecutorForTesting(task -> {
+      assertTrue(pending.compareAndSet(null, task), "one immutable probe has only one in-flight build");
+    });
+    try (var store = BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store);
+        var readers = Executors.newSingleThreadExecutor()) {
+      final String expected = "{\"category\":1,\"n\":1000,\"minimum\":16,\"maximum\":16}";
+      assertEquals(expected, run(chain, ctx));
+      final Runnable task = pending.getAndSet(null);
+      assertNotNull(task);
+      try {
+        final DerivedCacheBudget.Metrics inFlight = budget.metrics();
+        assertTrue(inFlight.inFlightBytes() > 0, "a queued task owns its construction reservation");
+        assertTrue(inFlight.retainedBytes() + inFlight.inFlightBytes() <= bytes);
+        final long built = SirixJoinedGroupAggregateExpr.bucketedSidesBuiltCount();
+        final var reader = readers.submit(() -> {
+          try (var secondContext = SirixQueryContext.createWithJsonStore(store);
+              var secondChain = SirixCompileChain.createWithJsonStore(store)) {
+            return run(secondChain, secondContext);
+          }
+        });
+        task.run();
+        assertEquals(expected, reader.get());
+        assertEquals(built, SirixJoinedGroupAggregateExpr.bucketedSidesBuiltCount());
+        assertNull(pending.get());
+        assertEquals(0, budget.metrics().inFlightBytes());
+        assertTrue(budget.metrics().retainedBytes() <= bytes);
+      } finally {
+        task.run(); // CompletableFuture's task is idempotent, also releases a failed assertion's wait.
+      }
+    } finally {
+      SirixJoinedGroupAggregateExpr.setPackingExecutorForTesting(previousExecutor);
+      DerivedCacheBudget.setForTesting(previous);
+      budget.numeric().clear();
+      budget.packed().clear();
+    }
   }
 
   private void build(final VersioningType versioning, final boolean dense, final int rows) {

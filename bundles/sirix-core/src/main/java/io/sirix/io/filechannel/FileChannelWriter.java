@@ -21,6 +21,8 @@
 
 package io.sirix.io.filechannel;
 
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.HftBoundaryTelemetry;
 import io.sirix.access.ResourceConfiguration;
@@ -109,7 +111,12 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   private @Nullable FileChannel spillChannel;
   private long spillFrontier;
   private long spillGeneration;
-  private byte @Nullable [] spillCopyScratch;
+
+  /**
+   * First borrow of a spilled page's copy: the capacity ordinary reads and page staging share, which
+   * holds most pages without a second borrow.
+   */
+  private static final int SPILL_COPY_BYTES = 128 * 1024;
 
   private final SerializationType serializationType;
 
@@ -192,15 +199,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       Boolean.parseBoolean(System.getProperty("sirix.commit.bufferedBeacons", "true"));
 
   /**
-   * Read-only zero block for {@link #allocateFileRange}; duplicated per use, never allocated per
-   * call.
+   * Largest block of zeros {@link #allocateFileRange} writes at once. The block is allocator scratch
+   * borrowed for one range; it used to be a direct megabyte the process kept for its whole life.
    */
-  private static final ByteBuffer ZERO_BLOCK = ByteBuffer.allocateDirect(1 << 20).asReadOnlyBuffer();
+  private static final int ZERO_BLOCK_BYTES = 1 << 20;
 
   /** Same XXH3 implementation as {@link PageHasher#DEFAULT_ALGORITHM}, for exact scratch ranges. */
   private static final LongHashFunction XXH3_PAGE_HASH = LongHashFunction.xx3();
 
   private static final int FRAME_HASH_WINDOW_BYTES = 64 * 1024;
+
+  /** Bytes one refill of the hash window reads: the window plus the hash's eight-byte look-ahead. */
+  private static final int FRAME_HASH_WINDOW_CAPACITY = FRAME_HASH_WINDOW_BYTES + Long.BYTES;
 
   /**
    * Logical write frontier of the data file (replaces {@code dataFileChannel.size()}); -1 = uninit.
@@ -321,9 +331,6 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   /** Little-endian view over {@link #tailLog}; created and cleared together with it. */
   private ByteBuffer tailLogView;
-
-  /** Reusable direct buffer for persisting the ring to the two beacon slots. */
-  private ByteBuffer tailLogWriteBuffer;
 
   /** Highest revision whose record this writer wrote; {@code -1} = none. */
   private long highestWrittenRevision = -1L;
@@ -538,12 +545,15 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       return;
     }
 
-    final ByteBuffer slot = ByteBuffer.allocateDirect(IOStorage.BEACON_SLOT_BYTES);
-    readFully(dataFileChannel, slot, goodOffset);
-    slot.flip();
-    unforcedDataWrites = true;
-    writeFully(dataFileChannel, slot, staleOffset);
-    forceDataFile(false);
+    try (ScratchLease lease = ScratchLease.of(IOStorage.BEACON_SLOT_BYTES, ScratchUse.WRITE_IO)) {
+      // A borrowed buffer is larger than the slot: the limit, not the capacity, bounds the copy.
+      final ByteBuffer slot = lease.buffer().limit(IOStorage.BEACON_SLOT_BYTES);
+      readFully(dataFileChannel, slot, goodOffset);
+      slot.flip();
+      unforcedDataWrites = true;
+      writeFully(dataFileChannel, slot, staleOffset);
+      forceDataFile(false);
+    }
   }
 
   @Override
@@ -638,6 +648,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     bufferedBytes.clear();
   }
 
+  // Sonar S4087: the lease is reused: closing it here hands the header buffer back before the payload
+  // buffer is borrowed.
+  @SuppressWarnings("java:S4087")
   @Override
   public void copySpilledPage(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
       final BytesOut<?> bufferedBytes) {
@@ -651,37 +664,41 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         throw new SirixIOException("Spilled page " + key + " referenced, but this writer has no spill file");
       }
       final long spillOffset = IOStorage.spillOffset(key);
-      final ByteBuffer header = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
-      readFully(channel, header, spillOffset);
-      header.flip();
-      final int length = header.getInt();
-      if (length <= 0 || spillOffset + Integer.BYTES + length > spillFrontier) {
-        throw new SirixIOException("Corrupt spilled frame at " + spillOffset + ": length " + length
-            + " exceeds the spill frontier " + spillFrontier);
+      // One borrowed buffer for the frame's length header and then its payload. The positional reads
+      // land in it directly and the payload is copied once, into the append buffer; this writer used
+      // to keep a growing heap array for the payload and read through the JDK's own temporary direct
+      // buffer on the way.
+      try (ScratchLease lease = ScratchLease.of(SPILL_COPY_BYTES, ScratchUse.WRITE_IO)) {
+        ByteBuffer frame = lease.buffer().limit(Integer.BYTES);
+        readFully(channel, frame, spillOffset);
+        frame.flip();
+        final int length = frame.getInt();
+        if (length <= 0 || spillOffset + Integer.BYTES + length > spillFrontier) {
+          throw new SirixIOException("Corrupt spilled frame at " + spillOffset + ": length " + length
+              + " exceeds the spill frontier " + spillFrontier);
+        }
+        if (lease.capacity() < length) {
+          // The header is consumed: return the buffer and borrow one that holds the payload.
+          lease.close();
+          lease.acquire(length, ScratchUse.WRITE_IO);
+        }
+        frame = lease.buffer();
+        frame.clear().limit(length);
+        readFully(channel, frame, spillOffset + Integer.BYTES);
+        // Frame it exactly as write() frames a fresh page at this data offset: alignment padding, the
+        // length header, the payload.
+        final long offset = getOffset(bufferedBytes);
+        final int pageAlignmentPadding = offset % PAGE_FRAGMENT_BYTE_ALIGN != 0
+            ? (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)))
+            : 0;
+        writeAlignmentPadding(bufferedBytes, pageAlignmentPadding);
+        bufferedBytes.writeInt(length);
+        bufferedBytes.writeSegment(lease.segment(), 0, length);
+        if (bufferedBytes.writePosition() > FLUSH_SIZE) {
+          flushBuffer(bufferedBytes);
+        }
+        pageReference.setKey(offset + pageAlignmentPadding);
       }
-      byte[] scratch = spillCopyScratch;
-      if (scratch == null || scratch.length < length) {
-        scratch = new byte[Math.max(length, scratch == null
-            ? 1 << 16
-            : scratch.length << 1)];
-        spillCopyScratch = scratch;
-      }
-      readFully(channel, ByteBuffer.wrap(scratch, 0, length), spillOffset + Integer.BYTES);
-      // Frame it exactly as write() frames a fresh page at this data offset: alignment padding, the
-      // length header, the payload.
-      final long offset = getOffset(bufferedBytes);
-      final int pageAlignmentPadding = offset % PAGE_FRAGMENT_BYTE_ALIGN != 0
-          ? (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)))
-          : 0;
-      if (pageAlignmentPadding > 0) {
-        bufferedBytes.writePosition(bufferedBytes.writePosition() + pageAlignmentPadding);
-      }
-      bufferedBytes.writeInt(length);
-      bufferedBytes.writeSegment(MemorySegment.ofArray(scratch), 0, length);
-      if (bufferedBytes.writePosition() > FLUSH_SIZE) {
-        flushBuffer(bufferedBytes);
-      }
-      pageReference.setKey(offset + pageAlignmentPadding);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -837,7 +854,20 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         || frameOffset > fileSize - IOStorage.OTHER_BEACON || revisionFileData.pageHash() == 0L) {
       throw new SirixIOException(context + ": invalid revision-root identity for revision " + revision);
     }
-    final ByteBuffer lengthBuffer = ByteBuffer.allocateDirect(IOStorage.OTHER_BEACON).order(ByteOrder.LITTLE_ENDIAN);
+    // One borrowed buffer for the length header and then the hash window over the payload.
+    try (ScratchLease lease = ScratchLease.of(FRAME_HASH_WINDOW_CAPACITY, ScratchUse.WRITE_IO)) {
+      return validateRevisionRootFrame(channel, revisionFileData, revision, fileSize, expectedFrameEnd, context,
+          frameOffset, lease.buffer());
+    }
+  }
+
+  // Sonar S107: the resolved inputs of this step, passed as they are. An object around them would
+  // only move the list into a constructor.
+  @SuppressWarnings("java:S107")
+  private static ValidatedFrame validateRevisionRootFrame(final FileChannel channel,
+      final RevisionFileData revisionFileData, final int revision, final long fileSize, final long expectedFrameEnd,
+      final String context, final long frameOffset, final ByteBuffer window) throws IOException {
+    final ByteBuffer lengthBuffer = window.limit(IOStorage.OTHER_BEACON);
     readFully(channel, lengthBuffer, frameOffset);
     lengthBuffer.flip();
     final int dataLength = lengthBuffer.getInt();
@@ -857,7 +887,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     final long actualHash;
     try {
       actualHash = IOStorage.normalizeRevisionRootPageHash(XXH3_PAGE_HASH.hash(
-          new ChannelHashInput(channel, payloadOffset, dataLength), CHANNEL_HASH_ACCESS, 0L, dataLength));
+          new ChannelHashInput(channel, payloadOffset, dataLength, window), CHANNEL_HASH_ACCESS, 0L, dataLength));
     } catch (final UncheckedIOException readFailure) {
       throw readFailure.getCause();
     }
@@ -887,13 +917,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     private final FileChannel channel;
     private final long payloadOffset;
     private final int length;
-    private final ByteBuffer window = ByteBuffer.allocateDirect(FRAME_HASH_WINDOW_BYTES + Long.BYTES);
+    /** The caller's borrowed window; at least {@link #FRAME_HASH_WINDOW_CAPACITY} bytes. */
+    private final ByteBuffer window;
     private long windowStart = -1L;
 
-    private ChannelHashInput(final FileChannel channel, final long payloadOffset, final int length) {
+    private ChannelHashInput(final FileChannel channel, final long payloadOffset, final int length,
+        final ByteBuffer window) {
       this.channel = channel;
       this.payloadOffset = payloadOffset;
       this.length = length;
+      this.window = window;
+      // Empty until the first refill: get() consults the window's limit.
+      window.clear().limit(0);
     }
 
     private byte get(final long offset) {
@@ -908,7 +943,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
     private void refill(final long offset) {
       windowStart = offset;
-      final int bytes = Math.min(window.capacity(), Math.toIntExact((long) length - offset));
+      final int bytes = Math.min(FRAME_HASH_WINDOW_CAPACITY, Math.toIntExact(length - offset));
       window.clear().limit(bytes);
       try {
         readFully(channel, window, Math.addExact(payloadOffset, offset));
@@ -1029,18 +1064,24 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    * barrier: revisions growth forces immediately, while data growth is coalesced with the commit's
    * existing write-ahead force after all reachable page-tail bytes have been written.
    */
-  private static void allocateFileRange(final FileChannel channel, final long from, final long to) throws IOException {
-    long off = from;
-    while (off < to) {
-      // duplicate() shares the one static zero block without allocating a fresh 1 MiB direct
-      // buffer per grow (direct buffers are only reclaimed by GC-run Cleaners).
-      final ByteBuffer zeros = ZERO_BLOCK.duplicate();
-      if (zeros.remaining() > to - off) {
-        zeros.limit((int) (to - off));
+  static void allocateFileRange(final FileChannel channel, final long from, final long to) throws IOException {
+    if (to <= from) {
+      return;
+    }
+    // One borrowed block serves the whole range. Scratch holds its previous borrower's bytes, so the
+    // block is zeroed here, once per range and only as far as the range needs: a 64 KiB grow of the
+    // revisions file does not clear a megabyte.
+    final int blockBytes = (int) Math.min(ZERO_BLOCK_BYTES, to - from);
+    try (ScratchLease lease = ScratchLease.of(blockBytes, ScratchUse.WRITE_IO)) {
+      lease.segment().asSlice(0L, blockBytes).fill((byte) 0);
+      final ByteBuffer zeros = lease.buffer();
+      long off = from;
+      while (off < to) {
+        zeros.clear().limit((int) Math.min(blockBytes, to - off));
+        final int bytes = zeros.remaining();
+        writeFully(channel, zeros, off);
+        off += bytes;
       }
-      final int bytes = zeros.remaining();
-      writeFully(channel, zeros, off);
-      off += bytes;
     }
   }
 
@@ -1069,6 +1110,20 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /** Nanoseconds spent marking and zero-filling the writer-local data-allocation attempts. */
   public long hftDataAllocationGrowNanos() {
     return hftDataAllocationGrowNanos;
+  }
+
+  /**
+   * Write the alignment padding in front of a page frame as zeros. The padding used to be skipped,
+   * which left whatever the append buffer held at those offsets: zeros in a fresh heap buffer, the
+   * previous flush's bytes in a reused one. The append buffer is borrowed allocator scratch now, so a
+   * skip would write its previous borrower's bytes (another resource's page, a read buffer) into the
+   * data file and make the file's bytes depend on what else the process did. At most
+   * {@link #PAGE_FRAGMENT_BYTE_ALIGN}{@code  - 1} bytes.
+   */
+  private static void writeAlignmentPadding(final BytesOut<?> bufferedBytes, final int padding) {
+    for (int i = 0; i < padding; i++) {
+      bufferedBytes.writeByte((byte) 0);
+    }
   }
 
   private static void writeToBufferedBytes(BytesOut<?> bufferedBytes, byte[] serializedPageBytes,
@@ -1137,19 +1192,20 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         // so its record must retain the payload hash for body verification on read. The shared
         // checksum and normalization helpers define the persisted identity contract.
         final long storedPageHash = IOStorage.normalizeRevisionRootPageHash(pageHash);
-        final ByteBuffer buffer =
-            ByteBuffer.allocateDirect(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
-        buffer.putLong(referenceOffset);
-        buffer.putLong(revisionRootPage.getRevisionTimestamp());
-        buffer.putLong(
-            IOStorage.revisionRecordChecksum(referenceOffset, revisionRootPage.getRevisionTimestamp(), storedPageHash));
-        buffer.putLong(storedPageHash);
-        buffer.flip();
         final long revisionsFileOffset = IOStorage.revisionsFileOffset(revisionRootPage.getRevision());
         if (preallocatedCommit) {
           ensureRevisionsCapacity(revisionsFileOffset + IOStorage.REVISIONS_FILE_RECORD_SIZE);
         }
-        writeFully(revisionsFileChannel, buffer, revisionsFileOffset);
+        try (ScratchLease lease = ScratchLease.of(IOStorage.REVISIONS_FILE_RECORD_SIZE, ScratchUse.WRITE_IO)) {
+          final ByteBuffer buffer = lease.buffer();
+          buffer.putLong(referenceOffset);
+          buffer.putLong(revisionRootPage.getRevisionTimestamp());
+          buffer.putLong(IOStorage.revisionRecordChecksum(referenceOffset, revisionRootPage.getRevisionTimestamp(),
+              storedPageHash));
+          buffer.putLong(storedPageHash);
+          buffer.flip();
+          writeFully(revisionsFileChannel, buffer, revisionsFileOffset);
+        }
         if (lazyRevisionRecords) {
           // The record above went through a BUFFERED channel — stage its checksummed copy in the
           // in-memory ring; writeUberPageReference persists the ring ahead of the write-ahead
@@ -1179,6 +1235,9 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings("java:S3776")
   private long bufferSerializedPage(final ResourceConfiguration resourceConfiguration, final Page page,
       final BytesOut<?> bufferedBytes, final int pageAlignmentPadding) throws IOException {
     final var pipeline = resourceConfiguration.byteHandlePipeline;
@@ -1354,8 +1413,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         pageHash = pageOwnedFrame
             ? XXH3_PAGE_HASH.hashMemory(serializedPageSegment.address(), serializedPageSegment.byteSize())
             : PageHasher.computeLong(serializedPageSegment, PageHasher.DEFAULT_ALGORITHM);
-        if (!(page instanceof UberPage) && offsetToAdd > 0) {
-          bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
+        if (!(page instanceof UberPage)) {
+          writeAlignmentPadding(bufferedBytes, offsetToAdd);
         }
         bufferedBytes.writeInt(serializedPageLength);
         writeToBufferedBytes(bufferedBytes, serializedPageBytes, serializedPageSegment, serializedPageLength);
@@ -1372,8 +1431,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
 
     if (!payloadBuffered) {
-      if (!(page instanceof UberPage) && offsetToAdd > 0) {
-        bufferedBytes.writePosition(bufferedBytes.writePosition() + offsetToAdd);
+      if (!(page instanceof UberPage)) {
+        writeAlignmentPadding(bufferedBytes, offsetToAdd);
       }
       bufferedBytes.writeInt(serializedPageLength);
       writeToBufferedBytes(bufferedBytes, serializedPageBytes, serializedPageSegment, serializedPageLength);
@@ -1898,22 +1957,20 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
 
   /** Persists the in-memory ring into BOTH beacon slots' reserved pad region. */
   private void persistTailLogToSlots() throws IOException {
-    if (tailLogWriteBuffer == null) {
-      tailLogWriteBuffer =
-          ByteBuffer.allocateDirect(IOStorage.REVISION_RECORD_TAIL_LOG_BYTES).order(ByteOrder.LITTLE_ENDIAN);
+    try (ScratchLease lease = ScratchLease.of(IOStorage.REVISION_RECORD_TAIL_LOG_BYTES, ScratchUse.WRITE_IO)) {
+      final ByteBuffer ring = lease.buffer();
+      ring.put(tailLog);
+      ring.flip();
+      writeTailLogToSlot(IOStorage.PRIMARY_BEACON_OFFSET, ring);
+      ring.rewind();
+      writeTailLogToSlot(IOStorage.SECONDARY_BEACON_OFFSET, ring);
     }
-    tailLogWriteBuffer.clear();
-    tailLogWriteBuffer.put(tailLog);
-    tailLogWriteBuffer.flip();
-    writeTailLogToSlot(IOStorage.PRIMARY_BEACON_OFFSET);
-    tailLogWriteBuffer.rewind();
-    writeTailLogToSlot(IOStorage.SECONDARY_BEACON_OFFSET);
   }
 
-  private void writeTailLogToSlot(final long slotOffset) throws IOException {
+  private void writeTailLogToSlot(final long slotOffset, final ByteBuffer ring) throws IOException {
     final long target = slotOffset + IOStorage.REVISION_RECORD_TAIL_LOG_SLOT_OFFSET;
     unforcedDataWrites = true;
-    writeFully(dataFileChannel, tailLogWriteBuffer, target);
+    writeFully(dataFileChannel, ring, target);
   }
 
   /**

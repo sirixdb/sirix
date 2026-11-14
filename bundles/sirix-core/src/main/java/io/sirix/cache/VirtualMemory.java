@@ -10,9 +10,8 @@ import java.lang.foreign.MemorySegment;
 /**
  * The platform-specific virtual-memory plumbing behind {@link FrameSlotAllocator} — everything else
  * in the allocator (size classes, fixed-position slots, optimistic version counters, the free-slot
- * stacks) is portable Java. All four operations are COLD paths: a region is reserved once per size
- * class at init, a slot is committed once when first handed out, and regions are released once at
- * shutdown. The allocator's hot path never enters this interface.
+ * stacks) is portable Java. Reservations, first commitments, scratch reclamation and shutdown are
+ * cold paths. Warm frame-slot and scratch-buffer reuse never enters this interface.
  *
  * <p>
  * Semantics the allocator relies on:
@@ -52,6 +51,19 @@ public interface VirtualMemory {
    * @return {@code true} when this call performed a successful native release
    */
   boolean release(MemorySegment region);
+
+  /**
+   * Pre-fault {@code segment}'s pages writable in one call (Linux {@code MADV_POPULATE_WRITE}), for a
+   * consumer that writes the whole segment anyway, such as a slab of decoded lanes: one call instead
+   * of one fault per 4 KiB page (2.4 us each measured, half the cost of a lane fill's first touch).
+   *
+   * @return {@code true} when the pages were populated; {@code false} when the platform or kernel has
+   *         no such call and the pages fault lazily on first touch
+   * @throws OutOfMemoryError when the kernel reports it cannot back the pages ({@code ENOMEM})
+   */
+  default boolean populate(final MemorySegment segment) {
+    return false;
+  }
 
   /** The backend for the OS this JVM runs on. */
   static VirtualMemory forCurrentPlatform() {

@@ -32,7 +32,7 @@ services:
     ports:
       - "9443:9443"
     restart: always
-    # Allow mmap syscalls for LinuxMemorySegmentAllocator
+    # Allow the mmap and madvise calls of the off-heap allocator (FrameSlotAllocator)
     privileged: true
     security_opt:
       - seccomp:unconfined

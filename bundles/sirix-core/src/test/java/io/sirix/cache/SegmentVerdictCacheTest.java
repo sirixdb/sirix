@@ -83,9 +83,13 @@ final class SegmentVerdictCacheTest {
   }
 
   @Test
-  @DisplayName("a budget that is not positive is refused")
-  void rejectsANonPositiveBudget() {
-    assertThrows(IllegalArgumentException.class, () -> new SegmentVerdictCache(0L));
+  @DisplayName("zero disables retention and a negative budget is refused")
+  void zeroDisablesAndNegativeBudgetIsRefused() {
+    final SegmentVerdictCache disabled = new SegmentVerdictCache(0L);
+    disabled.put(key(1), new byte[0]);
+    disabled.put(key(2), new byte[100]);
+    assertNull(disabled.get(key(1)));
+    assertNull(disabled.get(key(2)));
     assertThrows(IllegalArgumentException.class, () -> new SegmentVerdictCache(-1L));
   }
 

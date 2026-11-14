@@ -94,10 +94,10 @@ final class NumericGroupAggTableTest {
     assertEquals(keys, t.size());
     assertTrue(t.storageChunkCount() > 1, "the high-cardinality table must exercise physical chunking");
     for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
-      final long[] storage = t.storageChunkOrNull(chunk);
+      final GroupBuffer storage = t.storageChunkOrNull(chunk);
       if (storage != null) {
-        assertTrue(storage.length <= NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES,
-            "backing array " + chunk + " crossed the non-humongous lane ceiling");
+        assertTrue(GroupLanes.count(storage) <= NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES,
+            "backing chunk " + chunk + " crossed the full-chunk lane ceiling");
       }
     }
 
@@ -133,7 +133,7 @@ final class NumericGroupAggTableTest {
     assertEquals(boundaryBucket, first);
     assertEquals(boundaryBucket + 1, second);
     assertEquals(boundaryBucket + 2, third);
-    assertTrue(chunkCrossing.storageAtAccBase(first) != chunkCrossing.storageAtAccBase(second),
+    assertNotEquals(chunkCrossing.storageAtAccBase(first).address, chunkCrossing.storageAtAccBase(second).address,
         "the probe must cross into the next physical chunk");
     assertEquals(colliding[0], chunkCrossing.keyAtAccBase(first));
     assertEquals(colliding[1], chunkCrossing.keyAtAccBase(second));
@@ -211,12 +211,12 @@ final class NumericGroupAggTableTest {
   void zeroKeySideSlot() {
     final NumericGroupAggTable t = new NumericGroupAggTable(1, 16, true);
     assertFalse(t.hasZeroKey());
-    final long[] zero = t.acquireZero(9L);
+    final GroupBuffer zero = t.acquireZero(9L);
     assertTrue(t.hasZeroKey());
-    assertEquals(9L, zero[1]);
-    zero[0]++;
+    assertEquals(9L, GroupLanes.get(zero, 1));
+    GroupLanes.increment(zero, 0);
     t.setZeroAux(5L);
-    assertEquals(9L, t.acquireZero(1_000L)[1], "the first sighting owns the ordinal");
+    assertEquals(9L, GroupLanes.get(t.acquireZero(1_000L), 1), "the first sighting owns the ordinal");
     assertEquals(0, t.size(), "the zero group is not a bucket");
     assertEquals(1, t.sizeIncludingZero());
     assertEquals(5L, t.zeroAux());
@@ -238,8 +238,8 @@ final class NumericGroupAggTableTest {
       for (int i = 0; i < 5_000; i++) {
         final long key = i % 1_000; // every source shares most keys with every other
         if (key == 0L) {
-          final long[] zero = t.acquireZero(ordinal);
-          zero[0]++;
+          final GroupBuffer zero = t.acquireZero(ordinal);
+          GroupLanes.increment(zero, 0);
         } else {
           final int handle = t.acquire(key, ordinal);
           if (lane(t, handle, 0) == 0L) {
@@ -274,17 +274,17 @@ final class NumericGroupAggTableTest {
       drainCounts(scanned, scannedCount);
       int bucket = 0;
       for (int chunk = 0; chunk < indexed.storageChunkCount(); chunk++) {
-        final long[] storage = indexed.storageChunkOrNull(chunk);
+        final GroupBuffer storage = indexed.storageChunkOrNull(chunk);
         if (storage == null) {
           bucket += indexed.capacity() / indexed.storageChunkCount();
           continue;
         }
-        for (int off = 0, st = indexed.stride(); off < storage.length; off += st, bucket++) {
-          final long key = storage[off];
+        for (int off = 0, st = indexed.stride(); off < GroupLanes.count(storage); off += st, bucket++) {
+          final long key = GroupLanes.get(storage, off);
           if (key != 0L) {
             final int handle = indexed.accBaseOfBucket(bucket);
             assertEquals(p, NumericGroupAggTable.partitionOf(key, shift), "a key merged into a foreign partition");
-            assertEquals(expectedFirstSeen.get(key), storage[off + 2], "first-seen of key " + key);
+            assertEquals(expectedFirstSeen.get(key), GroupLanes.get(storage, off + 2), "first-seen of key " + key);
             assertEquals(expectedFirstSeen.get(key), indexed.auxAtAccBase(handle), "aux of key " + key);
           }
         }
@@ -374,34 +374,31 @@ final class NumericGroupAggTableTest {
 
   private static void drainCounts(final NumericGroupAggTable t, final Long2LongOpenHashMap into) {
     for (int chunk = 0; chunk < t.storageChunkCount(); chunk++) {
-      final long[] storage = t.storageChunkOrNull(chunk);
+      final GroupBuffer storage = t.storageChunkOrNull(chunk);
       if (storage == null) {
         continue;
       }
-      for (int off = 0, st = t.stride(); off < storage.length; off += st) {
-        if (storage[off] != 0L) {
-          into.addTo(storage[off], storage[off + 1]);
+      for (int off = 0, st = t.stride(); off < GroupLanes.count(storage); off += st) {
+        if (GroupLanes.get(storage, off) != 0L) {
+          into.addTo(GroupLanes.get(storage, off), GroupLanes.get(storage, off + 1));
         }
       }
     }
     if (t.hasZeroKey()) {
-      into.addTo(0L, t.zeroSlot()[0]);
+      into.addTo(0L, GroupLanes.get(t.zeroSlot(), 0));
     }
   }
 
   private static long lane(final NumericGroupAggTable table, final int handle, final int lane) {
-    final long[] storage = table.storageAtAccBase(handle);
-    return storage[table.offsetAtAccBase(handle) + lane];
+    return GroupLanes.get(table.storageAtAccBase(handle), table.offsetAtAccBase(handle) + lane);
   }
 
   private static void setLane(final NumericGroupAggTable table, final int handle, final int lane, final long value) {
-    final long[] storage = table.storageAtAccBase(handle);
-    storage[table.offsetAtAccBase(handle) + lane] = value;
+    GroupLanes.set(table.storageAtAccBase(handle), table.offsetAtAccBase(handle) + lane, value);
   }
 
   private static void incrementLane(final NumericGroupAggTable table, final int handle, final int lane) {
-    final long[] storage = table.storageAtAccBase(handle);
-    storage[table.offsetAtAccBase(handle) + lane]++;
+    GroupLanes.increment(table.storageAtAccBase(handle), table.offsetAtAccBase(handle) + lane);
   }
 
   private static long[] keysForBucket(final int capacity, final int bucket, final int count) {
@@ -427,111 +424,129 @@ final class NumericGroupAggTableTest {
   }
 
   @Test
-  @DisplayName("A pooled table agrees with a private one through growth, recycles what it outgrows and releases everything")
-  void pooledTableRecyclesThroughGrowthAndRelease() {
+  @DisplayName("A table in a scan's workspace agrees with a private one through growth, hands back what it outgrows and releases everything")
+  void workspaceTableRecyclesThroughGrowthAndRelease() {
     final int stride = new NumericGroupAggTable(1, 16, true).stride();
     final int lanes = NumericGroupAggTable.fullChunkLanes(stride);
     assertEquals(0, lanes % stride, "a full chunk holds whole stripes");
     assertTrue(lanes <= NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES, "a full chunk stays non-humongous");
-    final LongChunkPool pool = new LongChunkPool(lanes, 1 << 12);
-    // Sized above the chunk ceiling, so every chunk has the pool's length from the first insertion.
-    final NumericGroupAggTable pooled = new NumericGroupAggTable(1, 1 << 12, true).attachChunkPool(pool);
-    final NumericGroupAggTable plain = new NumericGroupAggTable(1, 1 << 12, true);
-    assertSame(pool, pooled.chunkPool());
-    assertEquals(lanes, pooled.chunkLanes(), "the sizing hint puts the table at full-size chunks");
-    final int capacityBefore = pooled.capacity();
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      // Sized above the chunk ceiling, so every chunk has the full length from the first insertion.
+      final NumericGroupAggTable pooled = new NumericGroupAggTable(1, 1 << 12, true).attachWorkspace(workspace);
+      final NumericGroupAggTable plain = new NumericGroupAggTable(1, 1 << 12, true);
+      assertSame(workspace, pooled.workspace());
+      assertEquals(lanes, pooled.chunkLanes(), "the sizing hint puts the table at full-size chunks");
+      final int capacityBefore = pooled.capacity();
 
-    final SplittableRandom rnd = new SplittableRandom(0x5EEDL);
-    final LongOpenHashSet seen = new LongOpenHashSet();
-    final long[] keys = new long[20_000];
-    for (int i = 0; i < keys.length; i++) {
-      long k;
-      do {
-        k = rnd.nextLong();
-      } while (k == 0L || !seen.add(k));
-      keys[i] = k;
-    }
-    for (int i = 0; i < keys.length; i++) {
-      final int hp = pooled.acquire(keys[i], i);
-      final int hq = plain.acquire(keys[i], i);
-      pooled.storageAtAccBase(hp)[pooled.offsetAtAccBase(hp)] += i;
-      plain.storageAtAccBase(hq)[plain.offsetAtAccBase(hq)] += i;
-      pooled.setAuxAtAccBase(hp, i);
-      plain.setAuxAtAccBase(hq, i);
-    }
-    assertTrue(pooled.capacity() > capacityBefore, "20K keys must grow a 2^12-hinted table");
-    assertEquals(plain.capacity(), pooled.capacity(), "pooling changes the physical arrays only");
-    assertEquals(plain.size(), pooled.size());
-    assertTrue(pool.hits() + pool.misses() > 0, "every chunk of the pooled table went through the pool");
-    assertTrue(LongChunkPool.totalGives() > 0L && pool.pooled() + pool.hits() > 0L,
-        "the rehash recycled the chunks it outgrew");
-    for (int i = 0; i < keys.length; i++) {
-      final int hp = pooled.acquire(keys[i], -1L); // present: a pure lookup
-      final int hq = plain.acquire(keys[i], -1L);
-      assertEquals(keys[i], pooled.keyAtAccBase(hp));
-      assertEquals(lane(plain, hq, 0), lane(pooled, hp, 0), "count lane of key " + i);
-      assertEquals(lane(plain, hq, 1), lane(pooled, hp, 1), "first-seen lane of key " + i);
-      assertEquals(plain.auxAtAccBase(hq), pooled.auxAtAccBase(hp), "aux lane of key " + i);
-    }
+      final SplittableRandom rnd = new SplittableRandom(0x5EEDL);
+      final LongOpenHashSet seen = new LongOpenHashSet();
+      final long[] keys = new long[20_000];
+      for (int i = 0; i < keys.length; i++) {
+        long k;
+        do {
+          k = rnd.nextLong();
+        } while (k == 0L || !seen.add(k));
+        keys[i] = k;
+      }
+      for (int i = 0; i < keys.length; i++) {
+        final int hp = pooled.acquire(keys[i], i);
+        final int hq = plain.acquire(keys[i], i);
+        GroupLanes.add(pooled.storageAtAccBase(hp), pooled.offsetAtAccBase(hp), i);
+        GroupLanes.add(plain.storageAtAccBase(hq), plain.offsetAtAccBase(hq), i);
+        pooled.setAuxAtAccBase(hp, i);
+        plain.setAuxAtAccBase(hq, i);
+      }
+      assertTrue(pooled.capacity() > capacityBefore, "20K keys must grow a 2^12-hinted table");
+      assertEquals(plain.capacity(), pooled.capacity(), "the workspace changes where the chunks live only");
+      assertEquals(plain.size(), pooled.size());
+      assertTrue(workspace.chunksCarved() + workspace.chunksReused() > 0,
+          "every chunk of the table came from its scan's workspace");
+      assertTrue(workspace.chunksGiven() > 0L && workspace.spareChunks(lanes) + workspace.chunksReused() > 0L,
+          "the rehash handed back the chunks it outgrew");
+      for (int i = 0; i < keys.length; i++) {
+        final int hp = pooled.acquire(keys[i], -1L); // present: a pure lookup
+        final int hq = plain.acquire(keys[i], -1L);
+        assertEquals(keys[i], pooled.keyAtAccBase(hp));
+        assertEquals(lane(plain, hq, 0), lane(pooled, hp, 0), "count lane of key " + i);
+        assertEquals(lane(plain, hq, 1), lane(pooled, hp, 1), "first-seen lane of key " + i);
+        assertEquals(plain.auxAtAccBase(hq), pooled.auxAtAccBase(hp), "aux lane of key " + i);
+      }
 
-    int allocated = 0;
-    for (int c = 0; c < pooled.storageChunkCount(); c++) {
-      if (pooled.storageChunkOrNull(c) != null) {
-        allocated++;
+      int allocated = 0;
+      for (int c = 0; c < pooled.storageChunkCount(); c++) {
+        if (pooled.storageChunkOrNull(c) != null) {
+          allocated++;
+        }
       }
-    }
-    assertTrue(allocated > 1, "the grown table spans several chunks");
-    final int pooledBefore = pool.pooled();
-    pooled.release();
-    assertTrue(pooled.released());
-    assertEquals(0, pooled.storageChunkCount(), "a released table has no spine to probe");
-    assertEquals(pooledBefore + allocated, pool.pooled(), "release hands back every allocated chunk");
-    assertEquals(plain.size(), pooled.size(), "the counters survive the release");
+      assertTrue(allocated > 1, "the grown table spans several chunks");
+      final int spareBefore = workspace.spareChunks(lanes);
+      final long givenBefore = workspace.chunksGiven();
+      pooled.release();
+      assertTrue(pooled.released());
+      assertEquals(0, pooled.storageChunkCount(), "a released table has no spine to probe");
+      assertEquals(spareBefore + allocated, workspace.spareChunks(lanes), "release hands back every allocated chunk");
+      assertEquals(givenBefore + allocated, workspace.chunksGiven());
+      assertEquals(plain.size(), pooled.size(), "the counters survive the release");
 
-    // The next table of the same layout takes those chunks back, and they are empty.
-    final long hitsBefore = pool.hits();
-    final NumericGroupAggTable next = new NumericGroupAggTable(1, 1 << 12, true).attachChunkPool(pool);
-    final int h = next.acquire(keys[0], 0L);
-    assertTrue(pool.hits() > hitsBefore, "the fresh table's first chunk came from the pool");
-    final long[] chunk = next.storageAtAccBase(h);
-    int nonZero = 0;
-    for (final long lane : chunk) {
-      if (lane != 0L) {
-        nonZero++;
+      // The next table of the same layout takes those chunks back, and they are empty.
+      final long reusedBefore = workspace.chunksReused();
+      final long carvedBefore = workspace.chunksCarved();
+      final NumericGroupAggTable next = new NumericGroupAggTable(1, 1 << 12, true).attachWorkspace(workspace);
+      final int h = next.acquire(keys[0], 0L);
+      assertTrue(workspace.chunksReused() > reusedBefore,
+          "the fresh table's first chunk is one the released table handed back");
+      assertEquals(carvedBefore, workspace.chunksCarved(), "and nothing was carved for it");
+      final GroupBuffer chunk = next.storageChunkOrNull(h / (next.chunkLanes() / next.stride()));
+      int nonZero = 0;
+      for (int lane = 0; lane < GroupLanes.count(chunk); lane++) {
+        if (GroupLanes.get(chunk, lane) != 0L) {
+          nonZero++;
+        }
       }
-    }
-    // Only the one stripe just written is non-zero: the recycled chunk came back empty.
-    final int off = next.offsetAtAccBase(h) - 1;
-    int written = 0;
-    for (int lane = off; lane < off + next.stride(); lane++) {
-      if (chunk[lane] != 0L) {
-        written++;
+      // Only the one stripe just written is non-zero: the reused chunk came back empty.
+      final int off = next.offsetAtAccBase(h) - 1;
+      int written = 0;
+      for (int lane = off; lane < off + next.stride(); lane++) {
+        if (GroupLanes.get(chunk, lane) != 0L) {
+          written++;
+        }
       }
+      assertTrue(written > 0, "the new stripe carries its key");
+      assertEquals(written, nonZero, "every non-zero lane of the reused chunk belongs to the new stripe");
+      plain.close();
     }
-    assertEquals(written, nonZero, "every non-zero lane of the recycled chunk belongs to the new stripe");
   }
 
   @Test
-  @DisplayName("A pool can be attached only before the first insertion")
-  void poolAttachesOnlyToAnEmptyTable() {
-    final LongChunkPool pool = new LongChunkPool(NumericGroupAggTable.fullChunkLanes(8), 16);
-    final NumericGroupAggTable t = new NumericGroupAggTable(1, 16, true);
-    t.acquire(5L, 0L);
-    assertThrows(IllegalStateException.class, () -> t.attachChunkPool(pool));
-    final NumericGroupAggTable zero = new NumericGroupAggTable(1, 16, true);
-    zero.acquire(0L, 0L);
-    assertThrows(IllegalStateException.class, () -> zero.attachChunkPool(pool), "the zero group counts too");
+  @DisplayName("A workspace can be attached only before the first insertion")
+  void workspaceAttachesOnlyToAnEmptyTable() {
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final NumericGroupAggTable t = new NumericGroupAggTable(1, 16, true);
+      t.acquire(5L, 0L);
+      assertThrows(IllegalStateException.class, () -> t.attachWorkspace(workspace));
+      final NumericGroupAggTable zero = new NumericGroupAggTable(1, 16, true);
+      zero.acquire(0L, 0L);
+      assertThrows(IllegalStateException.class, () -> zero.attachWorkspace(workspace), "the zero group counts too");
+      t.close();
+      zero.close();
+    }
   }
 
   @Test
-  @DisplayName("A table without a pool releases to the collector and reports it")
-  void releaseWithoutPool() {
+  @DisplayName("A table without an attached workspace releases to its private one and reports it")
+  void releaseWithoutAnAttachedWorkspace() {
     final NumericGroupAggTable t = new NumericGroupAggTable(1, 16, true);
     t.acquire(5L, 0L);
     assertFalse(t.released());
+    final GroupWorkspace own = t.workspace();
+    final long givenBefore = own.chunksGiven();
     t.release();
     assertTrue(t.released());
     assertEquals(1, t.size());
     assertEquals(0, t.storageChunkCount());
+    assertEquals(givenBefore + 1, own.chunksGiven(), "its one chunk went back to the workspace it opened");
+    assertFalse(own.isClosed(), "a release keeps the private workspace");
+    t.close();
+    assertTrue(own.isClosed(), "and close returns it");
   }
 }

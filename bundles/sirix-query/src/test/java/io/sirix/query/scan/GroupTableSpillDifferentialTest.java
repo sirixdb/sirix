@@ -7,7 +7,8 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.GroupTableSpill;
-import io.sirix.index.projection.LongChunkPool;
+import io.sirix.index.projection.GroupWorkspace;
+import io.sirix.index.projection.NumericGroupAggTable;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -44,6 +45,8 @@ final class GroupTableSpillDifferentialTest {
   private static final String DOC = "jn:doc('" + DB + "','" + RES + "')[]";
 
   private static final List<String> QUERIES = List.of(
+      "subsequence(for $h in " + DOC + " let $k := $h.k7 group by $k let $s := sum($h.amount) "
+          + "order by $s descending, $k ascending return {\"k7\": $k, \"sum\": $s}, 1, 2)",
       // numeric key, top-k by count with a deterministic tie-break
       "subsequence(for $h in " + DOC + " let $k := $h.k40 group by $k let $c := count($h) "
           + "order by $c descending, $k ascending return {\"k40\": $k, \"c\": $c}, 1, 10)",
@@ -128,7 +131,8 @@ final class GroupTableSpillDifferentialTest {
   @DisplayName("every group shape agrees with the interpreter while spilling constantly")
   void spillingAgreesWithTheInterpreter() throws Exception {
     final long flushesBefore = GroupTableSpill.flushCount();
-    final long poolHitsBefore = LongChunkPool.totalHits();
+    final long privateWorkspacesBefore = NumericGroupAggTable.privateWorkspaceCount();
+    final long reusedBefore = GroupWorkspace.reusedCount();
     for (final String query : QUERIES) {
       final String generic = run(query, false);
       final long servedBefore = groupArmsServed();
@@ -139,10 +143,13 @@ final class GroupTableSpillDifferentialTest {
     }
     assertTrue(GroupTableSpill.flushCount() > flushesBefore,
         "no worker table was ever flushed: the threshold seam did not take, the agreement above is vacuous");
-    // The flushed tables' chunks must have been RECYCLED into later tables — the pool engaged, the
-    // agreement above ran over recycled (zeroed) storage, and the winners survived the pass-end
-    // release.
-    assertTrue(LongChunkPool.totalHits() > poolHitsBefore, "no recycled chunk was ever taken: the chunk pool is idle");
+    // The flushed tables' chunks must have been REUSED by later tables: they went back to their scan's
+    // workspace, the agreement above ran over reused (zeroed) storage, and the winners survived the
+    // pass-end release.
+    assertTrue(GroupWorkspace.reusedCount() > reusedBefore,
+        "no handed-back chunk was ever taken again: the scan's workspace is idle");
+    assertEquals(privateWorkspacesBefore, NumericGroupAggTable.privateWorkspaceCount(),
+        "a table of a served query opened a private workspace instead of drawing from its scan's");
   }
 
   private static long groupArmsServed() {

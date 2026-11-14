@@ -18,7 +18,7 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 
-import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
+import static io.sirix.cache.MemorySegmentAllocator.SIXTYFOUR_KB;
 
 /**
  * Page utilities.

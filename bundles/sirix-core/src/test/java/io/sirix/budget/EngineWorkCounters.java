@@ -4,6 +4,9 @@
 package io.sirix.budget;
 
 import io.sirix.access.trx.node.AbstractResourceSession;
+import io.sirix.cache.Allocators;
+import io.sirix.cache.ScratchStats;
+import io.sirix.cache.ScratchUse;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.PageCache;
 import io.sirix.io.filechannel.FileChannelReader;
@@ -24,6 +27,7 @@ import io.sirix.settings.VersioningType;
 import io.sirix.utils.ReplayWorkDiagnostics;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.function.LongSupplier;
 
 /**
@@ -41,6 +45,83 @@ public final class EngineWorkCounters {
   private EngineWorkCounters() {
     throw new AssertionError("no instances");
   }
+
+  private static ScratchStats scratch() {
+    return Allocators.getInstance().scratchStats();
+  }
+
+  private static WorkCounter scratchBorrows(final ScratchUse use, final String what) {
+    return WorkCounter.alwaysOn("scratch.borrows." + use.name().toLowerCase(Locale.ROOT),
+        "scratch buffers borrowed from the allocator for " + what, () -> scratch().acquisitions(use));
+  }
+
+  /** Borrows for the bytes a page, run, region or revision read lands in. */
+  public static final WorkCounter SCRATCH_READ_BORROWS = scratchBorrows(ScratchUse.READ, "a read to land in");
+
+  /** Borrows for page serialization, one per page plus one per growth. */
+  public static final WorkCounter SCRATCH_SERIALIZATION_BORROWS =
+      scratchBorrows(ScratchUse.SERIALIZATION, "a page to be serialized into");
+
+  /** Borrows for a storage writer's flush and append buffers. */
+  public static final WorkCounter SCRATCH_COMMIT_FLUSH_BORROWS =
+      scratchBorrows(ScratchUse.COMMIT_FLUSH, "a storage writer's flush or append buffer");
+
+  /**
+   * Borrows for codec staging: the blob a page body is assembled in or decompressed into, a lazily
+   * read chunk's expansion, a decoder's landing area, LZ4's native copies.
+   */
+  public static final WorkCounter SCRATCH_CODEC_BORROWS = scratchBorrows(ScratchUse.CODEC, "codec staging");
+
+  /**
+   * Borrows for page-internal staging: the buffer a page's records are serialized through when they
+   * are placed, a side-slot image, an off-frame field resize.
+   */
+  public static final WorkCounter SCRATCH_PAGE_BORROWS = scratchBorrows(ScratchUse.PAGE, "page-internal staging");
+
+  /**
+   * Borrows for a storage writer's own file I/O: a revision record, the revision-record ring written
+   * to the beacon slots, the block of zeros a preallocated range is filled with, a spilled page's
+   * copy, a revision root's validation window.
+   */
+  public static final WorkCounter SCRATCH_WRITE_IO_BORROWS =
+      scratchBorrows(ScratchUse.WRITE_IO, "a storage writer's own file I/O");
+
+  /** Borrows for the 256 KiB slabs a bulk import's chunks are handed to its builders in. */
+  public static final WorkCounter SCRATCH_IMPORT_BORROWS =
+      scratchBorrows(ScratchUse.IMPORT, "a slab of a bulk import's chunk");
+
+  /** Borrows for the lanes a windowed projection access decodes a window of one column into. */
+  public static final WorkCounter SCRATCH_PROJECTION_BORROWS =
+      scratchBorrows(ScratchUse.PROJECTION, "a window's lanes of one projection column");
+
+  /**
+   * Scratch buffers given fresh backing because no resident buffer of their capacity was idle. Zero
+   * over a warm path: the allocator kept what the path returned before.
+   */
+  public static final WorkCounter SCRATCH_BUFFERS_CREATED = WorkCounter.alwaysOn("scratch.created",
+      "scratch buffers the allocator gave fresh backing instead of lending a resident one",
+      () -> scratch().totalCreated());
+
+  /**
+   * Scratch buffers a lease holds. A gauge: over a capture it reads how many more buffers are lent
+   * after the captured work than before it, so zero means the work returned everything it borrowed.
+   */
+  public static final WorkCounter SCRATCH_BUFFERS_LENT = WorkCounter.alwaysOn("scratch.lent",
+      "scratch buffers lent now; over a capture, the buffers it left lent", () -> scratch().totalLentBuffers());
+
+  /** Borrows refused because the allocator's budget had no room. */
+  public static final WorkCounter SCRATCH_REFUSALS = WorkCounter.alwaysOn("scratch.refusals",
+      "scratch borrows the allocator's budget had no room for", () -> scratch().refusals());
+
+  /** Returns rejected because the buffer had been returned already: a double release somewhere. */
+  public static final WorkCounter SCRATCH_STALE_RETURNS = WorkCounter.alwaysOn("scratch.staleReturns",
+      "scratch returns rejected as stale or repeated", () -> scratch().staleReleases());
+
+  /** Every scratch counter, for a capture that guards how a path uses the allocator's buffers. */
+  public static final List<WorkCounter> SCRATCH =
+      List.of(SCRATCH_READ_BORROWS, SCRATCH_SERIALIZATION_BORROWS, SCRATCH_COMMIT_FLUSH_BORROWS, SCRATCH_CODEC_BORROWS,
+          SCRATCH_PAGE_BORROWS, SCRATCH_WRITE_IO_BORROWS, SCRATCH_IMPORT_BORROWS, SCRATCH_PROJECTION_BORROWS,
+          SCRATCH_BUFFERS_CREATED, SCRATCH_BUFFERS_LENT, SCRATCH_REFUSALS, SCRATCH_STALE_RETURNS);
 
   public static final WorkCounter TEMPORAL_GROUP_HEADS_VISITED = WorkCounter.gated("temporal.groupHeadsVisited",
       "one dictionary head counted during admission", TemporalAggregateStorage::groupHeadsVisited,

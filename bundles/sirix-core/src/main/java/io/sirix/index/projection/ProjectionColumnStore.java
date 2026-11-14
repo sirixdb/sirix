@@ -3,6 +3,18 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
+import io.sirix.cache.Allocators;
+import io.sirix.cache.HeapCacheBudget;
+import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
+import io.sirix.node.SegmentAccess;
+import java.lang.foreign.MemorySegment;
+import java.lang.ref.Cleaner;
+
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.NumericBucketDecoder;
 import io.sirix.api.StorageEngineReader;
@@ -13,8 +25,10 @@ import org.jspecify.annotations.Nullable;
 import java.nio.charset.StandardCharsets;
 import it.unimi.dsi.fastutil.ints.Int2ObjectLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.objects.Reference2ObjectOpenHashMap;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
@@ -23,6 +37,7 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntToLongFunction;
 import java.util.stream.IntStream;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Column-sliced view of a projection's persisted leaves (P5b stage 2,
@@ -135,13 +150,14 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * One leaf's decoded column: segment truth. {@code numericValues} is set for
-   * NUMERIC_LONG/NUMERIC_DOUBLE columns (transform domain for doubles), {@code boolWords} for
-   * BOOLEAN, and {@code stringDictIds}+{@code dictBytes}/{@code dictOffsets} for STRING_DICT — the
-   * BODY's per-row dict-ids beside the DICT segment's decoded entries, which is what lets a string
-   * equality run column-sliced instead of hydrating whole leaves. (Per-leaf dictionaries still
-   * resolve the literal per leaf; the R1 canonical-dictionary work removes that remap, not the
-   * slicing.) {@code presenceWords} is always populated for {@code rowCount > 0}.
+   * One leaf's decoded column: segment truth. Long-lane columns use {@code lane} (transform domain
+   * for doubles); {@code numericValues} remains for heap-backed keys and canonical ranks. Consumers
+   * use {@link #laneSegment()} and {@link #laneBase()} for either representation. {@code boolWords}
+   * is set for BOOLEAN, and {@code stringDictIds}+{@code dictBytes}/{@code dictOffsets} for
+   * STRING_DICT — the BODY's per-row dict-ids beside the DICT segment's decoded entries, which is
+   * what lets a string equality run column-sliced instead of hydrating whole leaves. (Per-leaf
+   * dictionaries still resolve the literal per leaf; the R1 canonical-dictionary work removes that
+   * remap, not the slicing.) {@code presenceWords} is always populated for {@code rowCount > 0}.
    *
    * <p>
    * <b>The dictionary is FLAT</b>: one contiguous byte run plus {@code dictSize + 1} offsets, not one
@@ -151,10 +167,101 @@ public final class ProjectionColumnStore {
    * length)-shaped anyway. For a RAW-mode dictionary {@code dictBytes} IS the segment and the offsets
    * are absolute into it, so the decode copies nothing at all.
    */
+  // Slices expose primitive storage; equality, hashing and formatting already handle array contents.
+  @SuppressWarnings("ArrayRecordComponent")
   public record ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
       long @Nullable [] numericValues, long @Nullable [] boolWords, int @Nullable [] stringDictIds,
       byte @Nullable [] dictBytes, int @Nullable [] dictOffsets, int @Nullable [] setCounts,
-      long @Nullable [] dictHashes, @Nullable PackedDictionaryIds packedStringIds) {
+      long @Nullable [] dictHashes, @Nullable PackedDictionaryIds packedStringIds, @Nullable NumericLane lane) {
+
+    // Sonar S6878: a record pattern would bind all fourteen components under second names. The typed
+    // variable keeps the comparison readable.
+    @SuppressWarnings("java:S6878")
+    @Override
+    public boolean equals(final Object other) {
+      if (this == other) {
+        return true;
+      }
+      return other instanceof ColumnSlice that
+          && (rowCount == that.rowCount && flags == that.flags && min == that.min && max == that.max
+              && Arrays.equals(presenceWords, that.presenceWords) && Arrays.equals(numericValues, that.numericValues)
+              && Arrays.equals(boolWords, that.boolWords) && Arrays.equals(stringDictIds, that.stringDictIds)
+              && Arrays.equals(dictBytes, that.dictBytes) && Arrays.equals(dictOffsets, that.dictOffsets)
+              && Arrays.equals(setCounts, that.setCounts) && Arrays.equals(dictHashes, that.dictHashes)
+              && Objects.equals(packedStringIds, that.packedStringIds) && Objects.equals(lane, that.lane));
+    }
+
+    @Override
+    public int hashCode() {
+      int result = 1;
+      result = 31 * result + Integer.hashCode(rowCount);
+      result = 31 * result + Integer.hashCode(flags);
+      result = 31 * result + Long.hashCode(min);
+      result = 31 * result + Long.hashCode(max);
+      result = 31 * result + Arrays.hashCode(presenceWords);
+      result = 31 * result + Arrays.hashCode(numericValues);
+      result = 31 * result + Arrays.hashCode(boolWords);
+      result = 31 * result + Arrays.hashCode(stringDictIds);
+      result = 31 * result + Arrays.hashCode(dictBytes);
+      result = 31 * result + Arrays.hashCode(dictOffsets);
+      result = 31 * result + Arrays.hashCode(setCounts);
+      result = 31 * result + Arrays.hashCode(dictHashes);
+      result = 31 * result + Objects.hashCode(packedStringIds);
+      result = 31 * result + Objects.hashCode(lane);
+      return result;
+    }
+
+    // Packed dictionary views are identified here, not expanded into diagnostic value arrays.
+    @SuppressWarnings("ObjectToString")
+    @Override
+    public String toString() {
+      return "ColumnSlice[rowCount=" + rowCount + ", flags=" + flags + ", min=" + min + ", max=" + max
+          + ", presenceWords=" + Arrays.toString(presenceWords) + ", numericValues=" + Arrays.toString(numericValues)
+          + ", boolWords=" + Arrays.toString(boolWords) + ", stringDictIds=" + Arrays.toString(stringDictIds)
+          + ", dictBytes=" + Arrays.toString(dictBytes) + ", dictOffsets=" + Arrays.toString(dictOffsets)
+          + ", setCounts=" + Arrays.toString(setCounts) + ", dictHashes=" + Arrays.toString(dictHashes)
+          + ", packedStringIds=" + packedStringIds + ", lane=" + lane + "]";
+    }
+
+    /** Array-backed slice shape, also used for non-numeric columns and derived canonical IDs. */
+    public ColumnSlice(final int rowCount, final byte flags, final long min, final long max, final long[] presenceWords,
+        final long @Nullable [] numericValues, final long @Nullable [] boolWords, final int @Nullable [] stringDictIds,
+        final byte @Nullable [] dictBytes, final int @Nullable [] dictOffsets, final int @Nullable [] setCounts,
+        final long @Nullable [] dictHashes, final @Nullable PackedDictionaryIds packedStringIds) {
+      this(rowCount, flags, min, max, presenceWords, numericValues, boolWords, stringDictIds, dictBytes, dictOffsets,
+          setCounts, dictHashes, packedStringIds, null);
+    }
+
+    /** A numeric slice whose values live in an off-heap lane: no heap value array exists. */
+    public ColumnSlice(final int rowCount, final byte flags, final long min, final long max, final long[] presenceWords,
+        final NumericLane lane) {
+      this(rowCount, flags, min, max, presenceWords, null, null, null, null, null, null, null, null, lane);
+    }
+
+    /** Whether the slice carries a numeric lane in either representation. */
+    public boolean hasNumericLane() {
+      return numericValues != null || lane != null;
+    }
+
+    /**
+     * The numeric lane as a segment for the in-place kernels: native storage for decoded columns, or a
+     * heap-array view for record keys and derived canonical IDs. Hoisted per leaf, never read per row.
+     */
+    public MemorySegment laneSegment() {
+      final NumericLane resident = lane;
+      if (resident != null) {
+        return resident.segment();
+      }
+      return MemorySegment.ofArray(requireNonNull(numericValues, "slice has no numeric lane"));
+    }
+
+    /** Byte offset of row 0 within {@link #laneSegment()}. */
+    public long laneBase() {
+      final NumericLane resident = lane;
+      return resident == null
+          ? 0L
+          : resident.base();
+    }
 
     /** Existing dense slice shape; packed IDs are an optional immutable read representation. */
     public ColumnSlice(final int rowCount, final byte flags, final long min, final long max, final long[] presenceWords,
@@ -677,6 +784,100 @@ public final class ProjectionColumnStore {
    * (transient) failures never set it.
    */
   private final byte[] corruptColumns;
+  /**
+   * The allocator slabs this store's numeric columns decoded into, one per column; see
+   * {@link ColumnSlabs} for the ownership rules and the backstop. A slab is released only through
+   * {@link #releaseColumnLanes}, which proves no query holds the column
+   * (docs/DERIVED_QUERY_CACHES.md, "Column lanes").
+   */
+  private final ColumnSlabs columnSlabs;
+  /** Backstop for a store dropped without {@link #retire()}; see {@link ColumnSlabs#run()}. */
+  private static final Cleaner SLAB_CLEANER = Cleaner.create();
+  /**
+   * Slab fills the allocator refused, causing the caller to take its budget-decline path.
+   */
+  private static final LongAdder SLAB_FILLS_DECLINED = new LongAdder();
+  /**
+   * Whether this store's handle left the catalog ({@link #retire()}): what no pin holds is released
+   * at once, the rest at its last unpin. Written under the monitor, read by the pin-drop paths.
+   */
+  private volatile boolean retired;
+
+  /**
+   * Byte base of every leaf's lane in a whole-column slab (64-byte aligned, leaf order), its size.
+   */
+  // The bases are immutable shared metadata; content equality and hashing are implemented below.
+  @SuppressWarnings("ArrayRecordComponent")
+  private record LaneLayout(long[] leafBases, long bytes) {
+
+    @Override
+    public boolean equals(final Object other) {
+      if (this == other) {
+        return true;
+      }
+      return other instanceof LaneLayout(long[] otherBases, long otherBytes) && Arrays.equals(leafBases, otherBases)
+          && bytes == otherBytes;
+    }
+
+    @Override
+    public int hashCode() {
+      int result = 1;
+      result = 31 * result + Arrays.hashCode(leafBases);
+      result = 31 * result + Long.hashCode(bytes);
+      return result;
+    }
+
+    @Override
+    public String toString() {
+      return "LaneLayout[leafBases=" + Arrays.toString(leafBases) + ", bytes=" + bytes + "]";
+    }
+  }
+
+  /** Computed once from the leaf row counts: the same for every numeric column. */
+  // The layout and its array are fully built before publication and never mutated afterwards.
+  @SuppressWarnings("java:S3077")
+  private volatile @Nullable LaneLayout laneLayout;
+
+  /**
+   * Where {@link #columnMaskedView(int, ColumnSegmentFetcher, long[], LaneTarget)} decodes a
+   * non-resident long-lane column's surviving leaves: the caller's slab and the per-leaf lane bases
+   * from {@link #maskedLaneLayout}. After the call, exactly one of {@link #filled()} (the view reads
+   * this slab) and {@link #resident()} (the view is the store's resident column, pruned; the caller
+   * keeps that column pinned for as long as a view that outlives its query scope reads it) is set, or
+   * neither (the view owns a separate masked slab, the column carries no long lane, or it is the KEYS
+   * column). Allocator refusal throws {@link FillBudgetExceededException}.
+   */
+  public static final class LaneTarget {
+    private final @Nullable MemorySegment slab;
+    private final long @Nullable [] laneBases;
+    private boolean filled;
+    private boolean resident;
+
+    /** A target without memory: it only reports how the view was served. */
+    public LaneTarget() {
+      this.slab = null;
+      this.laneBases = null;
+    }
+
+    /**
+     * @param slab the memory the surviving leaves' lanes are decoded into
+     * @param laneBases per leaf, the lane's byte base in {@code slab} ({@code -1} for a pruned leaf)
+     */
+    public LaneTarget(final MemorySegment slab, final long[] laneBases) {
+      this.slab = requireNonNull(slab, "slab");
+      this.laneBases = requireNonNull(laneBases, "laneBases");
+    }
+
+    /** Whether the view's lanes were decoded into this target's slab. */
+    public boolean filled() {
+      return filled;
+    }
+
+    /** Whether the view is a pruned view of the store's resident column. */
+    public boolean resident() {
+      return resident;
+    }
+  }
 
   /**
    * Lazily decoded per-leaf record keys (ascending rowGroupId; empty array for a rowless leaf) — the
@@ -782,6 +983,8 @@ public final class ProjectionColumnStore {
     this.zoneIndices = new ZoneIndex[columnKinds.length];
     this.stringSupplementary = new byte[columnKinds.length];
     this.corruptColumns = new byte[columnKinds.length];
+    this.columnSlabs = new ColumnSlabs(columnKinds.length);
+    SLAB_CLEANER.register(this, columnSlabs);
     this.residencyPins = new AtomicIntegerArray(columnKinds.length + 1);
     this.chargedSliceBytes = new long[columnKinds.length];
     this.chargedIdentityBytes = new long[columnKinds.length];
@@ -1179,9 +1382,11 @@ public final class ProjectionColumnStore {
     }
     for (int w = from; w < to; w += MEMO_DECODE_WINDOW) {
       final int wTo = Math.min(w + MEMO_DECODE_WINDOW, to);
-      final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher);
-      for (int i = 0; i < decoded.length; i++) {
-        longExtremaOfLeaf(decoded[i], w + i, values, present);
+      try (ScratchLease lanes = ScratchLease.of(Math.max(1L, laneBytes(w, wTo - w)), ScratchUse.PROJECTION)) {
+        final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher, lanes.segment());
+        for (int i = 0; i < decoded.length; i++) {
+          longExtremaOfLeaf(decoded[i], w + i, values, present);
+        }
       }
     }
   }
@@ -1193,15 +1398,19 @@ public final class ProjectionColumnStore {
    * ranges run concurrently without coordination. One pass over the lane, branch-light: the two
    * candidates per side are kept as running values and a distinct-count of how many are set.
    */
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings("java:S3776")
   private static void longExtremaOfLeaf(final @Nullable ColumnSlice slice, final int leaf, final long[] values,
       final long[] present) {
     if (slice == null || slice.rowCount() <= 0) {
       return;
     }
-    final long[] lane = slice.numericValues();
-    if (lane == null) {
+    if (!slice.hasNumericLane()) {
       return; // no long lane: the caller sees the slots absent and treats the leaf as unbounded
     }
+    final MemorySegment lane = slice.laneSegment();
+    final long laneBase = slice.laneBase();
     final long[] presence = slice.presenceWords();
     final int rowCount = slice.rowCount();
     long min1 = Long.MAX_VALUE;
@@ -1213,7 +1422,7 @@ public final class ProjectionColumnStore {
       if (presence != null && (presence[r >>> 6] & 1L << (r & 63)) == 0L) {
         continue;
       }
-      final long v = lane[r];
+      final long v = SegmentAccess.getLong(lane, laneBase + ((long) r << 3));
       if (distinctSeen == 0) {
         min1 = v;
         max1 = v;
@@ -1303,7 +1512,7 @@ public final class ProjectionColumnStore {
     }
     for (int w = from; w < to; w += MEMO_DECODE_WINDOW) {
       final int wTo = Math.min(w + MEMO_DECODE_WINDOW, to);
-      final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher);
+      final ColumnSlice[] decoded = decodeLeafSlices(col, null, w, wTo - w, fetcher, null);
       for (int i = 0; i < decoded.length; i++) {
         extremaOfLeaf(decoded[i], w + i - from, part);
       }
@@ -1625,8 +1834,11 @@ public final class ProjectionColumnStore {
     return built;
   }
 
+  /** The system property that switches the projection diagnostics on. */
+  private static final String PROJ_DIAG_PROPERTY = "sirix.projDiag";
+
   /** Diagnostics of the memo passes ({@code -Dsirix.projDiag}), read once. */
-  private static final boolean MEMO_DIAG = Boolean.getBoolean("sirix.projDiag");
+  private static final boolean MEMO_DIAG = Boolean.getBoolean(PROJ_DIAG_PROPERTY);
 
   /** Below this many leaves a memo pass stays serial: the fan-out's fixed cost exceeds the work. */
   private static final int MEMO_PASS_MIN = 4096;
@@ -1662,13 +1874,16 @@ public final class ProjectionColumnStore {
    * the first failure rethrown on the caller after every range stopped. A range that ends up empty
    * (more ranges than 64-leaf blocks) is skipped, and its part stays {@code null}.
    */
+  // Sonar S1181: a worker's failure, an Error included, is handed to the calling thread, which
+  // rethrows it.
+  @SuppressWarnings("java:S1181")
   private static void forEachMemoRange(final int n, final int ranges, final LeafRangeTask task) {
     if (ranges <= 1) {
       task.run(0, n, 0);
       return;
     }
     final int rangeLen = ((n + ranges - 1) / ranges + 63) & ~63;
-    final AtomicReference<RuntimeException> failed = new AtomicReference<>();
+    final AtomicReference<Throwable> failed = new AtomicReference<>();
     IntStream.range(0, ranges).parallel().forEach(r -> {
       final int from = r * rangeLen;
       final int to = Math.min(from + rangeLen, n);
@@ -1677,13 +1892,19 @@ public final class ProjectionColumnStore {
       }
       try {
         task.run(from, to, r);
-      } catch (final RuntimeException rangeFailed) {
+      } catch (final RuntimeException | Error rangeFailed) {
         failed.compareAndSet(null, rangeFailed);
       }
     });
-    final RuntimeException rangeFailed = failed.get();
-    if (rangeFailed != null) {
-      throw rangeFailed;
+    rethrowParallelFailure(failed.get());
+  }
+
+  private static void rethrowParallelFailure(final @Nullable Throwable failure) {
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    if (failure instanceof RuntimeException exception) {
+      throw exception;
     }
   }
 
@@ -1937,19 +2158,24 @@ public final class ProjectionColumnStore {
    *
    * @throws IllegalStateException on missing/corrupt segments or a non-sliceable column
    */
+  // Sonar S1143, S1163: cleanup is rethrown only without a primary failure. Otherwise it is
+  // suppressed on that failure.
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings({"java:S1143", "java:S1163", "java:S1181", "Finally"})
   public ColumnSlice[] column(final int col, final ColumnSegmentFetcher fetcher) {
-    if (!columnSliceable(col)) {
-      throw new IllegalStateException("Column " + col + " is not sliceable (kind="
-          + (col >= 0 && col < columnKinds.length
-              ? columnKinds[col]
-              : -1)
-          + ")");
-    }
-    final ColumnSlice[][] slots = columns;
-    ColumnSlice[] slices = slots[col];
+    requireSliceable(col);
+    ColumnSlice[] slices = columns[col];
     if (slices != null) {
-      pinResident(col); // this query is now serving from these arrays — no close may release them
-      return slices;
+      // Pin FIRST, then re-read the slot: a release that unpublished the slot after the first read
+      // re-checks the pins before it frees the slab (releaseColumnLanes), so a slot still published
+      // after this pin cannot be freed under this query. Read-then-pin left a window in which an
+      // off-heap lane could be unmapped between the two.
+      pinResident(col); // this query is now serving from these lanes — no close may release them
+      slices = columns[col];
+      if (slices != null) {
+        return slices;
+      }
     }
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
@@ -1967,36 +2193,66 @@ public final class ProjectionColumnStore {
     // Fill OUTSIDE the monitor: the fetch+decode is the store's only I/O and must not
     // serialize other columns (or evidence readers) behind it. A same-column race does the
     // work twice with identical results — first publish wins.
-    slices = fillColumn(col, fetcher);
     pinResident(col);
-    synchronized (this) {
-      final ColumnSlice[] existing = columns[col];
-      if (existing != null) {
-        return existing;
+    final ColumnSlice[][] next = new ColumnSlice[columnKinds.length][];
+    slices = fillColumn(col, fetcher);
+    final MemorySegment slab = laneSlabOf(slices);
+    boolean adopted = false;
+    Throwable failure = null;
+    try {
+      synchronized (this) {
+        final ColumnSlice[] existing = columns[col];
+        if (existing != null) {
+          return existing;
+        }
+        System.arraycopy(columns, 0, next, 0, next.length);
+        next[col] = slices;
+        final long charged = incrementalFillBytes(col, projected);
+        if (slab != null) {
+          columnSlabs.set(col, slab);
+        }
+        adopted = true;
+        chargedSliceBytes[col] = charged;
+        retainedFillBytes.addAndGet(charged);
+        columns = next;
       }
-      // Publish via a fresh array write so the unsynchronized volatile read stays safe.
-      final ColumnSlice[][] next = columns.clone();
-      next[col] = slices;
-      columns = next;
-      // Re-priced HERE, not reused from the check: the fill above ran the inner raw-BODY door,
-      // which may have published and charged that chain in between. Same helper, later moment.
-      final long charged = incrementalFillBytes(col, projected);
-      chargedSliceBytes[col] = charged;
-      retainedFillBytes.addAndGet(charged);
+      return slices;
+    } catch (final Throwable primary) {
+      failure = primary;
+      throw primary;
+    } finally {
+      if (!adopted) {
+        try {
+          releaseLaneSlab(slab);
+        } catch (final Throwable cleanup) {
+          if (failure != null) {
+            retainCleanupFailure(failure, cleanup);
+          } else {
+            throw cleanup;
+          }
+        }
+      }
     }
-    return slices;
+  }
+
+  private void requireSliceable(final int col) {
+    if (!columnSliceable(col)) {
+      throw new IllegalStateException("Column " + col + " is not sliceable (kind="
+          + (col >= 0 && col < columnKinds.length
+              ? columnKinds[col]
+              : -1)
+          + ")");
+    }
   }
 
   /**
    * Byte budget above which {@link #column(int, ColumnSegmentFetcher)} declines a whole-column slice
    * fill. Same property and derivation as the catalog's whole-leaf eager budget
    * ({@code sirix.projection.eagerMaterializeBytes}): a fill's raw bytes live on the heap beside the
-   * decoded slice arrays and the off-heap arena, so half the projection cache budget and a quarter of
-   * the heap bound it from both sides.
+   * decoded slice arrays. The shared heap envelope assigns the projection ceiling and bounds this
+   * per-store fill allowance within it.
    */
-  private static final long COLUMN_FILL_BUDGET_DEFAULT = Long.getLong("sirix.projection.eagerMaterializeBytes",
-      Math.min(Long.parseLong(System.getProperty("sirix.projection.cacheBytes", String.valueOf(8L << 30))) / 2,
-          Runtime.getRuntime().maxMemory() / 4));
+  private static final long COLUMN_FILL_BUDGET_DEFAULT = HeapCacheBudget.global().projectionFillBytes();
 
   private static volatile long columnFillBudgetBytes = COLUMN_FILL_BUDGET_DEFAULT;
 
@@ -2254,16 +2510,17 @@ public final class ProjectionColumnStore {
    * instead of fetching a second chain for the same column.
    */
   public boolean columnFilled(final int col) {
-    final ColumnSlice[][] slots = columns;
-    final boolean filled = col >= 0 && col < slots.length && slots[col] != null;
-    if (filled) {
-      // A POSITIVE residency answer is what a planner turns into a resident route, so it pins for the
-      // asking query exactly like a fill does. Without this a concurrent scope's close could release
-      // the column between the planner's answer and the route's first read — and the route would then
-      // meet the decline door mid-kernel instead of having been sent windowed up front.
-      pinResident(col);
+    if (col < 0 || col >= columnKinds.length || columns[col] == null) {
+      return false;
     }
-    return filled;
+    // A POSITIVE residency answer is what a planner turns into a resident route, so it pins for the
+    // asking query exactly like a fill does. Without this a concurrent scope's close could release
+    // the column between the planner's answer and the route's first read — and the route would then
+    // meet the decline door mid-kernel instead of having been sent windowed up front. Pinned first,
+    // then re-read, for the same reason as in column(): the answer is positive only for a slot that
+    // was still published after the pin, which no release can free any more.
+    pinResident(col);
+    return columns[col] != null;
   }
 
   /**
@@ -2295,7 +2552,7 @@ public final class ProjectionColumnStore {
 
     private static final long serialVersionUID = 1L;
 
-    FillBudgetExceededException(final String message) {
+    public FillBudgetExceededException(final String message) {
       super(message);
     }
   }
@@ -2433,66 +2690,35 @@ public final class ProjectionColumnStore {
     if (!residencyEvict || needed > budget) {
       return false;
     }
-    long freed = 0L;
-    int evictions = 0;
+    final Reclaimed evicted = new Reclaimed();
     synchronized (this) {
-      long retained = retainedFillBytes.get();
+      final long retained = retainedFillBytes.get();
       if (retained + needed <= budget) {
         return true;
       }
-      final boolean[] kept = new boolean[columnKinds.length];
-      for (final int col : keep) {
-        if (col >= 0 && col < kept.length) {
-          kept[col] = true;
-        }
-      }
-      final int keysSlot = keysPinSlot();
-      final boolean keysEvictable = !keepKeys && residencyPins.get(keysSlot) == 0;
-      long evictable = keysEvictable
+      final boolean[] kept = keptColumns(keep);
+      final boolean keysEvictable = !keepKeys && residencyPins.get(keysPinSlot()) == 0;
+      final long evictable = releasableColumnBytes(kept) + (keysEvictable
           ? chargedKeysBytes
-          : 0L;
-      for (int col = 0; col < columnKinds.length; col++) {
-        if (!kept[col] && residencyPins.get(col) == 0) {
-          evictable += chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
-        }
-      }
+          : 0L);
       if (retained - evictable + needed > budget) {
         return false; // could not fit even with everything evictable gone: touch nothing
       }
-      while (retained + needed > budget) {
-        int bestColumn = -1;
-        long bestBytes = 0L;
-        for (int col = 0; col < columnKinds.length; col++) {
-          if (kept[col] || residencyPins.get(col) != 0) {
-            continue;
-          }
-          final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
-          if (bytes > bestBytes) {
-            bestBytes = bytes;
-            bestColumn = col;
-          }
-        }
-        final boolean keys = keysEvictable && chargedKeysBytes > bestBytes;
-        if (keys) {
-          bestBytes = chargedKeysBytes;
-          recordKeySlices = null;
-          chargedKeysBytes = 0L;
-        } else if (bestColumn < 0 || bestBytes <= 0L) {
-          break; // the dry pass admitted this fit, so this is unreachable; fail closed if it is not
-        } else {
-          releaseColumnLanes(bestColumn);
-        }
-        retained = retainedFillBytes.addAndGet(-bestBytes);
-        freed += bestBytes;
-        evictions++;
+      // The dry pass admitted this fit, so running out of units is unreachable; fail closed if it is not.
+      boolean more = true;
+      while (more && retainedFillBytes.get() + needed > budget) {
+        more = releaseLargestUnit(kept, keysEvictable, evicted);
       }
-      if (retained + needed > budget) {
+      rethrowCleanupFailure(evicted.failure);
+      if (retainedFillBytes.get() + needed > budget) {
         return false;
       }
     }
+    final int evictions = evicted.units;
+    final long freed = evicted.bytes;
     RESIDENCY_EVICTIONS.add(evictions);
     RESIDENCY_EVICTED_BYTES.add(freed);
-    if (Boolean.getBoolean("sirix.projDiag")) {
+    if (Boolean.getBoolean(PROJ_DIAG_PROPERTY)) {
       System.err.println("[proj] residency evict: " + evictions + " lane(s), " + (freed >> 20)
           + " MB returned to admit a " + (needed >> 20) + " MB fill; retained " + (retainedFillBytes.get() >> 20)
           + " MB of a " + (budget >> 20) + " MB budget");
@@ -2526,18 +2752,110 @@ public final class ProjectionColumnStore {
   }
 
   /** Drop the pins one closing scope holds, named by the set bits of {@code bits}. */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   void dropPins(final long[] bits) {
     final int slots = pinSlotCount();
+    Throwable failure = null;
     for (int word = 0; word < bits.length; word++) {
       long remaining = bits[word];
       while (remaining != 0) {
         final int bit = Long.numberOfTrailingZeros(remaining);
         remaining &= remaining - 1;
         final int slot = (word << 6) + bit;
-        if (slot < slots) {
-          residencyPins.decrementAndGet(slot);
+        if (slot < slots && residencyPins.decrementAndGet(slot) == 0 && retired) {
+          try {
+            releaseRetiredSlot(slot);
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
       }
+    }
+    rethrowCleanupFailure(failure);
+  }
+
+  /**
+   * Pin {@code col} resident for a cache entry that reads its slab lanes in place (no query scope
+   * covers an entry's lifetime); the residency release skips pinned columns. Paired with
+   * {@link #releaseColumn}.
+   */
+  public void retainColumn(final int col) {
+    residencyPins.incrementAndGet(col);
+  }
+
+  /** Drop a {@link #retainColumn} pin; on a retired store the last pin releases the column. */
+  public void releaseColumn(final int col) {
+    final int remaining = residencyPins.decrementAndGet(col);
+    if (remaining < 0) {
+      throw new IllegalStateException("column " + col + " released more often than retained");
+    }
+    if (remaining == 0 && retired) {
+      releaseRetiredSlot(col);
+    }
+  }
+
+  /**
+   * The handle over this store left the catalog: release every column and the KEYS lane that no query
+   * pins, now; a pinned one is released by its last unpin. A retired store still serves (a query that
+   * looked its handle up before the eviction keeps using it, under its own pins), and what it fills
+   * afterwards leaves the same way, or through the {@link ColumnSlabs} backstop once the store is
+   * unreachable. Idempotent.
+   */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
+  public void retire() {
+    long freed = 0L;
+    synchronized (this) {
+      if (retired) {
+        return;
+      }
+      retired = true;
+      Throwable failure = null;
+      for (int col = 0; col < columnKinds.length; col++) {
+        try {
+          freed += releaseColumnLanes(col);
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
+      }
+      if (recordKeySlices != null && residencyPins.get(keysPinSlot()) == 0) {
+        recordKeySlices = null;
+        freed += chargedKeysBytes;
+        retainedFillBytes.addAndGet(-chargedKeysBytes);
+        chargedKeysBytes = 0L;
+      }
+      rethrowCleanupFailure(failure);
+    }
+    if (freed > 0L) {
+      RESIDENCY_RELEASED_BYTES.add(freed);
+    }
+  }
+
+  /** Whether {@link #retire()} ran. */
+  public boolean retired() {
+    return retired;
+  }
+
+  /** A pin of {@code slot} dropped to zero on a retired store: release what it held. */
+  private void releaseRetiredSlot(final int slot) {
+    long freed = 0L;
+    synchronized (this) {
+      if (slot == keysPinSlot()) {
+        if (recordKeySlices != null && residencyPins.get(slot) == 0) {
+          recordKeySlices = null;
+          freed = chargedKeysBytes;
+          retainedFillBytes.addAndGet(-chargedKeysBytes);
+          chargedKeysBytes = 0L;
+        }
+      } else {
+        freed = releaseColumnLanes(slot);
+      }
+    }
+    if (freed > 0L) {
+      RESIDENCY_RELEASED_BYTES.add(freed);
     }
   }
 
@@ -2585,81 +2903,198 @@ public final class ProjectionColumnStore {
     if (retainedFillBytes.get() <= budget) {
       return;
     }
-    long freed = 0L;
-    int releases = 0;
+    final Reclaimed released = new Reclaimed();
     synchronized (this) {
-      long retained = retainedFillBytes.get();
       final int keysSlot = keysPinSlot();
-      while (retained > budget) {
-        // Largest releasable unit first: not an LRU (no recency is consulted, and none is recorded),
-        // simply the choice that reaches the budget in the fewest drops and therefore re-fetches the
-        // fewest columns if they are wanted again.
-        int bestColumn = -1;
-        long bestBytes = 0L;
-        for (int col = 0; col < columnKinds.length; col++) {
-          if (residencyPins.get(col) != 0) {
-            continue;
-          }
-          final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
-          if (bytes > bestBytes) {
-            bestBytes = bytes;
-            bestColumn = col;
-          }
-        }
-        final boolean keys = residencyPins.get(keysSlot) == 0 && chargedKeysBytes > bestBytes;
-        if (keys) {
-          bestBytes = chargedKeysBytes;
-        } else if (bestColumn < 0) {
-          break; // everything left is pinned or already released
-        }
-        if (bestBytes <= 0L) {
-          break;
-        }
-        if (keys) {
-          recordKeySlices = null;
-          chargedKeysBytes = 0L;
-        } else {
-          releaseColumnLanes(bestColumn);
-        }
-        retained = retainedFillBytes.addAndGet(-bestBytes);
-        freed += bestBytes;
-        releases++;
+      // A column whose release found a reader (see releaseColumnLanes) stays and is not asked again.
+      final boolean[] kept = new boolean[columnKinds.length];
+      boolean more = true;
+      while (more && retainedFillBytes.get() > budget) {
+        more = releaseLargestUnit(kept, residencyPins.get(keysSlot) == 0, released);
       }
     }
-    if (freed > 0L) {
-      RESIDENCY_RELEASED_BYTES.add(freed);
-      RESIDENCY_RELEASES.add(releases);
-      if (Boolean.getBoolean("sirix.projDiag")) {
-        System.err.println(
-            "[proj] residency release: " + releases + " column(s), " + (freed >> 20) + " MB returned, retained "
-                + (retainedFillBytes.get() >> 20) + " MB of a " + (budget >> 20) + " MB budget");
+    rethrowCleanupFailure(released.failure);
+    if (released.bytes > 0L) {
+      noteResidencyRelease(released.bytes, released.units, budget);
+    }
+  }
+
+  /** The running totals of one eviction or release round. */
+  private static final class Reclaimed {
+    private long bytes;
+    private int units;
+    private @Nullable Throwable failure;
+  }
+
+  /**
+   * Release the largest unit that may go, under the monitor: the resident KEYS lane when
+   * {@code keysReleasable} and it is larger than every releasable column, else the largest column
+   * that is neither kept nor pinned. Largest first is not an LRU (no recency is consulted, and none
+   * is recorded), simply the choice that reaches a budget in the fewest drops and therefore
+   * re-fetches the fewest columns if they are wanted again. A column whose release fails or finds a
+   * reader is marked in {@code kept} and not asked again.
+   *
+   * @return {@code false} when nothing releasable is left, {@code true} while another call may free
+   *         more
+   */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
+  private boolean releaseLargestUnit(final boolean[] kept, final boolean keysReleasable, final Reclaimed totals) {
+    assert Thread.holdsLock(this);
+    final int bestColumn = largestReleasableColumn(kept);
+    final long largestColumnBytes = bestColumn < 0
+        ? 0L
+        : chargedColumnBytes(bestColumn);
+    if (keysReleasable && chargedKeysBytes > largestColumnBytes) {
+      final long keysBytes = chargedKeysBytes;
+      recordKeySlices = null;
+      chargedKeysBytes = 0L;
+      retainedFillBytes.addAndGet(-keysBytes);
+      totals.bytes += keysBytes;
+      totals.units++;
+      return true;
+    }
+    if (bestColumn < 0) {
+      return false; // everything left is pinned or already released
+    }
+    final long released;
+    try {
+      released = releaseColumnLanes(bestColumn);
+    } catch (final Throwable cleanup) {
+      totals.failure = retainCleanupFailure(totals.failure, cleanup);
+      kept[bestColumn] = true;
+      return true;
+    }
+    if (released == 0L) {
+      kept[bestColumn] = true; // a reader pinned it meanwhile: it stays, and is not asked again
+      return true;
+    }
+    totals.bytes += released;
+    totals.units++;
+    return true;
+  }
+
+  /** The columns of {@code keep} as marks: what a caller is about to read is never evicted. */
+  private boolean[] keptColumns(final int[] keep) {
+    final boolean[] kept = new boolean[columnKinds.length];
+    for (final int col : keep) {
+      if (col >= 0 && col < kept.length) {
+        kept[col] = true;
       }
+    }
+    return kept;
+  }
+
+  /** What the ledger holds for every column that is neither kept nor pinned. */
+  private long releasableColumnBytes(final boolean[] kept) {
+    assert Thread.holdsLock(this);
+    long bytes = 0L;
+    for (int col = 0; col < columnKinds.length; col++) {
+      if (!kept[col] && residencyPins.get(col) == 0) {
+        bytes += chargedColumnBytes(col);
+      }
+    }
+    return bytes;
+  }
+
+  /**
+   * What the ledger holds for the lanes of {@code col}: slices, identity slices and raw BODY bytes.
+   */
+  private long chargedColumnBytes(final int col) {
+    return chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+  }
+
+  /**
+   * The unpinned column holding the most charged bytes among those not in {@code kept}, or {@code -1}
+   * when none of them holds any; the caller holds the monitor.
+   */
+  private int largestReleasableColumn(final boolean[] kept) {
+    assert Thread.holdsLock(this);
+    int bestColumn = -1;
+    long bestBytes = 0L;
+    for (int col = 0; col < columnKinds.length; col++) {
+      if (kept[col] || residencyPins.get(col) != 0) {
+        continue;
+      }
+      final long bytes = chargedColumnBytes(col);
+      if (bytes > bestBytes) {
+        bestBytes = bytes;
+        bestColumn = col;
+      }
+    }
+    return bestColumn;
+  }
+
+  /** Count a residency release and, under {@code sirix.projDiag}, say what it returned. */
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
+  @SuppressWarnings("java:S106")
+  private void noteResidencyRelease(final long freed, final int releases, final long budget) {
+    RESIDENCY_RELEASED_BYTES.add(freed);
+    RESIDENCY_RELEASES.add(releases);
+    if (Boolean.getBoolean(PROJ_DIAG_PROPERTY)) {
+      System.err.println("[proj] residency release: " + releases + " column(s), " + (freed >> 20)
+          + " MB returned, retained " + (retainedFillBytes.get() >> 20) + " MB of a " + (budget >> 20) + " MB budget");
     }
   }
 
   /**
-   * Drop every published lane of {@code col}; the caller holds the monitor and does the accounting.
+   * Drop every published lane of {@code col} unless a query holds it; the caller holds the monitor
+   * and receives the released bytes from the ledger. The slot is unpublished BEFORE the pins are
+   * checked a second time: a reader pins and then re-reads the slot ({@link #column},
+   * {@link #columnFilled}), so a pin seen after the unpublish may belong to a reader that holds these
+   * slices, and the column is republished instead of freed. An off-heap lane is unmapped only when no
+   * reader can have it; the heap arrays would merely have stayed reachable, the slab would not.
+   *
+   * @return the bytes returned to the ledger, {@code 0} when the column stays resident
    */
-  private void releaseColumnLanes(final int col) {
+  private long releaseColumnLanes(final int col) {
     assert Thread.holdsLock(this);
-    if (chargedSliceBytes[col] != 0L) {
-      final ColumnSlice[][] next = columns.clone();
-      next[col] = null;
-      columns = next;
-      chargedSliceBytes[col] = 0L;
+    if (residencyPins.get(col) != 0) {
+      return 0L;
     }
-    if (chargedIdentityBytes[col] != 0L) {
-      final ColumnSlice[][] next = identityColumns.clone();
-      next[col] = null;
-      identityColumns = next;
-      chargedIdentityBytes[col] = 0L;
+    final ColumnSlice[] slices = columns[col];
+    final ColumnSlice[] identity = identityColumns[col];
+    final byte[][] bodies = columnBytes[col];
+    final long bytes = chargedSliceBytes[col] + chargedIdentityBytes[col] + chargedBodyBytes[col];
+    if (slices == null && identity == null && bodies == null) {
+      return 0L;
     }
-    if (chargedBodyBytes[col] != 0L) {
-      final byte[][][] next = columnBytes.clone();
-      next[col] = null;
-      columnBytes = next;
-      chargedBodyBytes[col] = 0L;
+    publishColumn(col, null, null, null);
+    if (residencyPins.get(col) != 0) {
+      publishColumn(col, slices, identity, bodies); // a reader pinned between the checks: it may hold these
+      return 0L;
     }
+    chargedSliceBytes[col] = 0L;
+    chargedIdentityBytes[col] = 0L;
+    chargedBodyBytes[col] = 0L;
+    retainedFillBytes.addAndGet(-bytes);
+    releaseLaneSlab(columnSlabs.take(col));
+    return bytes;
+  }
+
+  /** Publish (or unpublish, with nulls) the three retained representations of {@code col} at once. */
+  // Identity decides whether the published array can be reused without cloning it.
+  @SuppressWarnings("ReferenceEquality")
+  private void publishColumn(final int col, final ColumnSlice @Nullable [] slices,
+      final ColumnSlice @Nullable [] identity, final byte[] @Nullable [] bodies) {
+    assert Thread.holdsLock(this);
+    final ColumnSlice[][] nextColumns = columns[col] == slices
+        ? columns
+        : columns.clone();
+    final ColumnSlice[][] nextIdentity = identityColumns[col] == identity
+        ? identityColumns
+        : identityColumns.clone();
+    final byte[][][] nextBodies = columnBytes[col] == bodies
+        ? columnBytes
+        : columnBytes.clone();
+    nextColumns[col] = slices;
+    nextIdentity[col] = identity;
+    nextBodies[col] = bodies;
+    columns = nextColumns;
+    identityColumns = nextIdentity;
+    columnBytes = nextBodies;
   }
 
   /** Whether {@code col}'s raw BODY chain is already published — and therefore already charged. */
@@ -2837,7 +3272,7 @@ public final class ProjectionColumnStore {
     }
     long needed = additionalBytes;
     final boolean[] counted = new boolean[columnKinds.length];
-    final StringBuilder diag = Boolean.getBoolean("sirix.projDiag")
+    final StringBuilder diag = Boolean.getBoolean(PROJ_DIAG_PROPERTY)
         ? new StringBuilder()
         : null;
     boolean keysPriced = false;
@@ -2967,8 +3402,13 @@ public final class ProjectionColumnStore {
    * @return the identity slices, or {@code null} when NO leaf carries a hash segment (the caller
    *         falls back to the full fill wholesale rather than decoding dictionaries twice)
    */
+  // Sonar S1181: a worker's failure, an Error included, is handed to the calling thread, which
+  // rethrows it.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"java:S1181", "java:S3776"})
   private ColumnSlice @Nullable [] fillIdentityColumn(final int col, final ColumnSegmentFetcher fetcher) {
-    final boolean diag = Boolean.getBoolean("sirix.projDiag");
+    final boolean diag = Boolean.getBoolean(PROJ_DIAG_PROPERTY);
     final long startNanos = diag
         ? System.nanoTime()
         : 0L;
@@ -3020,21 +3460,18 @@ public final class ProjectionColumnStore {
     final ColumnSlice[] slices = new ColumnSlice[n];
     try {
       if (n >= PARALLEL_DECODE_MIN) {
-        final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
+        final AtomicReference<Throwable> failed = new AtomicReference<>();
         IntStream.range(0, n).parallel().forEach(i -> {
           if (failed.get() != null) {
             return;
           }
           try {
             slices[i] = decodeOneIdentitySlice(i, col, bodySegments, hashSegments, dictSegments, fallback);
-          } catch (final IllegalStateException corrupt) {
-            failed.compareAndSet(null, corrupt);
+          } catch (final RuntimeException | Error failure) {
+            failed.compareAndSet(null, failure);
           }
         });
-        final IllegalStateException corrupt = failed.get();
-        if (corrupt != null) {
-          throw corrupt;
-        }
+        rethrowParallelFailure(failed.get());
       } else {
         for (int i = 0; i < n; i++) {
           slices[i] = decodeOneIdentitySlice(i, col, bodySegments, hashSegments, dictSegments, fallback);
@@ -3233,15 +3670,39 @@ public final class ProjectionColumnStore {
    */
   public ColumnSlice[] columnMaskedView(final int col, final ColumnSegmentFetcher fetcher,
       final long @Nullable [] keepWords) {
+    return columnMaskedView(col, fetcher, keepWords, null);
+  }
+
+  /**
+   * {@link #columnMaskedView(int, ColumnSegmentFetcher, long[])} decoding a non-resident long-lane
+   * column's surviving leaves into {@code target} (laid out by {@link #maskedLaneLayout}) instead of
+   * a separately owned masked slab, and reporting through it how the view was served. A resident
+   * column is served pruned from its own slab, whatever the target.
+   */
+  public ColumnSlice[] columnMaskedView(final int col, final ColumnSegmentFetcher fetcher,
+      final long @Nullable [] keepWords, final @Nullable LaneTarget target) {
     if (col == KEYS_COLUMN) {
       return recordKeyPredicateView(fetcher, keepWords);
     }
     if (keepWords == null) {
-      return column(col, fetcher);
+      final ColumnSlice[] slices = column(col, fetcher);
+      if (target != null) {
+        target.resident = true;
+      }
+      return slices;
     }
     if (!columnFilled(col)) {
+      if (target != null && target.slab != null && columnLongLane(col)) {
+        final ColumnSlice[] view = columnMasked(col, fetcher, keepWords, target.slab, target.laneBases);
+        target.filled = true;
+        return view;
+      }
       return columnMasked(col, fetcher, keepWords);
     }
+    if (target != null) {
+      target.resident = true;
+    }
+    // A resident column is pruned by the mask: no per-query decode.
     final ColumnSlice[] resident = column(col, fetcher);
     final ColumnSlice[] view = new ColumnSlice[resident.length];
     for (int i = 0; i < resident.length; i++) {
@@ -3261,7 +3722,7 @@ public final class ProjectionColumnStore {
    * substitutes.
    */
   public ColumnSlice[] numericBucketKeyColumn(final int col, final ColumnSegmentFetcher fetcher, final long offset,
-      final long divisor, final long modulus) {
+      final long divisor, final long modulus, final MemorySegment target) {
     if (col < 0 || col >= columnKinds.length || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
         || divisor < 1 || modulus < 0) {
       throw new IllegalArgumentException("unsupported numeric bucket column or transform");
@@ -3270,11 +3731,18 @@ public final class ProjectionColumnStore {
       return column(col, fetcher);
     }
     final int count = rowGroupCount();
+    final long[] nativeBases = new long[count];
+    long nativeBytes = 0L;
+    for (int leaf = 0; leaf < count; leaf++) {
+      nativeBases[leaf] = nativeBytes;
+      nativeBytes += (long) rowCount(leaf) * Long.BYTES;
+    }
+    if (target.byteSize() < nativeBytes) {
+      throw new IllegalArgumentException("numeric bucket target is too small");
+    }
     final int ranges = count >= PARALLEL_DECODE_MIN
         ? Math.min(8, Math.min(Runtime.getRuntime().availableProcessors(), Math.max(1, count / 1024)))
         : 1;
-    // Unproven blocks retain their ordinary arrays. Budget representative buffers separately,
-    // including earlier power-of-two capacities still referenced after a worker grows one bucket.
     final long representativeBytes = Math.min(count, ranges * NumericBucketDecoder.MAX_BUCKETS) * 2L
         * ProjectionIndexRowGroupPage.MAX_ROWS * Long.BYTES + ranges * NumericBucketDecoder.MAX_BUCKETS * 32L;
     final long required = incrementalFillBytes(col, Math.addExact(projectedColumnFillBytes(col), representativeBytes));
@@ -3286,7 +3754,8 @@ public final class ProjectionColumnStore {
     if (corruptColumns[col] != 0) {
       throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
     }
-    final ColumnSlice[] proven = numericProofColumn(col, fetcher, offset, divisor, modulus, ranges, required);
+    final ColumnSlice[] proven =
+        numericProofColumn(col, fetcher, offset, divisor, modulus, ranges, required, target, nativeBases);
     if (proven != null) {
       return proven;
     }
@@ -3294,7 +3763,8 @@ public final class ProjectionColumnStore {
     final ColumnSlice[] slices = new ColumnSlice[count];
     try {
       forEachMemoRange(count, ranges, (from, to, range) -> {
-        final NumericBucketDecoder decoder = new NumericBucketDecoder(offset, divisor, modulus);
+        final NumericBucketDecoder decoder =
+            new NumericBucketDecoder(offset, divisor, modulus, target, nativeBases[from]);
         for (int leaf = from; leaf < to; leaf++) {
           slices[leaf] = decoder.decodeVerified(bodies, leaf);
         }
@@ -3310,7 +3780,8 @@ public final class ProjectionColumnStore {
 
   /** Bound optional proof scratch to 20 MiB, and read BODYs only for leaves lacking usable proof. */
   private ColumnSlice @Nullable [] numericProofColumn(final int col, final ColumnSegmentFetcher fetcher,
-      final long offset, final long divisor, final long modulus, final int ranges, final long ordinaryRequired) {
+      final long offset, final long divisor, final long modulus, final int ranges, final long ordinaryRequired,
+      final MemorySegment target, final long[] nativeBases) {
     final int count = directories.size();
     if (indexNumber < 0 || count > 1 << 20 || columnBytes[col] != null
         || "false".equals(System.getProperty("sirix.projection.numericProofs"))) {
@@ -3361,7 +3832,8 @@ public final class ProjectionColumnStore {
     final ColumnSlice[] slices = new ColumnSlice[count];
     final NumericBucketDecoder[] decoders = new NumericBucketDecoder[ranges];
     forEachMemoRange(count, ranges, (from, to, range) -> {
-      final NumericBucketDecoder decoder = new NumericBucketDecoder(offset, divisor, modulus);
+      final NumericBucketDecoder decoder =
+          new NumericBucketDecoder(offset, divisor, modulus, target, nativeBases[from]);
       decoders[range] = decoder;
       for (int leaf = from; leaf < to; leaf++) {
         final RowGroupDirectory directory = directories.get(leaf);
@@ -3405,17 +3877,85 @@ public final class ProjectionColumnStore {
     return slices;
   }
 
+  /** Whether {@code col} decodes to an off-heap long lane (the numeric, id and temporal kinds). */
+  public boolean columnLongLane(final int col) {
+    return ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col]);
+  }
+
+  /**
+   * The lane layout of a masked fill of {@code col}: for every surviving leaf its byte base in a slab
+   * that starts at {@code offset} (64-byte aligned, leaf order; {@code -1} for a pruned leaf),
+   * written to {@code laneBasesOut}; returns the byte offset after the last lane.
+   */
+  public long maskedLaneLayout(final int col, final long[] keepWords, final long[] laneBasesOut, final long offset) {
+    if (!columnLongLane(col)) {
+      throw new IllegalStateException("Column " + col + " has no long lane");
+    }
+    final int n = directories.size();
+    if (laneBasesOut.length != n) {
+      throw new IllegalArgumentException("lane bases for " + laneBasesOut.length + " leaves, store has " + n);
+    }
+    long cursor = offset;
+    for (int i = 0; i < n; i++) {
+      if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
+        laneBasesOut[i] = -1L;
+        continue;
+      }
+      laneBasesOut[i] = cursor;
+      cursor += (8L * RowGroupDescriptor.rowCount(directories.get(i).descriptor()) + 63L) & ~63L;
+    }
+    return cursor;
+  }
+
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   public ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords) {
-    if (!columnSliceable(col)) {
-      throw new IllegalStateException("Column " + col + " is not sliceable (kind="
-          + (col >= 0 && col < columnKinds.length
-              ? columnKinds[col]
-              : -1)
-          + ")");
+    if (!columnLongLane(col)) {
+      return columnMasked(col, fetcher, keepWords, null, null);
     }
-    if (corruptColumns[col] != 0) {
-      throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
+    final long[] bases = new long[directories.size()];
+    final long bytes = maskedLaneLayout(col, keepWords, bases, 0L);
+    if (bytes == 0L) {
+      return columnMasked(col, fetcher, keepWords, MemorySegment.NULL, bases);
     }
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    final MemorySegment allocation = allocator.allocateSlab(bytes);
+    if (allocation == null) {
+      SLAB_FILLS_DECLINED.increment();
+      throw new FillBudgetExceededException("Allocator refused masked numeric column slab");
+    }
+    final MaskedColumnSlab owner;
+    try {
+      owner = new MaskedColumnSlab(allocator, allocation);
+    } catch (final RuntimeException | Error failure) {
+      try {
+        allocator.releaseSlab(allocation);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
+    }
+    try {
+      return columnMasked(col, fetcher, keepWords, owner.segment(), bases);
+    } catch (final RuntimeException | Error failure) {
+      try {
+        owner.run();
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
+    }
+  }
+
+  /**
+   * {@link #columnMasked(int, ColumnSegmentFetcher, long[])} decoding the surviving leaves' lanes of
+   * a long-lane column into the caller's {@code providedSlab} at {@code providedBases} (from
+   * {@link #maskedLaneLayout}).
+   */
+  private ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher, final long[] keepWords,
+      final @Nullable MemorySegment providedSlab, final long @Nullable [] providedBases) {
+    requireSliceableUncorrupted(col);
     // Priced INCREMENTALLY, like every residency decision: a column whose body bytes are already
     // retained (an identity fill, a previous plain fill) adds nothing the ledger has not counted, and
     // re-charging its masked projection against a budget it already fills declined q19 at 100M/8 GB.
@@ -3433,33 +3973,20 @@ public final class ProjectionColumnStore {
         : null;
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
+    // The surviving leaves' lanes of a long-lane column decode straight into the caller's slab.
+    final boolean offHeapLane =
+        providedSlab != null && !string && ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col]);
+    if (offHeapLane && (providedBases == null || providedBases.length != n)) {
+      throw new IllegalArgumentException("a provided slab needs one lane base per leaf");
+    }
+    final MemorySegment laneSlab = offHeapLane
+        ? providedSlab
+        : null;
+    final long[] laneBases = offHeapLane
+        ? providedBases
+        : null;
     try {
-      if (n >= PARALLEL_DECODE_MIN) {
-        // Across the common pool, exactly as the unmasked fill decodes — and for the SAME reason,
-        // with more at stake: masked slices are predicate-specific and therefore never cached, so
-        // every execution of a pruning query pays this decode again. Serially it is the whole hot
-        // time of a repeated group-by (measured: ~1.33 s of a 1.35 s JSONBench Q4 at 100M rows,
-        // 97,656 leaves, on the CALLING thread while twenty scan workers waited for it).
-        final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
-        IntStream.range(0, n).parallel().forEach(i -> {
-          if (failed.get() != null) {
-            return;
-          }
-          try {
-            slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords);
-          } catch (final IllegalStateException corrupt) {
-            failed.compareAndSet(null, corrupt);
-          }
-        });
-        final IllegalStateException corrupt = failed.get();
-        if (corrupt != null) {
-          throw corrupt;
-        }
-      } else {
-        for (int i = 0; i < n; i++) {
-          slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords);
-        }
-      }
+      decodeMaskedSlices(slices, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
     } catch (final ProjectionStoreInconsistentException inconsistent) {
       // Leaves that disagree about a column's encoding are a WRITER fault, not undecodable bytes.
       // Decline the store, but do NOT record this column as corrupt: that memo is store-wide and
@@ -3473,15 +4000,76 @@ public final class ProjectionColumnStore {
     return slices;
   }
 
+  /** A masked fill reads only a sliceable column whose BODY segments are not known to be corrupt. */
+  private void requireSliceableUncorrupted(final int col) {
+    if (!columnSliceable(col)) {
+      throw new IllegalStateException("Column " + col + " is not sliceable (kind="
+          + (col >= 0 && col < columnKinds.length
+              ? columnKinds[col]
+              : -1)
+          + ")");
+    }
+    if (corruptColumns[col] != 0) {
+      throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
+    }
+  }
+
+  /**
+   * Every leaf of a masked fill into {@code slices}: across the common pool from the parallel minimum
+   * on.
+   */
+  // Sonar S107: the resolved inputs of this step, passed as they are. An object around them would
+  // only move the list into a constructor.
+  // Sonar S1181: a worker's failure, an Error included, is handed to the calling thread, which
+  // rethrows it.
+  @SuppressWarnings({"java:S107", "java:S1181"})
+  private void decodeMaskedSlices(final ColumnSlice[] slices, final int col, final boolean set, final boolean string,
+      final byte[][] segments, final byte[][] dictSegments, final long[] keepWords,
+      final @Nullable MemorySegment laneSlab, final long @Nullable [] laneBases) {
+    final int n = slices.length;
+    if (n >= PARALLEL_DECODE_MIN) {
+      // Across the common pool, exactly as the unmasked fill decodes — and for the SAME reason,
+      // with more at stake: masked slices are predicate-specific and therefore never cached, so
+      // every execution of a pruning query pays this decode again. Serially it is the whole hot
+      // time of a repeated group-by (measured: ~1.33 s of a 1.35 s JSONBench Q4 at 100M rows,
+      // 97,656 leaves, on the CALLING thread while twenty scan workers waited for it).
+      final AtomicReference<Throwable> failed = new AtomicReference<>();
+      IntStream.range(0, n).parallel().forEach(i -> {
+        if (failed.get() != null) {
+          return;
+        }
+        try {
+          slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
+        } catch (final RuntimeException | Error failure) {
+          failed.compareAndSet(null, failure);
+        }
+      });
+      rethrowParallelFailure(failed.get());
+    } else {
+      for (int i = 0; i < n; i++) {
+        slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords, laneSlab, laneBases);
+      }
+    }
+  }
+
   /** One leaf of a masked fill: the canonical pruned slice, or the same decode the full fill does. */
   private ColumnSlice decodeMaskedSlice(final int i, final int col, final boolean set, final boolean string,
-      final byte[][] segments, final byte[][] dictSegments, final long[] keepWords) {
+      final byte[][] segments, final byte[][] dictSegments, final long[] keepWords,
+      final @Nullable MemorySegment laneSlab, final long @Nullable [] laneBases) {
     if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
       return PRUNED_SLICE;
     }
-    return decodeOneSlice(i, col, set, string, segments, dictSegments);
+    return decodeOneSlice(i, col, set, string, segments, dictSegments, laneSlab, laneBases);
   }
 
+
+  // Sonar S1181: a worker's failure, an Error included, is handed to the calling thread, which
+  // rethrows it.
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"java:S1181", "java:S3776"})
   private ColumnSlice[] fillColumn(final int col, final ColumnSegmentFetcher fetcher) {
     final long tEnter = FILL_DIAG
         ? System.nanoTime()
@@ -3505,30 +4093,45 @@ public final class ProjectionColumnStore {
         : 0L;
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
+    // Numeric lanes decode straight into one allocator slab per column, leaf after leaf at 64-byte
+    // aligned bases; the slices only point into it. Presence words stay heap arrays (one bit per row).
+    final boolean offHeapLane = !string && ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col]);
+    final long[] laneBases = offHeapLane
+        ? new long[n]
+        : null;
+    MemorySegment slab = null;
+    if (offHeapLane) {
+      final long total = laneBases(laneBases);
+      if (total != 0L) {
+        slab = Allocators.getInstance().allocateSlab(total);
+        if (slab == null) {
+          SLAB_FILLS_DECLINED.increment();
+          throw new FillBudgetExceededException("Allocator refused numeric column slab");
+        }
+      }
+    }
+    final MemorySegment laneSlab = slab;
     try {
       if (n >= PARALLEL_DECODE_MIN) {
         // The per-leaf decode is a pure in-memory transform over already-verified bytes
         // (no shared state) — and for FSST string dictionaries it is the COLD whale: a
         // serial fill measured ~120 ms behind the 15-worker whole-leaf assembly on a 1M-row
         // URL grouping. Decode across the common pool; first failure wins the rethrow.
-        final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
+        final AtomicReference<Throwable> failed = new AtomicReference<>();
         IntStream.range(0, n).parallel().forEach(i -> {
           if (failed.get() != null) {
             return;
           }
           try {
-            slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments);
-          } catch (final IllegalStateException corrupt) {
-            failed.compareAndSet(null, corrupt);
+            slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments, laneSlab, laneBases);
+          } catch (final RuntimeException | Error failure) {
+            failed.compareAndSet(null, failure);
           }
         });
-        final IllegalStateException corrupt = failed.get();
-        if (corrupt != null) {
-          throw corrupt;
-        }
+        rethrowParallelFailure(failed.get());
       } else {
         for (int i = 0; i < n; i++) {
-          slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments);
+          slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments, laneSlab, laneBases);
         }
       }
     } catch (final ProjectionStoreInconsistentException inconsistent) {
@@ -3536,40 +4139,66 @@ public final class ProjectionColumnStore {
       // Decline the store, but do NOT record this column as corrupt: that memo is store-wide and
       // lives for the process, so one mis-dispatch would permanently disable every fast path on a
       // column whose bytes were never in question (task #50).
+      try {
+        releaseLaneSlab(slab);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(inconsistent, cleanup);
+      }
       throw inconsistent;
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
+      try {
+        releaseLaneSlab(slab);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(corrupt, cleanup);
+      }
       throw corrupt;
+    } catch (final RuntimeException | Error failure) {
+      try {
+        releaseLaneSlab(slab);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
     }
-    if (FILL_DIAG) {
-      final long tDone = System.nanoTime();
-      long decoded = 0;
-      long raw = 0;
-      for (final ColumnSlice s : slices) {
-        decoded += sliceRetainedBytes(s);
-      }
-      for (final byte[] b : segments) {
-        raw += b == null
-            ? 0
-            : b.length;
-      }
-      if (dictSegments != null) {
-        for (final byte[] b : dictSegments) {
+    try {
+      if (FILL_DIAG) {
+        final long tDone = System.nanoTime();
+        long decoded = 0;
+        long raw = 0;
+        for (final ColumnSlice s : slices) {
+          decoded += sliceRetainedBytes(s);
+        }
+        for (final byte[] b : segments) {
           raw += b == null
               ? 0
               : b.length;
         }
+        if (dictSegments != null) {
+          for (final byte[] b : dictSegments) {
+            raw += b == null
+                ? 0
+                : b.length;
+          }
+        }
+        final long total = FILL_DECODED_BYTES.addAndGet(decoded);
+        final long rawTotal = FILL_RAW_BYTES.addAndGet(raw);
+        System.err.printf(
+            "[fill] col=%d kind=%d leaves=%d decoded=%.1f MB raw=%.1f MB | body=%.1f ms dict=%.1f ms "
+                + "decode=%.1f ms (par=%s) | t=%.1f..%.1f | store totals: decoded=%.1f MB raw=%.1f MB%n",
+            col, columnKinds[col], n, decoded / 1048576.0, raw / 1048576.0, (tBody - tEnter) / 1e6,
+            (tDict - tBody) / 1e6, (tDone - tDict) / 1e6, n >= PARALLEL_DECODE_MIN, tEnter / 1e6, tDone / 1e6,
+            total / 1048576.0, rawTotal / 1048576.0);
       }
-      final long total = FILL_DECODED_BYTES.addAndGet(decoded);
-      final long rawTotal = FILL_RAW_BYTES.addAndGet(raw);
-      System.err.printf(
-          "[fill] col=%d kind=%d leaves=%d decoded=%.1f MB raw=%.1f MB | body=%.1f ms dict=%.1f ms "
-              + "decode=%.1f ms (par=%s) | t=%.1f..%.1f | store totals: decoded=%.1f MB raw=%.1f MB%n",
-          col, columnKinds[col], n, decoded / 1048576.0, raw / 1048576.0, (tBody - tEnter) / 1e6, (tDict - tBody) / 1e6,
-          (tDone - tDict) / 1e6, n >= PARALLEL_DECODE_MIN, tEnter / 1e6, tDone / 1e6, total / 1048576.0,
-          rawTotal / 1048576.0);
+      return slices;
+    } catch (final Throwable failure) {
+      try {
+        releaseLaneSlab(slab);
+      } catch (final Throwable cleanup) {
+        retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
     }
-    return slices;
   }
 
   /**
@@ -3595,9 +4224,11 @@ public final class ProjectionColumnStore {
     b += s.presenceWords() == null
         ? 0
         : s.presenceWords().length * 8L;
-    b += s.numericValues() == null
-        ? 0
-        : s.numericValues().length * 8L;
+    if (s.lane() != null) {
+      b += 8L * s.rowCount();
+    } else if (s.numericValues() != null) {
+      b += s.numericValues().length * 8L;
+    }
     b += s.boolWords() == null
         ? 0
         : s.boolWords().length * 8L;
@@ -3625,14 +4256,71 @@ public final class ProjectionColumnStore {
   /** Leaves below this count decode serially — fork/join overhead beats the win. */
   private static final int PARALLEL_DECODE_MIN = 128;
 
+  /**
+   * The byte base of every leaf's lane in a whole-column slab (64-byte aligned, leaf order), copied
+   * into {@code out}; returns the slab size. The layout depends only on the leaf row counts, so it is
+   * computed once per store and shared by every numeric column.
+   */
+  private long laneBases(final long[] out) {
+    LaneLayout layout = laneLayout;
+    if (layout == null) {
+      final int n = directories.size();
+      final long[] bases = new long[n];
+      long total = 0L;
+      for (int i = 0; i < n; i++) {
+        bases[i] = total;
+        total += (8L * RowGroupDescriptor.rowCount(directories.get(i).descriptor()) + 63L) & ~63L;
+      }
+      layout = new LaneLayout(bases, total);
+      laneLayout = layout; // idempotent: a racing computation publishes an equal layout
+    }
+    System.arraycopy(layout.leafBases(), 0, out, 0, out.length);
+    return layout.bytes();
+  }
+
   private ColumnSlice decodeOneSlice(final int i, final int col, final boolean set, final boolean string,
-      final byte[][] segments, final byte[] @Nullable [] dictSegments) {
+      final byte[][] segments, final byte[] @Nullable [] dictSegments, final @Nullable MemorySegment laneSlab,
+      final long @Nullable [] laneBases) {
     final byte[] descriptor = directories.get(i).descriptor();
+    if (columnLongLane(col)) {
+      return ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, segments[i], col, laneSlab == null
+          ? MemorySegment.NULL
+          : laneSlab, requireNonNull(laneBases)[i]);
+    }
     return set
         ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, segments[i], dictSegments[i], col)
         : string
             ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, segments[i], dictSegments[i], col)
             : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, segments[i], col);
+  }
+
+  /** The slab a column fill decoded into, from its slices ({@code null} for a heap fill). */
+  private static @Nullable MemorySegment laneSlabOf(final ColumnSlice[] slices) {
+    for (final ColumnSlice slice : slices) {
+      final NumericLane lane = slice == null
+          ? null
+          : slice.lane();
+      if (lane != null) {
+        return lane.segment();
+      }
+    }
+    return null;
+  }
+
+  private static void releaseLaneSlab(final @Nullable MemorySegment slab) {
+    if (slab != null) {
+      Allocators.getInstance().releaseSlab(slab);
+    }
+  }
+
+  /** Fills declined because the allocator refused their slab, process-wide. */
+  public static long slabFillsDeclinedCount() {
+    return SLAB_FILLS_DECLINED.sum();
+  }
+
+  /** Count a masked fill whose caller could not get a slab. */
+  public static void noteSlabFillDeclined() {
+    SLAB_FILLS_DECLINED.increment();
   }
 
   /**
@@ -4223,7 +4911,7 @@ public final class ProjectionColumnStore {
       // its own slots and retains the backend's ordinary batch/coalesced read behavior.
       return;
     }
-    final boolean diag = Boolean.getBoolean("sirix.projDiag");
+    final boolean diag = Boolean.getBoolean(PROJ_DIAG_PROPERTY);
     final long startNanos = diag
         ? System.nanoTime()
         : 0L;
@@ -4306,7 +4994,7 @@ public final class ProjectionColumnStore {
    * column at 100M rows, ~8 GB of per-leaf dictionaries) still serves the kernel exactly, at a
    * bounded working set. Single-threaded by contract: the kernels that take it run on one thread.
    */
-  public interface LeafColumnAccess {
+  public interface LeafColumnAccess extends AutoCloseable {
     /**
      * The slice of {@code col} on {@code leaf}, never masked — sort keys, best-first and zone reads.
      */
@@ -4323,6 +5011,13 @@ public final class ProjectionColumnStore {
 
     /** Whether leaves are decoded per window instead of held resident. */
     boolean windowed();
+
+    /**
+     * Ends the access. An access whose windows borrow their lanes from the allocator returns them here,
+     * and no slice it handed out may be read afterwards; every other access holds nothing to return.
+     */
+    @Override
+    default void close() {}
   }
 
   private static final boolean SEGMENT_DIAG = Boolean.getBoolean("sirix.projection.segmentDiag");
@@ -4404,8 +5099,7 @@ public final class ProjectionColumnStore {
       return new ResidentLeafAccess(fetcher, keepWords);
     }
     WINDOWED_LEAF_ACCESSES.increment();
-    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN,
-        false);
+    return new WindowedLeafAccess(fetcher, keepWords, LEAF_ACCESS_WINDOW, WindowedLeafAccess.DEFAULT_LEAVES_PER_COLUMN);
   }
 
   /** The resident access regardless of budget (tests and callers that already hold the fills). */
@@ -4425,26 +5119,8 @@ public final class ProjectionColumnStore {
    */
   public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
       final int windowLeaves, final int cacheLeaves) {
-    return windowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, false);
-  }
-
-  /**
-   * The windowed access with, when {@code recycleSlices}, the long-lane arrays of an EVICTED slice
-   * recycled into the next window's decode. That makes a slice's arrays valid only while the slice is
-   * in the access's cache, so it is for callers whose consumers finish with a window before the
-   * access moves {@code cacheLeaves} past it — the sliced group kernels' fill / kernel / release
-   * discipline ({@link WindowedSliceArrays}). A caller that keeps slices across windows (a top-k heap
-   * resolving old entries) must not ask for it.
-   */
-  public LeafColumnAccess windowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords,
-      final int windowLeaves, final int cacheLeaves, final boolean recycleSlices) {
     WINDOWED_LEAF_ACCESSES.increment();
-    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves, recycleSlices);
-  }
-
-  /** Test observability: presence/value arrays a windowed access reused instead of allocating. */
-  public static long recycledSliceArraysCount() {
-    return SliceArrayPool.reusedCount();
+    return new WindowedLeafAccess(fetcher, keepWords, windowLeaves, cacheLeaves);
   }
 
   /**
@@ -4594,22 +5270,12 @@ public final class ProjectionColumnStore {
    * pruning is the predicate view's business ({@link LeafColumnAccess#predicateSlice}).
    */
   private ColumnSlice[] decodeLeafSlices(final int col, final int @Nullable [] leaves, final int base, final int len,
-      final ColumnSegmentFetcher fetcher) {
-    return decodeLeafSlices(col, leaves, base, len, fetcher, null);
-  }
-
-  /**
-   * {@link #decodeLeafSlices(int, int[], int, int, ColumnSegmentFetcher)} with the long-lane arrays
-   * of the body-only kinds taken from {@code pool} — the windowed access's recycling seam; string
-   * kinds decode as before.
-   */
-  private ColumnSlice[] decodeLeafSlices(final int col, final int @Nullable [] leaves, final int base, final int len,
-      final ColumnSegmentFetcher fetcher, final @Nullable SliceArrayPool pool) {
+      final ColumnSegmentFetcher fetcher, final @Nullable MemorySegment lanes) {
     if (!columnSliceable(col)) {
       throw new IllegalStateException("Column " + col + " is not sliceable");
     }
-    final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
-    final boolean string = set || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+    final boolean string = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+        || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
     final byte[][] bodies =
         fetchLeafSegments(leaves, base, len, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
             ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher);
@@ -4618,6 +5284,7 @@ public final class ProjectionColumnStore {
             ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher)
         : null;
     final ColumnSlice[] decoded = new ColumnSlice[len];
+    long laneBase = 0L;
     for (int i = 0; i < len; i++) {
       final int leaf = leaves == null
           ? base + i
@@ -4627,13 +5294,105 @@ public final class ProjectionColumnStore {
       final byte[] dictSeg = dicts != null
           ? dicts[i]
           : null;
-      decoded[i] = set
-          ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col)
-          : string
-              ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col)
-              : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col, pool);
+      decoded[i] = decodeLeafSlice(col, descriptor, bodySeg, dictSeg, lanes, laneBase);
+      laneBase += (long) decoded[i].rowCount() * Long.BYTES;
     }
     return decoded;
+  }
+
+  /**
+   * One leaf's slice of {@code col}, decoded by the column's kind: a long lane into {@code lanes} at
+   * {@code laneBase}, a string set or a dictionary string from its BODY and DICT segments, anything
+   * else from its BODY segment alone.
+   */
+  private ColumnSlice decodeLeafSlice(final int col, final byte[] descriptor, final byte[] bodySeg,
+      final byte @Nullable [] dictSeg, final @Nullable MemorySegment lanes, final long laneBase) {
+    if (columnLongLane(col)) {
+      return ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, bodySeg, col,
+          requireNonNull(lanes, "numeric leaf decode needs allocator memory"), laneBase);
+    }
+    if (columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      return ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, bodySeg, dictSeg, col);
+    }
+    if (columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      return ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySeg, dictSeg, col);
+    }
+    return ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, bodySeg, col);
+  }
+
+  /** Bytes the long lanes of leaves {@code [base, base + len)} occupy back to back: eight per row. */
+  private long laneBytes(final int base, final int len) {
+    long rows = 0L;
+    for (int leaf = base; leaf < base + len; leaf++) {
+      rows += RowGroupDescriptor.rowCount(directories.get(leaf).descriptor());
+    }
+    return rows * Long.BYTES;
+  }
+
+  /**
+   * {@link #decodeLeafSlices} for a long-lane column over the leaves {@code [base, base + len)}, the
+   * values of every leaf written into {@code lanes} back to back in leaf order: each slice with rows
+   * carries a {@link NumericLane} over its part and no heap value array. Presence words stay on the
+   * heap, sixteen longs per full leaf, in the arrays {@code presence} has to spare.
+   *
+   * @param lanes at least {@link #laneBytes} bytes; the caller owns it and every lane handed out
+   */
+  // Sonar S3398: the lane form of the leaf decode above, kept beside it. Both read the directories
+  // and the fetch path of the store.
+  @SuppressWarnings("java:S3398")
+  private ColumnSlice[] decodeLeafLanesInto(final int col, final int base, final int len,
+      final ColumnSegmentFetcher fetcher, final MemorySegment lanes, final SparePresenceWords presence) {
+    final byte[][] bodies =
+        fetchLeafSegments(null, base, len, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
+            ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher);
+    final ColumnSlice[] decoded = new ColumnSlice[len];
+    long laneBase = 0L;
+    for (int i = 0; i < len; i++) {
+      final byte[] descriptor = directories.get(base + i).descriptor();
+      decoded[i] = ProjectionIndexColumnSegmentCodec.decodeBodySliceInto(descriptor, bodies[i], col, lanes, laneBase,
+          presence.take());
+      laneBase += (long) decoded[i].rowCount() * Long.BYTES;
+    }
+    return decoded;
+  }
+
+  /**
+   * The presence-word arrays a windowed access took back from slices that left its cache, for the
+   * leaves it decodes next. A slice's values live in a lane the access borrows per window; its
+   * presence words are sixteen longs on the heap, because every kernel reads them as an array. Kept
+   * here they are typed scratch of their one owner: single-threaded like the access, never more
+   * arrays than the access caches leaves of one column, and gone with the access. Without it every
+   * decoded leaf of every column would allocate one, 144 bytes each, pass after pass.
+   *
+   * <p>
+   * {@link ProjectionIndexColumnSegmentCodec#decodeBodySliceInto} uses an array only for a leaf of
+   * exactly its length and fills every word, so nothing of a previous slice reaches the next.
+   */
+  private static final class SparePresenceWords {
+    private final long[][] spare;
+    private int count;
+
+    SparePresenceWords(final int capacity) {
+      this.spare = new long[capacity][];
+    }
+
+    /** An array no reader holds any more, or {@code null} when none is spare. */
+    long @Nullable [] take() {
+      if (count == 0) {
+        return null;
+      }
+      final long[] words = spare[--count];
+      spare[count] = null;
+      return words;
+    }
+
+    /** Take back the presence words of a slice that left its access's cache. */
+    void give(final long[] words) {
+      if (words.length > 0 && count < spare.length) {
+        spare[count++] = words;
+      }
+    }
+
   }
 
   /** Decode the record keys of a batch of leaves (addressed as in {@link #fetchLeafSegments}). */
@@ -4667,6 +5426,7 @@ public final class ProjectionColumnStore {
      */
     private final ColumnSlice[][] decoded = new ColumnSlice[columnKinds.length][];
     private long @Nullable [][] decodedKeys;
+    private final ScratchLease[] laneLeases = new ScratchLease[columnKinds.length];
 
     LeafSetAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int[] leaves,
         final int from, final int to) {
@@ -4692,6 +5452,9 @@ public final class ProjectionColumnStore {
       return pos - from;
     }
 
+    // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+    // failure is rethrown.
+    @SuppressWarnings("java:S1181")
     @Override
     public ColumnSlice slice(final int col, final int leaf) {
       final ColumnSlice[] resident = retained[col];
@@ -4700,8 +5463,26 @@ public final class ProjectionColumnStore {
       }
       ColumnSlice[] set = decoded[col];
       if (set == null) {
-        set = decodeLeafSlices(col, leaves, from, to - from, fetcher);
-        decoded[col] = set;
+        ScratchLease lease = null;
+        if (columnLongLane(col)) {
+          long bytes = 0L;
+          for (int pos = from; pos < to; pos++) {
+            bytes += (long) rowCount(leaves[pos]) * Long.BYTES;
+          }
+          lease = ScratchLease.of(Math.max(1L, bytes), ScratchUse.PROJECTION);
+        }
+        try {
+          set = decodeLeafSlices(col, leaves, from, to - from, fetcher, lease == null
+              ? null
+              : lease.segment());
+          laneLeases[col] = lease;
+          decoded[col] = set;
+        } catch (final RuntimeException | Error failure) {
+          if (lease != null) {
+            lease.close();
+          }
+          throw failure;
+        }
       }
       return set[position(leaf)];
     }
@@ -4728,6 +5509,28 @@ public final class ProjectionColumnStore {
         decodedKeys = set;
       }
       return set[position(leaf)];
+    }
+
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
+    @Override
+    public void close() {
+      Throwable failure = null;
+      for (int col = 0; col < laneLeases.length; col++) {
+        final ScratchLease lease = laneLeases[col];
+        laneLeases[col] = null;
+        decoded[col] = null;
+        if (lease != null) {
+          try {
+            lease.close();
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
+        }
+      }
+      decodedKeys = null;
+      rethrowCleanupFailure(failure);
     }
   }
 
@@ -4805,11 +5608,31 @@ public final class ProjectionColumnStore {
     private final Int2ObjectLinkedOpenHashMap<ColumnSlice>[] leafCache =
         new Int2ObjectLinkedOpenHashMap[columnKinds.length];
     private final Int2ObjectLinkedOpenHashMap<long[]> keyCache = new Int2ObjectLinkedOpenHashMap<>();
-    /** Recycles an evicted slice's long-lane arrays into the next decode; {@code null} = allocate. */
-    private final @Nullable SliceArrayPool slicePool;
+
+    /**
+     * The borrowed lane buffers of the windows that still have a slice in the cache, by the segment the
+     * slices' lanes name.
+     */
+    private final Reference2ObjectOpenHashMap<MemorySegment, WindowLanes> windowLanes;
+
+    /**
+     * The presence words of evicted slices, for the leaves decoded next; used with borrowed lanes only.
+     */
+    private final SparePresenceWords sparePresence;
+
+    /** One window's lanes of one column: the borrow, and how many cached slices still read it. */
+    private static final class WindowLanes {
+      private final ScratchLease lease;
+      private int cachedSlices;
+
+      WindowLanes(final ScratchLease lease, final int cachedSlices) {
+        this.lease = lease;
+        this.cachedSlices = cachedSlices;
+      }
+    }
 
     WindowedLeafAccess(final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords, final int windowLeaves,
-        final int cacheLeaves, final boolean recycleSlices) {
+        final int cacheLeaves) {
       if (windowLeaves <= 0) {
         throw new IllegalArgumentException("windowLeaves must be positive: " + windowLeaves);
       }
@@ -4820,9 +5643,8 @@ public final class ProjectionColumnStore {
       this.keepWords = keepWords;
       this.windowLeaves = windowLeaves;
       this.cacheLeaves = cacheLeaves;
-      this.slicePool = recycleSlices
-          ? new SliceArrayPool()
-          : null;
+      this.windowLanes = new Reference2ObjectOpenHashMap<>();
+      this.sparePresence = new SparePresenceWords(cacheLeaves);
     }
 
     @Override
@@ -4866,23 +5688,95 @@ public final class ProjectionColumnStore {
       final ColumnSlice[] decoded = decodeWindow(col, window);
       final int from = window * windowLeaves;
       for (int i = 0; i < decoded.length; i++) {
-        cache.putAndMoveToLast(from + i, decoded[i]);
+        // A window decoded again while some of its leaves were still cached replaces their slices.
+        leftCache(cache.putAndMoveToLast(from + i, decoded[i]));
       }
       while (cache.size() > cacheLeaves) {
-        // Eviction is the arrays' death under the windowed contract: a recycling access hands them to
-        // its pool here and the NEXT window's decode takes them back instead of allocating.
-        final ColumnSlice evicted = cache.removeFirst();
-        if (slicePool != null) {
-          slicePool.recycle(evicted);
-        }
+        // Leaving the cache is a slice's death under the windowed contract.
+        leftCache(cache.removeFirst());
       }
       return decoded[leaf - from];
     }
 
+    /**
+     * A slice left the cache. When it was the last cached slice of its window's borrowed lanes, the
+     * buffer goes back to the allocator: nothing may read those lanes any more.
+     */
+    private void leftCache(final @Nullable ColumnSlice slice) {
+      if (slice == null) {
+        return;
+      }
+      final NumericLane lane = slice.lane();
+      if (lane == null) {
+        return;
+      }
+      // The slice was decoded by this access and nothing reads it any more: its presence words serve
+      // a leaf decoded next.
+      sparePresence.give(slice.presenceWords());
+      final WindowLanes lanes = windowLanes.get(lane.segment());
+      if (lanes != null && --lanes.cachedSlices == 0) {
+        windowLanes.remove(lane.segment());
+        lanes.lease.close();
+      }
+    }
+
+    // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+    // failure is rethrown.
+    @SuppressWarnings("java:S1181")
     private ColumnSlice[] decodeWindow(final int col, final int window) {
       final int from = window * windowLeaves;
-      final int to = Math.min(from + windowLeaves, leafCount);
-      return decodeLeafSlices(col, null, from, to - from, fetcher, slicePool);
+      final int len = Math.min(from + windowLeaves, leafCount) - from;
+      if (!ProjectionIndexColumnSegmentCodec.bodyLongLane(columnKinds[col])) {
+        return decodeLeafSlices(col, null, from, len, fetcher, null);
+      }
+      final long bytes = laneBytes(from, len);
+      if (bytes == 0L) {
+        return decodeLeafSlices(col, null, from, len, fetcher, MemorySegment.NULL);
+      }
+      // One buffer for the window's lanes of this column, borrowed until its last slice is evicted.
+      final ScratchLease lease = ScratchLease.of(bytes, ScratchUse.PROJECTION);
+      try {
+        final ColumnSlice[] decoded = decodeLeafLanesInto(col, from, len, fetcher, lease.segment(), sparePresence);
+        int withLane = 0;
+        for (final ColumnSlice slice : decoded) {
+          if (slice.lane() != null) {
+            withLane++;
+          }
+        }
+        if (withLane == 0) {
+          lease.close();
+        } else {
+          windowLanes.put(lease.segment(), new WindowLanes(lease, withLane));
+        }
+        return decoded;
+      } catch (final Throwable failure) {
+        // A segment that fails to fetch, verify or decode: no slice of this window was handed out.
+        lease.close();
+        throw failure;
+      }
+    }
+
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
+    @Override
+    public void close() {
+      for (final Int2ObjectLinkedOpenHashMap<ColumnSlice> cache : leafCache) {
+        if (cache != null) {
+          cache.clear();
+        }
+      }
+      keyCache.clear();
+      Throwable failure = null;
+      for (final WindowLanes lanes : windowLanes.values()) {
+        try {
+          lanes.lease.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
+      }
+      windowLanes.clear();
+      rethrowCleanupFailure(failure);
     }
 
     @Override

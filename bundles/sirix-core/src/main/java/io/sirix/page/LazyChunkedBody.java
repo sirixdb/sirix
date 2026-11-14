@@ -3,12 +3,13 @@
  */
 package io.sirix.page;
 
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.page.PageKind.SlottedPageDecodeState;
 import io.sirix.page.pax.RegionTable;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
@@ -71,18 +72,21 @@ final class LazyChunkedBody {
   };
 
   /**
-   * Per-chunk expansion scratch: native, because the decoders write into a {@link MemorySegment}, and
-   * over-allocated by the decoder's output tail slack for the reason spelled out in
-   * {@code RegionTable#allocate}. Per-thread rather than per-page — a chunk is decoded and consumed
-   * entirely inside one synchronized block, so no other thread can observe this buffer.
+   * Per-thread handle for the per-chunk expansion scratch: native, because the decoders write into a
+   * {@link MemorySegment}, and over-sized by the decoder's output tail slack for the reason spelled
+   * out in {@code RegionTable#allocate}. The scratch is borrowed from the allocator for one expansion
+   * and returned with it — a chunk is decoded and consumed entirely inside one synchronized block —
+   * so the handle holds no memory between expansions and exists only to make a borrow allocate
+   * nothing.
    *
    * <p>
-   * Deliberately not the deserializer's staging scratch: a page can be expanded from a reader thread
+   * A borrow of its own, not the deserializer's staging: a page can be expanded from a reader thread
    * that is in the middle of deserializing another page further down its own stack, and sharing one
    * buffer between the two would let the inner expansion overwrite the outer page's body.
    */
-  private static final ThreadLocal<MemorySegment> EXPAND_SCRATCH =
-      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(64 * 1024 + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK));
+  // Only the reusable handle lives with the thread; each expansion returns its borrowed buffer.
+  @SuppressWarnings("java:S5164")
+  private static final ThreadLocal<ScratchLease> EXPAND_LEASE = ThreadLocal.withInitial(ScratchLease::new);
 
   /**
    * Per-chunk materialized bits, as a {@code long[2]} covering the 128 chunks a table can hold.
@@ -281,6 +285,8 @@ final class LazyChunkedBody {
    * segment being written here must not be released underneath the write, and the guard-count
    * protocol that keeps a cached page alive is left exactly as it was.
    */
+  // Expansion must use the same page monitor as close() to prevent release during the write.
+  @SuppressWarnings("java:S2445")
   private void materialize(final KeyValueLeafPage page, final int chunk) {
     synchronized (page) {
       final byte[] wire = pending[chunk];
@@ -294,26 +300,34 @@ final class LazyChunkedBody {
             "page " + recordPageKey + " was closed before chunk " + chunk + " could be expanded");
       }
       final int chunkRawLen = rawLen[chunk];
-      final MemorySegment scratch = expandScratch(chunkRawLen);
-      decodeFrame(wire, pendingLen[chunk], codec[chunk], chunkRawLen, hash[chunk], scratch, 0L, recordPageKey, chunk);
+      // Borrowed for this one expansion and returned before the monitor is left: the chunk's bytes
+      // are copied or expanded into the page's own frame, nothing keeps a view of the scratch.
+      final ScratchLease lease =
+          EXPAND_LEASE.get().acquire((long) chunkRawLen + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK, ScratchUse.CODEC);
+      try {
+        final MemorySegment scratch = lease.segment();
+        decodeFrame(wire, pendingLen[chunk], codec[chunk], chunkRawLen, hash[chunk], scratch, 0L, recordPageKey, chunk);
 
-      if (decodeState == null) {
-        // Degenerate body: the chunk's bytes are the records, verbatim, and the directory already
-        // says where they go.
-        MemorySegment.copy(scratch, 0L, slottedPage, PageLayout.HEAP_START + heapFrom[chunk], chunkRawLen);
-      } else {
-        final int from = firstEntry[chunk];
-        final int to = from + entryCount[chunk];
-        long srcOff = 0;
-        for (int entry = from; entry < to; entry++) {
-          srcOff += decodeState.expandEntryInto(slottedPage, entry, slotOfEntry[entry] & 0xFFFF, scratch, srcOff,
-              pageKeyBase);
+        if (decodeState == null) {
+          // Degenerate body: the chunk's bytes are the records, verbatim, and the directory already
+          // says where they go.
+          MemorySegment.copy(scratch, 0L, slottedPage, PageLayout.HEAP_START + heapFrom[chunk], chunkRawLen);
+        } else {
+          final int from = firstEntry[chunk];
+          final int to = from + entryCount[chunk];
+          long srcOff = 0;
+          for (int entry = from; entry < to; entry++) {
+            srcOff += decodeState.expandEntryInto(slottedPage, entry, slotOfEntry[entry] & 0xFFFF, scratch, srcOff,
+                pageKeyBase);
+          }
+          if (srcOff != chunkRawLen) {
+            throw new SirixIOException("page " + recordPageKey + " chunk " + chunk + " expanded " + srcOff + " of its "
+                + chunkRawLen + " heap bytes");
+          }
+          injector.inject(slottedPage, page.getRegionTable(), from, to, firstSlot[chunk], lastSlot[chunk]);
         }
-        if (srcOff != chunkRawLen) {
-          throw new SirixIOException("page " + recordPageKey + " chunk " + chunk + " expanded " + srcOff + " of its "
-              + chunkRawLen + " heap bytes");
-        }
-        injector.inject(slottedPage, page.getRegionTable(), from, to, firstSlot[chunk], lastSlot[chunk]);
+      } finally {
+        lease.close();
       }
 
       pending[chunk] = null;
@@ -333,16 +347,6 @@ final class LazyChunkedBody {
   void release() {
     Arrays.fill(pending, null);
     pendingBytes = 0;
-  }
-
-  private static MemorySegment expandScratch(final int rawLen) {
-    MemorySegment scratch = EXPAND_SCRATCH.get();
-    final long needed = (long) rawLen + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK;
-    if (scratch.byteSize() < needed) {
-      scratch = Arena.ofAuto().allocate(Math.max(needed, scratch.byteSize() * 2L));
-      EXPAND_SCRATCH.set(scratch);
-    }
-    return scratch;
   }
 
   /**

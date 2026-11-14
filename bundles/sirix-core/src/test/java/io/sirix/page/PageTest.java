@@ -27,7 +27,7 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.util.stream.Stream;
 
-import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
+import static io.sirix.cache.MemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -37,12 +37,14 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 /**
  * Test class for all classes implementing the {@link Page} interface.
  *
- * <p>Converted from TestNG to JUnit 5 (2026-06-11): TestNG classes never ran under the gradle
+ * <p>
+ * Converted from TestNG to JUnit 5 (2026-06-11): TestNG classes never ran under the gradle
  * {@code useJUnitPlatform()} config. The old TestNG data provider also supplied
  * {@code (Class, Page[])} to a single-parameter test method, so the test failed at parameter
  * injection even when run directly; the provider now supplies only the {@code Page[]}. The
  * assertion previously compared the same buffer to itself — it now re-serializes the deserialized
- * page into a fresh buffer, restoring the intended round-trip check.</p>
+ * page into a fresh buffer, restoring the intended round-trip check.
+ * </p>
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz
@@ -113,8 +115,8 @@ public class PageTest {
 
     // NodePage setup.
     final KeyValueLeafPage nodePage = new KeyValueLeafPage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
-        IndexType.DOCUMENT, storageEngineReader.getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(),
-        arena.allocate(SIXTYFOUR_KB), null);
+        IndexType.DOCUMENT, storageEngineReader.getResourceSession().getResourceConfig(),
+        storageEngineReader.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();
       nodePage.setRecord(record);
@@ -138,8 +140,10 @@ public class PageTest {
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
     final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
-    when(storageEngineWriter.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashEntryNode);
-    when(storageEngineWriter.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashCountEntryNode);
+    when(storageEngineWriter.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
+        hashEntryNode);
+    when(storageEngineWriter.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(
+        hashCountEntryNode);
     when(storageEngineWriter.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
     return storageEngineWriter;
   }

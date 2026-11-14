@@ -162,22 +162,20 @@ final class GroupTableSpillPassPlanTest {
   }
 
   @Test
-  @DisplayName("a flushed worker table is released into the spill's pool and the next fresh table takes from it")
+  @DisplayName("a flushed worker table is released into the scan's workspace and the next fresh table takes from it")
   void flushRecyclesTheWorkerTable() {
-    final int previous = GroupTableSpill.setChunkPoolForTesting(1);
     // The TABLE spill's recycling: a flush merges the worker table into the shared ones and hands
     // its chunks straight back. The stripe spill's chunk lifecycle is its own witness below.
     final int stripes = GroupTableSpill.setStripeSpillForTesting(0);
-    try {
-      // 2^12 entries hinted: every chunk has the pool's full length from the first insertion.
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      // 2^12 entries hinted: every stripe chunk has the full length from the first insertion.
       final GroupTableSpill spill =
-          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0));
-      final LongChunkPool pool = spill.chunkPool();
-      assertTrue(pool != null, "the pool is on");
-      assertEquals(NumericGroupAggTable.fullChunkLanes(new NumericGroupAggTable(1, 16, true).stride()),
-          pool.chunkLanes(), "the pool recycles the factory layout's full chunk");
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0)).inWorkspace(workspace);
+      assertSame(workspace, spill.workspace(), "the spill takes its memory from the scan's workspace");
       final NumericGroupAggTable local = spill.freshLocal();
-      assertSame(pool, local.chunkPool(), "a fresh worker table draws from the spill's pool");
+      assertSame(workspace, local.workspace(), "a fresh worker table draws from the spill's workspace");
+      assertEquals(NumericGroupAggTable.fullChunkLanes(new NumericGroupAggTable(1, 16, true).stride()),
+          local.chunkLanes(), "the worker table is at the factory layout's full chunk");
       for (long key = 1; key <= 3_000; key++) {
         local.acquire(key, key);
       }
@@ -188,104 +186,97 @@ final class GroupTableSpillPassPlanTest {
         }
       }
       assertTrue(allocated > 1, "3000 groups span several chunks");
-      final long givesBefore = pool.gives();
-      final long droppedBefore = pool.dropped();
+      final long givenBefore = workspace.chunksGiven();
       spill.flush(local);
       assertTrue(local.released(), "flush releases the worker table it merged");
-      // Counted as gives, not as a pooled delta: the merge's partition tables TAKE from the same
-      // pool, and a shared pool that earlier scans filled serves those takes as hits.
-      assertTrue(pool.gives() - givesBefore + pool.dropped() - droppedBefore >= allocated,
-          "the flushed table's chunks were handed to the pool: " + pool);
+      // Counted as chunks given, not as a spare delta: the merge's partition tables TAKE from the
+      // same workspace.
+      assertTrue(workspace.chunksGiven() - givenBefore >= allocated,
+          "the flushed table's chunks were handed to the workspace: " + (workspace.chunksGiven() - givenBefore));
       for (int p = 0; p < 32; p++) {
         final NumericGroupAggTable shared = spill.takeOrCreate(p, () -> new NumericGroupAggTable(1, 16, true, 0L, 0));
-        assertSame(pool, shared.chunkPool(), "shared partition table " + p + " draws from the pool too");
+        assertSame(workspace, shared.workspace(), "shared partition table " + p + " draws from the workspace too");
       }
-      final long hitsBefore = pool.hits();
+      final long reusedBefore = workspace.chunksReused();
+      final long carvedBefore = workspace.chunksCarved();
       final NumericGroupAggTable next = spill.freshLocal();
       next.acquire(77L, 0L);
-      assertTrue(pool.hits() > hitsBefore, "the next worker table's first chunk is a recycled one");
+      assertTrue(workspace.chunksReused() > reusedBefore, "the next worker table's first chunk is a recycled one");
+      assertEquals(carvedBefore, workspace.chunksCarved(), "and nothing was carved for it");
     } finally {
       GroupTableSpill.setStripeSpillForTesting(stripes);
-      GroupTableSpill.setChunkPoolForTesting(previous);
     }
   }
 
   @Test
-  @DisplayName("releasing an aborted pass drains a PER-SCAN pool: a forced collection must not measure recycled chunks")
-  void releaseTablesDrainsThePool() {
-    final int previous = GroupTableSpill.setChunkPoolForTesting(1);
-    final int retainBefore = LongChunkPool.setRetainForTesting(0);
-    try {
-      final GroupTableSpill spill =
-          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0), 0, 32, 50L);
-      final NumericGroupAggTable local = spill.freshLocal();
-      for (long key = 1; key <= 3_000; key++) {
-        local.acquire(key, key);
-      }
-      spill.flush(local);
-      assertTrue(spill.aborted());
-      final LongChunkPool pool = spill.chunkPool();
-      assertTrue(!pool.isShared(), "retention off: the spill owns its pool");
-      assertTrue(pool.pooled() > 0, "the flushed table's chunks sit in the pool before the release: " + pool);
-      spill.releaseTables();
-      assertEquals(0, pool.pooled(), "nothing pooled survives the release");
-    } finally {
-      LongChunkPool.setRetainForTesting(retainBefore);
-      GroupTableSpill.setChunkPoolForTesting(previous);
-    }
-  }
-
-  @Test
-  @DisplayName("the dense layout's index recycler follows the payload pool: retained across tables, drained by the release")
-  void releaseTablesDrainsTheProbePool() {
-    final int previous = GroupTableSpill.setChunkPoolForTesting(1);
-    final int retainBefore = LongChunkPool.setRetainForTesting(0);
-    try {
+  @DisplayName("the dense layout's index chunks follow the stripes: reused by the next table, handed back by the release, returned by the scan's close")
+  void releasedIndexChunksAreTheNextTablesIndex() {
+    final GroupWorkspace workspace = new GroupWorkspace();
+    try (workspace) {
       // Eight lanes per stripe is above the dense crossing, and a hint whose capacity spans whole
-      // index chunks is what makes those chunks recyclable at all.
+      // index chunks gives the index the stripes' chunk length: one free list serves both.
       final GroupTableSpill spill =
-          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 14, true, 0L, 0), 0, 32, 50L);
-      final LongChunkPool probes = spill.probeChunkPool();
-      assertTrue(probes != null, "a stripe above the dense crossing gets an index recycler");
-      assertFalse(probes.isShared(), "the index recycler is per-scan, so nothing adds it back to the headroom");
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 14, true, 0L, 0), 0, 32, 50L).inWorkspace(
+              workspace);
+      final int lanes = NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES;
 
       final NumericGroupAggTable local = spill.freshLocal();
+      assertEquals(lanes, local.chunkLanes());
       for (long key = 1; key <= 5_000; key++) {
         local.acquire(key, key);
       }
+      int stripeChunks = 0;
+      for (int c = 0; c < local.storageChunkCount(); c++) {
+        if (local.storageChunkOrNull(c) != null) {
+          stripeChunks++;
+        }
+      }
+      final long givenBefore = workspace.chunksGiven();
       spill.flush(local);
       assertTrue(local.released(), "the flush releases the worker table it spilled");
-      assertTrue(probes.pooled() > 0, "the released table's index chunks sit in the recycler: " + probes);
+      assertTrue(workspace.chunksGiven() - givenBefore > stripeChunks,
+          "the released table handed back its index chunks with its stripes: " + (workspace.chunksGiven() - givenBefore)
+              + " chunks for " + stripeChunks + " of stripes");
+      assertTrue(workspace.spareChunks(lanes) > stripeChunks, "and they wait in the workspace for the next table");
 
-      final long hitsBefore = probes.hits();
+      final long reusedBefore = workspace.chunksReused();
+      final long carvedBefore = workspace.chunksCarved();
       final NumericGroupAggTable next = spill.freshLocal();
       for (long key = 5_001; key <= 10_000; key++) {
         next.acquire(key, key);
       }
-      assertTrue(probes.hits() > hitsBefore, "the next worker table's index is a recycled chunk: " + probes);
+      assertTrue(workspace.chunksReused() > reusedBefore, "the next worker table is built from chunks handed back");
+      assertEquals(carvedBefore, workspace.chunksCarved(),
+          "stripes and index alike: a table of the released one's size carves nothing");
       spill.flush(next);
 
       assertTrue(spill.aborted());
-      assertTrue(probes.pooled() > 0, "index chunks are still held when the aborted pass is released: " + probes);
+      final long borrowed = workspace.borrowedBytes();
+      final int regions = workspace.regions();
+      final long givenBeforeRelease = workspace.chunksGiven();
       spill.releaseTables();
-      assertEquals(0, probes.pooled(), "no index chunk survives into the restart's budget measurement");
-    } finally {
-      LongChunkPool.setRetainForTesting(retainBefore);
-      GroupTableSpill.setChunkPoolForTesting(previous);
+      // The aborted pass's memory is the restart's tables: handed back to the workspace, not to the
+      // allocator, and counted as the scan's own headroom when the restart is planned.
+      assertTrue(workspace.chunksGiven() > givenBeforeRelease, "the release handed back what the spill still held");
+      assertEquals(workspace.chunksCarved() + workspace.chunksReused(), workspace.chunksGiven(),
+          "and with it every chunk the pass took is back in the workspace");
+      assertTrue(workspace.spareChunks(lanes) > 0, "the released pass's chunks wait for the restart");
+      assertEquals(borrowed, workspace.borrowedBytes());
+      assertEquals(regions, workspace.regions(), "a release returns nothing to the allocator");
     }
+    assertEquals(0, workspace.regions(), "the scan's close returns every region");
+    assertTrue(workspace.isClosed());
   }
 
   @Test
-  @DisplayName("the shared pool outlives the spill: an aborted pass's tables and a finished pass's chunks are the next spill's tables")
-  void sharedPoolOutlivesTheSpill() {
-    final int previous = GroupTableSpill.setChunkPoolForTesting(1);
-    final int retainBefore = LongChunkPool.setRetainForTesting(1);
-    try {
+  @DisplayName("the scan's workspace outlives the pass: an aborted pass's tables are the next spill's tables")
+  void workspaceOutlivesTheSpill() {
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
       final GroupTableSpill first =
-          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0), 0, 32, 50L);
-      final LongChunkPool pool = first.chunkPool();
-      assertTrue(pool.isShared(), "retention on: the spill draws from the JVM-lifetime pool");
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0), 0, 32, 50L).inWorkspace(
+              workspace);
       final NumericGroupAggTable local = first.freshLocal();
+      final int lanes = local.chunkLanes();
       for (long key = 1; key <= 3_000; key++) {
         local.acquire(key, key);
       }
@@ -293,79 +284,52 @@ final class GroupTableSpillPassPlanTest {
       assertTrue(first.aborted());
       final NumericGroupAggTable shared = first.takeOrCreate(0, () -> new NumericGroupAggTable(1, 16, true, 0L, 0));
       first.flush(shared); // a shared table exists again for releaseTables to hand back
-      final int pooledBeforeRelease = pool.pooled();
+      final int spareBeforeRelease = workspace.spareChunks(lanes);
       first.releaseTables();
-      assertTrue(pool.pooled() >= pooledBeforeRelease, "the release keeps (and grows) the shared pool: " + pool);
-      assertTrue(pool.pooled() > 0, "the aborted pass's chunks are retained: " + pool);
-      assertTrue(LongChunkPool.retainedBytes() >= (long) pool.pooled() * pool.chunkLanes() * Long.BYTES,
-          "the retained bytes account for this pool");
+      assertTrue(workspace.spareChunks(lanes) >= spareBeforeRelease,
+          "the release keeps (and grows) what the workspace holds: " + workspace.spareChunks(lanes));
+      assertTrue(workspace.spareChunks(lanes) > 0, "the aborted pass's chunks are kept for the restart");
+      assertTrue(workspace.borrowedBytes() >= (long) workspace.spareChunks(lanes) * lanes * Long.BYTES,
+          "the workspace's borrowed bytes account for them");
 
       final GroupTableSpill second =
-          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0), 0, 32, 50L);
-      assertSame(pool, second.chunkPool(), "the next spill of the same layout shares the pool");
-      final long hitsBefore = pool.hits();
-      final long missesBefore = pool.misses();
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0), 0, 32, 50L).inWorkspace(
+              workspace);
+      assertSame(workspace, second.workspace(), "the next pass of the scan shares the workspace");
+      final long reusedBefore = workspace.chunksReused();
+      final long carvedBefore = workspace.chunksCarved();
+      final long borrowedBefore = workspace.borrowedBytes();
       final NumericGroupAggTable next = second.freshLocal();
       next.acquire(77L, 0L);
-      assertTrue(pool.hits() > hitsBefore, "the next spill's first chunk is a retained one: " + pool);
-      assertEquals(missesBefore, pool.misses(), "nothing was allocated for it");
-    } finally {
-      LongChunkPool.setRetainForTesting(retainBefore);
-      GroupTableSpill.setChunkPoolForTesting(previous);
+      assertTrue(workspace.chunksReused() > reusedBefore, "the next spill's first chunk is one the aborted pass held");
+      assertEquals(carvedBefore, workspace.chunksCarved(), "nothing was carved for it");
+      assertEquals(borrowedBefore, workspace.borrowedBytes(), "and nothing was borrowed");
     }
   }
 
   @Test
-  @DisplayName("the shared pool's capacity is the largest scan's demand under the retain ceiling")
-  void sharedPoolCapacityFollowsDemandUnderTheCeiling() {
-    final int lanes = 96; // a layout no other test shares, so the capacity starts at this test's demand
-    final LongChunkPool small = LongChunkPool.shared(lanes, 3);
-    assertTrue(small.isShared());
-    assertTrue(small.maxChunks() >= 3, "capacity raised to the first demand: " + small);
-    final LongChunkPool larger = LongChunkPool.shared(lanes, 7);
-    assertSame(small, larger, "one pool per chunk length");
-    assertTrue(larger.maxChunks() >= 7, "capacity follows the larger demand: " + larger);
-    final LongChunkPool smallerAgain = LongChunkPool.shared(lanes, 2);
-    assertTrue(smallerAgain.maxChunks() >= 7, "a smaller demand never lowers it: " + smallerAgain);
-    final LongChunkPool huge = LongChunkPool.shared(lanes, Integer.MAX_VALUE);
-    assertEquals(LongChunkPool.retainCeilingChunks(lanes), huge.maxChunks(),
-        "the retain ceiling bounds the capacity whatever the demand");
-  }
-
-  @Test
-  @DisplayName("the kill switch leaves every table without a pool")
-  void killSwitchDisablesThePool() {
-    final int previous = GroupTableSpill.setChunkPoolForTesting(0);
-    try {
+  @DisplayName("a spill takes its memory from one workspace: the scan's when attached, a private one otherwise")
+  void aSpillHasOneWorkspace() {
+    try (GroupWorkspace workspace = new GroupWorkspace(); GroupWorkspace other = new GroupWorkspace()) {
       final GroupTableSpill spill =
-          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0));
-      assertTrue(spill.chunkPool() == null);
-      final NumericGroupAggTable local = spill.freshLocal();
-      assertTrue(local.chunkPool() == null);
-      local.acquire(1L, 1L);
-      final long givesBefore = LongChunkPool.totalGives();
-      spill.flush(local);
-      assertTrue(local.released(), "flush still releases the table (to the collector)");
-      assertEquals(givesBefore, LongChunkPool.totalGives(), "no pool received a chunk");
-      assertTrue(spill.takeOrCreate(0, () -> new NumericGroupAggTable(1, 16, true, 0L, 0)).chunkPool() == null);
-    } finally {
-      GroupTableSpill.setChunkPoolForTesting(previous);
+          new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0)).inWorkspace(workspace);
+      assertSame(spill, spill.inWorkspace(workspace), "attaching the same workspace again is a no-op");
+      assertThrows(IllegalStateException.class, () -> spill.inWorkspace(other));
+      assertThrows(NullPointerException.class, () -> spill.inWorkspace(null));
+      spill.close();
+      assertFalse(workspace.isClosed(), "a spill does not close the workspace of its scan");
     }
-  }
-
-  @Test
-  @DisplayName("the pool cap is twice a pass's resident state and never below 64 or above 2^22 chunks")
-  void poolCapacityTracksTheBudget() {
-    final int stride = 18;
-    final int lanes = NumericGroupAggTable.fullChunkLanes(stride);
-    final int small = GroupTableSpill.poolCapacityChunks(1L, 1, stride, lanes);
-    assertEquals(64, small, "floor");
-    final int q32 = GroupTableSpill.poolCapacityChunks(12_582_912L, 1 << 18, stride, lanes);
-    // (12.58M + 64 × 262144) groups × 18 lanes × 4/3 × 2 / lanes per chunk
-    final double expected = (12_582_912.0 + 64.0 * (1 << 18)) * stride * (4.0 / 3.0) * 2.0 / lanes;
-    assertEquals((int) Math.ceil(expected), q32);
-    assertTrue(q32 > small);
-    assertEquals(1 << 22, GroupTableSpill.poolCapacityChunks(Long.MAX_VALUE, 1 << 18, stride, lanes), "ceiling");
+    final GroupTableSpill alone = new GroupTableSpill(32, 59, () -> new NumericGroupAggTable(1, 1 << 12, true, 0L, 0));
+    final NumericGroupAggTable local = alone.freshLocal();
+    final GroupWorkspace own = alone.workspace();
+    assertSame(own, local.workspace(), "its tables draw from the workspace it opened");
+    local.acquire(1L, 1L);
+    assertTrue(own.regions() > 0);
+    alone.flush(local);
+    assertTrue(local.released());
+    alone.close();
+    assertTrue(own.isClosed(), "closing the spill returns its private workspace");
+    assertEquals(0, own.regions());
   }
 
   @Test
@@ -595,7 +559,7 @@ final class GroupTableSpillPassPlanTest {
     assertEquals(0L, spill.groupsSpilled(), "nothing landed");
     assertEquals(40L, spill.groupsAbandoned(), "the forty groups the dying flush held were seen by the pass");
     assertEquals(160L, spill.estimatedTotalGroups(40), "40 over a quarter of the leaves");
-    assertFalse(local.released(), "a failed flush leaves the table to its caller");
+    assertTrue(local.released(), "a failed flush returns its table before the pass restarts");
   }
 
   @Test

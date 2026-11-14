@@ -121,6 +121,12 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
+- **The pool allocators are removed.** `FrameSlotAllocator` is the only off-heap allocator on every
+  platform, so page frames, derived caches, scratch buffers and group-by working memory are charged to
+  one budget. `-Dsirix.allocator` may be left unset or set to `frame`; `pool`, `windowspool` and any
+  other value now fail at the allocator's first use instead of selecting one. See
+  [cache budgets](docs/operations.md#4-cache-budgets).
+
 - **Half-open bitemporal validity** — `jn:open-bitemporal` includes `validFrom == V` and
   excludes `validTo == V`. Exact indexed slices count keys and construct objects on demand;
   exceptional records and unindexed resources use the same half-open predicate. SH1 calls the

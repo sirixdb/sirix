@@ -113,15 +113,22 @@ final class DictionaryCountBatchTest {
         ? PredicateTree.of(new ColumnPredicate[] {predicates[0], ColumnPredicate.numeric(1, Op.EQ, 0)},
             new byte[] {0, 1, PredicateTree.OP_NOT, PredicateTree.OP_AND})
         : null;
-    ProjectionColumnGroupScan.aggregateByGroupStringFlat(f.store(), predicates, new ColumnSlice[][] {f.filters()}, tree,
-        withTree
-            ? new ColumnSlice[][] {f.filters(), f.filters()}
-            : null,
-        f.groups(), new ColumnSlice[0][], null, from, to, out, missing, -1, null, null, budget, false, regex,
-        regex == null
-            ? null
-            : "changed",
-        decline, null, null, null, null);
+    // The kernel folds the missing-key group into a block of the scan's workspace; the test keeps it
+    // on the heap between calls, so it is carried in and copied back out.
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final GroupBuffer missingAcc = workspace.newBlock(missing.length);
+      GroupLanes.copy(missing, 0, missingAcc, 0, missing.length);
+      ProjectionColumnGroupScan.aggregateByGroupStringFlat(f.store(), predicates, new ColumnSlice[][] {f.filters()},
+          tree, withTree
+              ? new ColumnSlice[][] {f.filters(), f.filters()}
+              : null,
+          f.groups(), new ColumnSlice[0][], null, from, to, out, missingAcc, -1, null, null, budget, false, regex,
+          regex == null
+              ? null
+              : "changed",
+          decline, null, null, null, null);
+      System.arraycopy(GroupLanes.toArray(missingAcc, 0, missing.length), 0, missing, 0, missing.length);
+    }
   }
 
   private static Fixture fixture(final int alphabet) {
@@ -187,10 +194,10 @@ final class DictionaryCountBatchTest {
       final long hash = ProjectionIndexByteScan.fnv1a64(bytes, 0, bytes.length);
       assertTrue(hash != 0L, "this oracle uses ordinary dictionary values; zero has a separate table lane");
       final int handle = out.acquire(hash, Long.MAX_VALUE);
-      final long[] values = out.storageAtAccBase(handle);
+      final GroupBuffer values = out.storageAtAccBase(handle);
       final int base = out.offsetAtAccBase(handle);
-      assertEquals(expected[0], values[base], text);
-      assertEquals(expected[1], values[base + 1], "first selected row for " + text);
+      assertEquals(expected[0], GroupLanes.get(values, base), text);
+      assertEquals(expected[1], GroupLanes.get(values, base + 1), "first selected row for " + text);
       final long source = out.auxAtAccBase(handle);
       assertEquals(text, fixture.groups()[(int) (source >>> 20)].dictString((int) (source & ((1 << 20) - 1))));
       // Merges retain any valid representative; firstSeen above is the independent ordering key.
