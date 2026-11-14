@@ -89,6 +89,8 @@ final class ScratchCarrier {
    *
    * @return the era of this borrow, to be named by its return
    */
+  // Process-local counters follow ScratchUse's order; no ordinal escapes the process.
+  @SuppressWarnings("EnumOrdinal")
   long lend(final long requested, final ScratchUse use) {
     final long lent = (long) ScratchHandles.ERA.getOpaque(this) + 1L;
     assert (lent & 1L) == 1L : "a buffer is lent from an even era";

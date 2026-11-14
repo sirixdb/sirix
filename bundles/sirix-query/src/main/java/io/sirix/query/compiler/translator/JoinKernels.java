@@ -108,7 +108,8 @@ final class JoinKernels {
    */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // Compare backing-array identity to decide whether the final scatter needs copying.
+  @SuppressWarnings({"java:S3776", "ReferenceEquality"})
   static int[] sortRows(final long[][] keyColumns, final int count) {
     if (count < 0) {
       throw new IllegalArgumentException("negative row count " + count);

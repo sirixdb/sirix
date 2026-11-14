@@ -15350,10 +15350,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * A route resolves each of its columns through
    * {@link ProjectionColumnStore#columnMaskedView(int, ProjectionColumnStore.ColumnSegmentFetcher, long[], ProjectionColumnStore.LaneTarget)}.
    * A column the store holds RESIDENT is served pruned from the store's own slab and is pinned by the
-   * query's residency scope; a non-resident long-lane column would otherwise decode into one heap
-   * {@code long[]} per leaf. Giving it a target keeps the route's operands off-heap, so the group
-   * kernels read every lane through a native segment instead of a mix of native lanes and
-   * {@code MemorySegment.ofArray} views — the mixed shape that compiles bimorphic segment code.
+   * query's residency scope; without a target, a non-resident long-lane column owns a separate masked
+   * slab. Sharing one target across the route's columns avoids those separate allocations while
+   * keeping every operand in native memory.
    *
    * <p>
    * <b>Lifetime.</b> The slices point into this slab, so the method that opened it closes it in a
@@ -18511,7 +18510,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
   // failure is rethrown with later ones attached.
-  @SuppressWarnings("java:S1181")
+  // ArrayList capacity must be prepared before native ownership is acquired.
+  @SuppressWarnings({"java:S1181", "NonApiType"})
   private static MemorySegment allocateGroupSlab(final ArrayList<MemorySegment> owners, final long bytes,
       final String kind) {
     if (bytes == 0L) {
@@ -18539,7 +18539,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
   // failure is rethrown with later ones attached.
-  @SuppressWarnings("java:S1181")
+  // Retain concrete calls in this measured ownership path; an interface changes its compiled shape.
+  @SuppressWarnings({"java:S1181", "NonApiType"})
   private static void releaseGroupResources(final ArrayList<ProjectionColumnStore.LeafColumnAccess> accesses,
       final ArrayList<MemorySegment> slabs, final RouteLaneSlab lanes, final @Nullable GroupWorkspace workspace) {
     Throwable failure = null;
@@ -18572,6 +18573,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     rethrowCleanupFailure(failure);
   }
 
+  // Keep the concrete field-roster type used by the measured grouped-scan drivers.
+  @SuppressWarnings("NonApiType")
   private static ArrayList<String> groupRequiredFields(final String @Nullable [] keyCondFields,
       final String[] groupFields, final String[] aggFields, final @Nullable GroupRouting routing) {
     final ArrayList<String> required = new ArrayList<>();
@@ -19247,7 +19250,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   // only move the list into a constructor.
   // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
   // changes the compiled loops, which are measured as they are.
-  @SuppressWarnings({"java:S106", "java:S107", "java:S3776"})
+  // Keep concrete field-roster calls in this measured grouped-scan driver.
+  @SuppressWarnings({"java:S106", "java:S107", "java:S3776", "NonApiType"})
   private ServedGroups packedSubstringGroupAggregateInWorkspace(final GroupWorkspace workspace,
       final List<byte[]> rowGroupPayloads, final boolean windowedSlices, final ProjectionColumnStore slicedStore,
       final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree tree,
@@ -19602,7 +19606,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   // Sonar S2093: the buffer goes back to its workspace for reuse at the end, it is not closed.
   // Sonar S3776: the row loops of this grouped scan are lambdas written inside it. Moving them out
   // changes the compiled loops, which are measured as they are.
-  @SuppressWarnings({"java:S106", "java:S107", "java:S2093", "java:S3776"})
+  // Keep concrete field-roster calls in this measured grouped-scan driver.
+  @SuppressWarnings({"java:S106", "java:S107", "java:S2093", "java:S3776", "NonApiType"})
   private @Nullable ServedGroups numericGroupAggregateInWorkspace(final GroupWorkspace workspace,
       final List<byte[]> rowGroupPayloads, final boolean windowedSlices, final ProjectionColumnStore slicedStore,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol, final int[] aggCols,
@@ -31805,6 +31810,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * in front, so call-site logs show what actually failed, and with the original exception as the
    * cause for full stack traces.
    */
+  // Cause-chain termination compares throwable identity, independent of an overridden equals method.
+  @SuppressWarnings("ReferenceEquality")
   private static RuntimeException scanFailure(final Exception e) {
     Throwable cause = e.getCause() != null
         ? e.getCause()

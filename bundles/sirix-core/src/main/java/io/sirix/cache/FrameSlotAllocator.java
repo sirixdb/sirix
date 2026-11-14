@@ -354,10 +354,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private final int scratchIdleBuffers;
 
   /**
-   * Physical/touchable capacity retained by committed frame slots plus live oversized arenas. A frame
-   * slot remains committed across recycle cycles, so its bytes leave this counter only when the whole
-   * size-class region is released at shutdown. This is the counter constrained by the global budget
-   * and exposed through {@link #getPhysicalMemoryBytes()}.
+   * Physical/touchable capacity retained by frame slots, oversized arenas, slabs and scratch regions,
+   * including idle backing. A frame slot remains committed across recycle cycles, so its bytes leave
+   * this counter only when the whole size-class region is released at shutdown. This is the counter
+   * constrained by the global budget and exposed through {@link #getPhysicalMemoryBytes()}.
    */
   private final AtomicLong committedBytes = new AtomicLong();
 
@@ -442,6 +442,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   private final ConcurrentHashMap<Long, OversizedAllocation> oversizedByAddress = new ConcurrentHashMap<>();
+  // Reuse this callback for release bookkeeping without adding an instance method or allocation.
+  @SuppressWarnings("UnnecessaryLambda")
   private static final BiFunction<Long, OversizedAllocation, OversizedAllocation> CLOSE_OVERSIZED =
       (address, allocation) -> {
         allocation.arena().close();
@@ -771,7 +773,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
   // failure is rethrown.
-  @SuppressWarnings("java:S1181")
+  @SuppressWarnings({"java:S1181", "ReferenceEquality", "MemorySegmentReferenceEquality"})
   @Override
   public boolean releaseSlab(final MemorySegment slab) {
     slabOperations.incrementAndGet();
@@ -882,15 +884,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
     this.budgetBytes = budgetBytes;
     final long configuredHeadroom = Long.getLong("sirix.allocator.oversizedHeadroomBytes", -1L);
-    // Slab-region commitments never release before shutdown (no portable way to decommit pages of
-    // a live mmap'd region), so an unchecked slab peak would permanently starve the oversized path
-    // — the large-value (de)compression buffers a post-ingest query still needs. Fresh-slot
-    // commitment stops short of the full budget; only oversized allocations (whose bytes DO
-    // return on release) may use the headroom. Default: 1/16th of the budget, capped at 1 GiB —
-    // zero for tiny test budgets, so their exhaustion semantics are unchanged.
+    // Frame-slot commitment lasts until shutdown. Leave headroom for oversized allocations,
+    // slabs and scratch; the class budget contract specifies their separate commitment limits.
+    // Default: 1/16th of the budget, capped at 1 GiB, zero for tiny test budgets.
     // Only budgets comfortably above embedded/test scale reserve headroom by default: an
-    // allocator budgeted EXACTLY for its slabs (focused tests, tiny embedded configs) must keep
-    // its full slab capacity.
+    // allocator budgeted EXACTLY for its frame slots (focused tests, tiny embedded configs) must
+    // keep its full slot capacity.
     this.oversizedHeadroomBytes = configuredHeadroom >= 0
         ? Math.min(configuredHeadroom, budgetBytes)
         : (budgetBytes >= 64L * 1024 * 1024

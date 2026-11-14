@@ -1948,7 +1948,7 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 | `sirix.filechannel.coalesceSpanBytes` | 8 MiB | largest coalesced span | `:560` |
 | `sirix.filechannel.pagePrefixBytes` | 1024 (4..64 KiB) | first speculative pread size | `:233-234` |
 | `sirix.filechannel.bufferBytes` | 128 KiB (64 KiB..16 MiB) | floor of every read's scratch-buffer request | `FileChannelReader.BUFFER_BYTES` |
-| `sirix.allocator.scratchIdleBuffers` | 2 × CPUs within 8..64 | idle scratch buffers the allocator keeps resident per capacity | `cache/FrameScratch.java` |
+| `sirix.allocator.scratchIdleBuffers` | 2 × CPUs clamped to 8..64, rounded up to a power of two | idle scratch buffers per capacity; overrides in 1..256 are also rounded up | `cache/FrameScratch.java` |
 | `sirix.allocator.scratchReserveBytes` | a quarter of the oversized headroom, ≤ 256 MiB | progress reserve within the non-execution allowance, available to ordinary scratch but not frames or cache slabs | `cache/FrameSlotAllocator.java` |
 | `sirix.filechannel.batchFileSize` | T | snapshot file size once per batch | `:563` |
 | `sirix.filechannel.borrowBatchInput` | value of `sirix.io.borrowOverflowInput` (so on, every runtime) | decode run members from span slices; an explicit value wins | `:80`; `io/AbstractReader.java:49-58`, `:60-73` |

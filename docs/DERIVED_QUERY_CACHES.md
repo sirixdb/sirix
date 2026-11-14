@@ -160,8 +160,9 @@ to that record through the supported foreign-memory handle, with no check and no
 lane or per row. A table's probes read at addresses derived from its own chunk geometry. This access
 form is confined to aggregation working memory; persisted page and column decoding retain segment
 bounds checks. Set `-Dsirix.aggregation.debug=true` at JVM startup, or at **native-image build
-time**, to make a record a bounded view of exactly its footprint and to check every probe address
-against its chunk's segment and generation.
+time**, to check every resolved record's footprint and every probe address against its chunk's
+segment and generation. Debug record bookkeeping holds allocations weakly so it cannot prevent a
+self-returning workspace's cleanup.
 
 What a row costs depends on the lookup of an existing group being compiled into the row loop, which
 HotSpot decides by method size. `NumericGroupAggTable` is therefore a leaf probe plus insertion and
@@ -181,10 +182,10 @@ subtracts fixed worker and rounding overhead once and charges each group's compl
 index/growth/merge peak; bounded top-k has the same limit. Closing a scan, after draining every
 accepted worker even on errors, returns its regions and then its grant. Returned regions may stay
 in the allocator's common scratch size classes only after moving their charge outside the protected
-execution floor, and within the recycle bound (`sirix.allocator.slabRecycleBytes`, one sixteenth of
-the budget by default): a scan returns its regions by the hundred, and the next scan would otherwise
-map every one of them again and fault it in page by page. Dense slots are shared across workers;
-their accumulating and monotone lanes use the supported atomic foreign-memory access modes through
+execution floor, and within the recycle bound described above: a scan returns its regions by the
+hundred, and the next scan would otherwise map every one of them again and fault it in page by page.
+Dense slots are shared across workers; their accumulating and monotone lanes use the supported
+atomic foreign-memory access modes through
 the same resolved records, including bounded atomic access in debug mode.
 `AggregationGrantTest`, `GroupRecordBoundaryTest`, `GroupWorkspaceTest`,
 `DenseGlobalGroupAggTableTest`, `MapGroupWorkspaceTest`, and the group differential and work-budget
@@ -263,17 +264,10 @@ per kernel reading the lane through the typed slab handle at a base offset hoist
 plus eight bytes per row (`SegmentAccess`, native order, the unaligned layout because the slab is
 aligned by construction and the alignment check would only repeat per access); the record keys of
 a build row and of an emitted probe row come from the key lanes the same way. The join kernels'
-handle is `JoinKernels.SLAB_LONG`, invoked directly at every read site (C2 compiles an inlined
-`SegmentAccess.getLong` with that helper's process-wide, heap-polluted type profile: +60 % on t250k
-warm Q10), and `JoinKernels` is listed for build-time initialization and holds nothing else: a
-native image folds a `VarHandle` into a plain load only when it is a static final of a class
-initialized at build time, and a handle held or aliased by a class the image initializes at run
-time is invoked through the generic method-handle path on every read, 105 ns and a boxed
-allocation against 2.3 ns, which cost the t1M warm joins Q4 44 % and Q9 39 % natively while C2,
-which trusts every static final, showed a win (`SegmentHandleConstantsTest` guards both halves; see
-`docs/NATIVE_IMAGE.md`, "Segment handles are build-time constants"). The dense build and
-probe loops read a row's fields through the one segment the side's lanes share when the selection
-was decoded into its own slab (bounds and scope loaded once per row, not once per field), each
+handle is `JoinKernels.SLAB_LONG`, invoked directly at every read site under the
+[segment-handle constant contract](NATIVE_IMAGE.md#segment-handles-are-build-time-constants).
+The dense build and probe loops read a row's fields through the one segment the side's lanes share
+when the selection was decoded into its own slab (bounds and scope loaded once per row, not once per field), each
 lane's own segment otherwise; the packed merge is build-major: each build record of a bucket
 is read once into locals and the bucket's probe records stream past it, two reads deciding a
 non-overlapping pair (`JoinKernels`, measured against the heap kernels by `JoinKernelBenchmark`

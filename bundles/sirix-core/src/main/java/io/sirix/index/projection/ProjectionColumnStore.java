@@ -167,6 +167,8 @@ public final class ProjectionColumnStore {
    * length)-shaped anyway. For a RAW-mode dictionary {@code dictBytes} IS the segment and the offsets
    * are absolute into it, so the decode copies nothing at all.
    */
+  // Slices expose primitive storage; equality, hashing and formatting already handle array contents.
+  @SuppressWarnings("ArrayRecordComponent")
   public record ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
       long @Nullable [] numericValues, long @Nullable [] boolWords, int @Nullable [] stringDictIds,
       byte @Nullable [] dictBytes, int @Nullable [] dictOffsets, int @Nullable [] setCounts,

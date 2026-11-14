@@ -1253,8 +1253,9 @@ public final class ProjectionIndexRegistry {
 
     /**
      * Largest whole-leaf payload {@link #promoteInBackground} will materialize, in bytes. The payload
-     * is a {@code List<byte[]>} on the Java heap, so the default is a quarter of the heap, itself
-     * capped so a huge heap does not authorise a huge speculative materialization.
+     * is a {@code List<byte[]>} on the Java heap, so defaults and overrides cannot exceed
+     * {@link HeapCacheBudget#projectionFillBytes()}; the default is also capped by
+     * {@link #DEFAULT_PROMOTE_MAX_BYTES} to bound speculative materialization on large heaps.
      */
     // Sonar S6885: the upper bound comes from the heap budget. Saturating keeps this parse total
     // whatever that bound is, where the clamp method throws for crossed bounds.

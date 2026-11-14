@@ -96,6 +96,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return BucketedSideCache.IN_FLIGHT.size();
   }
 
+  // Package-local tests await completion only; the packed side stays an implementation detail.
+  @SuppressWarnings("ExposedPrivateType")
   static @Nullable CompletableFuture<BucketedSideCache.PackedSide> inFlightPackingForTesting() {
     final Iterator<CompletableFuture<BucketedSideCache.PackedSide>> futures =
         BucketedSideCache.IN_FLIGHT.values().iterator();
@@ -1002,6 +1004,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         this.side = side;
       }
 
+      // Row identity ties the side to one snapshot; only the operand signature compares by value.
+      @SuppressWarnings("ReferenceEquality")
       boolean matches(final Object rows, final long[] signature) {
         return this.rows.get() == rows && Arrays.equals(this.signature, signature);
       }
@@ -1011,7 +1015,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         return rows.get() == null;
       }
 
+      // Dependents belong to this exact snapshot identity, regardless of any value equality.
       @Override
+      @SuppressWarnings("ReferenceEquality")
       protected boolean dependsOn(final Object identity) {
         return rows.get() == identity;
       }
@@ -1371,6 +1377,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * they are spread over several. The join key is read on its own before the row, so its lane may
    * differ (a column the store holds resident beside a selection decoded into its own slab).
    */
+  // Identity proves these lanes share one bounded segment for the combined read loop.
+  @SuppressWarnings({"ReferenceEquality", "MemorySegmentReferenceEquality"})
   private static @Nullable MemorySegment captureLanes(final MaskedColumns columns, final int leaf,
       final MemorySegment[] lanes, final long[] bases) {
     MemorySegment shared = null;
@@ -1767,7 +1775,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   // adds a flag test for each row.
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings({"java:S135", "java:S3776"})
+  // Exact segment identity selects the loop that hoists one segment's bounds for every lane.
+  @SuppressWarnings({"java:S135", "java:S3776", "ReferenceEquality", "MemorySegmentReferenceEquality"})
   private static int[] build(final MaskedColumns buildColumns, final int buildFieldCount, final BuildRows buildRows,
       final boolean denseNumeric) {
     buildRows.nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8L, buildColumns.rows()))];

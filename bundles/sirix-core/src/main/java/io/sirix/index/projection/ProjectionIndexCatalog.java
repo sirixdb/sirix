@@ -75,7 +75,8 @@ import java.util.stream.IntStream;
  * <li>the DECODED leaves keyed by (resource, definition, BUILD revision) — unrelated commits
  * advance the query revision but not the build revision, so an unchanged projection is decoded once
  * and shared by every subsequent revision instead of once per revision. Byte-weighted
- * ({@code -Dsirix.projection.cacheBytes}, default one quarter of the runtime heap).</li>
+ * ({@code -Dsirix.projection.cacheBytes}; the heap-envelope policy in
+ * {@code docs/DERIVED_QUERY_CACHES.md} owns its default and override ceiling).</li>
  * </ul>
  *
  * <h2>Failure policy</h2> Expected non-usability (no payloads, unsupported format version, stale

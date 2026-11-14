@@ -107,11 +107,9 @@ public final class BufferManagerImpl implements BufferManager {
    * Share of the record-page budget the lookup cache may retain on the heap.
    *
    * <p>
-   * A thirty-second, which is deliberately small: every other cache here is budgeted in BYTES from
-   * the same pool, and this one is the only one that is ON-heap in a process that keeps its page
-   * frames off it. Sizing it in entries alone — which is what shipped first — meant the default was a
-   * flat count that no configured budget could restrain, so a heap tuned around the page caches
-   * silently acquired up to ~150 MB it never accounted for.
+   * A small fraction keeps point-lookup retention proportional to page-cache sizing. The constructor
+   * additionally applies the disjoint heap-envelope share, so an entry-count override cannot reserve
+   * heap already assigned to another cache.
    * </p>
    */
   private static final long HOT_LOOKUP_BUDGET_DIVISOR = 32L;

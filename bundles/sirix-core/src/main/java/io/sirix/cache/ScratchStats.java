@@ -35,6 +35,9 @@ import java.util.Objects;
  * @param acquisitionsByUse borrows per {@link ScratchUse}
  * @param requestedBytesByUse requested bytes per {@link ScratchUse}
  */
+// Primitive counter arrays are the snapshot contract; equality, hashing and formatting handle
+// contents.
+@SuppressWarnings("ArrayRecordComponent")
 public record ScratchStats(long[] capacityBytes, long[] acquisitions, long[] created, long[] reclaimed,
     long[] lentBuffers, long[] idleBuffers, long requestedBytes, long roundedBytes, long lentBytes, long idleBytes,
     long refusals, long refusedBytes, long staleReleases, long[] acquisitionsByUse, long[] requestedBytesByUse) {
@@ -140,11 +143,15 @@ public record ScratchStats(long[] capacityBytes, long[] acquisitions, long[] cre
   }
 
   /** Borrows served for {@code use}. */
+  // Process-local counters and their readers use the same enum order; no ordinal is persisted.
+  @SuppressWarnings("EnumOrdinal")
   public long acquisitions(final ScratchUse use) {
     return acquisitionsByUse[use.ordinal()];
   }
 
   /** Requested bytes of the borrows served for {@code use}. */
+  // Process-local counters and their readers use the same enum order; no ordinal is persisted.
+  @SuppressWarnings("EnumOrdinal")
   public long requestedBytes(final ScratchUse use) {
     return requestedBytesByUse[use.ordinal()];
   }
