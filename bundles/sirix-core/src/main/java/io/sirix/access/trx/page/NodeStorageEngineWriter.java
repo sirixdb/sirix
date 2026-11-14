@@ -117,6 +117,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.lang.ref.Cleaner.Cleanable;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.channels.FileChannel;
@@ -334,6 +335,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /** Non-null for the lifetime of this writer; close() flips its closed flag. */
   private final LeakDetectorState leakDetectorState;
+
+  /** Cancel the diagnostic registration on normal close, avoiding no-op GC cleanup work. */
+  private final Cleanable leakCleanup;
 
   /**
    * Pending fsync future for async durability. For auto-commit mode, fsync runs in background; next
@@ -1140,7 +1144,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // detector skips the leak warning on properly-closed writers.
     this.leakDetectorState = new LeakDetectorState(storageEngineReader.getTrxId(), System.identityHashCode(this),
         System.identityHashCode(log), log);
-    SirixCleaner.register(this, leakDetectorState);
+    this.leakCleanup = SirixCleaner.register(this, leakDetectorState);
     // Acquire native scratch only after every fallible heap initialization has completed.
     bufferBytes = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE * 2L, ScratchUse.COMMIT_FLUSH);
     storageEngineReader.bindTransactionView(this);
@@ -5483,6 +5487,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     isClosed = true;
     try {
       leakDetectorState.closed.set(true);
+      leakCleanup.clean();
       injectAsyncFlushFault("close-after-terminal-flags");
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);

@@ -19,6 +19,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.ref.Cleaner;
+import java.lang.ref.Cleaner.Cleanable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -82,7 +83,7 @@ public final class MaskedColumns implements AutoCloseable {
   /** The cache entry a leased view reads, for task leases that outlive the view. */
   private DerivedCacheBudget.@Nullable Entry entry;
   /** What {@link #close()} releases — the entry lease or the owned slab; runs once. */
-  private @Nullable Runnable release;
+  private @Nullable Cleanable release;
   private @Nullable MaskedColumns sharedInterner;
 
   MaskedColumns(final ProjectionColumnStore store, final long[][] rowMasks, final KeyLanes keys,
@@ -164,8 +165,7 @@ public final class MaskedColumns implements AutoCloseable {
       throw new IllegalStateException("view already holds a lease or a slab");
     }
     DerivedCacheBudget.handoff("cleaner");
-    SirixCleaner.register(this, once);
-    release = once;
+    release = SirixCleaner.register(this, once);
   }
 
   /**
@@ -202,11 +202,11 @@ public final class MaskedColumns implements AutoCloseable {
   /** Release what this view holds (its entry lease or its slab); idempotent. */
   @Override
   public void close() {
-    final Runnable held = release;
+    final Cleanable held = release;
     if (held != null) {
       release = null;
       entry = null;
-      held.run();
+      held.clean(); // Deregister on close; only abandoned views need a GC fallback.
     }
   }
 
