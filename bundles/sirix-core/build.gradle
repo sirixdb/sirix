@@ -1,4 +1,6 @@
+import java.io.File
 import org.gradle.api.GradleException
+import org.gradle.testing.jacoco.tasks.JacocoReport
 
 dependencies {
     api implLibraries.jacksonCore
@@ -370,6 +372,38 @@ gradle.projectsEvaluated {
 tasks.named('jacocoTestReport') {
     executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(),
             storageEpochStoreIdentityTest.get()
+}
+
+// Merge probes, rather than XML counters: each CI lane covers different branches in shared
+// methods. This report consumes restored bytecode and has no test/compile dependencies.
+tasks.register('jacocoMergedReport', JacocoReport) {
+    group = 'verification'
+    description = 'Merge the two Linux core coverage artifacts without rerunning tests'
+    executionData fileTree(rootProject.layout.buildDirectory.dir('sonar-coverage')) {
+        include 'coverage-core-*/jacoco/*.exec'
+    }
+    // Deliberately snapshot the paths to avoid sourceSets' implicit compile-task dependencies.
+    classDirectories.from(files(sourceSets.main.output.classesDirs.files).asFileTree.matching {
+        exclude '**/generated/**'
+    })
+    sourceDirectories.from(sourceSets.main.allSource.srcDirs)
+    reports {
+        xml.required = true
+        xml.outputLocation = layout.buildDirectory.file('reports/jacoco/test/jacocoTestReport.xml')
+        html.required = false
+    }
+    doFirst {
+        for (final String lane : ['hot-property', 'remaining']) {
+            for (final String suite : ['test', 'validTimeDisabledLookupCacheTest',
+                                       'dictionaryReadViewAllocationTest', 'storageEpochStoreIdentityTest']) {
+                final File data = rootProject.layout.buildDirectory
+                        .file("sonar-coverage/coverage-core-${lane}/jacoco/${suite}.exec").get().asFile
+                if (!data.isFile() || data.length() == 0) {
+                    throw new GradleException("Missing core coverage data: ${data}")
+                }
+            }
+        }
+    }
 }
 
 tasks.named('test', Test).configure {

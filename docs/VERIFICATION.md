@@ -86,7 +86,7 @@ before importing signing credentials or publishing, covering tag pushes, release
 manually selected refs. The stress workflow enables the gate on its core test compile, including
 manual runs against refs outside main CI's branch filters. Deep verification gates its dedicated
 core and MCP compile with `-PerrorProne`. Each of these four workflows runs one gated compile;
-other jobs and the Sonar workflow avoid repeating static analysis. Error Prone errors fail compilation;
+other jobs, including Sonar, avoid repeating static analysis. Error Prone errors fail compilation;
 NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
 has a JSpecify `@NullMarked` package default. Legacy unmarked code, including core and query,
 is outside NullAway checking, even where individual nullable contracts are annotated.
@@ -106,19 +106,43 @@ Error Prone 2.51.0 ([upstream bug](https://github.com/google/error-prone/issues/
 
 ## SonarCloud analysis
 
-[`sonarqube.yml`](../.github/workflows/sonarqube.yml) runs on pushes to `main` and eligible
-pull requests targeting `main`. It builds and tests with JaCoCo XML reports before running `sonar` separately.
+The `Run Sonarqube` job in [`gradle.yml`](../.github/workflows/gradle.yml) runs on pushes to
+`main` and eligible pull requests targeting `main`, after both Linux core lanes and the query/Kotlin
+lane succeed. The core lanes upload raw JaCoCo probes and test results; the query/Kotlin lane uploads
+reports and test results. The scanner restores the same run's compiled modules and reports and never
+reruns tests. The checkout matches the producing
+lanes (the PR merge ref on pull requests), so coverage probes and analyzed bytecode use the same sources.
 It waits for the quality gate, so a successful upload alone cannot make the check green.
 The required quality-gate policy is **no new bugs or vulnerabilities on new code**;
 configure its conditions in SonarCloud.
-PR analysis uses GitHub Actions' automatic PR parameters and the source commit with full history.
+PR analysis uses GitHub Actions' automatic PR parameters and a full-history checkout.
 Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
-The REST integration suite remains outside this job. The offline REST authorization tests run
-without Docker or Keycloak, and their JaCoCo execution data feeds both the REST and query reports.
+Never build untrusted PR code with secrets through `pull_request_target`.
+Scheduled and release-branch CI do not run Sonar. Instrumentation, coverage reports, coverage uploads,
+and the additional MCP/offline REST tests run only for Sonar-eligible events, using the shared
+`Build` job's `sonar-enabled` output. The REST integration suite remains outside the
+coverage handoff. The query lane also runs the MCP tests and the offline REST authorization tests
+that the former serial Sonar build ran; offline REST needs neither Docker nor Keycloak, and its
+JaCoCo execution data feeds both the REST and query reports. The analyzed module set is unchanged.
 
-The core XML report includes the isolated test forks' execution data. Their agent-handling
+The core XML report merges both lanes' raw execution data, including the isolated test forks,
+using `:sirix-core:jacocoMergedReport`. Merging probes before generating XML preserves the union of
+branch coverage when both lanes visit the same method. Missing lane/fork data or module reports fails
+the job instead of silently reducing coverage. The isolated forks' agent-handling
 safety invariant is documented beside the fork-option copy in
 [`bundles/sirix-core/build.gradle`](../bundles/sirix-core/build.gradle).
+
+To check the analysis-only task graph locally after restoring coverage artifacts:
+
+```bash
+./gradlew :sirix-core:jacocoMergedReport sonar --dry-run
+```
+
+It must contain only the merge and scanner/resolver tasks, with no compilation or test tasks. When
+changing this handoff, record Linux lane durations (including report generation), scanner duration, and end-to-end duration
+from the workflow jobs API. Compare SonarCloud's `coverage` and `new_coverage` measures with the former
+`build jacocoTestReport -x :sirix-rest-api:test` flow at the same source head; a different head is not
+a coverage-equivalence check. Preserve the quality-gate wait and fork/Dependabot secret boundary.
 
 Review issues against the low-latency requirements in `AGENTS.md`. Prefer clean code when it
 costs no hot-path performance. Any rule exception must name the specific rule and scope, with

@@ -16,6 +16,12 @@ on:
 jobs:
   Build:
     name: Compile and package
+    outputs:
+      sonar-enabled: >-
+        ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+            (github.event_name == 'pull_request' && github.base_ref == 'main' &&
+             github.event.pull_request.head.repo.full_name == github.repository &&
+             github.actor != 'dependabot[bot]') }}
     # Run the deterministic static-analysis gate once; downstream jobs reuse build output.
     env:
       ORG_GRADLE_PROJECT_errorProne: 'true'
@@ -75,13 +81,27 @@ jobs:
             **/build
           key: build-${{ github.run_id }}
       - name: Test sirix-core
-        run: ./gradlew :sirix-core:test -PcoreTestLane=${{ matrix.lane }} --info --stacktrace
+        run: >-
+          ./gradlew :sirix-core:test -PcoreTestLane=${{ matrix.lane }}
+          ${{ needs.Build.outputs.sonar-enabled == 'true' && '-Pcoverage' || '' }} --info --stacktrace
+      - name: Upload core coverage
+        if: needs.Build.outputs.sonar-enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-core-${{ matrix.lane }}
+          overwrite: true
+          path: |
+            bundles/sirix-core/build/jacoco/*.exec
+            bundles/sirix-core/build/test-results/**/*.xml
+          if-no-files-found: error
+          retention-days: 3
 
   TestQuery:
     name: Test sirix-query, sirix-kotlin-api, sirix-kotlin-cli
     needs: Build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Instrumented tests exceeded 20 minutes before MCP/offline REST reporting could start.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -102,7 +122,107 @@ jobs:
             **/build
           key: build-${{ github.run_id }}
       - name: Test sirix-query, sirix-kotlin-api, and sirix-kotlin-cli
-        run: ./gradlew :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test --parallel --info --stacktrace
+        run: >-
+          ./gradlew :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test
+          ${{ needs.Build.outputs.sonar-enabled == 'true' && '-Pcoverage' || '' }} --parallel --info --stacktrace
+      # These also ran in the old Sonar build. Keep their probes, including offline REST's
+      # contribution to the query report, without starting the Docker-backed REST suite.
+      - name: Test MCP and report offline REST coverage
+        if: needs.Build.outputs.sonar-enabled == 'true'
+        run: >-
+          ./gradlew :sirix-query:jacocoTestReport :sirix-kotlin-api:jacocoTestReport
+          :sirix-kotlin-cli:jacocoTestReport :sirix-mcp:jacocoTestReport :sirix-rest-api:jacocoTestReport
+          -x :sirix-rest-api:test --info --stacktrace
+      - name: Upload query, Kotlin, MCP, and offline REST coverage
+        if: needs.Build.outputs.sonar-enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-query
+          overwrite: true
+          path: |
+            bundles/sirix-query/build/reports/jacoco/test/jacocoTestReport.xml
+            bundles/sirix-kotlin-api/build/reports/jacoco/test/jacocoTestReport.xml
+            bundles/sirix-kotlin-cli/build/reports/jacoco/test/jacocoTestReport.xml
+            bundles/sirix-mcp/build/reports/jacoco/test/jacocoTestReport.xml
+            bundles/sirix-rest-api/build/reports/jacoco/test/jacocoTestReport.xml
+            bundles/sirix-query/build/test-results/**/*.xml
+            bundles/sirix-kotlin-api/build/test-results/**/*.xml
+            bundles/sirix-kotlin-cli/build/test-results/**/*.xml
+            bundles/sirix-mcp/build/test-results/**/*.xml
+            bundles/sirix-rest-api/build/test-results/offlineTest/*.xml
+          if-no-files-found: error
+          retention-days: 3
+
+  Sonar:
+    name: Run Sonarqube
+    needs: [Build, TestCore, TestQuery]
+    # Secret boundary: docs/VERIFICATION.md#sonarcloud-analysis.
+    # Release-branch and scheduled CI keep their existing behavior (no Sonar analysis).
+    if: needs.Build.outputs.sonar-enabled == 'true'
+    permissions:
+      contents: read
+      pull-requests: read
+    concurrency:
+      group: sonar-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - name: Restore build output
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            **/build
+          key: build-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Download core coverage
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-core-*
+          path: build/sonar-coverage
+      - name: Download query, Kotlin, MCP, and offline REST coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-query
+          path: bundles
+      - name: Merge core coverage and verify reports
+        run: |
+          for lane in hot-property remaining; do
+            cp -a "build/sonar-coverage/coverage-core-$lane/test-results" bundles/sirix-core/build/
+          done
+          ./gradlew :sirix-core:jacocoMergedReport --info --stacktrace --max-workers=2 \
+            '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=1g'
+          for module in sirix-core sirix-query sirix-kotlin-api sirix-kotlin-cli sirix-mcp sirix-rest-api; do
+            test -s "bundles/$module/build/reports/jacoco/test/jacocoTestReport.xml"
+          done
+      - name: Analyze and check quality gate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        # Use the same checkout as the producing lanes so bytecode and probes match exactly.
+        # GitHub Actions supplies the PR parameters for decoration automatically.
+        run: >-
+          ./gradlew sonar --info --stacktrace --max-workers=2
+          -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=600
+          '-Dorg.gradle.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=1g'
 
   TestPlatforms:
     name: Cross-platform tests (${{ matrix.os }} / ${{ matrix.lane.name }})
