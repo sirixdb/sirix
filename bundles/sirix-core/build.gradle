@@ -389,7 +389,7 @@ tasks.register('jacocoMergedReport', JacocoReport) {
     sourceDirectories.from(sourceSets.main.allSource.srcDirs)
     reports {
         xml.required = true
-        xml.outputLocation = layout.buildDirectory.file('reports/jacoco/jacocoTestReport/jacocoTestReport.xml')
+        xml.outputLocation = layout.buildDirectory.file('reports/jacoco/test/jacocoTestReport.xml')
         html.required = false
     }
     doFirst {
