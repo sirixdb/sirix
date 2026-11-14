@@ -11,6 +11,7 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.interfaces.IndexRootPage;
 import io.sirix.settings.Constants;
+import io.sirix.utils.ConfigurationProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,6 +39,13 @@ public final class PageCache implements Cache<PageReference, Page> {
   /** System property to override the {@link PageCache} entry-count cap. */
   public static final String MAX_ENTRIES_PROPERTY = "sirix.cache.page.max.entries";
 
+  /** Legacy byte knob; interpreted as one entry per 1,000 bytes, not a measured heap limit. */
+  public static final String LEGACY_BYTES_PROPERTY = "sirix.cache.page";
+
+  public static final long LEGACY_BYTES_PER_ENTRY = 1_000;
+
+  private final int maxEntries;
+
   /** Default entry-count cap. */
   public static final int DEFAULT_MAX_ENTRIES = 50_000;
 
@@ -50,6 +58,7 @@ public final class PageCache implements Cache<PageReference, Page> {
     if (maxEntries <= 0) {
       throw new IllegalArgumentException("maxEntries must be > 0, got " + maxEntries);
     }
+    this.maxEntries = maxEntries;
     final RemovalListener<PageReference, Page> removalListener = (PageReference key, Page page, RemovalCause cause) -> {
       assert key != null;
       key.setPage(null);
@@ -79,38 +88,35 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   /**
-   * Legacy constructor accepting a byte budget. The byte input is ignored — the eviction policy is
-   * now count-based ({@link #DEFAULT_MAX_ENTRIES}, override via {@value #MAX_ENTRIES_PROPERTY}). Kept
-   * so existing call sites (e.g. {@code BufferManagerImpl}) compile without change.
+   * Compatibility byte estimate: one entry per 1,000 bytes (minimum one entry). Metadata eviction
+   * is count-based, so this is not a retained-heap byte guarantee. The explicit entry property wins
+   * over the deprecated byte property, which in turn wins over this constructor argument.
    *
-   * @param maxWeight legacy byte budget — ignored. Set the system property to change the cap.
+   * @param maxWeight legacy estimated byte budget; must be positive
    */
   public PageCache(final long maxWeight) {
     this(resolveMaxEntries(maxWeight));
   }
 
   private static int resolveMaxEntries(final long maxWeightBytes) {
-    // System property overrides everything. This is the operator-facing dial.
-    final String prop = System.getProperty(MAX_ENTRIES_PROPERTY);
-    if (prop != null && !prop.isEmpty()) {
-      try {
-        final int parsed = Integer.parseInt(prop.trim());
-        if (parsed > 0) {
-          return parsed;
-        }
-      } catch (final NumberFormatException ignored) {
-        // fall through
-      }
+    if (maxWeightBytes <= 0) {
+      throw new IllegalArgumentException("Metadata cache byte estimate must be positive: " + maxWeightBytes);
     }
-    // Legacy byte-budget input: ignore and use the default. The previous
-    // byte-budget interpretation produced ~500 k effective entries on a 500 MB
-    // budget (uniform weight = 1000), which never evicted under any realistic
-    // soak. The default of {@link #DEFAULT_MAX_ENTRIES} is large enough for the
-    // hot working set of a typical bitemporal workload (a few revisions of
-    // navigation metadata per index type, ~thousands of entries) while leaving
-    // headroom for analytical scans. Operators wanting a different size set
-    // {@value #MAX_ENTRIES_PROPERTY}.
-    return DEFAULT_MAX_ENTRIES;
+    if (System.getProperty(MAX_ENTRIES_PROPERTY) != null) {
+      return ConfigurationProperties.positiveInt(MAX_ENTRIES_PROPERTY, DEFAULT_MAX_ENTRIES);
+    }
+    final long bytes = ConfigurationProperties.positiveBytes(LEGACY_BYTES_PROPERTY, maxWeightBytes);
+    final long entries = Math.max(1, bytes / LEGACY_BYTES_PER_ENTRY);
+    if (entries > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException(LEGACY_BYTES_PROPERTY + "=" + bytes + " exceeds the maximum entry count; use "
+          + MAX_ENTRIES_PROPERTY + " in [1, 2147483647]");
+    }
+    return (int) entries;
+  }
+
+  /** Effective count cap used by the eviction policy. */
+  public int maxEntries() {
+    return maxEntries;
   }
 
   @Override

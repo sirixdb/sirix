@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
 import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 
+import io.sirix.utils.SirixCleaner;
 import io.sirix.cache.Allocators;
 import io.sirix.index.projection.NumericLane;
 import io.sirix.index.projection.ProjectionColumnStore;
@@ -56,9 +57,6 @@ public final class MaskedColumns implements AutoCloseable {
     return VALUE_IN_PLACE_WORDS.sum();
   }
 
-
-  /** Backstop for a view that was never closed: the release action, never the view, is registered. */
-  private static final Cleaner CLEANER = Cleaner.create();
 
   private final ProjectionColumnStore store;
   private final long[][] rowMasks;
@@ -166,7 +164,7 @@ public final class MaskedColumns implements AutoCloseable {
       throw new IllegalStateException("view already holds a lease or a slab");
     }
     DerivedCacheBudget.handoff("cleaner");
-    CLEANER.register(this, once);
+    SirixCleaner.register(this, once);
     release = once;
   }
 

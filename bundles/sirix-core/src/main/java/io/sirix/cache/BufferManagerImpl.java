@@ -251,9 +251,10 @@ public final class BufferManagerImpl implements BufferManager {
   /**
    * Create a BufferManagerImpl with specified cache sizes.
    * <p>
-   * All cache sizes are in bytes. For large caches (> 2GB), use long values.
+   * Record cache sizes are in bytes. Metadata uses a legacy estimate of 1,000 bytes per entry;
+   * the explicit entry-count property takes precedence (see {@link PageCache}).
    *
-   * @param maxPageCacheWeight maximum weight in bytes for the metadata page cache
+   * @param maxPageCacheWeight estimated bytes for the count-based metadata cache (1,000 bytes per entry)
    * @param maxRecordPageCacheWeight maximum weight in bytes for the record page cache
    * @param maxRecordPageFragmentCacheWeight maximum weight in bytes for the record page fragment
    *        cache
@@ -387,7 +388,7 @@ public final class BufferManagerImpl implements BufferManager {
     LOGGER.info("BufferManagerImpl initialized with large cache support:");
     LOGGER.info("  - RecordPageCache: {} MB", maxRecordPageCacheWeight / (1024 * 1024));
     LOGGER.info("  - RecordPageFragmentCache: {} MB", maxRecordPageFragmentCacheWeight / (1024 * 1024));
-    LOGGER.info("  - PageCache: {} MB", maxPageCacheWeight / (1024 * 1024));
+    LOGGER.info("  - PageCache: {} entries", pageCache.maxEntries());
     // Reported alongside its siblings, in the same units they are budgeted in. Without this the one
     // cache an operator can size by system property was also the only one whose effective size never
     // appeared anywhere, so a mis-set (or ignored) override was invisible during triage.

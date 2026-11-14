@@ -342,17 +342,32 @@ def storageEpochStoreIdentityTest = tasks.register('storageEpochStoreIdentityTes
     }
 }
 
+def configurationStartupTest = tasks.register('configurationStartupTest', Test) {
+    group = 'verification'
+    description = 'Checks effective process startup configuration in an isolated JVM.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching 'io.sirix.access.ConfigurationStartupTest' }
+}
+
 // Copy the complete fork options after all test conventions are configured, before Gradle
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    [validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest].each { testTask ->
+    [validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest].each { testTask ->
         testTask.configure { isolatedTest ->
             standardTest.copyTo(isolatedTest)
             // copyTo flattens argument providers (including JaCoCo) into jvmArgs. Keep only
             // explicit arguments here: this fork already has its own task-specific agent provider.
             isolatedTest.jvmArgs = standardTest.jvmArgs
         }
+    }
+    configurationStartupTest.configure {
+        maxHeapSize = '256m'
+        minHeapSize = '128m'
+        systemProperty 'sirix.cache.page.max.entries', '7'
+        systemProperty 'sirix.cache.page', '6000'
     }
     validTimeDisabledLookupCacheTest.configure {
         systemProperty 'sirix.hotLookupCache.maxEntries', '0'
@@ -369,10 +384,12 @@ gradle.projectsEvaluated {
 // The standard test excludes these suites, so its execution data alone omits their coverage.
 tasks.named('jacocoTestReport') {
     executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(),
-            storageEpochStoreIdentityTest.get()
+            storageEpochStoreIdentityTest.get(), configurationStartupTest.get()
 }
 
 tasks.named('test', Test).configure {
+    dependsOn configurationStartupTest
+    exclude 'io/sirix/access/ConfigurationStartupTest*.class'
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
     exclude 'io/sirix/budget/InlineSlotCopyAllocationBudgetTest*.class'

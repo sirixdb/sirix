@@ -29,10 +29,13 @@ import java.util.Locale;
  * <ul>
  * <li>{@code shared} — {@link Arena#ofShared()}, explicit close (HotSpot default);</li>
  * <li>{@code auto} — {@link Arena#ofAuto()}, GC-reclaimed (native-image default);</li>
- * <li>{@code global} — {@link Arena#global()}, never reclaimed (diagnostic last resort).</li>
+ * <li>{@code global} — {@link Arena#global()}, never reclaimed; requires the explicit diagnostic
+ * opt-in {@code -Dsirix.diagnostics.allowUnsafeLifetime=true}, as does
+ * {@code -Dsirix.mmstorage.skipArenaClose=true}. Neither is a supported production mode.</li>
  * </ul>
  *
  * <p>
+ * Policies are read once at startup; later property changes cannot change live arena ownership.
  * All call sites must pair {@link #newSharedArena()} with {@link #close(Arena)} instead of calling
  * {@code arena.close()} directly — auto/global arenas throw {@link UnsupportedOperationException}
  * on {@code close()}.
@@ -41,6 +44,17 @@ public final class SharedArenas {
 
   /** System property selecting the arena strategy: {@code shared}, {@code auto} or {@code global}. */
   public static final String STRATEGY_PROPERTY = "sirix.arena.strategy";
+
+  /** Explicit opt-in for process-lifetime diagnostic overrides. Unsupported in production. */
+  public static final String UNSAFE_LIFETIME_PROPERTY = "sirix.diagnostics.allowUnsafeLifetime";
+
+  /** Legacy diagnostic override for mapped storage; never a production memory policy. */
+  public static final String SKIP_CLOSE_PROPERTY = "sirix.mmstorage.skipArenaClose";
+
+  private static final boolean ALLOW_UNSAFE_LIFETIME = Boolean.getBoolean(UNSAFE_LIFETIME_PROPERTY);
+
+  private static final boolean SKIP_ARENA_CLOSE =
+      determineSkipArenaClose(Boolean.getBoolean(SKIP_CLOSE_PROPERTY), ALLOW_UNSAFE_LIFETIME);
 
   /** How "shared" arenas are materialized. */
   public enum Strategy {
@@ -52,7 +66,8 @@ public final class SharedArenas {
     GLOBAL;
   }
 
-  private static final Strategy STRATEGY = determineStrategy(System.getProperty(STRATEGY_PROPERTY), inNativeImage());
+  private static final Strategy STRATEGY =
+      determineStrategy(System.getProperty(STRATEGY_PROPERTY), inNativeImage(), ALLOW_UNSAFE_LIFETIME);
 
   private SharedArenas() {
     throw new AssertionError("no instances");
@@ -66,11 +81,18 @@ public final class SharedArenas {
    * @return the strategy to use
    */
   static Strategy determineStrategy(final String explicit, final boolean nativeImage) {
+    return determineStrategy(explicit, nativeImage, false);
+  }
+
+  static Strategy determineStrategy(final String explicit, final boolean nativeImage, final boolean diagnostic) {
     if (explicit != null && !explicit.isBlank()) {
       return switch (explicit.trim().toLowerCase(Locale.ROOT)) {
         case "shared" -> Strategy.SHARED;
         case "auto" -> Strategy.AUTO;
-        case "global" -> Strategy.GLOBAL;
+        case "global" -> {
+          requireDiagnosticLifetime(STRATEGY_PROPERTY + "=global", diagnostic);
+          yield Strategy.GLOBAL;
+        }
         default -> throw new IllegalArgumentException(
             STRATEGY_PROPERTY + " must be one of shared|auto|global, but was: " + explicit);
       };
@@ -78,6 +100,25 @@ public final class SharedArenas {
     return nativeImage
         ? Strategy.AUTO
         : Strategy.SHARED;
+  }
+
+  static boolean determineSkipArenaClose(final boolean skip, final boolean diagnostic) {
+    if (skip) {
+      requireDiagnosticLifetime(SKIP_CLOSE_PROPERTY + "=true", diagnostic);
+    }
+    return skip;
+  }
+
+  private static void requireDiagnosticLifetime(final String override, final boolean diagnostic) {
+    if (!diagnostic) {
+      throw new IllegalArgumentException(override + " retains native memory until process exit; "
+          + "only supported for diagnostics with -D" + UNSAFE_LIFETIME_PROPERTY + "=true");
+    }
+  }
+
+  /** Startup-only mapped-storage diagnostic policy, validated alongside the arena strategy. */
+  public static boolean skipArenaClose() {
+    return SKIP_ARENA_CLOSE;
   }
 
   /**

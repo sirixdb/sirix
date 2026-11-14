@@ -28,6 +28,7 @@
 
 package io.sirix.access;
 
+import io.sirix.utils.ConfigurationProperties;
 import io.sirix.utils.ToStringHelper;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
@@ -177,42 +178,24 @@ public final class DatabaseConfiguration {
   /**
    * Parse segment size from string with optional suffix (G, GB, M, MB, K, KB).
    */
-  private static long parseSegmentSize(String value) {
-    if (value == null || value.isEmpty()) {
-      return 16L * (1L << 30); // 16GB fallback
+  static long parseSegmentSize(final String value) {
+    final long bytes = ConfigurationProperties.parsePositiveBytes(SEGMENT_ALLOCATION_SIZE_PROPERTY, value);
+    if (bytes > 1L << 40) {
+      throw new IllegalArgumentException("Invalid -D" + SEGMENT_ALLOCATION_SIZE_PROPERTY + "=" + value
+          + ": maximum allocator cap is 1 TiB");
     }
-    value = value.trim().toUpperCase();
-    long multiplier = 1;
-    if (value.endsWith("GB")) {
-      multiplier = 1L << 30;
-      value = value.substring(0, value.length() - 2);
-    } else if (value.endsWith("G")) {
-      multiplier = 1L << 30;
-      value = value.substring(0, value.length() - 1);
-    } else if (value.endsWith("MB")) {
-      multiplier = 1L << 20;
-      value = value.substring(0, value.length() - 2);
-    } else if (value.endsWith("M")) {
-      multiplier = 1L << 20;
-      value = value.substring(0, value.length() - 1);
-    } else if (value.endsWith("KB")) {
-      multiplier = 1L << 10;
-      value = value.substring(0, value.length() - 2);
-    } else if (value.endsWith("K")) {
-      multiplier = 1L << 10;
-      value = value.substring(0, value.length() - 1);
-    }
-    try {
-      return Long.parseLong(value.trim()) * multiplier;
-    } catch (NumberFormatException e) {
-      return 16L * (1L << 30); // 16GB fallback on parse error
-    }
+    return bytes;
+  }
+
+  /** Process startup request used when an embedder asks for caches before opening a database. */
+  static long defaultSegmentAllocationSize() {
+    return DEFAULT_SEGMENT_ALLOCATION_SIZE;
   }
 
   /**
    * Maximum buffer size for memory segment allocation. Default is 16GB (configurable via
-   * -Dsirix.allocator.maxSize=XXG). With global buffer pool, this budget is shared across all
-   * databases, so larger is better.
+   * -Dsirix.allocator.maxSize=XXG). This is a startup request for the process-wide allocator.
+   * The first initialization fixes its allowance; opening another database does not resize it.
    */
   private long maxSegmentAllocationSize = DEFAULT_SEGMENT_ALLOCATION_SIZE;
 
@@ -246,7 +229,8 @@ public final class DatabaseConfiguration {
   }
 
   /**
-   * Set the maximum buffer size for memory segment allocation.
+   * Set the startup request for the process-wide allocator. The first initialization wins; a
+   * persisted request from a later database cannot resize the active allocator.
    *
    * @param size maximum buffer size in bytes
    * @return this {@link DatabaseConfiguration} instance

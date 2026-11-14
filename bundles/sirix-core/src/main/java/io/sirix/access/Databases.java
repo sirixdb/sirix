@@ -1,5 +1,7 @@
 package io.sirix.access;
 
+import io.sirix.cache.PageCache;
+import io.sirix.utils.ConfigurationProperties;
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.Database;
@@ -686,21 +688,16 @@ public final class Databases {
     return dbConfig.getDatabaseType().createDatabase(dbConfig, user);
   }
 
-  private static void initAllocator(long maxSegmentAllocationSize) {
+  private static void initAllocator(final long requestedBytes) {
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    allocator.init(requestedBytes);
+    final long effectiveBytes = allocator.getMaxBufferSize();
+    if (effectiveBytes != requestedBytes) {
+      logger.warn("Allocator startup request: {} bytes; effective process allowance: {} bytes. "
+          + "The first initialization wins; later database requests do not resize it.", requestedBytes, effectiveBytes);
+    }
     if (MANAGER.sessions().isEmpty()) {
-      // Use the central Allocators factory so every callsite in sirix-core
-      // talks to the same allocator instance, the Umbra-style frame-slot allocator.
-      final MemorySegmentAllocator segmentAllocator = Allocators.getInstance();
-      segmentAllocator.init(maxSegmentAllocationSize);
-
-      // The caches are sized from what the allocator ACTUALLY has, never from what this database's
-      // persisted config asked for. Allocator init is first-call-wins (an embedder, a benchmark
-      // runner, or an earlier database may already have fixed a smaller arena), and every byte the
-      // record-page caches hold is an allocator frame — sizing them from the request while the
-      // frames come from the grant lets the caches pin more than the arena owns. They then sit far
-      // under their own budget, so neither evictIfOverBudget nor the pressure listener ever fires,
-      // and the arena hits OutOfMemoryError with the caches believing they are nearly empty.
-      initializeGlobalBufferManager(segmentAllocator.getMaxBufferSize());
+      initializeGlobalBufferManager(effectiveBytes);
     }
   }
 
@@ -715,22 +712,24 @@ public final class Databases {
   }
 
   /**
-   * System property for record page cache size in bytes. Default scales with memory budget: 6.5MB per
-   * GB of budget. Example: -Dsirix.cache.recordPage=1073741824 (for 1GB cache)
+   * System property for record page cache size in bytes. Default is 50% of the allocator allowance.
+   * Example: -Dsirix.cache.recordPage=1073741824 (for 1GB cache)
    */
   public static final String PROP_RECORD_PAGE_CACHE = "sirix.cache.recordPage";
 
   /**
-   * System property for record page fragment cache size in bytes. Default scales with memory budget:
-   * 3.25MB per GB of budget. Example: -Dsirix.cache.recordPageFragment=536870912 (for 512MB cache)
+   * System property for record page fragment cache size in bytes. Default is 18.75% of the
+   * allocator allowance.
+   * Example: -Dsirix.cache.recordPageFragment=536870912 (for 512MB cache)
    */
   public static final String PROP_RECORD_PAGE_FRAGMENT_CACHE = "sirix.cache.recordPageFragment";
 
   /**
-   * System property for page cache size (metadata pages). Default: 50MB. Can be increased for larger
-   * datasets. Example: -Dsirix.cache.page=104857600 (for 100MB cache)
+   * Deprecated estimated metadata bytes: one entry per 1,000 bytes, minimum one entry.
+   * Prefer {@link PageCache#MAX_ENTRIES_PROPERTY}, which takes precedence. This is a count-based
+   * cache, not a retained-heap byte cap; the default is 50,000 entries.
    */
-  public static final String PROP_PAGE_CACHE = "sirix.cache.page";
+  public static final String PROP_PAGE_CACHE = PageCache.LEGACY_BYTES_PROPERTY;
 
   /**
    * System property for the revision-root page cache capacity in ENTRIES (not bytes). One entry
@@ -755,63 +754,50 @@ public final class Databases {
    * <p>
    * Cache sizes can be overridden via system properties:
    * <ul>
-   * <li>{@code -Dsirix.cache.recordPage=<bytes>} - Record page cache size (default: 25% of
+   * <li>{@code -Dsirix.cache.recordPage=<bytes>} - Record page cache size (default: 50% of
    * budget)</li>
    * <li>{@code -Dsirix.cache.recordPageFragment=<bytes>} - Record page fragment cache size (default:
-   * 12.5% of budget)</li>
-   * <li>{@code -Dsirix.cache.page=<bytes>} - Metadata page cache size (default: 50MB)</li>
+   * 18.75% of budget)</li>
+   * <li>{@code -Dsirix.cache.page.max.entries=<entries>} - Metadata entry cap (default: 50,000).
+   * Legacy {@code sirix.cache.page} estimates one entry per 1,000 bytes.</li>
    * <li>{@code -Dsirix.cache.revisionRoot.max.entries=<entries>} - Revision-root page cache capacity
    * in entries (default: 20,000)</li>
    * </ul>
    *
    * @param maxSegmentAllocationSize the maximum memory budget for the allocator
    */
-  private static synchronized void initializeGlobalBufferManager(long maxSegmentAllocationSize) {
+  private static synchronized void initializeGlobalBufferManager(final long maxSegmentAllocationSize) {
     if (GLOBAL_BUFFER_MANAGER == null) {
-      // Scale caches based on memory budget
-      // Target: use ~40% of budget for caches (25% record + 12.5% fragment + 2.5% metadata)
-      long budgetGB = maxSegmentAllocationSize / (1L << 30);
-      long budgetBytes = maxSegmentAllocationSize;
-
-      // AGGRESSIVE DEFAULT CACHE SIZES for high-performance workloads
-      // Target: use ~75% of memory budget for caching (24GB for 32GB budget)
-      // This follows database best practices (PostgreSQL shared_buffers = 25-40%, but we go higher
-      // since Sirix is the primary application and uses off-heap memory)
-      //
-      // RecordPageCache: 50% of budget (e.g., 16GB for 32GB budget) - main data cache
-      long defaultRecordPageCacheBytes = budgetBytes / 2;
-      // RecordPageFragmentCache: 18.75% of budget (e.g., 6GB for 32GB budget) - versioning
-      long defaultRecordPageFragmentCacheBytes = (budgetBytes * 3) / 16;
-      // PageCache (metadata): 6.25% of budget (e.g., 2GB for 32GB budget)
-      long defaultPageCacheBytes = Math.max(100L * 1024 * 1024, budgetBytes / 16);
+      final long budgetBytes = maxSegmentAllocationSize;
+      final long defaultRecordPageCacheBytes = budgetBytes / 2;
+      // Divide before multiplying so even a large allowance cannot overflow.
+      final long defaultRecordPageFragmentCacheBytes = budgetBytes / 16 * 3 + budgetBytes % 16 * 3 / 16;
+      final long defaultPageCacheBytes = PageCache.DEFAULT_MAX_ENTRIES * PageCache.LEGACY_BYTES_PER_ENTRY;
 
       // Allow user override via system properties (support values > 2GB)
-      long maxRecordPageCacheBytes = getSystemPropertyLong(PROP_RECORD_PAGE_CACHE, defaultRecordPageCacheBytes);
-      long maxRecordPageFragmentCacheBytes =
-          getSystemPropertyLong(PROP_RECORD_PAGE_FRAGMENT_CACHE, defaultRecordPageFragmentCacheBytes);
-      long maxPageCacheBytes = getSystemPropertyLong(PROP_PAGE_CACHE, defaultPageCacheBytes);
+      final long maxRecordPageCacheBytes =
+          ConfigurationProperties.positiveBytes(PROP_RECORD_PAGE_CACHE, defaultRecordPageCacheBytes);
+      final long maxRecordPageFragmentCacheBytes =
+          ConfigurationProperties.positiveBytes(PROP_RECORD_PAGE_FRAGMENT_CACHE, defaultRecordPageFragmentCacheBytes);
+      final long maxPageCacheBytes = defaultPageCacheBytes; // PageCache resolves both operator overrides.
 
       // Fixed sizes (don't scale with budget). The old fixed 5,000-entry revision-root cap
       // silently thrashed any history longer than that under random point-in-time access;
       // the default is larger now and, unlike before, overridable for long histories.
-      int maxRevisionRootPageCache =
-          getSystemPropertyInt(PROP_REVISION_ROOT_CACHE_ENTRIES, DEFAULT_REVISION_ROOT_CACHE_ENTRIES);
-      int maxNamesCacheSize = 500;
-      int maxPathSummaryCacheSize = 20;
+      final int maxRevisionRootPageCache =
+          ConfigurationProperties.positiveInt(PROP_REVISION_ROOT_CACHE_ENTRIES, DEFAULT_REVISION_ROOT_CACHE_ENTRIES);
+      final int maxNamesCacheSize = 500;
+      final int maxPathSummaryCacheSize = 20;
 
-      logger.info("Initializing global BufferManager with memory budget: {} GB", budgetGB);
+      logger.info("Initializing global BufferManager with effective allocator allowance: {} bytes", budgetBytes);
       logger.info("  - RecordPageCache: {} bytes ({} MB){}", maxRecordPageCacheBytes,
           maxRecordPageCacheBytes / (1024 * 1024), System.getProperty(PROP_RECORD_PAGE_CACHE) != null
               ? " (user-configured)"
-              : " (default: 25% of budget)");
+              : " (default: 50% of budget)");
       logger.info("  - RecordPageFragmentCache: {} bytes ({} MB){}", maxRecordPageFragmentCacheBytes,
           maxRecordPageFragmentCacheBytes / (1024 * 1024), System.getProperty(PROP_RECORD_PAGE_FRAGMENT_CACHE) != null
               ? " (user-configured)"
-              : " (default: 12.5% of budget)");
-      logger.info("  - PageCache: {} bytes ({} MB){}", maxPageCacheBytes, maxPageCacheBytes / (1024 * 1024),
-          System.getProperty(PROP_PAGE_CACHE) != null
-              ? " (user-configured)"
-              : " (default)");
+              : " (default: 18.75% of budget)");
       logger.info("  - RevisionRootPageCache size: {} entries{}", maxRevisionRootPageCache,
           System.getProperty(PROP_REVISION_ROOT_CACHE_ENTRIES) != null
               ? " (user-configured)"
@@ -837,73 +823,6 @@ public final class Databases {
   }
 
   /**
-   * Get a long system property with a default value. Supports values > 2GB for large cache
-   * configurations.
-   *
-   * @param property the property name
-   * @param defaultValue the default value if property is not set or invalid
-   * @return the property value or default
-   */
-  private static long getSystemPropertyLong(String property, long defaultValue) {
-    String value = System.getProperty(property);
-    if (value == null || value.isEmpty()) {
-      return defaultValue;
-    }
-    try {
-      // Support suffixes: K, M, G for kilobytes, megabytes, gigabytes
-      long multiplier = 1;
-      String numericPart = value.trim();
-      if (numericPart.endsWith("G") || numericPart.endsWith("g")) {
-        multiplier = 1024L * 1024L * 1024L;
-        numericPart = numericPart.substring(0, numericPart.length() - 1);
-      } else if (numericPart.endsWith("M") || numericPart.endsWith("m")) {
-        multiplier = 1024L * 1024L;
-        numericPart = numericPart.substring(0, numericPart.length() - 1);
-      } else if (numericPart.endsWith("K") || numericPart.endsWith("k")) {
-        multiplier = 1024L;
-        numericPart = numericPart.substring(0, numericPart.length() - 1);
-      }
-
-      long parsedValue = Long.parseLong(numericPart.trim()) * multiplier;
-      if (parsedValue <= 0) {
-        logger.warn("Invalid value for {}: {} (must be positive), using default: {}", property, value, defaultValue);
-        return defaultValue;
-      }
-      return parsedValue;
-    } catch (NumberFormatException e) {
-      logger.warn("Invalid value for {}: {} (not a number), using default: {}", property, value, defaultValue);
-      return defaultValue;
-    }
-  }
-
-  /**
-   * Get a positive int system property (an entry count, not a byte size — no K/M/G suffixes) with a
-   * default value. Mirrors {@link #getSystemPropertyLong}'s warn-and-fall-back behavior so a
-   * misconfigured value never crashes global BufferManager initialization.
-   *
-   * @param property the property name
-   * @param defaultValue the default value if the property is not set or invalid
-   * @return the property value or default
-   */
-  private static int getSystemPropertyInt(String property, int defaultValue) {
-    String value = System.getProperty(property);
-    if (value == null || value.isEmpty()) {
-      return defaultValue;
-    }
-    try {
-      int parsedValue = Integer.parseInt(value.trim());
-      if (parsedValue <= 0) {
-        logger.warn("Invalid value for {}: {} (must be positive), using default: {}", property, value, defaultValue);
-        return defaultValue;
-      }
-      return parsedValue;
-    } catch (NumberFormatException e) {
-      logger.warn("Invalid value for {}: {} (not a number), using default: {}", property, value, defaultValue);
-      return defaultValue;
-    }
-  }
-
-  /**
    * Get the global BufferManager instance directly.
    * 
    * @return the single global BufferManager instance
@@ -911,7 +830,7 @@ public final class Databases {
   public static BufferManager getGlobalBufferManager() {
     if (GLOBAL_BUFFER_MANAGER == null) {
       // Initialize with default if called before any database is opened
-      initializeGlobalBufferManager(2L * (1L << 30)); // 2GB default
+      initAllocator(DatabaseConfiguration.defaultSegmentAllocationSize());
     }
     return GLOBAL_BUFFER_MANAGER;
   }
@@ -955,7 +874,8 @@ public final class Databases {
    */
   public static synchronized void reinitializeBufferManagerForTesting(long recordPageCacheBytes,
       long recordPageFragmentCacheBytes) {
-    reinitializeBufferManagerForTesting(recordPageCacheBytes, recordPageFragmentCacheBytes, 50L * 1024 * 1024);
+    reinitializeBufferManagerForTesting(recordPageCacheBytes, recordPageFragmentCacheBytes,
+        PageCache.DEFAULT_MAX_ENTRIES * PageCache.LEGACY_BYTES_PER_ENTRY);
   }
 
   /**
@@ -969,7 +889,7 @@ public final class Databases {
    *
    * @param recordPageCacheBytes maximum weight in bytes for the record page cache
    * @param recordPageFragmentCacheBytes maximum weight in bytes for the record page fragment cache
-   * @param pageCacheBytes maximum weight in bytes for the metadata page cache
+   * @param pageCacheBytes legacy metadata estimate (1,000 bytes per entry), subject to entry-count override
    */
   public static synchronized void reinitializeBufferManagerForTesting(long recordPageCacheBytes,
       long recordPageFragmentCacheBytes, long pageCacheBytes) {
@@ -989,7 +909,7 @@ public final class Databases {
 
     // Fixed sizes (same as default initialization)
     int maxRevisionRootPageCache =
-        getSystemPropertyInt(PROP_REVISION_ROOT_CACHE_ENTRIES, DEFAULT_REVISION_ROOT_CACHE_ENTRIES);
+        ConfigurationProperties.positiveInt(PROP_REVISION_ROOT_CACHE_ENTRIES, DEFAULT_REVISION_ROOT_CACHE_ENTRIES);
     int maxNamesCacheSize = 500;
     int maxPathSummaryCacheSize = 20;
 
@@ -997,7 +917,7 @@ public final class Databases {
     logger.info("  - RecordPageCache: {} bytes ({} MB)", recordPageCacheBytes, recordPageCacheBytes / (1024 * 1024));
     logger.info("  - RecordPageFragmentCache: {} bytes ({} MB)", recordPageFragmentCacheBytes,
         recordPageFragmentCacheBytes / (1024 * 1024));
-    logger.info("  - PageCache: {} bytes ({} MB)", pageCacheBytes, pageCacheBytes / (1024 * 1024));
+    logger.info("  - PageCache legacy estimate: {} bytes; effective entry cap logged by PageCache", pageCacheBytes);
 
     GLOBAL_BUFFER_MANAGER = new BufferManagerImpl(pageCacheBytes, recordPageCacheBytes, recordPageFragmentCacheBytes,
         maxRevisionRootPageCache, maxNamesCacheSize, maxPathSummaryCacheSize);

@@ -37,8 +37,19 @@ public final class SharedArenasTest {
   void explicitOverrides() {
     assertEquals(SharedArenas.Strategy.SHARED, SharedArenas.determineStrategy("shared", true));
     assertEquals(SharedArenas.Strategy.AUTO, SharedArenas.determineStrategy("auto", false));
-    assertEquals(SharedArenas.Strategy.GLOBAL, SharedArenas.determineStrategy("GLOBAL", false));
-    assertEquals(SharedArenas.Strategy.GLOBAL, SharedArenas.determineStrategy(" global ", true));
+    assertEquals(SharedArenas.Strategy.GLOBAL, SharedArenas.determineStrategy("GLOBAL", false, true));
+    assertEquals(SharedArenas.Strategy.GLOBAL, SharedArenas.determineStrategy(" global ", true, true));
+  }
+
+  @Test
+  void productionRejectsProcessLifetimeOverrides() {
+    final IllegalArgumentException global = assertThrows(IllegalArgumentException.class,
+        () -> SharedArenas.determineStrategy("global", false));
+    assertTrue(global.getMessage().contains(SharedArenas.UNSAFE_LIFETIME_PROPERTY));
+    assertThrows(IllegalArgumentException.class, () -> SharedArenas.determineStrategy("global", true));
+    assertThrows(IllegalArgumentException.class, () -> SharedArenas.determineSkipArenaClose(true, false));
+    assertTrue(SharedArenas.determineSkipArenaClose(true, true));
+    assertEquals(false, SharedArenas.determineSkipArenaClose(false, false));
   }
 
   @Test

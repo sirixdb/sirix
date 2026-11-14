@@ -24,6 +24,7 @@ package io.sirix.access.trx.page;
 import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
 import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 
+import io.sirix.utils.SirixCleaner;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.access.trx.node.AbstractResourceSession;
 
@@ -114,7 +115,6 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.ref.Cleaner;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.io.IOException;
@@ -296,13 +296,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * writer; rollback replaces the writer instead of clearing the cause in place.
    */
   private volatile @Nullable Throwable transactionRollbackOnlyCause;
-
-  /**
-   * Shared Cleaner that runs the leak-detection callback on every NodeStorageEngineWriter once it
-   * becomes phantom-reachable. Used as the post-Java-9 replacement for the deprecated
-   * {@code finalize()} override.
-   */
-  private static final Cleaner LEAK_CLEANER = Cleaner.create();
 
   /**
    * State captured for leak diagnostics. Static class with no reference to the enclosing writer —
@@ -1142,12 +1135,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     };
 
     // Register a Cleaner-driven leak detector for this writer. Replaces the deprecated
-    // finalize() override; runs on a Cleaner thread (not the GC thread), no resurrection,
+    // finalize() override; runs on an independent cleanup thread (not the GC thread), no resurrection,
     // survives finalize() removal in future JDKs. close() flips the closed flag so the
     // detector skips the leak warning on properly-closed writers.
     this.leakDetectorState = new LeakDetectorState(storageEngineReader.getTrxId(), System.identityHashCode(this),
         System.identityHashCode(log), log);
-    LEAK_CLEANER.register(this, leakDetectorState);
+    SirixCleaner.register(this, leakDetectorState);
     // Acquire native scratch only after every fallible heap initialization has completed.
     bufferBytes = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE * 2L, ScratchUse.COMMIT_FLUSH);
     storageEngineReader.bindTransactionView(this);

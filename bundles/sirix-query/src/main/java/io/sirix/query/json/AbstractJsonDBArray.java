@@ -1,5 +1,6 @@
 package io.sirix.query.json;
 
+import io.sirix.utils.SirixCleaner;
 import io.sirix.utils.ChildCounts;
 import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryException;
@@ -25,7 +26,6 @@ import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.query.StructuredDBItem;
 import io.sirix.settings.Constants;
 
-import java.lang.ref.Cleaner;
 import java.lang.ref.Cleaner.Cleanable;
 import java.util.ArrayList;
 import java.util.List;
@@ -980,7 +980,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
         // release the worker transactions of a scan that stopped in the middle. The action must
         // capture the prefetcher ONLY: capturing `this` would keep the item reachable and the
         // cleanup would never run.
-        prefetcherCleanup = PrefetcherCleaner.CLEANER.register(this, started::close);
+        prefetcherCleanup = SirixCleaner.register(this, started::close);
       }
     }
   }
@@ -1011,20 +1011,6 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
         running.close();
       }
     }
-  }
-
-  /**
-   * Holds the process-wide cleaner in a class of its own so its thread starts on the first array that
-   * actually prefetches, not on the first one that is loaded.
-   */
-  private static final class PrefetcherCleaner {
-    static final Cleaner CLEANER = Cleaner.create(runnable -> {
-      final Thread thread = new Thread(runnable, "sirix-scan-prefetch-cleaner");
-      thread.setDaemon(true);
-      return thread;
-    });
-
-    private PrefetcherCleaner() {}
   }
 
   @Override

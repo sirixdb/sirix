@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
 import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 
+import io.sirix.utils.SirixCleaner;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.AggregationGrant;
 import io.sirix.cache.MemorySegmentAllocator;
@@ -88,15 +89,6 @@ public final class GroupWorkspace implements AutoCloseable {
   // The map key is unused; a helper would only adapt the no-argument constructor to IntFunction.
   @SuppressWarnings("UnnecessaryLambda")
   private static final IntFunction<Spare> NEW_SPARE = _ -> new Spare();
-
-  /**
-   * Returns the regions of self-returning workspaces; created with the first one, never in a query.
-   */
-  private static final class SelfReturning {
-    private static final Cleaner CLEANER = Cleaner.create();
-
-    private SelfReturning() {}
-  }
 
   /**
    * The regions a workspace has borrowed. Kept apart from the workspace so that a cleaner can return
@@ -227,7 +219,7 @@ public final class GroupWorkspace implements AutoCloseable {
     // Last: the registration must not see a half-built workspace, and the action holds the regions
     // only.
     this.selfReturn = selfReturning
-        ? SelfReturning.CLEANER.register(this, regions)
+        ? SirixCleaner.register(this, regions)
         : null;
   }
 
