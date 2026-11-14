@@ -56,7 +56,7 @@ second argument, e.g. `just bench JsonWritePathBenchmark compressionPipeline=NON
    ```bash
    git checkout -b feature/your-feature-name
    ```
-2. Make your changes
+2. Write the spec and derive tests before implementing the change (see below)
 3. Run tests:
    ```bash
    ./gradlew test
@@ -67,6 +67,27 @@ second argument, e.g. `just bench JsonWritePathBenchmark compressionPipeline=NON
    ```
 5. Commit and push your branch
 6. Open a Pull Request against `main`
+
+## Spec, mutation, exploration and learning
+
+Start every change with written behaviour, invariants and error cases in the issue or PR;
+derive tests from that spec **before writing implementation code**. Map each requirement to
+its test in the PR template. For documentation or CI changes, name the observable acceptance
+checks instead of inventing application tests.
+
+Mutation-test changed logic: inspect the PIT artifact, kill surviving/uncovered mutants with
+meaningful assertions or justify each equivalent/unreachable mutant in the PR (class, method,
+line, mutation and reason). A missing report or timeout is incomplete evidence. The bounded
+PR lane is initially informational; scope, local commands and the blocking switch are in
+[Verification](docs/VERIFICATION.md#pr-mutation-testing).
+
+Explore beyond the happy path using adversarial inputs, property-based tests or an independent
+differential oracle. Record the cases, seeds and outcomes in the PR; promote any discovered
+failure to a deterministic regression.
+
+Every bug gets a root-cause [write-up](docs/postmortems/TEMPLATE.md), a regression test that
+fails before the fix, and an actionable entry in [Lessons](docs/LESSONS.md). Link the evidence;
+explain why the old tests missed it and how the new check would catch it.
 
 ## Code Style
 

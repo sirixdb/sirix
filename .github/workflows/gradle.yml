@@ -153,9 +153,104 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  PythonTooling:
+    name: Python mutation tooling
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Test mutation tooling with branch coverage
+        env:
+          COVERAGE_FILE: ${{ runner.temp }}/python.coverage
+        run: |
+          python3 -m pip install --disable-pip-version-check --only-binary :all: coverage==7.17.3
+          python3 -B -m coverage run --branch --source=.github/scripts --omit='*/tests/*' \
+            -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation.py'
+          python3 -m coverage xml -o "$RUNNER_TEMP/python-coverage.xml"
+          python3 -m coverage report --fail-under=85
+      - name: Upload Python coverage
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage-python
+          path: ${{ runner.temp }}/python-coverage.xml
+          if-no-files-found: error
+          retention-days: 3
+
+  MutationTesting:
+    name: PIT changed-source mutation testing
+    needs: [Build, PythonTooling]
+    if: github.event_name == 'pull_request'
+    # Informational rollout. Enable only after survivor/incomplete baselines are resolved.
+    continue-on-error: ${{ vars.MUTATION_BLOCKING != 'true' }}
+    permissions:
+      contents: read
+    concurrency:
+      group: mutation-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR merge revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select changed main sources
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 .github/scripts/pr_mutation.py select
+          --base "$BASE_SHA" --head "$HEAD_SHA" --output "$RUNNER_TEMP/pr-mutation"
+      - name: Install JDK
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+        with:
+          cache-read-only: true
+      - name: Restore build output
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            **/build
+          key: build-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Run bounded PIT analysis
+        # Always enforce internally so incomplete runs remain visible as a failed informational
+        # job. The job-level rollout switch determines whether this fails the PR.
+        run: >-
+          python3 .github/scripts/pr_mutation.py run --seconds 1320 --blocking
+          --output "$RUNNER_TEMP/pr-mutation"
+      - name: Publish mutation summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/pr-mutation/summary.md" ]]; then
+            cat "$RUNNER_TEMP/pr-mutation/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Mutation analysis incomplete: setup/selection failed; see job logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload mutation reports and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pr-mutation
+          path: ${{ runner.temp }}/pr-mutation
+          if-no-files-found: warn
+          retention-days: 14
+
   Sonar:
     name: Run Sonarqube
-    needs: [Build, TestCore, TestQuery]
+    needs: [Build, TestCore, TestQuery, PythonTooling]
     # Secret boundary: docs/VERIFICATION.md#sonarcloud-analysis.
     # Release-branch and scheduled CI keep their existing behavior (no Sonar analysis).
     if: needs.Build.outputs.sonar-enabled == 'true'
@@ -203,8 +298,14 @@ jobs:
         with:
           name: coverage-query
           path: bundles
+      - name: Download Python tooling coverage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: coverage-python
+          path: build/reports/python
       - name: Merge core coverage and verify reports
         run: |
+          test -s build/reports/python/python-coverage.xml
           for lane in hot-property remaining; do
             cp -a "build/sonar-coverage/coverage-core-$lane/test-results" bundles/sirix-core/build/
           done
