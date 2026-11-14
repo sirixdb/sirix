@@ -19,5 +19,7 @@
   a real Python child with a shell-looking literal argument and verifies it remains data.
 - Prevention: validate full commit IDs, check literal paths against the repository tree, keep
   argv lists and `shell=False`, and collect/import coverage whenever a new language enters CI.
-  The independent Python lane publishes branch coverage and Sonar requires its XML.
+  The independent Python lane publishes branch coverage and Sonar requires its XML. Its pinned
+  coverage dependency is installed from wheels only (`--only-binary :all:`), preventing package
+  setup-script execution in CI; the follow-up scan identified this additional installer boundary.
 - Lesson: [validate argument semantics and coverage handoffs](../LESSONS.md).

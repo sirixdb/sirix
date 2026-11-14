@@ -168,7 +168,7 @@ jobs:
         env:
           COVERAGE_FILE: ${{ runner.temp }}/python.coverage
         run: |
-          python3 -m pip install --disable-pip-version-check coverage==7.17.3
+          python3 -m pip install --disable-pip-version-check --only-binary :all: coverage==7.17.3
           python3 -B -m coverage run --branch --source=.github/scripts --omit='*/tests/*' \
             -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation.py'
           python3 -m coverage xml -o "$RUNNER_TEMP/python-coverage.xml"
