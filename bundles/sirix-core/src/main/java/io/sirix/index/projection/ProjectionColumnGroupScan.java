@@ -71,7 +71,9 @@ public final class ProjectionColumnGroupScan {
    */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final @Nullable PredicateTree treeOrNull,
       final ColumnSlice @Nullable [][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
@@ -263,7 +265,9 @@ public final class ProjectionColumnGroupScan {
    */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupNumericDense(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
       final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols, final int fromLeaf,
@@ -524,7 +528,9 @@ public final class ProjectionColumnGroupScan {
    */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupStringFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final ColumnSlice[][] predCols, final ProjectionIndexScan.PredicateTree treeOrNull,
       final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol, final ColumnSlice[][] aggCols,
@@ -1404,7 +1410,9 @@ public final class ProjectionColumnGroupScan {
   // method.
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings({"java:S135", "java:S1871", "java:S3776"})
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S135", "java:S1871", "java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupCompositeFlat(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
       final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[][] keyCols,
@@ -2323,7 +2331,9 @@ public final class ProjectionColumnGroupScan {
   /** Global-string capable packed-substring overload; a non-null view selects global-id cells. */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void aggregateByGroupPackedSubstringFlat(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
       final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol,

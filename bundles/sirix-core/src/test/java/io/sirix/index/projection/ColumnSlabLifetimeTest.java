@@ -199,6 +199,9 @@ final class ColumnSlabLifetimeTest {
   }
 
   @Test
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings("ReachabilityFenceUsage")
   void directMaskedReadersOwnTheirSlabsAcrossUnrelatedScopeClosure() {
     for (final boolean maskedView : new boolean[] {false, true}) {
       final Fixture unrelated = build(2, 200);

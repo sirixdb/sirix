@@ -2233,7 +2233,9 @@ public final class ProjectionIndexByteScan {
    */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void conjunctiveAggregateByGroupNumericFlat(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final GroupBuffer missingAcc, final int leafIndexBase, final int distinctBlock,
@@ -2482,7 +2484,9 @@ public final class ProjectionIndexByteScan {
    */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   private static void countNumericGroups(final byte[] payload, final int rowCount, final int groupPresOff,
       final int groupValOff, final long leafOrdinalBase, final long[] scanMask, final NumericGroupAggTable out,
       final GroupBuffer missingAcc) {
@@ -2540,7 +2544,9 @@ public final class ProjectionIndexByteScan {
    */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void conjunctiveAggregateByGroupStringFlat(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final GroupBuffer missingAcc, final int leafIndexBase, final int distinctBlock,
@@ -2948,6 +2954,9 @@ public final class ProjectionIndexByteScan {
    * the ordinal lane is unused) — the single-group kernel behind {@code group by
    * <constant>}: N aggregates over their operand columns in one pass, no group column read at all.
    */
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings("ReachabilityFenceUsage")
   public static void conjunctiveAggregateAllNumeric(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] aggColumns, final GroupBuffer acc) {
     if (predicates == null) {
@@ -3676,7 +3685,10 @@ public final class ProjectionIndexByteScan {
   /** Count untransformed composite keys while retaining canonical byte proofs and pass ownership. */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings({"NullAway", "java:S3776"}) // needsProof implies that registry and proofCache are present.
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  // needsProof implies that registry and proofCache are present.
+  @SuppressWarnings({"NullAway", "java:S3776", "ReachabilityFenceUsage"})
   private static boolean countCompositeGroups(final byte[] payload, final int rowCount, final long leafOrdinalBase,
       final long[] scanMask, final byte[] kinds, final int[] presOff, final int[] valOff, final long[][] hashes,
       final long[][] idA, final long[][] idB, final int[][] dictOff, final int[] lenOff, final long[][] proven,
@@ -3765,7 +3777,9 @@ public final class ProjectionIndexByteScan {
    */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   private static void countByLongComposite(final List<byte[]> payloads, final ColumnPredicate[] predicates,
       final int[] columns, final NumericGroupAggTable out, final int leafIndexBase, final PredicateTree tree,
       final long[] budget, final long[] declineFlag, final ProjectionStringIdentityRegistry identityRegistry,
@@ -4727,7 +4741,9 @@ public final class ProjectionIndexByteScan {
   /** Global-string capable packed-substring overload; a non-null view resolves global-id cells. */
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings("java:S3776")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3776", "ReachabilityFenceUsage"})
   public static void conjunctiveAggregateByGroupPackedSubstringFlat(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int subStart,
       final int subLen, final int[] aggColumns, final NumericGroupAggTable out, final int leafIndexBase,

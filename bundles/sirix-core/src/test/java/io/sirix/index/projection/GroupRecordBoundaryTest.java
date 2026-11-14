@@ -15,6 +15,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 final class GroupRecordBoundaryTest {
   @Test
   @EnabledIfSystemProperty(named = "sirix.aggregation.debug", matches = "true")
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings("ReachabilityFenceUsage")
   void debugRecordsPreserveLiveFootprintsAcrossCollection() {
     try (GroupWorkspace workspace = new GroupWorkspace()) {
       final GroupBuffer buffer = workspace.takeChunk(32);
@@ -38,8 +41,7 @@ final class GroupRecordBoundaryTest {
       assertEquals(0L, GroupLanes.get(buffer, 26));
       workspace.giveChunk(buffer);
       assertThrows(IllegalStateException.class, () -> GroupKernelLanes.getOpaque(groupRecord, 12));
-      assertThrows(IllegalStateException.class,
-          () -> GroupKernelLanes.compareAndExchange(groupRecord, 12, 59L, 0L));
+      assertThrows(IllegalStateException.class, () -> GroupKernelLanes.compareAndExchange(groupRecord, 12, 59L, 0L));
       assertThrows(IllegalStateException.class, () -> GroupKernelLanes.getAndAdd(groupRecord, 12, 1L));
       Reference.reachabilityFence(buffer);
     }

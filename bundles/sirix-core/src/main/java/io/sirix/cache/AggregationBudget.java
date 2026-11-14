@@ -26,6 +26,9 @@ public final class AggregationBudget {
     this.lifetimeAnchor = lifetimeAnchor;
   }
 
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings("ReachabilityFenceUsage")
   public long capacity() {
     final long bytes = allocator.getMaxBufferSize() / DIVISOR;
     Reference.reachabilityFence(lifetimeAnchor);

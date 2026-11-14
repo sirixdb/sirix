@@ -24,6 +24,9 @@ import java.util.Objects;
  * it. The single-lane methods keep to the size {@link GroupKernelLanes} explains, for the same
  * reason.
  */
+// The fence stands after the access in program order, so the owner is live across the access
+// however it ends, and after a throw the address is not used again
+@SuppressWarnings("ReachabilityFenceUsage")
 public final class GroupLanes {
 
   private static final VarHandle LANE = ValueLayout.JAVA_LONG_UNALIGNED.varHandle();

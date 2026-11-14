@@ -1338,7 +1338,9 @@ public final class NumericGroupAggTable {
   // adds a flag test for each row.
   // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
   // and holds in registers.
-  @SuppressWarnings({"java:S1119", "java:S3776"})
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S1119", "java:S3776", "ReachabilityFenceUsage"})
   private int insertInterleaved(final long key, final long firstSeenOrdinal, final int bucket,
       final long @Nullable [] identity, final int identityOffset) {
     // A failed growth leaves a table that can only be released: it may have lost stripes.
@@ -1428,6 +1430,9 @@ public final class NumericGroupAggTable {
    * when given, the identity. The aux lane keeps the zero the chunk was handed out with. The complete
    * stripe is validated against its chunk before the first store.
    */
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings("ReachabilityFenceUsage")
   private void initStripe(final GroupBuffer chunk, final int off, final long key, final long firstSeenOrdinal,
       final long @Nullable [] identity, final int identityOffset) {
     final long groupRecord = chunk.recordAt(off, stride);
@@ -1891,6 +1896,9 @@ public final class NumericGroupAggTable {
    * and a bulk copy's own entry cost is several of them. Debug mode copies through the bounded
    * segments.
    */
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings("ReachabilityFenceUsage")
   private static void copyStripe(final GroupBuffer source, final long from, final int first, final GroupBuffer target,
       final int to, final int lanes) {
     if (GroupKernelLanes.DEBUG) {
@@ -2009,7 +2017,9 @@ public final class NumericGroupAggTable {
    */
   // Sonar S3358, S9435: hot path: the branch layout is the measured shape, rewriting it changes the
   // compiled method.
-  @SuppressWarnings({"java:S3358", "java:S9435"})
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings({"java:S3358", "java:S9435", "ReachabilityFenceUsage"})
   private void mergeStripe(final GroupBuffer source, final int stripe, final boolean denseUnfiltered) {
     // The complete source stripe, validated once: key, accumulator, aux and identity.
     final long from = source.recordAt(stripe, stride);
@@ -2131,6 +2141,9 @@ public final class NumericGroupAggTable {
    * The zero group belongs to partition 0 and lives in a side slot, so it merges the same way for
    * both partition walks.
    */
+  // The fence stands after the access in program order, so the owner is live across the access
+  // however it ends, and after a throw the address is not used again
+  @SuppressWarnings("ReachabilityFenceUsage")
   private static void mergeZeroGroup(final NumericGroupAggTable src, final NumericGroupAggTable into,
       final int slotWidth, final int partition) {
     if (partition != 0 || !src.hasZeroKey) {
