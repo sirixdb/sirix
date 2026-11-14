@@ -3,7 +3,7 @@ package io.sirix.cache;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import io.sirix.page.NamePage;
+import io.sirix.page.IndirectPage;
 import io.sirix.page.PageReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,7 +50,7 @@ final class PageCacheConfigurationTest {
     final PageCache cache = new PageCache(50_000_000L);
     assertEquals(2, cache.maxEntries());
     for (int i = 0; i < 12; i++) {
-      cache.put(new PageReference().setKey(i), new NamePage());
+      cache.put(new PageReference().setKey(i), new IndirectPage());
     }
     cache.cleanUp();
     assertEquals(2, cache.asMap().size());
