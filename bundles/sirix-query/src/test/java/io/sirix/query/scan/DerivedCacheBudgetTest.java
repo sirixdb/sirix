@@ -41,6 +41,8 @@ final class DerivedCacheBudgetTest {
     }
 
     @Override
+    // Dependencies are cache-entry identities rather than values
+    @SuppressWarnings("ReferenceEquality")
     protected boolean dependsOn(final Object identity) {
       return dependency == identity;
     }
@@ -62,6 +64,8 @@ final class DerivedCacheBudgetTest {
     }
   }
 
+  // Fixture keys identify the exact published objects
+  @SuppressWarnings("ReferenceEquality")
   private static Stub find(final Partition partition, final Object key) {
     return (Stub) partition.acquire(entry -> entry instanceof Stub stub && stub.key == key);
   }

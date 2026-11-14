@@ -286,6 +286,8 @@ final class ComputedColumnLaneEquivalenceTest {
   // ==================== harness ====================
 
   /** One postfix program with the operand width it needs. */
+  // Fixture arrays are shared with the harness and are not compared by record equality
+  @SuppressWarnings("ArrayRecordComponent")
   private record Program(String name, int[] code, long[] consts, int operands, IntToLongFunction expectedValue) {
     @Override
     public String toString() {

@@ -105,7 +105,7 @@ final class ScratchLeaseTest {
     assertEquals(FrameScratch.EXACT_CLASS, FrameScratch.classForSize(Long.MAX_VALUE));
     for (int capacityClass = 0; capacityClass < FrameScratch.CLASS_COUNT; capacityClass++) {
       final long capacity = FrameScratch.capacityOf(capacityClass);
-      assertEquals(4 * KIB << capacityClass, capacity, "capacities double from 4 KiB");
+      assertEquals((4 * KIB) << capacityClass, capacity, "capacities double from 4 KiB");
       assertEquals(capacityClass, FrameScratch.classForSize(capacity));
       assertEquals(capacityClass, FrameScratch.classForSize(capacity - 1));
     }
@@ -225,7 +225,7 @@ final class ScratchLeaseTest {
     buffer.putInt(0, round);
     nested.acquire(100 * KIB, ScratchUse.CODEC);
     SegmentAccess.putInt(nested.segment(), 0L, round + 1);
-    long sum = buffer.getInt(0) + SegmentAccess.getInt(nested.segment(), 0L);
+    long sum = (long) buffer.getInt(0) + SegmentAccess.getInt(nested.segment(), 0L);
     nested.close();
     lease.close();
     lease.acquire(MIB, ScratchUse.READ);

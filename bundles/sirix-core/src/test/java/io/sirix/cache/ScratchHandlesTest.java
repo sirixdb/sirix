@@ -37,6 +37,8 @@ final class ScratchHandlesTest {
   private static final String BUILD_TIME_FLAG = "--initialize-at-build-time=";
 
   @Test
+  // String splitting follows the native-image property's whitespace and comma delimiters
+  @SuppressWarnings("StringSplitter")
   void theHandleHolderIsInitializedAtBuildTimeAndHoldsOnlyFinalHandles() throws IOException {
     final ClassLoader loader = ScratchHandlesTest.class.getClassLoader();
     final Set<String> configured = new HashSet<>();

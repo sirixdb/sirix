@@ -79,6 +79,8 @@ final class FileChannelReadScratchTest {
   }
 
   /** A batch of HOT leaves laid out {@link #STRIDE} bytes apart, with the file that holds them. */
+  // Fixture arrays are shared with the harness and are not compared by record equality
+  @SuppressWarnings("ArrayRecordComponent")
   private record Batch(byte[] file, PageReference[] references, byte[][] values, long[] offsets, byte[][] frames) {
 
     static Batch create() throws IOException {

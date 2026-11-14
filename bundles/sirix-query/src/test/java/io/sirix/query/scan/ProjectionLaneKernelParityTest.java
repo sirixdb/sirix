@@ -50,6 +50,8 @@ final class ProjectionLaneKernelParityTest {
   private static final byte[] KINDS =
       {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
 
+  // Fixture arrays are shared with the harness and are not compared by record equality
+  @SuppressWarnings("ArrayRecordComponent")
   private record Fixture(ProjectionColumnStore store, ColumnSegmentFetcher fetcher, long[][] values,
       boolean[][] present) {
   }

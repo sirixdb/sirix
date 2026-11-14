@@ -140,6 +140,8 @@ final class SegmentHandleConstantsTest {
     }
   }
 
+  // String splitting follows the native-image property's whitespace and comma delimiters
+  @SuppressWarnings("StringSplitter")
   private static Set<String> configuredBuildTimeClasses(final ClassLoader loader) throws IOException {
     final Set<String> configured = new HashSet<>();
     for (final String configuration : CONFIGURATIONS) {
@@ -213,7 +215,11 @@ final class SegmentHandleConstantsTest {
 
   /** A fixture holding one handle of each kind; initialized only by the test that reads it. */
   private static final class Handles {
+    // The test reads this handle by reflection
+    @SuppressWarnings("UnusedVariable")
     static final VarHandle SEGMENT = ValueLayout.JAVA_LONG_UNALIGNED.varHandle();
+    // The test reads this handle by reflection
+    @SuppressWarnings("UnusedVariable")
     static final VarHandle ARRAY = MethodHandles.arrayElementVarHandle(long[].class);
 
     private Handles() {}

@@ -134,8 +134,8 @@ final class FSSTBatchDecodeTest {
     }
     batch.add(unseen.toString(), symbols);
     batch.add(sentence(7), symbols);
-    assertTrue(batch.compressed.contains(Boolean.TRUE), "the fixture stores no row compressed");
-    assertTrue(batch.compressed.contains(Boolean.FALSE), "the fixture stores no row raw");
+    assertTrue(batch.compressed.contains(true), "the fixture stores no row compressed");
+    assertTrue(batch.compressed.contains(false), "the fixture stores no row raw");
     final int rows = batch.payloads.size();
     assertTrue(batch.payloads.get(rows - 3).length > 8 * 1024 && batch.compressed.get(rows - 3),
         "the long repeated value must be stored compressed and exceed the initial staging");

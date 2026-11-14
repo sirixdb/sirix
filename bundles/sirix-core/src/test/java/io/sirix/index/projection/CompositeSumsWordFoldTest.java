@@ -36,6 +36,8 @@ final class CompositeSumsWordFoldTest {
   /** An operand value that the fixture stores as absent. */
   private static final long ABSENT = Long.MIN_VALUE;
 
+  // Fixture arrays are shared with the harness and are not compared by record equality
+  @SuppressWarnings("ArrayRecordComponent")
   private record Fixture(ProjectionColumnStore store, ColumnSlice[][] keys, ColumnSlice[][] operands) {
   }
 
@@ -271,7 +273,7 @@ final class CompositeSumsWordFoldTest {
     final EncodedRowGroup encoded = ProjectionIndexColumnSegmentCodec.encode(page.serialize());
     final long[] offsets = new long[encoded.columnSegmentIds().length];
     for (int i = 0; i < offsets.length; i++) {
-      offsets[i] = i + 1;
+      offsets[i] = i + 1L;
     }
     final ProjectionColumnStore store = new ProjectionColumnStore(List.of(new RowGroupDirectory(1, encoded.descriptor(),
         encoded.columnSegmentIds(), offsets, new byte[offsets.length][])));

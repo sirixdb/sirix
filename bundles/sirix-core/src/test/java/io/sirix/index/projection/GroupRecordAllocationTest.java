@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 final class GroupRecordAllocationTest {
   private static final int ROWS = 100_000;
   // Write-only on purpose: each resolved buffer escapes here, so scalar replacement hides none.
-  @SuppressWarnings("java:S1068")
+  @SuppressWarnings({"java:S1068", "UnusedVariable"})
   private static volatile GroupBuffer retained;
 
   @Test
