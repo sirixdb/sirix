@@ -106,11 +106,7 @@ public final class SirixMetricsRegistry {
     registerGauge("sirix_hot_leaf_page_cache_max_bytes", "Configured max bytes for the HOT-leaf page cache",
         () -> bufferManagerSupplier(BufferManagerImpl::getHOTLeafPageCacheMaxWeightBytes));
 
-    // Off-heap allocator commitment, read from the ACTIVE allocator via
-    // Allocators.getInstance() — reading a concrete implementation directly
-    // reports a flat 0 whenever the other one is configured (the default is
-    // FrameSlotAllocator on Linux, so pinning LinuxMemorySegmentAllocator
-    // here measured the wrong, inactive allocator).
+    // Off-heap allocator commitment, read through Allocators.getInstance().
     registerGauge("sirix_allocator_physical_memory_bytes",
         "Off-heap physical memory committed by the active memory-segment allocator",
         SirixMetricsRegistry::allocatorPhysicalMemoryBytesOrZero);

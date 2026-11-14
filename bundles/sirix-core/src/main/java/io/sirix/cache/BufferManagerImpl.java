@@ -358,7 +358,6 @@ public final class BufferManagerImpl implements BufferManager {
       pageCache.clear();
     };
     FrameSlotAllocator.setPressureListener(pressureListener);
-    LinuxMemorySegmentAllocator.setPressureListener(pressureListener);
 
     revisionRootPageCache = new RevisionRootPageCache(maxRevisionRootPageCache);
     final String configuredHotLookupEntries = System.getProperty(HOT_LOOKUP_CACHE_ENTRIES_PROPERTY);

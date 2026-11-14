@@ -4,35 +4,21 @@
 package io.sirix.cache;
 
 import java.util.concurrent.CancellationException;
-import java.lang.ref.Reference;
 
 /** Allocator-owned exclusive capacity for aggregation; no row-loop accounting or allocations. */
 public final class AggregationBudget {
   public static final int DIVISOR = 8;
   private final MemorySegmentAllocator allocator;
-  // A fallback source is weakly indexed by its allocator. A live grant must keep that exact
-  // source (and its admission ledger) alive, even before it has borrowed its first region.
-  private final Object lifetimeAnchor;
   private long granted;
   private long peakGranted;
   private long waits;
 
   AggregationBudget(final MemorySegmentAllocator allocator) {
-    this(allocator, allocator);
-  }
-
-  AggregationBudget(final MemorySegmentAllocator allocator, final Object lifetimeAnchor) {
     this.allocator = allocator;
-    this.lifetimeAnchor = lifetimeAnchor;
   }
 
-  // The fence stands after the access in program order, so the owner is live across the access
-  // however it ends, and after a throw the address is not used again
-  @SuppressWarnings("ReachabilityFenceUsage")
   public long capacity() {
-    final long bytes = allocator.getMaxBufferSize() / DIVISOR;
-    Reference.reachabilityFence(lifetimeAnchor);
-    return bytes;
+    return allocator.getMaxBufferSize() / DIVISOR;
   }
 
   /**

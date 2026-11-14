@@ -5692,8 +5692,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     if (stamp == STAMP_UNBACKED) {
       // Unbacked memory has no slot version to consult; detecting a close between snapshot and
-      // validation is the strongest check available, and all the non-frame allocators need — their
-      // release path is what recycles the memory.
+      // validation is the strongest check available, and all that memory outside the frame slots
+      // needs — its owner's release path is what recycles it.
       return !isClosed();
     }
     if ((stamp & 1L) != 0L) {

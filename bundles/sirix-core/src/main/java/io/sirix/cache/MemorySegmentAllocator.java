@@ -113,7 +113,7 @@ public interface MemorySegmentAllocator {
 
   /**
    * What this allocator's scratch buffers ({@link ScratchLease}) were asked for, hold and refused.
-   * Implementations that serve scratch without keeping counters report {@link ScratchStats#EMPTY}.
+   * Implementations that lend no scratch report {@link ScratchStats#EMPTY}.
    */
   default ScratchStats scratchStats() {
     return ScratchStats.EMPTY;
@@ -121,10 +121,7 @@ public interface MemorySegmentAllocator {
 
   /** Exclusive aggregation capacity, owned by this allocator. */
   default AggregationBudget aggregationBudget() {
-    if (!isInitialized()) {
-      throw new IllegalStateException("allocator must be initialized before granting execution capacity");
-    }
-    return FallbackScratch.of(this).aggregationBudget();
+    throw new UnsupportedOperationException(getClass().getName() + " grants no execution capacity");
   }
 
   /**

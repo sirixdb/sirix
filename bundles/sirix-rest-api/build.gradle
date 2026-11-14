@@ -182,8 +182,6 @@ graalvmNative {
             // Netty - all run time
             buildArgs.add('--initialize-at-run-time=io.netty')
             // Sirix FFI components - run time
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
             buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
             // Vert.x components - run time
             buildArgs.add('--initialize-at-run-time=io.vertx.core.impl.resolver')
@@ -224,8 +222,6 @@ graalvmNative {
             // Netty - all run time to avoid InetAddress in image heap issues
             buildArgs.add('--initialize-at-run-time=io.netty')
             // Sirix FFI components
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
             buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
             // Vert.x DNS resolver (contains InetAddress references)
             buildArgs.add('--initialize-at-run-time=io.vertx.core.impl.resolver')

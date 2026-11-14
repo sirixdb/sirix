@@ -552,11 +552,9 @@ public final class FFILz4Compressor implements ByteHandler {
       throw new SirixIOException("Corrupt compressed page: implausible decompressed size " + sizeHeader);
     }
 
-    // Buffers come from Allocators.getInstance(): on Linux that is the Umbra-style
-    // FrameSlotAllocator (fixed-address frame slots + optimistic versioned reads), which
-    // eliminates the cross-thread recycling race the legacy pool allocator had under
-    // 20-way parallel scans. The legacy LinuxMemorySegmentAllocator remains reachable via
-    // -Dsirix.allocator=pool for emergency rollback ONLY — it still carries that race.
+    // Buffers come from Allocators.getInstance(): the Umbra-style FrameSlotAllocator (fixed-address
+    // frame slots + optimistic versioned reads), which has no cross-thread recycling race under
+    // 20-way parallel scans.
     // (Arena.ofShared() per decompression was correct but added ~40 s of mmap/close
     // overhead per 1 M-page scan — 2.5× slowdown — hence the pooled design.)
 

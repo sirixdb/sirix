@@ -42,11 +42,23 @@ abstract class ScratchSource {
    */
   abstract boolean release(ScratchCarrier carrier, long era);
 
-  /** The scratch source of {@code allocator}. */
+  /**
+   * The scratch source of {@code allocator}.
+   *
+   * @throws IllegalArgumentException for an allocator that lends no scratch: only the frame-slot
+   *         allocator does
+   */
   static ScratchSource of(final MemorySegmentAllocator allocator) {
     Objects.requireNonNull(allocator, "allocator");
-    return allocator instanceof FrameSlotAllocator frames
-        ? frames.scratch()
-        : FallbackScratch.of(allocator);
+    if (allocator instanceof FrameSlotAllocator frames) {
+      return frames.scratch();
+    }
+    throw noScratch(allocator);
+  }
+
+  // Out of line on purpose: every borrow inlines of(), which then carries one call for the case that
+  // never happens instead of the code that builds the message.
+  private static IllegalArgumentException noScratch(final MemorySegmentAllocator allocator) {
+    return new IllegalArgumentException(allocator.getClass().getName() + " lends no scratch buffers");
   }
 }

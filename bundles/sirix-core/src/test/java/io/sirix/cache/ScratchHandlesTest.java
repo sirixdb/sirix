@@ -72,7 +72,7 @@ final class ScratchHandlesTest {
   @Test
   void theBorrowPathKeepsNoHandleOfItsOwn() {
     for (final Class<?> type : List.of(ScratchLease.class, ScratchCarrier.class, FrameScratch.class,
-        FallbackScratch.class, ScratchSource.class)) {
+        ScratchSource.class)) {
       for (final Field field : type.getDeclaredFields()) {
         assertTrue(!VarHandle.class.isAssignableFrom(field.getType()),
             type.getSimpleName() + "." + field.getName() + " is a handle outside the build-time-initialized holder: "

@@ -28,12 +28,12 @@ import java.util.function.BiFunction;
  *
  * <h2>Why this exists</h2>
  *
- * The prior {@link LinuxMemorySegmentAllocator} uses a pool of recyclable segments: a fresh
- * allocate() can hand back a segment whose virtual address previously hosted different page
- * content. Under high-concurrency parallel scans (20 worker threads × 100 M records), this exposes
- * a race where a reader holds a {@link MemorySegment} into a just-released segment at the moment
- * the kernel {@code MADV_DONTNEED}s its physical pages, producing {@code SIGSEGV_MAPERR} in
- * otherwise-correct code.
+ * The pool allocator this one replaced kept recyclable segments: a fresh allocate() could hand back
+ * a segment whose virtual address previously hosted different page content. Under high-concurrency
+ * parallel scans (20 worker threads × 100 M records), that exposed a race where a reader held a
+ * {@link MemorySegment} into a just-released segment at the moment the kernel
+ * {@code MADV_DONTNEED}ed its physical pages, producing {@code SIGSEGV_MAPERR} in otherwise-correct
+ * code.
  *
  * <h2>Umbra's solution, ported</h2>
  *
@@ -78,10 +78,10 @@ import java.util.function.BiFunction;
  *
  * <h2>Size classes</h2>
  *
- * Seven power-of-two size classes match what {@code LinuxMemorySegmentAllocator} exposes today: 4
- * KiB through 256 KiB. Each class has its own mmap'd virtual region, version array, and
- * recycled-slot set; there is no cross-class contention. Callers locate the right class via
- * {@link #indexForSize(long)}.
+ * Seven power-of-two size classes, 4 KiB through 256 KiB
+ * ({@link MemorySegmentAllocator#SEGMENT_SIZES}). Each class has its own mmap'd virtual region,
+ * version array, and recycled-slot set; there is no cross-class contention. Callers locate the
+ * right class via {@link #indexForSize(long)}.
  *
  * <h2>One owner for every reusable buffer</h2>
  *
@@ -181,7 +181,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private static final VarHandle SCOPE_ENTRY = MethodHandles.arrayElementVarHandle(MemorySegment.Scope[].class);
   private static final VarHandle VERSION_ENTRY = MethodHandles.arrayElementVarHandle(long[].class);
 
-  // ===== Size classes (must match LinuxMemorySegmentAllocator.SEGMENT_SIZES) =
+  // ===== Size classes (must match MemorySegmentAllocator.SEGMENT_SIZES) =====
   public static final long[] SIZE_CLASSES = {4L * 1024, // 4 KiB
       8L * 1024, // 8 KiB
       16L * 1024, // 16 KiB
@@ -1394,8 +1394,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   // Defensive lazy-init: production code calls Databases.initAllocator first, but focused page
-  // tests construct pages directly. Match LinuxMemorySegmentAllocator's lazy behavior without
-  // allowing a concurrent caller to observe classes before all per-class metadata is published.
+  // tests construct pages directly. Initialize lazily for them, without allowing a concurrent
+  // caller to observe classes before all per-class metadata is published.
   private void ensureInitialized() {
     if (terminated.get()) {
       throw new IllegalStateException("FrameSlotAllocator has been shut down");
@@ -1419,8 +1419,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * <p>
    * On class exhaustion, asks the page caches for relief, parks briefly and retries
-   * ({@link #acquireSlotOrWait}), mirroring {@code LinuxMemorySegmentAllocator}'s park-and-retry
-   * pattern.
+   * ({@link #acquireSlotOrWait}).
    */
   // The oversized branch's confined arena is not a try-with-resources resource by design: it is
   // handed to the OversizedAllocation registered in #oversizedByAddress and outlives this call,

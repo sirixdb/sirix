@@ -865,8 +865,6 @@ graalvmNative {
             // Jackson - build time
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Sirix FFI components - run time
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
             buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
             // JLine terminal providers - run time
             buildArgs.add('--initialize-at-run-time=org.jline.terminal.impl')
@@ -939,8 +937,6 @@ graalvmNative {
             buildArgs.add('library-support.jar')
             buildArgs.add('META-INF/native-image/.*')
             // Sirix FFI components - run time
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
             buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
             // JLine terminal providers - run time (they detect terminal at runtime)
             buildArgs.add('--initialize-at-run-time=org.jline.terminal.impl')
