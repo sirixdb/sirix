@@ -38,8 +38,8 @@ public final class NamePageHash {
   }
 
   /**
-   * Returns the low two base-128 digits of the unsigned key, least significant first.
-   * Each offset is in [0, 127]; bits 14 through 31 do not affect either offset.
+   * Returns the low two base-128 digits of the unsigned key, least significant first. Each offset is
+   * in [0, 127]; bits 14 through 31 do not affect either offset.
    *
    * @param key hash key, including negative values
    * @return the two offsets

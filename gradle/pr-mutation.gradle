@@ -1,3 +1,5 @@
+import org.gradle.api.GradleException
+
 // Opt-in PR scope; the weekly curated core configuration stays unchanged.
 def mutationModule = providers.gradleProperty('prMutationModule').get()
 def mutationProject = findProject(":${mutationModule}")
