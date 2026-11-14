@@ -260,8 +260,8 @@ window to the commits since the last anchor.
   a Merkle map of per-resource heads (each entry bound to its
   `resourceIdentity`), so one anchor covers all resources.
 - Documentation: threat model + invariants into `docs/formal-verification.md`;
-  the README's "tamper detection" claim upgraded honestly only when Phases
-  1–4 ship.
+  expand the README's guarantees beyond the [current integrity limits](DISK_FORMAT.md#3-integrity)
+  only when Phases 1–4 ship.
 
 ## 8. Sequencing, risk, and effort
 
