@@ -155,7 +155,7 @@ jobs:
   Sonar:
     name: Run Sonarqube
     needs: [Build, TestCore, TestQuery]
-    # Same secret boundary as the former sonarqube.yml; no privileged follow-up workflow.
+    # Secret boundary: docs/VERIFICATION.md#sonarcloud-analysis.
     # Release-branch and scheduled CI keep their existing behavior (no Sonar analysis).
     if: needs.Build.outputs.sonar-enabled == 'true'
     permissions:

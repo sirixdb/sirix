@@ -86,7 +86,7 @@ before importing signing credentials or publishing, covering tag pushes, release
 manually selected refs. The stress workflow enables the gate on its core test compile, including
 manual runs against refs outside main CI's branch filters. Deep verification gates its dedicated
 core and MCP compile with `-PerrorProne`. Each of these four workflows runs one gated compile;
-other jobs and the Sonar workflow avoid repeating static analysis. Error Prone errors fail compilation;
+other jobs, including Sonar, avoid repeating static analysis. Error Prone errors fail compilation;
 NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
 has a JSpecify `@NullMarked` package default. Legacy unmarked code, including core and query,
 is outside NullAway checking, even where individual nullable contracts are annotated.
@@ -117,6 +117,7 @@ The required quality-gate policy is **no new bugs or vulnerabilities on new code
 configure its conditions in SonarCloud.
 PR analysis uses GitHub Actions' automatic PR parameters and a full-history checkout.
 Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
+Never build untrusted PR code with secrets through `pull_request_target`.
 Scheduled and release-branch CI do not run Sonar. Instrumentation, coverage reports, coverage uploads,
 and the additional MCP/offline REST tests run only for Sonar-eligible events, using the shared
 `Build` job's `sonar-enabled` output. The REST integration suite remains outside the
