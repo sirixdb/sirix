@@ -153,6 +153,74 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  MutationTesting:
+    name: PIT changed-source mutation testing
+    needs: Build
+    if: github.event_name == 'pull_request'
+    # Informational rollout. Enable only after survivor/incomplete baselines are resolved.
+    continue-on-error: ${{ vars.MUTATION_BLOCKING != 'true' }}
+    permissions:
+      contents: read
+    concurrency:
+      group: mutation-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR merge revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify mutation tooling
+        run: python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation.py'
+      - name: Select changed main sources
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 .github/scripts/pr_mutation.py select
+          --base "$BASE_SHA" --head "$HEAD_SHA" --output "$RUNNER_TEMP/pr-mutation"
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Restore build output
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            **/build
+          key: build-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Run bounded PIT analysis
+        # Always enforce internally so incomplete runs remain visible as a failed informational
+        # job. The job-level rollout switch determines whether this fails the PR.
+        run: >-
+          python3 .github/scripts/pr_mutation.py run --seconds 1320 --blocking
+          --output "$RUNNER_TEMP/pr-mutation"
+      - name: Publish mutation summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/pr-mutation/summary.md" ]]; then
+            cat "$RUNNER_TEMP/pr-mutation/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Mutation analysis incomplete: setup/selection failed; see job logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload mutation reports and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-mutation
+          path: ${{ runner.temp }}/pr-mutation
+          if-no-files-found: warn
+          retention-days: 14
+
   Sonar:
     name: Run Sonarqube
     needs: [Build, TestCore, TestQuery]

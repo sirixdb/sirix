@@ -1,3 +1,11 @@
+## Development standard
+
+- Spec first: write behaviour, invariants and error cases, then derive tests before code.
+- Mutation-test changed logic; kill surviving mutants or justify each in the PR.
+- Explore beyond happy paths with adversarial, property-based or differential tests.
+- Every bug needs a root-cause write-up, a regression test and a lesson; use
+  `docs/postmortems/TEMPLATE.md` and `docs/LESSONS.md`. Workflow: `CONTRIBUTING.md`.
+
 ## Code Style
 
 - **Always use explicit imports** - no star imports (`import foo.*`), no inline fully-qualified class names. Every type must be imported at the top of the file.

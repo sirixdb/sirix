@@ -417,3 +417,8 @@ subprojects {
         }
     }
 }
+
+// PR mutation configuration is opt-in and never adds work to normal build/test task graphs.
+if (providers.gradleProperty('prMutationModule').isPresent()) {
+    apply from: "${rootDir}/gradle/pr-mutation.gradle"
+}

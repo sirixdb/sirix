@@ -1,0 +1,50 @@
+// Opt-in PR scope; the weekly curated core configuration stays unchanged.
+def mutationModule = providers.gradleProperty('prMutationModule').get()
+def mutationProject = findProject(":${mutationModule}")
+if (mutationProject == null || mutationProject == rootProject) {
+    throw new GradleException("Unknown PR mutation module: ${mutationModule}")
+}
+configure(mutationProject) {
+    apply plugin: 'info.solidsoft.pitest'
+    // Configure after module scripts, so core's curated scope cannot overwrite the PR selection.
+    afterEvaluate {
+        def targets = rootProject.file(providers.gradleProperty('prMutationTargetsFile').get()).readLines()
+                .findAll { !it.isBlank() }
+        if (targets.isEmpty() || targets.any { it.contains('*') || it.contains('?') }) {
+            throw new GradleException('PR mutation targets must be nonempty, exact class names')
+        }
+        def standardTest = tasks.named('test').get()
+        // Preserve each module's opens/exports and test properties, without its workstation-sized
+        // heap, GC tuning or coverage agent. PIT forks two small minions on the CI runner.
+        def minionArgs = standardTest.jvmArgs.findAll {
+            !it.startsWith('-X') && !it.startsWith('-javaagent:')
+        }
+        standardTest.systemProperties.each { key, value ->
+            if (value != null) {
+                minionArgs.add("-D${key}=${value}".toString())
+            }
+        }
+        pitest {
+            pitestVersion = '1.25.5'
+            junit5PluginVersion = '1.2.3'
+            targetClasses = targets
+            targetTests = providers.gradleProperty('prMutationTests').get().split(',').toList()
+            // Fresh random exploration belongs in the ordinary test lanes, not PIT's baseline.
+            excludedTestClasses = ['io.sirix.property.*', '*JsonModelBasedOracleRandomTest',
+                                   '*HOTStructuralPropertyTest*', '*SoakTest*']
+            threads = 2
+            timestampedReports = false
+            outputFormats = ['HTML', 'XML']
+            reportDir = rootProject.file(providers.gradleProperty('prMutationReportDir').get())
+            // Missing/empty reports are treated as incomplete by the Python reporter.
+            failWhenNoMutations = true
+            mutationThreshold = 0
+            coverageThreshold = 0
+            timeoutConstInMillis = 10000
+            jvmArgs = minionArgs + ['--enable-preview', '--add-modules=jdk.incubator.vector',
+                                    '-Xmx1536m', '-XX:MaxDirectMemorySize=1g',
+                                    '-Dsirix.stress.run.millis=200']
+            mainProcessJvmArgs = ['--enable-preview', '-Xmx1536m']
+        }
+    }
+}

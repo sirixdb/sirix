@@ -148,6 +148,76 @@ Review issues against the low-latency requirements in `AGENTS.md`. Prefer clean 
 costs no hot-path performance. Any rule exception must name the specific rule and scope, with
 a short reason explaining the performance cost; do not weaken allocation or work-budget tests.
 
+## PR mutation testing
+
+`PIT changed-source mutation testing` in [gradle.yml](../.github/workflows/gradle.yml) runs
+independently of the test lanes after `Build` and reuses that run's compiled output. It adds no
+dependency to the test, Sonar or deploy lanes. Its **30-minute job limit** is below the longest
+existing test lane (45 minutes); PIT processes share a **22-minute execution budget**, leaving
+room for setup and report upload. A deadline kills the process group, preserves partial reports
+and explicitly reports incomplete analysis. A large diff may need follow-up focused runs;
+timeouts and missing evidence are never a clean score.
+
+Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
+main Java/Kotlin sources only, excluding deleted files, tests, docs and package/module descriptors.
+The checkout is the PR merge revision, matching `Build`. JVM `SourceFile` attributes map source
+files to **exact compiled class names**, including nested/anonymous classes, extra top-level
+classes and Kotlin file facades. No prefix glob or whole-module fallback broadens mutation scope.
+Unmapped sources fail analysis explicitly (for example a file with no emitted bytecode); justify
+these individually in the PR. New Gradle modules need an entry in `MODULES` in
+[pr_mutation.py](../.github/scripts/pr_mutation.py).
+
+Tests named `<Source>Test` or `<Source>Tests` in the source's package are preferred when every
+changed source has one; otherwise PIT discovers the module's tests. The artifact records the
+actual test filters. This focused selection can omit integration assertions; if a survivor is
+already killed by a broader deterministic test, rerun with that test included and link the report.
+Random jqwik/property exploration, the random model oracle, HOT structural properties and soak
+suites are excluded from the PR mutation baseline; keep exploration in its normal test lane and
+promote discovered seeds to deterministic regressions. The weekly curated core PIT task is unchanged.
+
+The `pr-mutation` artifact contains source selection, exact targets and test filters, every
+undetected mutant in `results.json`, HTML/XML reports, logs and `summary.md`. The job summary
+shows killed/total separately from PIT's detected/total score (which includes timed-out mutants),
+status counts and up to 100 undetected mutants per module; the artifact retains the full list.
+Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
+Inspect both `SURVIVED` and `NO_COVERAGE`; kill them or justify each with evidence in the PR.
+
+The job runs on normal `pull_request` events, including forks and Dependabot, with only
+`contents: read`, no secrets, no persisted checkout credentials and read-only Gradle caches.
+Never use `pull_request_target` or add credentials to run untrusted PR code. Reports are artifacts
+and job summaries, so reporting needs no PR write token.
+
+**Rollout:** initially the job has `continue-on-error`; it remains visibly informational even
+when survivors or incomplete analysis fail its analysis step. Once representative PRs have no
+unresolved survivors/uncovered mutants or incomplete runs, maintainers can set the repository
+Actions variable **`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing`
+in branch protection. That single switch removes job-level tolerance; the reporter already
+rejects undetected mutants and incomplete runs. Review documented equivalent/unreachable-mutant
+justifications before enabling; there is no silent survivor allowlist. Revert the variable to
+restore informational rollout while investigating an infrastructure failure.
+
+Local reproduction (JDK 25; compile the selected modules' `classes testClasses` first):
+
+```bash
+python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation.py'
+python3 .github/scripts/pr_mutation.py select --base origin/main --head HEAD --output /tmp/pr-mutation
+python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1320
+# Add --blocking to reject undetected mutants and incomplete analysis locally.
+```
+
+For a broader deterministic test selection, reuse the artifact's `targets.txt` and run:
+
+```bash
+./gradlew :sirix-core:pitest -PprMutationModule=sirix-core \
+  -PprMutationTargetsFile=/tmp/pr-mutation/sirix-core/targets.txt \
+  -PprMutationTests='io.sirix.utils.NamePageHashTest*' \
+  -PprMutationReportDir=/tmp/pr-mutation-expanded
+```
+
+The opt-in [Gradle configuration](../gradle/pr-mutation.gradle) uses the existing
+[Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions. Its absence from
+normal task graphs preserves existing test-lane timing.
+
 ## Running the layers
 
 The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a separate JVM with
