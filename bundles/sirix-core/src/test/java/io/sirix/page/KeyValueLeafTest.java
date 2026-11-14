@@ -13,7 +13,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
+import static io.sirix.cache.MemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

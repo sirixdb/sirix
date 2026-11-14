@@ -6,12 +6,10 @@
 package io.sirix.index.hot;
 
 import io.sirix.cache.Allocators;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
-import io.sirix.utils.OS;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -30,11 +28,7 @@ class HOTLeafPageSplitTest {
 
   @BeforeAll
   static void initAllocator() {
-    if (!OS.isWindows()) {
-      Allocators.getInstance().init(64 * 1024 * 1024); // 64MB
-    } else {
-      WindowsMemorySegmentAllocator.getInstance().init(64 * 1024 * 1024);
-    }
+    Allocators.getInstance().init(64 * 1024 * 1024); // 64MB
   }
 
   @Nested
