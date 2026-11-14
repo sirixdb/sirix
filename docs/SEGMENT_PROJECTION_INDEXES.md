@@ -1368,9 +1368,9 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
 
 ### 8.5 Caches and memory
 
-The off-heap allocator (default `FrameSlotAllocator`, `sirix.allocator=frame`) has seven size classes from 4 KiB to
+The off-heap allocator (`FrameSlotAllocator`, the only implementation) has seven size classes from 4 KiB to
 256 KiB, each a `MAP_NORESERVE` virtual reservation with a per-slot version counter that the optimistic readers
-validate (`cache/Allocators.java:44-65`; `cache/FrameSlotAllocator.java:7-135`, `:296`, `:403-430`). Its budget is
+validate (`cache/Allocators.java:44-50`; `cache/FrameSlotAllocator.java:7-135`, `:296`, `:403-430`). Its budget is
 `sirix.allocator.maxSize` (default `16G`, persisted per database) clamped to `physical − Xmx − max(2 GiB, physical/10)`
 (`core/access/DatabaseConfiguration.java:172-179`; `cache/MemorySegmentAllocator.java:24-55`). **`sirix.offheap.bytes`
 is not a sirix-core property**: the benchmark mains read it and call `Allocators.getInstance().init(bytes)` before
@@ -1965,7 +1965,7 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 
 | Property | Default | Effect | Cite |
 |---|---|---|---|
-| `sirix.allocator` | `frame` | allocator (`pool`, `windowspool`) | `cache/Allocators.java:44-65` |
+| `sirix.allocator` | unset | accepted unset or as `frame`; any other value (the removed `pool`, `windowspool`) fails at first use | `cache/Allocators.java:44-50` |
 | `sirix.allocator.maxSize` | `16G` | off-heap budget per database configuration (clamped to physical headroom) | `core/access/DatabaseConfiguration.java:172-179` |
 | `sirix.offheap.bytes` (benchmark mains only) | 24 GiB (JSONBench/ClickBench runners and loaders) | arena size initialized before opening the database | `query/bench/jsonbench/JsonBenchRunMain.java:96-97` |
 | `sirix.cache.recordPage` | budget / 2 | record page cache bytes | `core/access/Databases.java:504`, `:565` |

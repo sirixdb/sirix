@@ -17,8 +17,8 @@ import java.nio.file.Files
  * These tests verify that core CLI and query functionality works correctly
  * when compiled to native image.
  *
- * <p>Tests use store-free query evaluation (no database I/O) to avoid requiring the
- * FFM-based LinuxMemorySegmentAllocator which is not yet supported in native images.
+ * <p>Tests use store-free query evaluation (no database I/O), so they do not need the
+ * FFM-based off-heap allocator.
  *
  * Run with: `./gradlew :sirix-kotlin-cli:nativeSmokeTest`
  */

@@ -151,6 +151,11 @@ same budget; the `sirix_allocator_scratch_*` metrics report them. The
 [derived-memory contract](DERIVED_QUERY_CACHES.md) owns aggregation execution grants, derived-cache
 allowances and the separate retained heap-cache envelope, including their override and disable controls.
 
+One allocator, `FrameSlotAllocator`, serves all of it on every platform. The `sirix.allocator` property
+once selected between it and two pool allocators, which are removed. It may be left unset or set to
+`frame`; any other value, `pool` and `windowspool` included, stops the process at the allocator's first
+use. Remove the property from launch scripts that still set it.
+
 Set explicit byte counts when you know your working set:
 
 ```
@@ -271,7 +276,7 @@ storage allocator decisions, and ClockSweeper progress at INFO. Logger names:
 - `io.sirix.access.Databases` — startup, BufferManager init.
 - `io.sirix.cache.BufferManagerImpl` / `io.sirix.cache.ShardedPageCache` — cache lifecycle.
 - `io.sirix.cache.ClockSweeper` — eviction sweeps (PostgreSQL bgwriter pattern).
-- `io.sirix.cache.LinuxMemorySegmentAllocator` — off-heap allocator events.
+- `io.sirix.cache.FrameSlotAllocator` — off-heap allocator events.
 - `io.sirix.access.Databases$Databases` — close/cleanup warnings.
 
 ---
