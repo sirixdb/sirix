@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -902,6 +903,90 @@ final class NodeTransactionAbortLifecycleTest {
         allowRelease.countDown();
         first.join(10000);
         second.join(10000);
+      }
+    }
+  }
+
+  @ParameterizedTest(name = "admission {index}: {arguments}")
+  @CsvSource({"json,false,false,false", "json,false,false,true", "json,false,true,false", "json,false,true,true",
+      "json,true,false,false", "json,true,false,true", "json,true,true,false", "json,true,true,true",
+      "xml,false,false,false", "xml,false,false,true", "xml,false,true,false", "xml,false,true,true",
+      "xml,true,false,false", "xml,true,false,true", "xml,true,true,false", "xml,true,true,true"})
+  void queuedWriterAdmissionDoesNotHoldTheSessionMonitor(final String format, final boolean pageOwner,
+      final boolean pageAdmission, final boolean closeSession) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final AutoCloseable owner = pageOwner
+          ? fixture.first.createStorageEngineWriter(fixture.first.getMostRecentRevisionNumber())
+          : fixture.first.beginNodeTrx();
+      final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.first;
+      final CompletableFuture<AutoCloseable> admitted = new CompletableFuture<>();
+      final CompletableFuture<Void> closed = new CompletableFuture<>();
+      final Thread admission = new Thread(() -> {
+        try {
+          admitted.complete(pageAdmission
+              ? fixture.first.createStorageEngineWriter(fixture.first.getMostRecentRevisionNumber())
+              : fixture.first.beginNodeTrx());
+        } catch (final Throwable failure) {
+          admitted.completeExceptionally(failure);
+        }
+      });
+      final Thread closer = new Thread(() -> {
+        try {
+          if (closeSession) {
+            fixture.first.close();
+          } else {
+            owner.close();
+          }
+          closed.complete(null);
+        } catch (final Throwable failure) {
+          closed.completeExceptionally(failure);
+        }
+      });
+      try {
+        admission.start();
+        while (!session.writeLock.hasQueuedThreads()) {
+          if (admitted.isDone()) {
+            fail("admission did not queue behind the existing owner");
+          }
+          if (Thread.interrupted()) {
+            throw new InterruptedException();
+          }
+          Thread.onSpinWait();
+        }
+        closer.start();
+        closed.get(5, TimeUnit.SECONDS);
+        if (closeSession) {
+          final ExecutionException rejected = assertThrows(ExecutionException.class,
+              () -> admitted.get(5, TimeUnit.SECONDS));
+          assertTrue(rejected.getCause() instanceof IllegalStateException);
+          assertTrue(session.isClosed());
+          assertTrue(session.nodeTrxMap.isEmpty());
+          assertEquals(1, session.writeLock.availablePermits());
+        } else {
+          try (AutoCloseable next = admitted.get(5, TimeUnit.SECONDS)) {
+            assertEquals(0, session.writeLock.availablePermits());
+            if (next instanceof NodeTrx node) {
+              setCursor(node);
+              assertEquals(0, value(node));
+              setValue(node, 3);
+              node.commit();
+            } else {
+              assertFalse(((StorageEngineWriter) next).isClosed());
+            }
+          }
+          assertEquals(1, session.writeLock.availablePermits());
+        }
+        try (NodeTrx next = fixture.second.beginNodeTrx()) {
+          setCursor(next);
+          assertEquals(!closeSession && !pageAdmission ? 3 : 0, value(next));
+        }
+      } finally {
+        admission.join(25000);
+        closer.join(1000);
+        owner.close();
+        if (admitted.isDone() && !admitted.isCompletedExceptionally()) {
+          admitted.get().close();
+        }
       }
     }
   }
