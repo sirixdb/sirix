@@ -86,11 +86,10 @@ public enum BinaryEncodingVersion {
     return versionAsAByte;
   }
 
-  public static BinaryEncodingVersion fromByte(byte version) {
-    for (BinaryEncodingVersion value : BinaryEncodingVersion.values()) {
-      if (value.versionAsAByte == version) {
-        return value;
-      }
+  public static BinaryEncodingVersion fromByte(final byte version) {
+    // Only V0 has a reader. A direct check avoids values() clones and cached-array loads per page.
+    if (version == V0.versionAsAByte) {
+      return V0;
     }
     throw new IllegalStateException(version + " not known.");
   }

@@ -1,0 +1,17 @@
+Immutable compatibility fixture: readers-base-7cd676bcd.zip
+Producer: unchanged sirix-core classes compiled from origin/main commit 7cd676bcd.
+SHA-256: fd354693a7665451c0473c7dd0726c33d3efd108f841cc1fc5efe5b6acc66dd5
+
+The fixture was generated using a snapshot of the unchanged base's compiled
+classes captured before implementation changes, first on the runtime classpath.
+It uses the default checksum-verifying configuration, Dewey IDs, path statistics,
+and valid-time paths /[]/from and /[]/to. Five indexes cover name, path, CAS,
+projection and valid time. The initial document is:
+[{"name":"first","from":1,"to":100},{"name":"second","from":2,"to":200}]
+The first name becomes "revised" in revision 2 and "third" in revision 3.
+Only the closed database's .lock file was excluded from the archive.
+
+Do not regenerate with the current writer: this is a previous-writer oracle.
+LegacyPageReadersFixtureTest extracts its own private copy, verifies the prior
+revisions, appends revision 4, and checks the existing page bytes are untouched.
+Other page kinds are covered separately by PageEnvelopeContractTest.

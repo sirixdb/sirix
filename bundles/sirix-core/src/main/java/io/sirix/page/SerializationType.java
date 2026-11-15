@@ -88,11 +88,16 @@ public enum SerializationType {
     }
 
     @Override
-    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(int referenceCount, BytesIn<?> in) {
+    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(final int referenceCount,
+        final BytesIn<?> in) {
       assert in != null;
 
       try {
         final BitSet bitmap = deserializeBitSet(in);
+        if (bitmap.length() > referenceCount) {
+          throw new IllegalStateException(
+              "Unknown reference slot " + (bitmap.length() - 1) + " (known slot count " + referenceCount + ")");
+        }
         final int length = bitmap.cardinality();
         final GapList<PageReference> references = new GapList<>(length);
 
@@ -173,8 +178,7 @@ public enum SerializationType {
   };
 
   private static void writeHash(BytesOut<?> out, PageReference pageReference) throws IOException {
-    // One presence flag byte instead of the old [i32 len] prefix for an always-8-byte value —
-    // 3 bytes saved per reference (IndirectPages carry up to 1024 of them).
+    // Hash form 0 is absent; form 1 is XXH3-64. Other forms must not be interpreted as an 8-byte hash.
     if (!pageReference.hasHash()) {
       out.writeByte((byte) 0);
     } else {
@@ -185,9 +189,13 @@ public enum SerializationType {
     }
   }
 
-  private static void readHash(BytesIn<?> in, PageReference reference) throws IOException {
-    if (in.readByte() != 0) {
+  private static void readHash(final BytesIn<?> in, final PageReference reference) throws IOException {
+    final int hashForm = in.readByte() & 0xFF;
+    if (hashForm == 1) {
       reference.setHash(Long.reverseBytes(in.readLong()));
+    } else if (hashForm != 0) {
+      throw new IllegalStateException(
+          "Unknown page reference hash form " + hashForm + " — supported forms are 0 (none) and 1 (XXH3-64)");
     }
   }
 
