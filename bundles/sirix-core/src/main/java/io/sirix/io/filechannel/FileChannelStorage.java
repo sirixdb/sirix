@@ -1,9 +1,10 @@
 package io.sirix.io.filechannel;
 
+import org.jspecify.annotations.Nullable;
+import io.sirix.page.UberPage;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.io.InterruptedFirstCommitRecovery;
-import io.sirix.page.StoreFeatures;
 import io.sirix.page.PagePersister;
 import io.sirix.page.SerializationType;
 import io.sirix.exception.SirixIOException;
@@ -37,7 +38,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class FileChannelStorage implements IOStorage {
 
-  private final StoreFeatures features;
+  private final UberPage openingUberPage;
 
   /** The current writer's spill file, readable by every reader of this resource while it is open. */
   private final SpillChannelHolder spillChannelHolder = new SpillChannelHolder();
@@ -207,9 +208,17 @@ public final class FileChannelStorage implements IOStorage {
    */
   public FileChannelStorage(final ResourceConfiguration resourceConfig,
       final AsyncCache<Integer, RevisionFileData> cache, final RevisionIndexHolder revisionIndexHolder) {
+    this(resourceConfig, cache, revisionIndexHolder, null);
+  }
+
+  public FileChannelStorage(final ResourceConfiguration resourceConfig,
+      final AsyncCache<Integer, RevisionFileData> cache, final RevisionIndexHolder revisionIndexHolder,
+      final @Nullable UberPage openingUberPage) {
     assert resourceConfig != null : "resourceConfig must not be null!";
-    features = InterruptedFirstCommitRecovery.probeFeatures(resourceConfig);
-    features.requireReadable();
+    this.openingUberPage = openingUberPage != null
+        ? openingUberPage
+        : InterruptedFirstCommitRecovery.probeUberPage(resourceConfig);
+    this.openingUberPage.getFeatures().requireReadable();
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
@@ -220,6 +229,9 @@ public final class FileChannelStorage implements IOStorage {
     resourceUuidLsb = resourceConfig.resourceUuid != null
         ? resourceConfig.resourceUuid.getLeastSignificantBits()
         : 0L;
+    if (this.openingUberPage.isBootstrap() && exists()) {
+      throw new SirixIOException("No committed uber-page beacon exists for " + resourceConfig.resourcePath);
+    }
   }
 
   /**
@@ -247,6 +259,11 @@ public final class FileChannelStorage implements IOStorage {
         resourceUuidLsb);
     io.sirix.io.SuperblockValidator.validateOnce(getRevisionFilePath(), io.sirix.io.Superblock.ROLE_REVISIONS,
         resourceUuidMsb, resourceUuidLsb);
+  }
+
+  @Override
+  public UberPage getOpeningUberPage() {
+    return openingUberPage;
   }
 
   @Override
@@ -283,6 +300,7 @@ public final class FileChannelStorage implements IOStorage {
       final FileChannelReader reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel,
           new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
           cache.synchronous(), () -> releaseReaderChannels(borrowedStripe));
+      reader.setStoreFeatures(openingUberPage.getFeatures());
       reader.setSpillChannelHolder(spillChannelHolder);
       return reader;
     } catch (final IOException e) {
@@ -424,7 +442,7 @@ public final class FileChannelStorage implements IOStorage {
     final Path concreteStorage = getDataFilePath();
 
     if (!Files.exists(concreteStorage)) {
-      features.requireWritable();
+      openingUberPage.getFeatures().requireWritable();
       Files.createDirectories(concreteStorage.getParent());
       Files.createFile(concreteStorage);
     }
@@ -434,7 +452,7 @@ public final class FileChannelStorage implements IOStorage {
 
   @Override
   public Writer createWriter() {
-    features.requireWritable();
+    openingUberPage.getFeatures().requireWritable();
     try {
       validateSuperblocksOnce();
       final Path dataFilePath = createDirectoriesAndFile();
@@ -493,6 +511,7 @@ public final class FileChannelStorage implements IOStorage {
       final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
           serializationType, pagePersister, cache.synchronous(), () -> {
           });
+      reader.setStoreFeatures(openingUberPage.getFeatures());
 
       final FileChannelWriter writer = new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel,
           beaconDurableChannel, serializationType, pagePersister, cache, revisionIndexHolder, reader,
@@ -507,7 +526,7 @@ public final class FileChannelStorage implements IOStorage {
 
   private synchronized void createRevisionsOffsetFileIfNotExists(Path revisionsOffsetFilePath) throws IOException {
     if (!Files.exists(revisionsOffsetFilePath)) {
-      features.requireWritable();
+      openingUberPage.getFeatures().requireWritable();
       Files.createFile(revisionsOffsetFilePath);
     }
   }

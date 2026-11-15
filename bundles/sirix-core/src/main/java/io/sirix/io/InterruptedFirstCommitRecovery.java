@@ -1,5 +1,6 @@
 package io.sirix.io;
 
+import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
@@ -83,8 +84,7 @@ public final class InterruptedFirstCommitRecovery {
    *
    * <p>
    * Any step of the open can surface the interrupted-first-commit state: storage creation pre-loads
-   * revision metadata (reading the uber page reference AND every revision record), and the uber-page
-   * load re-reads the beacons. On failure the on-disk bytes are probed; a resource provably holding
+   * revision metadata. On failure the on-disk bytes are probed; a resource provably holding
    * nothing but (at most) the unreachable empty bootstrap revision is re-initialized empty (with a
    * WARN log) and the open retried through the fresh-bootstrap path, everything else rethrows the
    * original failure.
@@ -93,10 +93,19 @@ public final class InterruptedFirstCommitRecovery {
    * @return the storage and the uber page to start from
    */
   public static StorageAndUberPage openStorageAndLoadUberPage(final ResourceConfiguration resourceConfig) {
-    probeFeatures(resourceConfig).requireReadable();
+    return openStorageAndLoadUberPage(resourceConfig, null);
+  }
+
+  public static StorageAndUberPage openStorageAndLoadUberPage(final ResourceConfiguration resourceConfig,
+      final @Nullable UberPage openingUberPage) {
     try {
-      final IOStorage storage = StorageType.getStorage(resourceConfig);
-      return new StorageAndUberPage(storage, loadUberPage(storage));
+      final IOStorage storage = StorageType.getStorage(resourceConfig, openingUberPage);
+      try {
+        return new StorageAndUberPage(storage, storage.getOpeningUberPage());
+      } catch (final RuntimeException failure) {
+        storage.close();
+        throw failure;
+      }
     } catch (final UnsupportedStoreFeatureException unsupported) {
       throw unsupported;
     } catch (final RuntimeException openFailure) {
@@ -106,7 +115,6 @@ public final class InterruptedFirstCommitRecovery {
         // Not provable — keep the existing actionable failure untouched.
         throw openFailure;
       }
-      probeFeatures(resourceConfig).requireWritable();
       LOGGER.warn("Interrupted FIRST commit detected for {}: the data file is non-empty but its uber-page "
           + "beacons either were never written or advertise only the EMPTY bootstrap revision, and the "
           + "revisions file holds no checksum-valid revision record — no commit carrying data ever became "
@@ -115,7 +123,7 @@ public final class InterruptedFirstCommitRecovery {
       // Retry: with both files truncated to zero, exists() is false and the SAME code path that
       // initializes a brand-new resource runs (bootstrap UberPage, no on-disk reads).
       final IOStorage storage = StorageType.getStorage(resourceConfig);
-      return new StorageAndUberPage(storage, loadUberPage(storage));
+      return new StorageAndUberPage(storage, storage.getOpeningUberPage());
     }
   }
 
@@ -124,10 +132,11 @@ public final class InterruptedFirstCommitRecovery {
    * repair. The caller owns and must close the returned storage.
    */
   public static StorageAndUberPage openStorageForTool(final ResourceConfiguration resourceConfig) {
-    probeFeatures(resourceConfig).requireToolCompatible();
-    final IOStorage storage = StorageType.getStorage(resourceConfig);
+    final UberPage openingUberPage = probeUberPage(resourceConfig);
+    openingUberPage.getFeatures().requireToolCompatible();
+    final IOStorage storage = StorageType.getStorage(resourceConfig, openingUberPage);
     try {
-      final UberPage page = loadUberPage(storage);
+      final UberPage page = storage.getOpeningUberPage();
       page.getFeatures().requireToolCompatible();
       return new StorageAndUberPage(storage, page);
     } catch (final RuntimeException failure) {
@@ -137,17 +146,21 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   public static StoreFeatures probeFeatures(final ResourceConfiguration resourceConfig) {
+    return probeUberPage(resourceConfig).getFeatures();
+  }
+
+  public static UberPage probeUberPage(final ResourceConfiguration resourceConfig) {
     final Path dataFile = dataFilePath(resourceConfig);
     try {
       if (!Files.exists(dataFile) || Files.size(dataFile) == 0) {
-        return StoreFeatures.NONE;
+        return new UberPage();
       }
       try (final FileChannel channel = FileChannel.open(dataFile, StandardOpenOption.READ);
           final FileChannelReader reader = new FileChannelReader(channel, channel,
               new ByteHandlerPipeline(resourceConfig.byteHandlePipeline), SerializationType.DATA, new PagePersister(),
               Caffeine.newBuilder().build())) {
         try {
-          return reader.readStoreFeatures();
+          return reader.readOpeningUberPage();
         } catch (final SirixIOException corrupt) {
           final ByteBuffer slots =
               ByteBuffer.allocate((int) (IOStorage.DATA_REGION_START - IOStorage.PRIMARY_BEACON_OFFSET));
@@ -157,7 +170,7 @@ public final class InterruptedFirstCommitRecovery {
             }
           }
           if (isAllZero(slots.array(), 0, slots.capacity())) {
-            return StoreFeatures.NONE;
+            return new UberPage();
           }
           throw corrupt;
         }
@@ -181,26 +194,6 @@ public final class InterruptedFirstCommitRecovery {
       }
     } catch (final IOException failure) {
       throw new SirixIOException(failure);
-    }
-  }
-
-  /**
-   * Loads the {@link UberPage} from storage, or bootstraps a new one if the storage does not hold
-   * data yet. This replaces {@code ResourceSessionModule.rootPage()} and was previously duplicated in
-   * the JSON and XML database factories.
-   */
-  private static UberPage loadUberPage(final IOStorage storage) {
-    if (storage.exists()) {
-      try (final Reader reader = storage.createReader()) {
-        final PageReference firstRef = reader.readUberPageReference();
-        if (firstRef.getPage() == null) {
-          return (UberPage) reader.read(firstRef, null);
-        } else {
-          return (UberPage) firstRef.getPage();
-        }
-      }
-    } else {
-      return new UberPage();
     }
   }
 

@@ -1,5 +1,6 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.page.StoreFeatures;
 import io.sirix.access.ResourceAccessScope;
 
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
@@ -156,6 +157,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return resource == null
         ? null
         : resource.openReader(source);
+  }
+
+  public final StoreFeatures getStoreFeatures() {
+    return lastCommittedUberPage.get().getFeatures();
   }
 
   public final DerivedIndexMaintainer.@Nullable Resource getDerivedResource() {

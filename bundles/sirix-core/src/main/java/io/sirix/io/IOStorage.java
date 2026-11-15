@@ -20,6 +20,7 @@
  */
 package io.sirix.io;
 
+import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -375,12 +376,29 @@ public interface IOStorage {
    */
   boolean exists();
 
+  default UberPage getOpeningUberPage() {
+    if (!exists()) {
+      return new UberPage();
+    }
+    try (final Reader reader = createReader()) {
+      final PageReference reference = reader.readUberPageReference();
+      return reference.getPage() == null
+          ? (UberPage) reader.read(reference, null)
+          : (UberPage) reference.getPage();
+    }
+  }
+
   /**
    * Load the revision file data into an in-memory cache.
    *
    * @param cache the cache to
    */
   default void loadRevisionFileDataIntoMemory(AsyncCache<Integer, RevisionFileData> cache) {
+    loadRevisionFileDataIntoMemory(cache, null);
+  }
+
+  default void loadRevisionFileDataIntoMemory(AsyncCache<Integer, RevisionFileData> cache,
+      final @Nullable UberPage openingUberPage) {
     if (!cache.asMap().isEmpty()) {
       return;
     }
@@ -392,8 +410,9 @@ public interface IOStorage {
       // storage initialization. getAll's mapping runs synchronously here, so closing after the
       // call is safe in all cases.
       try (final Reader reader = createReader()) {
-        final PageReference firstRef = reader.readUberPageReference();
-        final UberPage uberPage = (UberPage) firstRef.getPage();
+        final UberPage uberPage = openingUberPage != null
+            ? openingUberPage
+            : (UberPage) reader.readUberPageReference().getPage();
 
         final var revisionNumber = uberPage.getRevisionNumber();
         final var revisionNumbers = new ArrayList<Integer>(revisionNumber);
@@ -440,13 +459,18 @@ public interface IOStorage {
    * @param holder the holder to populate
    */
   default void loadRevisionIndex(RevisionIndexHolder holder) {
+    loadRevisionIndex(holder, null);
+  }
+
+  default void loadRevisionIndex(RevisionIndexHolder holder, final @Nullable UberPage openingUberPage) {
     if (!exists()) {
       return;
     }
 
     try (final Reader reader = createReader()) {
-      final PageReference firstRef = reader.readUberPageReference();
-      final UberPage uberPage = (UberPage) firstRef.getPage();
+      final UberPage uberPage = openingUberPage != null
+          ? openingUberPage
+          : (UberPage) reader.readUberPageReference().getPage();
 
       if (uberPage == null) {
         return;

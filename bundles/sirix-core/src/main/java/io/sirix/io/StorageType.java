@@ -20,6 +20,8 @@
  */
 package io.sirix.io;
 
+import io.sirix.page.UberPage;
+import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
@@ -79,12 +81,17 @@ public enum StorageType {
   FILE_CHANNEL {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+      return getInstance(resourceConf, null);
+    }
+
+    @Override
+    public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
       final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder);
+      final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder, openingUberPage);
       try {
-        storage.loadRevisionFileDataIntoMemory(cache);
-        storage.loadRevisionIndex(revisionIndexHolder);
+        storage.loadRevisionFileDataIntoMemory(cache, storage.getOpeningUberPage());
+        storage.loadRevisionIndex(revisionIndexHolder, storage.getOpeningUberPage());
       } catch (final RuntimeException e) {
         // The pre-load readers borrow the storage's shared channels — release them before the
         // half-initialized storage is abandoned, or the descriptors leak.
@@ -101,11 +108,21 @@ public enum StorageType {
   MEMORY_MAPPED {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+      return getInstance(resourceConf, null);
+    }
+
+    @Override
+    public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
       final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new MMStorage(resourceConf, cache, revisionIndexHolder);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      storage.loadRevisionIndex(revisionIndexHolder);
+      final var storage = new MMStorage(resourceConf, cache, revisionIndexHolder, openingUberPage);
+      try {
+        storage.loadRevisionFileDataIntoMemory(cache, storage.getOpeningUberPage());
+        storage.loadRevisionIndex(revisionIndexHolder, storage.getOpeningUberPage());
+      } catch (final RuntimeException failure) {
+        storage.close();
+        throw failure;
+      }
       return storage;
     }
   },
@@ -305,6 +322,10 @@ public enum StorageType {
    */
   public abstract IOStorage getInstance(final ResourceConfiguration resourceConf);
 
+  public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
+    return getInstance(resourceConf);
+  }
+
   /**
    * Factory method to retrieve suitable {@link IOStorage} instances based upon the suitable
    * {@link ResourceConfiguration}.
@@ -320,6 +341,10 @@ public enum StorageType {
    * @throws NullPointerException if {@code resourceConf} is {@code null}
    */
   public static IOStorage getStorage(final ResourceConfiguration resourceConf) {
+    return getStorage(resourceConf, null);
+  }
+
+  public static IOStorage getStorage(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
     final String typeName = resourceConf.storageType.name();
 
     // Check if an external provider wants to handle this storage type
@@ -331,6 +356,10 @@ public enum StorageType {
         if (p.isEnterprise()) {
           LOGGER.info("Using enterprise storage provider for {}: {} (priority={})", typeName,
               p.getClass().getSimpleName(), p.getPriority());
+        }
+        if (openingUberPage != null) {
+          openingUberPage.getFeatures().requireReadable();
+          return p.createStorage(resourceConf, openingUberPage);
         }
         return p.createStorage(resourceConf);
       }
@@ -346,7 +375,7 @@ public enum StorageType {
     }
 
     // Fall back to built-in implementation
-    return resourceConf.storageType.getInstance(resourceConf);
+    return resourceConf.storageType.getInstance(resourceConf, openingUberPage);
   }
 
   private static AsyncCache<Integer, RevisionFileData> getIntegerRevisionFileDataAsyncCache(

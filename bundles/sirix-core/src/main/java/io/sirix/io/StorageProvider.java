@@ -27,6 +27,7 @@
  */
 package io.sirix.io;
 
+import io.sirix.page.UberPage;
 import io.sirix.access.ResourceConfiguration;
 
 /**
@@ -125,6 +126,10 @@ public interface StorageProvider {
    * @throws IllegalStateException if provider is not available
    */
   IOStorage createStorage(ResourceConfiguration resourceConfig);
+
+  default IOStorage createStorage(final ResourceConfiguration resourceConfig, final UberPage openingUberPage) {
+    return createStorage(resourceConfig);
+  }
 
   /**
    * Get the priority of this provider.

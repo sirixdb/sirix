@@ -21,10 +21,11 @@
 
 package io.sirix.io.memorymapped;
 
+import org.jspecify.annotations.Nullable;
+import io.sirix.page.UberPage;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.io.InterruptedFirstCommitRecovery;
-import io.sirix.page.StoreFeatures;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.io.filechannel.SpillChannelHolder;
 import io.sirix.page.PagePersister;
@@ -68,7 +69,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class MMStorage implements IOStorage {
 
-  private final StoreFeatures features;
+  private final UberPage openingUberPage;
 
   /**
    * Data file name.
@@ -218,9 +219,16 @@ public final class MMStorage implements IOStorage {
    */
   public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache,
       final RevisionIndexHolder revisionIndexHolder) {
+    this(resourceConfig, cache, revisionIndexHolder, null);
+  }
+
+  public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache,
+      final RevisionIndexHolder revisionIndexHolder, final @Nullable UberPage openingUberPage) {
     assert resourceConfig != null : "resourceConfig must not be null!";
-    features = InterruptedFirstCommitRecovery.probeFeatures(resourceConfig);
-    features.requireReadable();
+    this.openingUberPage = openingUberPage != null
+        ? openingUberPage
+        : InterruptedFirstCommitRecovery.probeUberPage(resourceConfig);
+    this.openingUberPage.getFeatures().requireReadable();
     final Path file = resourceConfig.resourcePath;
     revisionsFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
     dataFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
@@ -233,6 +241,9 @@ public final class MMStorage implements IOStorage {
     resourceUuidLsb = resourceConfig.resourceUuid != null
         ? resourceConfig.resourceUuid.getLeastSignificantBits()
         : 0L;
+    if (this.openingUberPage.isBootstrap() && exists()) {
+      throw new SirixIOException("No committed uber-page beacon exists for " + resourceConfig.resourcePath);
+    }
   }
 
   /**
@@ -259,6 +270,11 @@ public final class MMStorage implements IOStorage {
         resourceUuidLsb);
     io.sirix.io.SuperblockValidator.validateOnce(getRevisionFilePath(), io.sirix.io.Superblock.ROLE_REVISIONS,
         resourceUuidMsb, resourceUuidLsb);
+  }
+
+  @Override
+  public UberPage getOpeningUberPage() {
+    return openingUberPage;
   }
 
   @Override
@@ -322,6 +338,7 @@ public final class MMStorage implements IOStorage {
       final MMFileReader reader = new MMFileReader(generation.getDataSegment(), generation.getRevisionsSegment(),
           new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
           cache.synchronous(), generation, this);
+      reader.setStoreFeatures(openingUberPage.getFeatures());
       reader.setSpillChannelHolder(spillChannelHolder);
       return reader;
     } catch (final IOException | InterruptedException e) {
@@ -350,7 +367,7 @@ public final class MMStorage implements IOStorage {
 
   private void createRevisionsOffsetFileIfItDoesNotExist(Path revisionsOffsetFilePath) throws IOException {
     if (!Files.exists(revisionsOffsetFilePath)) {
-      features.requireWritable();
+      openingUberPage.getFeatures().requireWritable();
       Files.createFile(revisionsOffsetFilePath);
     }
   }
@@ -359,7 +376,7 @@ public final class MMStorage implements IOStorage {
     final Path concreteStorage = getDataFilePath();
 
     if (!Files.exists(concreteStorage)) {
-      features.requireWritable();
+      openingUberPage.getFeatures().requireWritable();
       Files.createDirectories(concreteStorage.getParent());
       Files.createFile(concreteStorage);
     }
@@ -369,7 +386,7 @@ public final class MMStorage implements IOStorage {
 
   @Override
   public synchronized Writer createWriter() {
-    features.requireWritable();
+    openingUberPage.getFeatures().requireWritable();
     // Guard the release with the acquired flag (see createReader) — a failed acquire must not add a
     // permit to the Semaphore(1).
     boolean sempahoreAcquired = false;
@@ -398,6 +415,7 @@ public final class MMStorage implements IOStorage {
       final var pagePersister = new PagePersister();
       final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
           serializationType, pagePersister, cache.synchronous());
+      reader.setStoreFeatures(openingUberPage.getFeatures());
 
       // MM readers remap only when the physical file size grew; preallocated in-place commits
       // would leave fresh readers on a stale mapping, so this backend pins the legacy grow path.

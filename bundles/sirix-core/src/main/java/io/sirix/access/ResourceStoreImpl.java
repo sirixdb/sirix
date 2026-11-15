@@ -1,5 +1,6 @@
 package io.sirix.access;
 
+import io.sirix.page.UberPage;
 import static java.util.Objects.requireNonNull;
 
 import io.sirix.access.trx.node.AbstractResourceSession;
@@ -51,8 +52,16 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
   @Override
   public R beginResourceSession(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
       final Path resourceFile) {
+    return beginResourceSession(resourceConfig, bufferManager, resourceFile, null);
+  }
+
+  @Override
+  public R beginResourceSession(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
+      final Path resourceFile, final @Nullable UberPage openingUberPage) {
     return this.resourceSessions.computeIfAbsent(resourceFile, k -> {
-      final var resourceSession = this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile);
+      final var resourceSession = openingUberPage == null
+          ? this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile)
+          : this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile, openingUberPage);
       this.allResourceSessions.putObject(resourceFile, resourceSession);
       if (resourceSession.getMostRecentRevisionNumber() > 0) {
         ((AbstractResourceSession<?, ?>) resourceSession).createStorageEnginePool();

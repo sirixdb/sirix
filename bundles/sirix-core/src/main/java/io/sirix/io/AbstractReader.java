@@ -29,10 +29,17 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.Objects;
 
 import static io.sirix.page.PageUtils.fixupPageReferenceIds;
 
 public abstract class AbstractReader implements Reader {
+
+  private static final LongAdder BEACON_READS = new LongAdder();
+
+  public static long beaconReads() {
+    return BEACON_READS.sum();
+  }
 
   protected final ByteHandler byteHandler;
 
@@ -563,8 +570,12 @@ public abstract class AbstractReader implements Reader {
     return features.readOnlyCompat() == 0;
   }
 
-  public final StoreFeatures readStoreFeatures() {
-    return ((UberPage) readCommittedUberPageReference().getPage()).getFeatures();
+  public final UberPage readOpeningUberPage() {
+    return (UberPage) readCommittedUberPageReference().getPage();
+  }
+
+  public final void setStoreFeatures(final StoreFeatures features) {
+    storeFeatures = Objects.requireNonNull(features);
   }
 
   private PageReference readCommittedUberPageReference() {
@@ -598,6 +609,7 @@ public abstract class AbstractReader implements Reader {
    * effective bytes of validation on the root of the whole resource.
    */
   private PageReference readVerifiedBeacon(final long offset) {
+    BEACON_READS.increment();
     final java.nio.ByteBuffer slot = readBeaconSlot(offset);
     // A data file truncated inside the first 4 beacon bytes must fail like every other corrupt
     // slot, not with a raw BufferUnderflowException from getInt().

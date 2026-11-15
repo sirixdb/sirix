@@ -1,5 +1,6 @@
 package io.sirix.access;
 
+import io.sirix.page.UberPage;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.api.json.JsonResourceSession;
@@ -145,6 +146,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public synchronized T beginResourceSession(final String resourceName) {
+    return beginResourceSession(resourceName, null);
+  }
+
+  private T beginResourceSession(final String resourceName, final @Nullable UberPage openingUberPage) {
     assertNotClosed();
     final String canonicalName = canonicalResourceName(resourceName);
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
@@ -160,8 +165,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourcePath);
-    final StoreFeatures features = InterruptedFirstCommitRecovery.probeFeatures(resourceConfig);
-    features.requireReadable();
 
     // Resource must be associated with this database.
     assert resourceConfig.resourcePath.getParent().getParent().equals(dbConfig.getDatabaseFile());
@@ -169,13 +172,15 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // Keep track of the resource-ID.
     biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
+    // Use the global BufferManager for this resource session.
+    // Cache keys include (databaseId, resourceId) to prevent collisions.
+    final T session = openingUberPage == null
+        ? resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath)
+        : resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath, openingUberPage);
+    final StoreFeatures features = ((AbstractResourceSession<?, ?>) session).getStoreFeatures();
     if (features.readOnlyCompat() == 0) {
       ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
     }
-
-    // Use the global BufferManager for this resource session.
-    // Cache keys include (databaseId, resourceId) to prevent collisions.
-    final T session = resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath);
     if (features.readOnlyCompat() == 0 && DerivedIndexMaintainer.enabled(resourceConfig)
         && resourceConfig.getValidTimeConfig() != null
         && session instanceof JsonResourceSession json
@@ -222,27 +227,29 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final List<ByteHandler> sourceHandlers = source.getResourceConfig().byteHandlePipeline.getComponents();
     final boolean encrypted = sourceHandlers.stream().anyMatch(Encryptor.class::isInstance);
     if (Files.exists(derivedPath)) {
-      InterruptedFirstCommitRecovery.probeFeatures(ResourceConfiguration.deserialize(derivedPath)).requireWritable();
+      final ResourceConfiguration derivedConfig = ResourceConfiguration.deserialize(derivedPath);
+      final UberPage derivedUberPage = InterruptedFirstCommitRecovery.probeUberPage(derivedConfig);
+      derivedUberPage.getFeatures().requireWritable();
       try {
         if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
           throw new SirixIOException("Incomplete derived resource: " + name);
         }
         if (encrypted) {
           final List<ByteHandler> derivedHandlers =
-              ResourceConfiguration.deserialize(derivedPath).byteHandlePipeline.getComponents();
+              derivedConfig.byteHandlePipeline.getComponents();
           for (final ByteHandler handler : sourceHandlers) {
             if (handler instanceof Encryptor && !derivedHandlers.contains(handler)) {
               throw new SirixIOException("Derived resource does not preserve source encryption: " + name);
             }
           }
         }
-        final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name);
+        final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name, derivedUberPage);
         DerivedIndexMaintainer.validateSnapshot(derived);
         return derived;
       } catch (final UnsupportedStoreFeatureException unsupported) {
         throw unsupported;
       } catch (final RuntimeException unreadable) {
-        InterruptedFirstCommitRecovery.probeFeatures(ResourceConfiguration.deserialize(derivedPath)).requireWritable();
+        derivedUberPage.getFeatures().requireWritable();
         logger.warn("Rebuilding unreadable derived resource {} from the source log", name, unreadable);
         final Path path = source.getResourcePath().resolveSibling(name);
         final T existing = resourceStore.getOpenResourceSession(path);

@@ -1,5 +1,7 @@
 package io.sirix.access;
 
+import org.jspecify.annotations.Nullable;
+import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -14,4 +16,9 @@ import java.nio.file.Path;
  */
 public interface ResourceSessionFactory<R extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> {
   R create(ResourceConfiguration resourceConfig, BufferManager bufferManager, Path resourceFile);
+
+  default R create(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
+      final Path resourcePath, final @Nullable UberPage openingUberPage) {
+    return create(resourceConfig, bufferManager, resourcePath);
+  }
 }

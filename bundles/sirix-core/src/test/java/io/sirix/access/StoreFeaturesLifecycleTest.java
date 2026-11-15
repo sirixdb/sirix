@@ -12,8 +12,11 @@ import io.sirix.page.UberPage;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
+import io.sirix.io.AbstractReader;
+import io.sirix.io.RevisionIndex;
 import io.sirix.io.Reader;
 import io.sirix.page.PageReference;
 import io.sirix.io.InterruptedFirstCommitRecovery;
@@ -27,6 +30,7 @@ import io.sirix.utils.SirixFiles;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -53,8 +57,11 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 /** Fault images use the independent beacon contract, never the feature codec being tested. */
+@Isolated
 class StoreFeaturesLifecycleTest {
   @TempDir
   Path directory;
@@ -123,6 +130,90 @@ class StoreFeaturesLifecycleTest {
       case JSON -> Databases.openJsonDatabase(databasePath);
       case XML -> Databases.openXmlDatabase(databasePath);
     };
+  }
+
+  @ParameterizedTest
+  @CsvSource({"JSON,FILE_CHANNEL", "JSON,MEMORY_MAPPED", "XML,FILE_CHANNEL", "XML,MEMORY_MAPPED"})
+  void resourceOpenReadsOneBeacon(final DatabaseType type, final StorageType backend) throws Exception {
+    databasePath = directory.resolve("single-beacon");
+    if (type == DatabaseType.JSON) {
+      Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    } else {
+      Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
+    }
+    try (final var database = openDatabase(type)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource").storageType(backend).build()));
+      try (final var session = database.beginResourceSession("resource"); final var writer = session.beginNodeTrx()) {
+        config = session.getResourceConfig();
+        writer.commit();
+      }
+    }
+    materializeRevisionRecords();
+    final long before = AbstractReader.beaconReads();
+    try (final var database = openDatabase(type);
+        final var session = database.beginResourceSession("resource")) {
+      assertEquals(1, session.getMostRecentRevisionNumber());
+      assertEquals(1, AbstractReader.beaconReads() - before, "resource initialization must reuse its committed beacon");
+      assertEquals(session, database.beginResourceSession("resource"));
+      assertEquals(1, AbstractReader.beaconReads() - before, "logical session reuse must not reload the beacon");
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void standaloneToolOpenReadsOneBeacon(final StorageType backend) throws IOException {
+    createStore(backend);
+    materializeRevisionRecords();
+    final long before = AbstractReader.beaconReads();
+    final var opened = InterruptedFirstCommitRecovery.openStorageForTool(config);
+    try {
+      assertEquals(1, opened.uberPage().getRevisionNumber());
+      assertEquals(1, AbstractReader.beaconReads() - before, "tool initialization must reuse its compatibility snapshot");
+    } finally {
+      opened.storage().close();
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void derivedOpenReadsOneBeacon(final StorageType backend) throws IOException {
+    createDerivedStore(backend, false);
+    materializeRevisionRecords();
+    final long before = AbstractReader.beaconReads();
+    try (final var database = Databases.openJsonDatabase(databasePath);
+        final var source = database.beginResourceSession("resource")) {
+      assertNotNull(((AbstractResourceSession<?, ?>) source).getDerivedResource());
+      assertEquals(2, AbstractReader.beaconReads() - before, "the parent and derived store must each load one beacon");
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void revisionIndexRefreshUsesCurrentBeacon(final StorageType backend) {
+    createStore(backend);
+    final IOStorage storage = StorageType.getStorage(config);
+    try {
+      assertEquals(1, storage.getOpeningUberPage().getRevisionNumber());
+      try (final var database = Databases.openJsonDatabase(databasePath);
+          final var session = database.beginResourceSession("resource"); final var writer = session.beginNodeTrx()) {
+        writer.commit();
+      }
+      storage.getRevisionIndexHolder().update(RevisionIndex.EMPTY);
+      storage.loadRevisionIndex(storage.getRevisionIndexHolder());
+      assertEquals(3, storage.getRevisionIndexHolder().get().size());
+    } finally {
+      storage.close();
+    }
+  }
+
+  private void materializeRevisionRecords() {
+    final IOStorage storage = StorageType.getStorage(config);
+    try (final Reader reader = storage.createReader()) {
+      assertEquals(2, reader.getRevisionFileData(0, 2).length);
+    } finally {
+      storage.close();
+    }
+    Databases.clearGlobalCaches();
   }
 
   @ParameterizedTest
@@ -459,10 +550,11 @@ class StoreFeaturesLifecycleTest {
     final var reference = new PageReference();
     reference.setPage(new UberPage(2, new StoreFeatures(0, 0, 1)));
     when(storage.exists()).thenReturn(true);
+    when(storage.getOpeningUberPage()).thenCallRealMethod();
     when(storage.createReader()).thenReturn(reader);
     when(reader.readUberPageReference()).thenReturn(reference);
     try (final var storageTypes = mockStatic(StorageType.class)) {
-      storageTypes.when(() -> StorageType.getStorage(config)).thenReturn(storage);
+      storageTypes.when(() -> StorageType.getStorage(eq(config), any(UberPage.class))).thenReturn(storage);
       assertThrows(UnsupportedStoreFeatureException.class,
           () -> InterruptedFirstCommitRecovery.openStorageForTool(config));
     }
