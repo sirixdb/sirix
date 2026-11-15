@@ -373,26 +373,27 @@ number.
 `this` of the page or writer it monitors, so it cannot prevent the GC from
 reclaiming the monitored object.
 
-**Pf:** the action is held in a `static class LeakDetectorState implements
-Runnable`. As a *static* nested class it has no implicit `this` reference to
-the enclosing instance. Its constructor receives only primitive / `Atomic*` /
-immutable fields. There is no path from the cleaner-thread-rooted reference
-back to the enclosing instance. ∎
+**Pf:** each action is a static nested `LeakDetectorState`, with no implicit
+reference to its enclosing instance. Its retained fields must also have no path
+back to that instance; static nesting alone does not establish this. The shared
+registration and dispatch contract is owned by
+[`SirixCleaner`](../bundles/sirix-core/src/main/java/io/sirix/utils/SirixCleaner.java). ∎
 
-- **Test:** verified by inspection (a runtime test for non-resurrection would
-  require tooling outside the standard JDK). The compiler enforces the static
-  nesting; reflection on the bytecode would confirm absence of the synthetic
-  `this$0` field.
+- **Tests:** `SirixCleanerTest.collectionRunsTheFallbackWithoutRetainingTheOwner`
+  exercises actual collection through the shared service using standard JDK
+  references. `WriterCleanerLifetimeTest.normalCloseDeregistersWhileTheWriterStaysReachable`
+  checks that normal writer close releases the registration while the writer
+  remains live. The page/writer action object graphs still require inspection.
 
 **Inv 5b (closed-flag visibility):** if `close()` returns successfully, the
 `leakDetectorState.closed` flag has been written to `true` and is visible to
-the cleaner thread.
+the cleanup action.
 
-**Pf:** the state-flags atomic CAS in `close()` happens-before the
-`leakDetectorState.closed.set(true)` (program order on the same thread).
-`AtomicBoolean.set` performs a volatile write; any subsequent
-`leakDetectorState.closed.get()` (volatile read) on the cleaner thread observes
-the write. ∎
+**Pf:** page close publishes its closed state with a CAS before setting the
+diagnostic flag; writer teardown sets the diagnostic flag before deregistering
+its cleanup action. `AtomicBoolean.set` performs a volatile write; a subsequent
+`leakDetectorState.closed.get()` observes it. GC fallback dispatch follows the
+shared service contract linked above. ∎
 
 ---
 
@@ -462,8 +463,9 @@ through `Reader` open at that offset and never see beyond it. ∎
 
 ## 8. Open invariants (asserted by inspection, not yet test-verified)
 
-- **Inv 5a ("Cleaner does not resurrect")** — verified by static-nesting
-  inspection only; no runtime test.
+- **Inv 5a ("Cleaner does not resurrect")** — the page/writer action object
+  graphs remain verified by inspection; shared-service collection and writer
+  close deregistration have runtime coverage listed in §5.
 - **Inv 8.1 ("`SirixLZ77Codec` migrated decode is bit-for-bit identical to the
   pre-migration decode")** — the existing `SirixLZ77CodecTest` round-trip
   tests pass; an invariant of "bit-equivalence with the prior implementation"

@@ -232,7 +232,7 @@ public final class DatabaseConfiguration {
    * Set the startup request for the process-wide allocator. The first initialization wins; a
    * persisted request from a later database cannot resize the active allocator.
    *
-   * @param size maximum buffer size in bytes
+   * @param size requested allocator allowance in bytes
    * @return this {@link DatabaseConfiguration} instance
    */
   public DatabaseConfiguration setMaxSegmentAllocationSize(final long size) {
@@ -243,9 +243,9 @@ public final class DatabaseConfiguration {
   }
 
   /**
-   * Get the maximum buffer size for memory segment allocation.
+   * Get this database's startup request, which can differ from the active process allowance.
    *
-   * @return maximum buffer size in bytes
+   * @return requested allocator allowance in bytes
    */
   public long getMaxSegmentAllocationSize() {
     return maxSegmentAllocationSize;

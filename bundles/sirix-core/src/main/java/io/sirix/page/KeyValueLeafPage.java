@@ -221,9 +221,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * <li>A {@code closed} flag the page's {@link #close()} flips — the Cleaner action reads it and
    * skips logging when the page was closed properly.</li>
    * </ul>
-   * Non-static state class so users can read the closed flag through the {@code Cleaner.Cleanable}
-   * owner; reference is held by the page only when {@link #DEBUG_MEMORY_LEAKS} is on, so production
-   * builds pay zero overhead.
+   * Static state class to avoid retaining the page through an implicit enclosing-instance reference;
+   * allocated only when {@link #DEBUG_MEMORY_LEAKS} is on.
    */
   private static final class LeakDetectorState implements Runnable {
     final long pageKey;

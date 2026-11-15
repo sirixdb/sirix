@@ -7807,8 +7807,6 @@ FileChannel backend / commit profile
   -Dsirix.commit.bufferedBeacons    buffer both beacons behind a single fsync (needs preallocated); default true
   -Dsirix.revision.file.data.cache.size   RevisionFileData cache entries (default ~1M)
 
-concurrency
-  -Ddisable.single.threaded.check   relax the single-writer thread assertion (embedded multi-thread use)
 \end{diagramS}
 
 \noindent The per-page codec bake-off (\S\ref{sec:storagespi} and Chapter~\ref{ch:ondisk}) runs
@@ -8788,8 +8786,8 @@ A few constraints are worth recording because they are easy to get wrong:
 
 \begin{itemize}[leftmargin=1.4em]
 \item \textbf{Heap.} The JVM container needs an \code{-Xmx} of at least 8\,GB, or large \code{PUT}
-  (database-creation) requests stall; \code{-Ddisable.single.threaded.check} is required, and
-  \code{-XX:+AlwaysPreTouch} must \emph{not} be set, since it forces the full resident set upfront. One
+  (database-creation) requests stall; \code{-XX:+AlwaysPreTouch} must \emph{not} be set, since it forces
+  the full resident set upfront. One
   such container fits comfortably only on a 16\,GB host.
 \item \textbf{Read-only enforcement, in depth.} The Keycloak demo user carries only the \code{view}
   role, the REST layer rejects writes for a role-less user server-side, and the front-end's
@@ -8809,8 +8807,8 @@ actionable guidance, the levers a deployment can pull and the trade each carries
 in its home chapter; here they are organised by the goal they serve.
 
 \textbf{Sizing memory.} Give the JVM \code{-Xmx} of at least 8\,GB for write workloads (a smaller heap
-stalls large \code{PUT}s, \S\ref{app:deploy}), set \code{-Ddisable.single.threaded.check} for embedded
-multi-thread callers, and do \emph{not} set \code{-XX:+AlwaysPreTouch} (it forces the full resident set
+stalls large \code{PUT}s, \S\ref{app:deploy}), and do \emph{not} set
+\code{-XX:+AlwaysPreTouch} (it forces the full resident set
 up front). Record-page and fragment caches use the off-heap allocator; metadata uses an entry cap.
 For sizing, startup policy and override precedence, see \code{docs/operations.md}, section 4
 (Cache budgets).
