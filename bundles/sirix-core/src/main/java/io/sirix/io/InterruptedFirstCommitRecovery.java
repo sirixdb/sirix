@@ -167,7 +167,7 @@ public final class InterruptedFirstCommitRecovery {
     }
   }
 
-  public static void probeDatabaseFeatures(final Path database, final boolean forTool) {
+  public static void requireDatabaseToolCompatible(final Path database) {
     final Path resources = database.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
     if (!Files.isDirectory(resources)) {
       return;
@@ -177,17 +177,7 @@ public final class InterruptedFirstCommitRecovery {
         if (!Files.isDirectory(path)) {
           continue;
         }
-        try {
-          final StoreFeatures features = probeFeatures(ResourceConfiguration.deserialize(path));
-          if (forTool) {
-            features.requireToolCompatible();
-          }
-        } catch (final RuntimeException failure) {
-          if (forTool) {
-            throw failure;
-          }
-          LOGGER.debug("Resource compatibility will be resolved when opening {}", path, failure);
-        }
+        probeFeatures(ResourceConfiguration.deserialize(path)).requireToolCompatible();
       }
     } catch (final IOException failure) {
       throw new SirixIOException(failure);

@@ -75,6 +75,57 @@ class StoreFeaturesLifecycleTest {
   }
 
   @ParameterizedTest
+  @EnumSource(DatabaseType.class)
+  void databaseHandlesDoNotReadResourceBeacons(final DatabaseType type) throws Exception {
+    databasePath = directory.resolve("handles");
+    final var databaseConfig = new DatabaseConfiguration(databasePath);
+    if (type == DatabaseType.JSON) {
+      Databases.createJsonDatabase(databaseConfig);
+    } else {
+      Databases.createXmlDatabase(databaseConfig);
+    }
+    try (final var database = openDatabase(type)) {
+      for (int resource = 0; resource < 16; resource++) {
+        assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource-" + resource)
+                                                     .storageType((resource & 1) == 0
+                                                         ? StorageType.FILE_CHANNEL
+                                                         : StorageType.MEMORY_MAPPED)
+                                                     .build()));
+      }
+    }
+    Databases.clearGlobalCaches();
+    final Path resources = databasePath.toRealPath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final int[] resourceChannels = {0};
+    try (final var channels = mockStatic(FileChannel.class, invocation -> {
+      final Object result = invocation.callRealMethod();
+      if (invocation.getRawArguments().length == 2 && invocation.getArgument(0) instanceof Path path
+          && path.startsWith(resources)) {
+        resourceChannels[0]++;
+      }
+      return result;
+    }); final var database = openDatabase(type)) {
+      assertTrue(database.isOpen());
+      assertEquals(0, resourceChannels[0], "a new database owner must not inspect resource beacons");
+      try (final var reused = openDatabase(type)) {
+        assertTrue(reused.isOpen());
+        assertEquals(0, resourceChannels[0], "reusing an owner must not inspect resource beacons");
+      }
+      try (final var session = database.beginResourceSession("resource-0");
+          final var reader = session.beginNodeReadOnlyTrx()) {
+        assertEquals(0, reader.getRevisionNumber());
+      }
+      assertTrue(resourceChannels[0] > 0, "the I/O observer must detect an actual resource open");
+    }
+  }
+
+  private Database<?> openDatabase(final DatabaseType type) {
+    return switch (type) {
+      case JSON -> Databases.openJsonDatabase(databasePath);
+      case XML -> Databases.openXmlDatabase(databasePath);
+    };
+  }
+
+  @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void readOnlyBitsAllowReadsAndRefuseEveryWriterBeforeRecovery(final StorageType storageType) throws IOException {
     createStore(storageType);

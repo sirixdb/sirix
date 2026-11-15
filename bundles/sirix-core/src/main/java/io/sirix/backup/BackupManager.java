@@ -148,7 +148,7 @@ public final class BackupManager {
     // Resolve the type BEFORE creating the target, so a non-deserializable config fails cleanly.
     final DatabaseType databaseType = Databases.getDatabaseType(source);
 
-    InterruptedFirstCommitRecovery.probeDatabaseFeatures(source, true);
+    InterruptedFirstCommitRecovery.requireDatabaseToolCompatible(source);
 
     final boolean targetExisted = Files.exists(target);
     final List<ResourceSummary> resourceSummaries = new ArrayList<>();
@@ -258,7 +258,7 @@ public final class BackupManager {
     final DatabaseType databaseType = Databases.getDatabaseType(source);
 
     try {
-      InterruptedFirstCommitRecovery.probeDatabaseFeatures(source, true);
+      InterruptedFirstCommitRecovery.requireDatabaseToolCompatible(source);
     } catch (final RuntimeException failure) {
       throw new SirixIOException("Verification of backup resource features failed: " + failure.getMessage(), failure);
     }
@@ -298,7 +298,7 @@ public final class BackupManager {
   private static List<ResourceSummary> verifyRestoredDatabase(final Path target, final DatabaseType databaseType) {
     final List<ResourceSummary> resourceSummaries = new ArrayList<>();
     try {
-      InterruptedFirstCommitRecovery.probeDatabaseFeatures(target, true);
+      InterruptedFirstCommitRecovery.requireDatabaseToolCompatible(target);
     } catch (final RuntimeException failure) {
       throw new SirixIOException("Verification of restored resource features failed — "
           + "the restore has been rolled back: " + failure.getMessage(), failure);

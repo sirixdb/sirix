@@ -24,7 +24,6 @@ import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.io.SuperblockValidator;
 import io.sirix.io.RevisionRecordDurability;
 import io.sirix.io.StorageType;
-import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.SirixFiles;
 import org.jspecify.annotations.Nullable;
@@ -630,8 +629,6 @@ public final class Databases {
       throw new SirixUsageException("DB could not be opened (since it was not created?) at location", file.toString());
     }
     final Path canonicalPath = canonicalDatabasePath(file);
-
-    InterruptedFirstCommitRecovery.probeDatabaseFeatures(canonicalPath, false);
 
     synchronized (Databases.class) {
       final OpenDatabase<?> existing = awaitDatabaseClose(canonicalPath);
