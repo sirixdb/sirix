@@ -37,10 +37,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Spec tests for the temporal navigation functions on stored value items (issue #1429,
  * {@code docs/TEMPORAL_FUNCTIONS_SPEC.md}).
  *
- * <p>History of resource {@code res} (one revision per step):
+ * <p>
+ * History of resource {@code res} (one revision per step):
  * <ol>
  * <li>store: position 0 is an object with one field of each kind, position 1 an object kept
- * unchanged, positions 2-7 hold an integer, a boolean, {@code null}, a decimal, a long and a string</li>
+ * unchanged, positions 2-7 hold an integer, a boolean, {@code null}, a decimal, a long and a
+ * string</li>
  * <li>update every value in place through the node API, whose setters keep the node key (null stays
  * null); {@code replace json value} of an array member would insert a new node instead</li>
  * <li>delete the string at position 7 (last, so no position shifts) and the field {@code name};
@@ -50,8 +52,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * boolean at position 3 by a string (new node)</li>
  * </ol>
  *
- * <p>The oracle never uses the temporal axes: it reads the node with {@code sdb:select-item} in
- * each revision and applies the spec's revision rules.
+ * <p>
+ * The oracle never uses the temporal axes: it reads the node with {@code sdb:select-item} in each
+ * revision and applies the spec's revision rules.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 final class TemporalNavigationTest {
@@ -63,9 +66,8 @@ final class TemporalNavigationTest {
   private static final int MOST_RECENT = 5;
 
   /** Value paths relative to the document: array positions and object field values. */
-  private static final List<String> VALUE_PATHS =
-      List.of("[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[0].price", "[0].name", "[0].ok", "[0].none",
-          "[0].rate", "[0].big");
+  private static final List<String> VALUE_PATHS = List.of("[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[0].price",
+      "[0].name", "[0].ok", "[0].none", "[0].rate", "[0].big");
 
   /** (value path, revision) pairs without a node: [7] and [0].name in revision 3. */
   private static final int ABSENT_PATH_REVISIONS = 2;
@@ -91,7 +93,8 @@ final class TemporalNavigationTest {
     evaluate("jn:store('" + DB + "','" + RES + "','["
         + "{\"price\":999,\"name\":\"a\",\"ok\":true,\"none\":null,\"rate\":1.5,\"big\":12345678901}, "
         + "{\"keep\":1}, 999, true, null, 1.5, 12345678901, \"a\"]')");
-    final JsonResourceSession session = ((JsonDBItem) execute("jn:doc('" + DB + "','" + RES + "')")).getResourceSession();
+    final JsonResourceSession session =
+        ((JsonDBItem) execute("jn:doc('" + DB + "','" + RES + "')")).getResourceSession();
     final JsonNodeTrx wtx = session.getNodeTrx().orElseGet(session::beginNodeTrx);
     wtx.moveToDocumentRoot();
     wtx.moveToFirstChild();
@@ -126,8 +129,8 @@ final class TemporalNavigationTest {
     wtx.commit();
     evaluate("""
         let $d := jn:doc('%s','%s')
-        return (delete json $d[7], delete json $d[0].name, replace json value of $d[0].none with 7)"""
-        .formatted(DB, RES));
+        return (delete json $d[7], delete json $d[0].name, replace json value of $d[0].none with 7)""".formatted(DB,
+        RES));
 
     final JsonNodeTrx reverter = session.getNodeTrx().orElseGet(session::beginNodeTrx);
     reverter.revertTo(2);
@@ -304,9 +307,8 @@ final class TemporalNavigationTest {
 
   @Test
   void flworAndChainedNavigationAgreeWithPathNavigation() {
-    assertEquals(query("jn:first(" + doc(5) + "[0].price)"),
-        query("for $r in " + doc(5) + "[] where $r instance of object() and exists($r.price) "
-            + "return jn:first($r.price)"));
+    assertEquals(query("jn:first(" + doc(5) + "[0].price)"), query("for $r in " + doc(5)
+        + "[] where $r instance of object() and exists($r.price) " + "return jn:first($r.price)"));
     assertEquals(query("jn:first(" + doc(5) + "[2])"), query("let $v := " + doc(5) + "[2] return jn:first($v)"));
     assertEquals(query(doc(5) + "[0].price"), query("jn:last(jn:first(" + doc(5) + "[0].price))"));
     assertEquals("2", query("sdb:revision(jn:next(jn:first(" + doc(4) + "[2])))"));
@@ -340,8 +342,7 @@ final class TemporalNavigationTest {
   List<DynamicTest> computedItemsRaiseTheNotAStoredItemError() {
     final List<DynamicTest> tests = new ArrayList<>();
     for (final String computed : List.of("{\"a\": 1}", "[1, 2]", "{\"a\": 1}.a", "[1, 2][0]",
-        "upper-case(" + doc(5) + "[0].name)", doc(5) + "[0].price + 1", "42", "\"x\"", "true()", "1.5",
-        "jn:null()")) {
+        "upper-case(" + doc(5) + "[0].name)", doc(5) + "[0].price + 1", "42", "\"x\"", "true()", "1.5", "jn:null()")) {
       for (final Fn fn : Fn.values()) {
         final String call = "count(" + fn.call(computed) + ")";
         tests.add(DynamicTest.dynamicTest(call, () -> {
@@ -377,9 +378,9 @@ final class TemporalNavigationTest {
 
   /** The temporal functions and the spec's revision rule for each. */
   private enum Fn {
-    FIRST("jn:first", ""), LAST("jn:last", ""), PREVIOUS("jn:previous", ""), NEXT("jn:next", ""),
-    PAST("jn:past", ""), PAST_SELF("jn:past", ", true()"), FUTURE("jn:future", ""),
-    FUTURE_SELF("jn:future", ", true()"), ALL_TIMES("jn:all-times", "");
+    FIRST("jn:first", ""), LAST("jn:last", ""), PREVIOUS("jn:previous", ""), NEXT("jn:next", ""), PAST("jn:past",
+        ""), PAST_SELF("jn:past",
+            ", true()"), FUTURE("jn:future", ""), FUTURE_SELF("jn:future", ", true()"), ALL_TIMES("jn:all-times", "");
 
     private final String name;
 
@@ -403,12 +404,16 @@ final class TemporalNavigationTest {
         case PREVIOUS -> addIf(result, r - 1, exists);
         case NEXT -> addIf(result, r + 1, exists);
         case PAST, PAST_SELF -> {
-          for (int s = this == PAST_SELF ? r : r - 1; s >= 1 && exists[s]; s--) {
+          for (int s = this == PAST_SELF
+              ? r
+              : r - 1; s >= 1 && exists[s]; s--) {
             result.add(s);
           }
         }
         case FUTURE, FUTURE_SELF -> {
-          for (int s = this == FUTURE_SELF ? r : r + 1; s <= m && exists[s]; s++) {
+          for (int s = this == FUTURE_SELF
+              ? r
+              : r + 1; s <= m && exists[s]; s++) {
             result.add(s);
           }
         }

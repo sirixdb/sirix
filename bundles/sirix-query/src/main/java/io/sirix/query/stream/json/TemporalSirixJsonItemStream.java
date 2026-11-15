@@ -11,9 +11,9 @@ import io.sirix.query.json.JsonItemFactory;
 import static java.util.Objects.requireNonNull;
 
 /**
- * {@link Stream} over a temporal axis that yields, per revision, the stored item for the axis' node:
- * a number, string, boolean or {@code null} value, an object field name, or an object/array, as
- * that revision holds it.
+ * {@link Stream} over a temporal axis that yields, per revision, the stored item for the axis'
+ * node: a number, string, boolean or {@code null} value, an object field name, or an object/array,
+ * as that revision holds it.
  */
 public final class TemporalSirixJsonItemStream implements Stream<JsonItem> {
 

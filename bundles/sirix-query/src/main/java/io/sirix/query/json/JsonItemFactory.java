@@ -42,10 +42,9 @@ public final class JsonItemFactory {
   }
 
   /**
-   * Build the item for the cursor's node when a stored item is re-read in another revision
-   * (temporal navigation). The node key alone is ambiguous for a fused OBJECT_NAMED_* record, which
-   * holds both a field name and its value, so the caller says which of the two the original item
-   * stood for.
+   * Build the item for the cursor's node when a stored item is re-read in another revision (temporal
+   * navigation). The node key alone is ambiguous for a fused OBJECT_NAMED_* record, which holds both
+   * a field name and its value, so the caller says which of the two the original item stood for.
    *
    * @param rtx cursor positioned on the node in the target revision
    * @param collection the collection the node belongs to

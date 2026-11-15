@@ -28,7 +28,8 @@ import io.sirix.query.stream.json.TemporalSirixJsonItemStream;
  * The single dispatch point of the temporal navigation functions (spec:
  * {@code docs/TEMPORAL_FUNCTIONS_SPEC.md}).
  *
- * <p>Every item read from a Sirix store has a node key that is stable across revisions, so the
+ * <p>
+ * Every item read from a Sirix store has a node key that is stable across revisions, so the
  * temporal axes apply to all of them. Objects and arrays implement {@link TemporalJsonDBItem} and
  * keep their own result views (object, array, slice, key array). Every other stored item - numbers,
  * strings, booleans, {@code null} and object field names - is routed through its node key and
@@ -48,15 +49,15 @@ final class TemporalNavigation {
     PAST, FUTURE, ALL_TIMES
   }
 
-  private TemporalNavigation() {
-  }
+  private TemporalNavigation() {}
 
   /**
    * Validates the argument of a temporal function eagerly, before any lazy evaluation.
    *
    * @param function the function name, for the error message
    * @param argument the function argument
-   * @return the argument, a {@link JsonDBItem} (objects and arrays are also {@link TemporalJsonDBItem}s)
+   * @return the argument, a {@link JsonDBItem} (objects and arrays are also
+   *         {@link TemporalJsonDBItem}s)
    * @throws QueryException {@link JNFun#ERR_NOT_A_STORED_ITEM} if the argument is not a stored item
    */
   static Sequence requireStored(final QNm function, final Sequence argument) {

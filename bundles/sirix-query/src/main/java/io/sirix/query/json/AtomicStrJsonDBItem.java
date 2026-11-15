@@ -15,7 +15,8 @@ import static java.util.Objects.requireNonNull;
 /**
  * A string read from a Sirix document, keeping its node identity.
  *
- * <p>Sealed with one marker subclass, {@link FieldNameJsonDBItem}, for an object field NAME: under
+ * <p>
+ * Sealed with one marker subclass, {@link FieldNameJsonDBItem}, for an object field NAME: under
  * record fusion one node holds a field's name and its value, so the node key alone cannot tell
  * which of the two an item stands for when temporal navigation re-reads it in another revision. A
  * type rather than a flag keeps every string value at its existing instance size (the fields are
