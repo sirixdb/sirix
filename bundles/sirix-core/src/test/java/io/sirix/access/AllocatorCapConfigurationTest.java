@@ -18,8 +18,8 @@ final class AllocatorCapConfigurationTest {
   @ParameterizedTest
   @ValueSource(strings = {"", "typo", "0", "-1", "1025G", "8589934592G", "9223372036854775808"})
   void refusesInvalidAllocatorRequests(final String value) {
-    final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
-        () -> DatabaseConfiguration.parseSegmentSize(value));
+    final IllegalArgumentException failure =
+        assertThrows(IllegalArgumentException.class, () -> DatabaseConfiguration.parseSegmentSize(value));
     assertTrue(failure.getMessage().contains(DatabaseConfiguration.SEGMENT_ALLOCATION_SIZE_PROPERTY));
     assertTrue(failure.getMessage().contains(value));
   }

@@ -36,11 +36,14 @@ final class SharedArenaStartupPolicyTest {
       assertTrue(SharedArenas.skipArenaClose());
       return;
     }
-    assertTrue("reject-global".equals(mode) || "reject-skip".equals(mode), "a launcher fixture must select a known policy case");
+    assertTrue("reject-global".equals(mode) || "reject-skip".equals(mode),
+        "a launcher fixture must select a known policy case");
     final ExceptionInInitializerError failure = assertThrows(ExceptionInInitializerError.class, SharedArenas::strategy);
     final IllegalArgumentException cause = assertInstanceOf(IllegalArgumentException.class, failure.getCause());
     assertTrue(cause.getMessage().contains("sirix.diagnostics.allowUnsafeLifetime"));
-    assertTrue(cause.getMessage().contains("reject-global".equals(mode)
-        ? "sirix.arena.strategy=global" : "sirix.mmstorage.skipArenaClose=true"));
+    assertTrue(cause.getMessage()
+                    .contains("reject-global".equals(mode)
+                        ? "sirix.arena.strategy=global"
+                        : "sirix.mmstorage.skipArenaClose=true"));
   }
 }

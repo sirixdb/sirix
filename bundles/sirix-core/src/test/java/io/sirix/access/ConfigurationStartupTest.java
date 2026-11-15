@@ -55,29 +55,44 @@ final class ConfigurationStartupTest {
     final Path second = directory.resolve("second");
     try {
       final BufferManager manager = Databases.getGlobalBufferManager();
-      assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(first).setMaxSegmentAllocationSize(128L << 20)));
+      assertTrue(
+          Databases.createJsonDatabase(new DatabaseConfiguration(first).setMaxSegmentAllocationSize(128L << 20)));
       assertEquals(allowance, Allocators.getInstance().getMaxBufferSize());
       assertEquals(33_554_435L, ((ShardedPageCache<?>) manager.getRecordPageCache()).getMaxWeightBytes());
       assertEquals(12_582_913L, ((ShardedPageCache<?>) manager.getRecordPageFragmentCache()).getMaxWeightBytes());
       assertEquals(7, ((PageCache) manager.getPageCache()).maxEntries());
       for (final String expected : new String[] {
           "Initializing global BufferManager with effective allocator allowance: 67108871 bytes",
-          "  - RevisionRootPageCache size: 20000 entries (default)",
-          "  - NamesCache size: 500 (fixed)", "  - PathSummaryCache size: 20 (fixed)",
+          "  - RevisionRootPageCache size: 20000 entries (default)", "  - NamesCache size: 500 (fixed)",
+          "  - PathSummaryCache size: 20 (fixed)",
           "GLOBAL ClockSweeper threads started (PostgreSQL bgwriter pattern)"}) {
         assertTrue(events.list.stream().anyMatch(event -> event.getFormattedMessage().equals(expected)), expected);
       }
-      assertTrue(events.list.stream().anyMatch(event -> event.getFormattedMessage().equals("  - PageCache: 7 entries")));
-      assertTrue(events.list.stream().anyMatch(event -> event.getFormattedMessage().equals(
-          "  - RecordPageCache: 33554435 bytes (32 MB) (default: 50% of budget)")));
-      assertTrue(events.list.stream().anyMatch(event -> event.getFormattedMessage().equals(
-          "  - RecordPageFragmentCache: 12582913 bytes (12 MB) (default: 18.75% of budget)")));
+      assertTrue(
+          events.list.stream().anyMatch(event -> event.getFormattedMessage().equals("  - PageCache: 7 entries")));
+      assertTrue(
+          events.list.stream()
+                     .anyMatch(
+                         event -> event.getFormattedMessage()
+                                       .equals(
+                                           "  - RecordPageCache: 33554435 bytes (32 MB) (default: 50% of budget)")));
+      assertTrue(
+          events.list.stream()
+                     .anyMatch(
+                         event -> event.getFormattedMessage()
+                                       .equals(
+                                           "  - RecordPageFragmentCache: 12582913 bytes (12 MB) (default: 18.75% of budget)")));
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(first)) {
-        assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(second).setMaxSegmentAllocationSize(256L << 20)));
+        assertTrue(
+            Databases.createJsonDatabase(new DatabaseConfiguration(second).setMaxSegmentAllocationSize(256L << 20)));
         assertEquals(allowance, Allocators.getInstance().getMaxBufferSize());
-        assertTrue(events.list.stream().anyMatch(event -> event.getFormattedMessage().equals(
-            "Allocator startup request: 268435456 bytes; effective process allowance: 67108871 bytes. "
-                + "The first initialization wins; later database requests do not resize it.")));
+        assertTrue(
+            events.list.stream()
+                       .anyMatch(
+                           event -> event.getFormattedMessage()
+                                         .equals(
+                                             "Allocator startup request: 268435456 bytes; effective process allowance: 67108871 bytes. "
+                                                 + "The first initialization wins; later database requests do not resize it.")));
         assertEquals(128L << 20, database.getDatabaseConfig().getMaxSegmentAllocationSize());
       }
       final String previousEntries = System.getProperty("sirix.cache.page.max.entries");
@@ -89,12 +104,11 @@ final class ConfigurationStartupTest {
         assertEquals(3, ((PageCache) Databases.getGlobalBufferManager().getPageCache()).maxEntries());
         assertEquals(48L << 20,
             ((ShardedPageCache<?>) Databases.getGlobalBufferManager().getRecordPageCache()).getMaxWeightBytes());
-        assertEquals(8L << 20,
-            ((ShardedPageCache<?>) Databases.getGlobalBufferManager().getRecordPageFragmentCache()).getMaxWeightBytes());
+        assertEquals(8L << 20, ((ShardedPageCache<?>) Databases.getGlobalBufferManager()
+                                                               .getRecordPageFragmentCache()).getMaxWeightBytes());
         Databases.reinitializeBufferManagerForTesting(48L << 20, 8L << 20);
         assertEquals(50_000, ((PageCache) Databases.getGlobalBufferManager().getPageCache()).maxEntries());
-        for (final String expected : new String[] {
-            "  - RecordPageCache: 50331648 bytes (48 MB)",
+        for (final String expected : new String[] {"  - RecordPageCache: 50331648 bytes (48 MB)",
             "  - RecordPageFragmentCache: 8388608 bytes (8 MB)",
             "  - PageCache legacy estimate: 3000 bytes; effective entry cap logged by PageCache",
             "  - PageCache legacy estimate: 50000000 bytes; effective entry cap logged by PageCache",

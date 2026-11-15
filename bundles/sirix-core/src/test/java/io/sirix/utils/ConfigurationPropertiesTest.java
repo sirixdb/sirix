@@ -27,8 +27,8 @@ final class ConfigurationPropertiesTest {
   @ParameterizedTest
   @ValueSource(strings = {"", " ", "oops", "1T", "1.5G", "0", "-1", "-2G", "9223372036854775808", "8589934592G"})
   void explicitInvalidCapsFailWithThePropertyAndValue(final String value) {
-    final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
-        () -> ConfigurationProperties.parsePositiveBytes(PROPERTY, value));
+    final IllegalArgumentException failure =
+        assertThrows(IllegalArgumentException.class, () -> ConfigurationProperties.parsePositiveBytes(PROPERTY, value));
     assertTrue(failure.getMessage().contains(PROPERTY));
     assertTrue(failure.getMessage().contains("=" + value));
   }
@@ -42,8 +42,8 @@ final class ConfigurationPropertiesTest {
     final BigInteger maximum = BigInteger.valueOf(Long.MAX_VALUE);
     for (int unit = 0; unit < suffixes.length; unit++) {
       final BigInteger limit = maximum.shiftRight(shifts[unit]);
-      final BigInteger[] numbers = {BigInteger.ZERO, BigInteger.ONE, BigInteger.TWO,
-          limit.subtract(BigInteger.ONE), limit, limit.add(BigInteger.ONE), maximum, maximum.add(BigInteger.ONE)};
+      final BigInteger[] numbers = {BigInteger.ZERO, BigInteger.ONE, BigInteger.TWO, limit.subtract(BigInteger.ONE),
+          limit, limit.add(BigInteger.ONE), maximum, maximum.add(BigInteger.ONE)};
       for (final BigInteger number : numbers) {
         final String input = number + suffixes[unit];
         final BigInteger bytes = number.shiftLeft(shifts[unit]);

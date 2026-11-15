@@ -43,8 +43,8 @@ public final class SharedArenasTest {
 
   @Test
   void productionRejectsProcessLifetimeOverrides() {
-    final IllegalArgumentException global = assertThrows(IllegalArgumentException.class,
-        () -> SharedArenas.determineStrategy("global", false));
+    final IllegalArgumentException global =
+        assertThrows(IllegalArgumentException.class, () -> SharedArenas.determineStrategy("global", false));
     assertTrue(global.getMessage().contains(SharedArenas.UNSAFE_LIFETIME_PROPERTY));
     assertThrows(IllegalArgumentException.class, () -> SharedArenas.determineStrategy("global", true));
     assertThrows(IllegalArgumentException.class, () -> SharedArenas.determineSkipArenaClose(true, false));

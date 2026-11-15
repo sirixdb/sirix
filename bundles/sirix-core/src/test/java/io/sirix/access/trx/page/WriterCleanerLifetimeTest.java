@@ -42,8 +42,8 @@ final class WriterCleanerLifetimeTest {
     try {
       assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
       try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-        assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
-            .storageType(StorageType.FILE_CHANNEL).build()));
+        assertTrue(database.createResource(
+            ResourceConfiguration.newBuilder("resource").storageType(StorageType.FILE_CHANNEL).build()));
         try (final JsonResourceSession session = database.beginResourceSession("resource");
             final JsonNodeTrx transaction = session.beginNodeTrx()) {
           final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) transaction.getStorageEngineWriter();
@@ -58,9 +58,10 @@ final class WriterCleanerLifetimeTest {
             }
             assertNull(registration.get(), "a closed live writer must not retain its Cleaner registration");
             final String identity = "instance=" + System.identityHashCode(writer) + " ";
-            assertTrue(events.list.stream().noneMatch(event ->
-                event.getFormattedMessage().contains("FINALIZED WITHOUT CLOSE")
-                    && event.getFormattedMessage().contains(identity)),
+            assertTrue(
+                events.list.stream()
+                           .noneMatch(event -> event.getFormattedMessage().contains("FINALIZED WITHOUT CLOSE")
+                               && event.getFormattedMessage().contains(identity)),
                 "normal close must suppress the abandoned-writer diagnostic");
           } finally {
             Reference.reachabilityFence(writer);

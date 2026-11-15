@@ -93,8 +93,8 @@ final class PageCacheConfigurationTest {
     System.setProperty(PageCache.LEGACY_BYTES_PROPERTY, "2147483647999");
     assertEquals(Integer.MAX_VALUE, new PageCache(50_000_000L).maxEntries());
     System.setProperty(PageCache.LEGACY_BYTES_PROPERTY, "2147483648000");
-    final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
-        () -> new PageCache(50_000_000L));
+    final IllegalArgumentException failure =
+        assertThrows(IllegalArgumentException.class, () -> new PageCache(50_000_000L));
     assertTrue(failure.getMessage().contains(PageCache.LEGACY_BYTES_PROPERTY));
     assertTrue(failure.getMessage().contains("2147483648000"));
     System.setProperty(PageCache.MAX_ENTRIES_PROPERTY, "2147483647");
@@ -107,8 +107,8 @@ final class PageCacheConfigurationTest {
     System.setProperty(PageCache.LEGACY_BYTES_PROPERTY, "3000");
     for (final String value : new String[] {"", "typo", "0", "-1", "2147483648"}) {
       System.setProperty(PageCache.MAX_ENTRIES_PROPERTY, value);
-      final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
-          () -> new PageCache(50_000_000L));
+      final IllegalArgumentException failure =
+          assertThrows(IllegalArgumentException.class, () -> new PageCache(50_000_000L));
       assertTrue(failure.getMessage().contains(PageCache.MAX_ENTRIES_PROPERTY));
       assertTrue(failure.getMessage().contains("=" + value));
     }
@@ -123,8 +123,9 @@ final class PageCacheConfigurationTest {
     try {
       System.setProperty(PageCache.MAX_ENTRIES_PROPERTY, "7");
       assertEquals(7, new PageCache(50_000_000L).maxEntries());
-      assertTrue(events.list.stream().anyMatch(event ->
-          event.getFormattedMessage().equals("PageCache created with maxEntries: 7")));
+      assertTrue(
+          events.list.stream()
+                     .anyMatch(event -> event.getFormattedMessage().equals("PageCache created with maxEntries: 7")));
     } finally {
       logger.detachAppender(events);
       events.stop();

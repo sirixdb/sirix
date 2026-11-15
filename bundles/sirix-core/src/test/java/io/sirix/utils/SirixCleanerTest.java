@@ -107,7 +107,8 @@ final class SirixCleanerTest {
         finished.countDown();
       }
     });
-    final SirixCleaner.Cleanup secondCleanup = (SirixCleaner.Cleanup) SirixCleaner.register(secondOwner, second::countDown);
+    final SirixCleaner.Cleanup secondCleanup =
+        (SirixCleaner.Cleanup) SirixCleaner.register(secondOwner, second::countDown);
     try {
       // Invoke precisely the callback the Cleaner invokes, without depending on GC scheduling.
       firstCleanup.run();
@@ -143,8 +144,8 @@ final class SirixCleanerTest {
     }
   }
 
-  private static WeakReference<Cleanable> closeAndForgetRegistration(final Object owner,
-      final AtomicInteger calls, final ReferenceQueue<Cleanable> collected) {
+  private static WeakReference<Cleanable> closeAndForgetRegistration(final Object owner, final AtomicInteger calls,
+      final ReferenceQueue<Cleanable> collected) {
     final Cleanable cleanup = SirixCleaner.register(owner, calls::incrementAndGet);
     cleanup.clean();
     return new WeakReference<>(cleanup, collected);
