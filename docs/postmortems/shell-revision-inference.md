@@ -58,7 +58,10 @@ reported as timeouts rather than ordinary kills; no wall-clock assertions were a
 The completed focused run passed all 34 Main/shell tests. Its PIT XML records 175 mutants:
 168 `KILLED`, two `TIMED_OUT` as justified above, five `SURVIVED`, and zero `NO_COVERAGE`.
 The four non-equivalent survivors prompted the three additional neutral-result assertions
-described above. The final test/PIT repeat then waited over 38 minutes for shared `heavy.sh`
-capacity without starting Gradle and was cancelled. Those final test-only additions and their
-expected mutation kills remain unverified; the last completed run is not claimed as their proof.
+described above. The follow-up test/PIT repeat waited over 38 minutes for shared `heavy.sh`
+capacity without starting Gradle and was cancelled. Subsequent test execution of those
+assertions is recorded in the
+[XML content verification record](shell-xml-content-quotes.md#focused-verification).
+Their expected mutation kills remain unverified; the last completed PIT run is not claimed
+as their proof.
 The completed report remains at `build/review-r1-r2/pitest/mutations.xml` in this worktree.
