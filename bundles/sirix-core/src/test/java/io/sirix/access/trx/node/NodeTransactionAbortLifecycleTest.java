@@ -23,6 +23,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
@@ -640,6 +643,126 @@ final class NodeTransactionAbortLifecycleTest {
       try (NodeTrx reader = fixture.second.beginNodeTrx()) {
         setCursor(reader);
         assertEquals(3, value(reader));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"json,false", "xml,false", "json,true", "xml,true"})
+  void timedPostCommitCloseReleasesAdmissionWithoutJoiningItself(final String format, final boolean closeSession)
+      throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(1, TimeUnit.SECONDS);
+      final ScheduledExecutorService scheduler = scheduler(transaction);
+      final ReentrantLock lock = (ReentrantLock) field(AbstractNodeTrxImpl.class, "lock").get(transaction);
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch allowClose = new CountDownLatch(1);
+      final CountDownLatch allowHookReturn = new CountDownLatch(1);
+      final CompletableFuture<Void> closedInHook = new CompletableFuture<>();
+      final CompletableFuture<Boolean> externallyClosed = new CompletableFuture<>();
+      final AtomicInteger laterHooks = new AtomicInteger();
+      final Thread external = new Thread(() -> {
+        try {
+          transaction.close();
+          externallyClosed.complete(scheduler.isTerminated());
+        } catch (final Throwable failure) {
+          externallyClosed.completeExceptionally(failure);
+        }
+      });
+      transaction.runLocked(() -> {
+        setValue(transaction, 1);
+        transaction.addPostCommitHook(closing -> {
+          entered.countDown();
+          await(allowClose);
+          try {
+            if (closeSession) {
+              fixture.first.close();
+            } else {
+              closing.close();
+            }
+            closedInHook.complete(null);
+            await(allowHookReturn);
+          } catch (final Throwable failure) {
+            closedInHook.completeExceptionally(failure);
+            throw failure;
+          }
+        });
+        transaction.addPostCommitHook(closed -> laterHooks.incrementAndGet());
+      });
+      try {
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        external.start();
+        while (!lock.hasQueuedThread(external)) {
+          if (!external.isAlive()) {
+            fail("external close returned before the scheduler callback exited");
+          }
+          if (Thread.interrupted()) {
+            throw new InterruptedException();
+          }
+          Thread.onSpinWait();
+        }
+        allowClose.countDown();
+        closedInHook.get(10, TimeUnit.SECONDS);
+        assertTrue(transaction.isClosed());
+        assertEquals(closeSession, fixture.first.isClosed());
+        assertTrue(scheduler.isShutdown());
+        assertFalse(scheduler.isTerminated());
+        assertFalse(externallyClosed.isDone());
+        assertFalse(fixture.second.hasRunningNodeWriteTrx());
+        try (NodeTrx next = fixture.second.beginNodeTrx()) {
+          setCursor(next);
+          assertEquals(1, value(next));
+          setValue(next, 3);
+          next.commit();
+        }
+        allowHookReturn.countDown();
+        assertTrue(externallyClosed.get(10, TimeUnit.SECONDS));
+        assertEquals(0, laterHooks.get());
+        transaction.close();
+        assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
+        try (NodeTrx next = fixture.second.beginNodeTrx()) {
+          setCursor(next);
+          assertEquals(3, value(next));
+        }
+      } finally {
+        allowClose.countDown();
+        allowHookReturn.countDown();
+        external.join(10000);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void ordinaryPostCommitHooksContinueInOrder(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory);
+        NodeTrx transaction = fixture.first.beginNodeTrx()) {
+      final AtomicInteger calls = new AtomicInteger();
+      transaction.addPostCommitHook(committed -> assertEquals(0, calls.getAndIncrement()));
+      transaction.addPostCommitHook(committed -> assertEquals(1, calls.getAndIncrement()));
+      setValue(transaction, 1);
+      transaction.commit();
+      assertEquals(2, calls.get());
+      assertFalse(transaction.isClosed());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void asynchronousPostCommitCloseStopsLaterHooks(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      final AtomicInteger laterHooks = new AtomicInteger();
+      transaction.addPostCommitHook(closing -> closing.close());
+      transaction.addPostCommitHook(closed -> laterHooks.incrementAndGet());
+      setValue(transaction, 1);
+      assertThrows(IllegalStateException.class, () -> setValue(transaction, 2));
+      assertTrue(transaction.isClosed());
+      assertTrue(scheduler(transaction).isTerminated());
+      assertEquals(0, laterHooks.get());
+      try (NodeTrx next = fixture.second.beginNodeTrx()) {
+        setCursor(next);
+        assertEquals(1, value(next));
       }
     }
   }

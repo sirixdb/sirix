@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
@@ -91,9 +92,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private final ScheduledExecutorService commitScheduler;
 
+  private volatile @Nullable Thread commitSchedulerThread;
+
   private final int transactionId;
 
-  private boolean writeOwnershipReleased;
+  private final AtomicBoolean writeOwnershipReleased = new AtomicBoolean();
 
   /**
    * Hash kind of Structure.
@@ -260,7 +263,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // Do not accept negative values.
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     checkArgument(!afterCommitDelay.isNegative(), "After commit delay cannot be negative");
-    this.commitScheduler = newScheduledThreadPool(1, threadFactory);
+    this.commitScheduler = newScheduledThreadPool(1, task -> {
+      final Thread thread = threadFactory.newThread(task);
+      commitSchedulerThread = thread;
+      return thread;
+    });
     this.hashType = hashType;
     this.nodeReadOnlyTrx = requireNonNull(nodeReadOnlyTrx);
     this.transactionId = nodeReadOnlyTrx.getId();
@@ -650,6 +657,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // Execute post-commit hooks (parity with sync intermediate commits).
     for (final PostCommitHook hook : postCommitHooks) {
       hook.postCommit(this);
+      if (isClosed()) {
+        break;
+      }
     }
   }
 
@@ -847,6 +857,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // Execute post-commit hooks.
     for (final PostCommitHook hook : postCommitHooks) {
       hook.postCommit(this);
+      if (isClosed()) {
+        break;
+      }
     }
 
     return self();
@@ -1536,91 +1549,103 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
   @SuppressWarnings("java:S1181")
-  private synchronized void close(final boolean abort) {
+  private void close(final boolean abort) {
     Throwable failure = null;
     try {
-      runLocked(() -> {
-        if (isClosed()) {
-          return;
+      if (lock == null) {
+        synchronized (this) {
+          closeInMemory(abort);
         }
-        Throwable cleanupFailure = null;
-        try {
-          awaitPendingAsyncCommit();
-        } catch (final RuntimeException | Error e) {
-          cleanupFailure = e;
-        }
-        if (!abort && modificationCount > 0) {
-          final SirixUsageException dirty = new SirixUsageException("Must commit/rollback transaction first!");
-          ShardedPageCache.rethrowCleanupFailure(ShardedPageCache.retainCleanupFailure(cleanupFailure, dirty));
-        }
-        if (cleanupFailure != null || (abort && modificationCount > 0)) {
-          try {
-            resourceSession.requireCommitRecovery();
-          } catch (final RuntimeException | Error e) {
-            cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
-          }
-        }
-        try {
-          indexController.notifyTransactionAbort();
-        } catch (final RuntimeException | Error e) {
-          cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
-        }
-        if (storageEngineWriter != null && !storageEngineWriter.isClosed()) {
-          try {
-            storageEngineWriter.close();
-          } catch (final RuntimeException | Error e) {
-            cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
-            if (!storageEngineWriter.isClosed()) {
-              ShardedPageCache.rethrowCleanupFailure(cleanupFailure);
-            }
-          }
-        }
-        try {
-          nodeReadOnlyTrx.close();
-        } catch (final RuntimeException | Error e) {
-          cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
-        }
-        modificationCount = 0L;
-        pendingIndexCatalogue = null;
-        pathSummaryWriter = null;
-        nodeFactory = null;
-        try {
-          updateOperationsUnordered.clear();
-        } catch (final RuntimeException | Error e) {
-          cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
-        }
-        try {
-          commitScheduler.shutdown();
-        } catch (final RuntimeException | Error e) {
-          cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
-        }
-        state = State.CLOSED;
-        if (cleanupFailure != null) {
-          try {
-            resourceSession.requireCommitRecovery();
-          } catch (final RuntimeException | Error e) {
-            cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
-          }
-        }
-        ShardedPageCache.rethrowCleanupFailure(cleanupFailure);
-      });
+      } else {
+        runLocked(() -> closeInMemory(abort));
+      }
     } catch (final RuntimeException | Error e) {
       failure = e;
     }
-    if (isClosed() && !writeOwnershipReleased) {
-      try {
-        WorkerTermination.shutdownAndAwait(commitScheduler, false);
-      } catch (final RuntimeException | Error e) {
-        failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    if (isClosed()) {
+      if (Thread.currentThread() != commitSchedulerThread) {
+        try {
+          WorkerTermination.shutdownAndAwait(commitScheduler, false);
+        } catch (final RuntimeException | Error e) {
+          failure = ShardedPageCache.retainCleanupFailure(failure, e);
+        }
       }
-      writeOwnershipReleased = true;
-      try {
-        resourceSession.closeWriteTransaction(transactionId);
-      } catch (final RuntimeException | Error e) {
-        failure = ShardedPageCache.retainCleanupFailure(failure, e);
+      if (writeOwnershipReleased.compareAndSet(false, true)) {
+        try {
+          resourceSession.closeWriteTransaction(transactionId);
+        } catch (final RuntimeException | Error e) {
+          failure = ShardedPageCache.retainCleanupFailure(failure, e);
+        }
       }
     }
     ShardedPageCache.rethrowCleanupFailure(failure);
+  }
+
+  @SuppressWarnings("java:S1181")
+  private void closeInMemory(final boolean abort) {
+    if (isClosed()) {
+      return;
+    }
+    Throwable cleanupFailure = null;
+    try {
+      awaitPendingAsyncCommit();
+    } catch (final RuntimeException | Error e) {
+      cleanupFailure = e;
+    }
+    if (!abort && modificationCount > 0) {
+      final SirixUsageException dirty = new SirixUsageException("Must commit/rollback transaction first!");
+      ShardedPageCache.rethrowCleanupFailure(ShardedPageCache.retainCleanupFailure(cleanupFailure, dirty));
+    }
+    if (cleanupFailure != null || (abort && modificationCount > 0)) {
+      try {
+        resourceSession.requireCommitRecovery();
+      } catch (final RuntimeException | Error e) {
+        cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+      }
+    }
+    try {
+      indexController.notifyTransactionAbort();
+    } catch (final RuntimeException | Error e) {
+      cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+    }
+    if (storageEngineWriter != null && !storageEngineWriter.isClosed()) {
+      try {
+        storageEngineWriter.close();
+      } catch (final RuntimeException | Error e) {
+        cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+        if (!storageEngineWriter.isClosed()) {
+          ShardedPageCache.rethrowCleanupFailure(cleanupFailure);
+        }
+      }
+    }
+    try {
+      nodeReadOnlyTrx.close();
+    } catch (final RuntimeException | Error e) {
+      cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+    }
+    modificationCount = 0L;
+    pendingIndexCatalogue = null;
+    pathSummaryWriter = null;
+    nodeFactory = null;
+    try {
+      updateOperationsUnordered.clear();
+    } catch (final RuntimeException | Error e) {
+      cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+    }
+    try {
+      commitScheduler.shutdown();
+    } catch (final RuntimeException | Error e) {
+      cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+    }
+    state = State.CLOSED;
+    if (cleanupFailure != null) {
+      try {
+        resourceSession.requireCommitRecovery();
+      } catch (final RuntimeException | Error e) {
+        cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+      }
+    }
+    ShardedPageCache.rethrowCleanupFailure(cleanupFailure);
   }
 
   @Override
