@@ -69,8 +69,8 @@ public final class LegacyEnvelopeImagesTest {
       final String requiredMessage = kind == PageKind.UBERPAGE.getID()
           ? "required uber extension 0xbe"
           : "required page extension 190";
-      assertTrue(assertThrows(unsupportedType, () -> persister.deserializePage(config,
-          Bytes.wrapForRead(extended), SerializationType.DATA)).getMessage().contains(requiredMessage));
+      assertTrue(assertThrows(unsupportedType, () -> persister.deserializePage(config, Bytes.wrapForRead(extended),
+          SerializationType.DATA)).getMessage().contains(requiredMessage));
     }
   }
 }

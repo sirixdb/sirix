@@ -141,8 +141,9 @@ public final class PageEnvelopeContractTest {
     final String requiredMessage = page instanceof UberPage
         ? "required uber extension 0x81"
         : "required page extension 129";
-    assertTrue(assertThrows(unsupportedType, () -> persister.deserializePage(CONFIG, requiredSource,
-        SerializationType.DATA)).getMessage().contains(requiredMessage));
+    assertTrue(assertThrows(unsupportedType,
+        () -> persister.deserializePage(CONFIG, requiredSource, SerializationType.DATA)).getMessage()
+                                                                                        .contains(requiredMessage));
     final byte[] unknownFlag = oldBytes.clone();
     unknownFlag[2] |= 0x40;
     final BytesIn<?> unknownFlagSource = Bytes.wrapForRead(unknownFlag);
