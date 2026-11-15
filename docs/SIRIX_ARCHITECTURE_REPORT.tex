@@ -2472,22 +2472,21 @@ offset  bytes (hex)                meaning
  0x00   53 49 52 49 58 44 42 21    magic  "SIRIXDB!"  (8 ASCII bytes)
  0x08   00 00 00 00                layout version = 0  (u32 LE)
  0x0C   00                         role = 0 (DATA;  REVISIONS file would be 1)
- 0x0D   00 00 00                   reserved / flags
+ 0x0D   00 00 00                   spare bytes (validation: docs/DISK_FORMAT.md §1)
  0x10   04 03 02 01                endianness check word = 0x01020304  → reader confirms LE
  0x14   00 10 00 00                beacon-slot size = 4096   (u32 LE)
  0x18   00 10 00 00 00 00 00 00    primary-beacon offset = 4096   (u64 LE)
  0x20   00 30 00 00 00 00 00 00    content-start = 12288   (u64 LE)   (DATA_REGION_START)
- 0x28   00 … 00  (16 bytes)        reserved (future resource UUID)
+ 0x28   00 … 00  (16 bytes)        legacy zero resource UUID (see docs/DISK_FORMAT.md §1)
  0x38   xx xx xx xx xx xx xx xx    XXH3-64 over bytes [0x00, 0x38)   (self-checksum)
 
 then:  0x1000 PRIMARY beacon slot (4 KiB) · 0x2000 SECONDARY beacon slot (4 KiB) · 0x3000 first page record
 \end{diagramS}
 
-Three of these fields are the whole open-time contract. The \textbf{magic} identifies the file; the
+The open-time contract is owned by \pp{docs/DISK\_FORMAT.md}, \S1. The \textbf{magic} identifies the file; the
 \textbf{role} byte stops a \code{sirix.data} file from ever being read as a \code{sirix.revisions} file or
 the reverse; and the \textbf{endianness check word} \code{0x01020304} is stored as a raw integer, so a
-reader that sees \code{04 03 02 01} knows it is little-endian and a reader on a big-endian host would see
-\code{01 02 03 04} and could correct, the format is self-describing rather than host-assumed. The trailing
+reader that sees \code{04 03 02 01} knows it is little-endian. The trailing
 \textbf{XXH3} over the first 56 bytes catches a torn or bit-rotted superblock before any of those fields
 is trusted. Everything after offset \code{0x3000} is the append-only data region whose growth the file-growth
 trace of Appendix~\ref{app:format} walks.

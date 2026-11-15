@@ -525,14 +525,14 @@ revision records** (little-endian) plus their **checksummed 16-entry tail log in
 slots** (salvage + self-heal, eviction guarded by a per-resource durability watermark);
 **legacy FILE backend removed** (`StorageType.FILE` fails
 fast — it wrote an incompatible layout under the same version); u8 fragment-count guards;
-PATH_SUMMARY writes its delegate byte via the shared helper; PageReference hashes as
-`[u8 flag][8 B]` instead of `[i32 len][8 B]`; the `+8`
+PATH_SUMMARY writes its delegate byte via the shared helper; PageReference hashes use the
+[hash-form encoding](#3-integrity) instead of `[i32 len][8 B]`; the `+8`
 first-offset quirk and the 256-byte RevisionRootPage alignment are gone (8-byte alignment for
 all data pages, data starts exactly at `DATA_REGION_START`).
 
 Done since the audit (see `docs/BINARY_ENCODING_FUTURE_PROOFING_AUDIT.md` for the full list):
-**full little-endian pin** (was item 1 — all scalar IO via `io.sirix.node.LE`); **reserved
-flags byte in every page envelope** (additive changes no longer force a global version bump);
+**full little-endian pin** (was item 1 — all scalar IO via `io.sirix.node.LE`); **page-envelope
+evolution** (see the [flag and extension-block contract](#2-pages));
 **revisions record stride persisted in the superblock** and validated at open; **stable id
 bytes replace every enum-ordinal on disk** (including HOT node/layout types); **fail-fast unknown
 node-kind/page-flags/version errors**; **pure-Java LZ4 block
