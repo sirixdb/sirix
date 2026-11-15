@@ -217,6 +217,9 @@ sirix-cli -l /tmp/mydb resource-history myresource
 
 `sirix-shell` is a JSONiq/XQuery REPL over the same data (`jn:store(...)`, `jn:doc(...)` —
 multi-line queries, empty line executes, Control-D exits).
+Its terminal presentation adds syntax highlighting, formatted results and a revision
+indicator. See the [shell presentation reference](docs/shell-presentation.md) for colour
+controls, plain-output compatibility and the supported revision/diff inference forms.
 
 JSONiq array access uses zero-based positions. Negative positions count from the end of
 each containing array: `jn:doc('mydb','myresource').numbers[-1].v` reads the last

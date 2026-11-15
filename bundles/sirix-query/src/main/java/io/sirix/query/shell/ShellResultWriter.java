@@ -5,10 +5,10 @@ import java.io.Writer;
 import java.util.Objects;
 
 /**
- * Colours serialized JSON/XML without parsing, buffering, or evaluating query items. Fixed scratch
- * buffers avoid per-value allocation, including strings larger than memory. Closing never closes
- * the terminal. Call finish after a result (flush alone must preserve tokens across serializer
- * flushes).
+ * Colours serialized JSON/XML without building a document tree, buffering the full result, or
+ * evaluating query items. Fixed scratch buffers avoid per-value allocation, including strings
+ * larger than memory. Closing never closes the terminal. Call finish after a result (flush alone
+ * must preserve tokens across serializer flushes).
  */
 public final class ShellResultWriter extends Writer {
   private enum XmlMarkup {

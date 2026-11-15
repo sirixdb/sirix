@@ -95,6 +95,8 @@ public final class Main {
     Config config = new Config();
     try {
       config = parseParams(args);
+      // System.console() remains nullable by its API contract.
+      @SuppressWarnings("SystemConsoleNull")
       final boolean tty = System.console() != null && System.console().isTerminal();
       try (Terminal terminal = tty
           ? TerminalBuilder.builder().system(true).build()

@@ -11,7 +11,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.LongSupplier;
 
-/** Presentation of an already serialized result; the plain branch retains the CLI byte contract. */
+/**
+ * Terminal presentation around query serialization; the plain branch retains the CLI byte contract.
+ */
 public final class ShellOutput {
   private final ShellPalette palette;
   private final PrintWriter out;
