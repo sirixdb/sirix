@@ -939,23 +939,63 @@ uncached vs. 1207 ns with Caffeine, hit 121 ns; `hot/cache/HOTLookupCache.java:3
 
 ### 4.3 Lower and upper bound
 
-`lowerOrUpperBound` is a port of Binna §4.2 / `HOTSingleThreaded.hpp:347-415` of the paper's
-reference implementation (that file is not in this repository)
-(`hot/reader/HOTTrieReader.java:409-449` documentation, `:548-721` code):
+#### 4.3.1 Contract
+
+Let `K` be the keys stored below `root` and `S = searchKey[0..searchKeyLen)` any byte string: present
+or absent, of any length including zero, shorter or longer than every stored key.
+
+| Id | Requirement |
+|---|---|
+| LB1 | `lowerBound(root, S)` positions at `min { k ∈ K : k ≥ S }` in key order (§0.2), and reports exhaustion when no stored key is `≥ S` |
+| LB2 | `upperBound(root, S)` positions at `min { k ∈ K : k > S }`, and reports exhaustion when no stored key is `> S` |
+| LB3 | The result depends on `S` alone: buffer bytes at or past `searchKeyLen` never take part in routing, comparison or the branch decision |
+| LB4 | A search key that no bit separates from a stored key (one of the two is the other followed only by `0x00` bytes) is still ordered by length (§0.2), and the seek returns a position instead of failing |
+| LB5 | The returned leaf is positioned on the reader's path stack, so `advanceToNextLeaf()` continues in key order and `range(root, from, to)` returns exactly the stored keys in `[from, to]`, ascending, each once |
+| LB6 | A seek allocates nothing per leaf entry it inspects. Sibling first keys (memoized on a read-only snapshot, materialized by a leftmost descent otherwise) are resolved only on the side of the affected subtree that decides the result, and not at all for an exact hit or a position strictly inside the leaf |
+
+Preconditions: the tree satisfies §2.8, every BiNode discriminates on the MSDB of the keys below it
+(§2.7), and a stored key that extends another stored key continues with a 1 bit, which is what the
+CAS/VALIDTIME delta suffix guarantees (§2.5). The NAME case of §7.2 item 1 is outside the contract.
+Error case: a route or a sibling first-key resolution that reaches no page or no child is structural
+corruption and throws; it is never reported as exhaustion or answered from the routed leaf. An empty
+root leaf is the empty tree, on which every seek reports exhaustion.
+
+`HOTTrieReaderBoundContractTest`, `HOTTrieReaderBoundPropertyTest` and
+`HOTTrieReaderCasRangeRegressionTest` derive from these requirements (§5.2).
+
+#### 4.3.2 Algorithm
+
+`lowerOrUpperBound` adapts Binna §4.2 / `HOTSingleThreaded.hpp:347-415` of the paper's reference
+implementation (that file is not in this repository) to multi-entry leaves
+(`hot/reader/HOTTrieReader.java`, `lowerOrUpperBound`):
 
 | Phase | Action |
 |---|---|
 | 1 | PEXT descent recording path, MSB and child index per level |
 | 2 | `findEntry` in the leaf, validate. Exact hit: lower bound returns it; upper bound advances by one |
-| 2b | insertion point strictly inside the leaf → return (leaf, insertionPoint); does not exist in Binna's single-entry leaves |
-| mismatch | `discBit` = DB between the search key and the leaf's first key, computed without allocation, validated |
+| 2b | insertion point strictly inside the leaf (`0 < insertionPoint < entryCount`) → return (leaf, insertionPoint); does not exist in Binna's single-entry leaves |
+| 2c | otherwise `S` sorts below every entry of the routed leaf (`insertionPoint == 0`) or above every entry (`insertionPoint == entryCount`). A root leaf answers (leaf, 0) or exhaustion. Below a root node the leaf alone decides neither end |
+| mismatch | below: a first key that starts with `S` is the bound, (leaf, 0). Above: `S` equal to the first key followed only by `0x00` bytes has its bound at the first entry of the next leaf. Otherwise `discBit` = DB between `S` and the leaf's first key, computed without allocation, validated |
 | 3 | pop levels while `discBit < pathMsbAtDepth[depth]` |
-| 4 | widen `[firstIdx, lastIdx]` around the matched child with `DB(matchedFirstKey, siblingFirstKey) > discBit` (strict); first keys come from the memo or a leftmost descent |
-| 5 | `next = searchKeyBit ? lastIdx + 1 : firstIdx`; past the end → set the stack at that depth and `advanceToNextLeaf()`; otherwise descend leftmost and return (leaf, 0) |
+| 4 | the affected subtree is the run of children around the matched child whose first key satisfies `DB(matchedFirstKey, siblingFirstKey) > discBit` (strict). Below: extend the run to the left and take its first child. Above: extend it to the right and take the child after it. First keys come from the memo or a leftmost descent, and only that one side is resolved |
+| 5 | past the last child → pop that level and `advanceToNextLeaf()`; otherwise set the stack to the chosen child, descend leftmost and return (leaf, 0) |
 
-`retryingBound` repeats up to 64 times while the internal `RETRY` sentinel is returned
-(`:401-406`, `:502-513`). Phase 4 costs at most 32 first-key resolutions, each at most one leftmost
-descent (`:757-761`).
+**Why an end position needs the walk.** PEXT routing reads only the discriminative bits of the nodes
+on the path (§2.6), so an absent key is routed by bits that need not decide its position. Take
+one-byte keys, a BiNode on bit 6 over the leaves `{18, 19}` and `{1a, 1b}`: the search key `12`
+has bit 6 set and is routed to `{1a, 1b}`, where its insertion point is 0, yet `18` and `19` are
+`≥ 12` too. `12` differs from `1a` at bit 4, above the node's bit 6, so both leaves form the
+affected subtree and the bound is its first key `18`. Returning (leaf, 0) from the routed leaf, as
+phase 2b did for every `insertionPoint < entryCount` until
+[#1427](https://github.com/sirixdb/sirix/issues/1427), drops `18` and `19` from every scan that
+starts at `12` ([postmortem](postmortems/2026-11-hot-lower-bound-below-leaf.md)). The mirrored case, a
+key routed into a leaf it sorts entirely above, is the `insertionPoint == entryCount` arm.
+
+**Direction.** `S` has a 0 at `discBit` exactly when it sorts below the leaf's first key, so the
+insertion point already carries the reference implementation's `searchKeyBit`.
+
+`retryingBound` repeats up to 64 times while the internal `RETRY` sentinel is returned. Phase 4
+costs at most 32 first-key resolutions, each at most one leftmost descent.
 
 ### 4.4 Range scan
 
@@ -1861,7 +1901,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `index/hot/page/HOTCompleteDumpMergeTest` (5), `index/hot/page/HOTLeafPageCowTest` (15), `index/hot/page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
 | Writer mechanics | `HOTRebuildFootprintTest`, `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `index/hot/page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `index/hot/cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
-| Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2) | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending |
+| Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2), `HOTTrieReaderBoundContractTest` (10), `HOTTrieReaderBoundPropertyTest` (2), `HOTTrieReaderCasRangeRegressionTest` (1) | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending; the lower- and upper-bound contract of §4.3.1: on hand-built tries for every probe of their key universe, including search keys routed below or above their leaf and keys no bit separates from a stored key; on bulk-built and writer-built tries against a sorted reference for fixed seeds (fresh seeds in `test/property/HotBoundSeekOracleRandomTest`); and end to end through CAS range filters with absent lower bounds. Each suite asserts that its probes reach the geometry it claims |
 | Index builds | `index/JsonCASIndexBuildTest`, `JsonPathAndNameIndexBuildTest`, `JsonIndexDropRecreateVersioningTest` | `STRUCTURAL_VALIDATION_FAILURE` stays zero during real index builds (`JsonCASIndexBuildTest.java:170-176`) |
 | Query level (sirix-query) | `HOTIndexJsoniqDifferentialTest` (20), `HOTIndexMemoizationJsoniqTest` (21), `HOTIndexStressTest` (4, `@Tag("stress")`) | JSONiq results with and without indexes; memoization |
 

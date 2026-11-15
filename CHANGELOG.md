@@ -192,6 +192,16 @@ All notable changes to SirixDB are documented in this file.
 
 ### Fixed
 
+- **A HOT index range could start past its lower bound** — `HOTTrieReader.lowerBound` and
+  `upperBound` returned the first entry of the leaf an absent search key was routed to even when the
+  key sorted below that leaf and earlier leaves held keys in range, so a scan from such a bound
+  silently dropped them: a CAS string index over `b0000` to `b1999` answered `title >= "a9999"` with
+  200 of the 2,000 titles. Partial-key routing reads only discriminative bits and says nothing about
+  the leaves before the routed one; the first position of that leaf now takes the same walk to the
+  affected subtree as the last, and a search key that is a leaf's first key followed only by zero
+  bytes no longer fails the seek. Present since `1.0.0-alpha6`
+  ([#1427](https://github.com/sirixdb/sirix/issues/1427),
+  [postmortem](docs/postmortems/2026-11-hot-lower-bound-below-leaf.md)).
 - **A HOT in-place merge could interleave two sibling ranges** — the writer decides between merging
   a key into the leaf its descent reached and branching above it by comparing the key's mismatch
   bit with the deepest spine node's least significant discriminative bit only. A sibling leaf that
