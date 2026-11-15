@@ -14,7 +14,8 @@ import java.nio.ByteOrder;
  * Before the superblock existed, the binary files carried no magic, version, or endianness marker —
  * format identity lived only in the resource-settings JSON, so opening a file with the wrong
  * backend/version/architecture mis-read it silently. The superblock makes every such mismatch fail
- * fast and reserves file-level extension space (flags + reserved region).
+ * fast. Spare bytes are not an optional extension point; see {@code docs/DISK_FORMAT.md} for
+ * validation and format-evolution rules.
  *
  * <p>
  * Layout (all fields little-endian, see {@code docs/DISK_FORMAT.md}):
@@ -23,8 +24,7 @@ import java.nio.ByteOrder;
  *  0  8 B  magic "SIRIXDB!"
  *  8  4 B  layout version (= {@link #LAYOUT_VERSION})
  * 12  1 B  file role: 0 = data, 1 = revisions
- * 13  1 B  reserved (0)
- * 14  2 B  flags (0)
+ * 13  3 B  spare bytes (must be zero)
  * 16  4 B  endianness check pattern {@link #ENDIAN_CHECK} (mis-ordered on a foreign-endian host)
  * 20  4 B  slot size in bytes (data file: {@link IOStorage#BEACON_SLOT_BYTES} beacon slots;
  *                              revisions: {@link IOStorage#REVISIONS_FILE_RECORD_SIZE} record

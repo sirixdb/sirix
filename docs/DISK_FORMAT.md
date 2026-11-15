@@ -33,10 +33,19 @@ A resource directory contains:
 Both binary files open with the 64-byte superblock (magic, layout version, endianness check,
 file role, geometry, resource UUID, XXH3 checksum — see below); the *rest* of the format
 identity — compression pipeline, hash-function id, binary encoding version — lives in the JSON,
-whose parse is strictly validated (unexpected/misordered fields throw) and which is
+whose settings contract is described below. It is
 cross-linked to the binary files by the **resource UUID**: the JSON persists it, both
 superblocks embed it, and opening a data file with a different resource's settings (wrong-backup
 restore) fails fast. A zero UUID on either side (legacy dev files) skips the cross-check.
+
+The resource settings file (`ressetting.obj`) requires the fields through `storeChildCount` in
+writer order. Later optional fields are dispatched by name: they may be omitted or reordered
+without shifting the interpretation of subsequent fields. Unknown fields are refused with a
+message naming the field, including unknown members of `revisioning` and `validTimeConfig`.
+The sole skip namespace is a top-level `"extensions"` **object**: its entire contents, including
+nested values, are ignored. A non-object value is refused. Do not put settings required to
+interpret or safely rewrite a resource there; skipped contents are not retained on rewrite.
+See `ResourceSettingsExtensionsTest` for independent settings mutations.
 
 ### sirix.data (FILE_CHANNEL, the default)
 
@@ -56,7 +65,10 @@ The header region stays a sparse hole until the first commit writes it (`IOStora
 checks size > 0 to distinguish fresh resources). Beacon recovery validates
 `[len][payload][XXH3]` — both length bounds and checksum — and falls back primary → secondary;
 storage open validates the superblock (magic/version/endianness/role/checksum) and fails fast with an
-actionable message on any mismatch.
+actionable message on any mismatch. The three spare bytes at offsets 13–15 must be zero;
+nonzero values are refused even when the checksum is valid. Their future use requires a
+`LAYOUT_VERSION` decision, not an optional extension block. `SuperblockSpareBytesTest` pins
+this refusal.
 
 **Commit protocol** (see
 [`FileChannelWriter.writeUberPageReference`](../bundles/sirix-core/src/main/java/io/sirix/io/filechannel/FileChannelWriter.java)):
@@ -201,30 +213,50 @@ host byte order:
 
 ## 2. Pages
 
-Every page serializes as `[pageKind u8][binaryVersion u8][flags u8][body]`
-(`PageKind.writeVersionAndFlags` / `readVersionAndFlags`). The flags byte is extension space
-**per page kind, not a shared namespace** — the same bit number means a different thing depending on
-the kind byte that precedes it, so a bit only has meaning once the kind is known. A kind that
-defines no flag writes zero and rejects anything else; a kind that defines flags reads through
-`readVersionAndFlagsAllowing(source, allowedMask)`, which rejects any bit outside **that kind's own**
-mask as "written by a newer version" instead of misparsing.
+Every page starts with `[pageKind u8][binaryVersion u8][flags u8]`.
+`PageKind.readVersionAndFlags` and `readVersionAndFlagsAllowing` validate the version for that
+page kind; only V0 (byte 0) is currently supported. Bits 0–6 of `flags` are required, kind-specific
+layout selectors: a bit outside that kind's allowed mask is refused. Bit 7 (`0x80`,
+`PageExtensions.FLAG_EXTENSION_BLOCK`) has the same meaning for **every** kind, including
+indirect pages. When set, it inserts this block immediately after the flags and before the
+unchanged body:
 
-The masks declared today — derive this list from the `readVersionAndFlagsAllowing` call sites rather
-than trusting it to stay complete, since a kind may add a flag without touching this document:
+```
+[blockLength varint][tag u8][length varint][payload] ... [body]
+```
 
-| kind | bit | constant | meaning |
-|---|---|---|---|
-| KVLP (1) | `0x01` | `ChunkedBodyConfig.FLAG_CHUNKED_BODY` | body is chunk-framed (one META frame plus heap chunks split at entry boundaries, each independently compressed and checksummed) instead of one monolithic codec frame; writer off by default, both bodies readable |
-| KVLP (1) | `0x02` | `FLAG_OVERFLOW_SLOT_SIDECAR` | the page carries a cold overflow-slot sidecar. Set from the data, not a switch: written whenever `getSideSlotCount() != 0` |
-| OVERFLOW (9) | `0x01` | `FLAG_OVERFLOW_PAYLOAD_COMPRESSED` | the compressed body described below — **the default** since the payload-compression flip |
-| HOT_LEAF (12) | `0x01` | `HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS` | the page carries an overflow-page side map |
+`blockLength` counts all entry bytes, excluding its own length prefix. Lengths use unsigned
+stop-bit encoding (seven low data bits per byte, high bit means continue). Tags are unsigned,
+strictly ascending and unique. Tag bit 7 (`0x80`) marks a required entry; bit 6 (`0x40`)
+selects kind-local rather than shared meaning. Entries must be independent of other entries
+and pages so skipping is safe. No shared or kind-local tags are assigned yet: readers skip
+all optional entries by length and refuse every required entry. Truncated or overflowing
+lengths, lengths outside the block/page boundary, duplicate tags and descending tags are
+refused. Readers accept blocks larger than the writer limit when they fit the page.
 
-Every other kind writes zero and refuses any nonzero bit. **Compatibility is one-directional:** a
-build that predates a flag bit reads a resource written without it, but a resource written WITH it
-cannot be read by that build — the reader refuses the unknown bit loudly rather than misparsing.
-The stable kind-id registry is defined by
-[`PageKind`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java) and pinned by
-`GoldenFormatTest.pageKindIdsArePinned`; retired ids 7 and 14 are rejected.
+Writers use `PageExtensions.builder().add(tag, payload).build()` with only tags they understand,
+then `PageKind.writeVersionAndFlags(sink, bodyFlags, extensions)` after writing the kind byte.
+The API controls bit 7, copies payloads, and limits the total encoded entries to 255 bytes.
+`PageExtensions.EMPTY` emits no block or length prefix. Rewriting a parsed page discards unknown
+optional entries; a byte-for-byte copy of an image retains them. Data that must survive an
+older writer's rewrite cannot be optional and needs a write-compatibility fence before use.
+The head position makes the block visible to bounded record-page prefix reads as well as full
+page reads; extension-free pages retain their previous bytes and envelope fast path.
+
+Kind-specific flag assignments are defined by the constants and the
+`readVersionAndFlagsAllowing` call sites in
+[`PageKind`](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java).
+A build predating the block refuses bit 7; current readers skip unknown optional entries.
+Unknown kind-specific flags and required entries still refuse loudly. The stable kind-id
+registry is defined by `PageKind` and pinned by `GoldenFormatTest.pageKindIdsArePinned`;
+retired ids 7 and 14 are rejected.
+
+Metadata readers require whole-image consumption after the body: Name, Uber, Indirect,
+RevisionRoot, PathSummary, CAS, Path, DeweyID, Vector, ProjectionIndex, ValidTimeIndex,
+TemporalAggregateIndex, ChangeLogIndex and HOTIndirect pages refuse trailing bytes. This is
+not a blanket rule for opaque overflow payloads or bounded record/HOT-leaf reads.
+`PageEnvelopeContractTest` pins the skip/refuse, boundary and rewrite rules;
+`LegacyEnvelopeImagesTest` uses immutable base-writer images for every active page kind.
 
 **Format evolution mechanism:** unreleased node-record/page-body layouts currently evolve in
 place under V0. The hook for a future released-format version decision is `BinaryEncodingVersion`:
@@ -236,10 +268,12 @@ VECTOR_INDEX_METADATA pattern); sub-structures with their own magic carry their 
 byte (PIXD/PIXS/PIX1, PIXM). Enum-typed bytes on disk are always explicit stable ids with
 fail-fast lookups, never ordinals.
 
-- **UberPage** body: `[i32 revisionCount]` — 7 bytes total incl. envelope, no checksum (§5.3).
+- **UberPage** body: `[i32 revisionCount]` — 7 bytes total without an extension block, no checksum (§5.3).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
   The delegate's reference count and offsets are defined by
   [`RevisionRootPage`](../bundles/sirix-core/src/main/java/io/sirix/page/RevisionRootPage.java).
+  Its bitmap delegate refuses slots beyond that known reference count;
+  no feature enabling extra slots is assigned. `StrictReferenceFormatTest` pins the boundary.
   The aggregate and change-log references extend the unreleased V0 layout in place; earlier
   databases must be recreated rather than opened through a compatibility reader.
 - **CASPage / PathPage / ProjectionIndexPage / ValidTimeIndexPage / TemporalAggregateIndexPage / ChangeLogIndexPage**: reference-container delegate
@@ -331,7 +365,10 @@ fail-fast lookups, never ordinals.
   inline length (0..1023 — the field's full reach, which is also `MAX_RECORD_SIZE`; zero is legal
   only for the raw-slot kind), and 6 low bits encode the
   persisted slotted kind (`0` raw sentinel or a supported flyweight kind). Unsupported/retired
-  kind ids are corruption, and no length is representable above the cap. The directory is followed by a
+  kind ids are corruption, and no length is representable above the cap. Raw slots preserve the
+  complete record bytes, including a full-byte kind id above 63: no compact-directory escape id
+  is needed. Transport does not assign a decoder to an unknown record kind; interpreting it as a
+  node still refuses with its id (`PageEnvelopeContractTest`). The directory is followed by a
   smallest-of-three body codec (`ZeroRunByteCodec` 0 / `ByteRunCodec` 2 / `SirixLZ77Codec` 3 —
   an LZ4-block-format clone, little-endian) over either the offset-table-template dedup layout
   (≤255 templates/page, 1-byte slot ids, hash/value/nameKey elision bitmaps, predictor-coded
@@ -439,6 +476,13 @@ pages and do not alter historical postings. This is the only CAS key encoding an
 there are no old-format readers, migrations, or compatibility switches.
 
 ## 3. Integrity
+
+Generic DATA reference containers (`SerializationType.DATA`) encode the hash discriminator as
+`[hashForm u8]`: 0 means no hash, 1 means an eight-byte XXH3-64 hash in canonical big-endian order.
+Every other value is refused before consuming a hash payload. Form 2 is reserved for a future
+32-byte digest and is **not supported**. This rule applies to the four-reference, bitmap and full
+containers; it does not add hashes to offset-only HOT references. `StrictReferenceFormatTest`
+checks all unsupported form bytes.
 
 - Ordinary parent `PageReference`s store the page's XXH3-64 of the compressed payload, verified on
   read when `verifyChecksumsOnRead` (default true). HOT child, fragment, and side-map references

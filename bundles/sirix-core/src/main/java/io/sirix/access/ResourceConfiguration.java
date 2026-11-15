@@ -728,8 +728,9 @@ public final class ResourceConfiguration {
 
   /**
    * Reads the next field name and fails fast when it is not the expected one. The resource settings
-   * are format identity — a reordered, truncated, or hand-edited file must be a loud error, never a
-   * misparse (this used to be an {@code assert}, a no-op in production).
+   * are format identity: required fields must not be silently misparsed (this used to be an
+   * {@code assert}, a no-op in production). Optional tail fields are dispatched separately by name;
+   * see {@code docs/DISK_FORMAT.md} for the settings contract.
    */
   private static void expectField(final JsonReader jsonReader, final String expected, final Path configFile)
       throws IOException {

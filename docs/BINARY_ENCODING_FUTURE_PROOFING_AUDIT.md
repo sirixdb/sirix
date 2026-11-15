@@ -31,10 +31,8 @@ the V0 freeze (`docs/DISK_FORMAT.md` §5).
   both backends (`io/Superblock.java`, `FileChannelStorage`, `MMStorage`). Unknown layout
   version, foreign endianness, wrong role, and torn header all fail fast with actionable
   messages.
-- **Page envelope**: every page serializes as `[pageKind u8][binaryVersion u8][body]`. All 16
-  active kinds write and validate the version byte via `BinaryEncodingVersion.fromByte`, which
-  throws on an unknown value; `PageKind.getKind(byte)` throws on an unknown kind id
-  (`PageKind.java:5162-5168`). No silent misparse at the envelope level.
+- **Page envelope**: the current framing, version, flag and extension-block contract is owned
+  by [DISK_FORMAT.md §2](DISK_FORMAT.md#2-pages). The findings below retain the original audit state.
 - **Stable id registries**: page-kind ids are explicit constructor-assigned bytes with a
   retired-id gap (7), never ordinals (`PageKind.java:93-4196`). Node-kind ids are likewise
   explicit and sparse (`NodeKind.java`), `IndexType` has explicit id bytes, and the KVLP

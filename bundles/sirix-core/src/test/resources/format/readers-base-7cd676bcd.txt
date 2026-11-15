@@ -14,4 +14,4 @@ Only the closed database's .lock file was excluded from the archive.
 Do not regenerate with the current writer: this is a previous-writer oracle.
 LegacyPageReadersFixtureTest extracts its own private copy, verifies the prior
 revisions, appends revision 4, and checks the existing page bytes are untouched.
-Other page kinds are covered separately by PageEnvelopeContractTest.
+For the per-kind page-image oracle, see readers-base-pages/README.txt.

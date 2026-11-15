@@ -2001,9 +2001,9 @@ owns the current version and envelope contract. Deserialisation reads the tag an
 the matching reader. A page's child references serialise through whichever of the three adaptive
 reference-container layouts it currently holds, each with its own sub-tag (\code{ReferencesPage4}=0,
 \code{BitmapReferencesPage}=1, \code{FullReferencesPage}=2); one reference is
-\code{[u8 fragmentCount][per-fragment: u32 rev, u64 key]\ldots[u64 key][u8 hashPresent][u64 XXH3?]},
-where the fragment list is exactly the sliding-snapshot chain of Ch.~\ref{ch:versioning}. The
-database and resource ids are \emph{not} stored; they are re-injected after read from the
+encoded as a fragment list and page key followed by the hash form and payload specified in
+\pp{docs/DISK\_FORMAT.md}, \S3. The fragment list is exactly the sliding-snapshot chain of
+Ch.~\ref{ch:versioning}. The database and resource ids are \emph{not} stored; they are re-injected after read from the
 opening context, a deliberate saving across an indirect page's up-to-1024 references.
 
 Compression is \textbf{per page, inside the leaf format}, not an outer stream. The configurable
@@ -8244,19 +8244,8 @@ sirix.data                                sirix.revisions
           [u32 len][payload], 8-aligned ▶          [u64 checksum][u64 pageHash]
 \end{diagram}
 
-\begin{diagram}
-Superblock (64 bytes, little-endian, at offset 0 of both files)
-  off  size  field
-  0    8     magic  "SIRIXDB!"  (8 ASCII bytes)
-  8    4     layout version (= 0)
-  12   1     role  (0 = DATA, 1 = REVISIONS)            13  3   reserved / flags
-  16   4     endianness check word (= 0x01020304)
-  20   4     beacon-slot size  (DATA 4096; REVISIONS 0)
-  24   8     primary-beacon offset (DATA 4096; REVISIONS 0)
-  32   8     content-start  (DATA 12288; REVISIONS 4096)
-  40   16    reserved (future resource UUID)
-  56   8     XXH3-64 over bytes [0, 56)
-\end{diagram}
+\pp{docs/DISK\_FORMAT.md}, \S1, owns superblock validation;
+\code{io.sirix.io.Superblock} defines its byte offsets and geometry.
 
 \section{Beacons and revision records}
 
@@ -8312,8 +8301,9 @@ bitmap container). A single \code{PageReference}, and the three container layout
 promoting $4 \to \text{bitmap} \to \text{full}$ as a level fills):
 
 \begin{diagramS}
-PageReference   [u8 fragCount][ fragment × (i32 rev, i64 key) ][i64 key][u8 hashPresent][hash:8?]
-   (hash = XXH3-64; databaseId/resourceId are NOT stored — re-injected on open)
+PageReference   [u8 fragCount][ fragment × (i32 rev, i64 key) ][i64 key][hash form + payload]
+   (hash-form encoding and refusal rules: docs/DISK_FORMAT.md, section 3;
+    databaseId/resourceId are NOT stored — re-injected on open)
 0 ReferencesPage4       [u8 size][ size × PageReference ][ size × i16 offset ]
 1 BitmapReferencesPage  [i16 bitmapLen][bitmap][ cardinality × PageReference ]   (position from set bits)
 2 FullReferencesPage    [i16 bitmapLen][bitmap]; per set bit ascending: [i64 key][PageReference body]
