@@ -1299,13 +1299,23 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
-  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
-  @SuppressWarnings("java:S1181")
-  public synchronized W rollback() {
-    nodeReadOnlyTrx.assertNotClosed();
-    if (lock != null) {
-      lock.lock();
+  public W rollback() {
+    if (lock == null) {
+      synchronized (this) {
+        return rollbackInMemory();
+      }
     }
+    lock.lock();
+    try {
+      return rollbackInMemory();
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @SuppressWarnings("java:S1181")
+  private W rollbackInMemory() {
+    nodeReadOnlyTrx.assertNotClosed();
     try {
       // Drain the async-commit pipeline: rolling back on top of an un-hardened (or failed)
       // predecessor epoch is unsound.
@@ -1386,10 +1396,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         ShardedPageCache.retainCleanupFailure(failure, markerFailure);
       }
       throw failure;
-    } finally {
-      if (lock != null) {
-        lock.unlock();
-      }
     }
   }
 
@@ -1593,10 +1599,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       return;
     }
     Throwable cleanupFailure = null;
+    if (abort) {
+      try {
+        rollbackInMemory();
+      } catch (final RuntimeException | Error e) {
+        cleanupFailure = e;
+      }
+    }
     try {
       awaitPendingAsyncCommit();
     } catch (final RuntimeException | Error e) {
-      cleanupFailure = e;
+      cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
     }
     if (!abort && modificationCount > 0) {
       final SirixUsageException dirty = new SirixUsageException("Must commit/rollback transaction first!");
