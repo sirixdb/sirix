@@ -75,6 +75,8 @@ public class ConcurrentAxisHelper implements Runnable {
   }
 
   @Override
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   public void run() {
     LOGWRAPPER.debug("ConcurrentAxisHelper producer thread starting");
     int resultCount = 0;

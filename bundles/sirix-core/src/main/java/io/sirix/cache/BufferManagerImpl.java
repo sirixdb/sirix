@@ -630,6 +630,8 @@ public final class BufferManagerImpl implements BufferManager {
    * handle future evictions as new pages are loaded).
    */
   @Override
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   public void clearAllCaches() {
     Throwable failure = null;
     try {

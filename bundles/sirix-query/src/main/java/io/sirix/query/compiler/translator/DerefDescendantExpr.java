@@ -512,6 +512,8 @@ class DerefDescendantExpr implements Expr {
           }
 
           @Override
+          // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+          @SuppressWarnings("java:S1181")
           public void close() {
             Throwable failure = null;
             for (final SirixJsonLazySequence sequence : nodeKindToLazySequence.values()) {

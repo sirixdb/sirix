@@ -628,6 +628,8 @@ final class AsyncFlushFailurePathTest {
           return invocation.callRealMethod();
         })) {
           assertSame(invalidation, assertThrows(RuntimeException.class, failedWriter::rollback));
+          databases.verify(
+              () -> Databases.clearCachesForResource(failedWriter.getDatabaseId(), failedWriter.getResourceId()));
         }
         assertSame(stale, cache.get(cachedOffset));
         final IllegalArgumentException cleanup = new IllegalArgumentException("close failed after invalidation");

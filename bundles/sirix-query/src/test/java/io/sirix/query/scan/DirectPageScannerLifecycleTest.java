@@ -127,7 +127,7 @@ final class DirectPageScannerLifecycleTest {
       try {
         latch.await();
         break;
-      } catch (final InterruptedException e) {
+      } catch (final InterruptedException _) {
         interrupted = true;
       }
     }

@@ -77,7 +77,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   private volatile boolean first;
 
   /** Runnable in which the producer is running. */
-  private volatile ConcurrentAxisHelper task;
+  private ConcurrentAxisHelper task;
 
   /** Is axis already finished and has no results left? */
   private volatile boolean finished;
@@ -127,6 +127,8 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   }
 
   @Override
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   protected synchronized long nextKey() {
     // Start producer on first call.
     if (first) {

@@ -26,6 +26,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Timeout;
@@ -433,7 +434,7 @@ final class NodeTransactionAbortLifecycleTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"json", "xml"})
-  void unsupportedRecoveryRefusesAdmissionWithoutLeakingPermit(final String format) throws Exception {
+  void unsupportedRecoveryRefusesAdmissionWithoutLeakingPermit(final String format) {
     try (Fixture fixture = new Fixture(format, directory, StorageType.IN_MEMORY)) {
       final InternalResourceSession<?, ?> session = (InternalResourceSession<?, ?>) fixture.second;
       session.requireCommitRecovery();
@@ -491,7 +492,7 @@ final class NodeTransactionAbortLifecycleTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"json", "xml"})
-  void removedResourceCannotPoisonRecreatedResourceAtTheSamePath(final String format) throws Exception {
+  void removedResourceCannotPoisonRecreatedResourceAtTheSamePath(final String format) {
     try (Fixture fixture = new Fixture(format, directory)) {
       ((InternalResourceSession<?, ?>) fixture.first).requireCommitRecovery();
     }
@@ -502,15 +503,27 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"json", "xml"})
-  void pendingRootCleanupFailureCannotReplaceHardeningFailure(final String format) throws Exception {
+  @CsvSource({"json,true", "xml,true", "json,false", "xml,false"})
+  void pendingRootCleanupRetainsFirstFailure(final String format, final boolean failHardening) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
       final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
       final InternalResourceSession<?, ?> original = (InternalResourceSession<?, ?>) fixture.first;
+      final AtomicInteger publications = new AtomicInteger();
+      original.addRevisionListener(revision -> {
+        if (revision == 2) {
+          publications.incrementAndGet();
+        }
+      });
       final InternalResourceSession<?, ?> session = mock(InternalResourceSession.class, delegatesTo(original));
       final IllegalStateException primary = new IllegalStateException("hardening");
       final IllegalArgumentException cleanup = new IllegalArgumentException("pending root cleanup");
       doAnswer(invocation -> {
+        assertEquals(failHardening
+            ? 0
+            : 1, publications.get(), "publish before retiring the pending root");
+        assertEquals(failHardening
+            ? 1
+            : 2, fixture.first.getMostRecentRevisionNumber());
         original.clearPendingRevisionRoot(2);
         throw cleanup;
       }).when(session).clearPendingRevisionRoot(2);
@@ -519,7 +532,9 @@ final class NodeTransactionAbortLifecycleTest {
       AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
         if (stage.equals("before-harden")) {
           await(release);
-          throw primary;
+          if (failHardening) {
+            throw primary;
+          }
         }
       };
       try {
@@ -528,12 +543,35 @@ final class NodeTransactionAbortLifecycleTest {
       } finally {
         release.countDown();
       }
-      assertSame(primary, assertThrows(RuntimeException.class, transaction::awaitPendingAsyncCommit).getCause());
-      assertSame(cleanup, primary.getSuppressed()[0]);
+      final Throwable expected = failHardening
+          ? primary
+          : cleanup;
+      assertSame(expected, assertThrows(RuntimeException.class, transaction::awaitPendingAsyncCommit).getCause());
+      if (failHardening) {
+        assertSame(cleanup, primary.getSuppressed()[0]);
+      } else {
+        assertEquals(0, cleanup.getSuppressed().length);
+      }
       assertNull(original.getPendingRevisionRoot(2));
+      assertTrue(Files.isRegularFile(original.getCommitFile()),
+          "retirement failure must require recovery before admission");
+      assertEquals(failHardening
+          ? 1
+          : 2, fixture.first.getMostRecentRevisionNumber());
       assertThrows(RuntimeException.class, fixture.first::close);
       assertTrue(scheduler(transaction).isTerminated());
-      assertWriterReusable(fixture);
+      try (NodeTrx next = fixture.second.beginNodeTrx()) {
+        setCursor(next);
+        assertEquals(failHardening
+            ? 0
+            : 1, value(next), "only a hardened revision may survive recovery");
+        setValue(next, 3);
+        next.commit();
+      }
+      try (NodeTrx next = fixture.second.beginNodeTrx()) {
+        setCursor(next);
+        assertEquals(3, value(next));
+      }
     }
   }
 
@@ -563,7 +601,7 @@ final class NodeTransactionAbortLifecycleTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"json", "xml"})
-  void closedRollbackCannotMarkAnotherWritersResourceForRecovery(final String format) throws Exception {
+  void closedRollbackCannotMarkAnotherWritersResourceForRecovery(final String format) {
     try (Fixture fixture = new Fixture(format, directory)) {
       final NodeTrx previous = fixture.first.beginNodeTrx();
       previous.close();

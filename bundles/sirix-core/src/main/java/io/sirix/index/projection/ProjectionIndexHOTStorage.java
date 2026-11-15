@@ -3321,6 +3321,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       Collections.unmodifiableList(new ArrayList<>(0));
 
   /** Start failure and interruption must fence every worker before fallback or reader release. */
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   static boolean startAndJoinDirectoryWorkers(final Thread[] threads) {
     boolean interrupted = false;
     try {
@@ -3341,7 +3343,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           try {
             thread.join();
             joined = true;
-          } catch (final InterruptedException e) {
+          } catch (final InterruptedException _) {
             interrupted = true;
             for (final Thread worker : threads) {
               worker.interrupt();
