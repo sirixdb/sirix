@@ -1840,6 +1840,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             cached = projected;
           return cached;
         }
+        requireKnownGroupSource(sourcePath);
         final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, groupField);
         Sequence fresh;
         if (isTypedPrimitiveKind(probeFirstAnchorSlotKind(groupField))) {
@@ -1874,6 +1875,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return cached;
     } catch (Exception e) {
+      if (e instanceof VectorizedRouteRefusedException refused) {
+        throw refused;
+      }
       throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized group-by-count failed: %s",
           e.getMessage());
     }
@@ -2398,6 +2402,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         fresh = buildTypedGroupRecords(projected, outNames, countName);
       }
       if (fresh == null) {
+        if (predicate == null) {
+          requireKnownGroupSource(sourcePath);
+        }
         fresh = typedGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
       }
       cached = multiGroupByCountCache.putIfAbsent(cacheKey, fresh);
@@ -2409,6 +2416,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     } catch (Exception e) {
       throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized multi-key group-by-count failed: %s",
           e.getMessage());
+    }
+  }
+
+  /** A field-anchor scan cannot reconstruct missing groups without a source cardinality. */
+  private void requireKnownGroupSource(final String[] sourcePath) {
+    if (topLevelRecordCountOrUnknown(sourcePath) < 0) {
+      throw new VectorizedRouteRefusedException("group source cardinality is unknown");
     }
   }
 
@@ -4561,7 +4575,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
    * Record count of the loop source when it is the TOP-LEVEL ARRAY ({@code sourcePath == ["[]"]}); -1
-   * when unknown (nested or unrepresentable sources — callers must then skip completeness checks).
+   * when unknown (nested or unrepresentable sources).
    */
   private long topLevelRecordCountOrUnknown(final String[] sourcePath) {
     if (sourcePath == null || sourcePath.length != 1 || !"[]".equals(sourcePath[0])) {
@@ -5748,6 +5762,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           ? fresh
           : cached;
     } catch (Exception e) {
+      if (e instanceof VectorizedRouteRefusedException refused) {
+        throw refused;
+      }
       throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized predicate-aggregate failed: %s",
           e.getMessage());
     }
@@ -5848,8 +5865,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final MixedAgg[] perThread = new MixedAgg[eff];
     final long[] countPerThread = new long[eff];
     // Benign-race flag: any worker that sees a non-numeric aggregate value
-    // (string/boolean/null/complex) sets it — used for the loud
-    // pure-non-numeric guard below.
+    // (string/boolean/null/complex) sets it — checked once after
+    // all workers finish, before returning an aggregate value.
     final boolean[] sawNonNumeric = new boolean[1];
     // Page-skip index — reuse bitmap from prior scans anchored on the
     // same nameKey, or build it as a side-effect of this scan. The
@@ -5947,25 +5964,26 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     for (final MixedAgg a : perThread) {
       merged.merge(a);
     }
-    if (merged.longCount + merged.decCount + merged.dblCount == 0 && sawNonNumeric[0]) {
-      // Matching rows carried the aggregate field, but never as a number. min/max over a
-      // string column is well defined (fn:min/fn:max order xs:string by codepoint) and the
-      // interpreter answers it, so serve it rather than failing; sum/avg over strings really
-      // is a type error, and a mixed-type column stays loud.
-      final Sequence stringExtreme = stringMinMaxOrNull(sourcePath, predicate, aggField, func);
+    if (sawNonNumeric[0]) {
+      // Pure-string extrema remain supported. Mixed types and other non-numeric aggregates
+      // must use the generic evaluator, including its precise error code.
+      final Sequence stringExtreme = merged.count() == 0
+          ? stringMinMaxOrNull(sourcePath, predicate, aggField, func)
+          : null;
       if (stringExtreme != null) {
         return stringExtreme;
       }
-      throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-          "Vectorized %s over field '%s': matching records hold no numeric values — "
-              + "string/boolean/null aggregation is not supported by the vectorized executor",
-          func, aggField);
+      throw new VectorizedRouteRefusedException("matching aggregate values include non-numeric items");
     }
-    // MixedAgg#result mirrors the interpreter's numeric promotion: pure
-    // long/decimal columns produce EXACT decimal results (incl. Dec#div for
-    // avg — digit-for-digit parity); double-bearing columns produce doubles;
-    // zero contributing rows yield sum=0 / empty for avg|min|max.
+    requireOrderIndependentAggregate(merged, func);
     return merged.result(func);
+  }
+
+  /** Checked once after the scan; the row kernels and exact integer/decimal folds are unchanged. */
+  private static void requireOrderIndependentAggregate(final MixedAgg values, final String function) {
+    if (values.dblCount != 0 && ("sum".equals(function) || "avg".equals(function))) {
+      throw new VectorizedRouteRefusedException("double sum/avg requires document-order evaluation");
+    }
   }
 
   /**
@@ -13793,20 +13811,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return new Int64(typedStats.visited());
         }
         final MixedAgg values = typedStats.values();
-        if (values.count() == 0 && typedStats.visited() > 0) {
-          final Sequence stringExtreme = stringMinMaxOrNull(sourcePath, null, field, func);
+        if (values.count() != typedStats.visited()) {
+          final Sequence stringExtreme = values.count() == 0
+              ? stringMinMaxOrNull(sourcePath, null, field, func)
+              : null;
           if (stringExtreme != null) {
             return stringExtreme;
           }
-          throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-              "Vectorized %s over field '%s': the field exists but holds no numeric values — "
-                  + "string/boolean/null aggregation is not supported by the vectorized executor",
-              func, field);
+          throw new VectorizedRouteRefusedException("aggregate values include non-numeric items");
         }
+        requireOrderIndependentAggregate(values, func);
         return values.result(func);
       }
       return statsToSequence(func, stats);
     } catch (Exception e) {
+      if (e instanceof VectorizedRouteRefusedException refused) {
+        throw refused;
+      }
       throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized aggregate failed: %s", e.getMessage());
     }
   }
@@ -24066,8 +24087,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         final long pMax = numeric
             ? p.getStatsMax()
             : Long.MIN_VALUE;
-        // Non-numeric stats cannot answer value aggregates — fall back instead of fabricating 0.
-        if (!numeric) {
+        // Stats merge booleans as 0/1 and strings into the same observation count. Prove numeric
+        // purity from existing metadata: complete observations, no strings, and bounds excluding
+        // both boolean encodings. An integral column spanning [0,1] conservatively uses the scan.
+        if (!numeric || p.hasBytesStats() || count != p.getReferences() || (pMin <= 1L && pMax >= 0L)) {
           return null;
         }
         final Sequence served = switch (func) {

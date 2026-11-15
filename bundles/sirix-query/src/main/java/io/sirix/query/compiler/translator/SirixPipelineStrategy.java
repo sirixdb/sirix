@@ -71,6 +71,17 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
    */
   @Override
   public Expr compilePipeExpr(AST node, Compiler compiler) throws QueryException {
+    final Expr routed = compileRoutedPipeExpr(node, compiler);
+    if (SequentialPipelineStrategy.getVectorizedExecutor() != null
+        && (Boolean.TRUE.equals(node.getProperty("VECTORIZED_GROUPBY"))
+            || Boolean.TRUE.equals(node.getProperty("VECTORIZED_GROUPBY_MULTI")))) {
+      // Legacy SPI grouping has no null-refusal fallback. Keep one without changing route priority.
+      return new VectorizedFallbackExpr(routed, super.compileGenericPipeExpr(node, compiler));
+    }
+    return routed;
+  }
+
+  private Expr compileRoutedPipeExpr(final AST node, final Compiler compiler) throws QueryException {
     final Expr generic;
     if (hasMembershipJoin(node)) {
       // Membership tables have one cursor owner. Do not split this pipeline into morsels or

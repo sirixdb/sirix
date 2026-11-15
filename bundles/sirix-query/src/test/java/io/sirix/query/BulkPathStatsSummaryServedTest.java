@@ -56,14 +56,15 @@ public final class BulkPathStatsSummaryServedTest {
 
   @Test
   public void bulkLoadedStatsServeAggregatesFromTheSummary() throws Exception {
-    // Corpus: age = i, so count/sum/min/max have closed forms the query answers must match.
+    // Bounds above 1 prove the summary contains no booleans (stored in stats as 0/1).
+    // Columns whose bounds overlap those encodings must use the typed scan instead.
     final StringBuilder json = new StringBuilder(RECORDS * 24);
     json.append('[');
     for (int i = 0; i < RECORDS; i++) {
       if (i > 0) {
         json.append(',');
       }
-      json.append("{\"age\":").append(i).append('}');
+      json.append("{\"age\":").append(i + 2).append('}');
     }
     json.append(']');
 
@@ -92,9 +93,9 @@ public final class BulkPathStatsSummaryServedTest {
       // The VALUE aggregates — the feature's point — must each be answered FROM the summary:
       // per-function witness deltas, because equality alone cannot distinguish a served answer
       // from a scan fallback.
-      assertServed(chain, ctx, "sum", String.valueOf((long) RECORDS * (RECORDS - 1) / 2));
-      assertServed(chain, ctx, "min", "0");
-      assertServed(chain, ctx, "max", String.valueOf(RECORDS - 1));
+      assertServed(chain, ctx, "sum", String.valueOf((long) RECORDS * (RECORDS + 3) / 2));
+      assertServed(chain, ctx, "min", "2");
+      assertServed(chain, ctx, "max", String.valueOf(RECORDS + 1));
       // count is allowed to take an even cheaper route than the path-summary stats (a structural
       // count needs no statistics at all) — assert only the value, and record which route ran.
       final long before = SirixVectorizedExecutor.pathSummaryStatsServed();
