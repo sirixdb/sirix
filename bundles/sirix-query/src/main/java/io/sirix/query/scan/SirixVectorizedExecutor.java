@@ -1810,9 +1810,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   @Override
   public Sequence executeGroupByCount(QueryContext ctx, String[] sourcePath, String groupField) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats null as
+    // "unsupported", so return a supported empty result. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new ItemSequence();
     }
@@ -2269,9 +2268,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executePredicateGroupByCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate,
       String groupField) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new ItemSequence();
     }
@@ -2320,11 +2317,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Withdraw (or restore) the multi-key group-by capability.
    *
    * <p>
-   * Unlike every other entry point, this one is substituted at TRANSLATE time and has no generic
-   * pipeline behind it: brackit's {@code VectorizedGroupByExpr} turns a {@code null} result into a
-   * query failure rather than a fallback. Anything the kernel cannot answer therefore has to be
-   * answered anyway or raised — which is why a sparse multi-key grouping is completed by
-   * {@link #completeSparseMultiKeyGroups} rather than declined.
+   * Brackit's {@code VectorizedGroupByExpr} treats {@code null} as unsupported; the retained generic
+   * evaluator retries only {@link VectorizedRouteRefusedException}. Sparse top-level grouping is
+   * completed by {@link #completeSparseMultiKeyGroups}; unpredicated scans refuse unknown source
+   * cardinality.
    *
    * <p>
    * Kept as a switch for bisecting a suspected grouping regression: turning it off routes every
@@ -2340,9 +2336,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   public boolean supportsMultiKeyGroupBy() {
     // Not in wtx mode. There the ONLY multi-key path is the projection — the committed-revision
     // kernels would miss the transaction's uncommitted writes — and a projection that cannot cover
-    // the grouping leaves nothing to answer with. Since this substitution has no generic pipeline
-    // behind it, advertising the capability would turn "no covering projection" into a failed
-    // query; declining leaves the interpreter to read the same transaction and be right.
+    // the grouping leaves nothing to answer with. A null projection miss is not a refusal signal,
+    // so keep the capability disabled and let the interpreter read the same transaction.
     return multiKeyGroupByEnabled && wtx == null;
   }
 
@@ -2355,9 +2350,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executeGroupByCountMulti(QueryContext ctx, String[] sourcePath, String[] groupFields,
       String[] outNames, String countName, PredicateNode predicate) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats null as
+    // "unsupported", so return a supported empty result. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new ItemSequence();
     }
@@ -5944,7 +5938,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             case TK_DBL -> acc.addDouble(typed.dbl[aggFieldIdx]);
             case TK_DECSTR -> acc.addDecimal(new BigDecimal(typed.str[aggFieldIdx]));
             default -> {
-              /* non-numeric value on this row — skip (legacy semantics) */ }
+              /* Missing values contribute nothing; other non-numeric kinds are checked after the scan. */ }
           }
         }
       }
@@ -6811,8 +6805,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // predicate provably excludes them (comparison/EBV over a missing field is
     // false in XQuery). Reorder so a sound anchor sits at index 0; if none
     // exists (e.g. `a > 1 or b > 1` from a pre-guard brackit), FAIL LOUDLY —
-    // an anchor-based scan would silently lose matches on sparse data, and the
-    // dispatch has no generic pipeline left to fall back to at evaluate time.
+    // an anchor-based scan would silently lose matches on sparse data. This detection-contract
+    // failure must propagate; only VectorizedRouteRefusedException triggers a generic retry.
     if (!fieldSet.isEmpty()) {
       final String soundAnchor = root.findSoundAnchorField();
       if (soundAnchor == null) {

@@ -228,7 +228,7 @@ else falls back to the generic (always correct) pipeline.
   `multiKeySparseKeyOrderDoesNotChangeTheGrouping`. An entirely absent **first**
   group key still fails closed rather than reproducing the interpreter's
   order-dependent all-null grouping; see `multiKeyAbsentFirstKeyFailsLoudEvenWithDenseSecond`.
-  Do not extend the top-level guarantee to nested sources or unknown record totals.
+  For nested sources or unknown record totals, see the scan restriction below.
 
 ### Remaining limitations
 
@@ -260,6 +260,9 @@ else falls back to the generic (always correct) pipeline.
   projection serving follows the **Double projection columns** contract above.
   The refusal changes cost (initial scan plus generic fold), not the row/page
   kernels or the ordered projection kernel.
+
+These generic retries apply to compiled queries; direct SPI calls signal
+`VectorizedRouteRefusedException` instead.
 
 `VectorizedReleaseCorrectnessTest` pins these three contracts against forced
 generic evaluation before and after closing/reopening the store. Its execution
