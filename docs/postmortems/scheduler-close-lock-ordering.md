@@ -1,5 +1,7 @@
 # Bug: session close and rollback inverted the scheduler lock order
 
+Historical round: the callback behavior/evidence below predates the clarified contract in [commit callback ownership](commit-callback-reentrancy.md). Callback lifecycle reentrancy is now rejected; KEEP_OPEN admission and pre-hook timing are preserved. Historical passing counts do not validate the new dispatch boundary.
+
 - Fix / issue: lifecycle audit V05/V06, review R7/R8; continuation of [R6](scheduler-close-self-join.md).
 - Symptom: an external session close or rollback queued behind a timed hook could deadlock the hook's teardown. A stale rollback could instead create a recovery marker after the transaction was already closed; IN_MEMORY then refused every subsequent writer because it cannot truncate.
 - Trigger: pause a real timed XML/JSON post-commit hook while it owns the transaction lock; queue external session close or rollback, then let the hook close its transaction or session.

@@ -11,6 +11,10 @@ public interface InternalNodeTrx<N extends NodeTrx> extends NodeTrx {
 
   void abort();
 
+  void assertCanClose();
+
+  void enqueueCallback(Runnable callback);
+
   N setBulkInsertion(boolean bulkInsertion);
 
   void adaptHashesInPostorderTraversal();

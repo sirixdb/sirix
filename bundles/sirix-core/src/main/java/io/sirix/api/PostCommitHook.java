@@ -1,7 +1,5 @@
 package io.sirix.api;
 
-import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-
 /**
  * Post commit hook.
  *
@@ -12,9 +10,13 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 public interface PostCommitHook {
 
   /**
-   * Post commit hook. Called after a revision has been commited.
+   * Called after durable publication and the outermost transaction execution/scheduled task
+   * boundary, with execution locks released. KEEP_OPEN retains its lifetime write permit.
+   * Lifecycle calls on the same transaction/session reject with IllegalStateException before
+   * locking. Notification failures are logged; they cannot veto publication. The borrowed current
+   * transaction view may include a subsequent mutation completed by the enclosing operation.
    *
-   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
+   * @param rtx borrowed Sirix transaction view; do not retain after return
    * @throws NullPointerException if {@code rtx} is {@code null}
    */
   void postCommit(NodeReadOnlyTrx rtx);

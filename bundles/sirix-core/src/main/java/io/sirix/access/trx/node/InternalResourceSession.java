@@ -14,6 +14,7 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 
 import java.nio.file.Path;
+import org.jspecify.annotations.Nullable;
 import java.util.concurrent.locks.Lock;
 import java.util.function.IntConsumer;
 
@@ -74,6 +75,16 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void requireCommitRecovery();
 
+  void assertNotInCommitCallback();
+
+  void enterCommitCallback();
+
+  void exitCommitCallback();
+
+  @Nullable InternalNodeTrx<?> enterCommitExecution(InternalNodeTrx<?> owner);
+
+  void exitCommitExecution(@Nullable InternalNodeTrx<?> previous);
+
   void assertAccess(int revision);
 
   StorageEngineWriter createPageTransaction(int trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);
@@ -111,7 +122,12 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void setLastCommittedUberPage(UberPage lastUberPage);
 
-  /** Observers run after durability and publication, including pipelined commits. */
+  /**
+   * Observe durable publication, including pipelined commits. Delivery follows outermost execution
+   * and scheduled task completion with T released; lifetime admission P remains owned. Lifecycle
+   * calls on the same transaction/session reject before locking with IllegalStateException.
+   * Listener failures are logged and cannot veto publication.
+   */
   void addRevisionListener(IntConsumer listener);
 
   void removeRevisionListener(IntConsumer listener);

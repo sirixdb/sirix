@@ -479,3 +479,18 @@ For deeper context, see:
 - `AGENTS.md` — internal developer expectations (explicit imports, HFT-grade
   hot path, etc.).
 - `ROADMAP.md` — open work items and target order.
+
+## Commit callbacks and lifecycle calls
+
+Pre-commit hooks keep their before-publication timing and may veto a commit. Post-commit hooks
+and revision listeners run after the outermost transaction execution and scheduled task boundary,
+with execution locks released. KEEP_OPEN keeps its lifetime writer admission permit. A callback
+borrows the current transaction view; an enclosing mutation may already have continued into the
+next epoch, so it is not an immutable committed-revision snapshot.
+
+Commit, rollback/abort, node-transaction close and resource-session close from a hook/listener of
+the same transaction/session reject immediately with IllegalStateException before locking.
+Perform lifecycle work after callback return, and call close outside any enclosing runLocked
+scope. Ordinary read-only/non-lifecycle callback work is allowed. External teardown fences the
+callback phase before retiring payloads. Deferred notification errors are logged after restoring
+execution ownership; they cannot roll back or veto a durably published revision.

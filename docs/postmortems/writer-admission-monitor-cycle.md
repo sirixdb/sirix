@@ -1,5 +1,7 @@
 # Bug: writer admission blocked the closer that releases admission
 
+Historical round: the callback behavior/evidence below predates the clarified contract in [commit callback ownership](commit-callback-reentrancy.md). Callback lifecycle reentrancy is now rejected; KEEP_OPEN admission and pre-hook timing are preserved. Historical passing counts do not validate the new dispatch boundary.
+
 - Fix / issue: lifecycle audit V05/V06, review R10. The broader callback redesign for R7/R9/R11 awaits clarification of KEEP_OPEN permit ownership and pre-commit timing.
 - Symptom: a new writer on a session timed out after five seconds (node admission) or twenty seconds (page admission), while the existing owner could not finish close.
 - Trigger: queue node or page admission behind an existing owner, then close the owner or its resource session from another thread.
