@@ -122,11 +122,9 @@ the V0 freeze (`docs/DISK_FORMAT.md` §5).
     bytes are unused, so config and data file are not cross-linked (checklist item 5 covers the
     UUID; consider also checksumming the JSON). Field-order validation in
     `ResourceConfiguration.deserialize` uses `assert` (`:695` ff.), a no-op in production.
-11. **No reserved bytes outside KVLP.** Only the KVLP header carries flags + 8 reserved bytes;
-    UberPage/IndirectPage/RevisionRootPage/NamePage/etc. have none, and `RevisionRootPage`
-    hard-codes 11 delegate references — any additive change is a global version bump. Likewise
-    the 32-byte revision record has no remaining reserved field and its stride is not recorded
-    in the superblock geometry.
+11. **Page extension space.** See [DISK_FORMAT.md §2](DISK_FORMAT.md#2-pages) for the current
+    page-envelope and record-page header rules, and [§1](DISK_FORMAT.md#1-files) for
+    revision-record geometry.
 12. **Unversioned magics.** The `PIX1` in-memory scan-form presence tail originally carried a
     magic but no version byte — a future layout change would have needed a new magic rather than a
     version bump. The canonical projection descriptor and segment envelopes now likewise carry

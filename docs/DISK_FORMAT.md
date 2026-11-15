@@ -202,18 +202,23 @@ host byte order:
 ## 2. Pages
 
 **Record-page salt:** header offsets 24–31 (formerly reserved) hold an opaque little-endian
-64-bit salt. The record-page writer draws it on first serialization and retains it in the header
-across subsequent writes, copies and reloads; a reset page starts with a new salt. Readers ignore
-these bytes, and parent checksums cover them through the existing page-byte checksum. No page size,
-version or flag changes. `ResourceConfiguration.Builder.saltRecordPages(false)` writes zeros for
+64-bit salt. The ordinary record-page writer draws it on first encoding and retains it in the header
+across subsequent writes, copies and reloads; a reset page starts with a new salt. Disposable
+snapshot encoding emits the salt directly into the output without changing the source header,
+so a refused encoding leaves the logical frame intact. Re-encoding an unsalted disposable source
+may therefore draw a different salt. Readers ignore these bytes, and parent checksums cover them
+through the existing page-byte checksum. No page size, version or flag changes.
+`ResourceConfiguration.Builder.saltRecordPages(false)` writes zeros for
 reproducible fixtures. The persisted `saltRecordPages` setting defaults to true, including when
-absent from older settings. Existing unsalted pages receive salt when next serialized.
+absent from older settings. Existing unsalted pages receive salt when next encoded from their
+logical frame; cached wire bytes are replayed unchanged.
 A per-writer-thread AES-256-CTR cryptographic keystream fills a reusable 2 KiB buffer
 (256 salts), preserving the cipher counter across refills. Its independent 256-bit key and
 128-bit initial counter come from the non-blocking OS CSPRNG (`NativePRNGNonBlocking` on
 Unix, `Windows-PRNG` on Windows); unavailable crypto fails closed. Neighboring salts do not
-expose the generator state as invertible non-cryptographic PRNG outputs would. Drawing a salt
-uses reused storage with no per-page allocation or shared lock, and no per-record work.
+expose the generator state as invertible non-cryptographic PRNG outputs would. After lazy
+per-thread initialization, drawing a salt uses reused storage with no per-page allocation or shared
+lock, and no per-record work.
 Zero is the initialization marker, so a zero draw is mapped to one. The 64-bit salt and XXH3
 provide no cryptographic commitment; the future eraser must destroy the salt with the erased data.
 
@@ -534,8 +539,8 @@ explicitly decided; **nothing remains open**:
   commit succeeds, and every pre-crash revision stays intact. Gates run green in this tree.
 - **Golden fixtures for composite pages** — implemented.
   `io.sirix.format.GoldenCompositePageTest` byte-pins a populated KeyValueLeafPage (records,
-  compact directory, structural encoders, codec bake-off) and a populated HOTLeafPage,
-  deterministic across independent runs.
+  compact directory, structural encoders, codec bake-off) and a populated HOTLeafPage.
+  Byte-pinned record-page fixtures require the deterministic salt mode described in §2.
 - **KVLP header redundancy** — DECIDED: retained. The header's pageKey/revision/indexType
   duplication and heapEnd/heapUsed fields stay on disk. `PageKind.writeEncodedBody` copies
   the header with persisted heapEnd normalized to heapUsed, matching the compact payload
