@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.PrintWriter;
@@ -53,24 +54,41 @@ final class VectorizedReleaseCorrectnessTest {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
     SequentialPipelineStrategy.clearThreadVectorizedExecutor();
     ProjectionIndexRegistry.clear();
+    SequentialPipelineStrategy.setMorselEnabled(false);
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"\"engineering\"", "17"})
-  void nestedMissingGroupSurvivesReopen(final String key) {
+  @CsvSource({"SEQUENTIAL,engineering", "SEQUENTIAL,17", "PARALLEL,engineering", "PARALLEL,17", "ORDERED,engineering",
+      "ORDERED,17", "UNORDERED,engineering", "UNORDERED,17", "MORSEL,engineering", "MORSEL,17"})
+  void nestedMissingGroupSurvivesReopen(final Compilation compilation, final String value) {
+    final String key = value.equals("17")
+        ? value
+        : "\"" + value + "\"";
     final String document = "{\"rows\":[{\"dept\":" + key + "},{\"other\":1},{\"dept\":" + key + "}]}";
     final String query =
         "for $r in " + DOC + ".rows[] let $d := $r.dept group by $d " + "return {\"dept\":$d,\"count\":count($r)}";
-    checkAcrossReopen(document, query, false, null, 4, -1, true);
+    checkAcrossReopen(document, query, false, null, 4, -1, true, compilation);
   }
 
-  @Test
-  void nestedCompositeMissingGroupSurvivesReopen() {
+  @ParameterizedTest
+  @EnumSource(Compilation.class)
+  void nestedCompositeMissingGroupSurvivesReopen(final Compilation compilation) {
     final String document =
         "{\"rows\":[{\"dept\":\"Eng\",\"city\":\"A\"}," + "{\"city\":\"B\"},{\"dept\":\"Eng\",\"city\":\"B\"}]}";
     final String query = "for $r in " + DOC + ".rows[] let $d := $r.dept, $c := $r.city group by $d, $c "
         + "return {\"department\":$d,\"city\":$c,\"total\":count($r)}";
-    checkAcrossReopen(document, query, false, null, 4, -1, true);
+    checkAcrossReopen(document, query, false, null, 4, -1, true, compilation);
+  }
+
+  @ParameterizedTest
+  @CsvSource({"SEQUENTIAL,false", "SEQUENTIAL,true", "PARALLEL,false", "PARALLEL,true", "ORDERED,false", "ORDERED,true",
+      "UNORDERED,false", "UNORDERED,true", "MORSEL,false", "MORSEL,true"})
+  void topLevelGroupingRemainsAdmitted(final Compilation compilation, final boolean composite) {
+    final String document = "[{\"dept\":\"Eng\",\"city\":\"A\"},{\"dept\":\"Eng\",\"city\":\"B\"}]";
+    final String query = "for $r in " + DOC + "[] let $d := $r.dept" + (composite
+        ? ", $c := $r.city group by $d, $c return {\"department\":$d,\"city\":$c,\"total\":count($r)}"
+        : " group by $d return {\"dept\":$d,\"count\":count($r)}");
+    checkAcrossReopen(document, query, false, null, 4, -1, false, compilation);
   }
 
   @ParameterizedTest
@@ -189,6 +207,13 @@ final class VectorizedReleaseCorrectnessTest {
 
   private void checkAcrossReopen(final String document, final String query, final boolean expectError,
       final String expected, final int threads, final int expectedDoubleCount, final boolean expectRefusal) {
+    checkAcrossReopen(document, query, expectError, expected, threads, expectedDoubleCount, expectRefusal,
+        Compilation.SEQUENTIAL);
+  }
+
+  private void checkAcrossReopen(final String document, final String query, final boolean expectError,
+      final String expected, final int threads, final int expectedDoubleCount, final boolean expectRefusal,
+      final Compilation compilation) {
     final Outcome[] oracle = new Outcome[1];
     // Run the reopened comparison even while the warm regression is still red.
     assertAll(() -> {
@@ -204,7 +229,7 @@ final class VectorizedReleaseCorrectnessTest {
           new Query(chain, "jn:store('" + DB + "','" + RESOURCE + "','" + document + "')").evaluate(context);
         }
         oracle[0] = evaluate(chain, context, query);
-        check(store, context, query, expectError, expected, threads, "warm", expectRefusal, oracle[0]);
+        check(store, context, query, expectError, expected, threads, "warm", expectRefusal, oracle[0], compilation);
       }
     }, () -> {
       ProjectionIndexRegistry.clear();
@@ -212,14 +237,14 @@ final class VectorizedReleaseCorrectnessTest {
           final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
         // Reuse the immutable fixture's oracle: the fast execution must be the FIRST reader after
         // reopen, not benefit from caches warmed by another generic evaluation in this store.
-        check(store, context, query, expectError, expected, threads, "reopened", expectRefusal, oracle[0]);
+        check(store, context, query, expectError, expected, threads, "reopened", expectRefusal, oracle[0], compilation);
       }
     });
   }
 
   private void check(final BasicJsonDBStore store, final SirixQueryContext context, final String query,
       final boolean expectError, final String expected, final int threads, final String phase,
-      final boolean expectRefusal, final Outcome generic) {
+      final boolean expectRefusal, final Outcome generic, final Compilation compilation) {
     assertEquals(expectError, generic.error(), "generic oracle: " + phase + ": " + query);
     if (expected != null) {
       assertEquals(expected, generic.text(), "independent expected value");
@@ -234,7 +259,7 @@ final class VectorizedReleaseCorrectnessTest {
     final AtomicInteger refusals = new AtomicInteger();
     final SirixVectorizedExecutor executor =
         new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), threads);
-    try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (final SirixCompileChain chain = compilation.create(store)) {
       // Forward the entire SPI unchanged. Reflection is test instrumentation only, outside kernels.
       final VectorizedExecutor observed =
           (VectorizedExecutor) Proxy.newProxyInstance(VectorizedExecutor.class.getClassLoader(),
@@ -270,7 +295,7 @@ final class VectorizedReleaseCorrectnessTest {
     }
 
     // Also exercise the ordinary store-resolved executor provider, without instrumentation.
-    try (final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (final SirixCompileChain chain = compilation.create(store)) {
       assertEquals(generic, evaluate(chain, context, query), "auto-wired: " + phase + ": " + query);
     }
   }
@@ -296,6 +321,20 @@ final class VectorizedReleaseCorrectnessTest {
       // Pinned Brackit can cast a boolean between numeric items to Numeric in sum/avg.
       // Preserve that observable failure too; the fast path must never replace it with a value.
       return new Outcome(true, failure.getClass().getName());
+    }
+  }
+
+  enum Compilation {
+    SEQUENTIAL, PARALLEL, ORDERED, UNORDERED, MORSEL;
+
+    SirixCompileChain create(final BasicJsonDBStore store) {
+      return switch (this) {
+        case SEQUENTIAL -> SirixCompileChain.createWithJsonStore(store);
+        case PARALLEL -> SirixCompileChain.createParallel(null, store);
+        case ORDERED -> SirixCompileChain.createParallel(null, store, true);
+        case UNORDERED -> SirixCompileChain.createParallel(null, store, false);
+        case MORSEL -> SirixCompileChain.createParallelWithMorsel(null, store);
+      };
     }
   }
 

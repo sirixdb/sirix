@@ -6,6 +6,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.compiler.optimizer.SirixOptimizer;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.translator.SirixPipelineStrategy;
+import io.sirix.query.compiler.translator.SirixBlockPipelineStrategy;
 import io.sirix.query.compiler.translator.SirixTranslator;
 import io.sirix.query.function.jn.JNFun;
 import io.sirix.query.function.sdb.SDBFun;
@@ -510,7 +511,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   @Override
   protected Translator getTranslator(Map<QNm, Str> options) {
     if (parallel) {
-      final BlockPipelineStrategy strategy = new BlockPipelineStrategy();
+      final SirixBlockPipelineStrategy strategy = new SirixBlockPipelineStrategy();
       strategy.setOrdered(ordered);
       return new SirixTranslator(options, strategy);
     }
