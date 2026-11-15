@@ -7,6 +7,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.api.Database;
 import io.sirix.api.NodeTrx;
+import io.sirix.api.NodeCursor;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
@@ -648,10 +649,34 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"json,false", "xml,false", "json,true", "xml,true"})
-  void timedPostCommitCloseReleasesAdmissionWithoutJoiningItself(final String format, final boolean closeSession)
+  @CsvSource({"json,false,transaction,FILE_CHANNEL",
+      "json,false,transaction,IN_MEMORY",
+      "json,false,session,FILE_CHANNEL",
+      "json,false,session,IN_MEMORY",
+      "json,false,rollback,FILE_CHANNEL",
+      "json,false,rollback,IN_MEMORY",
+      "json,true,transaction,FILE_CHANNEL",
+      "json,true,transaction,IN_MEMORY",
+      "json,true,session,FILE_CHANNEL",
+      "json,true,session,IN_MEMORY",
+      "json,true,rollback,FILE_CHANNEL",
+      "json,true,rollback,IN_MEMORY",
+      "xml,false,transaction,FILE_CHANNEL",
+      "xml,false,transaction,IN_MEMORY",
+      "xml,false,session,FILE_CHANNEL",
+      "xml,false,session,IN_MEMORY",
+      "xml,false,rollback,FILE_CHANNEL",
+      "xml,false,rollback,IN_MEMORY",
+      "xml,true,transaction,FILE_CHANNEL",
+      "xml,true,transaction,IN_MEMORY",
+      "xml,true,session,FILE_CHANNEL",
+      "xml,true,session,IN_MEMORY",
+      "xml,true,rollback,FILE_CHANNEL",
+      "xml,true,rollback,IN_MEMORY"})
+  void timedPostCommitCloseReleasesAdmissionWithoutJoiningItself(final String format, final boolean closeSession,
+      final String externalAction, final StorageType storageType)
       throws Exception {
-    try (Fixture fixture = new Fixture(format, directory)) {
+    try (Fixture fixture = new Fixture(format, directory, storageType)) {
       final NodeTrx transaction = fixture.first.beginNodeTrx(1, TimeUnit.SECONDS);
       final ScheduledExecutorService scheduler = scheduler(transaction);
       final ReentrantLock lock = (ReentrantLock) field(AbstractNodeTrxImpl.class, "lock").get(transaction);
@@ -659,18 +684,27 @@ final class NodeTransactionAbortLifecycleTest {
       final CountDownLatch allowClose = new CountDownLatch(1);
       final CountDownLatch allowHookReturn = new CountDownLatch(1);
       final CompletableFuture<Void> closedInHook = new CompletableFuture<>();
-      final CompletableFuture<Boolean> externallyClosed = new CompletableFuture<>();
+      final CompletableFuture<Boolean> externalFinished = new CompletableFuture<>();
       final AtomicInteger laterHooks = new AtomicInteger();
       final Thread external = new Thread(() -> {
         try {
-          transaction.close();
-          externallyClosed.complete(scheduler.isTerminated());
+          switch (externalAction) {
+            case "transaction" -> transaction.close();
+            case "session" -> fixture.first.close();
+            case "rollback" -> assertThrows(IllegalStateException.class, transaction::rollback);
+            default -> throw new AssertionError(externalAction);
+          }
+          externalFinished.complete(externalAction.equals("rollback") || scheduler.isTerminated());
         } catch (final Throwable failure) {
-          externallyClosed.completeExceptionally(failure);
+          externalFinished.completeExceptionally(failure);
         }
       });
       transaction.runLocked(() -> {
-        setValue(transaction, 1);
+        if (storageType == StorageType.IN_MEMORY) {
+          assertEmptyDocument(transaction);
+        } else {
+          setValue(transaction, 1);
+        }
         transaction.addPostCommitHook(closing -> {
           entered.countDown();
           await(allowClose);
@@ -707,22 +741,47 @@ final class NodeTransactionAbortLifecycleTest {
         assertEquals(closeSession, fixture.first.isClosed());
         assertTrue(scheduler.isShutdown());
         assertFalse(scheduler.isTerminated());
-        assertFalse(externallyClosed.isDone());
+        assertFalse(externalFinished.isDone());
         assertFalse(fixture.second.hasRunningNodeWriteTrx());
+        final Path marker = ((InternalResourceSession<?, ?>) fixture.second).getCommitFile();
+        assertFalse(Files.exists(marker));
+        if (externalAction.equals("session") && !closeSession) {
+          assertThrows(IllegalStateException.class, fixture.first::beginNodeTrx);
+        }
         try (NodeTrx next = fixture.second.beginNodeTrx()) {
-          setCursor(next);
-          assertEquals(1, value(next));
-          setValue(next, 3);
-          next.commit();
+          if (storageType == StorageType.IN_MEMORY) {
+            assertEmptyDocument(next);
+            if (next instanceof JsonNodeTrx json) {
+              json.insertNumberValueAsFirstChild(3);
+            } else {
+              final XmlNodeTrx xml = (XmlNodeTrx) next;
+              xml.insertElementAsFirstChild(new QNm("root"));
+              xml.insertTextAsFirstChild("3");
+            }
+            assertEquals(3, value(next));
+            next.rollback();
+            assertEmptyDocument(next);
+          } else {
+            setCursor(next);
+            assertEquals(1, value(next));
+            setValue(next, 3);
+            next.commit();
+          }
         }
         allowHookReturn.countDown();
-        assertTrue(externallyClosed.get(10, TimeUnit.SECONDS));
+        assertTrue(externalFinished.get(10, TimeUnit.SECONDS));
+        assertTrue(scheduler.awaitTermination(10, TimeUnit.SECONDS));
+        assertFalse(Files.exists(marker));
         assertEquals(0, laterHooks.get());
         transaction.close();
         assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
         try (NodeTrx next = fixture.second.beginNodeTrx()) {
-          setCursor(next);
-          assertEquals(3, value(next));
+          if (storageType == StorageType.IN_MEMORY) {
+            assertEmptyDocument(next);
+          } else {
+            setCursor(next);
+            assertEquals(3, value(next));
+          }
         }
       } finally {
         allowClose.countDown();
@@ -765,6 +824,12 @@ final class NodeTransactionAbortLifecycleTest {
         assertEquals(1, value(next));
       }
     }
+  }
+
+  private static void assertEmptyDocument(final NodeTrx transaction) {
+    final NodeCursor cursor = (NodeCursor) transaction;
+    assertTrue(cursor.moveToDocumentRoot());
+    assertFalse(cursor.hasFirstChild());
   }
 
   private static void assertWriterReusable(final Fixture fixture) {
@@ -850,6 +915,9 @@ final class NodeTransactionAbortLifecycleTest {
                                                         .build());
       first = firstDatabase.beginResourceSession("resource");
       second = secondDatabase.beginResourceSession("resource");
+      if (storageType == StorageType.IN_MEMORY) {
+        return;
+      }
       try (NodeTrx transaction = first.beginNodeTrx()) {
         if (transaction instanceof JsonNodeTrx json) {
           json.insertNumberValueAsFirstChild(0);

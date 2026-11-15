@@ -114,7 +114,14 @@ remaining timed-task epilogue only releases its lock and returns to the executor
 it does not revisit reader, writer or epoch payloads. A repeated external transaction
 close still fences termination. Timed cleanup uses the existing transaction lock,
 untimed cleanup uses the monitor, and an atomic admission-release guard prevents
-double release by independent closers. A live append worker that refuses teardown keeps its owners reachable
+double release by independent closers. Public rollback uses that same ownership
+lock and checks open state only after acquiring it, outside recovery failure handling.
+Session close snapshots under its monitor, releases it before node abort/fencing,
+and serializes the independent-owner tail only after node owners are processed.
+Internal abort owns rollback and cleanup as one atomic node transition, preserving
+rollback failures without a stale public rollback between competing closers.
+A short close-attempt count excludes new writers and user sessions during the
+unlocked phase; existing worker reads remain allowed so maintenance can finish. A live append worker that refuses teardown keeps its owners reachable
 for retry. After fencing, independent cleanup continues despite failures, retaining
 the first error and suppressing later ones. Terminal object state alone does not
 prove recovery; the [admission barrier](operations.md#marker-recovery) protects reuse.

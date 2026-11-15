@@ -169,9 +169,10 @@ public final class RAMStorage implements IOStorage {
 
     @Override
     public PageReference readUberPageReference() {
-      final Page page = mResourceFileStorage.get(mUberPageKey.get(-1));
+      final Long key = mUberPageKey.get(-1);
+      final Page page = mResourceFileStorage.get(key);
       final PageReference uberPageReference = new PageReference();
-      uberPageReference.setKey(-1);
+      uberPageReference.setKey(key);
       uberPageReference.setPage(page);
       return uberPageReference;
     }
