@@ -187,7 +187,7 @@ def resolve_targets(module_root, sources):
 
 
 def module_test_classes(module_root):
-    """Map each test source to its outer class name and package, by path (no compilation)."""
+    """Discover declared top-level test types and packages without requiring compilation."""
     classes = {}
     for language, suffix in (('java', '.java'), ('kotlin', '.kt')):
         root = module_root / 'src/test' / language
@@ -196,8 +196,20 @@ def module_test_classes(module_root):
         for path in root.rglob('*' + suffix):
             if path.name in ('package-info.java', 'module-info.java'):
                 continue
-            package = '.'.join(path.relative_to(root).parent.parts)
-            classes[f'{package}.{path.stem}' if package else path.stem] = package
+            text = re.sub(r'//[^\n]*|/\*.*?\*/|""".*?"""|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',
+                          ' ', path.read_text(), flags=re.S)
+            declaration = re.search(r'^\s*package\s+([\w.]+)', text, re.M)
+            package = declaration.group(1) if declaration else ''
+            keywords = 'class|interface|enum|record' if language == 'java' else 'class|interface|object'
+            depth = 0
+            for token in re.finditer(r'\b(?:' + keywords + r')\s+([\w$]+)|[{}]', text):
+                if token[0] == '{':
+                    depth += 1
+                elif token[0] == '}':
+                    depth -= 1
+                elif depth == 0:
+                    name = token[1]
+                    classes[f'{package}.{name}' if package else name] = package
     return classes
 
 
@@ -302,13 +314,8 @@ def read_report(path):
 
 
 def is_clean(results):
-    """SURVIVED is a test-quality defect; NO_COVERAGE is a reported gap under scoped tests.
-
-    A scoped run deliberately mutates changed classes whose tests it could not map, so
-    requiring every mutant to be detected cannot work here. Incomplete analysis never passes.
-    """
     return all(result['state'] == 'complete' and result.get('total', 0) > 0
-               and result.get('survived', 0) == 0 for result in results)
+               and result.get('detected') == result['total'] for result in results)
 
 
 def format_summary(results):

@@ -42,7 +42,9 @@ def module_tree(sources, tests):
         for path in tests:
             test = root / 'src/test/java' / path
             test.parent.mkdir(parents=True, exist_ok=True)
-            test.touch()
+            package = '.'.join(Path(path).parent.parts)
+            declaration = f'package {package};\n' if package else ''
+            test.write_text(declaration + f'class {Path(path).stem} {{}}\n')
         yield root
 
 
@@ -186,6 +188,54 @@ class SelectionTest(unittest.TestCase):
             self.assertEqual(patterns, ['a.FooTest*'])
             self.assertEqual(unmapped, ['src/main/java/c/Baz.java'])
             self.assertEqual(kinds['src/main/java/a/Foo.java'], 'named')
+
+    def test_declared_test_identity_reaches_every_resolution_path_without_compilation(self):
+        """Java/Kotlin declarations define JVM names; filenames and source folders do not."""
+        cases = [('KeyValueLeafPage', 'io.sirix.page', 'KeyValueLeafPageTest', 'named'),
+                 ('KeyValueLeafPage', 'elsewhere', 'KeyValueLeafPageSlotTest', 'related'),
+                 ('Other', 'io.sirix', 'KeyValueLeafPageTest', 'package')]
+        for language, suffix in (('java', 'java'), ('kotlin', 'kt')):
+            for stem, package, declared, kind in cases:
+                with self.subTest(language=language, kind=kind), \
+                     module_tree({f'{stem}.java': package}, []) as root:
+                    test = root / f'src/test/{language}/different/KeyValueLeafTest.{suffix}'
+                    test.parent.mkdir(parents=True)
+                    test.write_text(f'package io.sirix.page;\nclass {declared} {{}}\n')
+                    source = f'src/main/java/{stem}.java'
+                    patterns, unmapped, kinds = mutation.test_scope(root, [source])
+                    self.assertEqual(patterns, [f'io.sirix.page.{declared}*'])
+                    self.assertEqual(unmapped, [])
+                    self.assertEqual(kinds, {source: kind})
+                    result = {}
+                    with patch.object(mutation, 'resolve_targets',
+                                      return_value=([f'{package}.{stem}'], [])):
+                        command = mutation.prepare_analysis(root.parent.parent, root, 'sirix-core',
+                                                            [source], result)
+                    self.assertIn(f'-PprMutationTests=io.sirix.page.{declared}*', command)
+
+    def test_only_top_level_declarations_select_tests(self):
+        """Comments, literals and nested types cannot invent extra top-level JVM names."""
+        for language, suffix in (('java', 'java'), ('kotlin', 'kt')):
+            with self.subTest(language=language), module_tree({'Foo.java': ''}, []) as root:
+                test = root / f'src/test/{language}/NotAClass.{suffix}'
+                test.parent.mkdir(parents=True)
+                fields = ('String value = ', 'String escaped = ', 'char brace = ', 'String block = ') \
+                    if language == 'java' else ('val value = ', 'val escaped = ', 'val brace = ', 'val block = ')
+                test.write_text('/* package wrong; class FooCommentTest {} */\n'
+                                '// class FooLineTest {}\nclass FooTest {\n'
+                                'class FooNestedTest {}\n'
+                                + fields[0] + '"} class FooStringTest {";\n'
+                                + fields[1] + '"\\\"} class FooEscapedTest {";\n'
+                                + fields[2] + "'}';\n"
+                                + fields[3] + '"""\n} class FooBlockTest {\n""";\n'
+                                '}\nclass FooSlotTest {}\n')
+                source = 'src/main/java/Foo.java'
+                self.assertEqual(mutation.test_scope(root, [source]),
+                                 (['FooTest*'], [], {source: 'named'}))
+                source = 'src/main/java/Other.java'
+                (root / source).write_text('class Other {}')
+                self.assertEqual(mutation.test_scope(root, [source]),
+                                 (['FooSlotTest*', 'FooTest*'], [], {source: 'package'}))
 
     def test_related_names_match_across_packages_and_respect_word_boundaries(self):
         cases = [('KeyValueLeafPage', ['b/KeyValueLeafPageSlotTest.java'],
@@ -477,16 +527,40 @@ class ReportingTest(unittest.TestCase):
             for timeout in timeouts[1:]:
                 self.assertGreaterEqual(timeout, floor)
 
-    def test_survivors_fail_but_uncovered_mutants_only_report(self):
+    def test_only_complete_fully_detected_reports_are_clean(self):
         complete = {'module': 'sirix-core', 'state': 'complete', 'total': 4, 'killed': 2,
-                    'survived': 0, 'no_coverage': 2, 'detected': 2, 'statuses': {},
+                    'survived': 0, 'no_coverage': 0, 'detected': 4, 'statuses': {},
                     'survivors': []}
         self.assertTrue(mutation.is_clean([complete]))
         self.assertTrue(mutation.is_clean([]))  # a docs-only PR skips cleanly
-        for broken in ({'survived': 1}, {'state': 'timed out'}, {'state': 'unmapped'},
-                       {'state': 'error'}, {'total': 0}):
+        for broken in ({'survived': 1, 'detected': 3}, {'no_coverage': 2, 'detected': 2},
+                       {'no_coverage': 4, 'detected': 0}, {'state': 'timed out'},
+                       {'state': 'unmapped'}, {'state': 'error'}, {'total': 0, 'detected': 0}):
             with self.subTest(broken=broken):
                 self.assertFalse(mutation.is_clean([{**complete, **broken}]))
+                self.assertFalse(mutation.is_clean([complete, {**complete, **broken}]))
+
+    def test_completed_uncovered_report_fails_blocking_but_keeps_advisory_reporting(self):
+        """PIT's detected=false contract forbids clean scores for all-uncovered reports."""
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            (output / 'selection.json').write_text(json.dumps({'sirix-core': ['unused.java']}))
+
+            def execute(command, root, log, timeout):
+                report = output / 'sirix-core/report/mutations.xml'
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text('<mutations><mutation detected="false" '
+                                  'status="NO_COVERAGE"/></mutations>')
+                return 0
+
+            with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
+                 patch.object(mutation, 'execute', side_effect=execute):
+                self.assertEqual(mutation.run(output, output, 10, blocking=True), 1)
+                self.assertEqual(mutation.run(output, output, 10, blocking=False), 0)
+            result = json.loads((output / 'results.json').read_text())[0]
+            self.assertEqual(result['state'], 'complete')
+            self.assertEqual((result['total'], result['detected'], result['no_coverage']), (1, 0, 1))
+            self.assertIn('No coverage: 1.', (output / 'summary.md').read_text())
 
     def test_report_counts_survived_and_uncovered_statuses(self):
         with tempfile.TemporaryDirectory() as temp:

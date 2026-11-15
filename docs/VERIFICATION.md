@@ -187,8 +187,10 @@ these individually in the PR. New Gradle modules need an entry in `MODULES` in
 Test selection is resolved **per changed source** and is never widened to the module suite.
 PIT's coverage phase has to execute every class in `targetTests`, and Sirix test classes open
 databases during JUnit 5 discovery, so the test scope - not the mutant count - dominates the
-budget: a module suite (3366 classes for `sirix-core`) cannot be collected inside it. For a
-source `Foo` in package `p` the first matching step wins:
+budget: a module suite (3366 classes for `sirix-core`) cannot be collected inside it. Test
+identities come from declared top-level Java/Kotlin type names and packages, not source
+filenames or directories. Discovery does not require compiled test classes. For a source `Foo`
+in package `p` the first matching step wins:
 
 1. `p.FooTest` or `p.FooTests`.
 2. Any test in the module whose simple name starts with `Foo` - or with `Foo` minus a leading
@@ -228,11 +230,9 @@ detected/total score (which includes timed-out mutants), status counts and up to
 mutants; the artifact retains the full list.
 Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
 
-A run is **clean** when every module completed and produced mutants and no mutant `SURVIVED`.
-`SURVIVED` means a mapped test ran and did not notice the change - a test-quality defect, so it
-fails the analysis. `NO_COVERAGE` is reported but does not: under changed-source scoping it is a
-coverage-gap report, and driving it to zero would need the whole-suite baseline this job cannot
-afford. Inspect both; kill them or justify each with evidence in the PR. The Gradle
+A run is **clean** when every module completed, produced mutants and every mutant was detected.
+Both `SURVIVED` and `NO_COVERAGE` fail the analysis, including a report with only uncovered
+mutants. Inspect both; kill them or justify each with evidence in the PR. The Gradle
 `mutationThreshold`/`coverageThreshold` stay at 0, so PIT itself never decides the outcome.
 
 The job runs on normal `pull_request` events, including forks and Dependabot, with only
@@ -244,11 +244,11 @@ and job summaries, so reporting needs no PR write token.
 reports without gating: its scope is the PR's own changed classes, a red result is normally a
 test-quality finding for the author rather than a broken build, and the per-source test mapping
 is a heuristic that can legitimately find no test. It stays visibly informational even when
-survivors or incomplete analysis fail its analysis step. Once representative PRs have no
-unresolved survivors or incomplete runs, maintainers can set the repository Actions variable
+undetected mutants or incomplete analysis fail its analysis step. Once representative PRs have no
+unresolved undetected mutants or incomplete runs, maintainers can set the repository Actions variable
 **`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing` in branch
 protection. That single switch removes job-level tolerance; the reporter already rejects
-survivors and incomplete runs. Review documented equivalent/unreachable-mutant justifications
+undetected mutants and incomplete runs. Review documented equivalent/unreachable-mutant justifications
 before enabling; there is no silent survivor allowlist. Revert the variable to restore
 informational rollout while investigating an infrastructure failure.
 
