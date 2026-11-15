@@ -23,6 +23,7 @@ package io.sirix.axis.concurrent;
 import java.util.concurrent.BlockingQueue;
 
 import io.sirix.api.Axis;
+import io.sirix.cache.ShardedPageCache;
 import io.sirix.utils.LogWrapper;
 import io.sirix.settings.Fixed;
 import org.slf4j.LoggerFactory;
@@ -115,6 +116,12 @@ public class ConcurrentAxisHelper implements Runnable {
         results.put(Fixed.NULL_NODE_KEY.getStandardProperty());
       } catch (InterruptedException ie) {
         LOGWRAPPER.error("Could not signal end after crash", ie);
+      }
+    } finally {
+      try {
+        axis.close();
+      } catch (final RuntimeException | Error cleanupFailure) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
       }
     }
   }

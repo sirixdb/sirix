@@ -73,6 +73,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -1426,7 +1428,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Snapshot ownership before callbacks can unregister other resources, including on failure.
     final Set<NodeReadOnlyTrx> transactions = Collections.newSetFromMap(new IdentityHashMap<>());
     transactions.addAll(sharedTrxMap.values());
-    transactions.addAll(nodeTrxMap.values());
+    final Map<Integer, R> nodeTransactions = new HashMap<>(nodeTrxMap);
+    transactions.addAll(nodeTransactions.values());
+    final Set<NodeReadOnlyTrx> unfinishedTransactions = Collections.newSetFromMap(new IdentityHashMap<>());
     final Set<StorageEngineReader> readers = Collections.newSetFromMap(new IdentityHashMap<>());
     readers.addAll(storageEngineWriterMap.values());
     readers.addAll(storageEngineReaderMap.values());
@@ -1454,6 +1458,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         rtx.close();
       } catch (final RuntimeException | Error e) {
         failure = ShardedPageCache.retainCleanupFailure(failure, e);
+        if (rtx instanceof NodeTrx && !rtx.isClosed()) {
+          unfinishedTransactions.add(rtx);
+        }
       }
     }
     // Rollback can install a replacement writer before node close fails. Retain both the original
@@ -1476,6 +1483,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
     sharedTrxMap.clear();
     nodeTrxMap.clear();
+    for (final Map.Entry<Integer, R> entry : nodeTransactions.entrySet()) {
+      if (unfinishedTransactions.contains(entry.getValue())) {
+        nodeTrxMap.put(entry.getKey(), entry.getValue());
+      }
+    }
     storageEngineReaderMap.clear();
     storageEngineWriterMap.clear();
     final ObjectPool<StorageEngineReader> currentPool = pool.getAndSet(null);
@@ -1493,6 +1505,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       for (final StorageEngineReader writer : unfinishedWriters) {
         storageEngineReaderMap.put(writer.getTrxId(), writer);
       }
+    }
+    if (unfinishedWriters != null || !unfinishedTransactions.isEmpty()) {
       ShardedPageCache.rethrowCleanupFailure(failure);
       return;
     }

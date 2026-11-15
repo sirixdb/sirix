@@ -31,6 +31,13 @@ final class OrderedUnionAxis extends AbstractAxis {
   }
 
   @Override
+  public void close() {
+    try (first) {
+      second.close();
+    }
+  }
+
+  @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     if (first != null) {

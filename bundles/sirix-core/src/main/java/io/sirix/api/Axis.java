@@ -14,7 +14,10 @@ import io.sirix.index.path.summary.PathSummaryReader;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-public interface Axis extends LongIterable, LongIterator, SirixAxis {
+public interface Axis extends LongIterable, LongIterator, SirixAxis, AutoCloseable {
+  @Override
+  default void close() {}
+
   /**
    * Get the cursor associated with the axis.
    *

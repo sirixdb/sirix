@@ -1,0 +1,16 @@
+# Lifecycle review fix handoff
+
+R1: result closure must reach every owned producer before session teardown can close readers. The missing abstraction was close propagation across the axis composition tree and both descendant-expression iterator representations. Axis has a default close contract; composites forward it to every operand, and concurrent helpers close descendants on all exits. The JSON lazy iterator, cached descendant plans, JSON stream and XML stream forward closure. Cancellation preserves its primary failure and interruption.
+
+R2: a failed node close must remain retryable until node ownership, including the shared write permit and commit scheduler, is released. Closing the node reader before the writer refusal had marked the transaction closed prematurely. The writer now closes first, and session teardown retains failed open node transactions as well as unfinished writers. Scheduler shutdown precedes commit-file removal.
+
+Regression oracles:
+- Real compiled descendant queries, for item input and real document items wrapped in Brackit ItemSequence at the expression input boundary, stop after one serialized result; every real ConcurrentAxis executor terminates before serializer close, while readers remain live until session close and are then closed.
+- Nested concurrent producers terminate on explicit close and reset; composite cleanup attempts both operands despite a failure; helper failure retains the original exception and suppresses descendant cleanup failure.
+- Real node transactions in two user sessions retain the writer permit after injected writer refusal. Retry closes the transaction and terminates its scheduler, and the second user can open another writer. Both one-refusal (page close subsequently succeeds) and two-refusal (page close also refuses) cases are covered.
+
+Steady-state iteration loops were left unchanged. New loops are confined to close-time ownership cleanup. No budget bounds changed.
+
+Affected mutation scope for the outer validation phase: Axis close forwarding in NestedAxis, ForAxis, NonStructuralWrapperAxis, FilterAxis, PredicateFilterAxis, OrderedUnionAxis and the three concurrent set axes; ConcurrentAxis close/cancellation handlers; ConcurrentAxisHelper finally cleanup; both descendant lazy iterator close methods; SirixJsonStream/SirixNodeStream close; AbstractNodeTrxImpl.close ordering; AbstractResourceSession.close retention. Earlier mutation counts do not validate these newly changed lifecycle semantics. Mutation tests, compiled-shape comparison, work-budget validation, lint, PR and CI are left to their owning outer phases; none is claimed as rerun by this review phase.
+
+Focused verification: 134 cases passed, with no failures, errors or skips: core 28 (ConcurrentAxisLifecycleTest 21, AbstractResourceSessionWriteFailureCleanupTest 7), query 96 (JsonIntegrationTest 93, OrderedUnionAxisTest 3), REST offline 10 (QuerySerializerLifecycleTest). All Gradle invocations ran through heavy.sh after checking that root had at least 75 GB available. The initial optional sequence-query fixture returned empty before traversal; replacing it with explicit ItemSequence input exercised the cached iterator ownership boundary, and the affected REST class was rerun successfully. No production changes followed the first focused run.
