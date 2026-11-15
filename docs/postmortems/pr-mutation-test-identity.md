@@ -16,10 +16,12 @@
   emitted Gradle argument. The oracle is the language declaration, independent of filenames
   and compilation caches. `test_only_top_level_declarations_select_tests` adds comments,
   escaped strings, text blocks, nested classes and multiple top-level classes.
-  `ReportingTest.test_only_complete_fully_detected_reports_are_clean` and
+  `ReportingTest.test_only_complete_reports_without_undetected_changed_lines_are_clean` and
   `test_completed_uncovered_report_fails_blocking_but_keeps_advisory_reporting` use PIT's
-  `detected` contract and the required every-mutant-detected policy, observing exit status,
-  persisted results and summary output. Each regression rejects the pre-fix implementation.
+  `detected` contract and the
+  [acceptance criterion](../VERIFICATION.md#blocking-criterion-the-prs-own-lines), observing
+  exit status, persisted results and summary output. Each regression rejects the pre-fix
+  implementation.
 - Verification: focused `test_pr_mutation.py` suite, pre-fix replay of the four regressions,
   and targeted in-memory mutations of discovery and clean-result predicates. No repository-wide
   test or lint gate is part of this review phase.

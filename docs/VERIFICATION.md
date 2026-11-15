@@ -281,10 +281,11 @@ decides the outcome.
 
 **Known limitation.** Per-class mutant sampling is chosen before the line map is applied and,
 when the `CLASSLIMIT` limit binds, spreads its sample evenly over each class, so a large diff in a
-large class can leave zero mutants on changed lines - nothing to judge, and the job stays green. The summary always prints a module's
-changed-line count beside its changed-line mutant count, so `0` mutants judged out of many changed
-lines is visible rather than silent; a focused rerun without `prMutationMaxMutations` (below)
-mutates every line of the changed classes.
+large class can leave zero mutants on changed lines - nothing to judge, and the job stays green.
+The summary always prints a module's changed-line count beside its changed-line mutant count,
+so `0` mutants judged out of many changed lines is visible rather than silent; a focused rerun
+without `prMutationMaxMutations` (below) includes every PIT-generated mutant of the changed
+classes, including those on unchanged lines.
 
 The job runs on normal `pull_request` events, including forks and Dependabot, with only
 `contents: read`, no secrets, no persisted checkout credentials and read-only Gradle caches.
