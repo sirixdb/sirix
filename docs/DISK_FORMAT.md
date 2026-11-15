@@ -238,8 +238,8 @@ Zero is the initialization marker, so a zero draw is mapped to one. The 64-bit s
 provide no cryptographic commitment; the future eraser must destroy the salt with the erased data.
 
 Every page starts with `[pageKind u8][binaryVersion u8][flags u8]`.
-`PageKind.readVersionAndFlags` and `readVersionAndFlagsAllowing` validate the version for that
-page kind; only V0 (byte 0) is currently supported. Bits 0–6 of `flags` are required, kind-specific
+Page-kind codecs validate the version; only V0 (byte 0) is currently supported.
+Bits 0–6 of `flags` are required, kind-specific
 layout selectors: a bit outside that kind's allowed mask is refused. Bit 7 (`0x80`,
 `PageExtensions.FLAG_EXTENSION_BLOCK`) has the same meaning for **every** kind, including
 indirect pages. When set, it inserts this block immediately after the flags and before the
@@ -253,14 +253,14 @@ unchanged body:
 stop-bit encoding (seven low data bits per byte, high bit means continue). Tags are unsigned,
 strictly ascending and unique. Tag bit 7 (`0x80`) marks a required entry; bit 6 (`0x40`)
 selects kind-local rather than shared meaning. Entries must be independent of other entries
-and pages so skipping is safe. The only assigned tag is UberPage's kind-local FEATURES entry
-(`0xC1`), decoded by
-[`UberPageFormat`](../bundles/sirix-core/src/main/java/io/sirix/page/UberPageFormat.java).
+and pages so skipping is safe. The only assigned entry is specified in
+[UberPage store feature words](#uberpage-store-feature-words).
 Readers skip unknown optional entries by length and refuse unknown required entries. Truncated or overflowing
 lengths, lengths outside the block/page boundary, duplicate tags and descending tags are
 refused. Readers accept blocks larger than the writer limit when they fit the page.
 
-Writers use `PageExtensions.builder().add(tag, payload).build()` with only tags they understand,
+For page kinds other than UberPage, writers use
+`PageExtensions.builder().add(tag, payload).build()` with only tags they understand,
 then `PageKind.writeVersionAndFlags(sink, bodyFlags, extensions)` after writing the kind byte.
 The API controls bit 7, copies payloads, and limits the total encoded entries to 255 bytes.
 `PageExtensions.EMPTY` emits no block or length prefix. Rewriting a parsed page discards unknown
@@ -613,7 +613,7 @@ revisions-file slots + truncation; ordered dual-copy beacon writes + write-ahead
 validated at storage open); **beacon slots one filesystem block apart with XXH3 trailers**
 (recovery validates checksums, not "deserialization didn't throw"); **checksummed 32-byte
 revision records** (little-endian) plus their **checksummed 16-entry tail log in both beacon
-slots** (salvage + self-heal, eviction guarded by a per-resource durability watermark);
+slots** (see the [salvage and healing rules](#1-files));
 **legacy FILE backend removed** (`StorageType.FILE` fails
 fast — it wrote an incompatible layout under the same version); u8 fragment-count guards;
 PATH_SUMMARY writes its delegate byte via the shared helper; PageReference hashes use the
