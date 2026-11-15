@@ -424,7 +424,7 @@ jn:diff('mydb','myresource', 1, 5)
 jn:diff('mydb','myresource', 1, 5, $nodeKey, 3)
 ```
 
-See the [JSON revision-diff sidecar contract](docs/DISK_FORMAT.md#json-revision-diff-sidecars) for stored change tracking and fallback behavior. With hashes enabled, changed revisions of a node can also be found by comparing `sdb:hash` across `jn:all-times`.
+See the [JSON revision-diff sidecar contract](docs/DISK_FORMAT.md#json-revision-diff-sidecars) for stored change tracking and fallback behavior. On a resource created with node hashes enabled, changed revisions of a node can also be found by comparing `sdb:hash` across `jn:all-times`; hashes are off by default (see [erasure preparation](docs/ERASURE_PREPARATION.md)), and the diff itself reports the same differences either way.
 
 ### Bitemporal Queries
 
@@ -460,8 +460,23 @@ For lazy key slices, strict endpoint predicates, and obsolete-index handling, se
 
 Revision metadata (`sdb:revision`, `sdb:timestamp`, `sdb:item-history`, author tracking,
 commit messages) and optional per-node subtree hashes (`sdb:hash` — change detection)
-round out the temporal API. These hashes do not provide cryptographic tamper evidence;
-see the [storage integrity limits](docs/DISK_FORMAT.md#3-integrity). See the
+round out the temporal API.
+
+Node hashes are **off by default**; opt in per resource at creation time:
+
+```java
+var resourceConfig = ResourceConfiguration.newBuilder("employees")
+    .hashKind(HashType.ROLLING)   // default: HashType.NONE
+    .build();
+```
+
+or with the `hashType` store option, or `?hashType=ROLLING` on REST resource creation. They buy
+`sdb:hash` change detection, the hash-optimized diff route and the REST `ETag`/`If-Match`
+mechanism, and they cost hash maintenance on every commit plus a stored hash and descendant count
+on every container record. They also leave a trace: an ancestor's hash depends on its
+descendants' values, so a deleted value stays confirmable from the revisions in which it existed —
+see [erasure preparation](docs/ERASURE_PREPARATION.md). These hashes do not provide cryptographic
+tamper evidence; see the [storage integrity limits](docs/DISK_FORMAT.md#3-integrity). See the
 [JSONiq API documentation](https://sirix.io/docs/jsoniq-api.html) for the temporal functions.
 
 ## Web Interface

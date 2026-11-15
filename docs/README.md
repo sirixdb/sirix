@@ -16,6 +16,7 @@ list of files.
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How SirixDB works: the node-tree encoding, copy-on-write page layout, sliding-snapshot versioning, indexes, and the bitemporal model. The best single doc for understanding the system. |
 | [operations.md](operations.md) | Running SirixDB in production: configuration, memory/JVM tuning, supported environments, and deployment guidance. |
 | [BULK_IMPORT.md](BULK_IMPORT.md) | The sequential and parallel bulk JSON loaders: API, the configurations they refuse, which index families they maintain in the load's single pass, verification guarantees, tuning knobs, and measured numbers. |
+| [ERASURE_PREPARATION.md](ERASURE_PREPARATION.md) | Why node hashes are off by default, what a resource that keeps them remembers about deleted values, and what erasure still needs. |
 | [NATIVE_IMAGE.md](NATIVE_IMAGE.md) | Building and running the GraalVM native binaries (instant startup for the CLI, shell, and REST server). |
 | [MCP_SERVER_DESIGN.md](MCP_SERVER_DESIGN.md) | The Model Context Protocol server for AI agents: tools, snapshot/diff workflow, and security model. |
 

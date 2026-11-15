@@ -1,6 +1,7 @@
 package io.sirix.query.function.sdb.trx;
 
 import io.sirix.JsonTestHelper;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -15,6 +16,12 @@ import java.io.PrintWriter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * {@code sdb:descendant-count} reports a <em>stored</em> descendant count, which a record carries
+ * only when the resource maintains node hashes — off by default since 1.0. These fixtures opt in
+ * explicitly; on a default resource the function answers {@code 0} for every node, which would also
+ * make the leaf case below pass vacuously.
+ */
 public final class GetDescendantCountTest {
   @BeforeEach
   public void setUp() {
@@ -28,11 +35,13 @@ public final class GetDescendantCountTest {
 
   @Test
   public void testFlatArrayDescendantCount() throws IOException {
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                       .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
+                                                       .hashType(HashType.ROLLING)
+                                                       .build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       final String storeQuery = "jn:store('json-path1','mydoc.jn','[\"a\", \"b\", \"c\"]')";
       new Query(chain, storeQuery).evaluate(ctx);
@@ -49,11 +58,13 @@ public final class GetDescendantCountTest {
 
   @Test
   public void testNestedObjectDescendantCount() throws IOException {
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                       .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
+                                                       .hashType(HashType.ROLLING)
+                                                       .build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Object with nested structure: {"a": {"b": 1}} = object(key "a", object(key "b", value 1))
       final String storeQuery = "jn:store('json-path1','mydoc.jn','{\"a\": {\"b\": 1}}')";
@@ -72,11 +83,13 @@ public final class GetDescendantCountTest {
 
   @Test
   public void testLeafNodeDescendantCount() throws IOException {
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                       .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
+                                                       .hashType(HashType.ROLLING)
+                                                       .build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       final String storeQuery = "jn:store('json-path1','mydoc.jn','[\"bla\", \"blubb\"]')";
       new Query(chain, storeQuery).evaluate(ctx);

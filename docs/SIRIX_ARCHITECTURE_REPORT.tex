@@ -7616,7 +7616,7 @@ slot page capacity & varies & records per \code{KeyValueLeafPage}, bounded by th
 \code{FMESTHRESHOLD} & $0.5$ & inner-node match threshold: fraction of shared matched descendants (\S\ref{sec:diff})\\
 DeweyID tier prefixes & 0, 10, 110, 1110, 1111 & unary-style selectors for tiers $0$–$4$ of the division encoding (\S\ref{sec:deweyids})\\
 \code{maxDivisionValue[3]} & $270{,}549{,}119$ & upper bound of tier-3 division values before tier-4 is used (\S\ref{sec:deweyids})\\
-hash word & $64$ bits & rolling node hash (\code{HashType.ROLLING} default) propagated up the ancestor spine (Ch.~\ref{ch:pds})\\
+hash word & $64$ bits & optional rolling node hash (\code{HashType.NONE} default) propagated up the ancestor spine (Ch.~\ref{ch:pds})\\
 checksum & XXH3-64 & per-page and per-beacon integrity tag in the durable-commit protocol (Ch.~\ref{ch:ondisk})\\
 write permit & $1$ & per-resource \code{Semaphore} permit: one writer, $N$ lock-free readers (Ch.~\ref{ch:rest})\\
 $W$ (SIMD lanes) & $4$ or $8$ & \code{LongVector} lanes of the preferred species (AVX2 / AVX-512) (Ch.~\ref{ch:vector})\\
@@ -7778,7 +7778,7 @@ that matter for this report:
 storageType                   FILE_CHANNEL (default) · MEMORY_MAPPED · FILE · IN_MEMORY · IO_URING · S3
 versioningApproach            SLIDING_SNAPSHOT (default) · INCREMENTAL · DIFFERENTIAL · FULL
 maxNumberOfRevisionsToRestore the reconstruction window R for the snapshot strategies
-hashKind                      ROLLING (default) · POSTORDER · NONE
+hashKind                      NONE (default) · ROLLING · POSTORDER
 useDeweyIDs                   store DeweyID labels                            (default off)
 buildPathSummary              maintain the path summary                       (default on)
 storeDiffs                    enable JSON revision-diff sidecars              (default on)
@@ -7943,12 +7943,13 @@ maxNodes                     auto-commit threshold for a large load
 validFromPath, validToPath   the document paths carrying valid-time bounds
 \end{diagramS}
 
-\noindent Note the layering: the REST \code{PUT}/create endpoint defaults \code{hashType} to
-\code{NONE} when the parameter is omitted, whereas the \emph{embedded} \code{ResourceConfiguration}
-defaults to \code{ROLLING} (\S\ref{app:config}); a deployment that wants audit-grade hashing over
-REST must pass \code{hashType=ROLLING} explicitly at creation.
+\noindent Both REST and the embedded \code{ResourceConfiguration} default to \code{NONE}
+(\S\ref{app:config}). Hashing is an explicit creation-time choice: pass \code{hashType=ROLLING}
+over REST or \code{hashKind(HashType.ROLLING)} in Java. With hashes enabled, a deleted value remains
+confirmable from ancestor hashes in revisions where it existed. Existing resources retain their
+persisted hash kind. See \code{docs/ERASURE\_PREPARATION.md}.
 
-An \code{ETag} equal to the node hash provides optimistic concurrency: a write must present the current
+When node hashes are enabled, an \code{ETag} equal to the node hash provides optimistic concurrency: a write must present the current
 ETag, or it is told the resource may have changed in the meantime.
 
 \section{Node-kind reference}

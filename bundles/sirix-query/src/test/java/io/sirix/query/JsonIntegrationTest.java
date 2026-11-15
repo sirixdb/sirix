@@ -1,5 +1,6 @@
 package io.sirix.query;
 
+import io.sirix.access.trx.node.HashType;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -632,7 +633,9 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
     final String assertion = """
           3 2 1
         """.strip();
-    test(storeQuery, updateQuery1, updateQuery2, query, assertion);
+    // Hash-based change detection: this resource must opt in to node hashes, which are off by
+    // default since 1.0.
+    testWithHashes(storeQuery, updateQuery1, updateQuery2, query, assertion);
   }
 
   @Test
@@ -717,40 +720,41 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
 
   @Test
   public void test() throws IOException {
+    // sdb:hash change detection across revisions: this resource opts in to node hashes.
     query("""
         jn:store('json-path1','mydoc.jn','[{"test": "test string"}]')
-        """.strip());
+        """.strip(), HashType.ROLLING);
     query("""
         let $array := jn:doc('json-path1','mydoc.jn')
         return rename json $array[0].test as "bar"
-        """.strip());
+        """.strip(), HashType.ROLLING);
     query("""
         let $array := jn:doc('json-path1','mydoc.jn')
         return replace json value of $array[0].bar with "foobar"
-        """.strip());
+        """.strip(), HashType.ROLLING);
     query("""
         let $array := jn:doc('json-path1','mydoc.jn')
         return insert json {"bla":true} into $array at position 0
-        """.strip());
+        """.strip(), HashType.ROLLING);
     query("""
         let $array := jn:doc('json-path1','mydoc.jn')
         return append json {"bla":null} into $array
-        """.strip());
+        """.strip(), HashType.ROLLING);
     query("""
         let $array := jn:doc('json-path1','mydoc.jn')
         return insert json {"foo": not(true), "baz": null} into $array[2]
-        """.strip());
-    test("jn:doc('json-path1','mydoc.jn')", """
+        """.strip(), HashType.ROLLING);
+    testWithHashes("jn:doc('json-path1','mydoc.jn')", """
         [{"bla":true},{"bar":"foobar"},{"bla":null,"foo":false,"baz":null}]
         """.strip());
-    test("sdb:revision(jn:doc('json-path1','mydoc.jn'))", "6");
+    testWithHashes("sdb:revision(jn:doc('json-path1','mydoc.jn'))", "6");
     // test("""
     // let $nodeKey := sdb:nodekey(jn:doc('json-path1','mydoc.jn')[2])
     // return jn:diff('json-path1','mydoc.jn',5,6,$nodeKey,5000)
     // """.strip(), "");
     // Structural hashes include sibling links. Revisions 4 and 5 insert this object's
     // left and right neighbors, so both change its hash while preserving its JSON value.
-    test(
+    testWithHashes(
         """
             let $node := jn:doc('json-path1','mydoc.jn')[1]
             let $result := for $node-in-rev in jn:all-times($node)
@@ -767,7 +771,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         """
             [{"node":{"test":"test string"},"revision":1},{"node":{"bar":"test string"},"revision":2},{"node":{"bar":"foobar"},"revision":3},{"node":{"bar":"foobar"},"revision":4},{"node":{"bar":"foobar"},"revision":5}]
             """.strip());
-    query("jn:diff('json-path1','mydoc.jn',1,2)");
+    query("jn:diff('json-path1','mydoc.jn',1,2)", HashType.ROLLING);
   }
 
   @Test

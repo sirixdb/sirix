@@ -16,9 +16,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 
 public final class GetHashTest {
   @BeforeEach
@@ -36,17 +38,18 @@ public final class GetHashTest {
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").hashKind(HashType.ROLLING).build());
 
-      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn");
+          final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
         wtx.commit();
       }
     }
 
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       final String query = "sdb:hash(jn:doc('json-path1','mydoc.jn'))";
 
@@ -60,22 +63,55 @@ public final class GetHashTest {
     }
   }
 
+  /**
+   * B7: node hashes are off by default since 1.0, and {@code sdb:hash} must stay a total function — a
+   * hashless resource reports {@code 0} rather than failing.
+   */
   @Test
-  public void testHashOfChildNode() throws IOException {
-    try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").hashKind(HashType.ROLLING).build());
+  public void testHashIsZeroWithoutHashes() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
 
-      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn");
+          final var wtx = resourceSession.beginNodeTrx()) {
+        assertSame(HashType.NONE, resourceSession.getResourceConfig().hashType);
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
         wtx.commit();
       }
     }
 
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+
+      final String query = "sdb:hash(jn:doc('json-path1','mydoc.jn'))";
+
+      try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
+        new Query(chain, query).serialize(ctx, printWriter);
+        assertEquals("0", out.toString(), "a hashless resource must report hash 0, not fail");
+      }
+    }
+  }
+
+  @Test
+  public void testHashOfChildNode() throws IOException {
+    try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").hashKind(HashType.ROLLING).build());
+
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn");
+          final var wtx = resourceSession.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
+        wtx.commit();
+      }
+    }
+
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Get hash of a child node
       final String query = "sdb:hash(sdb:select-item(jn:doc('json-path1','mydoc.jn'), 2))";

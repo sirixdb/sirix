@@ -163,7 +163,12 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
     synchronized (builder.session) {
       newRtx = builder.session.beginNodeReadOnlyTrx(builder.newRev);
       oldRtx = builder.session.beginNodeReadOnlyTrx(builder.oldRev);
-      hashKind = builder.hashKind;
+      // The resource decides: a resource created without hashes stores none, so the hash-based
+      // shortcut below would compare zeros and report every subtree unchanged. NONE on either side
+      // disables it — a caller may still force the full comparison on a hashed resource.
+      hashKind = builder.session.getResourceConfig().hashType == HashType.NONE
+          ? HashType.NONE
+          : builder.hashKind;
     }
     newRtxMoved = newRtx.moveTo(builder.newStartKey);
     oldRtxMoved = oldRtx.moveTo(builder.oldStartKey);

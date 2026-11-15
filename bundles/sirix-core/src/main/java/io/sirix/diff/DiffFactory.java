@@ -157,8 +157,7 @@ public final class DiffFactory {
    * @return new {@link Builder} instance
    */
   public static Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder(final XmlResourceSession resourceSession,
-      final int newRev, final int oldRev, final DiffOptimized diffKind,
-      final Set<DiffObserver> observers) {
+      final int newRev, final int oldRev, final DiffOptimized diffKind, final Set<DiffObserver> observers) {
     return new Builder<>(resourceSession, newRev, oldRev, diffKind, observers);
   }
 
@@ -195,8 +194,13 @@ public final class DiffFactory {
     /** Kind of diff to invoke. */
     transient DiffAlgorithm mDiffKind;
 
-    /** Kind of hash. */
-    transient HashType hashKind = HashType.ROLLING;
+    /**
+     * Kind of hash. Defaults to the hash kind the diffed resource was created with, so a resource that
+     * stores no hashes never selects the hash-based shortcut. Setting it to {@link HashType#NONE}
+     * forces the full comparison on a hashed resource; the reverse is ignored (see
+     * {@code AbstractDiff}).
+     */
+    transient HashType hashKind;
 
     /** Set if the GUI is used. */
     transient boolean isGUI = true;
@@ -216,8 +220,8 @@ public final class DiffFactory {
      * @param diffKind kind of diff (optimized or not)
      * @param observers {@link Set} of observers
      */
-    public Builder(final ResourceSession<R, W> resMgr, final int newRev, final int oldRev,
-        final DiffOptimized diffKind, final Set<DiffObserver> observers) {
+    public Builder(final ResourceSession<R, W> resMgr, final int newRev, final int oldRev, final DiffOptimized diffKind,
+        final Set<DiffObserver> observers) {
       this.session = requireNonNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
       this.newRev = newRev;
@@ -225,6 +229,7 @@ public final class DiffFactory {
       this.oldRev = oldRev;
       kind = requireNonNull(diffKind);
       this.observers = requireNonNull(observers);
+      hashKind = resMgr.getResourceConfig().hashType;
     }
 
     /**

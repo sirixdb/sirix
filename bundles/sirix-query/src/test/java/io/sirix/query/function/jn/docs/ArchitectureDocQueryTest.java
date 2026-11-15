@@ -8,6 +8,7 @@ import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -184,7 +186,10 @@ public final class ArchitectureDocQueryTest {
     @Test
     @DisplayName("Get hash of node with sdb:hash")
     void testHashFunction() {
-      try (final var store = BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).build();
+      // Node hashes are off by default since 1.0, so a test of sdb:hash opts in explicitly.
+      try (
+          final var store =
+              BasicJsonDBStore.newBuilder().location(SIRIX_DB_PATH.getParent()).hashType(HashType.ROLLING).build();
           final var ctx = SirixQueryContext.createWithJsonStore(store);
           final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
@@ -197,6 +202,7 @@ public final class ArchitectureDocQueryTest {
         final var result = executeQuery(chain, ctx, hashQuery);
         assertNotNull(result);
         assertFalse(result.isEmpty(), "Hash should return a value");
+        assertNotEquals("0", result.strip(), "a resource with rolling hashes must report a real hash");
       }
     }
   }
@@ -294,7 +300,9 @@ public final class ArchitectureDocQueryTest {
         // OBJECT_KEY parent into a single OBJECT_NAMED_STRING at nodeKey 2, so we target
         // nodeKey 2 when fusion is enabled.
         final boolean fused = true;
-        final long targetKey = fused ? 2L : 3L;
+        final long targetKey = fused
+            ? 2L
+            : 3L;
         final var selectQuery = """
             let $oldDoc := jn:doc('mydb', 'myresource', 1)
             return sdb:select-item($oldDoc, %d)

@@ -220,7 +220,11 @@ return {
 }
 ```
 
-The node key is stable across all revisions. The built-in Merkle hash tree instantly detects if the subtree changed.
+The node key is stable across all revisions. `sdb:hash` requires a resource created with
+`hashKind(HashType.ROLLING)` or `POSTORDER` — node hashing is off by default
+([erasure preparation](ERASURE_PREPARATION.md)); on such a resource the incremental hash tree
+detects a changed subtree without walking it. Without hashes, use `jn:diff` or the stored
+revision-diff sidecars, which report the same changes by comparing the nodes.
 
 ---
 
@@ -2326,7 +2330,7 @@ Since SirixDB is append-only with CoW:
 ResourceConfiguration.newBuilder("myresource")
     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
     .revisionsToRestore(8)
-    .hashKind(HashType.ROLLING)
+    .hashKind(HashType.ROLLING)   // opt-in; the default is HashType.NONE
     .useTextCompression(true)
     .buildPathSummary(true)
     .build();
@@ -2341,7 +2345,7 @@ per-resource backend selector.
 |--------|--------|---------|-------------|
 | `versioningApproach` | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | SLIDING_SNAPSHOT | Page versioning strategy |
 | `revisionsToRestore` | 1-N | 3 | Max page fragments to combine for reconstruction |
-| `hashKind` | NONE, ROLLING, POSTORDER | ROLLING | Hash computation method |
+| `hashKind` | NONE, ROLLING, POSTORDER | **NONE** | Per-node subtree hashing. Opt in for `sdb:hash` change detection, stored descendant counts, the hash-optimized diff route and the REST `ETag`/`If-Match` mechanism; it costs hash maintenance on every commit and leaves a confirmable trace of deleted values ([erasure preparation](ERASURE_PREPARATION.md)). `-Dsirix.hashType` overrides the default for a whole JVM. |
 | `buildPathSummary` | true/false | true | Enable path summary |
 
 ---

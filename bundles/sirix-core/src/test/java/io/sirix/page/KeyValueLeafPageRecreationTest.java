@@ -1,6 +1,7 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeletedNode;
@@ -28,7 +29,8 @@ final class KeyValueLeafPageRecreationTest {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void inlineWriteReplacesCachedTombstone(final boolean direct) {
-    final var config = ResourceConfiguration.newBuilder("slot-recreation").useDeweyIDs(false).build();
+    final var config =
+        ResourceConfiguration.newBuilder("slot-recreation").useDeweyIDs(false).hashKind(HashType.ROLLING).build();
     try (final var page = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false)) {
       page.setRecord(new DeletedNode(new NodeDelegate(1, -1, null, -1, 1, (SirixDeweyID) null)));
       final var array = new ArrayNode(1, 0, 0, -1, 1, -1, -1, 2, 2, 1, 1, 37, HASH_FUNCTION, (SirixDeweyID) null);

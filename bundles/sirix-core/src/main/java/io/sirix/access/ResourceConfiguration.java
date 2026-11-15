@@ -185,17 +185,49 @@ public final class ResourceConfiguration {
    */
   private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
 
+  /** Name of the system property that overrides {@link #DEFAULT_HASH_TYPE} for a whole JVM. */
+  public static final String HASH_TYPE_PROPERTY = "sirix.hashType";
+
   /**
-   * Type of hashing. Default is {@link HashType#ROLLING} (incremental Merkle-tree hash maintained on
-   * structural mutations). Override at JVM level via {@code -Dsirix.hashType=NONE} when you want to
-   * elide per-record hash bytes entirely (bench workloads); legacy tests rely on the ROLLING default.
+   * Default node-hash kind for a newly created resource: {@link HashType#NONE}. Hashing is an
+   * explicit choice — call {@link Builder#hashKind(HashType)} to maintain an incremental Merkle-tree
+   * hash ({@link HashType#ROLLING}) or a postorder hash. Override the default for a whole JVM with
+   * {@code -Dsirix.hashType=ROLLING}.
+   *
+   * <p>
+   * An <em>existing</em> resource is unaffected: its hash kind is persisted in the resource settings
+   * and read back by {@link #deserialize(Path)}, so a store created with hashes keeps them.
+   *
+   * <p>
+   * <strong>Why off by default.</strong> A container record's stored hash is its own hash plus 77081
+   * times the sum of its children's hashes, so every ancestor up to the document root carries a term
+   * derived from a leaf's raw value, in every revision in which that value existed. Everything but
+   * the value is known to whoever holds the store, so once a value is deleted a guess at it can still
+   * be confirmed against the surviving ancestor hashes. Off is therefore the only default under which
+   * a resource can later be erased without that residue, and it also removes the stored hash of every
+   * container record and the hash work on every commit. Turn hashes on deliberately, for change
+   * detection ({@code sdb:hash}), hash-optimized diffs or the REST {@code ETag}/{@code If-Match}
+   * mechanism, and not for data that may have to be erased.
    *
    * <p>
    * The per-record hash field is stored as a signed-varint (1 byte for hash=0, up to 10 for a real
-   * 64-bit ROLLING hash) — when the resource is configured {@code HashType.NONE} the bench writer
-   * pays only 1 byte per record for the field, vs. 8 bytes under the previous fixed-width layout.
+   * 64-bit ROLLING hash) — with {@link HashType#NONE} the field is omitted entirely rather than
+   * written as a zero.
    */
-  private static final HashType HASH_TYPE = HashType.fromString(System.getProperty("sirix.hashType", "ROLLING"));
+  public static final HashType DEFAULT_HASH_TYPE = defaultHashType(System.getProperty(HASH_TYPE_PROPERTY));
+
+  /**
+   * Resolve {@link #DEFAULT_HASH_TYPE} from the {@value #HASH_TYPE_PROPERTY} system property.
+   *
+   * @param property the property's value, or {@code null} when it is unset
+   * @return {@link HashType#NONE} when the property is unset, else the named hash type
+   * @throws IllegalArgumentException if the property names no hash type
+   */
+  static HashType defaultHashType(final String property) {
+    return property == null
+        ? HashType.NONE
+        : HashType.fromString(property);
+  }
 
   /**
    * Versions to restore.
@@ -963,7 +995,7 @@ public final class ResourceConfiguration {
     /**
      * Kind of integrity hash (rolling, postorder).
      */
-    private HashType hashType = HASH_TYPE;
+    private HashType hashType = DEFAULT_HASH_TYPE;
 
     /**
      * Number of revisions to restore a complete set of data.
@@ -1155,7 +1187,15 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Set the hash kind to use for the nodes.
+     * Set the hash kind to use for the nodes. The default is {@link #DEFAULT_HASH_TYPE}
+     * ({@link HashType#NONE}): node hashing is opt-in.
+     *
+     * <p>
+     * Enabling it buys change detection ({@code sdb:hash}), hash-optimized diffs and the REST
+     * {@code ETag}/{@code If-Match} mechanism, at the cost of hash maintenance on every commit, a
+     * stored hash plus descendant count on every container record, and the privacy consequence
+     * described on {@link #DEFAULT_HASH_TYPE}: a deleted value stays confirmable from the ancestor
+     * hashes of the revisions in which it existed.
      *
      * @param hashKind hash kind to use
      * @return reference to the builder object

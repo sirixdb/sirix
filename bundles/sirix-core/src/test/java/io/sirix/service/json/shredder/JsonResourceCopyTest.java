@@ -36,9 +36,12 @@ public final class JsonResourceCopyTest {
 
   @Test
   public void test_when_inserted_as_first_child_or_as_right_sibling_if_is_as_excepted() {
+    // createTestDocument() builds the source WITH node hashes; identity replay refuses a
+    // source/target hash-kind mismatch, so the destination opts in too (hashes are off by default
+    // since 1.0).
     JsonTestHelper.createTestDocument();
     final var databaseForReads = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    final var databaseForWrites = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH2.getFile());
+    final var databaseForWrites = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH2.getFile());
     try (final var sessionForReads = databaseForReads.beginResourceSession(JsonTestHelper.RESOURCE);
         final var sessionForWrites = databaseForWrites.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = sessionForReads.beginNodeReadOnlyTrx();
@@ -80,7 +83,7 @@ public final class JsonResourceCopyTest {
     JsonTestHelper.createTestDocument();
 
     final var rtxDatabase = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    final var wtxDatabase = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH2.getFile());
+    final var wtxDatabase = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH2.getFile());
 
     try (final var wtx = rtxDatabase.beginResourceSession(JsonTestHelper.RESOURCE).beginNodeTrx()) {
       // iter#32 P2 fusion node-key remap of the standard test fixture (verified via
@@ -135,7 +138,7 @@ public final class JsonResourceCopyTest {
     JsonTestHelper.createTestDocument();
 
     final var sourceDatabase = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    final var destinationDatabase = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH2.getFile());
+    final var destinationDatabase = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH2.getFile());
 
     try (final var sourceSession = sourceDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
         final var sourceWtx = sourceSession.beginNodeTrx()) {

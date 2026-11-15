@@ -584,6 +584,11 @@ checks all unsupported form bytes.
   integrity contract in [§1, sirix.revisions](#sirixrevisions).
 - **Still not covered**: record/page length prefixes. Length bounds are validated,
   but the prefix bytes themselves are not checksummed.
+- Per-node subtree hashes (`HashType.ROLLING`/`POSTORDER`) are **off by default** and are not part
+  of this integrity story: they are a change-detection aid a resource opts into at creation time.
+  Because an ancestor's stored hash depends on its descendants' raw values, a resource that keeps
+  them also keeps a confirmable trace of a value removed later — see
+  [erasure preparation](ERASURE_PREPARATION.md).
 - These non-cryptographic checksums detect covered accidental corruption, not malicious
   rewriting. HOT offset-only references do not provide end-to-end payload authentication;
   subtree hashes and dual beacons do not make this a cryptographic tamper-evident log.

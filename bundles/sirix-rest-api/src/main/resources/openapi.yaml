@@ -1035,8 +1035,12 @@ components:
       in: query
       description: |
         Node-hash kind for the new resource(s). `ROLLING` enables the
-        `ETag`/`If-Match` optimistic-concurrency mechanism; `NONE` (default)
-        disables it.
+        `ETag`/`If-Match` optimistic-concurrency mechanism and `sdb:hash`
+        change detection; `NONE` (default) disables both. Enabling hashes also
+        leaves a trace of deleted values: an ancestor's stored hash depends on
+        its descendants' raw values, so a value removed later stays confirmable
+        from the revisions in which it existed. Prefer `NONE` for data that may
+        have to be erased.
       schema:
         type: string
         enum: [NONE, ROLLING, POSTORDER]

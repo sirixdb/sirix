@@ -20,9 +20,11 @@ import java.util.Objects;
 /**
  * Statistics provider backed by SirixDB's PathSummary and IndexController.
  *
- * <p>Caches path cardinalities, index lookups, and resource sessions to avoid
- * repeated lookups within a single query optimization pass. Call {@link #clearCaches()}
- * between queries to prevent stale statistics.</p>
+ * <p>
+ * Caches path cardinalities, index lookups, and resource sessions to avoid repeated lookups within
+ * a single query optimization pass. Call {@link #clearCaches()} between queries to prevent stale
+ * statistics.
+ * </p>
  */
 public final class SirixStatisticsProvider implements StatisticsProvider, AutoCloseable {
 
@@ -43,8 +45,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
     this.sessionCache = new HashMap<>(4);
   }
 
-  private ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> getSession(
-      String databaseName, String resourceName) {
+  private ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> getSession(String databaseName, String resourceName) {
     final String key = databaseName + ":" + resourceName;
     ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> session = sessionCache.get(key);
     if (session != null) {
@@ -63,8 +64,8 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
   }
 
   /**
-   * Clear all caches and close cached sessions. Call between queries
-   * to prevent stale statistics and resource leaks.
+   * Clear all caches and close cached sessions. Call between queries to prevent stale statistics and
+   * resource leaks.
    */
   public void clearCaches() {
     pathCardinalityCache.clear();
@@ -87,8 +88,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
   }
 
   @Override
-  public long getPathCardinality(Path<QNm> path, String databaseName,
-                                 String resourceName, int revision) {
+  public long getPathCardinality(Path<QNm> path, String databaseName, String resourceName, int revision) {
     final var key = new PathCacheKey(path, databaseName, resourceName, revision);
     final Long cached = pathCardinalityCache.get(key);
     if (cached != null) {
@@ -138,7 +138,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
           ? resMgr.beginNodeReadOnlyTrx()
           : resMgr.beginNodeReadOnlyTrx(revision)) {
         rtx.moveToDocumentRoot();
-        return rtx.getDescendantCount();
+        return DocumentNodeCount.estimate(rtx);
       }
     } catch (Exception e) {
       LOG.debug("Failed to get total node count for {}/{}: {}", databaseName, resourceName, e.getMessage());
@@ -147,8 +147,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
   }
 
   @Override
-  public IndexInfo getIndexInfo(Path<QNm> path, String databaseName,
-                                String resourceName, int revision) {
+  public IndexInfo getIndexInfo(Path<QNm> path, String databaseName, String resourceName, int revision) {
     final var key = new PathCacheKey(path, databaseName, resourceName, revision);
     final IndexInfo cached = indexInfoCache.get(key);
     if (cached != null) {
@@ -161,11 +160,10 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
   }
 
   /**
-   * Single-pass index lookup with priority: CAS > PATH > NAME.
-   * Iterates index definitions once, tracking the best match by priority.
+   * Single-pass index lookup with priority: CAS > PATH > NAME. Iterates index definitions once,
+   * tracking the best match by priority.
    */
-  private IndexInfo lookupIndexInfo(Path<QNm> path, String databaseName,
-                                    String resourceName, int revision) {
+  private IndexInfo lookupIndexInfo(Path<QNm> path, String databaseName, String resourceName, int revision) {
     try {
       final var resMgr = getSession(databaseName, resourceName);
       if (resMgr == null) {
@@ -177,7 +175,9 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
           : resMgr.getRtxIndexController(revision);
 
       final var indexes = indexController.getIndexes();
-      final QNm leafName = path.getLength() > 0 ? path.tail() : null;
+      final QNm leafName = path.getLength() > 0
+          ? path.tail()
+          : null;
 
       IndexInfo bestMatch = null;
       int bestPriority = Integer.MAX_VALUE;
@@ -193,7 +193,9 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
         }
       }
 
-      return bestMatch != null ? bestMatch : IndexInfo.NO_INDEX;
+      return bestMatch != null
+          ? bestMatch
+          : IndexInfo.NO_INDEX;
     } catch (Exception e) {
       LOG.debug("Failed to look up index info for {}/{}: {}", databaseName, resourceName, e.getMessage());
       return IndexInfo.NO_INDEX;
@@ -201,20 +203,18 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
   }
 
   /**
-   * Attempt to match a single IndexDef against the query path.
-   * Returns an IndexInfo if this def matches and has higher priority than {@code currentBestPriority},
-   * or null if no improvement.
+   * Attempt to match a single IndexDef against the query path. Returns an IndexInfo if this def
+   * matches and has higher priority than {@code currentBestPriority}, or null if no improvement.
    */
-  private static IndexInfo matchIndexDef(IndexDef indexDef, Path<QNm> path,
-                                         QNm leafName, int currentBestPriority) {
+  private static IndexInfo matchIndexDef(IndexDef indexDef, Path<QNm> path, QNm leafName, int currentBestPriority) {
     if (indexDef.isCasIndex() && currentBestPriority > 0) {
       return matchByPath(indexDef, path, IndexType.CAS);
     }
     if (indexDef.isPathIndex() && currentBestPriority > 1) {
       return matchByPath(indexDef, path, IndexType.PATH);
     }
-    if (indexDef.isNameIndex() && currentBestPriority > 2
-        && leafName != null && indexDef.getIncluded().contains(leafName)) {
+    if (indexDef.isNameIndex() && currentBestPriority > 2 && leafName != null
+        && indexDef.getIncluded().contains(leafName)) {
       return new IndexInfo(indexDef.getID(), IndexType.NAME, true);
     }
     return null;
@@ -230,10 +230,9 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
   }
 
   /**
-   * Check if {@code prefix} is a strict prefix of {@code fullPath}.
-   * E.g., /[]/item is a prefix of /[]/item/price.
-   * This enables the cost model to find CAS indexes on child paths
-   * when the binding expression only navigates to the parent.
+   * Check if {@code prefix} is a strict prefix of {@code fullPath}. E.g., /[]/item is a prefix of
+   * /[]/item/price. This enables the cost model to find CAS indexes on child paths when the binding
+   * expression only navigates to the parent.
    */
   private static boolean isPrefixOf(Path<QNm> prefix, Path<QNm> fullPath) {
     if (prefix.getLength() >= fullPath.getLength()) {
@@ -259,8 +258,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
   }
 
   @Override
-  public BaseProfile buildBaseProfile(Path<QNm> path, String databaseName,
-                                      String resourceName, int revision) {
+  public BaseProfile buildBaseProfile(Path<QNm> path, String databaseName, String resourceName, int revision) {
     final long nodeCount = getPathCardinality(path, databaseName, resourceName, revision);
     final IndexInfo indexInfo = getIndexInfo(path, databaseName, resourceName, revision);
 
@@ -295,5 +293,6 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
     return new BaseProfile(nodeCount, pathLevel, indexInfo.exists(), indexInfo.type());
   }
 
-  private record PathCacheKey(Path<QNm> path, String databaseName, String resourceName, int revision) {}
+  private record PathCacheKey(Path<QNm> path, String databaseName, String resourceName, int revision) {
+  }
 }

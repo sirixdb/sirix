@@ -832,7 +832,7 @@ psql -d bench -c 'CHECKPOINT' \
 Two SirixDB resource configurations were measured, because several sirix features have
 per-commit cost that PostgreSQL's pattern simply doesn't have an equivalent for:
 
-- **full** (= the defaults): path summary, child counts, rolling hashes, per-node history
+- **full** (= the defaults at measurement time; node hashes are opt-in since 1.0): path summary, child counts, rolling hashes, per-node history
   index (`RECORD_TO_REVISIONS`), per-commit stored diff files.
 - **lean**: all of the above disabled (`hashKind(NONE)`, `storeDiffs(false)`,
   `storeNodeHistory(false)`, `buildPathSummary(false)`, `storeChildCount(false)`).
