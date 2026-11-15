@@ -223,3 +223,4 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   reader, then check the selector's emitted scope without widening its limits or excluding tests.
   Keep independent clock and history contracts separately executable, retaining both in ordinary tests.
   Evidence: [timestamp CI associations](postmortems/commit-timestamp-ci-associations.md#follow-up-focused-path-summary-timestamp-contract).
+| Async hardening's background path was safe while two inline ownership routes were not; `isClosed` was mistaken for recovered storage. | Derive failure tests for every ownership transfer, including paired construction/submission and hardening faults. Fence workers, release independent owners, and require marker recovery before offset reuse; test a second session with warm caches. | [write-up](postmortems/async-commit-ownership-recovery.md), `NodeTransactionAbortLifecycleTest`, `AsyncFlushFailurePathTest` |

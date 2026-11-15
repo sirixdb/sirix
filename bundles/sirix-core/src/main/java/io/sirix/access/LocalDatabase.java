@@ -563,6 +563,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);
+      AbstractResourceSession.forgetCommitRecovery(resourceFile);
 
       this.writeLocks.removeWriteLock(resourceFile);
 

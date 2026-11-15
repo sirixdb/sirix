@@ -37,15 +37,18 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.slf4j.LoggerFactory;
+import org.mockito.MockedStatic;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
+import io.sirix.access.trx.node.InternalResourceSession;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -59,6 +62,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mockStatic;
 
 /**
  * Regression gate for the asynchronous snapshot flush's FAILURE path.
@@ -567,10 +571,11 @@ final class AsyncFlushFailurePathTest {
     }
   }
 
-  @Test
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
   @Timeout(value = 3, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
-  @DisplayName("An unbound writer retains the resource permit until aborted trie offsets are invalidated and closed")
-  void unboundCloseBlocksSuccessorUntilAbortedTrieTailIsSafeToReuse() throws Exception {
+  @DisplayName("Bound and unbound teardown preserve recovery after invalidation and close failures")
+  void unboundCloseBlocksSuccessorUntilAbortedTrieTailIsSafeToReuse(final boolean bound) throws Exception {
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       db.createResource(ResourceConfiguration.newBuilder(RESOURCE)
@@ -582,7 +587,9 @@ final class AsyncFlushFailurePathTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
-        final NodeStorageEngineWriter failedWriter = (NodeStorageEngineWriter) session.createStorageEngineWriter();
+        final JsonNodeTrx owner = bound ? session.beginNodeTrx(AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) : null;
+        final NodeStorageEngineWriter failedWriter = (NodeStorageEngineWriter) (bound
+            ? owner.getStorageEngineWriter() : session.createStorageEngineWriter());
         final PageReference reference =
             new PageReference().setDatabaseId(failedWriter.getDatabaseId()).setResourceId(failedWriter.getResourceId());
         final IndirectPage page = new IndirectPage();
@@ -599,63 +606,67 @@ final class AsyncFlushFailurePathTest {
             "the setup never published the pinned indirect page, so no aborted tail could be reused");
         assertEquals(Constants.NULL_ID_INT, reference.getLogKey());
 
-        final CountDownLatch closeBeforeInvalidation = new CountDownLatch(1);
-        final CountDownLatch allowCloseToFinish = new CountDownLatch(1);
-        final AtomicInteger safetyBarriers = new AtomicInteger();
-        NodeStorageEngineWriter.asyncFlushFaultHook = (writer, site) -> {
-          if (writer != failedWriter) {
-            return;
+        final PageReference cachedOffset = new PageReference().setDatabaseId(failedWriter.getDatabaseId())
+            .setResourceId(failedWriter.getResourceId()).setKey(reference.getKey());
+        final PageReference siblingOffset = new PageReference().setDatabaseId(failedWriter.getDatabaseId())
+            .setResourceId(failedWriter.getResourceId() + 1).setKey(reference.getKey());
+        final IndirectPage stale = new IndirectPage();
+        final IndirectPage sibling = new IndirectPage();
+        final var cache = Databases.getGlobalBufferManager().getPageCache();
+        cache.put(cachedOffset, stale);
+        cache.put(siblingOffset, sibling);
+        final IllegalStateException invalidation = new IllegalStateException("cache invalidation failed");
+        try (MockedStatic<Databases> databases = mockStatic(Databases.class, invocation -> {
+          if (invocation.getMethod().getName().equals("clearCachesForResource")) {
+            throw invalidation;
           }
-          switch (site) {
-            case "close-after-log-close" -> {
-              closeBeforeInvalidation.countDown();
-              awaitLatch(allowCloseToFinish, "test did not release the paused unbound close");
-            }
-            case "close-after-trie-cache-invalidate" -> safetyBarriers.compareAndSet(0, 1);
-            case "close-after-storage-writer-close" -> safetyBarriers.compareAndSet(1, 2);
-            default -> {
-            }
+          return invocation.callRealMethod();
+        })) {
+          assertSame(invalidation, assertThrows(RuntimeException.class, failedWriter::rollback));
+        }
+        assertSame(stale, cache.get(cachedOffset));
+        final IllegalArgumentException cleanup = new IllegalArgumentException("close failed after invalidation");
+
+        final CountDownLatch closing = new CountDownLatch(1);
+        final CountDownLatch release = new CountDownLatch(1);
+        NodeStorageEngineWriter.asyncFlushFaultHook = (writer, site) -> {
+          if (writer == failedWriter && site.equals("close-after-log-close")) {
+            closing.countDown();
+            awaitLatch(release, "close was not released");
+            throw cleanup;
           }
         };
-
-        final ExecutorService executor = Executors.newFixedThreadPool(2);
-        StorageEngineWriter successor = null;
-        Future<?> closeFuture = null;
-        Future<StorageEngineWriter> successorFuture = null;
+        final ExecutorService executor = Executors.newSingleThreadExecutor();
+        final Future<?> close = executor.submit(() -> {
+          if (owner == null) {
+            failedWriter.close();
+          } else {
+            owner.close();
+          }
+        });
         try {
-          closeFuture = executor.submit(failedWriter::close);
-          assertTrue(closeBeforeInvalidation.await(30, TimeUnit.SECONDS),
-              "unbound close never reached the pre-invalidation boundary");
-
-          final CountDownLatch successorStarted = new CountDownLatch(1);
-          successorFuture = executor.submit(() -> {
-            successorStarted.countDown();
-            return session.createStorageEngineWriter();
-          });
-          assertTrue(successorStarted.await(30, TimeUnit.SECONDS), "successor task never started");
-          final Future<StorageEngineWriter> blockedSuccessor = successorFuture;
-          assertThrows(TimeoutException.class, () -> blockedSuccessor.get(2, TimeUnit.SECONDS),
-              "a successor acquired the resource while aborted-offset caches were still live");
-
-          allowCloseToFinish.countDown();
-          closeFuture.get(30, TimeUnit.SECONDS);
-          successor = successorFuture.get(30, TimeUnit.SECONDS);
-          assertEquals(2, safetyBarriers.get(),
-              "the successor permit must be handed off only after cache invalidation and backend close");
+          closing.await();
+          assertTrue(session.hasRunningNodeWriteTrx());
         } finally {
-          allowCloseToFinish.countDown();
-          NodeStorageEngineWriter.asyncFlushFaultHook = null;
-          if (closeFuture != null && !closeFuture.isDone()) {
-            closeFuture.get(30, TimeUnit.SECONDS);
-          }
-          if (successor == null && successorFuture != null && successorFuture.isDone()) {
-            successor = successorFuture.get();
-          }
-          if (successor != null) {
-            successor.close();
-          }
-          executor.shutdownNow();
+          release.countDown();
+          final ExecutionException observed = assertThrows(ExecutionException.class,
+              () -> close.get(30, TimeUnit.SECONDS));
+          assertSame(cleanup, observed.getCause());
+          executor.shutdown();
           assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+          NodeStorageEngineWriter.asyncFlushFaultHook = null;
+        }
+        assertFalse(session.hasRunningNodeWriteTrx());
+        assertTrue(Files.isRegularFile(((InternalResourceSession<?, ?>) session).getCommitFile()));
+        assertSame(stale, cache.get(cachedOffset));
+        try (StorageEngineWriter successor = session.createStorageEngineWriter()) {
+          assertFalse(successor.isClosed());
+          assertNull(cache.get(cachedOffset));
+          assertSame(sibling, cache.get(siblingOffset));
+          try (var reader = session.beginNodeReadOnlyTrx()) {
+            assertEquals(0, reader.getRevisionNumber());
+            assertFalse(reader.moveToFirstChild());
+          }
         }
       }
     }

@@ -4371,6 +4371,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final UberPage uberPage = commitWritePages(commitMessage, commitTimestamp, isIntermediateCommit);
       hardenCommit(uberPage, isIntermediateCommit);
       return uberPage;
+    } catch (final RuntimeException | Error failure) {
+      try {
+        storageEngineReader.resourceSession.requireCommitRecovery();
+      } catch (final RuntimeException | Error markerFailure) {
+        retainFirstFailure(failure, markerFailure);
+      }
+      throw failure;
     } finally {
       storageEngineReader.resourceSession.getCommitLock().unlock();
     }
@@ -4545,7 +4552,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       try {
         deleteIfExists(commitFile);
       } catch (final IOException e) {
-        throw new SirixIOException("Commit file couldn't be deleted!");
+        throw new SirixIOException("Commit file could not be deleted: " + commitFile, e);
       }
 
       if (timing) {
@@ -5268,6 +5275,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     Throwable teardownFailure = null;
+    if (hasUncommittedReclaimableWrites) {
+      try {
+        storageEngineReader.resourceSession.requireCommitRecovery();
+      } catch (final Throwable failure) {
+        teardownFailure = retainFirstFailure(teardownFailure, failure);
+      }
+    }
+
 
     // Cancel pending references and release their payloads BEFORE guard/TIL cleanup. Those later
     // operations can invoke cache/page close machinery and throw; no such failure may leave the
@@ -5387,8 +5402,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     int unboundTrxId = Constants.NULL_ID_INT;
     if (!isBoundToNodeTrx) {
       try {
-        // Capture before storageEngineReader.close(): its accessor correctly rejects every later
-        // read, while the session needs this immutable id only after the two tail-safety barriers.
         unboundTrxId = storageEngineReader.getTrxId();
       } catch (final Throwable t) {
         teardownFailure = retainFirstFailure(teardownFailure, t);
@@ -5473,37 +5486,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       mostRecentByIndexType = null;
     }
 
-    try {
-      invalidateCachesForAbortedUncommittedWrites();
-      injectAsyncFlushFault("close-after-trie-cache-invalidate");
-    } catch (final Throwable t) {
-      teardownFailure = retainFirstFailure(teardownFailure, t);
+    if (hasUncommittedReclaimableWrites) {
+      try {
+        storageEngineReader.resourceSession.requireCommitRecovery();
+      } catch (final Throwable failure) {
+        teardownFailure = retainFirstFailure(teardownFailure, failure);
+      }
     }
-
-    // storageEngineReader.close() deliberately does not own a write transaction's backend. Close it
-    // independently so a reader/log/page failure cannot leak the data, revision, or beacon channel.
-    boolean storageWriterClosed = false;
+    try {
+      clearRecordSnapshot();
+      storagePageReaderWriter.discardSpilledWrites();
+    } catch (final Throwable failure) {
+      teardownFailure = retainFirstFailure(teardownFailure, failure);
+    }
     try {
       storagePageReaderWriter.close();
-      storageWriterClosed = true;
       injectAsyncFlushFault("close-after-storage-writer-close");
-    } catch (final Throwable t) {
-      teardownFailure = retainFirstFailure(teardownFailure, t);
-    }
-
-    // An unbound writer owns the resource write permit itself. Keep that permit until BOTH safety
-    // barriers for reclaimable prewrites have completed: resource caches no longer contain an
-    // aborted offset, and the old backend writer can no longer touch the tail. Releasing earlier
-    // lets a successor derive the last durable frontier and overwrite that tail while stale cache
-    // entries are still addressable. If either barrier fails, retain the permit deliberately: a
-    // wedged resource is fail-closed, whereas handing it to a successor can return wrong pages.
-    if (!isBoundToNodeTrx && unboundTrxId != Constants.NULL_ID_INT && !hasUncommittedReclaimableWrites
-        && storageWriterClosed) {
-      try {
-        storageEngineReader.resourceSession.closePageWriteTransaction(unboundTrxId, this);
-      } catch (final Throwable t) {
-        teardownFailure = retainFirstFailure(teardownFailure, t);
-      }
+    } catch (final Throwable failure) {
+      teardownFailure = retainFirstFailure(teardownFailure, failure);
     }
 
     // Detach first: even if the return itself fails, this writer must not retain the off-heap root.
@@ -5527,6 +5527,21 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       injectAsyncFlushFault("close-after-terminal-flags");
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+
+    if (teardownFailure != null || asyncFailure != null) {
+      try {
+        storageEngineReader.resourceSession.requireCommitRecovery();
+      } catch (final Throwable failure) {
+        teardownFailure = retainFirstFailure(teardownFailure, failure);
+      }
+    }
+    if (!isBoundToNodeTrx && unboundTrxId != Constants.NULL_ID_INT) {
+      try {
+        storageEngineReader.resourceSession.closePageWriteTransaction(unboundTrxId, this);
+      } catch (final Throwable failure) {
+        teardownFailure = retainFirstFailure(teardownFailure, failure);
+      }
     }
 
     if (teardownFailure != null) {

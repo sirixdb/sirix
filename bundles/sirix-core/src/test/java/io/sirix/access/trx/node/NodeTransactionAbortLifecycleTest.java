@@ -11,11 +11,16 @@ import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.cache.PageGuard;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
+import io.sirix.io.IOStorage;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
+import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
@@ -40,6 +45,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 
 @Isolated
 @Timeout(30)
@@ -52,6 +59,7 @@ final class NodeTransactionAbortLifecycleTest {
   @AfterEach
   void clearHooks() throws ReflectiveOperationException {
     AbstractNodeTrxImpl.asyncCommitTestHook = null;
+    AbstractResourceSession.recoveryTestHook = null;
     if (flushHook != null) {
       flushHook.set(null, null);
     }
@@ -213,6 +221,402 @@ final class NodeTransactionAbortLifecycleTest {
     }
   }
 
+  @ParameterizedTest
+  @CsvSource({"json,before-successor", "xml,before-successor", "json,before-submit", "xml,before-submit"})
+  void inlineDoubleFailureReleasesSlotAndRetainsPrimary(final String format, final String failingStage)
+      throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      final IllegalStateException primary = new IllegalStateException(failingStage);
+      final IllegalArgumentException hardening = new IllegalArgumentException("hardening");
+      if (failingStage.equals("before-successor")) {
+        flushHook = field(transaction.getStorageEngineWriter().getClass(), "asyncFlushFaultHook");
+        flushHook.set(null, (BiConsumer<StorageEngineWriter, String>) (owner, stage) -> {
+          if (stage.equals("constructor-before-local-caches")) {
+            throw primary;
+          }
+        });
+      }
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals(failingStage)) {
+          throw primary;
+        }
+        if (stage.equals("before-harden")) {
+          throw hardening;
+        }
+      };
+      setValue(transaction, 1);
+      assertSame(primary, assertThrows(IllegalStateException.class, () -> setValue(transaction, 2)));
+      AbstractNodeTrxImpl.asyncCommitTestHook = null;
+      if (flushHook != null) {
+        flushHook.set(null, null);
+      }
+      assertSame(hardening, primary.getSuppressed()[0]);
+      final Semaphore permit = (Semaphore) field(AbstractNodeTrxImpl.class, "asyncCommitPermit").get(transaction);
+      assertEquals(1, permit.availablePermits());
+      for (int attempt = 0; attempt < 2; attempt++) {
+        assertSame(primary, assertThrows(SirixIOException.class, transaction::awaitPendingAsyncCommit).getCause());
+      }
+      assertThrows(RuntimeException.class, fixture.first::close);
+      assertTrue(transaction.isClosed());
+      assertTrue(scheduler(transaction).isTerminated());
+      assertTrue(Files.exists(((InternalResourceSession<?, ?>) fixture.second).getCommitFile()));
+      assertWriterReusable(fixture);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"json,false,close-after-side-batch-discard",
+      "json,true,close-after-side-batch-discard",
+      "xml,false,close-after-side-batch-discard",
+      "xml,true,close-after-side-batch-discard",
+      "json,false,close-after-reader-close",
+      "json,true,close-after-reader-close",
+      "xml,false,close-after-reader-close",
+      "xml,true,close-after-reader-close",
+      "json,false,close-after-log-close",
+      "json,true,close-after-log-close",
+      "xml,false,close-after-log-close",
+      "xml,true,close-after-log-close",
+      "json,false,close-after-storage-writer-close",
+      "json,true,close-after-storage-writer-close",
+      "xml,false,close-after-storage-writer-close",
+      "xml,true,close-after-storage-writer-close",
+      "json,false,close-after-buffer-release",
+      "json,true,close-after-buffer-release",
+      "xml,false,close-after-buffer-release",
+      "xml,true,close-after-buffer-release",
+      "json,false,close-after-terminal-flags",
+      "json,true,close-after-terminal-flags",
+      "xml,false,close-after-terminal-flags",
+      "xml,true,close-after-terminal-flags"})
+  void terminalWriterFailureRequiresRecoveryWithoutStrandingAdmission(final String format, final boolean unbound,
+      final String failingStage)
+      throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = unbound ? null : fixture.first.beginNodeTrx();
+      final StorageEngineWriter writer = unbound
+          ? fixture.first.createStorageEngineWriter(1)
+          : transaction.getStorageEngineWriter();
+      final IllegalStateException failure = new IllegalStateException("backend cleanup failed");
+      flushHook = field(writer.getClass(), "asyncFlushFaultHook");
+      flushHook.set(null, (BiConsumer<StorageEngineWriter, String>) (owner, stage) -> {
+        if (owner == writer && stage.equals(failingStage)) {
+          throw failure;
+        }
+      });
+      if (unbound) {
+        assertSame(failure, assertThrows(RuntimeException.class, writer::close));
+      } else {
+        assertSame(failure, assertThrows(RuntimeException.class, transaction::close));
+        assertTrue(scheduler(transaction).isTerminated());
+        transaction.close();
+      }
+      flushHook.set(null, null);
+      assertTrue(writer.isClosed());
+      assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.first).writeLock.availablePermits());
+      assertTrue(Files.exists(((InternalResourceSession<?, ?>) fixture.second).getCommitFile()));
+      assertWriterReusable(fixture);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void failedMarkerCreationSurvivesSessionClose(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx();
+      final Path marker = ((InternalResourceSession<?, ?>) fixture.first).getCommitFile();
+      Files.createDirectory(marker);
+      final IllegalStateException failure = new IllegalStateException("backend cleanup failed");
+      final StorageEngineWriter writer = transaction.getStorageEngineWriter();
+      flushHook = field(writer.getClass(), "asyncFlushFaultHook");
+      flushHook.set(null, (BiConsumer<StorageEngineWriter, String>) (owner, stage) -> {
+        if (owner == writer && stage.equals("close-after-storage-writer-close")) {
+          throw failure;
+        }
+      });
+      assertSame(failure, assertThrows(RuntimeException.class, transaction::close));
+      flushHook.set(null, null);
+      fixture.first.close();
+      final RuntimeException refused = assertThrows(RuntimeException.class, fixture.second::beginNodeTrx);
+      assertTrue(refused.getMessage().contains(marker.toString()));
+      assertFalse(fixture.second.hasRunningNodeWriteTrx());
+      Files.delete(marker);
+      assertWriterReusable(fixture);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"json,truncation", "xml,truncation", "json,index catalogue invalidation",
+      "xml,index catalogue invalidation", "json,resource cache invalidation", "xml,resource cache invalidation"})
+  void recoveryFailureRejectsAdmissionAndCanBeRetried(final String format, final String failingStage)
+      throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final InternalResourceSession<?, ?> session = (InternalResourceSession<?, ?>) fixture.second;
+      session.requireCommitRecovery();
+      final Path data = fixture.second.getResourceConfig().getResource()
+          .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve("sirix.data");
+      final long durableSize = Files.size(data);
+      Files.write(data, new byte[4096], StandardOpenOption.APPEND);
+      final IllegalStateException failure = new IllegalStateException(failingStage);
+      AbstractResourceSession.recoveryTestHook = stage -> {
+        if (stage.equals(failingStage)) {
+          throw failure;
+        }
+      };
+      final RuntimeException refused = assertThrows(RuntimeException.class, fixture.second::beginNodeTrx);
+      assertSame(failure, refused.getCause());
+      assertTrue(refused.getMessage().contains(session.getCommitFile().toString()));
+      assertTrue(refused.getMessage().contains(failingStage));
+      assertTrue(Files.exists(session.getCommitFile()));
+      assertFalse(fixture.second.hasRunningNodeWriteTrx());
+      AbstractResourceSession.recoveryTestHook = null;
+      try (NodeTrx next = fixture.second.beginNodeTrx()) {
+        assertTrue(Files.size(data) <= durableSize);
+        setCursor(next);
+        assertEquals(0, value(next));
+      }
+      assertWriterReusable(fixture);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void postBeaconCleanupFailureRecoversPublishedRevision(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      final StorageEngineWriter predecessor = transaction.getStorageEngineWriter();
+      flushHook = field(predecessor.getClass(), "asyncFlushFaultHook");
+      final IllegalStateException failure = new IllegalStateException("post-beacon close");
+      flushHook.set(null, (BiConsumer<StorageEngineWriter, String>) (owner, stage) -> {
+        if (owner == predecessor && stage.equals("close-after-storage-writer-close")) {
+          throw failure;
+        }
+      });
+      final CountDownLatch release = new CountDownLatch(1);
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals("before-harden")) {
+          await(release);
+        }
+      };
+      try {
+        setValue(transaction, 1);
+        setValue(transaction, 2);
+      } finally {
+        release.countDown();
+      }
+      final RuntimeException observed = assertThrows(RuntimeException.class, transaction::awaitPendingAsyncCommit);
+      assertSame(failure, observed.getCause());
+      flushHook.set(null, null);
+      assertThrows(RuntimeException.class, fixture.first::close);
+      assertTrue(scheduler(transaction).isTerminated());
+      assertEquals(2, fixture.second.getMostRecentRevisionNumber());
+      try (NodeTrx next = fixture.second.beginNodeTrx()) {
+        setCursor(next);
+        assertEquals(1, value(next));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void readerGuardFailureStillReleasesNodeOwnership(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx();
+      final AbstractNodeReadOnlyTrx<?, ?, ?> reader = (AbstractNodeReadOnlyTrx<?, ?, ?>)
+          field(AbstractNodeTrxImpl.class, "nodeReadOnlyTrx").get(transaction);
+      reader.releaseCurrentPageGuard();
+      final PageGuard guard = mock(PageGuard.class);
+      final IllegalStateException failure = new IllegalStateException("reader guard close");
+      doThrow(failure).when(guard).close();
+      field(AbstractNodeReadOnlyTrx.class, "currentPageGuard").set(reader, guard);
+      assertSame(failure, assertThrows(RuntimeException.class, transaction::close));
+      verify(guard).close();
+      assertTrue(reader.isClosed());
+      assertTrue(transaction.isClosed());
+      assertTrue(scheduler(transaction).isTerminated());
+      assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.first).writeLock.availablePermits());
+      transaction.close();
+      assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.first).writeLock.availablePermits());
+      assertWriterReusable(fixture);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void unsupportedRecoveryRefusesAdmissionWithoutLeakingPermit(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory, StorageType.IN_MEMORY)) {
+      final InternalResourceSession<?, ?> session = (InternalResourceSession<?, ?>) fixture.second;
+      session.requireCommitRecovery();
+      for (int attempt = 0; attempt < 2; attempt++) {
+        final RuntimeException refused = assertThrows(RuntimeException.class, fixture.second::beginNodeTrx);
+        assertTrue(refused.getMessage().contains(session.getCommitFile().toString()));
+        assertTrue(refused.getMessage().contains("truncate support"));
+        assertFalse(fixture.second.hasRunningNodeWriteTrx());
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void failedMarkerDeletionPreservesPublishedRevisionAndBlocksFalseCleanAdmission(final String format)
+      throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      final Path marker = ((InternalResourceSession<?, ?>) fixture.second).getCommitFile();
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch release = new CountDownLatch(1);
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals("before-harden")) {
+          entered.countDown();
+          await(release);
+        }
+      };
+      try {
+        setValue(transaction, 1);
+        setValue(transaction, 2);
+        entered.await();
+        Files.delete(marker);
+        Files.createDirectory(marker);
+        Files.createFile(marker.resolve("blocker"));
+      } finally {
+        release.countDown();
+      }
+      final RuntimeException failure = assertThrows(RuntimeException.class, transaction::awaitPendingAsyncCommit);
+      assertTrue(failure.getCause().getCause() instanceof DirectoryNotEmptyException);
+      assertTrue(failure.getCause().getMessage().contains(marker.toString()));
+      assertThrows(RuntimeException.class, fixture.first::close);
+      assertTrue(transaction.isClosed());
+      assertTrue(scheduler(transaction).isTerminated());
+      assertThrows(RuntimeException.class, fixture.second::beginNodeTrx);
+      assertFalse(fixture.second.hasRunningNodeWriteTrx());
+      Files.delete(marker.resolve("blocker"));
+      Files.delete(marker);
+      try (NodeTrx next = fixture.second.beginNodeTrx()) {
+        assertEquals(2, fixture.second.getMostRecentRevisionNumber());
+        setCursor(next);
+        assertEquals(1, value(next));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void removedResourceCannotPoisonRecreatedResourceAtTheSamePath(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      ((InternalResourceSession<?, ?>) fixture.first).requireCommitRecovery();
+    }
+    Databases.removeDatabase(directory.resolve("database"));
+    try (Fixture recreated = new Fixture(format, directory)) {
+      assertWriterReusable(recreated);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void pendingRootCleanupFailureCannotReplaceHardeningFailure(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      final InternalResourceSession<?, ?> original = (InternalResourceSession<?, ?>) fixture.first;
+      final InternalResourceSession<?, ?> session = mock(InternalResourceSession.class, delegatesTo(original));
+      final IllegalStateException primary = new IllegalStateException("hardening");
+      final IllegalArgumentException cleanup = new IllegalArgumentException("pending root cleanup");
+      doAnswer(invocation -> {
+        original.clearPendingRevisionRoot(2);
+        throw cleanup;
+      }).when(session).clearPendingRevisionRoot(2);
+      field(AbstractNodeTrxImpl.class, "resourceSession").set(transaction, session);
+      final CountDownLatch release = new CountDownLatch(1);
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals("before-harden")) {
+          await(release);
+          throw primary;
+        }
+      };
+      try {
+        setValue(transaction, 1);
+        setValue(transaction, 2);
+      } finally {
+        release.countDown();
+      }
+      assertSame(primary, assertThrows(RuntimeException.class, transaction::awaitPendingAsyncCommit).getCause());
+      assertSame(cleanup, primary.getSuppressed()[0]);
+      assertNull(original.getPendingRevisionRoot(2));
+      assertThrows(RuntimeException.class, fixture.first::close);
+      assertTrue(scheduler(transaction).isTerminated());
+      assertWriterReusable(fixture);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void recoveryBackendOpenFailureNamesMarkerAndReleasesAdmission(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.second;
+      session.requireCommitRecovery();
+      final IOStorage original = session.storage;
+      final IOStorage failed = mock(IOStorage.class, delegatesTo(original));
+      final IllegalStateException failure = new IllegalStateException("backend open");
+      doThrow(failure).when(failed).createWriter();
+      field(AbstractResourceSession.class, "storage").set(session, failed);
+      try {
+        final RuntimeException refused = assertThrows(RuntimeException.class, fixture.second::beginNodeTrx);
+        assertSame(failure, refused.getCause());
+        assertTrue(refused.getMessage().contains(session.getCommitFile().toString()));
+        assertTrue(refused.getMessage().contains("backend open"));
+        assertFalse(fixture.second.hasRunningNodeWriteTrx());
+      } finally {
+        field(AbstractResourceSession.class, "storage").set(session, original);
+      }
+      assertWriterReusable(fixture);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void closedRollbackCannotMarkAnotherWritersResourceForRecovery(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx previous = fixture.first.beginNodeTrx();
+      previous.close();
+      final Path marker = ((InternalResourceSession<?, ?>) fixture.second).getCommitFile();
+      try (NodeTrx next = fixture.second.beginNodeTrx()) {
+        assertFalse(Files.exists(marker));
+        assertThrows(IllegalStateException.class, previous::rollback);
+        assertTrue(previous.isClosed());
+        assertFalse(Files.exists(marker));
+        setValue(next, 3);
+        next.commit();
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void failedRollbackRejectsMutationUntilReconstructionSucceeds(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      try (NodeTrx transaction = fixture.first.beginNodeTrx()) {
+        setValue(transaction, 1);
+        final StorageEngineWriter original = transaction.getStorageEngineWriter();
+        final StorageEngineWriter writer = mock(StorageEngineWriter.class, delegatesTo(original));
+        final IllegalStateException failure = new IllegalStateException("rollback cleanup");
+        doThrow(failure).doAnswer(invocation -> original.rollback()).when(writer).rollback();
+        field(AbstractNodeTrxImpl.class, "storageEngineWriter").set(transaction, writer);
+        assertSame(failure, assertThrows(RuntimeException.class, transaction::rollback));
+        assertThrows(SirixUsageException.class, () -> setValue(transaction, 2));
+        assertThrows(SirixUsageException.class, transaction::commit);
+        transaction.rollback();
+        setCursor(transaction);
+        assertEquals(0, value(transaction));
+        setValue(transaction, 3);
+        transaction.commit();
+      }
+      try (NodeTrx reader = fixture.second.beginNodeTrx()) {
+        setCursor(reader);
+        assertEquals(3, value(reader));
+      }
+    }
+  }
+
   private static void assertWriterReusable(final Fixture fixture) {
     assertFalse(fixture.second.hasRunningNodeWriteTrx());
     try (NodeTrx next = fixture.second.beginNodeTrx()) {
@@ -276,6 +680,10 @@ final class NodeTransactionAbortLifecycleTest {
     private final ResourceSession<?, ?> second;
 
     Fixture(final String format, final Path directory) {
+      this(format, directory, StorageType.FILE_CHANNEL);
+    }
+
+    Fixture(final String format, final Path directory, final StorageType storageType) {
       final Path path = directory.resolve("database");
       if (format.equals("json")) {
         Databases.createJsonDatabase(new DatabaseConfiguration(path));
@@ -285,7 +693,7 @@ final class NodeTransactionAbortLifecycleTest {
       firstDatabase = open(format, path, new User("first", UUID.randomUUID()));
       secondDatabase = open(format, path, new User("second", UUID.randomUUID()));
       firstDatabase.createResource(ResourceConfiguration.newBuilder("resource")
-                                                       .storageType(StorageType.FILE_CHANNEL)
+                                                       .storageType(storageType)
                                                        .storeDiffs(false)
                                                        .hashKind(HashType.NONE)
                                                        .buildPathSummary(false)

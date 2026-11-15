@@ -36,3 +36,13 @@ including its rule-by-rule evidence, contract classification and required mainta
 ## Notes for reviewers
 
 <!-- Anything that needs special attention: trade-offs, follow-ups, areas of uncertainty. -->
+
+## Behavior and evidence
+
+- Specification, invariants and error cases:
+- Requirement → executable test / independent oracle:
+- Bug root cause, regression and lesson:
+- Adversarial cases and outcomes:
+- Changed-code PIT report; individual surviving/uncovered mutation rationale:
+- Incomplete evidence (timeouts, missing reports, unavailable checks):
+- For hot paths: allocation/work budgets and compiled-path evidence:
