@@ -553,14 +553,13 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
         createDerivedStore(storageType, damage == 2);
         replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
         replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
-        if (damage == 0) {
-          SirixFiles.recursiveRemove(config.resourcePath.resolve("log"));
-        } else if (damage == 1) {
-          removeRevisionRecords();
-        } else if (damage == 3) {
-          Files.delete(config.getConfigFile());
-        } else if (damage == 4) {
-          Files.writeString(config.getConfigFile(), "broken");
+        switch (damage) {
+          case 0 -> SirixFiles.recursiveRemove(config.resourcePath.resolve("log"));
+          case 1 -> removeRevisionRecords();
+          case 3 -> Files.delete(config.getConfigFile());
+          case 4 -> Files.writeString(config.getConfigFile(), "broken");
+          default -> {
+          }
         }
         Databases.clearGlobalCaches();
         final Map<Path, byte[]> before = snapshotResource();
