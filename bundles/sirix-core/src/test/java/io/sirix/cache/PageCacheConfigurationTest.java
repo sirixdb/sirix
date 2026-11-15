@@ -44,7 +44,8 @@ final class PageCacheConfigurationTest {
 
   @Test
   void legacyBytesSetAnEffectiveCountAndExplicitEntriesTakePrecedence() {
-    System.setProperty(PageCache.LEGACY_BYTES_PROPERTY, "3000");
+    // Operator-facing spelling is part of the configuration contract.
+    System.setProperty("sirix.cache.page", "3000");
     assertEquals(3, new PageCache(50_000_000L).maxEntries());
     System.setProperty(PageCache.MAX_ENTRIES_PROPERTY, "2");
     final PageCache cache = new PageCache(50_000_000L);

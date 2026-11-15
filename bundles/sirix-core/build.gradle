@@ -351,11 +351,43 @@ def configurationStartupTest = tasks.register('configurationStartupTest', Test) 
     filter { includeTestsMatching 'io.sirix.access.ConfigurationStartupTest' }
 }
 
+def allocatorColdStartupTest = tasks.register('allocatorColdStartupTest', Test) {
+    group = 'verification'
+    description = 'Checks pre-database allocator startup from the launcher cap in a fresh JVM.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching 'io.sirix.access.AllocatorColdStartupTest' }
+}
+
+def sharedArenaPolicyCases = [
+    'diagnostic-global': ['global', 'false', 'true'],
+    'diagnostic-skip': ['shared', 'true', 'true'],
+    'reject-global': ['global', 'false', 'false'],
+    'reject-skip': ['shared', 'true', 'false']
+]
+def sharedArenaPolicyTests = sharedArenaPolicyCases.collect { mode, settings ->
+    def suffix = mode.split('-').collect { it.capitalize() }.join('')
+    tasks.register("sharedArena${suffix}Test", Test) {
+        group = 'verification'
+        description = "Checks ${mode} arena launcher policy before class initialization."
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        useJUnitPlatform()
+        filter {
+            includeTestsMatching 'io.sirix.io.SharedArenaStartupPolicyTest'
+            if (mode == 'diagnostic-skip') {
+                includeTestsMatching 'io.sirix.io.memorymapped.ArenaGenerationLifetimeTest'
+            }
+        }
+    }
+}
+
 // Copy the complete fork options after all test conventions are configured, before Gradle
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    [validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest].each { testTask ->
+    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest] + sharedArenaPolicyTests).each { testTask ->
         testTask.configure { isolatedTest ->
             standardTest.copyTo(isolatedTest)
             // copyTo flattens argument providers (including JaCoCo) into jvmArgs. Keep only
@@ -369,6 +401,24 @@ gradle.projectsEvaluated {
         minHeapSize = '128m'
         systemProperty 'sirix.cache.page.max.entries', '7'
         systemProperty 'sirix.cache.page', '6000'
+    }
+    allocatorColdStartupTest.configure {
+        maxHeapSize = '256m'
+        minHeapSize = '128m'
+        systemProperty 'sirix.allocator.maxSize', '128M'
+        systemProperty 'sirix.cache.page.max.entries', '7'
+    }
+    sharedArenaPolicyTests.eachWithIndex { policyTask, index ->
+        def mode = sharedArenaPolicyCases.keySet().toList()[index]
+        def settings = sharedArenaPolicyCases[mode]
+        policyTask.configure {
+            maxHeapSize = '256m'
+            minHeapSize = '128m'
+            systemProperty 'sirix.test.arenaPolicy', mode
+            systemProperty 'sirix.arena.strategy', settings[0]
+            systemProperty 'sirix.mmstorage.skipArenaClose', settings[1]
+            systemProperty 'sirix.diagnostics.allowUnsafeLifetime', settings[2]
+        }
     }
     validTimeDisabledLookupCacheTest.configure {
         systemProperty 'sirix.hotLookupCache.maxEntries', '0'
@@ -385,11 +435,15 @@ gradle.projectsEvaluated {
 // The standard test excludes these suites, so its execution data alone omits their coverage.
 tasks.named('jacocoTestReport') {
     executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(),
-            storageEpochStoreIdentityTest.get(), configurationStartupTest.get()
+            storageEpochStoreIdentityTest.get(), configurationStartupTest.get(), allocatorColdStartupTest.get()
+    executionData sharedArenaPolicyTests.collect { it.get() }
 }
 
 tasks.named('test', Test).configure {
-    dependsOn configurationStartupTest
+    dependsOn configurationStartupTest, allocatorColdStartupTest
+    dependsOn sharedArenaPolicyTests
+    exclude 'io/sirix/access/AllocatorColdStartupTest*.class'
+    exclude 'io/sirix/io/SharedArenaStartupPolicyTest*.class'
     exclude 'io/sirix/access/ConfigurationStartupTest*.class'
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'

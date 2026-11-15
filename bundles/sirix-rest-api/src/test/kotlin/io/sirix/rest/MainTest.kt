@@ -9,10 +9,11 @@ import org.mockito.Mockito.mockStatic
 class MainTest {
     @Test
     fun `main forwards all launcher arguments`() {
-        val arguments = arrayOf("io.sirix.rest.SirixVerticle", "-conf", "/tmp/operator-config.json", "-instances", "2")
+        val expected = arrayOf("io.sirix.rest.SirixVerticle", "-conf", "/tmp/operator-config.json", "-instances", "2")
+        val arguments = expected.copyOf()
         mockStatic(VertxApplication::class.java).use { launcher ->
             main(arguments)
-            launcher.verify { VertxApplication.main(arguments) }
+            launcher.verify { VertxApplication.main(expected) }
             launcher.verifyNoMoreInteractions()
         }
     }

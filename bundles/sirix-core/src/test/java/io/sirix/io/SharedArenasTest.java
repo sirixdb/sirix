@@ -61,6 +61,7 @@ public final class SharedArenasTest {
   @Test
   @DisplayName("running strategy on the JVM test suite is SHARED unless overridden")
   void runtimeStrategyOnJvm() {
+    assertEquals(Boolean.getBoolean("sirix.mmstorage.skipArenaClose"), SharedArenas.skipArenaClose());
     final String override = System.getProperty(SharedArenas.STRATEGY_PROPERTY);
     if (override == null) {
       assertEquals(SharedArenas.Strategy.SHARED, SharedArenas.strategy());
