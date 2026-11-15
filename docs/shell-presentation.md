@@ -73,3 +73,12 @@ surround or separate these tokens. Skipped, deferred, nested, dynamic and mixed-
 expressions retain ordinary result styling. `ShellOutputTest` executes the reported
 skipped branch, both stores' direct diffs, mixed results and deferred calls, checking
 actual output styles and serialized payloads.
+
+Prompt inference declines database/resource literals containing `&`, including named
+entities and decimal/hexadecimal character references, in either quote form. These source
+spellings can differ from the names selected by the query parser. The shared literal-name
+boundary rejects them before metadata lookup for JSON/XML doc/store and supported JSON
+updates. Ordinary names, Unicode and doubled quote delimiters keep their existing behavior.
+`ShellPromptTest` executes entity/character-reference reads against distinct raw/decoded
+names at revisions 1 and 3, checks neutral prompts for both stores and fields, and covers
+JSON stores/updates plus plain-name controls.

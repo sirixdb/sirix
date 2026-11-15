@@ -55,10 +55,13 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 - **Infer shell context only from supported executed forms:** a literal call in arbitrary source
   may be skipped or nested in a mutation that is not an updating expression. Keep uncertain
   expressions neutral and test both stores with actual commits and skipped/deferred accesses.
+  Literal-name inference must also respect parser decoding. Decline entity/character
+  references before metadata lookup when exact decoding is unsupported.
   Diff colouring needs the same rule at the output boundary. Check skipped/deferred calls,
   mixed results and direct controls for both stores and both operation representations.
   Evidence: [shell revision inference](postmortems/shell-revision-inference.md) and
-  [shell diff inference](postmortems/shell-diff-inference.md).
+  [shell diff inference](postmortems/shell-diff-inference.md) and
+  [encoded prompt names](postmortems/shell-encoded-names.md).
 
 - **Test lexical precedence at overlapping forms:** an opening parenthesis can follow both an
   expression keyword and a function name. Assert rendered styles for both, including callable

@@ -83,10 +83,8 @@ public final class ShellPrompt {
       start = 0;
     final String name = tokens.get(start).text();
     if (!(name.equals("jn:doc") || name.equals("jn:store") || name.equals("xn:doc") || name.equals("xn:store"))
-        || !tokens.get(start + 1).text().equals("(")
-        || tokens.get(start + 2).kind() != ShellHighlighter.Kind.STRING
-        || !tokens.get(start + 3).text().equals(",")
-        || tokens.get(start + 4).kind() != ShellHighlighter.Kind.STRING)
+        || !tokens.get(start + 1).text().equals("(") || tokens.get(start + 2).kind() != ShellHighlighter.Kind.STRING
+        || !tokens.get(start + 3).text().equals(",") || tokens.get(start + 4).kind() != ShellHighlighter.Kind.STRING)
       return null;
     final String database = unquote(tokens.get(start + 2).text());
     final String resource = unquote(tokens.get(start + 4).text());
@@ -114,8 +112,7 @@ public final class ShellPrompt {
     if (!tokens.get(end).text().equals(")"))
       return null;
     if (bound) {
-      if (!name.equals("jn:doc") || revision != -1
-          || !simpleUpdate(tokens, end + 1, tokens.get(1).text()))
+      if (!name.equals("jn:doc") || revision != -1 || !simpleUpdate(tokens, end + 1, tokens.get(1).text()))
         return null;
     } else if (end != tokens.size() - 1)
       return null;
@@ -128,8 +125,7 @@ public final class ShellPrompt {
       return false;
     final String operation = tokens.get(start + 1).text();
     final boolean target = switch (operation) {
-      case "delete" -> tokens.get(start + 2).text().equals("json")
-          && tokens.get(start + 3).text().equals(variable);
+      case "delete" -> tokens.get(start + 2).text().equals("json") && tokens.get(start + 3).text().equals(variable);
       case "replace" -> start + 6 < tokens.size() && tokens.get(start + 2).text().equals("json")
           && tokens.get(start + 3).text().equals("value") && tokens.get(start + 4).text().equals("of")
           && tokens.get(start + 5).text().equals(variable);
@@ -150,7 +146,8 @@ public final class ShellPrompt {
   }
 
   private static @Nullable String unquote(final String text) {
-    if (text.length() < 2 || text.charAt(text.length() - 1) != text.charAt(0) || text.indexOf('\\') >= 0)
+    if (text.length() < 2 || text.charAt(text.length() - 1) != text.charAt(0) || text.indexOf('\\') >= 0
+        || text.indexOf('&') >= 0)
       return null;
     final String quote = text.substring(0, 1);
     return text.substring(1, text.length() - 1).replace(quote + quote, quote);
