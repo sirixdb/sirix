@@ -544,6 +544,13 @@ public abstract class AbstractReader implements Reader {
 
   @Override
   public PageReference readUberPageReference() {
+    final PageReference reference = readCommittedUberPageReference();
+    // A valid but unsupported primary must never fall back to an older compatible secondary.
+    ((UberPage) reference.getPage()).getFeatures().requireReadable();
+    return reference;
+  }
+
+  private PageReference readCommittedUberPageReference() {
     try {
       return readVerifiedBeacon(IOStorage.PRIMARY_BEACON_OFFSET);
     } catch (final Exception primaryException) {
@@ -627,6 +634,16 @@ public abstract class AbstractReader implements Reader {
       return ((UberPage) readVerifiedBeacon(offset).getPage()).getRevisionNumber();
     } catch (final RuntimeException e) {
       return -1;
+    }
+  }
+
+  /** An empty-bootstrap repair must not discard even an otherwise readable store feature. */
+  public final boolean isEmptyBootstrapBeacon(final long offset) {
+    try {
+      final UberPage page = (UberPage) readVerifiedBeacon(offset).getPage();
+      return page.getRevisionNumber() == 0 && page.getFeatures().isEmpty();
+    } catch (final RuntimeException failure) {
+      return false;
     }
   }
 

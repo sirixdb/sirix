@@ -4,6 +4,7 @@ import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.page.PagePersister;
@@ -92,6 +93,8 @@ public final class InterruptedFirstCommitRecovery {
     try {
       final IOStorage storage = StorageType.getStorage(resourceConfig);
       return new StorageAndUberPage(storage, loadUberPage(storage));
+    } catch (final UnsupportedStoreFeatureException unsupported) {
+      throw unsupported;
     } catch (final RuntimeException openFailure) {
       final Path dataFile = dataFilePath(resourceConfig);
       final Path revisionsFile = revisionsFilePath(resourceConfig);
@@ -108,6 +111,22 @@ public final class InterruptedFirstCommitRecovery {
       // initializes a brand-new resource runs (bootstrap UberPage, no on-disk reads).
       final IOStorage storage = StorageType.getStorage(resourceConfig);
       return new StorageAndUberPage(storage, loadUberPage(storage));
+    }
+  }
+
+  /**
+   * Open for verification, compaction or erasure with strict feature compatibility and no automatic
+   * repair. The caller owns and must close the returned storage.
+   */
+  public static StorageAndUberPage openStorageForTool(final ResourceConfiguration resourceConfig) {
+    final IOStorage storage = StorageType.getStorage(resourceConfig);
+    try {
+      final UberPage page = loadUberPage(storage);
+      page.getFeatures().requireToolCompatible();
+      return new StorageAndUberPage(storage, page);
+    } catch (final RuntimeException failure) {
+      storage.close();
+      throw failure;
     }
   }
 
@@ -181,13 +200,14 @@ public final class InterruptedFirstCommitRecovery {
 
   /**
    * Each beacon slot must be entirely zero (a file ending before {@code DATA_REGION_START} reads as
-   * zeros — never written) or a checksum-valid beacon advertising revision number 0, the empty
-   * bootstrap revision committed by resource creation itself. The slot is parsed by the canonical
-   * verifier ({@code AbstractReader#beaconRevisionOrMinusOne}); the beacon-slot format is identical
-   * across the file-based storage backends, so the {@link FileChannelReader} parser is authoritative
-   * for all of them. The reader's revisions-channel parameter is only used for revision-record reads,
-   * which the beacon parse never performs — the data channel is passed in both positions so the probe
-   * cannot require {@code sirix.revisions} to exist (its loss may be exactly what is being probed).
+   * zeros — never written) or a checksum-valid beacon advertising revision number 0 with no active
+   * feature words, the empty bootstrap revision committed by resource creation itself. The slot is
+   * parsed by the canonical verifier ({@code AbstractReader#isEmptyBootstrapBeacon}); the beacon-slot
+   * format is identical across the file-based storage backends, so the {@link FileChannelReader}
+   * parser is authoritative for all of them. The reader's revisions-channel parameter is only used
+   * for revision-record reads, which the beacon parse never performs — the data channel is passed in
+   * both positions so the probe cannot require {@code sirix.revisions} to exist (its loss may be
+   * exactly what is being probed).
    */
   private static boolean beaconSlotsProveAtMostBootstrapRevision(final ResourceConfiguration resourceConfig,
       final byte[] header, final Path dataFile) throws IOException {
@@ -202,10 +222,10 @@ public final class InterruptedFirstCommitRecovery {
       final FileChannelReader reader =
           new FileChannelReader(dataChannel, dataChannel, new ByteHandlerPipeline(resourceConfig.byteHandlePipeline),
               SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build());
-      if (!primaryAllZero && reader.beaconRevisionOrMinusOne(IOStorage.PRIMARY_BEACON_OFFSET) != 0) {
+      if (!primaryAllZero && !reader.isEmptyBootstrapBeacon(IOStorage.PRIMARY_BEACON_OFFSET)) {
         return false;
       }
-      return secondaryAllZero || reader.beaconRevisionOrMinusOne(IOStorage.SECONDARY_BEACON_OFFSET) == 0;
+      return secondaryAllZero || reader.isEmptyBootstrapBeacon(IOStorage.SECONDARY_BEACON_OFFSET);
     }
   }
 

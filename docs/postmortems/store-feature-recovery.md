@@ -1,0 +1,9 @@
+# Bug: bootstrap repair could discard active store metadata
+
+- Fix / issue: store-level feature words; `AbstractReader.isEmptyBootstrapBeacon` and `InterruptedFirstCommitRecovery`.
+- Symptom: a resource with revision-zero beacons, active feature words and a missing revision record could be reinitialized as feature-free. The store's requirements must survive recovery even when no data revision is reachable.
+- Trigger: write checksum-valid revision-zero beacons containing a read-only-compatible feature bit, remove the revisions-file records, and reopen with cold caches.
+- Root cause: the old emptiness proof equated revision zero with an empty store. Feature metadata invalidates that equivalence. Repair now requires a revision-zero beacon **and empty feature words** for every nonzero slot. A valid but unsupported feature is also kept separate from corruption, so it cannot cause fallback to an older beacon or bootstrap repair.
+- Why tests missed it: earlier fixtures only carried a revision count in their uber pages; none could represent durable metadata independent of the revision frontier.
+- Regression test: `StoreFeaturesLifecycleTest.bootstrapRecoveryCannotEraseActiveFeatures`, for FILE_CHANNEL and MEMORY_MAPPED. The test asserts refusal and byte-for-byte preservation of the data file. An isolated compiled-class control removes only `&& page.getFeatures().isEmpty()` while keeping the rest of the implementation and tests unchanged; both backend cases fail because opening unexpectedly succeeds. Both pass with the predicate restored.
+- Lesson: prove metadata as well as data is disposable before replacing a root; see [Lessons](../LESSONS.md). The existing `.commit`-marker truncation protocol is unchanged. Its beacon-slot copy preserves all feature words, while explicit rollback retains the committed words when changing the revision count.

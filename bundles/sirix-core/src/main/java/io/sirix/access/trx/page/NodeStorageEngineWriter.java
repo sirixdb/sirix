@@ -6594,8 +6594,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     // An explicit rollback truncates AWAY the revision both uber beacons advertise — unlike
     // crash recovery, where one slot still matches the target and the io-layer repairs the
-    // other. The serialized uber page carries only the revision count, so the rolled-back
-    // page is fully reconstructible here and written through the regular dual-beacon
+    // other. The rolled-back uber page retains the store feature words and is written
+    // through the regular dual-beacon
     // protocol. ORDER MATTERS: the beacons must be downgraded durably BEFORE the files are
     // truncated — truncating first opened a crash window in which a (still checksum-valid)
     // beacon advertised the truncated-away revision, so recovery dereferenced truncated
@@ -6604,7 +6604,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // the target revision: the target's revision record and pages lie BELOW the truncation
     // point, so they satisfy pre-written beacons even when the truncates themselves are lost.
     final var resourceSession = getResourceSession();
-    final var rolledBackUberPage = new UberPage(revision + 1);
+    final var rolledBackUberPage = readUberPage().withRevisionCount(revision + 1);
     storagePageReaderWriter.writeUberPageReference(resourceSession.getResourceConfig(), new PageReference(),
         rolledBackUberPage, Bytes.elasticOffHeapByteBuffer());
     ((InternalResourceSession<?, ?>) resourceSession).setLastCommittedUberPage(rolledBackUberPage);
