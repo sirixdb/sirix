@@ -25,7 +25,8 @@ final class ConfigurationPropertiesTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"", " ", "oops", "1T", "1.5G", "0", "-1", "-2G", "9223372036854775808", "8589934592G"})
+  @ValueSource(
+      strings = {"", " ", "oops", "1T", "1.5G", "0", "-1", "-2G", "9223372036854775808", "8589934592G", "17179869185G"})
   void explicitInvalidCapsFailWithThePropertyAndValue(final String value) {
     final IllegalArgumentException failure =
         assertThrows(IllegalArgumentException.class, () -> ConfigurationProperties.parsePositiveBytes(PROPERTY, value));
