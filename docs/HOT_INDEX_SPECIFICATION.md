@@ -610,12 +610,13 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 #### 3.2.3 Serialized layout (`PageKind.HOT_LEAF_PAGE`)
 
 Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
+Body fields below follow the shared envelope and any extension block.
 
 | # | Width | Field | Notes |
 |---|---|---|---|
 | 1 | u8 | kind = 12 | |
 | 2 | u8 | binaryVersion | see the [page-envelope contract](DISK_FORMAT.md#2-pages) |
-| 3 | u8 | flags | bit 0 = side map present; other bits rejected (`:5918-5923`, `:6787-6791`) |
+| 3 | u8 | flags | kind-specific bits and optional block: see the [page-envelope contract](DISK_FORMAT.md#2-pages) |
 | 4 | varlong | recordPageKey | logical key (§1.2) |
 | 5 | i32 LE | revision | revision that wrote this physical image |
 | 6 | u8 | index type id | stable ids defined by `IndexType`, pinned by `GoldenFormatTest.indexTypeIdsArePinned` |
@@ -656,12 +657,13 @@ an intent log and is cleared by every `setChildReference` (`:849-898`).
 #### 3.3.2 Serialized layout (`PageKind.HOT_INDIRECT_PAGE`)
 
 Writer `page/PageKind.java:6099-6158`; reader `:5991-6096`.
+Body fields below follow the shared envelope and any extension block.
 
 | # | Width | Field |
 |---|---|---|
 | 1 | u8 | kind = 13 |
 | 2 | u8 | binaryVersion (see the [page-envelope contract](DISK_FORMAT.md#2-pages)) |
-| 3 | u8 | flags = 0 (non-zero rejected, `:6445-6453`) |
+| 3 | u8 | flags (see the [page-envelope contract](DISK_FORMAT.md#2-pages)) |
 | 4 | varlong | pageKey (logical) |
 | 5 | i32 LE | revision |
 | 6 | u8 | height |

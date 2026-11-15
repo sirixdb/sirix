@@ -30,6 +30,7 @@ package io.sirix.access;
 
 import io.sirix.utils.ToStringHelper;
 import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 import com.google.gson.stream.JsonWriter;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.trx.node.HashType;
@@ -727,8 +728,9 @@ public final class ResourceConfiguration {
 
   /**
    * Reads the next field name and fails fast when it is not the expected one. The resource settings
-   * are format identity — a reordered, truncated, or hand-edited file must be a loud error, never a
-   * misparse (this used to be an {@code assert}, a no-op in production).
+   * are format identity: required fields must not be silently misparsed (this used to be an
+   * {@code assert}, a no-op in production). Optional tail fields are dispatched separately by name;
+   * see {@code docs/DISK_FORMAT.md} for the settings contract.
    */
   private static void expectField(final JsonReader jsonReader, final String expected, final Path configFile)
       throws IOException {
@@ -762,6 +764,9 @@ public final class ResourceConfiguration {
       final VersioningType revisioning = VersioningType.valueOf(jsonReader.nextString());
       expectField(jsonReader, JSONNAMES[3], configFile);
       final int revisionToRestore = jsonReader.nextInt();
+      if (jsonReader.hasNext()) {
+        throw new SirixIOException(configFile + ": unknown revisioning settings field '" + jsonReader.nextName() + "'");
+      }
       jsonReader.endObject();
       // ByteHandlers.
       final List<ByteHandler> handlerList = new ArrayList<>();
@@ -815,42 +820,13 @@ public final class ResourceConfiguration {
       expectField(jsonReader, JSONNAMES[16], configFile);
       final boolean storeChildCount = jsonReader.nextBoolean();
 
-      // String compression type (optional for backward compatibility with older configs)
+      // Optional settings are dispatched by name, so an omitted legacy field cannot desynchronize
+      // the reader. Unknown names are refused; only the extensions object is safe to skip.
       StringCompressionType stringCompressionType = StringCompressionType.NONE;
+      int deweyIdSiblingDistance = 16;
+      boolean verifyChecksumsOnRead = true;
+      HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3;
       String name;
-      if (jsonReader.hasNext()) {
-        name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[17])) {
-          stringCompressionType = StringCompressionType.valueOf(jsonReader.nextString());
-        }
-      }
-
-      // DeweyID sibling distance (optional for backward compatibility with older configs)
-      int deweyIdSiblingDistance = 16; // Default value
-      if (jsonReader.hasNext()) {
-        name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[18])) {
-          deweyIdSiblingDistance = jsonReader.nextInt();
-        }
-      }
-
-      // Verify checksums on read (optional for backward compatibility with older configs)
-      boolean verifyChecksumsOnRead = true; // Default value
-      if (jsonReader.hasNext()) {
-        name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[19])) {
-          verifyChecksumsOnRead = jsonReader.nextBoolean();
-        }
-      }
-
-      // Hash algorithm (optional for backward compatibility with older configs)
-      HashAlgorithm hashAlgorithm = HashAlgorithm.XXH3; // Default value
-      if (jsonReader.hasNext()) {
-        name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[20])) {
-          hashAlgorithm = HashAlgorithm.valueOf(jsonReader.nextString());
-        }
-      }
 
       // Valid time configuration (optional for backward compatibility with older configs)
       ValidTimeConfig validTimeConfig = null;
@@ -862,7 +838,15 @@ public final class ResourceConfiguration {
       boolean aggregateKernel = false;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
-        if (name.equals(JSONNAMES[21])) {
+        if (name.equals(JSONNAMES[17])) {
+          stringCompressionType = StringCompressionType.valueOf(jsonReader.nextString());
+        } else if (name.equals(JSONNAMES[18])) {
+          deweyIdSiblingDistance = jsonReader.nextInt();
+        } else if (name.equals(JSONNAMES[19])) {
+          verifyChecksumsOnRead = jsonReader.nextBoolean();
+        } else if (name.equals(JSONNAMES[20])) {
+          hashAlgorithm = HashAlgorithm.valueOf(jsonReader.nextString());
+        } else if (name.equals(JSONNAMES[21])) {
           jsonReader.beginObject();
           String validFromPath = null;
           String validToPath = null;
@@ -872,6 +856,8 @@ public final class ResourceConfiguration {
               validFromPath = jsonReader.nextString();
             } else if (fieldName.equals(JSONNAMES[23])) {
               validToPath = jsonReader.nextString();
+            } else {
+              throw new SirixIOException(configFile + ": unknown valid-time settings field '" + fieldName + "'");
             }
           }
           jsonReader.endObject();
@@ -888,6 +874,13 @@ public final class ResourceConfiguration {
           regionCompressionType = RegionCompressionType.valueOf(jsonReader.nextString());
         } else if (name.equals(JSONNAMES[28])) {
           aggregateKernel = jsonReader.nextBoolean();
+        } else if (name.equals("extensions")) {
+          if (jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
+            throw new SirixIOException(configFile + ": settings field 'extensions' must be an object");
+          }
+          jsonReader.skipValue();
+        } else {
+          throw new SirixIOException(configFile + ": unknown resource settings field '" + name + "'");
         }
       }
 

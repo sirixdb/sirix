@@ -5400,6 +5400,7 @@ public enum PageKind {
             }
             namePage.putLiveEntryNodeKeys(i, bitmap);
           }
+          requireFullyConsumed(source);
           return namePage;
         }
         default -> throw new IllegalStateException();
@@ -5469,6 +5470,7 @@ public enum PageKind {
         case V0 -> {
           final int revisionCount = source.readInt();
 
+          requireFullyConsumed(source);
           return new UberPage(revisionCount);
         }
         default -> throw new IllegalStateException();
@@ -5499,6 +5501,7 @@ public enum PageKind {
       switch (binaryVersion) {
         case V0 -> {
           Page delegate = PageUtils.createDelegate(source, type);
+          requireFullyConsumed(source);
           return new IndirectPage(delegate);
         }
         default -> throw new IllegalStateException();
@@ -5552,6 +5555,7 @@ public enum PageKind {
             user = new User(source.readUtf8(), UUID.fromString(source.readUtf8()));
           }
 
+          requireFullyConsumed(source);
           return new RevisionRootPage(delegate, revision, maxNodeKeyInDocumentIndex, maxNodeKeyInChangedNodesIndex,
               maxNodeKeyInRecordToRevisionsIndex, revisionTimestamp, commitMessage,
               currentMaxLevelOfDocumentIndexIndirectPages, currentMaxLevelOfChangedNodesIndirectPages,
@@ -5642,6 +5646,7 @@ public enum PageKind {
           for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
             currentMaxLevelsOfIndirectPages.put(i, source.readByte() & 0xFF);
           }
+          requireFullyConsumed(source);
           return new PathSummaryPage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages);
         }
         default -> throw new IllegalStateException();
@@ -5689,6 +5694,7 @@ public enum PageKind {
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
 
+          requireFullyConsumed(source);
           return new CASPage(delegate, maxHotPageKeys);
         }
         default -> throw new IllegalStateException();
@@ -5790,6 +5796,7 @@ public enum PageKind {
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
 
+          requireFullyConsumed(source);
           return new PathPage(delegate, maxHotPageKeys);
         }
         default -> throw new IllegalStateException();
@@ -5825,6 +5832,7 @@ public enum PageKind {
           Page delegate = PageUtils.createDelegate(source, type);
           final long maxNodeKey = source.readLong();
           final int currentMaxLevelOfIndirectPages = source.readByte() & 0xFF;
+          requireFullyConsumed(source);
           return new DeweyIDPage(delegate, maxNodeKey, currentMaxLevelOfIndirectPages);
         }
         default -> throw new IllegalStateException();
@@ -6055,6 +6063,7 @@ public enum PageKind {
         children[i] = ref;
       }
 
+      requireFullyConsumed(source);
       // Create appropriate node type and layout
       final HOTIndirectPage created;
       if (layoutType == HOTIndirectPage.LayoutType.MULTI_MASK) {
@@ -6158,6 +6167,7 @@ public enum PageKind {
           final Int2IntMap currentMaxLevelsOfIndirectPages =
               PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
 
+          requireFullyConsumed(source);
           return new VectorPage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages);
         }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
@@ -6204,6 +6214,7 @@ public enum PageKind {
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
 
+          requireFullyConsumed(source);
           return new ProjectionIndexPage(delegate, maxHotPageKeys);
         }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
@@ -6240,6 +6251,7 @@ public enum PageKind {
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
 
+          requireFullyConsumed(source);
           return new ValidTimeIndexPage(delegate, maxHotPageKeys);
         }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
@@ -6273,6 +6285,7 @@ public enum PageKind {
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
 
+          requireFullyConsumed(source);
           yield new TemporalAggregateIndexPage(delegate, maxHotPageKeys);
         }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
@@ -6306,6 +6319,7 @@ public enum PageKind {
 
           final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxHotPageKeys(source);
 
+          requireFullyConsumed(source);
           yield new ChangeLogIndexPage(delegate, maxHotPageKeys);
         }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
@@ -6473,27 +6487,27 @@ public enum PageKind {
     REGION_PAGES_DECODED.reset();
   }
 
-  /**
-   * Writes the shared page envelope after the kind byte: {@code [binaryVersion u8][flags u8]}. The
-   * flags byte is reserved extension space for every page kind (zero unless that kind declares an
-   * extension) — without it, any additive change to a non-KVLP page required a global version bump.
-   */
+  private static void requireFullyConsumed(final BytesIn<?> source) {
+    if (source.remaining() != 0) {
+      throw new IllegalStateException("Trailing bytes after metadata page: " + source.remaining());
+    }
+  }
+
+  /** Writes the unchanged envelope for pages without extensions. */
   static void writeVersionAndFlags(final BytesOut<?> sink) {
     sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
     sink.writeByte((byte) 0);
   }
 
   /**
-   * Reads and validates the shared page envelope: the version byte (throws on unknown) and the
-   * reserved flags byte (must be zero for this reader — a nonzero value means a writer used an
-   * extension this build does not understand, so misparsing is not an option).
+   * Reads and validates the shared page envelope: the version byte (throws on unknown) and the flags
+   * byte. The existing nonzero branch skips optional extensions or refuses required ones.
    */
   static BinaryEncodingVersion readVersionAndFlags(final BytesIn<?> source) {
     final BinaryEncodingVersion version = BinaryEncodingVersion.fromByte(source.readByte());
     final byte flags = source.readByte();
     if (flags != 0) {
-      throw new IllegalStateException(
-          "Unknown page envelope flags 0x" + Integer.toHexString(flags & 0xFF) + " — page written by a newer version");
+      PageExtensions.readOrRefuse(source, flags, (byte) 0);
     }
     return version;
   }
@@ -6851,10 +6865,27 @@ public enum PageKind {
   }
 
   /**
-   * Reads the shared page envelope for a kind that understands specific flag bits. Validates the
-   * version byte (throws on unknown) and rejects any flag bit outside {@code allowedMask} — an
-   * unknown bit means a newer writer used an extension this build does not understand, so misparsing
-   * is not an option.
+   * Writes caller-understood entries after the flags; empty blocks preserve the legacy bytes. The
+   * caller must not copy unknown entries from an older page image into a rewritten page.
+   */
+  public static void writeVersionAndFlags(final BytesOut<?> sink, final byte flags, final PageExtensions extensions) {
+    Objects.requireNonNull(extensions);
+    if ((flags & PageExtensions.FLAG_EXTENSION_BLOCK) != 0) {
+      throw new IllegalArgumentException("Extension flag is controlled by the page extension block");
+    }
+    if (extensions.isEmpty()) {
+      writeVersionAndFlags(sink, flags);
+      return;
+    }
+    writeVersionAndFlags(sink, (byte) (flags | PageExtensions.FLAG_EXTENSION_BLOCK));
+    extensions.write(sink);
+  }
+
+  /**
+   * Reads the shared envelope for a kind that understands specific bits in positions 0-6. Validates
+   * the version, consumes an optional extension block, and refuses unknown required entries or
+   * remaining flag bits outside {@code allowedMask}. The extension bit is never part of the per-kind
+   * allowed mask or the returned body flags.
    *
    * @return the flags byte (all bits within {@code allowedMask})
    */
@@ -6865,8 +6896,7 @@ public enum PageKind {
     }
     final byte flags = source.readByte();
     if ((flags & ~allowedMask) != 0) {
-      throw new IllegalStateException("Unknown page envelope flags 0x" + Integer.toHexString(flags & 0xFF)
-          + " (allowed mask 0x" + Integer.toHexString(allowedMask & 0xFF) + ") — page written by a newer version");
+      return PageExtensions.readOrRefuse(source, flags, allowedMask);
     }
     return flags;
   }

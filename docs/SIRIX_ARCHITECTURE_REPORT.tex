@@ -2001,9 +2001,9 @@ owns the current version and envelope contract. Deserialisation reads the tag an
 the matching reader. A page's child references serialise through whichever of the three adaptive
 reference-container layouts it currently holds, each with its own sub-tag (\code{ReferencesPage4}=0,
 \code{BitmapReferencesPage}=1, \code{FullReferencesPage}=2); one reference is
-\code{[u8 fragmentCount][per-fragment: u32 rev, u64 key]\ldots[u64 key][u8 hashPresent][u64 XXH3?]},
-where the fragment list is exactly the sliding-snapshot chain of Ch.~\ref{ch:versioning}. The
-database and resource ids are \emph{not} stored; they are re-injected after read from the
+encoded as a fragment list and page key followed by the hash form and payload specified in
+\pp{docs/DISK\_FORMAT.md}, \S3. The fragment list is exactly the sliding-snapshot chain of
+Ch.~\ref{ch:versioning}. The database and resource ids are \emph{not} stored; they are re-injected after read from the
 opening context, a deliberate saving across an indirect page's up-to-1024 references.
 
 Compression is \textbf{per page, inside the leaf format}, not an outer stream. The configurable
@@ -2472,22 +2472,21 @@ offset  bytes (hex)                meaning
  0x00   53 49 52 49 58 44 42 21    magic  "SIRIXDB!"  (8 ASCII bytes)
  0x08   00 00 00 00                layout version = 0  (u32 LE)
  0x0C   00                         role = 0 (DATA;  REVISIONS file would be 1)
- 0x0D   00 00 00                   reserved / flags
+ 0x0D   00 00 00                   spare bytes (validation: docs/DISK_FORMAT.md §1)
  0x10   04 03 02 01                endianness check word = 0x01020304  → reader confirms LE
  0x14   00 10 00 00                beacon-slot size = 4096   (u32 LE)
  0x18   00 10 00 00 00 00 00 00    primary-beacon offset = 4096   (u64 LE)
  0x20   00 30 00 00 00 00 00 00    content-start = 12288   (u64 LE)   (DATA_REGION_START)
- 0x28   00 … 00  (16 bytes)        reserved (future resource UUID)
+ 0x28   00 … 00  (16 bytes)        legacy zero resource UUID (see docs/DISK_FORMAT.md §1)
  0x38   xx xx xx xx xx xx xx xx    XXH3-64 over bytes [0x00, 0x38)   (self-checksum)
 
 then:  0x1000 PRIMARY beacon slot (4 KiB) · 0x2000 SECONDARY beacon slot (4 KiB) · 0x3000 first page record
 \end{diagramS}
 
-Three of these fields are the whole open-time contract. The \textbf{magic} identifies the file; the
+The open-time contract is owned by \pp{docs/DISK\_FORMAT.md}, \S1. The \textbf{magic} identifies the file; the
 \textbf{role} byte stops a \code{sirix.data} file from ever being read as a \code{sirix.revisions} file or
 the reverse; and the \textbf{endianness check word} \code{0x01020304} is stored as a raw integer, so a
-reader that sees \code{04 03 02 01} knows it is little-endian and a reader on a big-endian host would see
-\code{01 02 03 04} and could correct, the format is self-describing rather than host-assumed. The trailing
+reader that sees \code{04 03 02 01} knows it is little-endian. The trailing
 \textbf{XXH3} over the first 56 bytes catches a torn or bit-rotted superblock before any of those fields
 is trusted. Everything after offset \code{0x3000} is the append-only data region whose growth the file-growth
 trace of Appendix~\ref{app:format} walks.
@@ -8244,19 +8243,8 @@ sirix.data                                sirix.revisions
           [u32 len][payload], 8-aligned ▶          [u64 checksum][u64 pageHash]
 \end{diagram}
 
-\begin{diagram}
-Superblock (64 bytes, little-endian, at offset 0 of both files)
-  off  size  field
-  0    8     magic  "SIRIXDB!"  (8 ASCII bytes)
-  8    4     layout version (= 0)
-  12   1     role  (0 = DATA, 1 = REVISIONS)            13  3   reserved / flags
-  16   4     endianness check word (= 0x01020304)
-  20   4     beacon-slot size  (DATA 4096; REVISIONS 0)
-  24   8     primary-beacon offset (DATA 4096; REVISIONS 0)
-  32   8     content-start  (DATA 12288; REVISIONS 4096)
-  40   16    reserved (future resource UUID)
-  56   8     XXH3-64 over bytes [0, 56)
-\end{diagram}
+\pp{docs/DISK\_FORMAT.md}, \S1, owns superblock validation;
+\code{io.sirix.io.Superblock} defines its byte offsets and geometry.
 
 \section{Beacons and revision records}
 
@@ -8312,8 +8300,9 @@ bitmap container). A single \code{PageReference}, and the three container layout
 promoting $4 \to \text{bitmap} \to \text{full}$ as a level fills):
 
 \begin{diagramS}
-PageReference   [u8 fragCount][ fragment × (i32 rev, i64 key) ][i64 key][u8 hashPresent][hash:8?]
-   (hash = XXH3-64; databaseId/resourceId are NOT stored — re-injected on open)
+PageReference   [u8 fragCount][ fragment × (i32 rev, i64 key) ][i64 key][hash form + payload]
+   (hash-form encoding and refusal rules: docs/DISK_FORMAT.md, section 3;
+    databaseId/resourceId are NOT stored — re-injected on open)
 0 ReferencesPage4       [u8 size][ size × PageReference ][ size × i16 offset ]
 1 BitmapReferencesPage  [i16 bitmapLen][bitmap][ cardinality × PageReference ]   (position from set bits)
 2 FullReferencesPage    [i16 bitmapLen][bitmap]; per set bit ascending: [i64 key][PageReference body]
