@@ -10,7 +10,6 @@ import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.page.PagePersister;
-import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.StoreFeatures;
@@ -55,7 +54,8 @@ import java.nio.file.StandardOpenOption;
  * <p>
  * <b>The heal:</b> when the open fails, the resource is re-initialized empty if and only if the
  * on-disk state PROVES that at most the empty bootstrap revision was ever committed AND no
- * checksum-valid revision record survives — i.e. nothing recoverable exists (see
+ * checksum-valid revision record survives and no beacon carries active feature words — i.e. nothing
+ * recoverable exists (see
  * {@link #provesAtMostEmptyBootstrapCommitted(ResourceConfiguration, Path, Path)}). Both files are
  * truncated to zero and the open is retried — which then runs the EXACT fresh-resource bootstrap
  * path ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it. When the state
@@ -84,10 +84,10 @@ public final class InterruptedFirstCommitRecovery {
    *
    * <p>
    * Any step of the open can surface the interrupted-first-commit state: storage creation pre-loads
-   * revision metadata. On failure the on-disk bytes are probed; a resource provably holding
-   * nothing but (at most) the unreachable empty bootstrap revision is re-initialized empty (with a
-   * WARN log) and the open retried through the fresh-bootstrap path, everything else rethrows the
-   * original failure.
+   * revision metadata. On failure the on-disk bytes are probed; a resource provably holding nothing
+   * but (at most) the unreachable empty bootstrap revision is re-initialized empty (with a WARN log)
+   * and the open retried through the fresh-bootstrap path, everything else rethrows the original
+   * failure.
    *
    * @param resourceConfig the resource configuration
    * @return the storage and the uber page to start from
@@ -128,8 +128,9 @@ public final class InterruptedFirstCommitRecovery {
   }
 
   /**
-   * Open for verification, compaction or erasure with strict feature compatibility and no automatic
-   * repair. The caller owns and must close the returned storage.
+   * Open for verification, compaction or erasure with strict feature compatibility before storage
+   * initialization, without empty-bootstrap repair. Compatible storage initialization may still heal
+   * revision records. The caller owns and must close the returned storage.
    */
   public static StorageAndUberPage openStorageForTool(final ResourceConfiguration resourceConfig) {
     final UberPage openingUberPage = probeUberPage(resourceConfig);
@@ -156,9 +157,9 @@ public final class InterruptedFirstCommitRecovery {
         return new UberPage();
       }
       try (final FileChannel channel = FileChannel.open(dataFile, StandardOpenOption.READ);
-          final FileChannelReader reader = new FileChannelReader(channel, channel,
-              new ByteHandlerPipeline(resourceConfig.byteHandlePipeline), SerializationType.DATA, new PagePersister(),
-              Caffeine.newBuilder().build())) {
+          final FileChannelReader reader =
+              new FileChannelReader(channel, channel, new ByteHandlerPipeline(resourceConfig.byteHandlePipeline),
+                  SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build())) {
         try {
           return reader.readOpeningUberPage();
         } catch (final SirixIOException corrupt) {
@@ -210,9 +211,9 @@ public final class InterruptedFirstCommitRecovery {
    * the beacon writes);</li>
    * <li>EACH beacon slot in {@code [PRIMARY_BEACON_OFFSET, DATA_REGION_START)} is either entirely
    * zero (never written — no commit was ever acknowledged) or a checksum-valid uber beacon
-   * advertising the BOOTSTRAP revision (revision number 0 — only the empty commit that resource
-   * creation itself runs was ever acknowledged). Torn/garbage slot bytes or any slot advertising a
-   * later revision mean data may exist;</li>
+   * advertising the BOOTSTRAP revision with no active feature words (revision number 0 — only the
+   * empty commit that resource creation itself runs was ever acknowledged). Torn/garbage slot bytes,
+   * active feature words or any slot advertising a later revision prevent repair;</li>
    * <li>{@code sirix.revisions} holds no checksum-valid revision record in any slot (the bootstrap
    * commit writes revision 0's record at slot 0 — and the first user commit revision 1's at slot 1 —
    * BEFORE the beacons go out; a valid record means a commit got far enough that data may exist, and

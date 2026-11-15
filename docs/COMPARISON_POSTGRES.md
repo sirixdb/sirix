@@ -112,9 +112,9 @@ channel is buffered and each commit's 32-byte record rides a checksummed 16-entr
 in the trailing pad of BOTH uber-beacon slots, staged before the write-ahead barrier that already
 hardens the data file. A committed revision's record is therefore durable exactly when its beacon
 is. Eviction from the ring forces the revisions file first, so no committed record ever depends on
-the ring alone; a record lost from the file inside the ring window is salvaged and healed back in
-place; outside the window it fails loudly. See `docs/DISK_FORMAT.md` for the layout and the
-invariants, and `LazyRevisionRecordRecoveryTest` for the coverage.
+the ring alone. The [disk-format contract](DISK_FORMAT.md#1-files) owns the salvage and
+healing rules, including read-only feature restrictions; `LazyRevisionRecordRecoveryTest`
+covers tail-log recovery.
 
 Alongside it, four read-path costs were removed: the page cache and revision-root cache were
 re-reading and re-deserializing pages they already held (`asMap().compute()` runs its mapping

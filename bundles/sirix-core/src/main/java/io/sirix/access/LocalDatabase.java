@@ -182,8 +182,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
     }
     if (features.readOnlyCompat() == 0 && DerivedIndexMaintainer.enabled(resourceConfig)
-        && resourceConfig.getValidTimeConfig() != null
-        && session instanceof JsonResourceSession json
+        && resourceConfig.getValidTimeConfig() != null && session instanceof JsonResourceSession json
         && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
       final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
       shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json));
@@ -235,8 +234,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
           throw new SirixIOException("Incomplete derived resource: " + name);
         }
         if (encrypted) {
-          final List<ByteHandler> derivedHandlers =
-              derivedConfig.byteHandlePipeline.getComponents();
+          final List<ByteHandler> derivedHandlers = derivedConfig.byteHandlePipeline.getComponents();
           for (final ByteHandler handler : sourceHandlers) {
             if (handler instanceof Encryptor && !derivedHandlers.contains(handler)) {
               throw new SirixIOException("Derived resource does not preserve source encryption: " + name);

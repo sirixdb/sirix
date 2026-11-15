@@ -59,36 +59,35 @@ public final class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlRe
     final TransactionManager transactionManager = new TransactionManagerImpl();
 
     // Use AtomicReference to break the circular dependency:
-    // ResourceStoreImpl needs ResourceSessionFactory, and the factory lambda needs ResourceStoreImpl.
+    // ResourceStoreImpl needs ResourceSessionFactory, and the factory needs ResourceStoreImpl.
     final AtomicReference<ResourceStore<XmlResourceSession>> resourceStoreRef = new AtomicReference<>();
 
-    final ResourceSessionFactory<XmlResourceSession> resourceSessionFactory =
-        new ResourceSessionFactory<>() {
-          @Override
-          public XmlResourceSession create(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
-              final Path resourceFile) {
-            return create(resourceConfig, bufferManager, resourceFile, null);
-          }
+    final ResourceSessionFactory<XmlResourceSession> resourceSessionFactory = new ResourceSessionFactory<>() {
+      @Override
+      public XmlResourceSession create(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
+          final Path resourceFile) {
+        return create(resourceConfig, bufferManager, resourceFile, null);
+      }
 
-          @Override
-          public XmlResourceSession create(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
-              final Path resourceFile, final @Nullable UberPage openingUberPage) {
+      @Override
+      public XmlResourceSession create(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
+          final Path resourceFile, final @Nullable UberPage openingUberPage) {
 
-            // Resource-session-scoped dependencies (previously in ResourceSessionModule). The
-            // open helper decides bootstrap-vs-load and conservatively auto-heals a provably
-            // interrupted FIRST commit (non-empty data file without any committed superblock/
-            // beacon/revision-record state).
-            final var storageAndUberPage =
-                InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(resourceConfig, openingUberPage);
-            final IOStorage storage = storageAndUberPage.storage();
-            final UberPage uberPage = storageAndUberPage.uberPage();
-            final Semaphore writeLock = writeLocksRegistry.getWriteLock(resourceConfig.getResource());
-            final StorageEngineWriterFactory storageEngineWriterFactory = new StorageEngineWriterFactory(databaseType);
+        // Resource-session-scoped dependencies (previously in ResourceSessionModule). The
+        // open helper decides bootstrap-vs-load and conservatively auto-heals a provably
+        // interrupted FIRST commit (non-empty data file without any committed superblock/
+        // beacon/revision-record state).
+        final var storageAndUberPage =
+            InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(resourceConfig, openingUberPage);
+        final IOStorage storage = storageAndUberPage.storage();
+        final UberPage uberPage = storageAndUberPage.uberPage();
+        final Semaphore writeLock = writeLocksRegistry.getWriteLock(resourceConfig.getResource());
+        final StorageEngineWriterFactory storageEngineWriterFactory = new StorageEngineWriterFactory(databaseType);
 
-            return new XmlResourceSessionImpl(resourceStoreRef.get(), resourceConfig, bufferManager, storage, uberPage,
-                writeLock, user, storageEngineWriterFactory);
-          }
-        };
+        return new XmlResourceSessionImpl(resourceStoreRef.get(), resourceConfig, bufferManager, storage, uberPage,
+            writeLock, user, storageEngineWriterFactory);
+      }
+    };
 
     final ResourceStore<XmlResourceSession> resourceStore =
         new ResourceStoreImpl<>(resourceSessions, resourceSessionFactory);

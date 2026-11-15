@@ -80,11 +80,11 @@ public interface StorageProvider {
    *
    * <p>
    * This name is used to select the provider via configuration. It MUST equal the name of a
-   * {@link StorageType} constant (e.g. "IO_URING", "S3", or a built-in name like "FILE_CHANNEL"
-   * to override the default implementation): resource configurations persist the enum constant,
-   * and {@code StorageType#getStorage} dispatches to providers by that constant's name. A name
-   * matching no constant is discoverable via {@link StorageProviders} but never selected for a
-   * resource — {@code StorageType#fromString} rejects it. Convention: uppercase with underscores.
+   * {@link StorageType} constant (e.g. "IO_URING", "S3", or a built-in name like "FILE_CHANNEL" to
+   * override the default implementation): resource configurations persist the enum constant, and
+   * {@code StorageType#getStorage} dispatches to providers by that constant's name. A name matching
+   * no constant is discoverable via {@link StorageProviders} but never selected for a resource —
+   * {@code StorageType#fromString} rejects it. Convention: uppercase with underscores.
    *
    * @return the provider name, never null
    */
