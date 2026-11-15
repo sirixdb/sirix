@@ -52,7 +52,14 @@ public class ConcurrentAxisHelper implements Runnable {
    * Queue that stores result keys already computed by this axis. End of the result sequence is marked
    * by the NULL_NODE_KEY. This is used for communication with the consumer.
    */
-  private BlockingQueue<Long> results;
+  private final BlockingQueue<Long> results;
+
+  // Read only after the consumer has established executor termination.
+  private Throwable failure;
+
+  Throwable failure() {
+    return failure;
+  }
 
   /**
    * Bind axis step to transaction. Make sure to create a new ReadTransaction instead of using the
@@ -99,7 +106,8 @@ public class ConcurrentAxisHelper implements Runnable {
         LOGWRAPPER.error("Interrupted while sending NULL_NODE_KEY", e);
         Thread.currentThread().interrupt();
       }
-    } catch (Exception e) {
+    } catch (final Throwable e) {
+      failure = e;
       // CRITICAL: Catch any unexpected exceptions to prevent silent thread death
       LOGWRAPPER.error("FATAL: ConcurrentAxisHelper producer thread crashed with exception", e);
       // Try to signal end to prevent consumer from hanging

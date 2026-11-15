@@ -34,6 +34,7 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.cache.BufferManager;
+import io.sirix.cache.ShardedPageCache;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixThreadedException;
@@ -70,8 +71,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -1416,55 +1420,98 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public synchronized void close() {
-    if (!isClosed) {
-      final ValidTimeReadCache cache = validTimeReadCache;
-      if (cache != null) {
+    if (isClosed) {
+      return;
+    }
+    // Snapshot ownership before callbacks can unregister other resources, including on failure.
+    final Set<NodeReadOnlyTrx> transactions = Collections.newSetFromMap(new IdentityHashMap<>());
+    transactions.addAll(sharedTrxMap.values());
+    transactions.addAll(nodeTrxMap.values());
+    final Set<StorageEngineReader> readers = Collections.newSetFromMap(new IdentityHashMap<>());
+    readers.addAll(storageEngineWriterMap.values());
+    readers.addAll(storageEngineReaderMap.values());
+    Throwable failure = null;
+    final ValidTimeReadCache cache = validTimeReadCache;
+    if (cache != null) {
+      try {
         cache.clear();
+      } catch (final RuntimeException | Error e) {
+        failure = e;
       }
-      // NOTE: ClockSweepers are GLOBAL now - don't stop them per-session
-      // They continue running, managed by BufferManager lifecycle
-
-      // Close all shared per-thread read-only transactions.
-      for (final NodeReadOnlyTrx rtx : sharedTrxMap.values()) {
-        rtx.close();
-      }
-      sharedTrxMap.clear();
-
-      // Close all open node transactions.
-      for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
+    }
+    // ClockSweepers and BufferManager caches are global; this session does not own them.
+    for (final NodeReadOnlyTrx rtx : transactions) {
+      try {
         if (rtx instanceof XmlNodeTrx xmlNodeTrx) {
           xmlNodeTrx.rollback();
         } else if (rtx instanceof JsonNodeTrx jsonNodeTrx) {
           jsonNodeTrx.rollback();
         }
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
+      }
+      try {
         rtx.close();
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
-      // Close all open storage engine writers.
-      for (StorageEngineReader rtx : storageEngineWriterMap.values()) {
-        rtx.close();
+    }
+    // Rollback can install a replacement writer before node close fails. Retain both the original
+    // snapshot and anything registered by those callbacks.
+    readers.addAll(storageEngineWriterMap.values());
+    readers.addAll(storageEngineReaderMap.values());
+    List<StorageEngineReader> unfinishedWriters = null;
+    for (final StorageEngineReader reader : readers) {
+      try {
+        reader.close();
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
+        if (reader instanceof StorageEngineWriter && !reader.isClosed()) {
+          if (unfinishedWriters == null) {
+            unfinishedWriters = new ArrayList<>();
+          }
+          unfinishedWriters.add(reader);
+        }
       }
-      // Close all open storage engine readers.
-      for (StorageEngineReader rtx : storageEngineReaderMap.values()) {
-        rtx.close();
+    }
+    sharedTrxMap.clear();
+    nodeTrxMap.clear();
+    storageEngineReaderMap.clear();
+    storageEngineWriterMap.clear();
+    final ObjectPool<StorageEngineReader> currentPool = pool.getAndSet(null);
+    if (currentPool != null) {
+      try {
+        currentPool.close();
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
-
-      // NOTE: Don't clear BufferManager caches here - other sessions might be using same resource!
-      // Pages will be evicted by normal cache LRU policy or cleaned up at database close
-      // PostgreSQL-style: buffers released when ALL sessions release them, not when one closes
-
-      // Immediately release all resources.
-      nodeTrxMap.clear();
-      storageEngineReaderMap.clear();
-      storageEngineWriterMap.clear();
-      if (pool.get() != null) {
-        pool.get().close();
+    }
+    if (unfinishedWriters != null) {
+      // A writer can refuse close while an async worker still owns its pages/channels. Storage
+      // and session registration are dependencies of that worker, not independent close targets.
+      // Keep ownership reachable so a later close can retry after the worker has terminated.
+      for (final StorageEngineReader writer : unfinishedWriters) {
+        storageEngineReaderMap.put(writer.getTrxId(), writer);
       }
-      if (sharedSession == null) {
+      ShardedPageCache.rethrowCleanupFailure(failure);
+      return;
+    }
+    if (sharedSession == null) {
+      try {
         storage.close();
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
+    }
+    try {
       resourceStore.closeResourceSession(resourceConfig.getResource());
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    } finally {
+      // Transaction callbacks require an open session until all close attempts have finished.
       isClosed = true;
     }
+    ShardedPageCache.rethrowCleanupFailure(failure);
   }
 
   /**
