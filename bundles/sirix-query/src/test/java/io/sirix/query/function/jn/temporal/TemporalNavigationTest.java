@@ -167,8 +167,8 @@ final class TemporalNavigationTest {
     evaluate("jn:store('" + DB + "','products','[{\"name\":\"Laptop\",\"price\":999}]')");
     evaluate("replace json value of jn:doc('" + DB + "','products')[0].price with 899");
 
-    assertEquals("true", query("sdb:nodekey(jn:doc('" + DB + "','products', 1)[0].price) eq "
-        + "sdb:nodekey(jn:doc('" + DB + "','products', 2)[0].price)"));
+    assertEquals("true", query("sdb:nodekey(jn:doc('" + DB + "','products', 1)[0].price) eq " + "sdb:nodekey(jn:doc('"
+        + DB + "','products', 2)[0].price)"));
     assertEquals("999", query("jn:first(jn:doc('" + DB + "','products')[0].price)"));
     assertEquals("999", query("jn:previous(jn:doc('" + DB + "','products')[0].price)"));
     assertEquals("899", query("jn:last(jn:doc('" + DB + "','products', 1)[0].price)"));
