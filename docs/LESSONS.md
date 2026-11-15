@@ -36,3 +36,14 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 | Temporal functions assumed their `json-item()` argument was an object or array; stored numbers, strings, booleans, `null` and field names failed with a `ClassCastException`. The initial spec also generalized same-kind field replacement to type changes. | Test every admitted item class and constructed items; dispatch on node identity. Assert keys and literal histories separately for same-kind field updates, type changes and array replacements before promising history continuity. | [Write-up](postmortems/temporal-functions-value-items.md), [spec](TEMPORAL_FUNCTIONS_SPEC.md), `TemporalNavigationTest` |
 | Passing runtime tests and high coverage did not satisfy Sonar's maintainability gate for temporal items. | Inspect the failing gate metric and individual rules; isolate exception assertions and justify necessary covariance or marker inheritance at the narrow analyzer boundary without changing hot-path representation. | [CI follow-up](postmortems/temporal-functions-value-items.md#ci-follow-up-sonar-maintainability-gate), `TemporalNavigationTest`, `TemporalSirixJsonItemStreamTest` |
 | Storage-epoch replay lost a page's FSST binding, and epoch materialization judged raw string sizes, changing inline placement despite equal values. | A replay must reproduce the original read, not only its combine. Every route into a size-based placement decision must apply all canonical encoding passes in the same order before consuming append capacity. Pin geometry-changing settings (hash kind) in differential tests, and compare decisions and bindings, not only values. Pair isolated regressions with fast boundary tests selected by the actual PR mutation lane. | [FSST epoch carrier write-up](postmortems/2026-11-fsst-epoch-carrier-spill.md), `StorageEpochFsstInlineDecisionTest`, `StorageEpochStoreIdentityTest` under both hash kinds, `VersioningTypeFsstMetadataCopyTest`, `BulkAdoptionDiagnosticsTest` |
+
+- **Drain lexical state at EOF:** streaming presentation adapters must preserve the last token
+  without requiring a trailing delimiter. Test one-character chunks and EOF in every deferred
+  state, then compare the complete ANSI-stripped payload with the input.
+  Evidence: [shell final-token regression](postmortems/shell-stream-final-token.md).
+  Keep escape rules specific to the serialized language: XML attribute quotes are not
+  escaped by backslashes. ANSI golden tests must check style transitions as well as payloads.
+
+- **Preserve a PrintStream's declared encoding when adapting it:** use its `charset()` rather
+  than assuming the JVM default. Test the adapter with a non-default Unicode encoding and
+  a Windows code page. Evidence: [shell output encoding](postmortems/shell-output-encoding.md).
