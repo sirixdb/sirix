@@ -134,8 +134,7 @@ final class ProjectionBulkVsPerEntryBench {
   private static boolean arenaFits(final int entries, final int reps) {
     final long budget = FrameSlotAllocator.getInstance().budgetBytes();
     if (budget <= 0L) {
-      // Another MemorySegmentAllocator is configured (-Dsirix.allocator=pool|windowspool), so the
-      // frame arena is not what bounds this run and there is nothing to measure against. Attempt
+      // The frame allocator reports no budget, so there is nothing to measure against. Attempt
       // every shape, exactly as this bench did before the guard existed.
       return true;
     }

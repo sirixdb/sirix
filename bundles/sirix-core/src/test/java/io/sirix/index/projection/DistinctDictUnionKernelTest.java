@@ -268,13 +268,14 @@ final class DistinctDictUnionKernelTest {
           if (from >= to) {
             return;
           }
-          final LeafColumnAccess access = f.store().windowedLeafAccess(f.fetcher(), null, window, window);
-          final SharedDistinctHash128Set.Worker worker = shared.worker();
-          if (!ProjectionColumnScan.distinctDictUnion(access, 0, from, to, worker, new long[2])) {
-            declined[idx] = true;
-            return;
+          try (LeafColumnAccess access = f.store().windowedLeafAccess(f.fetcher(), null, window, window)) {
+            final SharedDistinctHash128Set.Worker worker = shared.worker();
+            if (!ProjectionColumnScan.distinctDictUnion(access, 0, from, to, worker, new long[2])) {
+              declined[idx] = true;
+              return;
+            }
+            worker.flush();
           }
-          worker.flush();
         } catch (final Throwable t) {
           failure.set(t);
         }
@@ -317,10 +318,11 @@ final class DistinctDictUnionKernelTest {
     final SharedDistinctHash128Set.Worker worker = shared.worker();
     assertEquals(1024L, budget.get(), "partitions and buffers charged exactly");
 
-    final LeafColumnAccess access = f.store().windowedLeafAccess(f.fetcher(), null, 2, 2);
-    assertThrows(DistinctHash128Set.ByteBudgetExceededException.class,
-        () -> ProjectionColumnScan.distinctDictUnion(access, 0, 0, leaves, worker, new long[2]),
-        "the first refused growth escapes the kernel from inside the worker's drain");
+    try (LeafColumnAccess access = f.store().windowedLeafAccess(f.fetcher(), null, 2, 2)) {
+      assertThrows(DistinctHash128Set.ByteBudgetExceededException.class,
+          () -> ProjectionColumnScan.distinctDictUnion(access, 0, 0, leaves, worker, new long[2]),
+          "the first refused growth escapes the kernel from inside the worker's drain");
+    }
     assertTrue(budget.get() >= 0L, "a refusal never leaves the budget overdrawn");
 
     assertThrows(DistinctHash128Set.ByteBudgetExceededException.class,

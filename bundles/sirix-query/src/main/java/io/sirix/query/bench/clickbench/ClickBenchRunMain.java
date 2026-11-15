@@ -792,8 +792,8 @@ public final class ClickBenchRunMain {
    * The JVM's own {@code GC.class_histogram} over LIVE objects, taken in-process through the
    * diagnostic-command MBean (the sandbox this runs under hides the JVM from {@code jcmd}). Forces a
    * full collection, so the {@code Total} line is the heap the previous queries really left behind —
-   * the figure every heap-derived budget (group passes, distinct ceiling, residency) should see — and
-   * the top classes say who owns it. Diagnostics only; never inside a timed try.
+   * the figure heap-derived budgets (distinct ceiling, residency) should see — and the top classes
+   * say who owns it. Diagnostics only; never inside a timed try.
    */
   private static void printLiveClassHistogram(final int queryIndex) {
     try {

@@ -42,6 +42,7 @@ import org.jspecify.annotations.Nullable;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -267,12 +268,24 @@ public final class HOTIndirectPage implements Page {
   private static final ThreadLocal<byte[]> SIMD_PADDED_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[BYTE_SPECIES.length()]);
 
-  // Transient SIMD state — lazily initialized from extractionPositions after deserialization.
-  // VectorShuffle maps each extraction byte to its offset within the contiguous key load window.
-  private transient VectorShuffle<Byte> gatherShuffle;
-  private transient int gatherLoadOffset; // min extraction position (start of load window)
-  private transient boolean gatherFitsInVector; // true if span ≤ 32 bytes
-  private transient boolean gatherInitialized;
+  /**
+   * The SIMD gather state of a MULTI_MASK node, derived from its extraction positions before any
+   * constructor returns and shared by every copy-on-write copy of an unchanged layout. Final fields:
+   * complete routing state exists before a page reference can expose the page, and it never changes,
+   * so a lookup reads no flag and no separate holder. {@code gatherShuffle} is null on the scalar
+   * path (no extraction bytes, or a span wider than the vector).
+   */
+  private final @Nullable VectorShuffle<Byte> gatherShuffle;
+  private final int gatherLoadOffset; // min extraction position (start of load window)
+  private final boolean gatherFitsInVector; // true if span ≤ 32 bytes
+
+  /** Work counter: shuffles built; a copy of an unchanged layout builds none. */
+  private static final LongAdder GATHER_CONSTRUCTIONS = new LongAdder();
+
+  /** How many SIMD gather shuffles were constructed; observable by work-budget tests. */
+  public static long gatherConstructionCount() {
+    return GATHER_CONSTRUCTIONS.sum();
+  }
 
   /**
    * Determine the partial key width (in bytes) from the number of discriminative bits. Matches C++
@@ -419,6 +432,15 @@ public final class HOTIndirectPage implements Page {
    * Private constructor for factory methods.
    */
   private HOTIndirectPage(long pageKey, int revision, int height, NodeType nodeType, int numChildren) {
+    this(pageKey, revision, height, nodeType, numChildren, null, 0);
+  }
+
+  /**
+   * Constructor for factory methods; a MULTI_MASK layout passes its (already cloned) extraction
+   * positions so the SIMD gather state is complete before the page exists anywhere else.
+   */
+  private HOTIndirectPage(long pageKey, int revision, int height, NodeType nodeType, int numChildren,
+      byte @Nullable [] extractionPositions, int numExtractionBytes) {
     this.pageKey = pageKey;
     this.revision = revision;
     this.height = height;
@@ -426,6 +448,42 @@ public final class HOTIndirectPage implements Page {
     this.numChildren = numChildren;
     this.childReferences = new PageReference[numChildren];
     this.layoutType = LayoutType.SINGLE_MASK; // Default
+    this.extractionPositions = extractionPositions;
+    this.numExtractionBytes = numExtractionBytes;
+    if (extractionPositions == null || numExtractionBytes == 0) {
+      gatherShuffle = null;
+      gatherLoadOffset = 0;
+      gatherFitsInVector = false;
+      return;
+    }
+    // Find min/max extraction positions to determine the load window
+    int minPos = Integer.MAX_VALUE;
+    int maxPos = Integer.MIN_VALUE;
+    for (int i = 0; i < numExtractionBytes; i++) {
+      final int pos = extractionPositions[i] & 0xFF;
+      if (pos < minPos)
+        minPos = pos;
+      if (pos > maxPos)
+        maxPos = pos;
+    }
+    final int vectorLen = BYTE_SPECIES.length();
+    if (maxPos - minPos + 1 > vectorLen) {
+      // Span exceeds vector width (>32 bytes for AVX2) — use scalar fallback
+      gatherShuffle = null;
+      gatherLoadOffset = 0;
+      gatherFitsInVector = false;
+      return;
+    }
+    // Build shuffle indices: lane i → offset of extractionPositions[i] within load window.
+    // Unused lanes (>= numExtractionBytes) point to byte 0 (don't-care value, avoids out-of-range).
+    final int[] shuffleIndices = new int[vectorLen];
+    for (int i = 0; i < numExtractionBytes; i++) {
+      shuffleIndices[i] = (extractionPositions[i] & 0xFF) - minPos;
+    }
+    gatherShuffle = VectorShuffle.fromValues(BYTE_SPECIES, shuffleIndices);
+    gatherLoadOffset = minPos;
+    gatherFitsInVector = true;
+    GATHER_CONSTRUCTIONS.increment();
   }
 
   /**
@@ -434,8 +492,16 @@ public final class HOTIndirectPage implements Page {
    * @param other the page to copy
    */
   public HOTIndirectPage(HOTIndirectPage other) {
-    this.pageKey = other.pageKey;
-    this.revision = other.revision;
+    this(other.pageKey, other.revision, other);
+  }
+
+  /**
+   * Copy {@code other} under a (possibly new) page key and revision. An unchanged extraction layout
+   * shares the immutable SIMD shuffle; nothing is rebuilt.
+   */
+  private HOTIndirectPage(long pageKey, int revision, HOTIndirectPage other) {
+    this.pageKey = pageKey;
+    this.revision = revision;
     this.height = other.height;
     this.nodeType = other.nodeType;
     this.layoutType = other.layoutType;
@@ -451,6 +517,9 @@ public final class HOTIndirectPage implements Page {
       this.extractionMasks = other.extractionMasks.clone();
     }
     this.numExtractionBytes = other.numExtractionBytes;
+    this.gatherShuffle = other.gatherShuffle;
+    this.gatherLoadOffset = other.gatherLoadOffset;
+    this.gatherFitsInVector = other.gatherFitsInVector;
     if (other.partialKeys != null) {
       this.partialKeys = other.partialKeys.clone();
       this.sparsePartialKeys =
@@ -625,65 +694,10 @@ public final class HOTIndirectPage implements Page {
    * </p>
    */
   private int computeMultiMaskPartialKey(final byte[] key, final int keyLen) {
-    if (!gatherInitialized) {
-      initGatherShuffle();
-    }
     if (gatherFitsInVector) {
       return computeMultiMaskPartialKeySIMD(key, keyLen);
     }
     return computeMultiMaskPartialKeyScalar(key, keyLen);
-  }
-
-  /**
-   * Initialize the SIMD gather shuffle from extraction positions.
-   *
-   * <p>
-   * Pre-computes a {@link VectorShuffle} that maps each extraction byte lane to the offset of its
-   * source key byte within a contiguous load window. Lanes beyond {@code numExtractionBytes} are
-   * zeroed via wrap-around to lane 0 (don't-care).
-   * </p>
-   */
-  private void initGatherShuffle() {
-    gatherInitialized = true;
-    if (extractionPositions == null || numExtractionBytes == 0) {
-      gatherFitsInVector = false;
-      return;
-    }
-
-    // Find min/max extraction positions to determine the load window
-    int minPos = Integer.MAX_VALUE;
-    int maxPos = Integer.MIN_VALUE;
-    for (int i = 0; i < numExtractionBytes; i++) {
-      final int pos = extractionPositions[i] & 0xFF;
-      if (pos < minPos)
-        minPos = pos;
-      if (pos > maxPos)
-        maxPos = pos;
-    }
-
-    final int span = maxPos - minPos + 1;
-    if (span > BYTE_SPECIES.length()) {
-      // Span exceeds vector width (>32 bytes for AVX2) — use scalar fallback
-      gatherFitsInVector = false;
-      return;
-    }
-
-    gatherLoadOffset = minPos;
-    gatherFitsInVector = true;
-
-    // Build shuffle indices: lane i → offset of extractionPositions[i] within load window
-    // Unused lanes (>= numExtractionBytes) get index 0 (harmless — gathered value is don't-care)
-    final int vectorLen = BYTE_SPECIES.length();
-    final int[] shuffleIndices = new int[vectorLen];
-    for (int i = 0; i < numExtractionBytes; i++) {
-      shuffleIndices[i] = (extractionPositions[i] & 0xFF) - minPos;
-    }
-    // Unused lanes: point to byte 0 of vector (don't-care value, avoids out-of-range)
-    for (int i = numExtractionBytes; i < vectorLen; i++) {
-      shuffleIndices[i] = 0;
-    }
-
-    gatherShuffle = VectorShuffle.fromValues(BYTE_SPECIES, shuffleIndices);
   }
 
   /**
@@ -703,21 +717,22 @@ public final class HOTIndirectPage implements Page {
    */
   private int computeMultiMaskPartialKeySIMD(final byte[] key, final int keyLen) {
     final int vectorLen = BYTE_SPECIES.length();
+    final int loadOffset = this.gatherLoadOffset;
 
     // Load key bytes into vector. If key is shorter than the load window, pad with zeros.
     final ByteVector keyVec;
-    if (gatherLoadOffset + vectorLen <= keyLen) {
+    if (loadOffset + vectorLen <= keyLen) {
       // Fast path: entire load window fits in key
-      keyVec = ByteVector.fromArray(BYTE_SPECIES, key, gatherLoadOffset);
+      keyVec = ByteVector.fromArray(BYTE_SPECIES, key, loadOffset);
     } else {
       // Key is shorter than load window — copy available bytes into the per-thread padded
       // scratch and zero-pad the rest. Steady-state zero-alloc: the scratch is allocated once
       // per worker thread and re-used across calls. Touch only the bytes we're not going to
       // overwrite from the key (`available .. vectorLen`) so the prefix is filled fresh.
       final byte[] padded = SIMD_PADDED_SCRATCH.get();
-      final int available = Math.max(0, keyLen - gatherLoadOffset);
+      final int available = Math.max(0, keyLen - loadOffset);
       if (available > 0) {
-        System.arraycopy(key, gatherLoadOffset, padded, 0, available);
+        System.arraycopy(key, loadOffset, padded, 0, available);
       }
       if (available < vectorLen) {
         Arrays.fill(padded, available, vectorLen, (byte) 0);
@@ -1284,29 +1299,7 @@ public final class HOTIndirectPage implements Page {
    * @return the copy with new page key
    */
   public HOTIndirectPage copyWithNewPageKey(long newPageKey, int newRevision) {
-    HOTIndirectPage copy = new HOTIndirectPage(newPageKey, newRevision, this.height, this.nodeType, this.numChildren);
-    copy.layoutType = this.layoutType;
-    copy.initialBytePos = this.initialBytePos;
-    copy.bitMask = this.bitMask;
-    copy.mostSignificantBitIndex = this.mostSignificantBitIndex;
-
-    if (this.extractionPositions != null) {
-      copy.extractionPositions = this.extractionPositions.clone();
-    }
-    if (this.extractionMasks != null) {
-      copy.extractionMasks = this.extractionMasks.clone();
-    }
-    copy.numExtractionBytes = this.numExtractionBytes;
-    if (this.partialKeys != null) {
-      copy.partialKeys = this.partialKeys.clone();
-      copy.sparsePartialKeys = createSparsePartialKeys(this.partialKeys, this.numChildren, this.getPartialKeyWidth());
-    }
-    for (int i = 0; i < this.numChildren; i++) {
-      if (this.childReferences[i] != null) {
-        copy.childReferences[i] = new PageReference(this.childReferences[i]);
-      }
-    }
-    return copy;
+    return new HOTIndirectPage(newPageKey, newRevision, this);
   }
 
   /**
@@ -1413,11 +1406,10 @@ public final class HOTIndirectPage implements Page {
     if (children.length < 2 || children.length > 16) {
       throw new IllegalArgumentException("SpanNode must have 2-16 children");
     }
-    HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.SPAN_NODE, children.length);
+    HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.SPAN_NODE, children.length,
+        extractionPositions.clone(), numExtractionBytes);
     page.layoutType = LayoutType.MULTI_MASK;
-    page.extractionPositions = extractionPositions.clone();
     page.extractionMasks = extractionMasks.clone();
-    page.numExtractionBytes = numExtractionBytes;
     page.mostSignificantBitIndex = mostSignificantBitIndex;
     page.partialKeys = partialKeys.clone();
     int totalDiscBits = 0;
@@ -1450,11 +1442,10 @@ public final class HOTIndirectPage implements Page {
     if (children.length < 1 || children.length > 32) {
       throw new IllegalArgumentException("MultiNode must have 1-32 children, got: " + children.length);
     }
-    HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.MULTI_NODE, children.length);
+    HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.MULTI_NODE, children.length,
+        extractionPositions.clone(), numExtractionBytes);
     page.layoutType = LayoutType.MULTI_MASK;
-    page.extractionPositions = extractionPositions.clone();
     page.extractionMasks = extractionMasks.clone();
-    page.numExtractionBytes = numExtractionBytes;
     page.mostSignificantBitIndex = mostSignificantBitIndex;
     page.partialKeys = partialKeys.clone();
     int totalDiscBits = 0;

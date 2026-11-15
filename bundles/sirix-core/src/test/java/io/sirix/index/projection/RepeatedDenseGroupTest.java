@@ -2,6 +2,7 @@ package io.sirix.index.projection;
 
 import org.junit.jupiter.api.Test;
 
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -29,10 +30,10 @@ final class RepeatedDenseGroupTest {
     }
     assertEquals(4, table.size());
     assertTrue(table.hasProbeKeyCollision());
-    final long[] storage = table.storageAtAccBase(first);
+    final GroupBuffer storage = table.storageAtAccBase(first);
     final int offset = table.offsetAtAccBase(first);
-    assertEquals(2L, storage[offset]);
-    assertEquals(13L, storage[offset + 1]);
+    assertEquals(2L, GroupLanes.get(storage, offset));
+    assertEquals(13L, GroupLanes.get(storage, offset + 1));
   }
 
   @Test
@@ -66,10 +67,10 @@ final class RepeatedDenseGroupTest {
     for (int group = groups; group >= 1; group--) {
       final int handle = table.acquire(group, 0L);
       assertEquals(handle, table.acquire(group, 0L));
-      final long[] storage = table.storageAtAccBase(handle);
+      final GroupBuffer storage = table.storageAtAccBase(handle);
       final int offset = table.offsetAtAccBase(handle);
-      assertEquals(2L, storage[offset]);
-      assertEquals(group, storage[offset + 1]);
+      assertEquals(2L, GroupLanes.get(storage, offset));
+      assertEquals(group, GroupLanes.get(storage, offset + 1));
       assertEquals(~((long) group), table.auxAtAccBase(handle));
     }
     table.release();
@@ -77,6 +78,6 @@ final class RepeatedDenseGroupTest {
   }
 
   private static void increment(final NumericGroupAggTable table, final int handle) {
-    table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)]++;
+    GroupLanes.increment(table.storageAtAccBase(handle), table.offsetAtAccBase(handle));
   }
 }

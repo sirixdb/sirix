@@ -29,7 +29,7 @@ import io.sirix.page.KeyValueLeafPage;
 
 import java.lang.foreign.Arena;
 
-import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
+import static io.sirix.cache.MemorySegmentAllocator.SIXTYFOUR_KB;
 
 /**
  * Helper class for testing the cache.

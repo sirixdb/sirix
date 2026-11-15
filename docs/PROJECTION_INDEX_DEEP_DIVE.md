@@ -701,6 +701,9 @@ applies when segment slots are written.
 
 ### 7.1 Cold open → catalog → cache
 
+The whole-leaf raw-byte route is shown below. Column-sliced serving follows the
+[column-lane contract](DERIVED_QUERY_CACHES.md#column-lanes).
+
 ```mermaid
 flowchart TD
     Q["query arrives at<br/>SirixVectorizedExecutor"] --> CAT["ProjectionIndexCatalog<br/>keyed (resource, defId, buildRevision)"]
@@ -714,13 +717,10 @@ flowchart TD
     H --> K["SIMD kernels"]
 ```
 
-Kernels deliberately consume **heap `byte[]`** — a MemorySegment/FFM kernel
-port measured +4.5 % wall time and was reverted; zero-copy applies to
-storage-internal paths, not kernels. The catalog hydrates once per
-`(resource, defId, buildRevision)` and serves every subsequent query from
-cache, so descriptor-level pruning saves cold-open I/O; steady-state
-columnar wins (per-column cache residency) arrive with the deferred P5b
-Handle restructure.
+Raw-byte kernels consume **heap `byte[]`**; the earlier +4.5 % FFM-port result
+applies to that route (`ProjectionIndexByteScan` documents the comparison).
+Column-sliced numeric kernels read native lanes directly, with residency and
+lifetime governed by the column-lane contract linked above.
 
 ### 7.2 Kernel execution over a leaf
 

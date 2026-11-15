@@ -800,30 +800,13 @@ deserialisation, and committing a page is handing its segment to the storage lay
 flyweight nodes of the previous section are thin cursors bound to a live segment; they hold no field
 state of their own.
 
-Native frames come from a small allocator hierarchy. \code{MemorySegmentAllocator} (with a
-Linux-specialised \code{LinuxMemorySegmentAllocator}, chosen by \code{SegmentAllocators}) carves
-page-sized frames out of a \emph{shared} FFM \code{Arena}, and a \code{FrameSlotAllocator} pools those
-frames so that an evicted page's memory is reused rather than handed back to the operating system. The
-whole buffer pool of \S\ref{sec:buffering} lives in this off-heap space, and that is the point: the
-engine's largest memory consumer, the page cache, exerts \emph{no} pressure on the garbage collector,
-and its size is a single budget dial rather than a function of heap tuning.
-
-\dcap{Off-heap page frames from a shared FFM arena}
-\begin{diagramS}
-Java heap  │  off-heap native memory (FFM / Panama, a shared Arena)
-           │
-  thin node│   FrameSlotAllocator: a pool of reusable page-sized MemorySegment frames
-  cursor ──┼──▶ KeyValueLeafPage = one MemorySegment   (its in-memory bytes are its on-disk image)
-           │       holding the slot directory, slot bitmap, and record heap
-           │   on eviction a frame returns to the pool; the clock-sweeper drives the reuse
-\end{diagramS}
-
-The price of going off-heap is manual lifecycle: a frame must be returned to the pool when its page is
-evicted, which the clock-sweeper and the Transaction Intent Log handle between them; the shared
-\code{Arena} is routed through \code{SharedArenas} (\code{Arena.ofShared} on HotSpot, \code{Arena.ofAuto}
-in a native image), so a native image needs no shared-arena support. In exchange the design
-gets zero-copy reads, GC-independent cache sizing, and the byte-for-byte identity between a page in
-memory and the same page on disk that the rest of this report keeps relying on.
+Native frames are obtained through the process-wide \code{Allocators} entry point and returned when
+their pages are evicted. The clock-sweeper and Transaction Intent Log manage that manual lifecycle;
+\S\ref{sec:allocator} describes the stable-address recycling that protects optimistic page readers.
+The \href{operations.md\#4-cache-budgets}{operations guide's cache-budget contract} owns allocator
+configuration. Derived numeric lanes and transient buffers share that allocator's budget; their
+distinct lifetimes and release proofs are specified in
+\href{DERIVED_QUERY_CACHES.md}{Derived query-cache memory}.
 
 \section{Structural sharing}
 
@@ -2376,11 +2359,11 @@ report says ``guarded,'' not ``below the watermark,'' wherever it describes what
 \section{The off-heap frame-slot allocator}
 \label{sec:allocator}
 
-The frames the buffer pool hands out come from a custom off-heap allocator
-(\code{FrameSlotAllocator}, the Linux default; \code{-Dsirix.allocator=pool} selects the legacy
-pool, and Windows uses its own), again Umbra-shaped. It reserves \textbf{seven power-of-two size
-classes} from 4\,KiB to 256\,KiB, and for each class reserves a large \emph{virtual} region (32\,GiB)
-up front while committing physical pages only on demand (\code{MADV\_POPULATE\_WRITE} at allocation),
+The frames the buffer pool hands out come from \code{FrameSlotAllocator}, again Umbra-shaped.
+Supported configuration is specified in the
+\href{operations.md\#4-cache-budgets}{operations guide}. It reserves \textbf{seven power-of-two size
+classes} from 4\,KiB to 256\,KiB, and for each class reserves a large \emph{virtual} region (up to 32\,GiB)
+up front while committing physical pages only on demand through the platform's virtual-memory backend,
 so a slot's address is stable for the JVM's lifetime but its RAM is paid for only when used. A slot is
 recycled rather than unmapped on release (no \code{MADV\_DONTNEED}), trading a touch of resident memory
 for a constant-cost, syscall-free recycle.
@@ -2394,9 +2377,9 @@ me'' pin, and the slot version is the fine ``the bytes did not change under me''
 
 \dcap{Frame-slot allocation: size classes, lazy commit, seqlock versioning}
 \begin{diagramS}
-size classes:   4K  8K  16K  32K  64K  128K  256K        each: 32 GiB virtual reserved, RAM on demand
-allocate(n):    reserve budget ; pop a free slot of the class ; version even→odd→even ; MADV_POPULATE_WRITE
-release(slot):  version even→odd→even ; push to free stack    (no MADV_DONTNEED — pages stay resident)
+size classes:   4K  8K  16K  32K  64K  128K  256K        up to 32 GiB virtual per class, RAM on demand
+allocate(n):    reserve budget ; reuse a slot or commit a fresh one ; version even→odd→even
+release(slot):  version even→odd→even ; mark slot recycled    (no MADV_DONTNEED — pages stay resident)
 reader:         v0 = acquireVersion ; if odd → retry ; read bytes ; if !validateVersion(v0) → retry
 budget hit:     pressure listener → cache.evictUnderPressure() on every cache, then clear metadata pages
 \end{diagramS}
@@ -2415,7 +2398,7 @@ budget hit:     pressure listener → cache.evictUnderPressure() on every cache,
      \foreach \i in {0,...,4}{ \node[virt] at (2.25+0.52*\i,0.5*\y){}; }
   }
   \draw[decorate,decoration={brace,amplitude=4pt},slate] (2.0,3.28) -- (4.6,3.28)
-     node[midway,above=3pt,font=\scriptsize,align=center]{32\,GiB \emph{virtual} per class;\\RAM on first write};
+     node[midway,above=3pt,font=\scriptsize,align=center]{up to 32\,GiB \emph{virtual} per class;\\RAM on first write};
   % legend
   \node[used,label={[font=\scriptsize]right:committed (in use)}]  at (6.4,3.0) {};
   \node[free,label={[font=\scriptsize]right:free-stack (recycled)}] at (6.4,2.5) {};

@@ -12,23 +12,28 @@ import io.sirix.utils.FSSTCompressor;
 /**
  * Fixed-capacity columnar batch with selection vector for vectorized query execution.
  *
- * <p>Stores rows in columnar layout (one array per column) for cache-friendly
- * SIMD processing. A selection vector tracks which rows are "active" after
- * filter operations — only selected rows are materialized downstream.</p>
+ * <p>
+ * Stores rows in columnar layout (one array per column) for cache-friendly SIMD processing. A
+ * selection vector tracks which rows are "active" after filter operations — only selected rows are
+ * materialized downstream.
+ * </p>
  *
- * <p>Supports {@link ColumnType#DEFERRED_BYTES} for late materialization:
- * string values remain as offset+length references into backing page
- * MemorySegments until explicitly decoded. This enables SIMD filtering on
- * compressed data without decompression.</p>
+ * <p>
+ * Supports {@link ColumnType#DEFERRED_BYTES} for late materialization: string values remain as
+ * offset+length references into backing page MemorySegments until explicitly decoded. This enables
+ * SIMD filtering on compressed data without decompression.
+ * </p>
  *
- * <p>Design follows the Volcano/MonetDB vectorized execution model:
+ * <p>
+ * Design follows the Volcano/MonetDB vectorized execution model:
  * <ul>
- *   <li>Fixed batch capacity (default 1024) for predictable memory usage</li>
- *   <li>Selection vector avoids copying rows during filter operations</li>
- *   <li>Columnar layout enables SIMD comparison via Java Vector API</li>
- *   <li>Null tracking via per-column boolean arrays</li>
- *   <li>Multi-page backing for deferred columns (one batch spans multiple pages)</li>
- * </ul></p>
+ * <li>Fixed batch capacity (default 1024) for predictable memory usage</li>
+ * <li>Selection vector avoids copying rows during filter operations</li>
+ * <li>Columnar layout enables SIMD comparison via Java Vector API</li>
+ * <li>Null tracking via per-column boolean arrays</li>
+ * <li>Multi-page backing for deferred columns (one batch spans multiple pages)</li>
+ * </ul>
+ * </p>
  */
 public final class ColumnBatch {
 
@@ -63,6 +68,14 @@ public final class ColumnBatch {
   private MemorySegment[] cachedPagesArray;
   private byte[][][] cachedSymbolsArray;
 
+  /**
+   * The staging array {@link FSSTCompressor#batchDecode} copies each row's page bytes through, kept
+   * from one call to the next so that materializing a batch allocates its strings and nothing else.
+   * It grows to the longest value this batch has decoded, up to
+   * {@link FSSTCompressor#MAX_RETAINED_BATCH_STAGING_BYTES}.
+   */
+  private byte[] decodeStaging = new byte[0];
+
   // Selection vector: indices of active rows after filtering
   private final int[] selectionVector;
   private int selectionCount;
@@ -77,7 +90,7 @@ public final class ColumnBatch {
   /**
    * Create a new column batch.
    *
-   * @param capacity   maximum number of rows (must be positive)
+   * @param capacity maximum number of rows (must be positive)
    * @param columnCount number of columns (must be positive)
    */
   @SuppressWarnings("unchecked")
@@ -111,7 +124,7 @@ public final class ColumnBatch {
   /**
    * Set the type for a column and allocate its storage.
    *
-   * @param col  column index
+   * @param col column index
    * @param type the column type
    */
   public void setColumnType(int col, ColumnType type) {
@@ -192,11 +205,11 @@ public final class ColumnBatch {
   /**
    * Set a deferred byte reference for a row.
    *
-   * @param col        column index (must be DEFERRED_BYTES type)
-   * @param row        row index
-   * @param pageIdx    index into the backing page table
-   * @param offset     absolute byte offset in the page MemorySegment
-   * @param length     byte length of the value
+   * @param col column index (must be DEFERRED_BYTES type)
+   * @param row row index
+   * @param pageIdx index into the backing page table
+   * @param offset absolute byte offset in the page MemorySegment
+   * @param length byte length of the value
    * @param compressed whether the value is FSST-compressed
    */
   public void setDeferredBytes(int col, int row, int pageIdx, int offset, int length, boolean compressed) {
@@ -210,8 +223,8 @@ public final class ColumnBatch {
   /**
    * Register a backing page for a DEFERRED_BYTES column.
    *
-   * @param col           column index
-   * @param page          the page MemorySegment
+   * @param col column index
+   * @param page the page MemorySegment
    * @param parsedSymbols pre-parsed FSST symbol table (null if no compression)
    * @return the page index to use in {@link #setDeferredBytes}
    */
@@ -258,8 +271,8 @@ public final class ColumnBatch {
   }
 
   /**
-   * Batch-materialize all selected deferred strings.
-   * Delegates to {@link FSSTCompressor#batchDecode} for buffer-pooled bulk decoding.
+   * Batch-materialize all selected deferred strings. Delegates to {@link FSSTCompressor#batchDecode},
+   * staging the rows in this batch's own array.
    *
    * @param col column index (must be DEFERRED_BYTES type)
    * @return array of decoded strings indexed by original row position
@@ -284,19 +297,16 @@ public final class ColumnBatch {
       cachedSymbolsArray[i] = null;
     }
 
-    FSSTCompressor.batchDecode(
-        cachedPagesArray, deferredPageIndex[col],
-        deferredOffsets[col], deferredLengths[col], deferredCompressed[col],
-        selectionVector, selectionCount,
-        cachedSymbolsArray,
-        stringColumns[col]);
+    decodeStaging = FSSTCompressor.batchDecode(cachedPagesArray, deferredPageIndex[col], deferredOffsets[col],
+        deferredLengths[col], deferredCompressed[col], selectionVector, selectionCount, cachedSymbolsArray,
+        stringColumns[col], decodeStaging);
 
     return stringColumns[col];
   }
 
   /**
-   * Release all backing page references for a DEFERRED_BYTES column.
-   * Call after the batch is fully consumed.
+   * Release all backing page references for a DEFERRED_BYTES column. Call after the batch is fully
+   * consumed.
    *
    * @param col column index
    */
@@ -322,12 +332,29 @@ public final class ColumnBatch {
 
   // --- Direct deferred column array access ---
 
-  public int[] deferredOffsets(int col) { return deferredOffsets[col]; }
-  public int[] deferredLengths(int col) { return deferredLengths[col]; }
-  public boolean[] deferredCompressed(int col) { return deferredCompressed[col]; }
-  public int[] deferredPageIndices(int col) { return deferredPageIndex[col]; }
-  public List<MemorySegment> backingPages(int col) { return backingPages[col]; }
-  public List<byte[][]> parsedFsstSymbolsByPage(int col) { return parsedFsstSymbolsByPage[col]; }
+  public int[] deferredOffsets(int col) {
+    return deferredOffsets[col];
+  }
+
+  public int[] deferredLengths(int col) {
+    return deferredLengths[col];
+  }
+
+  public boolean[] deferredCompressed(int col) {
+    return deferredCompressed[col];
+  }
+
+  public int[] deferredPageIndices(int col) {
+    return deferredPageIndex[col];
+  }
+
+  public List<MemorySegment> backingPages(int col) {
+    return backingPages[col];
+  }
+
+  public List<byte[][]> parsedFsstSymbolsByPage(int col) {
+    return parsedFsstSymbolsByPage[col];
+  }
 
   // --- Read methods ---
 
@@ -365,8 +392,8 @@ public final class ColumnBatch {
   }
 
   /**
-   * Seal the batch: initialize the selection vector to select all rows.
-   * Call this after filling the batch and before applying filters.
+   * Seal the batch: initialize the selection vector to select all rows. Call this after filling the
+   * batch and before applying filters.
    */
   public void seal() {
     for (int i = 0; i < rowCount; i++) {
@@ -378,13 +405,17 @@ public final class ColumnBatch {
 
   // --- Selection vector ---
 
-  public int[] selectionVector() { return selectionVector; }
-  public int selectionCount() { return selectionCount; }
+  public int[] selectionVector() {
+    return selectionVector;
+  }
+
+  public int selectionCount() {
+    return selectionCount;
+  }
 
   public void setSelectionCount(int count) {
     if (count < 0 || count > rowCount) {
-      throw new IllegalArgumentException(
-          "Selection count out of range [0, " + rowCount + "]: " + count);
+      throw new IllegalArgumentException("Selection count out of range [0, " + rowCount + "]: " + count);
     }
     this.selectionCount = count;
     // After filter compaction, the selection vector is no longer identity
@@ -409,9 +440,17 @@ public final class ColumnBatch {
 
   // --- Direct column array access for SIMD operators ---
 
-  public long[] longColumn(int col) { return longColumns[col]; }
-  public double[] doubleColumn(int col) { return doubleColumns[col]; }
-  public boolean[] nullFlags(int col) { return nullFlags[col]; }
+  public long[] longColumn(int col) {
+    return longColumns[col];
+  }
+
+  public double[] doubleColumn(int col) {
+    return doubleColumns[col];
+  }
+
+  public boolean[] nullFlags(int col) {
+    return nullFlags[col];
+  }
 
   // --- Bulk copy methods (avoid per-row bounds checks) ---
 
@@ -430,15 +469,14 @@ public final class ColumnBatch {
   /**
    * Bulk-copy deferred byte references into a column. Skips per-row bounds checks.
    *
-   * @param col         column index (must be DEFERRED_BYTES type)
-   * @param pageIdx     per-row page indices
-   * @param offsets     per-row byte offsets
-   * @param lengths     per-row byte lengths
-   * @param compressed  per-row compression flags
-   * @param len         number of rows to copy
+   * @param col column index (must be DEFERRED_BYTES type)
+   * @param pageIdx per-row page indices
+   * @param offsets per-row byte offsets
+   * @param lengths per-row byte lengths
+   * @param compressed per-row compression flags
+   * @param len number of rows to copy
    */
-  void copyDeferredBytesColumn(int col, int[] pageIdx, int[] offsets,
-      int[] lengths, boolean[] compressed, int len) {
+  void copyDeferredBytesColumn(int col, int[] pageIdx, int[] offsets, int[] lengths, boolean[] compressed, int len) {
     System.arraycopy(offsets, 0, deferredOffsets[col], 0, len);
     System.arraycopy(lengths, 0, deferredLengths[col], 0, len);
     System.arraycopy(compressed, 0, deferredCompressed[col], 0, len);
@@ -448,12 +486,17 @@ public final class ColumnBatch {
 
   // --- Batch lifecycle ---
 
-  public int capacity() { return capacity; }
-  public int columnCount() { return columnCount; }
+  public int capacity() {
+    return capacity;
+  }
+
+  public int columnCount() {
+    return columnCount;
+  }
 
   /**
-   * Reset the batch for reuse — clears row count and selection.
-   * Column types and arrays are retained to avoid reallocation.
+   * Reset the batch for reuse — clears row count and selection. Column types and arrays are retained
+   * to avoid reallocation.
    */
   public void reset() {
     final int clearLen = rowCount; // only touch populated range

@@ -1,5 +1,6 @@
 package io.sirix.node;
 
+import io.sirix.cache.ScratchUse;
 import java.io.OutputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -9,8 +10,8 @@ import net.openhft.hashing.LongHashFunction;
 
 /**
  * A MemorySegment-based implementation of BytesOut. Uses GrowingMemorySegment for automatic
- * capacity management with off-heap aligned memory. Implements AutoCloseable to properly release
- * off-heap resources.
+ * capacity management: over a heap array by default, over borrowed allocator scratch when created
+ * with {@link #ofScratch}. Implements AutoCloseable so a scratch-backed writer returns its borrow.
  */
 public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   private final GrowingMemorySegment growingSegment;
@@ -62,6 +63,26 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
       throw new IllegalArgumentException("initialCapacity must be non-negative: " + initialCapacity);
     }
     return new MemorySegmentBytesOut(initialCapacity, false);
+  }
+
+  private MemorySegmentBytesOut(final GrowingMemorySegment growingSegment) {
+    this.growingSegment = growingSegment;
+    this.retainEmptyPipelineIdentityCache = true;
+  }
+
+  /**
+   * Create a writer in allocator scratch of at least {@code initialCapacity} bytes: native memory
+   * charged to the allocator's budget, for buffers that are flushed to a file (a positional write
+   * takes its bytes straight from native memory, with no intermediate copy). {@link #close()} returns
+   * the borrow; nothing read from the writer may be used after it.
+   *
+   * @param initialCapacity the bytes to borrow up front; positive
+   * @param use what the buffer is borrowed for
+   * @return the writer
+   * @throws OutOfMemoryError when the allocator's budget cannot serve the borrow
+   */
+  public static MemorySegmentBytesOut ofScratch(final long initialCapacity, final ScratchUse use) {
+    return new MemorySegmentBytesOut(GrowingMemorySegment.ofScratch(initialCapacity, use));
   }
 
   /**
@@ -375,9 +396,9 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   }
 
   /**
-   * Currently allocated capacity in bytes (not the write position). Used by the buffer pool to decide
-   * whether a buffer is small enough to keep, so one pathological commit's grown segment is released
-   * rather than pinned for the process's lifetime.
+   * Currently allocated capacity in bytes (not the write position). Used by a commit to decide
+   * whether its flush buffer is small enough to keep for the next commit, so one pathological
+   * commit's grown buffer goes back to the allocator rather than staying borrowed.
    *
    * @return the segment's allocated capacity
    */

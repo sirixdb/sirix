@@ -11,7 +11,6 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +54,7 @@ final class NeutralGroupTransformTest {
       final int discard = NumericGroupAggTable.DISCARD_HANDLE;
       final int offset = part.offsetAtAccBase(discard);
       assertArrayEquals(new long[part.slotWidth()],
-          Arrays.copyOfRange(part.storageAtAccBase(discard), offset, offset + part.slotWidth()));
+          GroupLanes.toArray(part.storageAtAccBase(discard), offset, part.slotWidth()));
       NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {part}, 0, 64, merged);
     }
     assertExpected(fixture, merged, true);
@@ -142,7 +141,7 @@ final class NeutralGroupTransformTest {
     final int size = table.size();
     final int handle = table.acquireExact(hash, Long.MAX_VALUE, new long[] {0L, key}, 0);
     assertEquals(size, table.size(), "the transformed identity must already exist");
-    assertEquals(count, table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)]);
+    assertEquals(count, GroupLanes.get(table.storageAtAccBase(handle), table.offsetAtAccBase(handle)));
   }
 
   /**
@@ -203,10 +202,10 @@ final class NeutralGroupTransformTest {
       long hash = ProjectionIndexByteScan.FNV_SEED;
       hash = hash * ProjectionIndexByteScan.FNV_PRIME ^ component;
       final int handle = table.acquireExact(hash, Long.MAX_VALUE, identity, 0);
-      final long[] storage = table.storageAtAccBase(handle);
+      final GroupBuffer storage = table.storageAtAccBase(handle);
       final int offset = table.offsetAtAccBase(handle);
-      assertEquals(entry.getValue()[0], storage[offset], "count for " + key);
-      assertEquals(entry.getValue()[1], storage[offset + 1], "first selected ordinal for " + key);
+      assertEquals(entry.getValue()[0], GroupLanes.get(storage, offset), "count for " + key);
+      assertEquals(entry.getValue()[1], GroupLanes.get(storage, offset + 1), "first selected ordinal for " + key);
       assertEquals(entry.getValue()[1], table.auxAtAccBase(handle), "winner ordinal for " + key);
     }
     assertEquals(expected.size(), table.size(), "all expected identities must already exist");

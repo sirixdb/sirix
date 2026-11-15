@@ -19,6 +19,7 @@ import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.PageContainer;
+import io.sirix.cache.Allocators;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.io.StorageType;
@@ -46,6 +47,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -393,10 +395,13 @@ final class AsyncFlushFailurePathTest {
         storage.putBlob(0, new byte[8 * 1024]);
         assertEquals(1, failedWriter.stagedSidePageCount());
 
+        final long lentBefore = Allocators.getInstance().scratchStats().lentBytes();
+        final AtomicLong lentAtFault = new AtomicLong();
         final AtomicInteger faults = new AtomicInteger();
         NodeStorageEngineWriter.asyncFlushFaultHook = (writer, site) -> {
           if (writer == failedWriter && "write".equals(site)) {
             faults.incrementAndGet();
+            lentAtFault.set(Allocators.getInstance().scratchStats().lentBytes());
             throw new IllegalStateException(FAULT_MESSAGE);
           }
         };
@@ -409,6 +414,9 @@ final class AsyncFlushFailurePathTest {
         }
 
         assertEquals(1, faults.get(), "the append worker fault must fire exactly once");
+        assertTrue(lentAtFault.get() > lentBefore, "the injected failure followed the epoch buffer borrow");
+        assertEquals(lentBefore, Allocators.getInstance().scratchStats().lentBytes(),
+            "rollback returned the failed epoch buffer and replaced the writer's foreground buffer");
         assertTrue(failedWriter.isClosed(), "the poisoned writer must be closed after rollback replaces it");
         assertEquals(0, failedWriter.stagedSidePageCount());
         assertEquals(0L, failedWriter.stagedSidePagePayloadBytes());

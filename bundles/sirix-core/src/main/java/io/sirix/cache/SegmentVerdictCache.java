@@ -48,14 +48,17 @@ public final class SegmentVerdictCache implements Cache<GlobalVerdictCacheKey, b
    * @param maxWeightBytes total table bytes retained; entries beyond it are evicted
    */
   public SegmentVerdictCache(final long maxWeightBytes) {
-    if (maxWeightBytes <= 0L) {
-      throw new IllegalArgumentException("segment verdict cache budget must be positive, got " + maxWeightBytes);
+    if (maxWeightBytes < 0L) {
+      throw new IllegalArgumentException("segment verdict cache budget must be non-negative, got " + maxWeightBytes);
     }
-    cache = Caffeine.newBuilder()
-                    .maximumWeight(maxWeightBytes)
-                    .weigher((GlobalVerdictCacheKey key, byte[] table) -> table.length)
-                    .scheduler(scheduler)
-                    .build();
+    final long unit = HeapCacheBudget.weightUnit(maxWeightBytes);
+    cache =
+        Caffeine.newBuilder()
+                .maximumWeight(maxWeightBytes / unit)
+                .executor(Runnable::run)
+                .weigher((GlobalVerdictCacheKey key, byte[] table) -> HeapCacheBudget.weight(128L + table.length, unit))
+                .scheduler(scheduler)
+                .build();
   }
 
   @Override

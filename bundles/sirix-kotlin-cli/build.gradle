@@ -135,8 +135,6 @@ graalvmNative {
             // Jackson - build time
             buildArgs.add('--initialize-at-build-time=com.fasterxml.jackson')
             // Sirix FFI components - run time
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
             buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
             // Use G1 GC
             buildArgs.add('--gc=G1')
@@ -180,8 +178,6 @@ graalvmNative {
             buildArgs.add('library-support.jar')
             buildArgs.add('META-INF/native-image/.*')
             // Sirix FFI components - run time
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.LinuxMemorySegmentAllocator')
-            buildArgs.add('--initialize-at-run-time=io.sirix.cache.WindowsMemorySegmentAllocator')
             buildArgs.add('--initialize-at-run-time=io.sirix.io.bytepipe.FFILz4Compressor')
             // Use G1 GC for better latency and throughput at runtime
             buildArgs.add('--gc=G1')
@@ -197,6 +193,9 @@ graalvmNative {
             }
             if (project.hasProperty('pgo')) {
                 buildArgs.add("--pgo=${project.findProperty('pgo')}")
+                // Compile every unit at the regular tier instead of leaving the profile's cold
+                // tail to the economy configuration; see the sirix-query PGO block for the numbers.
+                buildArgs.add('-H:CAIRegularCompilationCoverage=1.0')
             }
 
             // Enable verbose output for debugging

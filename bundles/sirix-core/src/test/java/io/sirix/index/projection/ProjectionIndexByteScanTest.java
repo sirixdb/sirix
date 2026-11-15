@@ -89,14 +89,26 @@ final class ProjectionIndexByteScanTest {
         new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.booleanEq(1, true)})) {
       final Long2ObjectOpenHashMap<long[]> expected = new Long2ObjectOpenHashMap<>();
       final long[] expectedMissing = new long[2];
-      ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(leaves, predicates, 0, new int[0], expected,
-          expectedMissing, 17);
+      try (GroupWorkspace workspace = new GroupWorkspace()) {
+        final Long2ObjectOpenHashMap<GroupBuffer> nativeExpected = new Long2ObjectOpenHashMap<>();
+        final GroupBuffer nativeMissing = workspace.newBlock(2);
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(workspace, leaves, predicates, 0, new int[0],
+            nativeExpected, nativeMissing, 17);
+        for (final var entry : nativeExpected.long2ObjectEntrySet()) {
+          expected.put(entry.getLongKey(), GroupLanes.toArray(entry.getValue(), 0, 2));
+        }
+        System.arraycopy(GroupLanes.toArray(nativeMissing, 0, 2), 0, expectedMissing, 0, 2);
+      }
 
       final NumericGroupAggTable actual = new NumericGroupAggTable(0, 16);
       final int initialCapacity = actual.capacity();
-      final long[] actualMissing = new long[2];
-      ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(leaves, predicates, 0, new int[0], actual,
-          actualMissing, 17);
+      final long[] actualMissing;
+      try (GroupWorkspace workspace = new GroupWorkspace()) {
+        final GroupBuffer missingAcc = workspace.newBlock(2);
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(leaves, predicates, 0, new int[0], actual,
+            missingAcc, 17);
+        actualMissing = GroupLanes.toArray(missingAcc, 0, GroupLanes.count(missingAcc));
+      }
 
       assertTrue(actual.capacity() > initialCapacity, "the fold must cross table growth");
       assertTrue(expectedMissing[0] > 0, "the corpus must exercise the missing-key group");
@@ -105,13 +117,14 @@ final class ProjectionIndexByteScanTest {
       assertArrayEquals(expectedMissing, actualMissing);
       for (final Long2ObjectMap.Entry<long[]> entry : expected.long2ObjectEntrySet()) {
         if (entry.getLongKey() == 0L) {
-          assertArrayEquals(entry.getValue(), actual.zeroSlot());
+          final GroupBuffer zero = actual.zeroSlot();
+          assertArrayEquals(entry.getValue(), GroupLanes.toArray(zero, 0, GroupLanes.count(zero)));
         } else {
           final int handle = actual.handleOfProbeKey(entry.getLongKey());
-          final long[] storage = actual.storageAtAccBase(handle);
+          final GroupBuffer storage = actual.storageAtAccBase(handle);
           final int offset = actual.offsetAtAccBase(handle);
-          assertEquals(entry.getValue()[0], storage[offset], "group count");
-          assertEquals(entry.getValue()[1], storage[offset + 1], "first matching ordinal");
+          assertEquals(entry.getValue()[0], GroupLanes.get(storage, offset), "group count");
+          assertEquals(entry.getValue()[1], GroupLanes.get(storage, offset + 1), "first matching ordinal");
         }
       }
     }
@@ -147,10 +160,12 @@ final class ProjectionIndexByteScanTest {
       final GroupDistinctAccumulator distinct = new GroupDistinctAccumulator(1, Long.MAX_VALUE);
       final GroupDistinctAccumulator.Worker worker = distinct.worker(0);
       final NumericGroupAggTable groups = new NumericGroupAggTable(1, 16, true);
-      ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(query == 0
-          ? leaves
-          : leaves.reversed(), new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, groups,
-          ProjectionIndexByteScan.newGroupAggAcc(1, 0), 0, 0, worker, worker.missing(), null, null);
+      try (GroupWorkspace workspace = new GroupWorkspace()) {
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(query == 0
+            ? leaves
+            : leaves.reversed(), new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, groups,
+            ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, 0), 0, 0, worker, worker.missing(), null, null);
+      }
       distinct.finish();
       assertEquals(expectedMissing.size(), distinct.missingSize());
       assertEquals(expected.size(), distinct.groupSizes().size());
@@ -1030,8 +1045,16 @@ final class ProjectionIndexByteScanTest {
     }
     final Long2ObjectOpenHashMap<long[]> out = new Long2ObjectOpenHashMap<>();
     final long[] missingAcc = ProjectionIndexByteScan.newGroupAggAcc(1, Long.MAX_VALUE);
-    ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(List.of(page.serialize()),
-        new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, out, missingAcc, 0);
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final Long2ObjectOpenHashMap<GroupBuffer> nativeOut = new Long2ObjectOpenHashMap<>();
+      final GroupBuffer nativeMissing = ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE);
+      ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(workspace, List.of(page.serialize()),
+          new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, nativeOut, nativeMissing, 0);
+      for (final var entry : nativeOut.long2ObjectEntrySet()) {
+        out.put(entry.getLongKey(), GroupLanes.toArray(entry.getValue(), 0, 6));
+      }
+      System.arraycopy(GroupLanes.toArray(nativeMissing, 0, 6), 0, missingAcc, 0, 6);
+    }
 
     final long[] seven = out.get(7L);
     assertEquals(3L, seven[0], "matching rows in group 7");
@@ -1055,10 +1078,14 @@ final class ProjectionIndexByteScanTest {
     for (int i = 0; i < 4; i++) {
       page.appendRow(i, new long[] {1L, Long.MAX_VALUE / 2}, new boolean[2], new String[2]);
     }
-    assertThrows(ArithmeticException.class,
-        () -> ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(List.of(page.serialize()),
-            new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, new Long2ObjectOpenHashMap<>(),
-            ProjectionIndexByteScan.newGroupAggAcc(1, Long.MAX_VALUE), 0));
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final List<byte[]> leaves = List.of(page.serialize());
+      final Long2ObjectOpenHashMap<GroupBuffer> out = new Long2ObjectOpenHashMap<>();
+      final GroupBuffer missingAcc = ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE);
+      assertThrows(ArithmeticException.class,
+          () -> ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(workspace, leaves,
+              new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, out, missingAcc, 0));
+    }
   }
 
   // ==================== NE ====================

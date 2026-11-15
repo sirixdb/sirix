@@ -689,8 +689,7 @@ public final class Databases {
   private static void initAllocator(long maxSegmentAllocationSize) {
     if (MANAGER.sessions().isEmpty()) {
       // Use the central Allocators factory so every callsite in sirix-core
-      // talks to the same allocator instance. The choice (legacy pool vs.
-      // Umbra-style frame-slot) is driven by -Dsirix.allocator at class-init.
+      // talks to the same allocator instance, the Umbra-style frame-slot allocator.
       final MemorySegmentAllocator segmentAllocator = Allocators.getInstance();
       segmentAllocator.init(maxSegmentAllocationSize);
 

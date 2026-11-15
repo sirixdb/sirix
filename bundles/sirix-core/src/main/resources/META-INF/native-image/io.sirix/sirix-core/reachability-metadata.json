@@ -51,20 +51,8 @@
         ]
       },
       {
-        "returnType": "long",
-        "parameterTypes": [
-          "int"
-        ]
-      },
-      {
         "returnType": "void*",
         "parameterTypes": []
-      },
-      {
-        "returnType": "void*",
-        "parameterTypes": [
-          "int"
-        ]
       },
       {
         "returnType": "int",

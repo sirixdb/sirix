@@ -3,12 +3,15 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
 import static java.util.Objects.requireNonNull;
 
 import io.sirix.budget.EngineWorkCounters;
 import io.sirix.budget.WorkCapture;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.index.projection.ProjectionColumnStore.LeafColumnAccess;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.Op;
@@ -19,6 +22,7 @@ import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.EncodedRowGro
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.junit.jupiter.api.Test;
 
+import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -324,8 +328,11 @@ final class RecordKeySetPredicateTest {
               assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fx.store(), preds, 0, n, fx.fetcher()),
                   "sliced ranged " + at);
               final long[] keep = ProjectionColumnScan.predicateKeepMask(fx.store(), preds, fx.fetcher());
-              assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fx.store(), preds, 0, n,
-                  fx.store().windowedLeafAccess(fx.fetcher(), keep, 2)), "sliced windowed " + at);
+              // The access holds its last window's buffers until it is closed, as a worker's does.
+              try (LeafColumnAccess windowed = fx.store().windowedLeafAccess(fx.fetcher(), keep, 2)) {
+                assertEquals(expected, ProjectionColumnScan.conjunctiveCount(fx.store(), preds, 0, n, windowed),
+                    "sliced windowed " + at);
+              }
               assertEquals(expected, ProjectionIndexByteScan.conjunctiveCount(fx.rawLeaves(), preds),
                   "whole-leaf bytes " + at);
               // The same predicates as an AND tree, and the key set under an OR with the long test:
@@ -427,7 +434,7 @@ final class RecordKeySetPredicateTest {
                                                                      store.columnMaskedView(column, fetcher, keep);
                                                                  assertEquals(0, slices[0].rowCount());
                                                                  assertEquals(values[column],
-                                                                     requireNonNull(slices[1].numericValues(),
+                                                                     requireNonNull(copyNumericValues(slices[1]),
                                                                          "the retained fixture column is numeric")[0]);
                                                                  assertEquals(0, slices[2].rowCount());
                                                                }
@@ -521,18 +528,19 @@ final class RecordKeySetPredicateTest {
   @Test
   void membershipWalkHandlesOrderExceptionsAndEmptySets() {
     final long[] keys = {10, 12, 14, 7, 16, 18, 3, 20}; // 7 and 3 are order exceptions
+    final MemorySegment keyLane = MemorySegment.ofArray(keys);
     final long[] set = {3, 7, 12, 20, 99};
     final long[] mask = new long[1];
     Arrays.fill(mask, -1L);
     mask[0] = (1L << keys.length) - 1L;
-    assertEquals(4, ProjectionRecordKeySet.andMembership(keys, keys.length, set, mask));
+    assertEquals(4, ProjectionRecordKeySet.andMembership(keyLane, 0L, keys.length, set, mask));
     assertEquals(0b10001010L | 1L << 6, mask[0]);
     // The incoming mask bounds the answer: a row already cleared stays cleared.
     mask[0] = 1L << 7;
-    ProjectionRecordKeySet.andMembership(keys, keys.length, set, mask);
+    ProjectionRecordKeySet.andMembership(keyLane, 0L, keys.length, set, mask);
     assertEquals(1L << 7, mask[0]);
     mask[0] = -1L;
-    assertEquals(0, ProjectionRecordKeySet.andMembership(keys, keys.length, new long[0], mask));
+    assertEquals(0, ProjectionRecordKeySet.andMembership(keyLane, 0L, keys.length, new long[0], mask));
     assertEquals(0L, mask[0]);
     assertTrue(ProjectionRecordKeySet.anyIn(set, 8, 12));
     assertFalse(ProjectionRecordKeySet.anyIn(set, 8, 11));

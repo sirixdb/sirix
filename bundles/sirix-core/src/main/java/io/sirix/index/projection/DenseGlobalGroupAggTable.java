@@ -3,12 +3,17 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.node.SegmentAccess;
+import org.jspecify.annotations.Nullable;
+import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.lang.ref.Reference;
+import java.util.Arrays;
 
 /**
- * Per-group aggregates for a group key that is a GLOBAL value-dictionary id, held in ONE array
- * indexed by the id itself instead of one open-addressed hash table per worker.
+ * Per-group aggregates for a group key that is a GLOBAL value-dictionary id, held in one native
+ * block indexed by the id itself instead of one open-addressed hash table per worker.
  *
  * <p>
  * {@link GlobalValueDictionary} mints ids as dense positive integers, so id {@code i}'s accumulator
@@ -40,15 +45,8 @@ import java.lang.invoke.VarHandle;
  */
 public final class DenseGlobalGroupAggTable {
 
-  /** Largest {@code long[]} length HotSpot will allocate on any collector. */
-  private static final int MAX_ARRAY_LENGTH = Integer.MAX_VALUE - 8;
-
-  /**
-   * Exact invoke behaviour: it skips the {@code asType} guard the profiler charged 1.2 % of the hot
-   * path to, at the price of every call site having to consume the access mode's declared return —
-   * which is why {@link #addLane} exists rather than a bare {@code getAndAdd} statement.
-   */
-  private static final VarHandle LANE = MethodHandles.arrayElementVarHandle(long[].class).withInvokeExactBehavior();
+  /** Largest lane count addressable by a group buffer. */
+  private static final int MAX_LANES = Integer.MAX_VALUE - 8;
 
   private static final VarHandle INITIALIZED;
 
@@ -85,7 +83,7 @@ public final class DenseGlobalGroupAggTable {
 
     void add(final int id) {
       if (size == ids.length) {
-        ids = java.util.Arrays.copyOf(ids, ids.length << 1);
+        ids = Arrays.copyOf(ids, ids.length << 1);
       }
       ids[size++] = id;
     }
@@ -112,13 +110,13 @@ public final class DenseGlobalGroupAggTable {
    */
   private final boolean foldCountLane;
   private final int maxId;
-  private final long[] lanes;
+  private final GroupBuffer lanes;
   /**
    * The accumulator for group id {@code 0}. A global column's cells are minted ids, which start at
    * {@code 1}, so this slot exists for the same reason {@link NumericGroupAggTable}'s zero slot does:
    * a value id of {@code 0} must not silently fold into id {@code 1}'s block.
    */
-  private final long[] zeroSlot;
+  private final GroupBuffer zeroSlot;
 
   @SuppressWarnings("unused") // read and written through INITIALIZED
   private volatile long initializedSlots;
@@ -133,11 +131,17 @@ public final class DenseGlobalGroupAggTable {
    * @return the table's byte cost
    */
   public static long bytesFor(final int aggColumns, final long maxId) {
-    return (long) slotWidthOf(aggColumns) * maxId * Long.BYTES;
+    if (maxId < 0L || maxId > (Long.MAX_VALUE / Long.BYTES) / slotWidthOf(aggColumns) - 1L) {
+      throw new IllegalArgumentException("invalid dictionary id count: " + maxId);
+    }
+    return slotWidthOf(aggColumns) * (maxId + 1L) * Long.BYTES;
   }
 
   /** Longs per accumulator block for {@code aggColumns} aggregate columns. */
   private static int slotWidthOf(final int aggColumns) {
+    if (aggColumns < 0 || aggColumns > (Integer.MAX_VALUE - 2) / 4) {
+      throw new IllegalArgumentException("invalid aggregate column count: " + aggColumns);
+    }
     return 2 + 4 * aggColumns;
   }
 
@@ -148,14 +152,11 @@ public final class DenseGlobalGroupAggTable {
    *        {@link NumericGroupAggTable#sumsExact})
    * @param foldCountLane whether anything reads the {@code count} lane (see {@link #foldCountLane})
    * @throws IllegalArgumentException if the arguments are out of range or the table cannot be
-   *         addressed as one array — the caller must have gated on {@link #bytesFor} first
+   *         addressed as one buffer — the caller must have gated on {@link #bytesFor} first
    */
-  public DenseGlobalGroupAggTable(final int aggColumns, final int maxId, final long sumExactMask,
-      final boolean foldCountLane) {
+  public DenseGlobalGroupAggTable(final GroupWorkspace workspace, final int aggColumns, final int maxId,
+      final long sumExactMask, final boolean foldCountLane) {
     this.foldCountLane = foldCountLane;
-    if (aggColumns < 0) {
-      throw new IllegalArgumentException("aggColumns must be >= 0, got " + aggColumns);
-    }
     if (maxId <= 0) {
       throw new IllegalArgumentException("maxId must be > 0, got " + maxId);
     }
@@ -164,12 +165,29 @@ public final class DenseGlobalGroupAggTable {
     this.sumExactMask = sumExactMask;
     this.maxId = maxId;
     final long length = (long) slotWidth * maxId;
-    if (length > MAX_ARRAY_LENGTH) {
+    if (length > MAX_LANES) {
       throw new IllegalArgumentException(
-          "dense group table of " + maxId + " ids needs " + length + " lanes, which exceeds one array");
+          "dense group table of " + maxId + " ids needs " + length + " lanes, which exceeds one buffer");
     }
-    this.lanes = new long[(int) length];
-    this.zeroSlot = ProjectionIndexByteScan.newGroupAggAcc(aggColumns, Long.MAX_VALUE);
+    this.lanes = workspace.takeAccumulatorChunk((int) length, slotWidth);
+    this.zeroSlot = ProjectionIndexByteScan.newGroupAggAcc(workspace, aggColumns, Long.MAX_VALUE);
+  }
+
+  // The workspace monitor makes capacity admission and table allocation one atomic operation.
+  @SuppressWarnings("java:S2445")
+  public static @Nullable DenseGlobalGroupAggTable tryCreate(final GroupWorkspace workspace, final int aggColumns,
+      final int maxId, final long sumExactMask, final boolean foldCountLane, final int workers) {
+    if (maxId <= 0 || workers <= 0) {
+      throw new IllegalArgumentException("dense table needs positive dictionary and worker counts");
+    }
+    final long slotBytes = (long) slotWidthOf(aggColumns) * Long.BYTES;
+    final long tableBytes = bytesFor(aggColumns, maxId) - slotBytes;
+    synchronized (workspace) {
+      if (!workspace.canAllocate(tableBytes, slotBytes, Math.addExact(workers, 1))) {
+        return null;
+      }
+      return new DenseGlobalGroupAggTable(workspace, aggColumns, maxId, sumExactMask, foldCountLane);
+    }
   }
 
   /** Aggregate columns this table's accumulator blocks carry. */
@@ -195,12 +213,12 @@ public final class DenseGlobalGroupAggTable {
   }
 
   /** The interleaved storage; id {@code i}'s block starts at {@code (i - 1) * slotWidth()}. */
-  public long[] lanes() {
+  public GroupBuffer lanes() {
     return lanes;
   }
 
   /** The accumulator block of the id-{@code 0} group; {@code count} lane {@code 0} means unseen. */
-  public long[] zeroSlot() {
+  public GroupBuffer zeroSlot() {
     return zeroSlot;
   }
 
@@ -214,8 +232,8 @@ public final class DenseGlobalGroupAggTable {
    * {@code count}: every matching row lowers first-seen off {@link Long#MAX_VALUE} whatever the query
    * reads, so existence stays observable even when the count lane is skipped as unread.
    */
-  public static boolean isLive(final long[] lanes, final int base) {
-    return lanes[base + 1] != Long.MAX_VALUE;
+  public static boolean isLive(final GroupBuffer lanes, final int base) {
+    return GroupLanes.get(lanes, base + 1) != Long.MAX_VALUE;
   }
 
   /**
@@ -234,16 +252,14 @@ public final class DenseGlobalGroupAggTable {
     if (fromId < 1 || toId > maxId + 1 || fromId > toId) {
       throw new IllegalArgumentException("id range [" + fromId + ", " + toId + ") outside 1.." + maxId);
     }
-    final long[] a = lanes;
+    final GroupBuffer a = lanes;
     final int w = slotWidth;
     final int end = (toId - 1) * w;
     for (int base = (fromId - 1) * w; base < end; base += w) {
-      // The freshly allocated array is already zero, so only the two sentinel lanes per aggregate
-      // column and the first-seen lane need a store.
-      a[base + 1] = Long.MAX_VALUE;
+      GroupLanes.set(a, base + 1, Long.MAX_VALUE);
       for (int off = base + 2; off < base + w; off += 4) {
-        a[off + 2] = Long.MAX_VALUE;
-        a[off + 3] = Long.MIN_VALUE;
+        GroupLanes.set(a, off + 2, Long.MAX_VALUE);
+        GroupLanes.set(a, off + 3, Long.MIN_VALUE);
       }
     }
     @SuppressWarnings("unused")
@@ -258,6 +274,7 @@ public final class DenseGlobalGroupAggTable {
    * @throws IllegalStateException if {@link #initIds} did not cover every id exactly once
    */
   public void requireFullyInitialized() {
+    lanes.requireLive();
     final long covered = (long) INITIALIZED.getVolatile(this);
     if (covered != maxId) {
       throw new IllegalStateException("dense group table initialized " + covered + " of " + maxId + " ids");
@@ -279,58 +296,67 @@ public final class DenseGlobalGroupAggTable {
    *        because folding it elsewhere or dropping it are both wrong answers
    * @throws ArithmeticException when a READ sum lane overflows, exactly as the hash kernels throw
    */
-  public void fold(final long id, final long firstSeenOrdinal, final long[][] aggValues, final long[][] aggPresence,
-      final int aggCount, final int w, final int bit, final int rowIdx, final IdRoster roster, final long[] decline) {
-    final long[] block;
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  public void foldLane(final long id, final long firstSeenOrdinal, final MemorySegment[] aggSeg, final long[] laneBases,
+      final long[][] aggPresence, final int aggCount, final int w, final int bit, final int rowIdx,
+      final IdRoster roster, final long[] decline) {
+    final GroupBuffer buffer;
     final int base;
     if (id == 0L) {
-      block = zeroSlot;
+      buffer = zeroSlot;
       base = 0;
     } else if (id < 0L || id > maxId) {
       decline[0] = 1L;
       return;
     } else {
-      block = lanes;
+      buffer = lanes;
       base = (int) (id - 1L) * slotWidth;
     }
-    if (foldCountLane) {
-      addLane(block, base, 1L);
-    }
-    if (minLaneCreated(block, base + 1, firstSeenOrdinal) && id != 0L) {
-      roster.add((int) id);
-    }
-    for (int a = 0; a < aggCount; a++) {
-      if ((aggPresence[a][w] & 1L << bit) == 0L) {
-        continue;
+    final long block = buffer.accumulator(base, aggCount, 4);
+    try {
+      if (foldCountLane) {
+        addLane(block, 0, 1L);
       }
-      final long v = aggValues[a][rowIdx];
-      final int aggBase = base + 2 + 4 * a;
-      // The PRESENT count is never skippable: min/max/avg over a group whose every row lacked the
-      // operand must answer the empty sequence, and this lane is the only thing that says so.
-      addLane(block, aggBase, 1L);
-      // Exact sum or DECLINE, and a lane no sum/avg reads is not folded at all — the same rule the
-      // hash kernels obey, so a min-only query never declines on a sum it does not read.
-      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
-        addExactLane(block, aggBase + 1, v);
+      if (minLaneCreated(block, 1, firstSeenOrdinal) && id != 0L) {
+        roster.add((int) id);
       }
-      minLane(block, aggBase + 2, v);
-      maxLane(block, aggBase + 3, v);
+      for (int a = 0; a < aggCount; a++) {
+        if ((aggPresence[a][w] & 1L << bit) == 0L) {
+          continue;
+        }
+        final long v = SegmentAccess.getLong(aggSeg[a], laneBases[a] + ((long) rowIdx << 3));
+        final int aggBase = 2 + 4 * a;
+        // The PRESENT count is never skippable: min/max/avg over a group whose every row lacked the
+        // operand must answer the empty sequence, and this lane is the only thing that says so.
+        addLane(block, aggBase, 1L);
+        // Exact sum or DECLINE, and a lane no sum/avg reads is not folded at all — the same rule the
+        // hash kernels obey, so a min-only query never declines on a sum it does not read.
+        if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+          addExactLane(block, aggBase + 1, v);
+        }
+        minLane(block, aggBase + 2, v);
+        maxLane(block, aggBase + 3, v);
+      }
+    } finally {
+      Reference.reachabilityFence(buffer);
     }
   }
 
   /** {@code lane += delta}, for the accumulating lanes whose exchange loop would be pure overhead. */
-  private static void addLane(final long[] block, final int index, final long delta) {
+  private static void addLane(final long block, final int index, final long delta) {
     // The access mode returns the previous value and exact invoke behaviour requires it be consumed;
     // the store is dead and eliminated.
     @SuppressWarnings("unused")
-    final long previous = (long) LANE.getAndAdd(block, index, delta);
+    final long previous = GroupKernelLanes.getAndAdd(block, index, delta);
   }
 
   /** {@code lane = min(lane, v)}; one plain load and a branch unless the row actually improves it. */
-  private static void minLane(final long[] block, final int index, final long v) {
-    long cur = (long) LANE.getOpaque(block, index);
+  private static void minLane(final long block, final int index, final long v) {
+    long cur = GroupKernelLanes.getOpaque(block, index);
     while (v < cur) {
-      final long witness = (long) LANE.compareAndExchange(block, index, cur, v);
+      final long witness = GroupKernelLanes.compareAndExchange(block, index, cur, v);
       if (witness == cur) {
         return;
       }
@@ -343,10 +369,10 @@ public final class DenseGlobalGroupAggTable {
    * {@link Long#MAX_VALUE} — i.e. whether it created the group. Only one caller can: an exchange that
    * succeeds against any other witness found the lane already lowered.
    */
-  private static boolean minLaneCreated(final long[] block, final int index, final long v) {
-    long cur = (long) LANE.getOpaque(block, index);
+  private static boolean minLaneCreated(final long block, final int index, final long v) {
+    long cur = GroupKernelLanes.getOpaque(block, index);
     while (v < cur) {
-      final long witness = (long) LANE.compareAndExchange(block, index, cur, v);
+      final long witness = GroupKernelLanes.compareAndExchange(block, index, cur, v);
       if (witness == cur) {
         return cur == Long.MAX_VALUE;
       }
@@ -356,10 +382,10 @@ public final class DenseGlobalGroupAggTable {
   }
 
   /** {@code lane = max(lane, v)}; the mirror of {@link #minLane}. */
-  private static void maxLane(final long[] block, final int index, final long v) {
-    long cur = (long) LANE.getOpaque(block, index);
+  private static void maxLane(final long block, final int index, final long v) {
+    long cur = GroupKernelLanes.getOpaque(block, index);
     while (v > cur) {
-      final long witness = (long) LANE.compareAndExchange(block, index, cur, v);
+      final long witness = GroupKernelLanes.compareAndExchange(block, index, cur, v);
       if (witness == cur) {
         return;
       }
@@ -373,11 +399,11 @@ public final class DenseGlobalGroupAggTable {
    * test and the store, and an interpreter that promotes an overflowing sum must never see a wrapped
    * one here.
    */
-  private static void addExactLane(final long[] block, final int index, final long v) {
-    long cur = (long) LANE.getOpaque(block, index);
+  private static void addExactLane(final long block, final int index, final long v) {
+    long cur = GroupKernelLanes.getOpaque(block, index);
     for (;;) {
       final long next = Math.addExact(cur, v);
-      final long witness = (long) LANE.compareAndExchange(block, index, cur, next);
+      final long witness = GroupKernelLanes.compareAndExchange(block, index, cur, next);
       if (witness == cur) {
         return;
       }

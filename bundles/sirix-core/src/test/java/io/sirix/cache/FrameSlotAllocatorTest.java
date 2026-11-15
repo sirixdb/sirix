@@ -8,7 +8,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import org.mockito.MockedStatic;
 import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +23,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -53,6 +59,31 @@ class FrameSlotAllocatorTest {
   @AfterEach
   void tearDown() {
     allocator.shutdown();
+  }
+
+  @Test
+  void failedOversizedClosureKeepsItsOwnerUntilAReleaseSucceeds() {
+    final long bytes = 512L * 1024L;
+    try (Arena backing = Arena.ofConfined()) {
+      final MemorySegment memory = backing.allocate(bytes);
+      final Arena failing = mock(Arena.class);
+      when(failing.allocate(bytes)).thenReturn(memory);
+      final OutOfMemoryError failure = new OutOfMemoryError("injected arena close failure");
+      doThrow(failure).doNothing().when(failing).close();
+      try (MockedStatic<Arena> arenas = mockStatic(Arena.class)) {
+        arenas.when(Arena::ofConfined).thenReturn(failing);
+        final MemorySegment allocation = allocator.allocate(bytes);
+        assertSame(memory, allocation);
+        assertSame(failure, assertThrows(OutOfMemoryError.class, () -> allocator.release(allocation)));
+        assertEquals(bytes, allocator.getPhysicalMemoryBytes());
+        assertEquals(bytes, allocator.nonExecutionCommittedBytes());
+        assertEquals(bytes, allocator.getActiveMemoryBytes());
+        allocator.release(allocation);
+        assertEquals(0L, allocator.getPhysicalMemoryBytes());
+        assertEquals(0L, allocator.nonExecutionCommittedBytes());
+        assertEquals(0L, allocator.getActiveMemoryBytes());
+      }
+    }
   }
 
   @Test
@@ -629,9 +660,11 @@ class FrameSlotAllocatorTest {
   @Test
   void oneSlotInterfaceAllocatorMakesBoundedProgressUnderContention() throws Exception {
     allocator.shutdown();
-    final int classIdx = FrameSlotAllocator.SIZE_CLASSES.length - 1;
+    final int classIdx = FrameSlotAllocator.SIZE_CLASSES.length - 2;
     final long slotSize = FrameSlotAllocator.SIZE_CLASSES[classIdx];
-    allocator = new FrameSlotAllocator(slotSize);
+    // Keep the original 256 KiB budget. Its execution floor leaves room for exactly
+    // one 128 KiB slot; two would consume that protected capacity.
+    allocator = new FrameSlotAllocator(slotSize * 2);
 
     final int workers = 4;
     final int iterations = 100;
@@ -689,13 +722,47 @@ class FrameSlotAllocatorTest {
     assertEquals(budget / 16, headroom, "default headroom is 1/16th of the budget");
     // Drive the slab arm to its cap: slab commitments are permanent until shutdown, so they must
     // refuse beyond budget − headroom…
-    assertTrue(allocator.reserveSlabCommittedBytes(budget - headroom));
+    assertTrue(allocator.reserveSlabCommittedBytes(budget - budget / 8 - headroom));
     assertFalse(allocator.reserveSlabCommittedBytes(1), "slab commitment must stop short of the oversized headroom");
     // …while the oversized arm still admits inside the headroom — the retry that could never say
-    // yes after a slab peak now can.
-    assertTrue(allocator.reserveCommittedBytes(headroom),
+    // yes after a slab peak now can. It stops at the scratch reserve, the last quarter of the
+    // headroom: oversized and slab commitment returns when released, but a reader must not have to
+    // wait for that to get the buffer its read lands in.
+    final long scratchReserve = allocator.scratchReserveBytes();
+    assertEquals(headroom / 4, scratchReserve, "default scratch reserve is a quarter of the headroom");
+    assertTrue(allocator.reserveCommittedBytes(headroom - scratchReserve),
         "an oversized reservation must succeed inside the headroom at slab peak");
-    assertFalse(allocator.reserveCommittedBytes(1), "the full budget is then exhausted");
+    assertFalse(allocator.reserveCommittedBytes(1), "oversized commitment must stop short of the scratch reserve");
+    assertTrue(allocator.reserveScratchCommittedBytes(scratchReserve), "scratch alone commits the reserve");
+    assertFalse(allocator.reserveScratchCommittedBytes(1), "the non-execution budget is then exhausted");
+  }
+
+  @Test
+  void scratchHeadroomCannotBeConvertedIntoAdditionalPageFrames() {
+    final long size = 256L * 1024L;
+    final List<FrameSlot> frames = new ArrayList<>();
+    try {
+      for (FrameSlot frame; (frame = allocator.allocateSlot(size)) != null;) {
+        frames.add(frame);
+      }
+      final long frameBytes = (long) frames.size() * size;
+      assertTrue(frameBytes > 0L);
+      assertEquals(allocator.budgetBytes() - allocator.budgetBytes() / 8 - allocator.oversizedHeadroomBytes(),
+          frameBytes);
+      final long small = 64L * 1024L;
+      try (var _ = new ScratchLease(allocator).acquire(small, ScratchUse.READ)) {
+        assertEquals(frameBytes + small, allocator.getPhysicalMemoryBytes());
+      }
+      assertNull(allocator.allocateSlot(small));
+      assertEquals(frameBytes + small, allocator.getPhysicalMemoryBytes());
+      assertEquals(0L, allocator.scratchStats().totalReclaimed());
+      assertEquals(0L, allocator.allocateCount(FrameSlotAllocator.indexForSize(small)));
+    } finally {
+      for (final FrameSlot frame : frames) {
+        frame.close();
+      }
+    }
+    assertEquals(0L, allocator.getActiveMemoryBytes());
   }
 
 }

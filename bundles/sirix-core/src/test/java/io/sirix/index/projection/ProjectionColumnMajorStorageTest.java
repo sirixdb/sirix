@@ -278,12 +278,13 @@ final class ProjectionColumnMajorStorageTest {
       assertArrayEquals(encoded.segments()[RowGroupDescriptor.entryIndexOf(encoded.descriptor(), body)], actual[i]);
     }
     final ProjectionColumnStore.ColumnSlice[] strings = store.column(2, fetcher);
-    final ProjectionColumnStore.LeafColumnAccess window = store.windowedLeafAccess(fetcher, null, 2, 2);
-    for (int i = 0; i < order.length; i++) {
-      assertEquals(strings[i].rowCount(), window.slice(2, i).rowCount());
-      assertArrayEquals(strings[i].presenceWords(), window.slice(2, i).presenceWords());
-      assertArrayEquals(strings[i].stringDictIds(), window.slice(2, i).stringDictIds());
-      assertArrayEquals(store.recordKeys(fetcher)[i], window.recordKeys(i));
+    try (ProjectionColumnStore.LeafColumnAccess window = store.windowedLeafAccess(fetcher, null, 2, 2)) {
+      for (int i = 0; i < order.length; i++) {
+        assertEquals(strings[i].rowCount(), window.slice(2, i).rowCount());
+        assertArrayEquals(strings[i].presenceWords(), window.slice(2, i).presenceWords());
+        assertArrayEquals(strings[i].stringDictIds(), window.slice(2, i).stringDictIds());
+        assertArrayEquals(store.recordKeys(fetcher)[i], window.recordKeys(i));
+      }
     }
     final long[] keys = {Constants.NULL_ID_LONG, ProjectionSlotLayout.COLUMN_MAJOR.segmentSlot(MAX_ID, body),
         ProjectionSlotLayout.COLUMN_MAJOR.segmentSlot(MAX_ID - 1L, body),

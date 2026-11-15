@@ -1,6 +1,11 @@
 package io.sirix.io.bytepipe;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.sirix.cache.Allocators;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import org.slf4j.Logger;
@@ -16,7 +21,6 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout.OfInt;
 import java.lang.invoke.MethodHandle;
 import java.nio.ByteOrder;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
@@ -121,25 +125,6 @@ public final class FFILz4Compressor implements ByteHandler {
 
   // Memory segment allocator for decompression buffers
   private static final MemorySegmentAllocator ALLOCATOR = Allocators.getInstance();
-
-  /**
-   * Default initial size for decompression buffer (128KB - typical page size after decompression).
-   */
-  private static final int DEFAULT_DECOMPRESS_BUFFER_SIZE = 128 * 1024;
-
-  /**
-   * Bounded pool of decompression buffers - Loom-friendly.
-   * 
-   * <p>
-   * Unlike ThreadLocal which creates one buffer per thread (memory explosion with millions of virtual
-   * threads), this pool has a fixed size of 2×CPU cores.
-   * 
-   * <p>
-   * When all buffers are in use, a new one is allocated (not pooled). This ensures progress under
-   * high concurrency while keeping memory bounded for typical loads.
-   */
-  private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
-  private static final ArrayBlockingQueue<MemorySegment> BUFFER_POOL = new ArrayBlockingQueue<>(POOL_SIZE);
 
   static {
     boolean available = false;
@@ -407,8 +392,8 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Compress data and return a new MemorySegment with compressed data. Uses a confined Arena for
-   * temporary compression buffer.
+   * Compress data and return a new MemorySegment with compressed data. The temporary compression
+   * buffer is allocator scratch borrowed for the call.
    * 
    * <p>
    * Compression strategy depends on the configured {@link CompressionMode}:
@@ -426,6 +411,9 @@ public final class FFILz4Compressor implements ByteHandler {
    * @param source uncompressed data (can be heap or native)
    * @return compressed data in a MemorySegment
    */
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings("java:S3776")
   @Override
   public MemorySegment compress(MemorySegment source) {
     if (source.byteSize() > Integer.MAX_VALUE) {
@@ -446,20 +434,23 @@ public final class FFILz4Compressor implements ByteHandler {
 
     int maxDstSize = compressBound(srcSize);
 
-    // Use Arena for temporary compression buffer
-    try (Arena arena = Arena.ofConfined()) {
-      // FFI requires native memory - copy heap segments to native
-      MemorySegment nativeSource;
-      if (source.isNative()) {
+    // The FFI call needs native memory on both sides. Both stagings are allocator scratch borrowed
+    // for this call: a native copy of a heap source, and the worst-case output with header space.
+    final ScratchLease sourceLease = source.isNative()
+        ? null
+        : ScratchLease.of(srcSize, ScratchUse.CODEC);
+    try (ScratchLease outputLease = ScratchLease.of(maxDstSize + 4L, ScratchUse.CODEC)) {
+      final MemorySegment nativeSource;
+      if (sourceLease == null) {
         nativeSource = source;
       } else {
-        // Copy heap segment to native memory for FFI call
-        nativeSource = arena.allocate(srcSize);
+        // The compressors take the source's size as the input length: an exact view, not the
+        // borrowed buffer's capacity.
+        nativeSource = sourceLease.segment().asSlice(0, srcSize);
         MemorySegment.copy(source, 0, nativeSource, 0, srcSize);
       }
 
-      // Allocate temporary buffer with header space
-      MemorySegment tempCompressed = arena.allocate(maxDstSize + 4);
+      final MemorySegment tempCompressed = outputLease.segment().asSlice(0, maxDstSize + 4L);
 
       // Write decompressed size header (for decompression)
       tempCompressed.set(LE_HEADER_INT, 0, srcSize);
@@ -503,6 +494,10 @@ public final class FFILz4Compressor implements ByteHandler {
       MemorySegment result = Arena.ofAuto().allocate(totalCompressedSize);
       MemorySegment.copy(tempCompressed, 0, result, 0, totalCompressedSize);
       return result;
+    } finally {
+      if (sourceLease != null) {
+        sourceLease.close();
+      }
     }
   }
 
@@ -530,10 +525,13 @@ public final class FFILz4Compressor implements ByteHandler {
    * @param compressed compressed data (with 4-byte header containing decompressed size)
    * @return scoped result; must be closed to return buffer to allocator
    */
-  // Heap-staging arena below is acquired outside the try that frees it, so a failing staging
-  // allocate/copy leaks it and the reserved output buffer; deferred to sirix-lz4-staging-leak
-  // because every restructuring tried so far moves the hot native decode path's compiled shape.
-  @SuppressWarnings("MustBeClosedChecker")
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  // Sonar S2093: on success the result owns what was acquired here, and it is handed back only on
+  // failure. Nothing is closed at the end of a block.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"java:S1181", "java:S2093", "java:S3776"})
   @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
     // No native-availability gate here: the stored-uncompressed path needs no LZ4 at all, and
@@ -554,11 +552,9 @@ public final class FFILz4Compressor implements ByteHandler {
       throw new SirixIOException("Corrupt compressed page: implausible decompressed size " + sizeHeader);
     }
 
-    // Buffers come from Allocators.getInstance(): on Linux that is the Umbra-style
-    // FrameSlotAllocator (fixed-address frame slots + optimistic versioned reads), which
-    // eliminates the cross-thread recycling race the legacy pool allocator had under
-    // 20-way parallel scans. The legacy LinuxMemorySegmentAllocator remains reachable via
-    // -Dsirix.allocator=pool for emergency rollback ONLY — it still carries that race.
+    // Buffers come from Allocators.getInstance(): the Umbra-style FrameSlotAllocator (fixed-address
+    // frame slots + optimistic versioned reads), which has no cross-thread recycling race under
+    // 20-way parallel scans.
     // (Arena.ofShared() per decompression was correct but added ~40 s of mmap/close
     // overhead per 1 M-page scan — 2.5× slowdown — hence the pooled design.)
 
@@ -569,34 +565,36 @@ public final class FFILz4Compressor implements ByteHandler {
             + " exceeds the payload (" + (compressed.byteSize() - 4) + " bytes)");
       }
       final MemorySegment buffer = ALLOCATOR.allocate(uncompressedSize);
-      MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
-
-      final MemorySegment backingBuffer = buffer;
-      // Exclude allocator padding so a subsequent handler receives only its encoded frame.
-      return new DecompressionResult(buffer.asSlice(0, uncompressedSize), backingBuffer,
-          () -> ALLOCATOR.release(backingBuffer), new AtomicBoolean(false));
+      try {
+        MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
+        final MemorySegment backingBuffer = buffer;
+        return new DecompressionResult(buffer.asSlice(0, uncompressedSize), backingBuffer,
+            () -> ALLOCATOR.release(backingBuffer), new AtomicBoolean(false));
+      } catch (final Throwable failure) {
+        try {
+          ALLOCATOR.release(buffer);
+        } catch (final Throwable cleanup) {
+          retainCleanupFailure(failure, cleanup);
+        }
+        throw failure;
+      }
     }
 
     int decompressedSize = sizeHeader;
 
-    MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
-
-    MemorySegment nativeCompressed;
-    Arena tempArena = null;
-    if (compressed.isNative()) {
-      nativeCompressed = compressed;
-    } else {
-      tempArena = Arena.ofConfined();
-      nativeCompressed = tempArena.allocate(compressed.byteSize());
-      MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
-    }
-
-    // Ownership of the allocator-owned buffer transfers to the returned DecompressionResult
-    // only on success; once staging completes, every decode failure — including the native
-    // MethodHandle invocation itself throwing — must release it exactly once, or repeated corrupt
-    // reads drain the frame-slot budget into an OutOfMemoryError (issue #1074).
+    ScratchLease inputLease = null;
     boolean ownershipTransferred = false;
+    Throwable failure = null;
+    final MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
     try {
+      final MemorySegment nativeCompressed;
+      if (compressed.isNative()) {
+        nativeCompressed = compressed;
+      } else {
+        inputLease = ScratchLease.of(compressed.byteSize(), ScratchUse.CODEC);
+        nativeCompressed = inputLease.segment().asSlice(0, compressed.byteSize());
+        MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
+      }
       int actualSize;
       if (USE_FAST_DECOMPRESS && NATIVE_LZ4_AVAILABLE) {
         int bytesRead = decompressSegmentFast(nativeCompressed.asSlice(4), buffer, decompressedSize);
@@ -621,33 +619,35 @@ public final class FFILz4Compressor implements ByteHandler {
       final MemorySegment backingBuffer = buffer;
       final DecompressionResult result = new DecompressionResult(buffer.asSlice(0, actualSize), backingBuffer,
           () -> ALLOCATOR.release(backingBuffer), new AtomicBoolean(false));
+      if (inputLease != null) {
+        final ScratchLease input = inputLease;
+        inputLease = null;
+        input.close();
+      }
       ownershipTransferred = true;
       return result;
+    } catch (final Throwable caught) {
+      failure = caught;
+      throw caught;
     } finally {
       if (!ownershipTransferred) {
-        ALLOCATOR.release(buffer);
+        try {
+          ALLOCATOR.release(buffer);
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
       }
-      if (tempArena != null) {
-        tempArena.close();
+      if (inputLease != null) {
+        try {
+          inputLease.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
+      }
+      if (failure != null) {
+        rethrowCleanupFailure(failure);
       }
     }
-  }
-
-  /**
-   * Clear all buffers from the pool. Call this when shutting down or when memory needs to be
-   * reclaimed.
-   */
-  public static void clearPool() {
-    BUFFER_POOL.clear();
-  }
-
-  /**
-   * Get current pool statistics for monitoring.
-   * 
-   * @return number of buffers currently in pool
-   */
-  public static int getPoolSize() {
-    return BUFFER_POOL.size();
   }
 
   /**

@@ -7,7 +7,6 @@ import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -92,10 +91,14 @@ final class DictionaryGroupCountTest {
         if (dense) {
           table.useDenseIndex();
         }
-        final long[] missing = new long[2 + 4 * aggregates];
-        ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(fixture.leaves(), SELECTED, 0, aggregates == 0
-            ? new int[0]
-            : new int[] {2}, table, missing, 9);
+        final long[] missing;
+        try (GroupWorkspace workspace = new GroupWorkspace()) {
+          final GroupBuffer missingAcc = workspace.newBlock(2 + 4 * aggregates);
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(fixture.leaves(), SELECTED, 0, aggregates == 0
+              ? new int[0]
+              : new int[] {2}, table, missingAcc, 9);
+          missing = GroupLanes.toArray(missingAcc, 0, GroupLanes.count(missingAcc));
+        }
         assertEquals(fixture.strings().size() - 1, table.sizeIncludingZero());
         final long[] expectedMissing = fixture.strings().get(null);
         assertNotNull(expectedMissing);
@@ -107,10 +110,10 @@ final class DictionaryGroupCountTest {
           }
           final byte[] bytes = entry.getKey().getBytes(StandardCharsets.UTF_8);
           final int handle = table.handleOfProbeKey(ProjectionIndexByteScan.utf8Hash(bytes));
-          final long[] storage = table.storageAtAccBase(handle);
+          final GroupBuffer storage = table.storageAtAccBase(handle);
           final int offset = table.offsetAtAccBase(handle);
-          assertEquals(entry.getValue()[0], storage[offset]);
-          assertEquals(entry.getValue()[1], storage[offset + 1]);
+          assertEquals(entry.getValue()[0], GroupLanes.get(storage, offset));
+          assertEquals(entry.getValue()[1], GroupLanes.get(storage, offset + 1));
         }
       }
     }
@@ -130,8 +133,8 @@ final class DictionaryGroupCountTest {
           part.setPassRange(63, partition, partition + 1);
           scan(fixture.leaves(), part, new ProjectionStringIdentityRegistry(4), general);
           final int offset = part.offsetAtAccBase(NumericGroupAggTable.DISCARD_HANDLE);
-          assertArrayEquals(new long[part.slotWidth()], Arrays.copyOfRange(
-              part.storageAtAccBase(NumericGroupAggTable.DISCARD_HANDLE), offset, offset + part.slotWidth()));
+          assertArrayEquals(new long[part.slotWidth()],
+              GroupLanes.toArray(part.storageAtAccBase(NumericGroupAggTable.DISCARD_HANDLE), offset, part.slotWidth()));
           NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {part}, 0, 64, merged);
         }
         assertComposite(fixture.composite(), merged);
@@ -219,10 +222,10 @@ final class DictionaryGroupCountTest {
       final int size = out.size();
       final int handle = out.acquireExact(hash, Long.MAX_VALUE, identity, 0);
       assertEquals(size, out.size(), "the independently computed identity must already exist");
-      final long[] storage = out.storageAtAccBase(handle);
+      final GroupBuffer storage = out.storageAtAccBase(handle);
       final int offset = out.offsetAtAccBase(handle);
-      assertEquals(entry.getValue()[0], storage[offset]);
-      assertEquals(entry.getValue()[1], storage[offset + 1]);
+      assertEquals(entry.getValue()[0], GroupLanes.get(storage, offset));
+      assertEquals(entry.getValue()[1], GroupLanes.get(storage, offset + 1));
       assertEquals(entry.getValue()[1], out.auxAtAccBase(handle));
     }
   }

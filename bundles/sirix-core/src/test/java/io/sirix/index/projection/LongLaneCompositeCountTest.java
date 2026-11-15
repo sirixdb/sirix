@@ -98,7 +98,7 @@ final class LongLaneCompositeCountTest {
           final int discard = NumericGroupAggTable.DISCARD_HANDLE;
           final int base = part.offsetAtAccBase(discard);
           assertArrayEquals(new long[part.slotWidth()],
-              Arrays.copyOfRange(part.storageAtAccBase(discard), base, base + part.slotWidth()));
+              GroupLanes.toArray(part.storageAtAccBase(discard), base, part.slotWidth()));
           NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {part}, 0, 64, merged);
         }
         assertExpected(merged, expected);
@@ -182,7 +182,7 @@ final class LongLaneCompositeCountTest {
           final int discard = NumericGroupAggTable.DISCARD_HANDLE;
           final int base = part.offsetAtAccBase(discard);
           assertArrayEquals(new long[part.slotWidth()],
-              Arrays.copyOfRange(part.storageAtAccBase(discard), base, base + part.slotWidth()));
+              GroupLanes.toArray(part.storageAtAccBase(discard), base, part.slotWidth()));
           NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {part}, 0, 64, merged);
         }
         assertGlobalExpected(fixture, merged);
@@ -319,7 +319,7 @@ final class LongLaneCompositeCountTest {
       assertEquals(fixture.expected().size(), out.size(), "canonical group and its probe hash must already exist");
       final int base = out.offsetAtAccBase(handle);
       assertArrayEquals(new long[] {expected[1], expected[2]},
-          Arrays.copyOfRange(out.storageAtAccBase(handle), base, base + 2));
+          GroupLanes.toArray(out.storageAtAccBase(handle), base, 2));
       assertEquals(expected[2], out.auxAtAccBase(handle));
     }
   }
@@ -371,7 +371,7 @@ final class LongLaneCompositeCountTest {
       final int handle = out.acquireExact(hash, Long.MAX_VALUE, identity, 0);
       assertEquals(expected.size(), out.size(), "oracle identity must already exist");
       final int base = out.offsetAtAccBase(handle);
-      assertArrayEquals(entry.getValue(), Arrays.copyOfRange(out.storageAtAccBase(handle), base, base + 2));
+      assertArrayEquals(entry.getValue(), GroupLanes.toArray(out.storageAtAccBase(handle), base, 2));
       assertEquals(entry.getValue()[1], out.auxAtAccBase(handle));
     }
   }

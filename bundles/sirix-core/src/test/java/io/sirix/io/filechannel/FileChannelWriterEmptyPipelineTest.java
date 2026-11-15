@@ -21,6 +21,10 @@ import static org.mockito.Mockito.when;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.Allocators;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchStats;
+import io.sirix.cache.ScratchUse;
 import io.sirix.io.IOStorage;
 import io.sirix.io.IOTestHelper;
 import io.sirix.io.PageHasher;
@@ -50,7 +54,9 @@ import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -93,6 +99,150 @@ final class FileChannelWriterEmptyPipelineTest {
       assertBufferedFrame(append.toByteArray(), 0, expected);
     } finally {
       storage.close();
+    }
+  }
+
+  @Test
+  void alignmentPaddingIsZeroWhateverTheBorrowedAppendBufferHeldBefore(@TempDir final Path tempDir) {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    final byte[] firstBody = serialize(config, new OverflowPage(patternedBytes(257, 17)));
+    final byte[] secondBody = serialize(config, new OverflowPage(patternedBytes(733, 91)));
+    final byte[] thirdBody = serialize(config, new OverflowPage(patternedBytes(64, 5)));
+    final PageReference firstReference = new PageReference();
+    final PageReference secondReference = new PageReference();
+    final PageReference thirdReference = new PageReference();
+    final FileChannelStorage storage = createStorage(config);
+    try (MemorySegmentBytesOut append = MemorySegmentBytesOut.ofScratch(16 * 1024, ScratchUse.COMMIT_FLUSH);
+        Writer writer = storage.createWriter()) {
+      // Scratch is not zeroed: leave the bytes a previous borrower would have left.
+      final byte[] residue = new byte[Math.toIntExact(append.capacity())];
+      Arrays.fill(residue, (byte) 0x5A);
+      append.write(residue);
+      append.clear();
+
+      writer.write(config, firstReference, new OverflowPage(patternedBytes(257, 17)), append);
+      writer.write(config, secondReference, new OverflowPage(patternedBytes(733, 91)), append);
+      writer.write(config, thirdReference, new OverflowPage(patternedBytes(64, 5)), append);
+
+      final byte[] buffered = append.toByteArray();
+      final long base = firstReference.getKey();
+      final PageReference[] references = {firstReference, secondReference, thirdReference};
+      final byte[][] bodies = {firstBody, secondBody, thirdBody};
+      int paddingBytes = 0;
+      int frameEnd = 0;
+      for (int i = 0; i < references.length; i++) {
+        final int frameStart = Math.toIntExact(references[i].getKey() - base);
+        assertEquals(0, references[i].getKey() % Writer.PAGE_FRAGMENT_BYTE_ALIGN, "frames are aligned");
+        for (int offset = frameEnd; offset < frameStart; offset++) {
+          assertEquals(0, buffered[offset], "padding byte at " + offset + " carries the buffer's previous contents");
+          paddingBytes++;
+        }
+        assertBufferedFrame(buffered, frameStart, bodies[i]);
+        frameEnd = frameStart + Integer.BYTES + bodies[i].length;
+      }
+      assertEquals(frameEnd, buffered.length, "nothing follows the last frame");
+      assertTrue(paddingBytes > 0, "the fixture's frame lengths must leave alignment gaps, or this checks nothing");
+    } finally {
+      storage.close();
+    }
+  }
+
+  @Test
+  void spilledPagesAreCopiedThroughOneBorrowedBufferEach(@TempDir final Path tempDir) throws IOException {
+    final ResourceConfiguration config = emptyPipelineConfig(tempDir);
+    // Two pages the first borrow holds, around one that needs a second, larger borrow.
+    final int[] payloadLengths = {251, 300 * 1024, 4_097};
+    final byte[][] bodies = new byte[payloadLengths.length][];
+    final PageReference[] references = new PageReference[payloadLengths.length];
+    final FileChannelStorage storage = createStorage(config);
+    try (final Writer writer = storage.createWriter();
+        final BytesOut<?> spill = Bytes.elasticOffHeapByteBuffer();
+        final MemorySegmentBytesOut append = MemorySegmentBytesOut.ofScratch(64 * 1024, ScratchUse.COMMIT_FLUSH)) {
+      for (int i = 0; i < payloadLengths.length; i++) {
+        final OverflowPage page = new OverflowPage(patternedBytes(payloadLengths[i], 7 + i));
+        bodies[i] = serialize(config, page);
+        references[i] = new PageReference();
+        writer.writeSpilled(config, references[i], page, spill);
+        assertTrue(IOStorage.isSpillKey(references[i].getKey()), "page " + i + " went to the spill file");
+      }
+      writer.flushSpilledBufferedWrites(spill);
+
+      // The large page pushes the append buffer past the flush size; where commits preallocate, that
+      // flush grows the data file through one block of zeros, the only other borrow of this use.
+      final long zeroBlocks = IOStorage.preallocatedCommitsEnabled()
+          ? 1
+          : 0;
+      final long[] expectedBorrows = {1, 2 + zeroBlocks, 1};
+      final ScratchStats before = Allocators.getInstance().scratchStats();
+      for (int i = 0; i < payloadLengths.length; i++) {
+        final long borrowsBefore = Allocators.getInstance().scratchStats().acquisitions(ScratchUse.WRITE_IO);
+        writer.copySpilledPage(config, references[i], append);
+        assertEquals(expectedBorrows[i],
+            Allocators.getInstance().scratchStats().acquisitions(ScratchUse.WRITE_IO) - borrowsBefore,
+            "page " + i + ": one borrow per copied page, and a second for a page beyond the first borrow's capacity");
+        assertFalse(IOStorage.isSpillKey(references[i].getKey()), "page " + i + " now names a data-file offset");
+        assertEquals(0, references[i].getKey() % Writer.PAGE_FRAGMENT_BYTE_ALIGN, "frames are aligned");
+      }
+      final ScratchStats after = Allocators.getInstance().scratchStats();
+      assertEquals(before.totalLentBuffers(), after.totalLentBuffers(), "every copy returned its buffer");
+      assertEquals(0, after.staleReleases() - before.staleReleases());
+
+      // The frames are compared where a reader finds them: in the data file, at the offsets the
+      // references now name.
+      writer.flushBufferedWrites(append);
+      for (int i = 0; i < payloadLengths.length; i++) {
+        assertWireFrame(dataFile(tempDir), references[i].getKey(), bodies[i]);
+      }
+    } finally {
+      storage.close();
+    }
+  }
+
+  @Test
+  void aPreallocatedRangeIsZeroWhateverTheBorrowedBlockHeldBefore(@TempDir final Path tempDir) throws IOException {
+    // Leave 0x5A in every resident buffer of the block's capacity, the way earlier borrowers leave
+    // their bytes: borrow that capacity until the allocator has to create one.
+    final List<ScratchLease> dirtied = new ArrayList<>();
+    final long createdBefore = Allocators.getInstance().scratchStats().totalCreated();
+    do {
+      final ScratchLease lease = ScratchLease.of(1 << 20, ScratchUse.WRITE_IO);
+      lease.segment().fill((byte) 0x5A);
+      dirtied.add(lease);
+    } while (Allocators.getInstance().scratchStats().totalCreated() == createdBefore);
+    for (final ScratchLease lease : dirtied) {
+      lease.close();
+    }
+
+    final Path file = tempDir.resolve("preallocated");
+    final long from = 4_096;
+    final long to = from + 3L * (1 << 20) + 123;
+    final ScratchStats before = Allocators.getInstance().scratchStats();
+    try (FileChannel channel =
+        FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+      FileChannelWriter.allocateFileRange(channel, from, to);
+      final ScratchStats after = Allocators.getInstance().scratchStats();
+      assertEquals(1, after.acquisitions(ScratchUse.WRITE_IO) - before.acquisitions(ScratchUse.WRITE_IO),
+          "one block for the whole range, however many writes it takes");
+      assertEquals(before.totalLentBuffers(), after.totalLentBuffers(), "the block was returned");
+      assertEquals(to, channel.size());
+
+      final ByteBuffer written = ByteBuffer.allocate(Math.toIntExact(to - from));
+      readFully(channel, written, from);
+      final byte[] bytes = written.array();
+      for (int i = 0; i < bytes.length; i++) {
+        if (bytes[i] != 0) {
+          throw new AssertionError("byte " + (from + i) + " of the preallocated range is " + bytes[i]
+              + ": the borrowed block was written without being zeroed");
+        }
+      }
+
+      // A range shorter than the block clears only what it writes.
+      FileChannelWriter.allocateFileRange(channel, to, to + 100);
+      final ByteBuffer tail = ByteBuffer.allocate(100);
+      readFully(channel, tail, to);
+      assertArrayEquals(new byte[100], tail.array());
+      FileChannelWriter.allocateFileRange(channel, to, to);
+      assertEquals(to + 100, channel.size(), "an empty range writes nothing");
     }
   }
 

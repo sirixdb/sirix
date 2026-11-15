@@ -1052,10 +1052,18 @@ the load; that path is gone.
 | `ProjectionIndexScan` | whole deserialized leaves | defines `ColumnPredicate`, `Op`, `PredicateTree` (postfix, ≤ 64 leaves, NOT exact because missing = false); its count entry points have no production caller | `proj/ProjectionIndexScan.java:52-455` |
 
 Group tables: `NumericGroupAggTable` (hash-partitioned accumulators), `DenseGlobalGroupAggTable` (id-indexed,
-for STRING_GLOBAL keys), `GroupTableSpill` (partitioned spill and hash-range passes under a heap-derived group
+for STRING_GLOBAL keys), `GroupTableSpill` (partitioned spill and hash-range passes under a per-pass group
 budget), `GroupDistinctAccumulator`/`GroupDistinctBitmaps` (exact COUNT(DISTINCT)), `TopKHeap` (bounded max-heap
-with document-rank tie-break). All projection-side budgets derive from `HeapHeadroom`:
-`min(maxHeap/8, headroom/4)` with headroom = max heap − live after last GC (`proj/HeapHeadroom.java:200-247`).
+with document-rank tie-break).
+
+A `NumericGroupAggTable`'s stripes are allocator memory: each grouped scan opens a `GroupWorkspace`
+(`proj/GroupWorkspace.java`), every table, stripe buffer and standalone accumulator of the scan takes its chunks
+there, and closing it returns all of it to the allocator. The kernels resolve a record once and address its lanes
+through `GroupKernelLanes`, every other access is checked by `GroupLanes`; winners are copied to the heap before
+they are emitted. `DenseGlobalGroupAggTable` and the map-based group kernels use native lanes from the same
+scan workspace. The [group-memory contract](DERIVED_QUERY_CACHES.md#column-lanes) owns execution grants
+and pass planning; the [heap-envelope policy](DERIVED_QUERY_CACHES.md#heap-envelope) owns retained
+column-fill ceilings. Distinct sets still plan against `HeapHeadroom.plannedShareBytes()`.
 
 ---
 
@@ -1165,7 +1173,7 @@ incremented **after** a try completes, so a suite that fails part way is not jud
 | numericGroupBys | numeric group arms (`SVE:2022`, `3715`, `19004`, `19274`) | one key of kind NUMERIC_LONG/temporal, STRING_GLOBAL or STRING_SEGMENT | id and long lanes | slot walk or generic |
 | groupSliced | sliced serves of the group arms (`SVE:16714`, `17079`, `17329`, `17451`, `18332`, `19006`, `19276`) | a group serve that read column slices instead of whole leaves | `ProjectionColumnStore` slices of the needed columns | whole-leaf kernels |
 | groupSummary | `serveScalarValueCounts` (`SVE:14702`) | no-predicate single-key value-count ordered by count desc | slot-0 metadata + set-summary blob only; no row groups (`proj/ProjectionIndexCatalog.java:356-400`) | normal group route |
-| groupDense | `denseGlobalGroupAggregate` (`SVE:19334`) | ordered group-by over one STRING_GLOBAL key | one id-indexed table ≤ `sirix.projection.groupDense.maxBytes` (`min(1 GiB, maxHeap/8)`) | hash-partitioned table |
+| groupDense | `denseGlobalGroupAggregate` (`SVE:19334`) | ordered group-by over one STRING_GLOBAL key | one id-indexed table bounded by the dense-table limit ([A.5](#a5-query-serving)) and the scan's available aggregation grant, including rounded table, zero-slot and worker-accumulator allocations | hash-partitioned table |
 | sortedScans | `markSortedScanServed` (`SVE:20706`) | `for … [where] order by $r.f … return $r \| $r.f` (optionally top-K) | projection sort columns, then record pages of the winners | generic |
 | sortedGroupBys | `trySortedGroupTopK` (`SVE:17688`) | grouped min/max/span top-K ≤ 32 with equality predicates | sorted directory, leaf bounds, group summaries (§6.1); no row groups | rest of the group route |
 | predicateScans | `markPredicateScanServed` (`SVE:20724`) | `for … where p return $r \| $r.f`, conjunctive, ≤ `sirix.predScan.maxMatches` (100 000) | column slices → record keys → record pages | generic |
@@ -1252,8 +1260,8 @@ evidence shows `groupDense=0` and `sortedGroupBys=1`.
 `io/filechannel/FileChannelReader.java`:
 
 - **Single read** (`:363-420`): one pread of `sirix.filechannel.pagePrefixBytes` (1024) → u32 length → if the body fits,
-  no second pread → checksum → deserialize from the pooled direct buffer (2 × CPUs buffers of 128 KiB, lock-free CAS
-  slots, `:153-263`).
+  no second pread → checksum → deserialize from the borrowed scratch buffer (a `ScratchLease` on the allocator:
+  see the [scratch ownership contract](DERIVED_QUERY_CACHES.md#column-lanes); the reader pools nothing itself).
 - **Batched read** (`:576-690`, `:867-939`):
   1. sort the batch into file order (the comment cites 5× re-coverage with zig-zag order);
   2. snapshot the file size once (`sirix.filechannel.batchFileSize`);
@@ -1360,9 +1368,9 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
 
 ### 8.5 Caches and memory
 
-The off-heap allocator (default `FrameSlotAllocator`, `sirix.allocator=frame`) has seven size classes from 4 KiB to
+The off-heap allocator (`FrameSlotAllocator`, the only implementation) has seven size classes from 4 KiB to
 256 KiB, each a `MAP_NORESERVE` virtual reservation with a per-slot version counter that the optimistic readers
-validate (`cache/Allocators.java:44-65`; `cache/FrameSlotAllocator.java:7-135`, `:296`, `:403-430`). Its budget is
+validate (`cache/Allocators.java:44-50`; `cache/FrameSlotAllocator.java:7-135`, `:296`, `:403-430`). Its budget is
 `sirix.allocator.maxSize` (default `16G`, persisted per database) clamped to `physical − Xmx − max(2 GiB, physical/10)`
 (`core/access/DatabaseConfiguration.java:172-179`; `cache/MemorySegmentAllocator.java:24-55`). **`sirix.offheap.bytes`
 is not a sirix-core property**: the benchmark mains read it and call `Allocators.getInstance().init(bytes)` before
@@ -1376,10 +1384,10 @@ that other entry points silently ignore it (`kit/README.md:245-256`).
 | HOT complete leaves, raw fragments, resolved-slot mini pages and verified sorted payloads | committed page/slot identity → retained view or copied payload | [Residency and budgets](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | guarded clock caches; byte-bounded sets for private payloads and immutable validated descriptors | see owner |
 | page (metadata pages) | `PageReference` → `Page` | **50 000 entries** (the byte budget passed in is ignored) | Caffeine size | `sirix.cache.page.max.entries` |
 | revision root | (db, resource, revision) → `RevisionRootPage` | 20 000 entries | Caffeine | `sirix.cache.revisionRoot.max.entries` |
-| HOT lookup | `HOTLookupKey` → node keys | 1 024..65 536 entries, budget-derived | set-associative | `sirix.hotLookupCache.maxEntries` |
-| global verdicts / segment verdicts / dictionary records | … → bitsets, byte tables, records | 64 / 128 / 256 MiB | Caffeine weight | `sirix.projection.globalDict.verdictCacheBytes`, `sirix.projection.segmentDict.verdictCacheBytes`, `sirix.projection.globalDict.recordCacheBytes` |
+| HOT lookup | `HOTLookupKey` → node keys | [Budget and heap-share bounded](HOT_INDEX_SPECIFICATION.md#61-behaviour) | set-associative | `sirix.hotLookupCache.maxEntries` |
+| global verdicts / segment verdicts / dictionary records | … → bitsets, byte tables, records | [Heap-envelope shares](DERIVED_QUERY_CACHES.md#heap-envelope) | Caffeine weight | see owner |
 | revision file data | (resource, revision) → offset, timestamp, hash | 1 000 000 entries | Caffeine | `sirix.revision.file.data.cache.size` |
-| projection handles | (resource, defId, build revision) → decoded handle | 8 GiB weight | Caffeine | `sirix.projection.cacheBytes` |
+| projection handles | (resource, defId, build revision) → decoded handle | [Projection share of the heap envelope](DERIVED_QUERY_CACHES.md#heap-envelope) | Caffeine | `sirix.projection.cacheBytes` |
 
 Cites: `core/access/Databases.java:504-620`; `cache/BufferManagerImpl.java:83-139`, `:211-344`, `:463-520`;
 `cache/ShardedPageCache.java:27-51`, `:709-742`, `:1187-1259`; `cache/ClockSweeper.java:43-62`, `:134-250`;
@@ -1939,8 +1947,9 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 | `sirix.filechannel.coalesceGapBytes` | 64 KiB | largest gap merged into one ranged read | `:557` |
 | `sirix.filechannel.coalesceSpanBytes` | 8 MiB | largest coalesced span | `:560` |
 | `sirix.filechannel.pagePrefixBytes` | 1024 (4..64 KiB) | first speculative pread size | `:233-234` |
-| `sirix.filechannel.bufferBytes` | 128 KiB (64 KiB..16 MiB) | pooled direct read buffer size | `:229-230` |
-| `sirix.filechannel.lockFreeBuffers` | T | CAS-slot buffer pool | `:155` |
+| `sirix.filechannel.bufferBytes` | 128 KiB (64 KiB..16 MiB) | floor of every read's scratch-buffer request | `FileChannelReader.BUFFER_BYTES` |
+| `sirix.allocator.scratchIdleBuffers` | 2 × CPUs clamped to 8..64, rounded up to a power of two | idle scratch buffers per capacity; overrides in 1..256 are also rounded up | `cache/FrameScratch.java` |
+| `sirix.allocator.scratchReserveBytes` | a quarter of the oversized headroom, ≤ 256 MiB | progress reserve within the non-execution allowance, available to ordinary scratch but not frames or cache slabs | `cache/FrameSlotAllocator.java` |
 | `sirix.filechannel.batchFileSize` | T | snapshot file size once per batch | `:563` |
 | `sirix.filechannel.borrowBatchInput` | value of `sirix.io.borrowOverflowInput` (so on, every runtime) | decode run members from span slices; an explicit value wins | `:80`; `io/AbstractReader.java:49-58`, `:60-73` |
 | `sirix.io.borrowOverflowInput` | on, every runtime | decode overflow pages from the borrowed read segment; also the default for the batch switch above | `io/AbstractReader.java:49-58`, `:64-65` |
@@ -1956,7 +1965,7 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 
 | Property | Default | Effect | Cite |
 |---|---|---|---|
-| `sirix.allocator` | `frame` | allocator (`pool`, `windowspool`) | `cache/Allocators.java:44-65` |
+| `sirix.allocator` | unset | accepted unset or as `frame`; any other value (the removed `pool`, `windowspool`) fails at first use | `cache/Allocators.java:44-50` |
 | `sirix.allocator.maxSize` | `16G` | off-heap budget per database configuration (clamped to physical headroom) | `core/access/DatabaseConfiguration.java:172-179` |
 | `sirix.offheap.bytes` (benchmark mains only) | 24 GiB (JSONBench/ClickBench runners and loaders) | arena size initialized before opening the database | `query/bench/jsonbench/JsonBenchRunMain.java:96-97` |
 | `sirix.cache.recordPage` | budget / 2 | record page cache bytes | `core/access/Databases.java:504`, `:565` |
@@ -2022,7 +2031,7 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 | `sirix.projection.serving.disabled` | F | disable all projection serving | `SVE:9206` |
 | `sirix.projection.prefetchAll` | false | whole-projection background hint sweep on first resolve | `SVE:9195-9203` |
 | `sirix.projection.groupSliced` | true | sliced group routes | `SVE:3026-3027` |
-| `sirix.projection.groupDense` / `.maxBytes` | true / min(1 GiB, maxHeap/8) | dense STRING_GLOBAL group arm | `SVE:19365-19377` |
+| `sirix.projection.groupDense` / `.maxBytes` | true / 1 GiB | dense STRING_GLOBAL group arm, additionally bounded by the scan's aggregation grant | `SirixVectorizedExecutor.groupDenseEnabled`, `groupDenseMaxBytes` |
 | `sirix.projection.dictCount` | true | set-membership counts from metadata and dictionaries | `SVE:8043` |
 | `sirix.projection.constantBucketSlices` | T | div/mod count keys from bucketed columns and proofs | `SVE:16082-16089` |
 | `sirix.projection.reuseWorkerProofCache` / `reuseGroupPredicateSlices` | true / true | reuse per worker / per query | `SVE:16216-16217`, `:3190` |

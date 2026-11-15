@@ -104,7 +104,7 @@ final class GroupTableDenseIndexGateTest {
     for (int group = 0; group < keys.length; group++) {
       final int handle = table.acquireExact(keys[group], 0L, identity(keys[group]), 0);
       assertEquals(handles[group], handle, "stride " + stride + ": group " + group + " re-probes to its record");
-      assertEquals(group + 1L, table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)],
+      assertEquals(group + 1L, GroupLanes.get(table.storageAtAccBase(handle), table.offsetAtAccBase(handle)),
           "stride " + stride + ": group " + group + " folded its rows");
     }
   }
@@ -157,7 +157,7 @@ final class GroupTableDenseIndexGateTest {
         if (row == 0 && withAux) {
           table.setAuxAtAccBase(handle, ~(long) group);
         }
-        table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)]++;
+        GroupLanes.increment(table.storageAtAccBase(handle), table.offsetAtAccBase(handle));
         handles[group] = handle;
       }
     }
@@ -184,8 +184,6 @@ final class GroupTableDenseIndexGateTest {
   }
 
   private static long[] accumulator(final NumericGroupAggTable table, final int handle) {
-    final long[] block = new long[table.slotWidth()];
-    System.arraycopy(table.storageAtAccBase(handle), table.offsetAtAccBase(handle), block, 0, block.length);
-    return block;
+    return GroupLanes.toArray(table.storageAtAccBase(handle), table.offsetAtAccBase(handle), table.slotWidth());
   }
 }

@@ -1,5 +1,7 @@
 package io.sirix.index.projection;
 
+import io.sirix.cache.HeapCacheBudget;
+
 import com.sun.management.GarbageCollectorMXBean;
 import com.sun.management.GcInfo;
 
@@ -15,13 +17,10 @@ import java.util.Map;
  * was LIVE after the last collection, not the maximum heap alone.
  *
  * <p>
- * A leg of queries retains state across queries — resident column fills, charged fingerprint
- * chains, payload windows, catalog descriptors — so a budget derived from {@code maxMemory} alone
- * plans the same group-table size for a query that runs first as for one that runs after 5.9 GB of
- * an 8 GB heap is already live; the latter dies in a worker with {@code OutOfMemoryError} instead
- * of splitting the key space into more passes (q32 at 100M/8 GB, second try inside a leg). The
- * post-collection usage of the heap pools is the JVM's own account of what is live; garbage is not
- * counted.
+ * Retained heap caches and metadata leave less room for subsequent queries' heap working sets. The
+ * post-collection usage of the heap pools accounts for that live state without counting reclaimable
+ * garbage. Native group tables instead plan against the allocator's exclusive aggregation grant;
+ * see {@link AggregationShare} and {@link GroupWorkspace#preparePlan}.
  * </p>
  */
 public final class HeapHeadroom {
@@ -192,8 +191,7 @@ public final class HeapHeadroom {
     final long pools = liveAfterLastPoolCollection();
     final long live = liveAfterLastGc();
     return "liveMB=" + (live >> 20) + " latestGcMB=" + (latest >> 20) + " poolsGcMB=" + (pools >> 20) + " usedMB="
-        + (used >> 20) + " maxMB=" + (max >> 20) + " shareMB=" + (plannedShareBytes() >> 20) + " pooledMB="
-        + (LongChunkPool.retainedBytes() >> 20);
+        + (used >> 20) + " maxMB=" + (max >> 20) + " shareMB=" + (plannedShareBytes() >> 20);
   }
 
   /** {@code maxMemory - liveAfterLastGc()}, never negative; the test override when set. */
@@ -206,32 +204,17 @@ public final class HeapHeadroom {
   }
 
   /**
-   * The ONE heap share every projection-side budget plans against: the smaller of an eighth of the
-   * maximum heap and a quarter of the current headroom.
-   *
-   * <p>
-   * Three consumers size themselves from it and must not disagree about it — the per-pass group table
-   * ({@link GroupTableSpill#groupBudgetFor}), the grouped {@code COUNT(DISTINCT)} ceiling
-   * ({@link GroupDistinctAccumulator#defaultMaxValuesFor}) and, since R1, the column store's RETAINED
-   * fill total ({@code ProjectionColumnStore}'s residency budget). They fight for one heap: while a
-   * store retained every fill of every earlier query for its whole lifetime and the group tables
-   * planned against the headroom that was left, the group side paid for the residency side's memory
-   * in extra hash-range passes. One figure, three consumers, so raising the share raises all three
-   * together and releasing residency raises what the group side may plan.
-   * </p>
-   *
-   * <p>
-   * The one planned exception is the BOUNDED top-k aggregate, whose completed partitions are selected
-   * and released one at a time: its per-pass table plans against
-   * {@link GroupTableSpill#boundedGroupBudgetFor} — up to three quarters of the headroom, charged at
-   * the dense layout — instead of this share. The distinct ceiling and the residency budget stay on
-   * this figure; raising it here would hand the same bytes to all three at once.
-   * </p>
+   * Per-consumer execution share, bounded by the declared workspace reserve and a quarter of current
+   * headroom. Distinct sets plan against this figure; group tables live in allocator memory and plan
+   * against {@link AggregationShare} instead. Retained column fills have a separate ceiling inside
+   * the projection cache share; when residency headroom is enabled, this figure can further reduce
+   * that ceiling without enlarging it.
    *
    * @return the planned per-consumer share of the heap, in bytes
    */
   public static long plannedShareBytes() {
-    return plannedShareBytes(Runtime.getRuntime().maxMemory(), headroomBytes());
+    // The bounds cannot cross: headroomBytes() is never negative.
+    return Math.clamp(HeapCacheBudget.global().queryWorkspaceBytes(), 0L, headroomBytes() / 4);
   }
 
   /**

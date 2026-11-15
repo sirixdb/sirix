@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.cache.HeapCacheBudget;
+
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -470,6 +472,16 @@ public final class ProjectionIndexRegistry {
     /** Non-null on a column-lazy handle. */
     public ProjectionColumnStore columnStoreOrNull() {
       return columnStore;
+    }
+
+    /**
+     * This handle left its cache or registry: its column store releases what no query pins (see
+     * {@link ProjectionColumnStore#retire()}); an eager handle holds nothing off-heap. Idempotent.
+     */
+    public void retire() {
+      if (columnStore != null) {
+        columnStore.retire();
+      }
     }
 
     /**
@@ -1241,19 +1253,24 @@ public final class ProjectionIndexRegistry {
 
     /**
      * Largest whole-leaf payload {@link #promoteInBackground} will materialize, in bytes. The payload
-     * is a {@code List<byte[]>} on the Java heap, so the default is a quarter of the heap, itself
-     * capped so a huge heap does not authorise a huge speculative materialization.
+     * is a {@code List<byte[]>} on the Java heap, so defaults and overrides cannot exceed
+     * {@link HeapCacheBudget#projectionFillBytes()}; the default is also capped by
+     * {@link #DEFAULT_PROMOTE_MAX_BYTES} to bound speculative materialization on large heaps.
      */
+    // Sonar S6885: the upper bound comes from the heap budget. Saturating keeps this parse total
+    // whatever that bound is, where the clamp method throws for crossed bounds.
+    @SuppressWarnings("java:S6885")
     private static long promoteMaxBytes() {
       final String configured = System.getProperty("sirix.projection.promoteMaxBytes");
       if (configured != null && !configured.isEmpty()) {
         try {
-          return Long.parseLong(configured.trim());
+          return Math.max(0L,
+              Math.min(Long.parseLong(configured.trim()), HeapCacheBudget.global().projectionFillBytes()));
         } catch (final NumberFormatException ignored) {
           // fall through to the derived default
         }
       }
-      return Math.min(DEFAULT_PROMOTE_MAX_BYTES, Runtime.getRuntime().maxMemory() / 4);
+      return Math.min(DEFAULT_PROMOTE_MAX_BYTES, HeapCacheBudget.global().projectionFillBytes());
     }
 
     /** Ceiling on the derived promotion budget — see {@link #promoteMaxBytes()}. */
@@ -1686,8 +1703,14 @@ public final class ProjectionIndexRegistry {
     final List<Handle> pool = WILDCARDS.get(resourceKey);
     if (pool == null)
       return;
-    pool.removeIf(handle -> Arrays.equals(handle.fieldNames, fieldNames)
-        && (rootPath == null || Objects.equals(handle.rootPath, rootPath)));
+    pool.removeIf(handle -> {
+      final boolean remove = Arrays.equals(handle.fieldNames, fieldNames)
+          && (rootPath == null || Objects.equals(handle.rootPath, rootPath));
+      if (remove) {
+        handle.retire();
+      }
+      return remove;
+    });
   }
 
   private static String prewarmKey(final String resourceKey, final String rootPath, final String[] fieldNames) {
@@ -1696,12 +1719,26 @@ public final class ProjectionIndexRegistry {
 
   /** Remove any installed index for {@code (resourceKey, sourcePath)}. */
   public static void uninstall(final String resourceKey, final String[] sourcePath) {
-    REGISTRY.remove(key(resourceKey, sourcePath));
+    final Handle removed = REGISTRY.remove(key(resourceKey, sourcePath));
+    if (removed != null) {
+      removed.retire();
+    }
   }
 
-  /** Drop every entry (incl. the catalog decode cache) — for test isolation. */
+  /**
+   * Drop every entry (incl. the catalog decode cache) — for test isolation. Every dropped handle is
+   * retired, so the off-heap lanes of stores no query pins return to the allocator here.
+   */
   public static void clear() {
+    for (final Handle handle : REGISTRY.values()) {
+      handle.retire();
+    }
     REGISTRY.clear();
+    for (final List<Handle> pool : WILDCARDS.values()) {
+      for (final Handle handle : pool) {
+        handle.retire();
+      }
+    }
     WILDCARDS.clear();
     PREWARMED.clear();
     ProjectionIndexCatalog.clearCache();

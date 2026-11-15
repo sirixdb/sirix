@@ -16,6 +16,8 @@ import io.sirix.budget.WorkCapture;
 import io.sirix.budget.WorkReport;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionColumnStore;
+import io.sirix.index.projection.NumericLane;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
 import io.sirix.index.projection.ProjectionColumnStore.FillBudgetExceededException;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
@@ -220,7 +222,7 @@ final class IndexRoutedGroupWorkBudgetTest {
       final var fetcher = ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
       final var executor = new SirixVectorizedExecutor(session, revision, 1);
       try {
-        long[] residentValues = null;
+        NumericLane residentLane = null;
         for (int repeat = 0; repeat < 3; repeat++) {
           final WorkCapture.Captured<ServedGroups> served =
               WorkCapture.of(EngineWorkCounters.PROJECTION_BODY_SEGMENTS)
@@ -239,11 +241,13 @@ final class IndexRoutedGroupWorkBudgetTest {
                     : 0, "membership and grouping share the resident record keys")
                 .assertExactly(QueryWorkCounters.GROUP_AGGREGATES, 1, "membership remains in the grouped route");
           assertTrue(columns.columnFilled(membershipColumn), "membership retains its decoded column");
-          final long[] decoded = columns.column(membershipColumn, fetcher)[0].numericValues();
+          final ColumnSlice decoded = columns.column(membershipColumn, fetcher)[0];
+          assertNull(decoded.numericValues(), "the resident lane exposes no heap value array");
+          assertNotNull(decoded.lane());
           if (repeat == 0) {
-            residentValues = decoded;
+            residentLane = decoded.lane();
           } else {
-            assertSame(residentValues, decoded, "repeated membership reuses the decoded value lane");
+            assertSame(residentLane, decoded.lane(), "repeated membership reuses the decoded value lane");
           }
         }
       } finally {
@@ -405,8 +409,10 @@ final class IndexRoutedGroupWorkBudgetTest {
       final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
       doReturn(observedColumns).when(observedHandle).columnStoreOrNull();
       if (lateRefusal) {
+        // The group routes resolve a long-lane column through the LaneTarget overload (the masked
+        // lanes decode into the route's own slab), so that is the call the fill refusal arrives on.
         doThrow(mock(FillBudgetExceededException.class)).when(observedColumns)
-                                                        .columnMaskedView(eq(grade), any(), any());
+                                                        .columnMaskedView(eq(grade), any(), any(), any());
       }
       final long budget = columns.retainedFillBytes() + (columns.recordKeysFilled()
           ? 0L
@@ -439,7 +445,7 @@ final class IndexRoutedGroupWorkBudgetTest {
               .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusal is an ordinary decline");
         verify(observedColumns, empty
             ? never()
-            : times(1)).columnMaskedView(eq(id), any(), any());
+            : times(1)).columnMaskedView(eq(id), any(), any(), any());
         assertFalse(observedColumns.columnFilled(id), "the sparse source never fills excluded membership leaves");
       } finally {
         ProjectionColumnStore.setColumnFillBudgetBytesForTesting(previousBudget);
@@ -805,17 +811,17 @@ final class IndexRoutedGroupWorkBudgetTest {
         return out;
       }).when(observedFetcher).fetchAll(any());
       // Positive control: a real BODY fetch is visible even when the work counter misses it.
-      columns.windowedLeafAccess(observedFetcher, null, 1).slice(handle.columnOf("cost"), 1);
+      try (var access = columns.windowedLeafAccess(observedFetcher, null, 1)) {
+        access.slice(handle.columnOf("cost"), 1);
+      }
       assertEquals(1, bodyRequests.get());
       final var observedColumns = spy(columns);
       final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
       doReturn(observedColumns).when(observedHandle).columnStoreOrNull();
       // Static mocks are caller-thread scoped; bind the probe to worker accesses as well.
       doAnswer(invocation -> columns.windowedLeafAccess(observedFetcher, invocation.getArgument(1),
-          invocation.getArgument(2), invocation.getArgument(3), invocation.getArgument(4))).when(observedColumns)
-                                                                                           .windowedLeafAccess(any(),
-                                                                                               any(), anyInt(),
-                                                                                               anyInt(), anyBoolean());
+          invocation.getArgument(2), invocation.getArgument(3))).when(observedColumns)
+                                                                .windowedLeafAccess(any(), any(), anyInt(), anyInt());
       final String source = "jn:open-bitemporal('budgetrt','contracts',xs:dateTime('2024-02-01T00:00:00Z'),"
           + "xs:dateTime('2024-06-01T00:00:00Z'))";
       final String query = "for $c in " + source + " let $grade := $c.grade group by $grade"
@@ -878,7 +884,7 @@ final class IndexRoutedGroupWorkBudgetTest {
       final var refusing = spy(columns);
       final var observedHandle = mock(handle.getClass(), delegatesTo(handle));
       doReturn(refusing).when(observedHandle).columnStoreOrNull();
-      doThrow(mock(FillBudgetExceededException.class)).when(refusing).columnMaskedView(anyInt(), any(), any());
+      doThrow(mock(FillBudgetExceededException.class)).when(refusing).columnMaskedView(anyInt(), any(), any(), any());
       final var executor = new SirixVectorizedExecutor(session, revision, 1);
       try (var catalog = mockStatic(ProjectionIndexCatalog.class, CALLS_REAL_METHODS)) {
         catalog.when(() -> ProjectionIndexCatalog.lookupCovering(eq(session), anyString(), eq(revision), any(), any()))
@@ -898,8 +904,8 @@ final class IndexRoutedGroupWorkBudgetTest {
           work.assertExactly(QueryWorkCounters.GROUP_AGGREGATES_DECLINED, 1, "the resident fill refusal declines once")
               .assertExactly(QueryWorkCounters.GROUP_AGGREGATES_FAILED, 0, "budget refusals do not count as defects")
               .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "neither retry reads a body");
-          verify(refusing).columnMaskedView(anyInt(), any(), any());
-          verify(refusing, never()).windowedLeafAccess(any(), any(), anyInt(), anyInt(), anyBoolean());
+          verify(refusing).columnMaskedView(anyInt(), any(), any(), any());
+          verify(refusing, never()).windowedLeafAccess(any(), any(), anyInt(), anyInt());
         }
         assertFalse(handle.payloadsMaterialized());
         assertEquals(0, handle.slicedRouteTick());
@@ -960,6 +966,7 @@ final class IndexRoutedGroupWorkBudgetTest {
               .assertExactly(EngineWorkCounters.PROJECTION_BODY_SEGMENTS, 0, "decline precedes any operand fill");
           verify(observedColumns).columnsFitWithinBudget(any(), eq(-1), eq(derivedBytes));
           verify(observedColumns, never()).columnMaskedView(anyInt(), any(), any());
+          verify(observedColumns, never()).columnMaskedView(anyInt(), any(), any(), any());
           assertFalse(columns.columnFilled(handle.columnOf("qty")));
         }
         ProjectionColumnStore.setColumnFillBudgetBytesForTesting(retained + qtyBytes + derivedBytes);

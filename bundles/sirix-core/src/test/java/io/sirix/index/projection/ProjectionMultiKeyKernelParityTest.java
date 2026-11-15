@@ -5,6 +5,7 @@ package io.sirix.index.projection;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -129,7 +130,16 @@ final class ProjectionMultiKeyKernelParityTest {
       }
 
       final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, long[]> out = new Object2ObjectOpenHashMap<>();
-      ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(leaves, preds, groupCols, aggCols, out, 0);
+      try (GroupWorkspace workspace = new GroupWorkspace()) {
+        final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, GroupBuffer> nativeOut =
+            new Object2ObjectOpenHashMap<>();
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(workspace, leaves, preds, groupCols, aggCols,
+            nativeOut, 0);
+        for (final var entry : nativeOut.entrySet()) {
+          out.put(entry.getKey(),
+              GroupLanes.toArray(entry.getValue(), 0, ProjectionIndexByteScan.groupAggSlots(aggCols.length)));
+        }
+      }
 
       assertEquals(expected.size(), out.size(), "group count (seed " + seed + ")");
       // Emission order: kernel groups sorted by first-seen ordinal must equal the
@@ -208,10 +218,19 @@ final class ProjectionMultiKeyKernelParityTest {
         }
       }
 
-      final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<long[]> out =
-          new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
+      final Long2ObjectOpenHashMap<long[]> out = new Long2ObjectOpenHashMap<>();
       final long[] missingAcc = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
-      ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(leaves, preds, groupCol, aggCols, out, missingAcc, 0);
+      try (GroupWorkspace workspace = new GroupWorkspace()) {
+        final Long2ObjectOpenHashMap<GroupBuffer> nativeOut = new Long2ObjectOpenHashMap<>();
+        final GroupBuffer nativeMissing =
+            ProjectionIndexByteScan.newGroupAggAcc(workspace, aggCols.length, Long.MAX_VALUE);
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(workspace, leaves, preds, groupCol, aggCols,
+            nativeOut, nativeMissing, 0);
+        for (final var entry : nativeOut.long2ObjectEntrySet()) {
+          out.put(entry.getLongKey(), GroupLanes.toArray(entry.getValue(), 0, missingAcc.length));
+        }
+        System.arraycopy(GroupLanes.toArray(nativeMissing, 0, missingAcc.length), 0, missingAcc, 0, missingAcc.length);
+      }
 
       // Interleave the null-key group at its own first-seen ordinal, exactly as the executor does.
       final ArrayList<Map.Entry<Long, long[]>> ordered = new ArrayList<>();

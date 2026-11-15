@@ -44,12 +44,12 @@ final class GroupStripeSpillTest {
    * bucket), exactly as the kernels route it.
    */
   private static void fold(final NumericGroupAggTable local, final long key, final long value, final long ordinal) {
-    final long[] chunk;
+    final GroupBuffer chunk;
     final int base;
     if (key == 0L) {
       chunk = local.acquireZero(ordinal);
       base = 0;
-      if (chunk[0] == 0L) {
+      if (GroupLanes.get(chunk, 0) == 0L) {
         local.setZeroAux(ordinal);
       }
     } else {
@@ -59,15 +59,15 @@ final class GroupStripeSpillTest {
       }
       chunk = local.storageAtAccBase(handle);
       base = local.offsetAtAccBase(handle);
-      if (chunk[base] == 0L) {
+      if (GroupLanes.get(chunk, base) == 0L) {
         local.setAuxAtAccBase(handle, ordinal);
       }
     }
-    chunk[base]++;
-    chunk[base + 2]++;
-    chunk[base + 3] += value;
-    chunk[base + 4] = Math.min(chunk[base + 4], value);
-    chunk[base + 5] = Math.max(chunk[base + 5], value);
+    GroupLanes.increment(chunk, base);
+    GroupLanes.increment(chunk, base + 2);
+    GroupLanes.add(chunk, base + 3, value);
+    GroupLanes.set(chunk, base + 4, Math.min(GroupLanes.get(chunk, base + 4), value));
+    GroupLanes.set(chunk, base + 5, Math.max(GroupLanes.get(chunk, base + 5), value));
   }
 
   /**
@@ -79,21 +79,24 @@ final class GroupStripeSpillTest {
     for (int p = 0; p < PARTITIONS; p++) {
       final NumericGroupAggTable into = spill.takeOrCreate(p, () -> table(16, 0));
       for (int c = 0; c < into.storageChunkCount(); c++) {
-        final long[] chunk = into.storageChunkOrNull(c);
+        final GroupBuffer chunk = into.storageChunkOrNull(c);
         if (chunk == null) {
           continue;
         }
-        for (int off = 0; off < chunk.length; off += into.stride()) {
-          if (chunk[off] != 0L) {
+        for (int off = 0; off < GroupLanes.count(chunk); off += into.stride()) {
+          if (GroupLanes.get(chunk, off) != 0L) {
             final int base = off + 1;
-            out.put(chunk[off], new long[] {chunk[base], chunk[base + 1], chunk[base + 2], chunk[base + 3],
-                chunk[base + 4], chunk[base + 5], chunk[base + 6]});
+            out.put(GroupLanes.get(chunk, off),
+                new long[] {GroupLanes.get(chunk, base), GroupLanes.get(chunk, base + 1),
+                    GroupLanes.get(chunk, base + 2), GroupLanes.get(chunk, base + 3), GroupLanes.get(chunk, base + 4),
+                    GroupLanes.get(chunk, base + 5), GroupLanes.get(chunk, base + 6)});
           }
         }
       }
       if (into.hasZeroKey()) {
-        final long[] zero = into.zeroSlot();
-        out.put(0L, new long[] {zero[0], zero[1], zero[2], zero[3], zero[4], zero[5], into.zeroAux()});
+        final GroupBuffer zero = into.zeroSlot();
+        out.put(0L, new long[] {GroupLanes.get(zero, 0), GroupLanes.get(zero, 1), GroupLanes.get(zero, 2),
+            GroupLanes.get(zero, 3), GroupLanes.get(zero, 4), GroupLanes.get(zero, 5), into.zeroAux()});
       }
       into.release();
     }
@@ -136,27 +139,32 @@ final class GroupStripeSpillTest {
         final NumericGroupAggTable into = spill.takeOrCreate(p, () -> table(16, 0));
         NumericGroupAggTable.mergePartitionIndexed(sources, indexes, p, into);
         for (int c = 0; c < into.storageChunkCount(); c++) {
-          final long[] chunk = into.storageChunkOrNull(c);
+          final GroupBuffer chunk = into.storageChunkOrNull(c);
           if (chunk == null) {
             continue;
           }
-          for (int off = 0; off < chunk.length; off += into.stride()) {
-            if (chunk[off] != 0L) {
+          for (int off = 0; off < GroupLanes.count(chunk); off += into.stride()) {
+            if (GroupLanes.get(chunk, off) != 0L) {
               final int base = off + 1;
-              out.put(chunk[off], new long[] {chunk[base], chunk[base + 1], chunk[base + 2], chunk[base + 3],
-                  chunk[base + 4], chunk[base + 5], chunk[base + 6]});
+              out.put(GroupLanes.get(chunk, off),
+                  new long[] {GroupLanes.get(chunk, base), GroupLanes.get(chunk, base + 1),
+                      GroupLanes.get(chunk, base + 2), GroupLanes.get(chunk, base + 3), GroupLanes.get(chunk, base + 4),
+                      GroupLanes.get(chunk, base + 5), GroupLanes.get(chunk, base + 6)});
             }
           }
         }
         if (into.hasZeroKey()) {
-          final long[] zero = into.zeroSlot();
-          out.put(0L, new long[] {zero[0], zero[1], zero[2], zero[3], zero[4], zero[5], into.zeroAux()});
+          final GroupBuffer zero = into.zeroSlot();
+          out.put(0L, new long[] {GroupLanes.get(zero, 0), GroupLanes.get(zero, 1), GroupLanes.get(zero, 2),
+              GroupLanes.get(zero, 3), GroupLanes.get(zero, 4), GroupLanes.get(zero, 5), into.zeroAux()});
         }
         into.release();
       }
       for (final NumericGroupAggTable t : sources) {
         t.release();
       }
+      // Everything read above is on the heap now: return the spill's private workspace.
+      spill.close();
       return out;
     } finally {
       GroupTableSpill.setFlushGroupsForTesting(threshold);
@@ -217,6 +225,7 @@ final class GroupStripeSpillTest {
         assertEquals(64L, e.getValue()[0], "group " + e.getKey() + " was folded once per flush");
         assertEquals(64L * e.getKey(), e.getValue()[3], "and its sum survived every compaction");
       }
+      spill.close();
     } finally {
       GroupTableSpill.setFlushGroupsForTesting(threshold);
       GroupTableSpill.setStripeSpillForTesting(previous);
@@ -244,6 +253,7 @@ final class GroupStripeSpillTest {
       assertTrue(fits.groupsSpilled() < 2_000L,
           "the 2,000 stripes were deduplicated to 50 groups plus a buffered remainder: " + fits.groupsSpilled());
       assertEquals(50, drain(fits).size(), "and the groups themselves are the 50 distinct keys");
+      fits.close();
 
       // And the budget still binds on DISTINCT groups: 300 of them over the same budget aborts.
       final GroupTableSpill over =
@@ -255,6 +265,7 @@ final class GroupStripeSpillTest {
       over.flush(local);
       assertTrue(over.aborted(), "300 distinct groups over a budget of 100 must abort the pass");
       assertEquals(300L, over.groupsSpilled(), "and the estimate sees every group the pass held");
+      over.close();
     } finally {
       GroupTableSpill.setFlushGroupsForTesting(threshold);
       GroupTableSpill.setStripeSpillForTesting(previous);
@@ -262,61 +273,79 @@ final class GroupStripeSpillTest {
   }
 
   @Test
-  @DisplayName("buffer chunks ramp from a handful of stripes to the pool's length, so a thin partition costs stripes")
-  void bufferChunksRampFromSmallToPooled() {
+  @DisplayName("buffer chunks ramp from a handful of stripes to the full chunk length, so a thin partition costs stripes")
+  void bufferChunksRampFromSmallToFull() {
     final int stride = table(16, 0).stride();
     final int full = NumericGroupAggTable.fullChunkLanes(stride);
-    final LongChunkPool pool = new LongChunkPool(full, 64);
-    // Pre-filled: a take from an empty pool is a MISS, and the witness is that the buffer TAKES.
-    for (int i = 0; i < 4; i++) {
-      assertTrue(pool.give(new long[full]), "the pool accepts a chunk of its own length");
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      // Pre-filled with full chunks a table handed back: the witness is that a buffer which reaches the
+      // full length REUSES them, and that a ramp chunk does not.
+      final GroupBuffer[] handedBack = new GroupBuffer[4];
+      for (int i = 0; i < handedBack.length; i++) {
+        handedBack[i] = workspace.takeChunk(full);
+      }
+      for (final GroupBuffer chunk : handedBack) {
+        workspace.giveChunk(chunk);
+      }
+      assertEquals(4, workspace.spareChunks(full), "the workspace holds the full chunks handed back");
+      final GroupTableSpill.StripeBuffer buffer = new GroupTableSpill.StripeBuffer(stride, full);
+      final GroupBuffer source = workspace.newBlock(stride + 1);
+      GroupLanes.set(source, 0, 7L); // key lane; append copies from accBase - 1
+      buffer.append(source, 1, workspace);
+      assertEquals(1, buffer.chunkCount(), "one stripe opens one chunk");
+      assertTrue(GroupLanes.count(buffer.chunk(0)) < full / 8,
+          "and that chunk is a handful of stripes, not the full length: " + GroupLanes.count(buffer.chunk(0)) + " of "
+              + full);
+      assertEquals(stride, buffer.usedLanes(0));
+      assertEquals(0L, workspace.chunksReused(), "a ramp chunk is never one of the full chunks handed back");
+      assertEquals(4, workspace.spareChunks(full));
+      // Fill until the ramp reaches the full length: only then does the buffer reuse a full chunk.
+      for (int i = 1; i < 100_000 && workspace.chunksReused() == 0L; i++) {
+        buffer.append(source, 1, workspace);
+      }
+      assertTrue(workspace.chunksReused() > 0L,
+          "a buffer that fills reaches the full chunk length and reuses the chunks handed back");
+      assertEquals(full, GroupLanes.count(buffer.chunk(buffer.chunkCount() - 1)), "the reused chunk is a full one");
+      assertEquals(3, workspace.spareChunks(full));
+      final long givesBefore = workspace.chunksGiven();
+      final int held = buffer.chunkCount();
+      buffer.release(workspace);
+      assertEquals(0, buffer.chunkCount(), "release empties the buffer");
+      assertEquals(0L, buffer.stripes());
+      assertEquals(givesBefore + held, workspace.chunksGiven(), "and hands every chunk back");
+      assertEquals(4, workspace.spareChunks(full), "the full chunk it reused among them");
     }
-    final GroupTableSpill.StripeBuffer buffer = new GroupTableSpill.StripeBuffer(stride, full);
-    final long[] source = new long[stride + 1];
-    source[0] = 7L; // key lane; append copies from accBase - 1
-    buffer.append(source, 1, pool);
-    assertEquals(1, buffer.chunkCount(), "one stripe opens one chunk");
-    assertTrue(buffer.chunk(0).length < full / 8,
-        "and that chunk is a handful of stripes, not the pooled length: " + buffer.chunk(0).length + " of " + full);
-    assertEquals(stride, buffer.usedLanes(0));
-    assertEquals(0L, pool.hits(), "a ramp chunk is never taken from the pool");
-    // Fill until the ramp reaches the pooled length: only then does the buffer draw from the pool.
-    for (int i = 1; i < 100_000 && pool.hits() == 0L; i++) {
-      buffer.append(source, 1, pool);
-    }
-    assertTrue(pool.hits() > 0L, "a buffer that fills reaches the pooled chunk length and takes from the pool");
-    final long givesBefore = pool.gives();
-    buffer.release(pool);
-    assertEquals(0, buffer.chunkCount(), "release empties the buffer");
-    assertEquals(0L, buffer.stripes());
-    assertTrue(pool.gives() > givesBefore, "and hands its pooled chunks back");
   }
 
   @Test
   @DisplayName("mergeStripes folds whole stripes only, and identity lanes keep same-probe-key groups apart")
   void mergeStripesIsWholeStripesAndIdentityAware() {
-    final NumericGroupAggTable into = table(64, 0);
-    final long[] stripes = new long[into.stride() * 2];
-    stripes[0] = 5L;
-    stripes[into.stride()] = 6L;
-    assertThrows(IllegalArgumentException.class, () -> into.mergeStripes(stripes, 0, into.stride() - 1),
-        "a partial stripe run would fold lane-misaligned");
-    assertThrows(IllegalStateException.class, () -> into.mergeStripes(new long[into.stride()], 0, into.stride()),
-        "an empty key lane is not a spilled stripe");
-    into.mergeStripes(stripes, 0, stripes.length);
-    assertEquals(2, into.size());
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final NumericGroupAggTable into = table(64, 0).attachWorkspace(workspace);
+      final GroupBuffer stripes = workspace.newBlock(into.stride() * 2);
+      GroupLanes.set(stripes, 0, 5L);
+      GroupLanes.set(stripes, into.stride(), 6L);
+      final int stride = into.stride();
+      assertThrows(IllegalArgumentException.class, () -> into.mergeStripes(stripes, 0, stride - 1),
+          "a partial stripe run would fold lane-misaligned");
+      final GroupBuffer emptyKey = workspace.newBlock(into.stride());
+      assertThrows(IllegalStateException.class, () -> into.mergeStripes(emptyKey, 0, stride),
+          "an empty key lane is not a spilled stripe");
+      into.mergeStripes(stripes, 0, GroupLanes.count(stripes));
+      assertEquals(2, into.size());
 
-    // Identity mode: two groups share a probe key and are separated by their identity lanes.
-    final NumericGroupAggTable ident = table(64, 1);
-    final int width = ident.stride();
-    final long[] pair = new long[width * 2];
-    pair[0] = 99L;
-    pair[width - 1] = 1_000L; // identity lane of the first stripe
-    pair[width] = 99L;
-    pair[2 * width - 1] = 2_000L;
-    ident.mergeStripes(pair, 0, pair.length);
-    assertEquals(2, ident.size(), "one probe key, two identities, two groups");
-    assertTrue(ident.hasProbeKeyCollision(), "and the table reports that the probe key was ambiguous");
+      // Identity mode: two groups share a probe key and are separated by their identity lanes.
+      final NumericGroupAggTable ident = table(64, 1).attachWorkspace(workspace);
+      final int width = ident.stride();
+      final GroupBuffer pair = workspace.newBlock(width * 2);
+      GroupLanes.set(pair, 0, 99L);
+      GroupLanes.set(pair, width - 1, 1_000L); // identity lane of the first stripe
+      GroupLanes.set(pair, width, 99L);
+      GroupLanes.set(pair, 2 * width - 1, 2_000L);
+      ident.mergeStripes(pair, 0, GroupLanes.count(pair));
+      assertEquals(2, ident.size(), "one probe key, two identities, two groups");
+      assertTrue(ident.hasProbeKeyCollision(), "and the table reports that the probe key was ambiguous");
+    }
   }
 
   @Test

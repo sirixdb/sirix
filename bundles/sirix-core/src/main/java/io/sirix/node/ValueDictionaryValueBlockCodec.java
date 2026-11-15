@@ -1,9 +1,10 @@
 package io.sirix.node;
 
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.SirixLZ77Codec;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
@@ -207,23 +208,24 @@ final class ValueDictionaryValueBlockCodec {
    * </p>
    *
    * <p>
-   * {@link Arena#ofAuto()} rather than a confined arena: the segment is reachable only from this
-   * thread-local, so it is freed with the thread and there is no {@code close()} to get wrong on a
-   * pool thread that outlives any one record.
+   * The landing area is allocator scratch borrowed for one frame and returned with it; this
+   * thread-local holds only the reusable handle, never memory, so a pool thread that outlives any one
+   * record keeps nothing between records.
    * </p>
    */
-  private static final ThreadLocal<MemorySegment> NATIVE_LANDING =
-      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(1 << 16));
+  // Only the reusable handle lives with the thread; each decode returns its borrowed buffer.
+  @SuppressWarnings("java:S5164")
+  private static final ThreadLocal<ScratchLease> NATIVE_LANDING = ThreadLocal.withInitial(ScratchLease::new);
 
   /**
    * Decodes one frame into {@code target} through a native landing area.
    *
    * <p>
-   * <b>The landing area never escapes this method.</b> It is a reused per-thread buffer, so handing a
-   * slice of it to a cached page or a retained block view would be a use-after-free the moment the
-   * next record decodes on the same thread. The bytes are copied out and the view is dropped; the
-   * copy runs at memcpy speed and is bought back several times over (0.16 ns/B for native decode plus
-   * the copy, against 0.33 ns/B for a heap decode).
+   * <b>The landing area never escapes this method.</b> It is borrowed scratch that the allocator
+   * lends to its next borrower as soon as this method returns, so handing a slice of it to a cached
+   * page or a retained block view would be a use-after-free. The bytes are copied out and the view is
+   * dropped; the copy runs at memcpy speed and is bought back several times over (0.16 ns/B for
+   * native decode plus the copy, against 0.33 ns/B for a heap decode).
    * </p>
    *
    * @return the number of bytes produced, which the caller checks against what the writer recorded
@@ -234,21 +236,22 @@ final class ValueDictionaryValueBlockCodec {
     // available: a heap segment over the target array would put a heap receiver on the segment
     // access path every native page shares (see PageLayout#getBitmapWord(byte[], int)), and the
     // copy out of the landing area is cheaper than that for any frame.
-    MemorySegment landing = NATIVE_LANDING.get();
     // NATIVE_OUTPUT_TAIL_SLACK, not the INPUT constant — the dispatch tests
     // `outputOff + uncompressed + NATIVE_OUTPUT_TAIL_SLACK <= output.byteSize()`, and the two
     // constants differ (64 against 16). Sizing the landing with the input slack leaves it 48 bytes
     // short, the dispatch silently declines, and the whole detour buys nothing while costing a copy.
-    final long needed = (long) targetLength + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK;
-    if (landing.byteSize() < needed) {
-      landing = Arena.ofAuto().allocate(Math.max(needed, landing.byteSize() * 2));
-      NATIVE_LANDING.set(landing);
+    final ScratchLease lease =
+        NATIVE_LANDING.get().acquire((long) targetLength + SirixLZ77Codec.NATIVE_OUTPUT_TAIL_SLACK, ScratchUse.CODEC);
+    try {
+      final MemorySegment landing = lease.segment();
+      final int produced = SirixLZ77Codec.decode(compressed, 0, compressedLength, landing, 0L);
+      if (produced == targetLength) {
+        MemorySegment.copy(landing, ValueLayout.JAVA_BYTE, 0L, target, 0, targetLength);
+      }
+      return produced;
+    } finally {
+      lease.close();
     }
-    final int produced = SirixLZ77Codec.decode(compressed, 0, compressedLength, landing, 0L);
-    if (produced == targetLength) {
-      MemorySegment.copy(landing, ValueLayout.JAVA_BYTE, 0L, target, 0, targetLength);
-    }
-    return produced;
   }
 
   private static int writeVarIntTo(final byte[] sink, final int at, final int value) {

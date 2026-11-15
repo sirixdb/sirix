@@ -28,7 +28,6 @@ package io.sirix.benchmark;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
-import io.sirix.io.SerializationBufferPool;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -65,37 +64,46 @@ import java.util.concurrent.TimeUnit;
  * Serializing and deserializing one {@link KeyValueLeafPage} — the encode path that dominates
  * ingest CPU.
  *
- * <p>A warm 176 MB shred spends around a fifth of its application samples inside
+ * <p>
+ * A warm 176 MB shred spends around a fifth of its application samples inside
  * {@code writeEncodedBody} alone, with the codecs and the foreign-memory access checks behind it
  * making up most of the rest. That is the single largest lever on ingest latency, and it is also
  * the one hardest to measure from the outside: an end-to-end shred on a shared 4-core box carries
  * roughly 7% run-to-run variance, which swallows anything smaller than a large win, and CPU
  * profiles of it are muddied by inlining — collapse four byte loads into one int load and the
- * callee's samples do not vanish, they migrate into the caller's self time and make the caller
- * look worse.
+ * callee's samples do not vanish, they migrate into the caller's self time and make the caller look
+ * worse.
  *
- * <p>Hence this: the same work, in isolation, where JMH's error bars can resolve a couple of
- * percent. Judge encode-path changes here first, then confirm the direction end to end.
+ * <p>
+ * Hence this: the same work, in isolation, where JMH's error bars can resolve a couple of percent.
+ * Judge encode-path changes here first, then confirm the direction end to end.
  *
- * <p>The page is built from synthetic records with genuine delta-varint structural keys, in the
- * shape a DFS shred produces — sibling runs, a share of NULL links, and a realistic spread of
- * parent keys — so the structural-key column and hash elision both engage as they would on real
- * data. {@code slots} spans a nearly-full page down to a sparse one, since per-slot costs and
- * per-page costs scale differently.
+ * <p>
+ * The page is built from synthetic records with genuine delta-varint structural keys, in the shape
+ * a DFS shred produces — sibling runs, a share of NULL links, and a realistic spread of parent keys
+ * — so the structural-key column and hash elision both engage as they would on real data.
+ * {@code slots} spans a nearly-full page down to a sparse one, since per-slot costs and per-page
+ * costs scale differently.
  *
- * <p>Crucially the page <em>mixes kinds</em>: containers interleaved with their primitive leaves,
+ * <p>
+ * Crucially the page <em>mixes kinds</em>: containers interleaved with their primitive leaves,
  * which is what a JSON document produces and what a page of 1024 consecutive node keys therefore
  * holds. A single-kind page is not a conservative simplification of that, it is a different
  * benchmark — every per-slot kind dispatch in the encoder becomes perfectly predictable, one
- * offset-table template covers the whole page, and both flatter the encoder in ways real data
- * never will. The kinds here differ in field count, in whether they carry a pathNodeKey, and in
- * whether they carry a hash, so the branchy per-slot paths are exercised from both sides.
+ * offset-table template covers the whole page, and both flatter the encoder in ways real data never
+ * will. The kinds here differ in field count, in whether they carry a pathNodeKey, and in whether
+ * they carry a hash, so the branchy per-slot paths are exercised from both sides.
  *
- * <p>Run with:
- * <pre>./gradlew :sirix-benchmarks:jmh -Pjmh.includes=PageSerializeBenchmark \
- *     -Pjmh.warmupIterations=5 -Pjmh.iterations=10</pre>
- * The module's Gradle config overrides the iteration annotations below; its defaults (2 warmup,
- * 3 measurement) leave the error bars wider than the effects worth chasing.
+ * <p>
+ * Run with:
+ *
+ * <pre>
+ * ./gradlew :sirix-benchmarks:jmh -Pjmh.includes=PageSerializeBenchmark \
+ *     -Pjmh.warmupIterations=5 -Pjmh.iterations=10
+ * </pre>
+ *
+ * The module's Gradle config overrides the iteration annotations below; its defaults (2 warmup, 3
+ * measurement) leave the error bars wider than the effects worth chasing.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -115,18 +123,16 @@ public class PageSerializeBenchmark {
   private static final int STRING_VALUE_KIND_ID = 30;
 
   /**
-   * One repeat of the record shape a JSON document produces: a container, then the primitive
-   * leaves hanging off it. Walked cyclically so a page carries every kind in a stable ratio.
+   * One repeat of the record shape a JSON document produces: a container, then the primitive leaves
+   * hanging off it. Walked cyclically so a page carries every kind in a stable ratio.
    */
-  private static final int[] KIND_CYCLE = {
-      OBJECT_KIND_ID, STRING_VALUE_KIND_ID, NUMBER_VALUE_KIND_ID, STRING_VALUE_KIND_ID,
-      BOOLEAN_VALUE_KIND_ID, NUMBER_VALUE_KIND_ID, ARRAY_KIND_ID, NUMBER_VALUE_KIND_ID,
-      NUMBER_VALUE_KIND_ID, STRING_VALUE_KIND_ID, NULL_VALUE_KIND_ID, NUMBER_VALUE_KIND_ID
-  };
+  private static final int[] KIND_CYCLE = {OBJECT_KIND_ID, STRING_VALUE_KIND_ID, NUMBER_VALUE_KIND_ID,
+      STRING_VALUE_KIND_ID, BOOLEAN_VALUE_KIND_ID, NUMBER_VALUE_KIND_ID, ARRAY_KIND_ID, NUMBER_VALUE_KIND_ID,
+      NUMBER_VALUE_KIND_ID, STRING_VALUE_KIND_ID, NULL_VALUE_KIND_ID, NUMBER_VALUE_KIND_ID};
 
   private static final long PAGE_KEY = 7L;
 
-  @Param({ "1000", "256" })
+  @Param({"1000", "256"})
   public int slots;
 
   private ResourceConfiguration config;
@@ -150,8 +156,8 @@ public class PageSerializeBenchmark {
       total += records[slot].length;
     }
 
-    page = new KeyValueLeafPage(PAGE_KEY, 0, IndexType.DOCUMENT, config, false, null,
-        new LinkedHashMap<>(), Allocators.getInstance().allocate(4096 + total), null, -1);
+    page = new KeyValueLeafPage(PAGE_KEY, 0, IndexType.DOCUMENT, config, false, null, new LinkedHashMap<>(),
+        Allocators.getInstance().allocate(4096 + total), null, -1);
     for (int slot = 0; slot < slots; slot++) {
       page.setSlotWithNodeKind(MemorySegment.ofArray(records[slot]), slot, kinds[slot]);
     }
@@ -166,24 +172,21 @@ public class PageSerializeBenchmark {
     // second pass that diverged would make every number below meaningless.
     final byte[] again = encodeOnce();
     if (!Arrays.equals(serialized, again)) {
-      throw new IllegalStateException("re-encoding the same page did not reproduce its bytes ("
-          + serialized.length + " vs " + again.length + " bytes) — the write path is not"
+      throw new IllegalStateException("re-encoding the same page did not reproduce its bytes (" + serialized.length
+          + " vs " + again.length + " bytes) — the write path is not"
           + " idempotent, so dropping the cache per invocation does not measure the encode");
     }
   }
 
   /** Drop the serialization cache and encode, returning the body after the page-kind id. */
   private byte[] encodeOnce() {
-    final PooledGrowingSegment pooled = SerializationBufferPool.INSTANCE.acquire();
-    try {
+    try (PooledGrowingSegment pooled = PooledGrowingSegment.forPage()) {
       final BytesOut<?> sink = encodeInto(pooled);
       final BytesIn<?> src = sink.bytesForRead();
       src.readByte(); // pageKind id, consumed by the caller in production too
       final byte[] body = new byte[(int) (sink.writePosition() - 1)];
       src.read(body);
       return body;
-    } finally {
-      SerializationBufferPool.INSTANCE.release(pooled);
     }
   }
 
@@ -197,31 +200,29 @@ public class PageSerializeBenchmark {
   /**
    * The write path: everything {@code writeEncodedBody} does, plus the page envelope.
    *
-   * <p>Sink and buffer lifecycle mirror {@code NodeStorageEngineWriter.serializeKeyValuePage},
-   * pooled segment included — an elastic buffer would fold its own growth and off-heap allocation
+   * <p>
+   * Sink and buffer lifecycle mirror {@code NodeStorageEngineWriter.serializeKeyValuePage}, borrowed
+   * scratch segment included — an elastic buffer would fold its own growth and off-heap allocation
    * into every measurement, and neither happens during a commit.
    */
   @Benchmark
   public void serialize(final Blackhole blackhole) {
-    final PooledGrowingSegment pooled = SerializationBufferPool.INSTANCE.acquire();
-    try {
+    try (PooledGrowingSegment pooled = PooledGrowingSegment.forPage()) {
       blackhole.consume(encodeInto(pooled).writePosition());
-    } finally {
-      SerializationBufferPool.INSTANCE.release(pooled);
     }
   }
 
   /**
-   * The read path: decompress, rebuild the directory, and expand every record's offset table
-   * while re-injecting whatever the writer stripped. Included because the same per-slot access
-   * patterns appear on both sides, and a page is read far more often than it is written.
+   * The read path: decompress, rebuild the directory, and expand every record's offset table while
+   * re-injecting whatever the writer stripped. Included because the same per-slot access patterns
+   * appear on both sides, and a page is read far more often than it is written.
    */
   @Benchmark
   public void deserialize(final Blackhole blackhole) {
     final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
     sink.write(serialized);
-    final KeyValueLeafPage read = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE
-        .deserializePage(config, sink.bytesForRead(), SerializationType.DATA);
+    final KeyValueLeafPage read = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config,
+        sink.bytesForRead(), SerializationType.DATA);
     blackhole.consume(read.getPageKey());
     read.close();
   }
@@ -233,41 +234,62 @@ public class PageSerializeBenchmark {
   /**
    * Build one record of {@code kindId} sitting at {@code slot}.
    *
-   * <p>Fields are emitted in the order {@link NodeFieldLayout} declares them for the kind, since
-   * the encoder locates a field by its offset-table index rather than by name.
+   * <p>
+   * Fields are emitted in the order {@link NodeFieldLayout} declares them for the kind, since the
+   * encoder locates a field by its offset-table index rather than by name.
    *
-   * <p>The link pattern makes a DFS shred's shape: every group of twelve slots is one container
-   * followed by its leaves, so the leaves share a parent and form one sibling chain with NULL at
-   * both ends. That is what the structural-key column is built to exploit, and a page of
-   * independent random links would understate it. Hashes are zero on most slots — containers get a
-   * real one — which is the ratio hash elision actually sees.
+   * <p>
+   * The link pattern makes a DFS shred's shape: every group of twelve slots is one container followed
+   * by its leaves, so the leaves share a parent and form one sibling chain with NULL at both ends.
+   * That is what the structural-key column is built to exploit, and a page of independent random
+   * links would understate it. Hashes are zero on most slots — containers get a real one — which is
+   * the ratio hash elision actually sees.
    */
   private static byte[] record(final int kindId, final int slot, final Random rnd) {
     final long nodeKey = nodeKey(slot);
     final int within = slot % KIND_CYCLE.length;
     final long groupStart = nodeKey(slot - within);
-    final long parentKey = within == 0 ? nodeKey(Math.max(0, slot - KIND_CYCLE.length)) : groupStart;
-    final long rightSib = within == KIND_CYCLE.length - 1 ? NULL : nodeKey + 1;
-    final long leftSib = within <= 1 ? NULL : nodeKey - 1;
+    final long parentKey = within == 0
+        ? nodeKey(Math.max(0, slot - KIND_CYCLE.length))
+        : groupStart;
+    final long rightSib = within == KIND_CYCLE.length - 1
+        ? NULL
+        : nodeKey + 1;
+    final long leftSib = within <= 1
+        ? NULL
+        : nodeKey - 1;
     final long hash = rnd.nextLong() | 1L;
     final RecordBuilder b = new RecordBuilder(kindId, nodeKey);
 
     switch (kindId) {
-      case OBJECT_KIND_ID -> b.delta(parentKey).delta(rightSib).delta(leftSib)
-          .delta(nodeKey + 1).delta(nodeKey + KIND_CYCLE.length - 1)
-          .signed(0).signed(1).hash(hash).signed(KIND_CYCLE.length - 1)
-          .signed(KIND_CYCLE.length - 1);
-      case ARRAY_KIND_ID -> b.delta(parentKey).delta(rightSib).delta(leftSib)
-          .delta(NULL).delta(NULL).delta(3 + (slot % 4))
-          .signed(0).signed(1).hash(hash).signed(0).signed(0);
-      case BOOLEAN_VALUE_KIND_ID -> b.delta(parentKey).delta(rightSib).delta(leftSib)
-          .signed(0).signed(1).raw((byte) (slot & 1));
-      case NUMBER_VALUE_KIND_ID -> b.delta(parentKey).delta(rightSib).delta(leftSib)
-          .signed(0).signed(1).number(rnd.nextInt(1 << 20));
-      case NULL_VALUE_KIND_ID -> b.delta(parentKey).delta(rightSib).delta(leftSib)
-          .signed(0).signed(1);
-      case STRING_VALUE_KIND_ID -> b.delta(parentKey).delta(rightSib).delta(leftSib)
-          .signed(0).signed(1).string(rnd.nextInt(24));
+      case OBJECT_KIND_ID -> b.delta(parentKey)
+                              .delta(rightSib)
+                              .delta(leftSib)
+                              .delta(nodeKey + 1)
+                              .delta(nodeKey + KIND_CYCLE.length - 1)
+                              .signed(0)
+                              .signed(1)
+                              .hash(hash)
+                              .signed(KIND_CYCLE.length - 1)
+                              .signed(KIND_CYCLE.length - 1);
+      case ARRAY_KIND_ID -> b.delta(parentKey)
+                             .delta(rightSib)
+                             .delta(leftSib)
+                             .delta(NULL)
+                             .delta(NULL)
+                             .delta(3 + (slot % 4))
+                             .signed(0)
+                             .signed(1)
+                             .hash(hash)
+                             .signed(0)
+                             .signed(0);
+      case BOOLEAN_VALUE_KIND_ID ->
+        b.delta(parentKey).delta(rightSib).delta(leftSib).signed(0).signed(1).raw((byte) (slot & 1));
+      case NUMBER_VALUE_KIND_ID ->
+        b.delta(parentKey).delta(rightSib).delta(leftSib).signed(0).signed(1).number(rnd.nextInt(1 << 20));
+      case NULL_VALUE_KIND_ID -> b.delta(parentKey).delta(rightSib).delta(leftSib).signed(0).signed(1);
+      case STRING_VALUE_KIND_ID ->
+        b.delta(parentKey).delta(rightSib).delta(leftSib).signed(0).signed(1).string(rnd.nextInt(24));
       default -> throw new IllegalArgumentException("no record shape for kindId " + kindId);
     }
     return b.build();
@@ -276,11 +298,12 @@ public class PageSerializeBenchmark {
   /**
    * Assembles a {@code [kindId][offsetTable: fieldCount bytes][data region]} record.
    *
-   * <p>Each {@code add}-style call appends one field to the data region and records where it
-   * started, so the offset table is a by-product of writing the fields rather than something kept
-   * in step by hand. {@link #build()} checks the field count against {@link NodeFieldLayout} — a
-   * record one field short still looks well-formed to the encoder and would quietly change which
-   * bytes it strips.
+   * <p>
+   * Each {@code add}-style call appends one field to the data region and records where it started, so
+   * the offset table is a by-product of writing the fields rather than something kept in step by
+   * hand. {@link #build()} checks the field count against {@link NodeFieldLayout} — a record one
+   * field short still looks well-formed to the encoder and would quietly change which bytes it
+   * strips.
    */
   private static final class RecordBuilder {
 
@@ -348,15 +371,15 @@ public class PageSerializeBenchmark {
     byte[] build() {
       final int expected = NodeFieldLayout.fieldCountForKind(kindId);
       if (fields != expected) {
-        throw new IllegalStateException("kindId " + kindId + " wants " + expected
-            + " fields, record supplies " + fields);
+        throw new IllegalStateException(
+            "kindId " + kindId + " wants " + expected + " fields, record supplies " + fields);
       }
       final byte[] record = new byte[1 + expected + cursor];
       record[0] = (byte) kindId;
       for (int f = 0; f < expected; f++) {
         if (offsets[f] > 0xFF) {
-          throw new IllegalStateException("field " + f + " of kindId " + kindId + " starts at "
-              + offsets[f] + ", past the one-byte offset table");
+          throw new IllegalStateException(
+              "field " + f + " of kindId " + kindId + " starts at " + offsets[f] + ", past the one-byte offset table");
         }
         record[1 + f] = (byte) offsets[f];
       }

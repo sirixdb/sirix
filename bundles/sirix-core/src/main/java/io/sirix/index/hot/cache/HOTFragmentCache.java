@@ -28,10 +28,15 @@ import java.util.function.Function;
 public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage> {
   private final ShardedPageCache<HOTLeafPage> nativeImages;
   private final ShardedPageCache<HOTLeafPage> compactImages;
+  private final boolean compactEnabled;
 
   public HOTFragmentCache(final long nativeMaxWeightBytes, final long heapMaxWeightBytes) {
     nativeImages = new ShardedPageCache<>(nativeMaxWeightBytes);
+    if (heapMaxWeightBytes < 0) {
+      throw new IllegalArgumentException("Negative compact-image allowance");
+    }
     compactImages = new ShardedPageCache<>(heapMaxWeightBytes);
+    compactEnabled = heapMaxWeightBytes != 0;
   }
 
   /** The allocator-frame half, bounded by the off-heap-derived fragment budget. */
@@ -76,6 +81,15 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
     if (loaded == null) {
       return null;
     }
+    if (!compactEnabled && cacheFor(loaded) == compactImages) {
+      if (!loaded.acquireGuard()) {
+        loaded.retire();
+        return null;
+      }
+      // The reader guard owns this uncached image; retirement closes it on the final release.
+      loaded.retire();
+      return loaded;
+    }
     // The delegate re-probes under its own admission lock, so a concurrent winner is still returned
     // guarded and this caller's image is still reported as the loser.
     return cacheFor(loaded).getOrLoadAndGuard(key, _ -> loaded);
@@ -91,7 +105,10 @@ public final class HOTFragmentCache implements Cache<PageReference, HOTLeafPage>
 
   @Override
   public void put(final PageReference key, final HOTLeafPage value) {
-    cacheFor(value).put(key, value);
+    final ShardedPageCache<HOTLeafPage> destination = cacheFor(value);
+    if (compactEnabled || destination != compactImages) {
+      destination.put(key, value);
+    }
   }
 
   @Override

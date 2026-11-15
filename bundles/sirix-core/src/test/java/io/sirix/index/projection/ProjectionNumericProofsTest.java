@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.numericValue;
+
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -19,7 +21,9 @@ import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.io.StorageType;
 import io.sirix.settings.Constants;
 import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import java.lang.foreign.Arena;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.parallel.Resources;
@@ -50,6 +54,23 @@ import static org.mockito.Mockito.mock;
 
 @ResourceLock(Resources.SYSTEM_PROPERTIES)
 final class ProjectionNumericProofsTest {
+  private final Arena numericTargets = Arena.ofShared();
+
+  @AfterEach
+  void closeNumericTargets() {
+    numericTargets.close();
+  }
+
+  private ColumnSlice[] bucketColumn(final ProjectionColumnStore store, final int col,
+      final ColumnSegmentFetcher fetcher, final long offset, final long divisor, final long modulus) {
+    long bytes = 0L;
+    for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
+      bytes += (long) store.rowCount(leaf) * Long.BYTES;
+    }
+    return store.numericBucketKeyColumn(col, fetcher, offset, divisor, modulus,
+        numericTargets.allocate(Math.max(1L, bytes), 64));
+  }
+
   private static final byte LONG = ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
   @TempDir
   Path directory;
@@ -107,7 +128,7 @@ final class ProjectionNumericProofsTest {
       }
     };
     final ProjectionColumnStore store = new ProjectionColumnStore(directories, 0);
-    final ColumnSlice[] actual = store.numericBucketKeyColumn(0, fetcher, 7, 1000, 24);
+    final ColumnSlice[] actual = bucketColumn(store, 0, fetcher, 7, 1000, 24);
     assertEquals(missingProof
         ? 65
         : 2, fetched.get(), "only missing, stale and sparse leaves may read a BODY");
@@ -121,8 +142,8 @@ final class ProjectionNumericProofsTest {
       assertArrayEquals(truth.presenceWords(), actual[ordinal].presenceWords());
       for (int row = 0; row < truth.rowCount(); row++) {
         if ((truth.presenceWords()[row >>> 6] & 1L << (row & 63)) != 0) {
-          assertEquals(((truth.numericValues()[row] + 7) / 1000) % 24,
-              ((actual[ordinal].numericValues()[row] + 7) / 1000) % 24);
+          assertEquals(((numericValue(truth, row) + 7) / 1000) % 24,
+              ((numericValue(actual[ordinal], row) + 7) / 1000) % 24);
         }
       }
     }
@@ -131,9 +152,9 @@ final class ProjectionNumericProofsTest {
     assertEquals((missingProof
         ? 65
         : 2) + 128, fetched.get());
-    assertEquals(2000, ordinary[0].numericValues()[0]);
-    assertEquals(2001, ordinary[0].numericValues()[1]);
-    assertSame(ordinary, store.numericBucketKeyColumn(0, fetcher, 0, 2, 0));
+    assertEquals(2000, numericValue(ordinary[0], 0));
+    assertEquals(2001, numericValue(ordinary[0], 1));
+    assertSame(ordinary, bucketColumn(store, 0, fetcher, 0, 2, 0));
     final int sparseBody = Arrays.binarySearch(groups.get(64).columnSegmentIds(),
         ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(0));
     final long sparseOffset = 6500L + sparseBody;
@@ -141,7 +162,7 @@ final class ProjectionNumericProofsTest {
     corruptBody[corruptBody.length - 1] ^= 1;
     sources.put(sparseOffset, corruptBody);
     final ProjectionColumnStore damaged = new ProjectionColumnStore(directories, 0);
-    assertThrows(IllegalStateException.class, () -> damaged.numericBucketKeyColumn(0, fetcher, 7, 1000, 24));
+    assertThrows(IllegalStateException.class, () -> bucketColumn(damaged, 0, fetcher, 7, 1000, 24));
     assertTrue(damaged.columnKnownCorrupt(0), "residual BODY failures retain the ordinary corruption memo");
   }
 
@@ -151,7 +172,8 @@ final class ProjectionNumericProofsTest {
     final Map<Long, byte[]> blobs = buildProofs(List.of(encoded));
     final byte[] source = blobs.get(ProjectionNumericProofs.slot(0, 0));
     final ProjectionNumericProofs.Chunk chunk = new ProjectionNumericProofs.Chunk(source, 0, 0);
-    final NumericBucketDecoder decoder = new NumericBucketDecoder(0, 1000, 24);
+    final NumericBucketDecoder decoder =
+        new NumericBucketDecoder(0, 1000, 24, numericTargets.allocate(4L << 20, 64), 0L);
     assertNotNull(chunk.decode(encoded.descriptor(), 1, decoder));
     assertNull(chunk.decode(encoded(1, 1023, 1000, false).descriptor(), 1, decoder));
     assertNull(chunk.decode(encoded(1, 1024, 2000, false).descriptor(), 1, decoder));
@@ -178,15 +200,21 @@ final class ProjectionNumericProofsTest {
 
   @Test
   void signedQuotientsOverflowAndRepresentativeCapacityRetainTheFallback() {
-    final NumericBucketDecoder decoder = new NumericBucketDecoder(0, 1000, 0);
+    final NumericBucketDecoder decoder =
+        new NumericBucketDecoder(0, 1000, 0, numericTargets.allocate(4L << 20, 64), 0L);
     for (int group = 0; group < 256; group++) {
       assertNotNull(decoder.decodeFullPresenceProof(1024, group * 1000L, group * 1000L + 99));
     }
     assertNull(decoder.decodeFullPresenceProof(1024, 256000, 256099));
-    assertNull(new NumericBucketDecoder(1, 10, 24).decodeFullPresenceProof(3, Long.MAX_VALUE - 1, Long.MAX_VALUE));
-    assertNull(new NumericBucketDecoder(-1, 10, 24).decodeFullPresenceProof(3, Long.MIN_VALUE, Long.MIN_VALUE + 1));
-    assertNull(new NumericBucketDecoder(0, 1, 24).decodeFullPresenceProof(3, 1, 25));
-    final ColumnSlice signed = new NumericBucketDecoder(0, 1000, 24).decodeFullPresenceProof(65, -999, 999);
+    assertNull(new NumericBucketDecoder(1, 10, 24, numericTargets.allocate(4L << 20, 64), 0L).decodeFullPresenceProof(3,
+        Long.MAX_VALUE - 1, Long.MAX_VALUE));
+    assertNull(new NumericBucketDecoder(-1, 10, 24, numericTargets.allocate(4L << 20, 64), 0L).decodeFullPresenceProof(
+        3, Long.MIN_VALUE, Long.MIN_VALUE + 1));
+    assertNull(new NumericBucketDecoder(0, 1, 24, numericTargets.allocate(4L << 20, 64), 0L).decodeFullPresenceProof(3,
+        1, 25));
+    final ColumnSlice signed =
+        new NumericBucketDecoder(0, 1000, 24, numericTargets.allocate(4L << 20, 64), 0L).decodeFullPresenceProof(65,
+            -999, 999);
     assertNotNull(signed);
     assertArrayEquals(new long[] {-1L, 1}, signed.presenceWords());
     final ColumnSlice first = decoder.decodeFullPresenceProof(1024, 1000, 1009);
@@ -270,13 +298,14 @@ final class ProjectionNumericProofsTest {
             assertArrayEquals(firstChunk, bytes);
           final ProjectionNumericProofs.Chunk chunk = new ProjectionNumericProofs.Chunk(bytes, 0, 0);
           final byte[] descriptor = ProjectionIndexHOTStorage.readBlob(reader, 0, layout.descriptorSlot(1));
-          final NumericBucketDecoder decoder = new NumericBucketDecoder(0, 1000, 0);
+          final NumericBucketDecoder decoder =
+              new NumericBucketDecoder(0, 1000, 0, numericTargets.allocate(4L << 20, 64), 0L);
           if (revision == 1)
             assertNotNull(chunk.decode(descriptor, 1, decoder));
           else
             assertNull(chunk.decode(descriptor, 1, decoder));
           final byte[] untouched = ProjectionIndexHOTStorage.readBlob(reader, 0, layout.descriptorSlot(2));
-          assertEquals(2, chunk.decode(untouched, 2, decoder).numericValues()[0] / 1000);
+          assertEquals(2, numericValue(chunk.decode(untouched, 2, decoder), 0) / 1000);
           final byte[] deleted = ProjectionIndexHOTStorage.readBlob(reader, 0, layout.descriptorSlot(65));
           if (revision == 1)
             assertNotNull(deleted);

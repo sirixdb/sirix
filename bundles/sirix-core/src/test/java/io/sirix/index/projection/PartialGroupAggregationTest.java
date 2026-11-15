@@ -41,11 +41,12 @@ final class PartialGroupAggregationTest {
       final NumericGroupAggTable stripes = table(compact, 16);
       final NumericGroupAggTable denseStripes = table(compact, 16).useDenseIndex();
       for (int chunk = 0; chunk < partial.storageChunkCount(); chunk++) {
-        final long[] data = partial.storageChunkOrNull(chunk);
+        final GroupBuffer data = partial.storageChunkOrNull(chunk);
         if (data == null) {
           continue;
         }
-        for (int offset = 0; offset < data.length && data[offset] != 0L; offset += partial.stride()) {
+        for (int offset = 0; offset < GroupLanes.count(data) && GroupLanes.get(data, offset) != 0L; offset +=
+            partial.stride()) {
           stripes.mergeStripes(data, offset, offset + partial.stride());
           denseStripes.mergeStripes(data, offset, offset + partial.stride());
         }
@@ -72,26 +73,26 @@ final class PartialGroupAggregationTest {
       final long key = row % 5_000 + 1L;
       for (final NumericGroupAggTable table : inputs) {
         final int handle = table.acquire(key, row);
-        table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)]++;
+        GroupLanes.increment(table.storageAtAccBase(handle), table.offsetAtAccBase(handle));
         table.setAuxAtAccBase(handle, key);
       }
     }
     assertTrue(partial.usesPartialGroups());
     assertTrue(partial.size() > expected.size());
-    partial.acquireZero(13)[0] = 7;
+    GroupLanes.set(partial.acquireZero(13), 0, 7);
     partial.setZeroAux(17);
     final NumericGroupAggTable merged = new NumericGroupAggTable(1, 16, true);
     NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {partial}, 0, 64, merged);
     assertEquals(5_001, merged.sizeIncludingZero());
-    assertEquals(7, merged.zeroSlot()[0]);
-    assertEquals(13, merged.zeroSlot()[1]);
+    assertEquals(7, GroupLanes.get(merged.zeroSlot(), 0));
+    assertEquals(13, GroupLanes.get(merged.zeroSlot(), 1));
     assertEquals(17, merged.zeroAux());
     for (long key = 1; key <= 5_000; key++) {
       final int handle = merged.acquire(key, 0);
-      final long[] data = merged.storageAtAccBase(handle);
+      final GroupBuffer data = merged.storageAtAccBase(handle);
       final int offset = merged.offsetAtAccBase(handle);
-      assertEquals(18, data[offset]);
-      assertEquals(key - 1, data[offset + 1]);
+      assertEquals(18, GroupLanes.get(data, offset));
+      assertEquals(key - 1, GroupLanes.get(data, offset + 1));
       assertEquals(key, merged.auxAtAccBase(handle));
     }
     assertThrows(IllegalStateException.class, () -> partial.keyAtBucket(0));
@@ -113,7 +114,10 @@ final class PartialGroupAggregationTest {
     final NumericGroupAggTable empty = table(false, 16).useDenseIndex().allowPartialGroups();
     assertThrows(IllegalStateException.class,
         () -> NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {partial}, 0, 64, empty));
-    assertThrows(IllegalStateException.class, () -> empty.mergeStripes(new long[0], 0, 0));
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final GroupBuffer noStripes = workspace.newBlock(1);
+      assertThrows(IllegalStateException.class, () -> empty.mergeStripes(noStripes, 0, 0));
+    }
     empty.release();
     assertThrows(IllegalStateException.class, empty::allowPartialGroups);
   }
@@ -245,18 +249,18 @@ final class PartialGroupAggregationTest {
     assertTrue(partial.usesPartialGroups());
     final long[] id = {0, 100_000};
     int handle = partial.acquireExact(17, 0, id, 0);
-    long[] data = partial.storageAtAccBase(handle);
+    GroupBuffer data = partial.storageAtAccBase(handle);
     int offset = partial.offsetAtAccBase(handle);
-    data[offset] = 1;
-    data[offset + 2] = 1;
-    data[offset + 3] = Long.MAX_VALUE;
+    GroupLanes.set(data, offset, 1);
+    GroupLanes.set(data, offset + 2, 1);
+    GroupLanes.set(data, offset + 3, Long.MAX_VALUE);
     partial.acquireExact(17, 0, new long[] {0, 100_001}, 0);
     handle = partial.acquireExact(17, 1, id, 0);
     data = partial.storageAtAccBase(handle);
     offset = partial.offsetAtAccBase(handle);
-    data[offset] = 1;
-    data[offset + 2] = 1;
-    data[offset + 3] = 1;
+    GroupLanes.set(data, offset, 1);
+    GroupLanes.set(data, offset + 2, 1);
+    GroupLanes.set(data, offset + 3, 1);
     final NumericGroupAggTable merged = table(true, 16);
     assertThrows(ArithmeticException.class,
         () -> NumericGroupAggTable.mergePartition(new NumericGroupAggTable[] {partial}, 0, 64, merged));
@@ -284,18 +288,20 @@ final class PartialGroupAggregationTest {
     if (handle == NumericGroupAggTable.DISCARD_HANDLE) {
       return handle;
     }
-    final long[] data = table.storageAtAccBase(handle);
+    final GroupBuffer data = table.storageAtAccBase(handle);
     final int base = table.offsetAtAccBase(handle);
-    if (data[base]++ == 0) {
+    final long rowsBefore = GroupLanes.get(data, base);
+    GroupLanes.set(data, base, rowsBefore + 1L);
+    if (rowsBefore == 0) {
       table.setAuxAtAccBase(handle, group);
     }
     if (ordinal % 3 != 0) {
       final long value = ordinal % 101 - 50;
-      data[base + 2]++;
-      data[base + 3] = Math.addExact(data[base + 3], value);
+      GroupLanes.increment(data, base + 2);
+      GroupLanes.set(data, base + 3, Math.addExact(GroupLanes.get(data, base + 3), value));
       if (!compact) {
-        data[base + 4] = Math.min(data[base + 4], value);
-        data[base + 5] = Math.max(data[base + 5], value);
+        GroupLanes.set(data, base + 4, Math.min(GroupLanes.get(data, base + 4), value));
+        GroupLanes.set(data, base + 5, Math.max(GroupLanes.get(data, base + 5), value));
       }
     }
     return handle;
@@ -307,8 +313,8 @@ final class PartialGroupAggregationTest {
     final int a = actual.acquireExact(hash(group), 0, identity(group), 0);
     final int eb = expected.offsetAtAccBase(e);
     final int ab = actual.offsetAtAccBase(a);
-    assertArrayEquals(Arrays.copyOfRange(expected.storageAtAccBase(e), eb, eb + expected.slotWidth()),
-        Arrays.copyOfRange(actual.storageAtAccBase(a), ab, ab + actual.slotWidth()), "group " + group);
+    assertArrayEquals(GroupLanes.toArray(expected.storageAtAccBase(e), eb, expected.slotWidth()),
+        GroupLanes.toArray(actual.storageAtAccBase(a), ab, actual.slotWidth()), "group " + group);
     assertEquals(expected.auxAtAccBase(e), actual.auxAtAccBase(a));
   }
 }

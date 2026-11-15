@@ -554,19 +554,21 @@ final class ProjectionOpenRowGroupTailTest {
                                             {store.columnMaskedView(-1, fetcher, keep)};
                                         final ColumnSlice[] groupColumn = store.columnMaskedView(0, fetcher, keep);
                                         final NumericGroupAggTable table = new NumericGroupAggTable(0, 64);
-                                        final long[] missing =
-                                            ProjectionIndexByteScan.newGroupAggAcc(0, Long.MAX_VALUE);
-                                        ProjectionColumnGroupScan.aggregateByGroupNumericFlat(store, predicates,
-                                            predicateColumns, null, null, groupColumn, new ColumnSlice[0][], null, 0,
-                                            groups, table, missing, -1, null, null, null, false, null, null);
-                                        assertEquals(0, missing[0]);
+                                        try (GroupWorkspace workspace = new GroupWorkspace()) {
+                                          final GroupBuffer missing =
+                                              ProjectionIndexByteScan.newGroupAggAcc(workspace, 0, Long.MAX_VALUE);
+                                          ProjectionColumnGroupScan.aggregateByGroupNumericFlat(store, predicates,
+                                              predicateColumns, null, null, groupColumn, new ColumnSlice[0][], null, 0,
+                                              groups, table, missing, -1, null, null, null, false, null, null);
+                                          assertEquals(0, GroupLanes.get(missing, 0));
+                                        }
                                         final long[] counts = new long[expected.length];
                                         for (int bucket = 0; bucket < table.capacity(); bucket++) {
                                           final long key = table.keyAtBucket(bucket);
                                           if (key != 0) {
                                             final int handle = table.accBaseOfBucket(bucket);
-                                            counts[(int) key - 18] =
-                                                table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)];
+                                            counts[(int) key - 18] = GroupLanes.get(table.storageAtAccBase(handle),
+                                                table.offsetAtAccBase(handle));
                                           }
                                         }
                                         return counts;

@@ -31,6 +31,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -52,23 +54,24 @@ final class SirixVectorizedExecutorLifecycleTest {
         new Class<?>[] {JsonResourceSession.class}, (proxy, method, args) -> null);
   }
 
+  /**
+   * Every top-level call opens a residency scope, with or without the headroom gate: the scope's pins
+   * are what prove a store may free an off-heap column lane; the gate only decides whether the
+   * headroom share lowers what a store retains.
+   */
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void residencyScopesFollowTheEnabledPolicy(final boolean enabled) {
-    final boolean previous = ProjectionColumnStore.setResidencyHeadroomForTesting(enabled);
+  void everyTopLevelCallOpensAResidencyScope(final boolean headroomEnabled) {
+    final boolean previous = ProjectionColumnStore.setResidencyHeadroomForTesting(headroomEnabled);
     final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 1);
     final long before = ProjectionResidencyScope.openedCount();
     try {
       executor.enterExecution();
       try {
-        assertEquals(enabled
-            ? 1L
-            : 0L, ProjectionResidencyScope.openedCount() - before);
-        assertEquals(enabled, ProjectionResidencyScope.anyOpen());
-        executor.parallel(1, lane -> assertEquals(enabled, ProjectionResidencyScope.anyOpen()));
-        assertEquals(enabled
-            ? 1L
-            : 0L, ProjectionResidencyScope.openedCount() - before, "nested work shares the outermost scope");
+        assertEquals(1L, ProjectionResidencyScope.openedCount() - before);
+        assertTrue(ProjectionResidencyScope.anyOpen());
+        executor.parallel(1, lane -> assertTrue(ProjectionResidencyScope.anyOpen()));
+        assertEquals(1L, ProjectionResidencyScope.openedCount() - before, "nested work shares the outermost scope");
       } finally {
         executor.leaveExecution();
       }
@@ -607,6 +610,48 @@ final class SirixVectorizedExecutorLifecycleTest {
       }
     } finally {
       Databases.removeDatabase(databasePath);
+    }
+  }
+
+  @Test
+  void submissionErrorDrainsTheAcceptedPrefixBeforeReleasingQueryMemory() throws Exception {
+    final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 2);
+    final AtomicInteger submissions = new AtomicInteger();
+    final AtomicInteger joins = new AtomicInteger();
+    final OutOfMemoryError injected = new OutOfMemoryError("submission allocation refused");
+    final FutureTask<Void> accepted = new FutureTask<>(() -> null) {
+      @Override
+      public Void get() throws InterruptedException, ExecutionException {
+        joins.incrementAndGet();
+        return super.get();
+      }
+    };
+    accepted.run();
+    final ExecutorService pool = (ExecutorService) Proxy.newProxyInstance(ExecutorService.class.getClassLoader(),
+        new Class<?>[] {ExecutorService.class}, (proxy, method, args) -> switch (method.getName()) {
+          case "submit" -> {
+            if (submissions.getAndIncrement() == 0) {
+              yield accepted;
+            }
+            throw injected;
+          }
+          case "isShutdown" -> false;
+          case "isTerminated", "awaitTermination" -> true;
+          case "shutdown" -> null;
+          default -> throw new AssertionError("unexpected executor method: " + method.getName());
+        });
+    final Field field = SirixVectorizedExecutor.class.getDeclaredField("workerPool");
+    field.setAccessible(true);
+    final ExecutorService original = (ExecutorService) field.get(executor);
+    field.set(executor, pool);
+    try {
+      assertSame(injected, assertThrows(OutOfMemoryError.class, () -> executor.parallel(2, lane -> {
+      })));
+      assertEquals(2, submissions.get());
+      assertEquals(1, joins.get(), "even an Error must drain every accepted worker before memory is released");
+    } finally {
+      field.set(executor, original);
+      executor.close();
     }
   }
 

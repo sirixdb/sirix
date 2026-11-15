@@ -1,9 +1,11 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
+import io.sirix.node.SegmentAccess;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -66,6 +68,15 @@ final class TopKHeap {
   private final long[] recordKey;
   private final long[] rank;
   private int size;
+  /**
+   * The leaf currently offered from, bound once by {@link #bindLeaf}: one slice per key for the
+   * per-leaf dictionary kinds, and the long lane of every other kind as the hoisted (segment, base)
+   * pair the row path reads linear offsets off. Resolving those per ROW cost a record accessor call
+   * and a null check per key per candidate.
+   */
+  private final @Nullable ColumnSlice[] bound;
+  private final @Nullable MemorySegment[] laneSegment;
+  private final long[] laneBase;
 
   TopKHeap(final int k, final byte[] keyKind, final boolean[] descending,
       final GlobalValueDictionary.ReadView[] globalViews) {
@@ -90,6 +101,38 @@ final class TopKHeap {
         : null;
     this.recordKey = new long[k];
     this.rank = new long[k];
+    this.bound = new ColumnSlice[keyCount];
+    this.laneSegment = new MemorySegment[keyCount];
+    this.laneBase = new long[keyCount];
+  }
+
+  /**
+   * Bind the sort-column slices of the leaf about to be offered from (aligned to the keys): the
+   * long-lane kinds' segment and base are resolved HERE, once, and {@link #offer} reads rows off
+   * them. Every {@code offer} applies to the last bound leaf.
+   *
+   * @param leafSort one slice per sort key; the caller's array is not retained beyond the bind
+   */
+  void bindLeaf(final ColumnSlice[] leafSort) {
+    if (leafSort == null || leafSort.length < keyCount) {
+      throw new IllegalArgumentException("leafSort must carry one slice per sort key");
+    }
+    for (int kk = 0; kk < keyCount; kk++) {
+      final ColumnSlice slice = Objects.requireNonNull(leafSort[kk], "sort-key slice");
+      bound[kk] = slice;
+      if (keyKind[kk] == KEY_STRING_BYTES || keyKind[kk] == KEY_STRING_COLLATED) {
+        laneSegment[kk] = null;
+        laneBase[kk] = 0L;
+      } else {
+        laneSegment[kk] = slice.laneSegment();
+        laneBase[kk] = slice.laneBase();
+      }
+    }
+  }
+
+  /** The long key of {@code row} on sort key {@code kk} of the bound leaf. */
+  private long laneValue(final int kk, final int row) {
+    return SegmentAccess.getLong(laneSegment[kk], laneBase[kk] + ((long) row << 3));
   }
 
   /**
@@ -116,15 +159,15 @@ final class TopKHeap {
   }
 
   /**
-   * Offer row {@code rowIdx} of the leaf whose sort-column slices are {@code leafSort} (aligned to
-   * the keys). Enters when the heap is not yet full or the row beats the worst kept one.
+   * Offer row {@code rowIdx} of the leaf bound by {@link #bindLeaf}. Enters when the heap is not yet
+   * full or the row beats the worst kept one.
    *
    * @return whether the row was kept
    */
-  boolean offer(final ColumnSlice[] leafSort, final int rowIdx, final long key, final long rowRank) {
+  boolean offer(final int rowIdx, final long key, final long rowRank) {
     if (size < k) {
       final int slot = size++;
-      store(slot, leafSort, rowIdx, key, rowRank);
+      store(slot, rowIdx, key, rowRank);
       if (size == k) {
         for (int i = (k >>> 1) - 1; i >= 0; i--) {
           siftDown(i);
@@ -132,10 +175,10 @@ final class TopKHeap {
       }
       return true;
     }
-    if (compareCandidate(leafSort, rowIdx, rowRank, 0) >= 0) {
+    if (compareCandidate(rowIdx, rowRank, 0) >= 0) {
       return false;
     }
-    store(0, leafSort, rowIdx, key, rowRank);
+    store(0, rowIdx, key, rowRank);
     siftDown(0);
     return true;
   }
@@ -203,19 +246,18 @@ final class TopKHeap {
     return out;
   }
 
-  private void store(final int slot, final ColumnSlice[] leafSort, final int rowIdx, final long key,
-      final long rowRank) {
+  private void store(final int slot, final int rowIdx, final long key, final long rowRank) {
     final int base = slot * keyCount;
     for (int kk = 0; kk < keyCount; kk++) {
-      final ColumnSlice slice = leafSort[kk];
       switch (keyKind[kk]) {
         case KEY_STRING_BYTES, KEY_STRING_COLLATED -> {
+          final ColumnSlice slice = bound[kk];
           final int id = slice.stringDictIds()[rowIdx];
           final int off = slice.dictOffset(id);
           strKey[base + kk] = Arrays.copyOfRange(slice.dictBytes(), off, off + slice.dictLength(id));
           tuple[base + kk] = id;
         }
-        default -> tuple[base + kk] = slice.numericValues()[rowIdx];
+        default -> tuple[base + kk] = laneValue(kk, rowIdx);
       }
     }
     recordKey[slot] = key;
@@ -232,17 +274,17 @@ final class TopKHeap {
   }
 
   /** The candidate row against kept slot {@code slot} under the total order. */
-  private int compareCandidate(final ColumnSlice[] leafSort, final int rowIdx, final long rowRank, final int slot) {
+  private int compareCandidate(final int rowIdx, final long rowRank, final int slot) {
     final int base = slot * keyCount;
     for (int kk = 0; kk < keyCount; kk++) {
-      final ColumnSlice slice = leafSort[kk];
       final int cmp;
       switch (keyKind[kk]) {
-        case KEY_NUMERIC -> cmp = Long.compare(slice.numericValues()[rowIdx], tuple[base + kk]);
-        case KEY_STRING_GLOBAL -> cmp = globalViews[kk].compareIds(Math.toIntExact(slice.numericValues()[rowIdx]),
-            Math.toIntExact(tuple[base + kk]));
-        case KEY_STRING_SEGMENT -> cmp = globalViews[kk].compareCells(slice.numericValues()[rowIdx], tuple[base + kk]);
+        case KEY_NUMERIC -> cmp = Long.compare(laneValue(kk, rowIdx), tuple[base + kk]);
+        case KEY_STRING_GLOBAL ->
+          cmp = globalViews[kk].compareIds(Math.toIntExact(laneValue(kk, rowIdx)), Math.toIntExact(tuple[base + kk]));
+        case KEY_STRING_SEGMENT -> cmp = globalViews[kk].compareCells(laneValue(kk, rowIdx), tuple[base + kk]);
         default -> {
+          final ColumnSlice slice = bound[kk];
           final int id = slice.stringDictIds()[rowIdx];
           final byte[] bytes = slice.dictBytes();
           final int off = slice.dictOffset(id);

@@ -4,6 +4,8 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionIndexScan.Op;
+import java.lang.foreign.MemorySegment;
+import java.nio.ByteOrder;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorMask;
@@ -135,6 +137,103 @@ final class ProjectionVectorKernels {
       // word reaches here.
       case KEY_IN -> throw new IllegalStateException("record-key set in the numeric compare kernel");
     };
+  }
+
+  /** {@link #compareWord} over a lane segment: the 64 values at byte offset {@code at}. */
+  static long compareWordLane(final MemorySegment lane, final long at, final Op op, final long lit, final long high) {
+    return switch (op) {
+      case GT, LT, GE, LE, EQ, NE -> compareWordLaneSingleBound(lane, at, op, lit);
+      case BETWEEN_GT_LT, BETWEEN_GT_LE, BETWEEN_GE_LT, BETWEEN_GE_LE ->
+        compareWordLaneBetween(lane, at, op, lit, high);
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+        throw new IllegalStateException("string op in the numeric compare kernel: " + op);
+      case KEY_IN -> throw new IllegalStateException("record-key set in the numeric compare kernel");
+    };
+  }
+
+  private static final ByteOrder LANE_ORDER = ByteOrder.nativeOrder();
+
+  private static long compareWordLaneSingleBound(final MemorySegment lane, final long at, final Op op, final long lit) {
+    long out = 0L;
+    switch (op) {
+      case GT -> {
+        for (int k = 0; k < 64; k += LANES) {
+          out |= LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER)
+                           .compare(VectorOperators.GT, lit)
+                           .toLong() << k;
+        }
+      }
+      case LT -> {
+        for (int k = 0; k < 64; k += LANES) {
+          out |= LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER)
+                           .compare(VectorOperators.LT, lit)
+                           .toLong() << k;
+        }
+      }
+      case GE -> {
+        for (int k = 0; k < 64; k += LANES) {
+          out |= LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER)
+                           .compare(VectorOperators.GE, lit)
+                           .toLong() << k;
+        }
+      }
+      case LE -> {
+        for (int k = 0; k < 64; k += LANES) {
+          out |= LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER)
+                           .compare(VectorOperators.LE, lit)
+                           .toLong() << k;
+        }
+      }
+      case EQ -> {
+        for (int k = 0; k < 64; k += LANES) {
+          out |= LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER)
+                           .compare(VectorOperators.EQ, lit)
+                           .toLong() << k;
+        }
+      }
+      case NE -> {
+        for (int k = 0; k < 64; k += LANES) {
+          out |= LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER)
+                           .compare(VectorOperators.NE, lit)
+                           .toLong() << k;
+        }
+      }
+      default -> throw new IllegalStateException("range op in compareWordLaneSingleBound: " + op);
+    }
+    return out;
+  }
+
+  private static long compareWordLaneBetween(final MemorySegment lane, final long at, final Op op, final long lit,
+      final long high) {
+    long out = 0L;
+    switch (op) {
+      case BETWEEN_GT_LT -> {
+        for (int k = 0; k < 64; k += LANES) {
+          final LongVector v = LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER);
+          out |= v.compare(VectorOperators.GT, lit).and(v.compare(VectorOperators.LT, high)).toLong() << k;
+        }
+      }
+      case BETWEEN_GT_LE -> {
+        for (int k = 0; k < 64; k += LANES) {
+          final LongVector v = LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER);
+          out |= v.compare(VectorOperators.GT, lit).and(v.compare(VectorOperators.LE, high)).toLong() << k;
+        }
+      }
+      case BETWEEN_GE_LT -> {
+        for (int k = 0; k < 64; k += LANES) {
+          final LongVector v = LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER);
+          out |= v.compare(VectorOperators.GE, lit).and(v.compare(VectorOperators.LT, high)).toLong() << k;
+        }
+      }
+      case BETWEEN_GE_LE -> {
+        for (int k = 0; k < 64; k += LANES) {
+          final LongVector v = LongVector.fromMemorySegment(SPECIES, lane, at + ((long) k << 3), LANE_ORDER);
+          out |= v.compare(VectorOperators.GE, lit).and(v.compare(VectorOperators.LE, high)).toLong() << k;
+        }
+      }
+      default -> throw new IllegalStateException("non-range op in compareWordLaneBetween: " + op);
+    }
+    return out;
   }
 
   /**

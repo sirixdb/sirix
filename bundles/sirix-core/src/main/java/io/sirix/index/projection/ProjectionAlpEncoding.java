@@ -3,6 +3,9 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.node.SegmentAccess;
+import java.lang.foreign.MemorySegment;
+
 /**
  * ALP (Adaptive Lossless floating-Point) encoding for {@code NUMERIC_DOUBLE} BODY streams
  * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6, §11-6), landed behind the reserved width-byte
@@ -242,6 +245,37 @@ final class ProjectionAlpEncoding {
     final long[] cells = new long[rowCount];
     decodeInto(in, rowCount, cells);
     return cells;
+  }
+
+  /**
+   * {@link #decodeInto(ProjectionIndexRowGroupCodec.Cursor, int, long[])} into a segment at
+   * {@code outBase}.
+   */
+  static void decodeInto(final ProjectionIndexRowGroupCodec.Cursor in, final int rowCount, final MemorySegment out,
+      final long outBase) {
+    final int e = in.readByte() & 0xFF;
+    final int f = in.readByte() & 0xFF;
+    if (e > 18 || f > e) {
+      throw new IllegalStateException("Corrupt ALP scale pair e=" + e + " f=" + f);
+    }
+    final int exceptionCount = in.readInt();
+    if (exceptionCount < 0 || exceptionCount > rowCount) {
+      throw new IllegalStateException("Corrupt ALP exception count " + exceptionCount + " for rowCount " + rowCount);
+    }
+    ProjectionIndexRowGroupCodec.decodePlainForBitPackedInto(in, rowCount, out, outBase);
+    final double expF = EXP10[f];
+    final double expE = EXP10[e];
+    for (int i = 0; i < rowCount; i++) {
+      final long at = outBase + ((long) i << 3);
+      SegmentAccess.putLong(out, at, ProjectionDoubleEncoding.encode(SegmentAccess.getLong(out, at) * expF / expE));
+    }
+    for (int i = 0; i < exceptionCount; i++) {
+      final int row = in.readInt();
+      if (row < 0 || row >= rowCount) {
+        throw new IllegalStateException("Corrupt ALP exception row " + row);
+      }
+      SegmentAccess.putLong(out, outBase + ((long) row << 3), in.readLong());
+    }
   }
 
   /**

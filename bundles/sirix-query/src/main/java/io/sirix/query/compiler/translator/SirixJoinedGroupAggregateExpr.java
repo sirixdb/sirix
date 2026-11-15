@@ -17,13 +17,17 @@ import io.brackit.query.operator.TupleImpl;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.util.sort.Ordering;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionComputedColumn;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionTemporalCodec;
 import io.sirix.query.ColumnarRecordSequence;
+import io.sirix.query.compiler.translator.JoinKernels.BucketedSide;
+import io.sirix.query.compiler.translator.JoinKernels.DistinctDomain;
+import io.sirix.query.compiler.translator.JoinKernels.ExtremaFold;
+import io.sirix.query.compiler.translator.JoinKernels.SideLanes;
+import io.sirix.query.scan.DerivedCacheBudget;
+import io.sirix.query.scan.DerivedCacheBudget.Reservation;
 import io.sirix.query.scan.MaskedColumns;
 import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
@@ -32,8 +36,11 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.jspecify.annotations.Nullable;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +49,10 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.function.Consumer;
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -66,6 +77,41 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
   /** Work counter: bucketed sides built for the dense extrema kernel (a cache hit builds none). */
   private static final LongAdder BUCKETED_SIDES_BUILT = new LongAdder();
+  // Volatile publishes the executor reference; the executor provides its own task synchronization.
+  @SuppressWarnings("java:S3077")
+  private static volatile @Nullable Executor packingExecutorForTesting;
+
+  // Volatile publishes the test callback reference; it does not protect mutable callback state.
+  @SuppressWarnings("java:S3077")
+  static volatile @Nullable Consumer<String> handoffHookForTesting;
+
+  private static void handoff(final String point) {
+    final Consumer<String> hook = handoffHookForTesting;
+    if (hook != null) {
+      hook.accept(point);
+    }
+  }
+
+  static int inFlightPackingCountForTesting() {
+    return BucketedSideCache.IN_FLIGHT.size();
+  }
+
+  // Package-local tests await completion only; the packed side stays an implementation detail.
+  @SuppressWarnings("ExposedPrivateType")
+  static @Nullable CompletableFuture<BucketedSideCache.PackedSide> inFlightPackingForTesting() {
+    final Iterator<CompletableFuture<BucketedSideCache.PackedSide>> futures =
+        BucketedSideCache.IN_FLIGHT.values().iterator();
+    return futures.hasNext()
+        ? futures.next()
+        : null;
+  }
+
+  /** Test seam for isolated fixtures that hold an optional packing task before execution. */
+  public static @Nullable Executor setPackingExecutorForTesting(final @Nullable Executor executor) {
+    final Executor previous = packingExecutorForTesting;
+    packingExecutorForTesting = executor;
+    return previous;
+  }
 
   public static long bucketedSidesBuiltCount() {
     return BUCKETED_SIDES_BUILT.sum();
@@ -91,6 +137,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private final int[] entryKinds;
   private final int[] orderIndexes;
   private final Ordering.OrderModifier[] orderModifiers;
+  /** Per ordering key: ascending; the primitive row order reads this instead of the modifiers. */
+  private final boolean[] orderAsc;
   private final Expr genericFallback;
   private final boolean rowOutput;
   private final int[] residualSides;
@@ -128,6 +176,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     this.progConsts = progConsts;
     this.entryKinds = entryKinds;
     this.orderIndexes = orderIndexes;
+    this.orderAsc = orderAsc.clone();
     this.orderModifiers = new Ordering.OrderModifier[orderIndexes.length];
     for (int i = 0; i < orderIndexes.length; i++) {
       orderModifiers[i] = new Ordering.OrderModifier(orderAsc[i], orderEmptyLeast[i], null);
@@ -246,6 +295,28 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         : genericFallback.evaluate(ctx, tuple);
   }
 
+  /**
+   * Diagnostics only: leaves whose rostered lanes shared one segment, per loop, since the last
+   * report.
+   */
+  private static final LongAdder[] CAPTURED_SHARED = {new LongAdder(), new LongAdder()};
+  private static final LongAdder[] CAPTURED_SPLIT = {new LongAdder(), new LongAdder()};
+
+  private static void noteCapturedLeaf(final String loop, final boolean shared) {
+    final int at = "build".equals(loop)
+        ? 0
+        : 1;
+    (shared
+        ? CAPTURED_SHARED[at]
+        : CAPTURED_SPLIT[at]).increment();
+  }
+
+  private static String capturedLeavesReport() {
+    return String.format("build leaves one-segment %d, split %d; probe leaves one-segment %d, split %d",
+        CAPTURED_SHARED[0].sumThenReset(), CAPTURED_SPLIT[0].sumThenReset(), CAPTURED_SHARED[1].sumThenReset(),
+        CAPTURED_SPLIT[1].sumThenReset());
+  }
+
   private static @Nullable Sequence decline(final String why) {
     if (DIAG) {
       System.err.println("[join-serve] decline: " + why);
@@ -253,6 +324,9 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return null;
   }
 
+  // Sonar S1181: an Error must not leak what is rolled back here, which no collector frees. The
+  // failure is rethrown.
+  @SuppressWarnings("java:S1181")
   private @Nullable Sequence serve(final QueryContext ctx, final Tuple tuple) throws QueryException {
     final long[][] keys = new long[2][];
     final int[] revisions = new int[2];
@@ -264,11 +338,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
           return decline("side " + side + " has no routed rows");
         }
         if (rows.keys().length == 0) {
-          if (side == 1 && sides[0].routed() == null) {
-            return decline("an empty inner mask requires the ordinary outer source evaluation");
-          }
-          SirixVectorizedExecutor.noteJoinGroupServed();
-          return new ItemSequence();
+          return emptySide(side);
         }
         keys[side] = rows.keys();
         revisions[side] = rows.revision();
@@ -277,15 +347,58 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
     }
     final MaskedColumns[] columns = new MaskedColumns[2];
+    Throwable primary = null;
+    try {
+      final String refused = loadSides(ctx, keys, revisions, columns);
+      return refused != null
+          ? decline(refused)
+          : joinSides(columns);
+    } catch (final Throwable failure) {
+      primary = failure;
+      throw failure;
+    } finally {
+      // Native views lease their resident snapshot; the result sequence no longer reads them.
+      closeSides(columns, primary);
+    }
+  }
+
+  /**
+   * The answer for a routed side without rows: the join is empty, unless only the inner side is
+   * routed, where the ordinary outer source evaluation has to run.
+   */
+  private @Nullable Sequence emptySide(final int side) {
+    if (side == 1 && sides[0].routed() == null) {
+      return decline("an empty inner mask requires the ordinary outer source evaluation");
+    }
+    SirixVectorizedExecutor.noteJoinGroupServed();
+    return new ItemSequence();
+  }
+
+  /**
+   * Loads the masked columns of both sides into {@code columns}; a side that is loaded stays there
+   * for the caller to close.
+   *
+   * @return why the join cannot be served, or {@code null} when both sides are loaded
+   */
+  private @Nullable String loadSides(final QueryContext ctx, final long[][] keys, final int[] revisions,
+      final MaskedColumns[] columns) {
     for (int side = 0; side < 2; side++) {
       columns[side] = columns(ctx, side, keys[side], revisions[side]);
       if (columns[side] == null) {
-        return decline("side " + side + " has no masked columns");
+        return "side " + side + " has no masked columns";
       }
       if (!columns[side].isLong(0)) {
-        return decline("join field of side " + side + " is not a long column");
+        return "join field of side " + side + " is not a long column";
       }
     }
+    return null;
+  }
+
+  /**
+   * Joins the two loaded sides, hashing the smaller one; declines on a column the join cannot read
+   * and on an exact arithmetic overflow.
+   */
+  private @Nullable Sequence joinSides(final MaskedColumns[] columns) throws QueryException {
     final boolean[] stringKeys = new boolean[keyFields.length];
     final boolean[] timestampKeys = new boolean[keyFields.length];
     final String invalid = invalidColumns(columns, stringKeys, timestampKeys);
@@ -300,9 +413,29 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     columns[build].adopt(columns[probe]);
     try {
       return join(columns[build], build, columns[probe], probe, stringKeys, timestampKeys);
-    } catch (final ArithmeticException overflow) {
+    } catch (final ArithmeticException _) {
       return decline("exact arithmetic overflow");
     }
+  }
+
+  /**
+   * Close the views of both sides; a failure of closing is kept on {@code primary} when there is one.
+   */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
+  private static void closeSides(final MaskedColumns[] columns, final @Nullable Throwable primary) {
+    Throwable failure = primary;
+    for (final MaskedColumns side : columns) {
+      if (side != null) {
+        try {
+          side.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
+      }
+    }
+    rethrowCleanupFailure(failure);
   }
 
   /** One side's masked columns: the routed rows or every row of the literal document. */
@@ -319,7 +452,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       if ((revision >= 0 && executor.getRevision() != revision) || !executor.canExecute(ctx)) {
         return null;
       }
-      return executor.maskedColumns(ARRAY_MEMBERS, keys, sideFields[side]);
+      // A join side is the selection's only reader: its lanes go into one slab, keys or not.
+      return executor.maskedColumns(ARRAY_MEMBERS, keys, sideFields[side], true);
     }
   }
 
@@ -330,6 +464,8 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     long[] values;
     boolean[] present;
     long[] recordKeys;
+    /** Per build row, the next row of the same join key or -1; grown alongside the rows. */
+    int[] nextRow = new int[16];
     int count;
     long minimumJoinKey = Long.MAX_VALUE;
     long maximumJoinKey = Long.MIN_VALUE;
@@ -359,6 +495,17 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       }
       recordKeys[count] = recordKey;
       return count++;
+    }
+
+    /** Add a row whose join key is present, tracking the key domain and the chain array's size. */
+    int addKeyed(final long joinKey, final long recordKey) {
+      minimumJoinKey = Math.min(minimumJoinKey, joinKey);
+      maximumJoinKey = Math.max(maximumJoinKey, joinKey);
+      final int at = add(recordKey);
+      if (at == nextRow.length) {
+        nextRow = Arrays.copyOf(nextRow, nextRow.length << 1);
+      }
+      return at;
     }
   }
 
@@ -416,13 +563,10 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final long[] probeValues = new long[probeFieldCount];
     final boolean[] probePresent = new boolean[probeFieldCount];
     final boolean denseProbe = denseNumeric(probeColumns, probeFieldCount);
-    final long[][] probeLanes = new long[probeFieldCount][];
     final boolean[] probeTimestamps = new boolean[probeFieldCount];
     if (denseProbe) {
       Arrays.fill(probePresent, true);
-      for (int field = 0; field < probeFieldCount; field++) {
-        probeTimestamps[field] = probeColumns.isTimestamp(field);
-      }
+      markTimestamps(probeColumns, probeTimestamps);
     }
     final Map<GroupKey, GroupState> groups = rowOutput
         ? Map.of()
@@ -431,38 +575,160 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         ? new Long2ObjectOpenHashMap<>()
         : null;
     final Ordering rowOrdering;
+    final RowOrder rowOrder;
     final ColumnarRecordSequence.Builder rowColumns;
     if (rowOutput) {
-      final Ordering.OrderModifier[] rowModifiers = Arrays.copyOf(orderModifiers, orderModifiers.length + 2);
-      rowModifiers[orderModifiers.length] = new Ordering.OrderModifier(true, true, null);
-      rowModifiers[orderModifiers.length + 1] = new Ordering.OrderModifier(true, true, null);
-      rowOrdering = new Ordering(new Expr[0], rowModifiers);
-      final boolean[] textKeys = new boolean[stringKeys.length];
-      for (int key = 0; key < textKeys.length; key++) {
-        textKeys[key] = stringKeys[key] || timestampKeys[key];
+      rowColumns = new ColumnarRecordSequence.Builder(outputNames, textKeys(stringKeys, timestampKeys), 256);
+      if (denseBuild && denseProbe && longOrderKeys(stringKeys, timestampKeys)) {
+        // Every ordering key is a long present on every row: no item, tuple or array per emitted row.
+        rowOrder = new RowOrder(orderAsc, rowColumns, 256);
+        rowOrdering = null;
+      } else {
+        final Ordering.OrderModifier[] rowModifiers = Arrays.copyOf(orderModifiers, orderModifiers.length + 2);
+        rowModifiers[orderModifiers.length] = new Ordering.OrderModifier(true, true, null);
+        rowModifiers[orderModifiers.length + 1] = new Ordering.OrderModifier(true, true, null);
+        rowOrdering = new Ordering(new Expr[0], rowModifiers);
+        rowOrder = null;
       }
-      rowColumns = new ColumnarRecordSequence.Builder(outputNames, textKeys, 256);
     } else {
       rowOrdering = null;
+      rowOrder = null;
       rowColumns = null;
     }
-    final int emittedRows =
-        probeRows(buildColumns, buildSide, probeColumns, probeSide, stringKeys, timestampKeys, buildRows, nextRow,
-            denseHeads, firstRow, distinctCapacity, distinctDomains, probeValues, probePresent, denseProbe, probeLanes,
-            probeTimestamps, groups, singleGroups, rowOrdering, rowColumns, denseBuild && denseProbe);
+    final int emittedRows = probeRows(buildColumns, buildSide, probeColumns, probeSide, stringKeys, timestampKeys,
+        buildRows, nextRow, denseHeads, firstRow, distinctCapacity, distinctDomains, probeValues, probePresent,
+        denseProbe, probeTimestamps, groups, singleGroups, rowOrdering, rowOrder, rowColumns, denseBuild && denseProbe);
+    diagServed(buildRows, probeColumns, emittedRows);
     SirixVectorizedExecutor.noteJoinGroupServed();
+    if (rowOrder != null) {
+      return rowOrder.columns.build(rowOrder.sorted());
+    }
     return rowOrdering != null
         ? orderedRows(rowOrdering, emittedRows, rowColumns)
         : emit(groups, buildColumns, stringKeys, timestampKeys);
   }
 
+  /** Which fields of a dense probe side are timestamps. */
+  private static void markTimestamps(final MaskedColumns probeColumns, final boolean[] probeTimestamps) {
+    for (int field = 0; field < probeTimestamps.length; field++) {
+      probeTimestamps[field] = probeColumns.isTimestamp(field);
+    }
+  }
+
+  /** The output keys that are written as text: strings and timestamps. */
+  private static boolean[] textKeys(final boolean[] stringKeys, final boolean[] timestampKeys) {
+    final boolean[] textKeys = new boolean[stringKeys.length];
+    for (int key = 0; key < textKeys.length; key++) {
+      textKeys[key] = stringKeys[key] || timestampKeys[key];
+    }
+    return textKeys;
+  }
+
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
+  @SuppressWarnings("java:S106")
+  private void diagServed(final BuildRows buildRows, final MaskedColumns probeColumns, final int emittedRows) {
+    if (DIAG) {
+      System.err.printf("[join-serve] %s join: %d build rows, %d probe rows, %d emitted; %s%n", rowOutput
+          ? "row"
+          : "group", buildRows.count, probeColumns.rows(), emittedRows, capturedLeavesReport());
+    }
+  }
+
+  /** Whether every ordering key is a plain long output column (neither string nor timestamp). */
+  private boolean longOrderKeys(final boolean[] stringKeys, final boolean[] timestampKeys) {
+    for (final int key : orderIndexes) {
+      if (stringKeys[key] || timestampKeys[key]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * The order of row output without per-row allocation, for joins whose ordering keys are all long
+   * columns present on every emitted row: each row's key values and both record keys live in
+   * column-major primitive buffers and the rows are ordered by stable radix passes
+   * ({@link JoinKernels#sortRows}), in the order the tuple sort would produce (the keys by their
+   * modifiers, then the record keys of side 0 and side 1 ascending, which are unique). A descending
+   * key is stored bitwise inverted, so every pass sorts ascending.
+   */
+  private static final class RowOrder {
+    final ColumnarRecordSequence.Builder columns;
+    final long[] scratch;
+    private final boolean[] ascending;
+    private final int keyCount;
+    /**
+     * Column-major: the ordering keys as stored for an ascending pass, then the side-0 and side-1
+     * record keys.
+     */
+    private final long[][] keys;
+    private int[] rows;
+    private int count;
+
+    RowOrder(final boolean[] ascending, final ColumnarRecordSequence.Builder columns, final int capacity) {
+      this.ascending = ascending;
+      this.columns = columns;
+      this.keyCount = ascending.length;
+      this.scratch = new long[keyCount];
+      this.keys = new long[keyCount + 2][];
+      for (int k = 0; k < keys.length; k++) {
+        keys[k] = new long[capacity];
+      }
+      this.rows = new int[capacity];
+    }
+
+    /** Append one emitted row: its ordering keys (from {@link #scratch}) and the two record keys. */
+    void add(final int outputRow, final long side0Key, final long side1Key) {
+      if (count == rows.length) {
+        final int grown = rows.length << 1;
+        rows = Arrays.copyOf(rows, grown);
+        for (int k = 0; k < keys.length; k++) {
+          keys[k] = Arrays.copyOf(keys[k], grown);
+        }
+      }
+      for (int k = 0; k < keyCount; k++) {
+        keys[k][count] = ascending[k]
+            ? scratch[k]
+            : ~scratch[k];
+      }
+      keys[keyCount][count] = side0Key;
+      keys[keyCount + 1][count] = side1Key;
+      rows[count++] = outputRow;
+    }
+
+    /** The output rows in order. */
+    int[] sorted() {
+      final int[] order = JoinKernels.sortRows(keys, count);
+      final int[] result = new int[count];
+      for (int i = 0; i < count; i++) {
+        result[i] = rows[order[i]];
+      }
+      return result;
+    }
+  }
+
+  /**
+   * The probe loop: one method whose fold scratch lives in locals, so the pair fold inlines into the
+   * row loop. A dense probe side reads its lanes in place from their segments at bases hoisted per
+   * leaf, eight bytes per row; when every lane of the side lives in one segment (a selection decoded
+   * into its own slab, the common case) the row read goes through that one segment, so its bounds and
+   * scope are loaded once per row rather than once per field ({@link #readNumericRow}). A sparse side
+   * reads through the view's per-row accessors. One representation, one loop. A row-output join reads
+   * the probe record key from the key lane per emitted pair.
+   */
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  @SuppressWarnings({"java:S135", "java:S3776"})
   private int probeRows(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
       final int probeSide, final boolean[] stringKeys, final boolean[] timestampKeys, final BuildRows buildRows,
       final int[] nextRow, final int @Nullable [] denseHeads, final Long2IntOpenHashMap firstRow,
       final int distinctCapacity, final DistinctDomain[] distinctDomains, final long[] probeValues,
-      final boolean[] probePresent, final boolean denseProbe, final long[][] probeLanes,
-      final boolean[] probeTimestamps, final Map<GroupKey, GroupState> groups,
-      final @Nullable Long2ObjectOpenHashMap<GroupState> singleGroups, final @Nullable Ordering rowOrdering,
+      final boolean[] probePresent, final boolean denseProbe, final boolean[] probeTimestamps,
+      final Map<GroupKey, GroupState> groups, final @Nullable Long2ObjectOpenHashMap<GroupState> singleGroups,
+      final @Nullable Ordering rowOrdering, final @Nullable RowOrder rowOrder,
       final ColumnarRecordSequence.@Nullable Builder rowColumns, final boolean allPresent) {
     final int keyCount = keyFields.length;
     final int aggCount = aggFuncs.length;
@@ -476,16 +742,33 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     final boolean[] residualStack = new boolean[Math.max(1, residualCode.length)];
     final GroupKey probeKey = new GroupKey(keyComponents); // Scratch key, cloned on insert.
     final int accWidth = 1 + 4 * aggCount;
+    final MemorySegment[] laneSeg = new MemorySegment[probeFieldCount];
+    final long[] laneOff = new long[probeFieldCount];
+    final boolean emitsRows = rowOrder != null || rowOrdering != null;
     int emittedRows = 0;
     for (int leaf = 0; leaf < probeColumns.leafCount(); leaf++) {
       final long[] mask = probeColumns.rowMask(leaf);
       if (mask == null) {
         continue;
       }
-      if (denseProbe) {
-        for (int field = 0; field < probeFieldCount; field++) {
-          probeLanes[field] = probeColumns.numericLane(field, leaf);
-        }
+      // Per-row reads through locals holding fresh native views; see the build loop.
+      final MemorySegment keySeg = emitsRows
+          ? JoinKernels.nativeView(probeColumns.keySegment(leaf))
+          : MemorySegment.NULL;
+      final long keyBase = emitsRows
+          ? probeColumns.keyBase(leaf)
+          : 0L;
+      final MemorySegment captured = denseProbe
+          ? captureLanes(probeColumns, leaf, laneSeg, laneOff)
+          : null;
+      final MemorySegment shared = captured == null
+          ? null
+          : JoinKernels.nativeView(captured);
+      final MemorySegment joinLane = denseProbe
+          ? JoinKernels.nativeView(laneSeg[0])
+          : null;
+      if (DIAG) {
+        noteCapturedLeaf("probe", shared != null);
       }
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
@@ -498,14 +781,14 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             continue;
           }
           final long joinKey = denseProbe
-              ? probeLanes[0][row]
+              ? (long) JoinKernels.SLAB_LONG.get(joinLane, laneOff[0] + 8L * row)
               : probeColumns.longValue(0, leaf, row);
           int at = firstMatch(joinKey, buildRows, denseHeads, firstRow);
           if (at < 0) {
             continue;
           }
           if (denseProbe) {
-            readNumericRow(probeLanes, probeTimestamps, row, probeValues);
+            readNumericRow(shared, laneSeg, laneOff, probeTimestamps, row, joinKey, probeValues);
           } else {
             readProbeRow(probeColumns, leaf, row, probeFieldCount, probeValues, probePresent);
           }
@@ -513,9 +796,17 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             if (!matchesResidual(buildRows, at, buildSide, probeValues, probePresent, residualStack, allPresent)) {
               continue;
             }
+            // The probe record key is read per emitted pair, not per matched row: most rows emit nothing.
+            if (rowOrder != null) {
+              emitRowPrimitive(keyCount, buildSide, buildFieldCount, buildRows, at, probeValues, stringKeys,
+                  timestampKeys, buildColumns, (long) JoinKernels.SLAB_LONG.get(keySeg, keyBase + 8L * row), rowOrder);
+              emittedRows++;
+              continue;
+            }
             if (rowOrdering != null) {
               emitRow(keyCount, buildSide, probeSide, buildFieldCount, buildRows, at, probeValues, probePresent,
-                  stringKeys, timestampKeys, buildColumns, probeColumns, leaf, row, rowOrdering, rowColumns);
+                  stringKeys, timestampKeys, buildColumns, (long) JoinKernels.SLAB_LONG.get(keySeg, keyBase + 8L * row),
+                  rowOrdering, rowColumns);
               emittedRows++;
               continue;
             }
@@ -528,6 +819,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
     return emittedRows;
   }
+
 
   private static int firstMatch(final long joinKey, final BuildRows buildRows, final int @Nullable [] denseHeads,
       final Long2IntOpenHashMap firstRow) {
@@ -640,153 +932,50 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   }
 
   /**
-   * The lanes one side of the dense extrema kernel reads: the row masks (copied, so a packing task
-   * may outlive the query's view) and the per-leaf numeric lanes of the join key, the two timestamps,
-   * the margin operand and, when the side carries them, the distinct operand and the group key. Lanes
-   * are immutable decoded arrays shared with the column store.
+   * A packed side held by the query: a leased cache entry, or a query-owned slab when the cache
+   * refused or is disabled. Closed in {@code finally} once the fold has read it.
    */
-  @SuppressWarnings("ArrayRecordComponent") // Private lane carrier; array value equality is never used.
-  private record SideLanes(long[] @Nullable [] masks, long[][] join, long[][] from, long[][] to, long[][] margin,
-      long @Nullable [][] distinct, long @Nullable [][] group) {
+  private static final class SideHandle implements AutoCloseable {
+    final BucketedSide side;
+    private final BucketedSideCache.@Nullable PackedSide entry;
+    private final @Nullable MemorySegment owned;
 
-    static SideLanes capture(final MaskedColumns columns, final int fromSlot, final int toSlot, final int marginSlot,
-        final int distinctSlot, final int groupSlot) {
-      final int leaves = columns.leafCount();
-      final long[][] masks = new long[leaves][];
-      final long[][] join = new long[leaves][];
-      final long[][] from = new long[leaves][];
-      final long[][] to = new long[leaves][];
-      final long[][] margin = new long[leaves][];
-      final long[][] distinct = distinctSlot < 0
-          ? null
-          : new long[leaves][];
-      final long[][] group = groupSlot < 0
-          ? null
-          : new long[leaves][];
-      for (int leaf = 0; leaf < leaves; leaf++) {
-        final long[] mask = columns.rowMask(leaf);
-        if (mask == null) {
-          continue;
-        }
-        masks[leaf] = mask.clone();
-        join[leaf] = columns.numericLane(0, leaf);
-        from[leaf] = columns.numericLane(fromSlot, leaf);
-        to[leaf] = columns.numericLane(toSlot, leaf);
-        margin[leaf] = columns.numericLane(marginSlot, leaf);
-        if (distinct != null) {
-          distinct[leaf] = columns.numericLane(distinctSlot, leaf);
-        }
-        if (group != null) {
-          group[leaf] = columns.numericLane(groupSlot, leaf);
-        }
-      }
-      return new SideLanes(masks, join, from, to, margin, distinct, group);
+    private SideHandle(final BucketedSide side, final BucketedSideCache.@Nullable PackedSide entry,
+        final @Nullable MemorySegment owned) {
+      this.side = side;
+      this.entry = entry;
+      this.owned = owned;
     }
-  }
 
-  /**
-   * One side of the dense extrema kernel, bucketed by join key: a counting sort over the build side's
-   * dense key domain places every key's rows contiguously, so the join is a merge over keys that
-   * reads both sides sequentially. Each row is one {@value #STRIDE}-long record (from, to, margin,
-   * distinct operand or 0, group index or 0), so bucketing touches one line per row. Timestamps keep
-   * their persisted unit (epoch seconds on both sides), which orders exactly like the millisecond
-   * residuals of the generic kernel. Rows whose key lies outside the domain cannot join and are
-   * dropped while bucketing. Immutable once built, so a revision's side is reusable.
-   *
-   * <p>
-   * Packing a large side costs a first touch of its whole record array plus one scattered write per
-   * row (about 17 ms for 325k rows as a native image), which is why a process-cold query never packs
-   * its probe side on the critical path: it streams the lanes against the bucketed build side instead
-   * ({@link #foldChained}) while the packing runs in the background for the next execution.
-   */
-  private static final class BucketedSide {
-    static final int STRIDE = 5;
-    static final int FROM = 0;
-    static final int TO = 1;
-    static final int MARGIN = 2;
-    static final int DISTINCT = 3;
-    /** The group index on the side carrying the group key, zero on the other. */
-    static final int META = 4;
-
-    final int[] bucketStart;
-    final long[] rows;
-    final int count;
-
-    BucketedSide(final SideLanes lanes, final long keyMinimum, final int slots, final long groupMinimum) {
-      final int leaves = lanes.masks().length;
-      bucketStart = new int[slots + 1];
-      int total = 0;
-      for (int leaf = 0; leaf < leaves; leaf++) {
-        final long[] mask = lanes.masks()[leaf];
-        if (mask == null) {
-          continue;
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
+    static SideHandle leased(final BucketedSideCache.PackedSide entry) {
+      try {
+        handoff("side-handle");
+        return new SideHandle(entry.side, entry, null);
+      } catch (final Throwable failure) {
+        try {
+          entry.release();
+        } catch (final Throwable cleanup) {
+          retainCleanupFailure(failure, cleanup);
         }
-        final long[] join = lanes.join()[leaf];
-        for (int w = 0; w < mask.length; w++) {
-          long word = mask[w];
-          while (word != 0L) {
-            final int row = (w << 6) + Long.numberOfTrailingZeros(word);
-            word &= word - 1L;
-            final long slot = join[row] - keyMinimum;
-            if (slot >= 0 && slot < slots) {
-              bucketStart[(int) slot + 1]++;
-              total++;
-            }
-          }
-        }
-      }
-      for (int slot = 0; slot < slots; slot++) {
-        bucketStart[slot + 1] += bucketStart[slot];
-      }
-      count = total;
-      rows = new long[total * STRIDE];
-      final int[] fill = Arrays.copyOf(bucketStart, slots);
-      for (int leaf = 0; leaf < leaves; leaf++) {
-        final long[] mask = lanes.masks()[leaf];
-        if (mask == null) {
-          continue;
-        }
-        fillLeaf(lanes, leaf, mask, fill, keyMinimum, slots, groupMinimum);
+        throw failure;
       }
     }
 
-    private void fillLeaf(final SideLanes lanes, final int leaf, final long[] mask, final int[] fill,
-        final long keyMinimum, final int slots, final long groupMinimum) {
-      final long[] join = lanes.join()[leaf];
-      final long[] fromLane = lanes.from()[leaf];
-      final long[] toLane = lanes.to()[leaf];
-      final long[] marginLane = lanes.margin()[leaf];
-      final long[] distinctLane = lanes.distinct() == null
-          ? null
-          : lanes.distinct()[leaf];
-      final long[] groupLane = lanes.group() == null
-          ? null
-          : lanes.group()[leaf];
-      for (int w = 0; w < mask.length; w++) {
-        long word = mask[w];
-        while (word != 0L) {
-          final int row = (w << 6) + Long.numberOfTrailingZeros(word);
-          word &= word - 1L;
-          final long slot = join[row] - keyMinimum;
-          if (slot < 0 || slot >= slots) {
-            continue;
-          }
-          final int at = fill[(int) slot]++ * STRIDE;
-          rows[at + FROM] = fromLane[row];
-          rows[at + TO] = toLane[row];
-          rows[at + MARGIN] = marginLane[row];
-          rows[at + DISTINCT] = distinctLane == null
-              ? 0L
-              : distinctLane[row];
-          rows[at + META] = groupLane == null
-              ? 0L
-              : groupLane[row] - groupMinimum;
-        }
-      }
+    static SideHandle owned(final BucketedSide side, final MemorySegment slab) {
+      handoff("owned-handle");
+      return new SideHandle(side, null, slab);
     }
 
-    long weight() {
-      return 64L + 4L * bucketStart.length + 8L * rows.length;
+    @Override
+    public void close() {
+      if (entry != null) {
+        entry.release();
+      } else if (owned != null) {
+        DerivedCacheBudget.global().allocator().releaseSlab(owned);
+      }
     }
   }
 
@@ -797,95 +986,206 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * finished waits for it instead of packing again.
    */
   private static final class BucketedSideCache {
-    private static final long MAX_BYTES =
-        Math.max(1L << 20, Math.min(64L << 20, Runtime.getRuntime().maxMemory() / 64));
-    private static final Cache<Object, Entry> CACHE = Caffeine.newBuilder()
-                                                              .weakKeys()
-                                                              .maximumWeight(MAX_BYTES)
-                                                              .weigher((Object snapshot, Entry entry) -> entry.weight)
-                                                              .build();
-    private static final ConcurrentHashMap<InFlightKey, CompletableFuture<BucketedSide>> IN_FLIGHT =
+    private static final ConcurrentHashMap<InFlightKey, CompletableFuture<PackedSide>> IN_FLIGHT =
         new ConcurrentHashMap<>();
 
-    @SuppressWarnings("ArrayRecordComponent") // Matched by identity and content below; record equality is unused.
-    private record Entry(long[] signature, BucketedSide side, int weight) {
+    /**
+     * A packed side in its own slab, keyed by the row identity of the snapshot it derives from (held
+     * weakly, so a side of a one-off selection is reaped) and the operand signature.
+     */
+    static final class PackedSide extends DerivedCacheBudget.Entry {
+      private final WeakReference<Object> rows;
+      private final long[] signature;
+      final BucketedSide side;
+
+      PackedSide(final Object rows, final long[] signature, final BucketedSide side) {
+        this.rows = new WeakReference<>(rows);
+        this.signature = signature;
+        this.side = side;
+      }
+
+      // Row identity ties the side to one snapshot; only the operand signature compares by value.
+      @SuppressWarnings("ReferenceEquality")
+      boolean matches(final Object rows, final long[] signature) {
+        return this.rows.get() == rows && Arrays.equals(this.signature, signature);
+      }
+
+      @Override
+      protected boolean isStale() {
+        return rows.get() == null;
+      }
+
+      // Dependents belong to this exact snapshot identity, regardless of any value equality.
+      @Override
+      @SuppressWarnings("ReferenceEquality")
+      protected boolean dependsOn(final Object identity) {
+        return rows.get() == identity;
+      }
     }
 
     /** Store and row identity by reference, signature by content. */
     @SuppressWarnings("ArrayRecordComponent") // Signature equality and hashing are defined by content below.
-    private record InFlightKey(ProjectionColumnStore store, Object rows, long[] signature) {
+    private record InFlightKey(WeakReference<ProjectionColumnStore> store, Object rows, long[] signature) {
       @Override
       @SuppressWarnings("ReferenceEquality") // The row token identifies one loaded snapshot, not equal row values.
       public boolean equals(final Object other) {
-        return other instanceof InFlightKey key && key.store == store && key.rows == rows
-            && Arrays.equals(key.signature, signature);
+        if (other == this) {
+          return true;
+        }
+        return other instanceof InFlightKey(WeakReference<ProjectionColumnStore> otherStore, Object otherRows, long[] otherSignature)
+            && store.get() != null && otherStore.get() == store.get() && otherRows == rows
+            && Arrays.equals(otherSignature, signature);
       }
 
       @Override
       public int hashCode() {
-        return 31 * (31 * System.identityHashCode(store) + System.identityHashCode(rows)) + Arrays.hashCode(signature);
+        return 31 * System.identityHashCode(rows) + Arrays.hashCode(signature);
+      }
+
+      @Override
+      public String toString() {
+        return "InFlightKey[store=" + store + ", rows=" + rows + ", signature=" + Arrays.toString(signature) + "]";
       }
     }
 
     private BucketedSideCache() {}
 
-    static @Nullable BucketedSide get(final MaskedColumns columns, final long[] signature) {
+    /** The leased cached side, or {@code null}; the caller releases the entry. */
+    static @Nullable PackedSide get(final MaskedColumns columns, final long[] signature) {
       if (!columns.isImmutableRevision()) {
         return null;
       }
-      final Entry entry = CACHE.getIfPresent(columns.rowIdentity());
-      if (entry != null && Arrays.equals(signature, entry.signature)) {
-        return entry.side;
+      final Object rows = columns.rowIdentity();
+      final DerivedCacheBudget.Entry entry =
+          DerivedCacheBudget.global()
+                            .packed()
+                            .acquire(
+                                candidate -> candidate instanceof PackedSide packed && packed.matches(rows, signature));
+      if (entry != null) {
+        return (PackedSide) entry;
       }
-      final CompletableFuture<BucketedSide> packing =
-          IN_FLIGHT.get(new InFlightKey(columns.store(), columns.rowIdentity(), signature));
+      final CompletableFuture<PackedSide> packing =
+          IN_FLIGHT.get(new InFlightKey(new WeakReference<>(columns.store()), rows, signature));
       if (packing == null) {
         return null;
       }
       try {
-        return packing.join();
+        final PackedSide packed = packing.join();
+        return packed != null && packed.tryAcquire()
+            ? packed
+            : null;
       } catch (final CompletionException | CancellationException e) {
         return null;
       }
     }
 
-    static void put(final MaskedColumns columns, final long[] signature, final BucketedSide side) {
-      if (!columns.isImmutableRevision()) {
-        return;
-      }
-      final long bytes = side.weight() + 8L * signature.length;
-      if (bytes <= MAX_BYTES) {
-        CACHE.put(columns.rowIdentity(), new Entry(signature, side, (int) bytes));
-      }
-    }
-
     /**
-     * Pack {@code lanes} in the background and publish the side; a no-op unless the revision is
-     * immutable or when the same side is already being packed.
+     * Reserve the exact slab now and pack in the background; a no-op unless the revision is immutable
+     * and the selection is cached (only a cached selection is found again by its row identity, and only
+     * its entry keeps the lanes the task reads alive after the query closed its view: the task holds a
+     * lease on it), or when the same side is already being packed.
      */
-    @SuppressWarnings("FutureReturnValueIgnored") // Failures complete the separately tracked packing future.
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings({"FutureReturnValueIgnored", "java:S1181"}) // Failures complete the separately tracked packing
+                                                                  // future.
     static void packAsync(final MaskedColumns columns, final long[] signature, final SideLanes lanes,
         final long keyMinimum, final int slots, final long groupMinimum) {
       if (!columns.isImmutableRevision()) {
         return;
       }
-      final InFlightKey key = new InFlightKey(columns.store(), columns.rowIdentity(), signature);
-      final CompletableFuture<BucketedSide> packing = new CompletableFuture<>();
-      if (IN_FLIGHT.putIfAbsent(key, packing) != null) {
+      final InFlightKey key = new InFlightKey(new WeakReference<>(columns.store()), columns.rowIdentity(), signature);
+      final CompletableFuture<PackedSide> packing = new CompletableFuture<>();
+      final int[] bucketStart = new int[slots + 1];
+      final DerivedCacheBudget.Lease lease = columns.acquireTaskLease();
+      if (lease == null) {
         return;
       }
-      BUCKETED_SIDES_BUILT.increment();
-      CompletableFuture.runAsync(() -> {
-        try {
-          final BucketedSide side = new BucketedSide(lanes, keyMinimum, slots, groupMinimum);
-          put(columns, signature, side);
-          packing.complete(side);
-        } catch (final RuntimeException | Error e) {
-          packing.completeExceptionally(e);
-        } finally {
-          IN_FLIGHT.remove(key, packing);
+      Reservation reservation = null;
+      boolean submitted = false;
+      Throwable failure = null;
+      try {
+        if (IN_FLIGHT.putIfAbsent(key, packing) != null) {
+          return;
         }
-      });
+        handoff("packing");
+        final int total = BucketedSide.countByBucket(lanes, keyMinimum, slots, bucketStart);
+        reservation = DerivedCacheBudget.global().packed().reserve(BucketedSide.slabBytes(slots, total));
+        if (reservation == null) {
+          return;
+        }
+        BUCKETED_SIDES_BUILT.increment();
+        final Reservation owned = reservation;
+        final Runnable task = () -> {
+          PackedSide packed = null;
+          Throwable taskFailure = null;
+          try {
+            final BucketedSide side =
+                BucketedSide.pack(owned.slab(), lanes, keyMinimum, slots, groupMinimum, bucketStart, total);
+            packed = new PackedSide(key.rows(), signature, side);
+            owned.publish(packed);
+          } catch (final Throwable caught) {
+            taskFailure = caught;
+          } finally {
+            if (packed != null) {
+              try {
+                packed.release();
+              } catch (final Throwable cleanup) {
+                taskFailure = retainCleanupFailure(taskFailure, cleanup);
+              }
+            }
+            finishPacking(key, packing, lease, owned, packed, taskFailure);
+          }
+        };
+        handoff("submission");
+        final Executor executor = packingExecutorForTesting;
+        if (executor == null) {
+          CompletableFuture.runAsync(task);
+        } else {
+          CompletableFuture.runAsync(task, executor);
+        }
+        submitted = true;
+      } catch (final Throwable caught) {
+        failure = caught;
+        throw caught;
+      } finally {
+        if (!submitted) {
+          finishPacking(key, packing, lease, reservation, null, failure);
+        }
+      }
+    }
+
+    // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+    // failure is rethrown with later ones attached.
+    @SuppressWarnings("java:S1181")
+    private static void finishPacking(final InFlightKey key, final CompletableFuture<PackedSide> packing,
+        final DerivedCacheBudget.Lease lease, final @Nullable Reservation reservation,
+        final @Nullable PackedSide packed, final @Nullable Throwable primary) {
+      Throwable failure = primary;
+      if (reservation != null) {
+        try {
+          reservation.close();
+        } catch (final Throwable cleanup) {
+          failure = retainCleanupFailure(failure, cleanup);
+        }
+      }
+      try {
+        lease.run();
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      }
+      try {
+        if (failure == null) {
+          packing.complete(packed);
+        } else {
+          packing.completeExceptionally(failure);
+        }
+      } catch (final Throwable cleanup) {
+        failure = retainCleanupFailure(failure, cleanup);
+      } finally {
+        IN_FLIGHT.remove(key, packing);
+      }
+      rethrowCleanupFailure(failure);
     }
   }
 
@@ -896,191 +1196,64 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
 
   /**
    * The cached side, or one packed now (the build side is small; packing it is cheaper than a chain).
+   * A refused or disabled cache packs into query-owned workspace from the same allocator.
    */
-  private static BucketedSide bucketedSide(final MaskedColumns columns, final long keyMinimum, final int slots,
+  // Sonar S107: the resolved inputs of this step, passed as they are. An object around them would
+  // only move the list into a constructor.
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings({"java:S107", "java:S1181"})
+  private static SideHandle bucketedSide(final MaskedColumns columns, final long keyMinimum, final int slots,
       final int fromSlot, final int toSlot, final int marginSlot, final int distinctSlot, final int groupSlot,
       final long groupMinimum) {
     final long[] signature =
         sideSignature(keyMinimum, slots, fromSlot, toSlot, marginSlot, distinctSlot, groupSlot, groupMinimum);
-    final BucketedSide cached = BucketedSideCache.get(columns, signature);
+    final BucketedSideCache.PackedSide cached = BucketedSideCache.get(columns, signature);
     if (cached != null) {
-      return cached;
+      return SideHandle.leased(cached);
     }
-    final BucketedSide side =
-        new BucketedSide(SideLanes.capture(columns, fromSlot, toSlot, marginSlot, distinctSlot, groupSlot), keyMinimum,
-            slots, groupMinimum);
+    final SideLanes lanes = SideLanes.capture(columns, fromSlot, toSlot, marginSlot, distinctSlot, groupSlot);
+    final int[] bucketStart = new int[slots + 1];
+    final int total = BucketedSide.countByBucket(lanes, keyMinimum, slots, bucketStart);
+    final long bytes = BucketedSide.slabBytes(slots, total);
+    final DerivedCacheBudget budget = DerivedCacheBudget.global();
+    final Reservation reservation = columns.isImmutableRevision()
+        ? budget.packed().reserve(bytes)
+        : null;
     BUCKETED_SIDES_BUILT.increment();
-    BucketedSideCache.put(columns, signature, side);
-    return side;
-  }
-
-  /**
-   * The flat fold state of the dense extrema kernel: per-group minimum/maximum of the residual and
-   * distinct values per group as one value-major bitmap or, when the distinct domain is unbounded,
-   * one set per group. {@link #pair} folds one probe row against the build rows of its key.
-   */
-  private static final class ExtremaFold {
-    final long[] groupMinimum;
-    final long[] groupMaximum;
-    final long[] distinctCounts;
-    final long @Nullable [] bits;
-    final LongOpenHashSet @Nullable [] sets;
-    final long[] buildRows;
-    final int groups;
-    final long domainMinimum;
-    final boolean distinctBuild;
-    final boolean buildMinusProbe;
-
-    ExtremaFold(final int groups, final @Nullable DistinctDomain domain, final long[] buildRows,
-        final boolean distinctBuild, final boolean buildMinusProbe) {
-      this.groups = groups;
-      this.buildRows = buildRows;
-      this.distinctBuild = distinctBuild;
-      this.buildMinusProbe = buildMinusProbe;
-      groupMinimum = new long[groups];
-      groupMaximum = new long[groups];
-      distinctCounts = new long[groups];
-      Arrays.fill(groupMinimum, Long.MAX_VALUE);
-      Arrays.fill(groupMaximum, Long.MIN_VALUE);
-      domainMinimum = domain == null
-          ? 0L
-          : domain.minimum();
-      // Value-major bit layout: the bits of one distinct value's groups are adjacent.
-      bits = domain == null
-          ? null
-          : new long[groups * domain.words()];
-      sets = domain == null
-          ? new LongOpenHashSet[groups]
-          : null;
-    }
-
-    void pair(final long from, final long to, final long margin, final long probeValue, final int buildBegin,
-        final int buildEnd) {
-      final long[] buildRows = this.buildRows;
-      for (int b = buildEnd - BucketedSide.STRIDE; b >= buildBegin; b -= BucketedSide.STRIDE) {
-        if (from >= buildRows[b + BucketedSide.TO] || buildRows[b + BucketedSide.FROM] >= to) {
-          continue;
-        }
-        final int group = (int) buildRows[b + BucketedSide.META];
-        final long buildMargin = buildRows[b + BucketedSide.MARGIN];
-        final long value = buildMinusProbe
-            ? Math.subtractExact(buildMargin, margin)
-            : Math.subtractExact(margin, buildMargin);
-        if (value < groupMinimum[group]) {
-          groupMinimum[group] = value;
-        }
-        if (value > groupMaximum[group]) {
-          groupMaximum[group] = value;
-        }
-        final long distinctValue = distinctBuild
-            ? buildRows[b + BucketedSide.DISTINCT]
-            : probeValue;
-        if (bits != null) {
-          final long bitIndex = (distinctValue - domainMinimum) * groups + group;
-          final int bitWord = (int) (bitIndex >>> 6);
-          final long bit = 1L << bitIndex;
-          final long prior = bits[bitWord];
-          if ((prior & bit) == 0L) {
-            bits[bitWord] = prior | bit;
-            distinctCounts[group]++;
+    if (reservation != null) {
+      try (reservation) {
+        final BucketedSide side =
+            BucketedSide.pack(reservation.slab(), lanes, keyMinimum, slots, groupMinimum, bucketStart, total);
+        final BucketedSideCache.PackedSide packed =
+            new BucketedSideCache.PackedSide(columns.rowIdentity(), signature, side);
+        final SideHandle handle = SideHandle.leased(packed);
+        try {
+          reservation.publish(packed);
+          return handle;
+        } catch (final Throwable failure) {
+          try {
+            handle.close();
+          } catch (final Throwable cleanup) {
+            retainCleanupFailure(failure, cleanup);
           }
-        } else {
-          addToSet(group, distinctValue);
+          throw failure;
         }
       }
     }
-
-    /**
-     * The unbounded-domain fallback, kept out of {@link #pair} so the hot fold stays small enough to
-     * inline.
-     */
-    @SuppressWarnings("NullAway") // Called only when bits is null, which proves sets is non-null.
-    private void addToSet(final int group, final long distinctValue) {
-      LongOpenHashSet set = sets[group];
-      if (set == null) {
-        set = new LongOpenHashSet(16);
-        sets[group] = set;
-      }
-      set.add(distinctValue);
+    // The synchronous build side is required query workspace even when cache admission is refused.
+    final MemorySegment slab = budget.allocator().allocateSlab(bytes);
+    if (slab == null) {
+      throw new OutOfMemoryError(
+          "dense extrema join: " + bytes + " bytes of build-side workspace exceed the allocator budget");
     }
-
-    @SuppressWarnings("NullAway") // The constructor allocates sets exactly when bits is null.
-    long distinctCount(final int group) {
-      return bits != null
-          ? distinctCounts[group]
-          : sets[group] == null
-              ? 0L
-              : sets[group].size();
+    try {
+      return SideHandle.owned(BucketedSide.pack(slab, lanes, keyMinimum, slots, groupMinimum, bucketStart, total),
+          slab);
+    } catch (final RuntimeException | Error failure) {
+      budget.allocator().releaseSlab(slab);
+      throw failure;
     }
-  }
-
-  /** Merge two bucketed sides key by key. */
-  private static void foldMerge(final ExtremaFold fold, final BucketedSide build, final BucketedSide probe,
-      final int slots) {
-    final int[] buildStart = build.bucketStart;
-    final int[] probeStart = probe.bucketStart;
-    final long[] probeRows = probe.rows;
-    final int stride = BucketedSide.STRIDE;
-    for (int slot = 0; slot < slots; slot++) {
-      final int buildBegin = buildStart[slot] * stride;
-      final int buildEnd = buildStart[slot + 1] * stride;
-      final int probeBegin = probeStart[slot] * stride;
-      final int probeEnd = probeStart[slot + 1] * stride;
-      if (buildBegin == buildEnd || probeBegin == probeEnd) {
-        continue;
-      }
-      for (int p = probeBegin; p < probeEnd; p += stride) {
-        fold.pair(probeRows[p + BucketedSide.FROM], probeRows[p + BucketedSide.TO], probeRows[p + BucketedSide.MARGIN],
-            probeRows[p + BucketedSide.DISTINCT], buildBegin, buildEnd);
-      }
-    }
-  }
-
-  /**
-   * Stream the probe lanes in row order against the bucketed build side: no probe record is written,
-   * so a process-cold execution pays only the lane reads, with the same fold state as
-   * {@link #foldMerge}.
-   */
-  private static int foldChained(final ExtremaFold fold, final BucketedSide build, final SideLanes lanes,
-      final long keyMinimum, final int slots) {
-    final int[] buildStart = build.bucketStart;
-    final int stride = BucketedSide.STRIDE;
-    final int leaves = lanes.masks().length;
-    int admitted = 0;
-    for (int leaf = 0; leaf < leaves; leaf++) {
-      final long[] mask = lanes.masks()[leaf];
-      if (mask == null) {
-        continue;
-      }
-      final long[] join = lanes.join()[leaf];
-      final long[] fromLane = lanes.from()[leaf];
-      final long[] toLane = lanes.to()[leaf];
-      final long[] marginLane = lanes.margin()[leaf];
-      final long[] distinctLane = lanes.distinct() == null
-          ? null
-          : lanes.distinct()[leaf];
-      for (int w = 0; w < mask.length; w++) {
-        long word = mask[w];
-        while (word != 0L) {
-          final int row = (w << 6) + Long.numberOfTrailingZeros(word);
-          word &= word - 1L;
-          final long slot = join[row] - keyMinimum;
-          if (slot < 0 || slot >= slots) {
-            continue;
-          }
-          admitted++;
-          final int buildBegin = buildStart[(int) slot] * stride;
-          final int buildEnd = buildStart[(int) slot + 1] * stride;
-          if (buildBegin == buildEnd) {
-            continue;
-          }
-          fold.pair(fromLane[row], toLane[row], marginLane[row], distinctLane == null
-              ? 0L
-              : distinctLane[row], buildBegin, buildEnd);
-        }
-      }
-    }
-    return admitted;
   }
 
   /**
@@ -1090,60 +1263,91 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
    * groups by their keys. A probe side that is not cached yet is streamed from its lanes while it is
    * packed in the background for the next execution.
    */
+  // Sonar S106: an opt-in diagnostic line, written to standard error like every other one here. The
+  // measuring rigs read them there.
+  @SuppressWarnings("java:S106")
   private Sequence joinExtrema(final MaskedColumns buildColumns, final int buildSide, final MaskedColumns probeColumns,
       final DenseExtrema plan, final boolean[] stringKeys, final boolean[] timestampKeys) throws QueryException {
     final long started = DIAG
         ? System.nanoTime()
         : 0L;
     final int slots = plan.joinSlots();
-    final BucketedSide build = bucketedSide(buildColumns, plan.joinMinimum(), slots, plan.buildFromSlot(),
+    try (SideHandle build = bucketedSide(buildColumns, plan.joinMinimum(), slots, plan.buildFromSlot(),
         plan.buildToSlot(), plan.buildMarginSlot(), plan.distinctBuild()
             ? plan.distinctSlot()
             : -1,
-        plan.groupSlot(), plan.groupMinimum());
-    final long built = DIAG
-        ? System.nanoTime()
-        : 0L;
-    final int probeDistinctSlot = plan.distinctBuild()
-        ? -1
-        : plan.distinctSlot();
-    final long[] probeSignature = sideSignature(plan.joinMinimum(), slots, plan.probeFromSlot(), plan.probeToSlot(),
-        plan.probeMarginSlot(), probeDistinctSlot, -1, 0L);
-    final BucketedSide probe = BucketedSideCache.get(probeColumns, probeSignature);
-    final long packed = DIAG
-        ? System.nanoTime()
-        : 0L;
-    final int groups = plan.groups();
-    final DistinctDomain[] domains = distinctDomains(buildColumns, buildSide, probeColumns);
-    final DistinctDomain domain = domains.length == 0
-        ? null
-        : domains[plan.distinct()];
-    final ExtremaFold fold = new ExtremaFold(groups, domain, build.rows, plan.distinctBuild(), plan.buildMinusProbe());
-    final int probeRows;
-    if (probe != null) {
-      foldMerge(fold, build, probe, slots);
-      probeRows = probe.count;
-    } else {
-      final SideLanes lanes = SideLanes.capture(probeColumns, plan.probeFromSlot(), plan.probeToSlot(),
-          plan.probeMarginSlot(), probeDistinctSlot, -1);
-      BucketedSideCache.packAsync(probeColumns, probeSignature, lanes, plan.joinMinimum(), slots, 0L);
-      probeRows = foldChained(fold, build, lanes, plan.joinMinimum(), slots);
+        plan.groupSlot(), plan.groupMinimum())) {
+      final long built = DIAG
+          ? System.nanoTime()
+          : 0L;
+      final int probeDistinctSlot = plan.distinctBuild()
+          ? -1
+          : plan.distinctSlot();
+      final long[] probeSignature = sideSignature(plan.joinMinimum(), slots, plan.probeFromSlot(), plan.probeToSlot(),
+          plan.probeMarginSlot(), probeDistinctSlot, -1, 0L);
+      final BucketedSideCache.PackedSide probe = BucketedSideCache.get(probeColumns, probeSignature);
+      try {
+        final long packed = DIAG
+            ? System.nanoTime()
+            : 0L;
+        final int groups = plan.groups();
+        final DistinctDomain[] domains = distinctDomains(buildColumns, buildSide, probeColumns);
+        final DistinctDomain domain = domains.length == 0
+            ? null
+            : domains[plan.distinct()];
+        final ExtremaFold fold =
+            new ExtremaFold(groups, domain, build.side, plan.distinctBuild(), plan.buildMinusProbe());
+        final int probeRows;
+        if (probe != null) {
+          JoinKernels.foldMerge(fold, build.side, probe.side, slots);
+          probeRows = probe.side.count;
+        } else {
+          final SideLanes lanes = SideLanes.capture(probeColumns, plan.probeFromSlot(), plan.probeToSlot(),
+              plan.probeMarginSlot(), probeDistinctSlot, -1);
+          BucketedSideCache.packAsync(probeColumns, probeSignature, lanes, plan.joinMinimum(), slots, 0L);
+          probeRows = JoinKernels.foldChained(fold, build.side, lanes, plan.joinMinimum(), slots);
+        }
+        final long merged = DIAG
+            ? System.nanoTime()
+            : 0L;
+        final Map<GroupKey, GroupState> result = extremaGroups(fold, plan, groups);
+        if (DIAG) {
+          final SideLanes probeMasks = SideLanes.capture(probeColumns, plan.probeFromSlot(), plan.probeToSlot(),
+              plan.probeMarginSlot(), probeDistinctSlot, -1);
+          System.err.printf(
+              "[join-serve] dense extrema (%s): build %.2f ms, lookup %.2f ms, fold %.2f ms, emit %.2f ms"
+                  + " (%d build rows, %d probe rows, %d slots, %d groups; probe mask words %d full, %d partial)%n",
+              probe != null
+                  ? "merge"
+                  : "chained, packing in background",
+              (built - started) / 1e6, (packed - built) / 1e6, (merged - packed) / 1e6,
+              (System.nanoTime() - merged) / 1e6, build.side.count, probeRows, slots, result.size(),
+              probeMasks.fullWords, probeMasks.partialWords);
+        }
+        SirixVectorizedExecutor.noteJoinGroupServed();
+        return emit(result, buildColumns, stringKeys, timestampKeys);
+      } finally {
+        if (probe != null) {
+          probe.release();
+        }
+      }
     }
-    final long merged = DIAG
-        ? System.nanoTime()
-        : 0L;
+  }
+
+  /**
+   * One group state for each group the fold reached: its minimum, its maximum and its distinct count.
+   */
+  private Map<GroupKey, GroupState> extremaGroups(final ExtremaFold fold, final DenseExtrema plan, final int groups) {
     final long[] groupMinimum = fold.groupMinimum;
     final long[] groupMaximum = fold.groupMaximum;
     final Map<GroupKey, GroupState> result = new LinkedHashMap<>();
     final int width = 1 + 4 * aggKinds.length;
     final int minBase = 1 + 4 * plan.minimum();
     final int maxBase = 1 + 4 * plan.maximum();
-    int seen = 0;
     for (int group = 0; group < groups; group++) {
       if (groupMaximum[group] == Long.MIN_VALUE && groupMinimum[group] == Long.MAX_VALUE) {
         continue;
       }
-      seen++;
       final long[] acc = new long[width];
       acc[minBase] = 1;
       acc[maxBase] = 1;
@@ -1153,18 +1357,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       distinctSets[plan.distinct()] = new DistinctValues(fold.distinctCount(group));
       result.put(new GroupKey(new long[] {plan.groupMinimum() + group, 0}), new GroupState(acc, distinctSets));
     }
-    if (DIAG) {
-      System.err.printf(
-          "[join-serve] dense extrema (%s): build %.2f ms, lookup %.2f ms, fold %.2f ms, emit %.2f ms"
-              + " (%d build rows, %d probe rows, %d slots, %d groups)%n",
-          probe != null
-              ? "merge"
-              : "chained, packing in background",
-          (built - started) / 1e6, (packed - built) / 1e6, (merged - packed) / 1e6, (System.nanoTime() - merged) / 1e6,
-          build.count, probeRows, slots, seen);
-    }
-    SirixVectorizedExecutor.noteJoinGroupServed();
-    return emit(result, buildColumns, stringKeys, timestampKeys);
+    return result;
   }
 
   private static boolean denseNumeric(final MaskedColumns columns, final int fields) {
@@ -1176,12 +1369,57 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return true;
   }
 
-  private static void readNumericRow(final long[][] lanes, final boolean[] timestamps, final int row,
-      final long[] values) {
+
+
+  /**
+   * Capture the lanes of a dense side on {@code leaf} (segment and byte base of row 0 per field) and
+   * return the one segment the rostered fields after the join key all live in, or {@code null} when
+   * they are spread over several. The join key is read on its own before the row, so its lane may
+   * differ (a column the store holds resident beside a selection decoded into its own slab).
+   */
+  // Identity proves these lanes share one bounded segment for the combined read loop.
+  @SuppressWarnings({"ReferenceEquality", "MemorySegmentReferenceEquality"})
+  private static @Nullable MemorySegment captureLanes(final MaskedColumns columns, final int leaf,
+      final MemorySegment[] lanes, final long[] bases) {
+    MemorySegment shared = null;
     for (int field = 0; field < lanes.length; field++) {
-      values[field] = timestamps[field]
-          ? Math.multiplyExact(lanes[field][row], 1000L)
-          : lanes[field][row];
+      final MemorySegment segment = columns.laneSegment(field, leaf);
+      lanes[field] = segment;
+      bases[field] = columns.laneBase(field, leaf);
+      if (field == 1) {
+        shared = segment;
+      } else if (field > 1 && shared != segment) {
+        shared = null;
+      }
+    }
+    return shared;
+  }
+
+  /**
+   * The row read of a dense side: the join key, already read, then one read per further lane at the
+   * row's offset past the lane's base. With {@code shared} those reads go through that one segment,
+   * so its bounds and scope load once per row (the reads are back to back, nothing between them
+   * clobbers them); otherwise each lane's own. The join field is a plain long column, never a
+   * timestamp ({@link #serve} declines otherwise).
+   */
+  private static void readNumericRow(final @Nullable MemorySegment shared, final MemorySegment[] lanes,
+      final long[] bases, final boolean[] timestamps, final int row, final long joinKey, final long[] values) {
+    final long at = 8L * row;
+    values[0] = joinKey;
+    if (shared != null) {
+      for (int field = 1; field < bases.length; field++) {
+        final long value = (long) JoinKernels.SLAB_LONG.get(shared, bases[field] + at);
+        values[field] = timestamps[field]
+            ? Math.multiplyExact(value, 1000L)
+            : value;
+      }
+    } else {
+      for (int field = 1; field < bases.length; field++) {
+        final long value = (long) JoinKernels.SLAB_LONG.get(lanes[field], bases[field] + at);
+        values[field] = timestamps[field]
+            ? Math.multiplyExact(value, 1000L)
+            : value;
+      }
     }
   }
 
@@ -1226,9 +1464,6 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     return span + (keys.allSelectedPresent(keySlots[0])
         ? 1
         : 2);
-  }
-
-  private record DistinctDomain(long minimum, int words) {
   }
 
   private static final DistinctDomain[] NO_DOMAINS = new DistinctDomain[0];
@@ -1536,10 +1771,17 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
     }
   }
 
+  // Sonar S135: the exits of this hot loop are its compiled shape. Funnelling them through one exit
+  // adds a flag test for each row.
+  // Sonar S3776: a hot loop kept as one compiled unit. Splitting it changes what the compiler inlines
+  // and holds in registers.
+  // Exact segment identity selects the loop that hoists one segment's bounds for every lane.
+  @SuppressWarnings({"java:S135", "java:S3776", "ReferenceEquality", "MemorySegmentReferenceEquality"})
   private static int[] build(final MaskedColumns buildColumns, final int buildFieldCount, final BuildRows buildRows,
       final boolean denseNumeric) {
-    int[] nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8, buildColumns.rows()))];
-    final long[][] lanes = new long[buildFieldCount][];
+    buildRows.nextRow = new int[Math.max(16, (int) Math.min(Integer.MAX_VALUE - 8L, buildColumns.rows()))];
+    final MemorySegment[] laneSeg = new MemorySegment[buildFieldCount];
+    final long[] laneOff = new long[buildFieldCount];
     final long[] values = new long[buildFieldCount];
     final boolean[] timestamps = new boolean[buildFieldCount];
     if (denseNumeric) {
@@ -1547,17 +1789,41 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         timestamps[field] = buildColumns.isTimestamp(field);
       }
     }
-    // BUILD: every admitted row with a present join key, chained per key value.
+    // BUILD: every admitted row with a present join key, chained per key value. Dense lanes are read
+    // in place at bases hoisted per leaf (through their one shared segment when they have one), the
+    // record keys from the key lane the same way.
     for (int leaf = 0; leaf < buildColumns.leafCount(); leaf++) {
       final long[] mask = buildColumns.rowMask(leaf);
       if (mask == null) {
         continue;
       }
-      if (denseNumeric) {
-        for (int field = 0; field < buildFieldCount; field++) {
-          lanes[field] = buildColumns.numericLane(field, leaf);
-        }
+      final MemorySegment keyLane = buildColumns.keySegment(leaf);
+      final long keyBase = buildColumns.keyBase(leaf);
+      final MemorySegment captured = denseNumeric
+          ? captureLanes(buildColumns, leaf, laneSeg, laneOff)
+          : null;
+      if (DIAG) {
+        noteCapturedLeaf("build", captured != null);
       }
+      if (captured != null && laneSeg[0] == captured && keyLane == captured) {
+        // The common shape, a selection decoded into its own slab: the join key, every further field
+        // and the record key of a row live in one segment and are read back to back through one
+        // local, so the segment's bounds, address and scope load once per row.
+        buildLeafOneSegment(buildRows, buildFieldCount, JoinKernels.nativeView(captured), laneOff, keyBase, timestamps,
+            mask, values);
+        continue;
+      }
+      // Lanes spread over several segments (a store-resident column beside the selection's slab) or
+      // a sparse side: every lane read per row still goes through a local holding a fresh native view
+      // (JoinKernels.nativeView), so the compiler knows the segment's class at the read and needs none
+      // of the JDK's shared segment speculation, which heap-array reads elsewhere in the process disable.
+      final MemorySegment keySeg = JoinKernels.nativeView(keyLane);
+      final MemorySegment shared = captured == null
+          ? null
+          : JoinKernels.nativeView(captured);
+      final MemorySegment joinLane = denseNumeric
+          ? JoinKernels.nativeView(laneSeg[0])
+          : null;
       for (int w = 0; w < mask.length; w++) {
         long word = mask[w];
         final int rowBase = w << 6;
@@ -1569,16 +1835,11 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
             continue; // a missing join key matches nothing
           }
           final long joinKey = denseNumeric
-              ? lanes[0][row]
+              ? (long) JoinKernels.SLAB_LONG.get(joinLane, laneOff[0] + 8L * row)
               : buildColumns.longValue(0, leaf, row);
-          buildRows.minimumJoinKey = Math.min(buildRows.minimumJoinKey, joinKey);
-          buildRows.maximumJoinKey = Math.max(buildRows.maximumJoinKey, joinKey);
-          final int at = buildRows.add(buildColumns.recordKey(leaf, row));
-          if (at == nextRow.length) {
-            nextRow = Arrays.copyOf(nextRow, nextRow.length << 1);
-          }
+          final int at = buildRows.addKeyed(joinKey, (long) JoinKernels.SLAB_LONG.get(keySeg, keyBase + 8L * row));
           if (denseNumeric) {
-            readNumericRow(lanes, timestamps, row, values);
+            readNumericRow(shared, laneSeg, laneOff, timestamps, row, joinKey, values);
             System.arraycopy(values, 0, buildRows.values, at * buildFieldCount, buildFieldCount);
           } else {
             readBuildRow(buildColumns, leaf, row, buildFieldCount, buildRows, at);
@@ -1586,7 +1847,46 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
         }
       }
     }
-    return nextRow;
+    return buildRows.nextRow;
+  }
+
+  /**
+   * The build loop over one leaf whose join key lane, further lanes and record keys all live in
+   * {@code lane} (bases per field in {@code bases}, the record keys at {@code keyBase}): a row's
+   * reads are issued back to back through that one local before the row is added, so the segment's
+   * bounds, address and scope are loaded once per row and the compiler checks only the offsets; the
+   * values then go straight into the row table. The same rows, chains and key domain as the general
+   * loop.
+   */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  private static void buildLeafOneSegment(final BuildRows buildRows, final int fieldCount, final MemorySegment lane,
+      final long[] bases, final long keyBase, final boolean[] timestamps, final long[] mask, final long[] values) {
+    final long joinBase = bases[0];
+    for (int w = 0; w < mask.length; w++) {
+      long word = mask[w];
+      final int rowBase = w << 6;
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final long at = 8L * (rowBase + bit);
+        final long joinKey = (long) JoinKernels.SLAB_LONG.get(lane, joinBase + at);
+        final long recordKey = (long) JoinKernels.SLAB_LONG.get(lane, keyBase + at);
+        values[0] = joinKey;
+        for (int field = 1; field < fieldCount; field++) {
+          final long value = (long) JoinKernels.SLAB_LONG.get(lane, bases[field] + at);
+          values[field] = timestamps[field]
+              ? Math.multiplyExact(value, 1000L)
+              : value;
+        }
+        final int cell = buildRows.addKeyed(joinKey, recordKey) * fieldCount;
+        final long[] rows = buildRows.values; // addKeyed may have grown the table
+        for (int field = 0; field < fieldCount; field++) {
+          rows[cell + field] = values[field];
+        }
+      }
+    }
   }
 
   private static void readBuildRow(final MaskedColumns buildColumns, final int leaf, final int row,
@@ -1621,8 +1921,7 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
   private void emitRow(final int keyCount, final int buildSide, final int probeSide, final int buildFieldCount,
       final BuildRows buildRows, final int at, final long[] probeValues, final boolean[] probePresent,
       final boolean[] stringKeys, final boolean[] timestampKeys, final MaskedColumns buildColumns,
-      final MaskedColumns probeColumns, final int leaf, final int row, final Ordering rowOrdering,
-      final ColumnarRecordSequence.Builder rowColumns) {
+      final long probeRecordKey, final Ordering rowOrdering, final ColumnarRecordSequence.Builder rowColumns) {
     final int outputRow = rowColumns.addRow();
     for (int k = 0; k < keyCount; k++) {
       final boolean fromBuild = keySides[k] == buildSide;
@@ -1649,8 +1948,46 @@ public final class SirixJoinedGroupAggregateExpr implements Expr {
       orderKeys[k] = rowColumns.value(orderIndexes[k], outputRow);
     }
     orderKeys[orderIndexes.length + buildSide] = new Int64(buildRows.recordKeys[at]);
-    orderKeys[orderIndexes.length + probeSide] = new Int64(probeColumns.recordKey(leaf, row));
+    orderKeys[orderIndexes.length + probeSide] = new Int64(probeRecordKey);
     rowOrdering.add(orderKeys, new TupleImpl(new Int64(outputRow)));
+  }
+
+  /** {@link #emitRow} for all-long, all-present ordering keys: no item, tuple or array per row. */
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  private void emitRowPrimitive(final int keyCount, final int buildSide, final int buildFieldCount,
+      final BuildRows buildRows, final int at, final long[] probeValues, final boolean[] stringKeys,
+      final boolean[] timestampKeys, final MaskedColumns buildColumns, final long probeKey, final RowOrder rowOrder) {
+    final ColumnarRecordSequence.Builder rowColumns = rowOrder.columns;
+    final int outputRow = rowColumns.addRow();
+    for (int k = 0; k < keyCount; k++) {
+      final long value = keySides[k] == buildSide
+          ? buildRows.values[at * buildFieldCount + keySlots[k]]
+          : probeValues[keySlots[k]];
+      if (stringKeys[k]) {
+        rowColumns.setString(k, outputRow, buildColumns.string((int) value));
+      } else if (timestampKeys[k]) {
+        rowColumns.setString(k, outputRow,
+            ProjectionTemporalCodec.formatToString(ProjectionTemporalCodec.DISPLAY_ISO_SECOND, value / 1000L) + "Z");
+      } else {
+        rowColumns.setLong(k, outputRow, value);
+      }
+    }
+    final long[] scratch = rowOrder.scratch;
+    for (int k = 0; k < orderIndexes.length; k++) {
+      final int key = orderIndexes[k];
+      scratch[k] = keySides[key] == buildSide
+          ? buildRows.values[at * buildFieldCount + keySlots[key]]
+          : probeValues[keySlots[key]];
+    }
+    final long buildKey = buildRows.recordKeys[at];
+    rowOrder.add(outputRow, buildSide == 0
+        ? buildKey
+        : probeKey,
+        buildSide == 0
+            ? probeKey
+            : buildKey);
   }
 
   private static Sequence orderedRows(final Ordering ordering, final int size,

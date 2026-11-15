@@ -1,5 +1,7 @@
 package io.sirix.query;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.copyNumericValues;
+
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.json.JsonResourceSession;
@@ -76,7 +78,7 @@ public final class ParallelChainFetchTest extends AbstractJsonTest {
       final ProjectionColumnStore.ColumnSlice a = serial.ages()[i];
       final ProjectionColumnStore.ColumnSlice b = parallel.ages()[i];
       Assertions.assertEquals(a.rowCount(), b.rowCount(), "long slice " + i + " row count");
-      Assertions.assertArrayEquals(a.numericValues(), b.numericValues(), "long slice " + i + " values");
+      Assertions.assertArrayEquals(copyNumericValues(a), copyNumericValues(b), "long slice " + i + " values");
       Assertions.assertArrayEquals(a.presenceWords(), b.presenceWords(), "long slice " + i + " presence");
 
       final ProjectionColumnStore.ColumnSlice c = serial.depts()[i];

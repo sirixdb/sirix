@@ -158,12 +158,13 @@ record RoutedGroupRequest(String[] sourcePath, @Nullable PredicateNode predicate
       if (executor.getRevision() != inner.revision() || !executor.canExecute(ctx)) {
         return null;
       }
-      final MaskedColumns columns =
-          executor.maskedColumns(ARRAY_MEMBERS, inner.keys(), new String[] {filter.innerField()});
-      return columns == null || !columns.isLong(0)
-          ? null
-          : new SirixVectorizedExecutor.GroupMembership(filter.outerField(), columns.presentLongValues(0),
-              filter.anti());
+      try (MaskedColumns columns =
+          executor.maskedColumns(ARRAY_MEMBERS, inner.keys(), new String[] {filter.innerField()})) {
+        return columns == null || !columns.isLong(0)
+            ? null
+            : new SirixVectorizedExecutor.GroupMembership(filter.outerField(), columns.presentLongValues(0),
+                filter.anti());
+      }
     }
   }
 

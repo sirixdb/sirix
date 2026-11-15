@@ -431,11 +431,9 @@ Only served join annotations consume post-join range predicates: the generic joi
 fallback when a runtime revision, range, covering projection or provenance check declines.
 
 Immutable dense numeric masks can reuse columns already requested for the same column-store
-identity, field roster and exact sorted key set. The cache has weak identity keys and a weighted
-heap bound (at most 64 MiB or 1/64 of heap, with a 1 MiB floor); it retains no query-local string
-interner. Multiple field rosters and selected key sets can coexist for one store within that bound.
-Each independently loaded snapshot has its own identity, shared only with its cached views; the
-store's record-key arrays do not identify a snapshot. Each reader owns its mutable masks. Presence
+identity, field roster and exact sorted key set. [Derived query-cache memory](DERIVED_QUERY_CACHES.md)
+owns the cache allowance, native storage and lease contract. The cache retains no query-local string
+interner. Each reader owns its mutable masks. Presence
 proofs are shared only while those masks equal the immutable snapshot's masks; changed or mutable
 views recompute presence. Sparse and string sources keep their existing column-loading path, and
 reuse never fills a pruned leaf.
@@ -471,8 +469,8 @@ per-group sets when bitmap admission declines. The required final order-by suppl
 Other shapes retain the general joined kernel.
 
 At an immutable revision, packed sides reuse the loaded snapshot identity and a signature covering
-the join domain, operand slots and group offset. This cache has weak snapshot keys and its own
-weighted bound using the same heap limit as the numeric-mask cache. A changed mask prevents reuse.
+the join domain, operand slots and group offset. Their allowance and lifetime are specified in
+[Derived query-cache memory](DERIVED_QUERY_CACHES.md). A changed mask prevents reuse.
 On a miss, the build side is packed immediately; the probe lanes are streamed through the same fold
 while a copied-mask background task packs that side for later executions. A subsequent lookup can
 wait for that in-flight packing rather than build it again. Eviction can require rebuilding either

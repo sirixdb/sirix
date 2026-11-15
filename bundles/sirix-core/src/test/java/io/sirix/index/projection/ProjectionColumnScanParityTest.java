@@ -3,13 +3,18 @@
  */
 package io.sirix.index.projection;
 
+import static io.sirix.index.projection.NumericLaneTestSupport.numericValue;
+
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSegmentFetcher;
+import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
 import io.sirix.index.projection.ProjectionIndexScan.Op;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import java.lang.foreign.Arena;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -35,6 +40,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * column-kernel bug by definition.
  */
 final class ProjectionColumnScanParityTest {
+  private final Arena numericTargets = Arena.ofShared();
+
+  @AfterEach
+  void closeNumericTargets() {
+    numericTargets.close();
+  }
+
+  private ColumnSlice[] bucketColumn(final ProjectionColumnStore store, final int col,
+      final ColumnSegmentFetcher fetcher, final long offset, final long divisor, final long modulus) {
+    long bytes = 0L;
+    for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
+      bytes += (long) store.rowCount(leaf) * Long.BYTES;
+    }
+    return store.numericBucketKeyColumn(col, fetcher, offset, divisor, modulus,
+        numericTargets.allocate(Math.max(1L, bytes), 64));
+  }
+
 
   /** Columns: 0 = long, 1 = double, 2 = boolean, 3 = string (never sliced, predicate-only). */
   private static final byte[] KINDS =
@@ -621,7 +643,7 @@ final class ProjectionColumnScanParityTest {
         if ((agg.presenceWords()[r >>> 6] & (1L << (r & 63))) == 0) {
           continue;
         }
-        final long v = agg.numericValues()[r];
+        final long v = numericValue(agg, r);
         acc[0]++;
         acc[1] += v;
         if (v < acc[2])
@@ -661,7 +683,7 @@ final class ProjectionColumnScanParityTest {
       final boolean v = (slice.boolWords()[r >>> 6] & (1L << (r & 63))) != 0;
       return v == p.boolLit;
     }
-    final long v = slice.numericValues()[r];
+    final long v = numericValue(slice, r);
     return switch (p.op) {
       case GT -> v > p.longLit;
       case LT -> v < p.longLit;
@@ -1110,7 +1132,7 @@ final class ProjectionColumnScanParityTest {
         final int dictId = slice.stringDictIds()[r];
         values.add(Arrays.copyOfRange(slice.dictBytes(), slice.dictOffset(dictId),
             slice.dictOffset(dictId) + slice.dictLength(dictId)));
-        longs.add(longSlices[leaf].numericValues()[r]);
+        longs.add(numericValue(longSlices[leaf], r));
         keys.add(recordKeys[leaf][r]);
       }
     }
@@ -1176,7 +1198,7 @@ final class ProjectionColumnScanParityTest {
       final int rows = fx.store().rowCount(leaf);
       final ProjectionColumnStore.ColumnSlice slice = sortSlices[leaf];
       for (int r = 0; r < rows; r++, rank++) {
-        if (filterGt != Long.MIN_VALUE && filterSlices[leaf].numericValues()[r] <= filterGt) {
+        if (filterGt != Long.MIN_VALUE && numericValue(filterSlices[leaf], r) <= filterGt) {
           continue;
         }
         final int dictId = slice.stringDictIds()[r];
@@ -1311,8 +1333,8 @@ final class ProjectionColumnScanParityTest {
         }
         return bytes;
       };
-      assertThrows(IllegalStateException.class,
-          () -> fixture.store().numericBucketKeyColumn(0, corrupting, 0, 10_000, 24));
+      final ProjectionColumnStore store = fixture.store();
+      assertThrows(IllegalStateException.class, () -> bucketColumn(store, 0, corrupting, 0, 10_000, 24));
       assertFalse(fixture.store().columnFilled(0));
       assertThrows(IllegalStateException.class, () -> fixture.store().columnBytes(0, fixture.fetcher()));
     }

@@ -52,25 +52,30 @@ final class DenseGroupIndexTest {
 
   @Test
   void indexChunksRecycleAndProbeOnlyLookupKeepsFullKeys() {
-    final LongChunkPool payload = new LongChunkPool(NumericGroupAggTable.fullChunkLanes(8), 128);
-    final LongChunkPool index = new LongChunkPool(NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES, 128);
-    final NumericGroupAggTable table =
-        new NumericGroupAggTable(1, 16, true).useDenseIndex().attachProbePool(index).attachChunkPool(payload);
-    for (int key = 1; key <= 100_000; key++) {
-      final int handle = table.acquire(key, key);
-      table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)]++;
-    }
-    for (int key = 1; key <= 100_000; key++) {
-      assertEquals(key, table.keyAtAccBase(table.handleOfProbeKey(key)));
-    }
-    table.acquireZero(0L)[0] = 3L;
-    assertEquals(100_001, table.sizeIncludingZero());
-    assertThrows(IllegalStateException.class, table::useDenseIndex);
-    table.release();
-    assertTrue(table.released());
-    final long[] recycled = index.take();
-    for (final long lane : recycled) {
-      assertEquals(0L, lane);
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final NumericGroupAggTable table =
+          new NumericGroupAggTable(1, 16, true).useDenseIndex().attachWorkspace(workspace);
+      for (int key = 1; key <= 100_000; key++) {
+        final int handle = table.acquire(key, key);
+        GroupLanes.increment(table.storageAtAccBase(handle), table.offsetAtAccBase(handle));
+      }
+      for (int key = 1; key <= 100_000; key++) {
+        assertEquals(key, table.keyAtAccBase(table.handleOfProbeKey(key)));
+      }
+      GroupLanes.set(table.acquireZero(0L), 0, 3L);
+      assertEquals(100_001, table.sizeIncludingZero());
+      assertThrows(IllegalStateException.class, table::useDenseIndex);
+      table.release();
+      assertTrue(table.released());
+      // An index chunk of the grown table has the full chunk's length; the released table handed it back.
+      final int indexLanes = NumericGroupAggTable.MAX_STORAGE_CHUNK_LANES;
+      assertTrue(workspace.spareChunks(indexLanes) > 0);
+      final long reusedBefore = workspace.chunksReused();
+      final GroupBuffer recycled = workspace.takeChunk(indexLanes);
+      assertEquals(reusedBefore + 1, workspace.chunksReused(), "the chunk is one the released table handed back");
+      for (int lane = 0; lane < GroupLanes.count(recycled); lane++) {
+        assertEquals(0L, GroupLanes.get(recycled, lane));
+      }
     }
   }
 
@@ -83,7 +88,7 @@ final class DenseGroupIndexTest {
       final long key = row % 40_000 + 1;
       final int handle = table.acquire(key, row);
       if (NumericGroupAggTable.partitionOf(key, 60) < 8) {
-        table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)]++;
+        GroupLanes.increment(table.storageAtAccBase(handle), table.offsetAtAccBase(handle));
         accepted++;
       } else {
         assertEquals(NumericGroupAggTable.DISCARD_HANDLE, handle);
@@ -93,42 +98,40 @@ final class DenseGroupIndexTest {
     for (int bucket = 0; bucket < table.capacity(); bucket++) {
       if (table.keyAtBucket(bucket) != 0L) {
         final int handle = table.accBaseOfBucket(bucket);
-        final long count = table.storageAtAccBase(handle)[table.offsetAtAccBase(handle)];
+        final long count = GroupLanes.get(table.storageAtAccBase(handle), table.offsetAtAccBase(handle));
         assertEquals(4L, count);
         rows += count;
       }
     }
     assertEquals(accepted, rows);
-    table.acquireZero(0L)[0] = 2L;
-    assertEquals(2L, table.zeroSlot()[0]);
+    GroupLanes.set(table.acquireZero(0L), 0, 2L);
+    assertEquals(2L, GroupLanes.get(table.zeroSlot(), 0));
   }
 
   private static void fold(final NumericGroupAggTable table, final long hash, final long[] identity,
       final int ordinal) {
     final int handle = table.acquireExact(hash, ordinal, identity, 0);
-    final long[] block = table.storageAtAccBase(handle);
+    final GroupBuffer block = table.storageAtAccBase(handle);
     final int base = table.offsetAtAccBase(handle);
-    if (block[base] == 0L) {
+    if (GroupLanes.get(block, base) == 0L) {
       table.setAuxAtAccBase(handle, ordinal);
     }
-    block[base]++;
+    GroupLanes.increment(block, base);
     for (int column = 0; column < 2; column++) {
       if ((ordinal + column) % 3 != 0) {
         final long value = column == 0
             ? ordinal
             : -ordinal;
         final int at = base + 2 + 4 * column;
-        block[at]++;
-        block[at + 1] = Math.addExact(block[at + 1], value);
-        block[at + 2] = Math.min(block[at + 2], value);
-        block[at + 3] = Math.max(block[at + 3], value);
+        GroupLanes.increment(block, at);
+        GroupLanes.set(block, at + 1, Math.addExact(GroupLanes.get(block, at + 1), value));
+        GroupLanes.set(block, at + 2, Math.min(GroupLanes.get(block, at + 2), value));
+        GroupLanes.set(block, at + 3, Math.max(GroupLanes.get(block, at + 3), value));
       }
     }
   }
 
   private static long[] accumulator(final NumericGroupAggTable table, final int handle) {
-    final long[] result = new long[table.slotWidth()];
-    System.arraycopy(table.storageAtAccBase(handle), table.offsetAtAccBase(handle), result, 0, result.length);
-    return result;
+    return GroupLanes.toArray(table.storageAtAccBase(handle), table.offsetAtAccBase(handle), table.slotWidth());
   }
 }

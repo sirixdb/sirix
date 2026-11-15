@@ -21,6 +21,9 @@
 
 package io.sirix.access.trx.page;
 
+import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
+import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
+
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.access.trx.node.AbstractResourceSession;
 
@@ -39,14 +42,16 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.PageGuard;
+import io.sirix.cache.ScratchUse;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.io.IOStorage;
-import io.sirix.io.SerializationBufferPool;
 import io.sirix.io.SharedArenas;
 import io.sirix.io.filechannel.FileChannelWriter;
+import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.PooledBytesOut;
+import io.sirix.node.PooledGrowingSegment;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.io.Writer;
@@ -1144,7 +1149,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         System.identityHashCode(log), log);
     LEAK_CLEANER.register(this, leakDetectorState);
     // Acquire native scratch only after every fallible heap initialization has completed.
-    bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
+    bufferBytes = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE * 2L, ScratchUse.COMMIT_FLUSH);
     storageEngineReader.bindTransactionView(this);
   }
 
@@ -1285,14 +1290,31 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public BytesOut<?> newBufferedBytesInstance() {
-    // The previous buffer is finished the moment a new one is handed out, so recycle it instead of
-    // dropping it: this ran once per COMMIT, allocating a fresh off-heap segment each time and
-    // leaving the old one for the arena to reclaim eventually. recycleOrRelease keeps it only if it
-    // is small enough, so a commit that grew the segment releases rather than pins it.
-    Bytes.recycleOrRelease(bufferBytes);
-    bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+    // The previous buffer is finished the moment a new one is handed out, and this writer is its
+    // only user, so the next commit continues in the same borrowed scratch, cleared. Only a buffer
+    // that one commit grew past MAX_RETAINED_FLUSH_BUFFER_BYTES is exchanged: it goes back to the
+    // allocator, which may keep it resident for whoever needs that capacity next, instead of
+    // staying borrowed by this writer for as long as it lives.
+    final BytesOut<?> previous = bufferBytes;
+    if (previous instanceof MemorySegmentBytesOut flushBuffer
+        && flushBuffer.capacity() <= MAX_RETAINED_FLUSH_BUFFER_BYTES) {
+      flushBuffer.clear();
+      return flushBuffer;
+    }
+    bufferBytes = null;
+    if (previous != null) {
+      previous.close();
+    }
+    bufferBytes = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
     return bufferBytes;
   }
+
+  /**
+   * Largest flush buffer this writer keeps borrowed from one commit to the next. A commit that
+   * serialized an unusually large page tail leaves a correspondingly large buffer; anything above
+   * this is returned to the allocator instead.
+   */
+  private static final long MAX_RETAINED_FLUSH_BUFFER_BYTES = 4L * 1024 * 1024;
 
   @Override
   public int getRevisionToRepresent() {
@@ -3160,6 +3182,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings({"java:S1181", "java:S3776"})
   private void executeSnapshotWrite() {
     if (HFT_TELEMETRY_ENABLED && !isSnapshotAppendWorkerThread()) {
       hftCallerThreadAppendRuns++;
@@ -3200,7 +3227,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (asyncFlushTimedOut) {
         return;
       }
-      injectAsyncFlushFault("write");
       // One epoch per flush. It bounds how long a refusal mark is honoured (see
       // MAX_SKIPPED_FLUSH_EPOCHS), and under the diagnostic it also separates a page encoded twice
       // inside one flush from a page encoded again in every flush it survives.
@@ -3208,23 +3234,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (PageSectionDiag.ENABLED) {
         PageSectionDiag.noteFlushEpoch();
       }
-      final boolean ownsRetainedAppendBuffer = RETAIN_APPEND_BUFFER && appendBufferInUse.compareAndSet(false, true);
-      final BytesOut<?> bgBuffer;
-      if (ownsRetainedAppendBuffer) {
-        BytesOut<?> retained = retainedAppendBuffer;
-        if (retained == null) {
-          retained = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
-          retainedAppendBuffer = retained;
-        }
-        // Clear on ACQUIRE, not only on release: a previous epoch that failed mid-append must not
-        // be able to leave a prefix for this one to write out.
-        retained.clear();
-        bgBuffer = retained;
-      } else {
-        bgBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
-      }
       final PageReference shadowRef = new PageReference();
+      final boolean ownsRetainedAppendBuffer = RETAIN_APPEND_BUFFER && appendBufferInUse.compareAndSet(false, true);
+      BytesOut<?> bgBuffer = null;
       try {
+        if (ownsRetainedAppendBuffer) {
+          BytesOut<?> retained = retainedAppendBuffer;
+          if (retained == null) {
+            retained = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
+            retainedAppendBuffer = retained;
+          }
+          // Clear on ACQUIRE, not only on release: a previous epoch that failed mid-append must not
+          // be able to leave a prefix for this one to write out.
+          retained.clear();
+          bgBuffer = retained;
+        } else {
+          bgBuffer = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE, ScratchUse.COMMIT_FLUSH);
+        }
+        injectAsyncFlushFault("write");
         final ResourceConfiguration config = getResourceSession().getResourceConfig();
         shadowRef.setDatabaseId(storageEngineReader.getDatabaseId());
         shadowRef.setResourceId(storageEngineReader.getResourceId());
@@ -3395,11 +3422,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               }
             }
           }
+          Throwable cleanupFailure = null;
           if (currentWindow != null) {
-            closeWindowLeftovers(currentWindow);
+            try {
+              closeWindowLeftovers(currentWindow);
+            } catch (final Throwable cleanup) {
+              cleanupFailure = cleanup;
+            }
           }
           if (nextWindow != null) {
-            closeWindowLeftovers(nextWindow);
+            try {
+              closeWindowLeftovers(nextWindow);
+            } catch (final Throwable cleanup) {
+              cleanupFailure = retainCleanupFailure(cleanupFailure, cleanup);
+            }
+          }
+          if (cleanupFailure != null) {
+            rethrowCleanupFailure(cleanupFailure);
           }
         }
         injectAsyncFlushFault("before-flush");
@@ -3423,9 +3462,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         if (ownsRetainedAppendBuffer) {
           // Keep the buffer, drop its contents, then publish the release. The volatile write is what
           // hands the next owner a buffer it can see in full.
-          bgBuffer.clear();
-          appendBufferInUse.set(false);
-        } else {
+          try {
+            if (bgBuffer != null) {
+              bgBuffer.clear();
+            }
+          } finally {
+            appendBufferInUse.set(false);
+          }
+        } else if (bgBuffer != null) {
           bgBuffer.close();
         }
       }
@@ -3846,11 +3890,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * already owns.
    *
    * <p>
-   * The empty pipeline is the canonical ingestion path. Its pooled sink is borrowed, so the copy into
-   * the page frame must complete before {@link SerializationBufferPool#release} resets or closes that
-   * sink. {@link PageKind} deliberately leaves the cache unpublished for this policy and first
-   * finishes {@link KeyValueLeafPage#clearRecordsForGC()}, whose flyweight unbinds still read the
-   * logical frame. Only then is it safe to overwrite the disposable copy's frame.
+   * The empty pipeline is the canonical ingestion path. Its sink is borrowed allocator scratch, so
+   * the copy into the page frame must complete before {@link PooledGrowingSegment#close()} returns
+   * that scratch to the allocator and its next borrower. {@link PageKind} deliberately leaves the
+   * cache unpublished for this policy and first finishes
+   * {@link KeyValueLeafPage#clearRecordsForGC()}, whose flyweight unbinds still read the logical
+   * frame. Only then is it safe to overwrite the disposable copy's frame.
    * </p>
    *
    * <p>
@@ -3881,8 +3926,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     requireNonNull(resourceConfig);
     requireNonNull(page);
     final boolean directIdentity = resourceConfig.byteHandlePipeline.isEmpty();
-    final var pooledSegment = SerializationBufferPool.INSTANCE.acquire();
-    try {
+    try (PooledGrowingSegment pooledSegment = PooledGrowingSegment.forPage()) {
       final PooledBytesOut.IdentityCachePolicy identityCachePolicy = directIdentity
           ? PooledBytesOut.IdentityCachePolicy.CALLER_COPIES_BEFORE_RELEASE
           : PooledBytesOut.IdentityCachePolicy.RETAIN_OWNED_COPY;
@@ -3920,8 +3964,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       MemorySegment.copy(pooledSegment.getCurrentSegment(), 0L, frame, 0L, encodedLength);
       page.setCompressedSegment(frame.asSlice(0L, encodedLength).asReadOnly(), Math.toIntExact(encodedLength));
       return true;
-    } finally {
-      SerializationBufferPool.INSTANCE.release(pooledSegment);
     }
   }
 
@@ -4081,15 +4123,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /** Close and null out any copies left in a snapshot window after a failed flush. */
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  @SuppressWarnings("java:S1181")
   private static void closeWindowLeftovers(final KeyValueLeafPage[] window) {
+    Throwable failure = null;
     for (int i = 0; i < window.length; i++) {
       final KeyValueLeafPage leftover = window[i];
       if (leftover != null) {
         window[i] = null;
         if (!leftover.isAdoptedImmutableForFlush()) {
-          leftover.close();
+          try {
+            leftover.close();
+          } catch (final Throwable cleanup) {
+            failure = retainCleanupFailure(failure, cleanup);
+          }
         }
       }
+    }
+    if (failure != null) {
+      rethrowCleanupFailure(failure);
     }
   }
 
@@ -5027,8 +5080,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return false;
     }
 
-    final var pooledSeg = SerializationBufferPool.INSTANCE.acquire();
-    try {
+    try (PooledGrowingSegment pooledSeg = PooledGrowingSegment.forPage()) {
       final var bytes = new PooledBytesOut(pooledSeg);
       PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
       final KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
@@ -5038,8 +5090,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         throw re;
       }
       throw new SirixIOException(e);
-    } finally {
-      SerializationBufferPool.INSTANCE.release(pooledSeg);
     }
   }
 
@@ -5251,6 +5301,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return isClosed;
   }
 
+  // Sonar S1181: an Error must not leak what is released here, which no collector frees. The first
+  // failure is rethrown with later ones attached.
+  // Sonar S3776: one linear teardown in which every owner is closed in a fixed, documented order
+  // whatever the earlier ones did. A split would put that order behind calls.
+  @SuppressWarnings({"java:S1181", "java:S3776"})
   @Override
   public void close() {
     if (isClosed) {
@@ -5262,24 +5317,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // The retained append buffer is off-heap and outlives every epoch by design, so this close is
     // the one place it is released. awaitInFlightAsyncFlushOnly() below fences any owner first;
     // releasing the flag as well keeps a post-close reuse from resurrecting a closed buffer.
-    final BytesOut<?> retainedBuffer = retainedAppendBuffer;
-    if (retainedBuffer != null) {
-      retainedAppendBuffer = null;
-      appendBufferInUse.set(true);
-    }
-
     Throwable asyncFailure = null;
     try {
       awaitInFlightAsyncFlushOnly();
     } catch (final Throwable t) {
       asyncFailure = t;
-    }
-    if (retainedBuffer != null) {
-      try {
-        retainedBuffer.close();
-      } catch (final RuntimeException releaseFailure) {
-        LOGGER.warn("Releasing the retained append buffer failed", releaseFailure);
-      }
     }
     if (asyncFlushWorkerRunning) {
       final Throwable unfencedFailure =
@@ -5292,6 +5334,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     Throwable teardownFailure = null;
+    final BytesOut<?> retainedBuffer = retainedAppendBuffer;
+    if (retainedBuffer != null) {
+      retainedAppendBuffer = null;
+      appendBufferInUse.set(true);
+      try {
+        retainedBuffer.close();
+      } catch (final Throwable failure) {
+        teardownFailure = retainFirstFailure(teardownFailure, failure);
+      }
+    }
     // Controllers cache revision catalogues, but their listeners belong to this writer alone.
     // Retire all listener roots after fencing async work, even if a later teardown owner fails.
     try {
@@ -5421,12 +5473,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     }
 
-    // Detach first: even if pool release itself fails, this writer must not retain the off-heap root.
+    // Detach first: even if the return itself fails, this writer must not retain the off-heap root.
     final BytesOut<?> closeBuffer = bufferBytes;
     bufferBytes = null;
     if (closeBuffer != null) {
       try {
-        Bytes.recycleOrRelease(closeBuffer);
+        closeBuffer.close();
         injectAsyncFlushFault("close-after-buffer-release");
       } catch (final Throwable t) {
         teardownFailure = retainFirstFailure(teardownFailure, t);
@@ -6425,13 +6477,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile long flushEpoch;
 
   /**
-   * Whether the sole append owner reuses one off-heap append buffer across flush epochs instead of
-   * allocating a {@link Writer#FLUSH_SIZE} buffer per epoch.
+   * Whether the sole append owner keeps one append buffer borrowed across flush epochs instead of
+   * borrowing a {@link Writer#FLUSH_SIZE} buffer per epoch.
    *
    * <p>
-   * The allocation profile put 0.40 GB per 1M-row load on this one statement — a fresh buffer for
-   * every epoch, on a lane that by construction has exactly ONE owner at a time. Kill switch
-   * {@code -Dsirix.flush.retainAppendBuffer=false} restores the per-epoch allocation.
+   * The allocation profile put 0.40 GB per 1M-row load on this one statement — a fresh heap buffer
+   * for every epoch, on a lane that by construction has exactly ONE owner at a time. The buffer is
+   * allocator scratch now, so an epoch that borrows its own reuses a resident one; keeping the borrow
+   * still saves the borrow and its wrapper per epoch. Kill switch
+   * {@code -Dsirix.flush.retainAppendBuffer=false} restores the per-epoch borrow.
    * </p>
    */
   private static final boolean RETAIN_APPEND_BUFFER =

@@ -17,17 +17,14 @@ final class HeapHeadroomBudgetTest {
   private static final long GIB = 1L << 30;
 
   @Test
-  @DisplayName("the group budget is the smaller of an eighth of the heap and a quarter of the headroom")
+  @DisplayName("native group planning consumes available execution capacity without a second headroom fraction")
   void groupBudgetFollowsTheHeadroom() {
-    final long eighthOfHeap = 8L * GIB / 8L / 128L; // 8 GB heap: 8,388,608 groups
-    assertEquals(eighthOfHeap, GroupTableSpill.groupBudgetFor(8L * GIB, 8L * GIB), "an empty heap plans an eighth");
-    // 5.9 GB live of 8 GB: 2.1 GB headroom, a quarter of it at 128 B per group
-    final long headroom = 8L * GIB - (long) (5.9 * GIB);
-    assertEquals(headroom / 4L / 128L, GroupTableSpill.groupBudgetFor(8L * GIB, headroom),
-        "a leg-late query plans against what is left");
-    assertTrue(GroupTableSpill.groupBudgetFor(8L * GIB, headroom) < eighthOfHeap);
-    assertEquals(1L << 20, GroupTableSpill.groupBudgetFor(8L * GIB, 0L), "the floor holds with no headroom");
-    assertEquals(1L << 26, GroupTableSpill.groupBudgetFor(1L << 40, 1L << 40), "the cap holds on a huge heap");
+    final long charge = GroupTableSpill.bytesPerGroup(GroupTableSpill.WIDEST_CHARGED_STRIDE);
+    assertEquals(GIB / charge, GroupTableSpill.groupBudgetFor(8L * GIB, 8L * GIB));
+    assertEquals(GIB / charge, GroupTableSpill.groupBudgetFor(8L * GIB, GIB));
+    assertEquals((GIB / 2) / charge, GroupTableSpill.groupBudgetFor(8L * GIB, GIB / 2));
+    assertEquals(0L, GroupTableSpill.groupBudgetFor(8L * GIB, 0L));
+    assertEquals(1L << 26, GroupTableSpill.groupBudgetFor(1L << 40, 1L << 40));
   }
 
   /** Held by a static so the JIT cannot keep a dead local's reference alive across the collection. */
@@ -98,8 +95,7 @@ final class HeapHeadroomBudgetTest {
     // heap, so a raised share must raise all three together.
     assertEquals(HeapHeadroom.plannedShareBytes(8L * GIB, 8L * GIB),
         HeapHeadroom.plannedShareBytes(16L * GIB, 4L * GIB), "the share is min(maxMemory / 8, headroom / 4)");
-    assertEquals(GroupTableSpill.groupBudgetFor(8L * GIB, 8L * GIB),
-        GroupTableSpill.groupBudgetFor(16L * GIB, 4L * GIB),
+    assertEquals(GroupTableSpill.groupBudgetFor(8L * GIB, 8L * GIB), GroupTableSpill.groupBudgetFor(16L * GIB, GIB),
         "the per-pass group budget is a function of the share alone");
     assertEquals(GroupDistinctAccumulator.defaultMaxValuesFor(8L * GIB, 8L * GIB),
         GroupDistinctAccumulator.defaultMaxValuesFor(16L * GIB, 4L * GIB), "so is the grouped COUNT(DISTINCT) ceiling");
@@ -148,21 +144,26 @@ final class HeapHeadroomBudgetTest {
   @Test
   @DisplayName("the derived budgets read the headroom seam")
   void derivedBudgetsReadTheHeadroom() {
-    final long priorBudget = GroupTableSpill.setGroupBudgetForTesting(-1L);
-    final long priorHeadroom = HeapHeadroom.setHeadroomForTesting(-1L);
+    // Group tables live in allocator memory: their budget reads the allocator's budget and headroom
+    // (AggregationShare), pinned here so the figures do not depend on how this JVM was sized.
+    final long priorGroupBudget = GroupTableSpill.setGroupBudgetForTesting(-1L);
+    final long priorBudget = AggregationShare.setBudgetForTesting(8L * GIB);
+    final long priorHeadroom = AggregationShare.setHeadroomForTesting(-1L);
     try {
-      final long maxMemory = Runtime.getRuntime().maxMemory();
-      HeapHeadroom.setHeadroomForTesting(maxMemory);
+      final long budget = AggregationShare.budgetBytes();
+      assertEquals(8L * GIB, budget);
+      AggregationShare.setHeadroomForTesting(budget);
       final long roomy = GroupTableSpill.groupBudget();
-      HeapHeadroom.setHeadroomForTesting(0L);
+      AggregationShare.setHeadroomForTesting(0L);
       final long starved = GroupTableSpill.groupBudget();
       assertTrue(starved <= roomy, "no headroom must never plan MORE groups per pass");
-      assertEquals(GroupTableSpill.groupBudgetFor(maxMemory, 0L), starved);
-      assertEquals(GroupTableSpill.groupBudgetFor(maxMemory, maxMemory), roomy);
+      assertEquals(GroupTableSpill.groupBudgetFor(budget, 0L), starved);
+      assertEquals(GroupTableSpill.groupBudgetFor(budget, budget), roomy);
       assertTrue(HeapHeadroom.liveAfterLastGc() >= 0L);
     } finally {
-      HeapHeadroom.setHeadroomForTesting(priorHeadroom);
-      GroupTableSpill.setGroupBudgetForTesting(priorBudget);
+      AggregationShare.setHeadroomForTesting(priorHeadroom);
+      AggregationShare.setBudgetForTesting(priorBudget);
+      GroupTableSpill.setGroupBudgetForTesting(priorGroupBudget);
     }
   }
 }

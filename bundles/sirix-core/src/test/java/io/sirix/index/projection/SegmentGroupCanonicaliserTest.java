@@ -1342,23 +1342,27 @@ final class SegmentGroupCanonicaliserTest {
     // lane: their rows must land in the missing-key accumulator and leave that lane untouched.
     final ColumnSlice[][] aggCols = {onesLane(leaves.length, rows)};
     final NumericGroupAggTable groups = new NumericGroupAggTable(1, 16, false, 1L); // fold the SUM lane
-    final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(1, Long.MAX_VALUE);
-    ProjectionColumnGroupScan.aggregateByGroupNumericFlat(rowCountStore(leaves.length, rows), NO_PREDICATES,
-        NO_PREDICATE_COLUMNS, null, null, out, aggCols, null, 0, leaves.length, groups, missing, -1, null, null, null,
-        false, null, null);
+    final long missingRows;
+    try (GroupWorkspace workspace = new GroupWorkspace()) {
+      final GroupBuffer missing = ProjectionIndexByteScan.newGroupAggAcc(workspace, 1, Long.MAX_VALUE);
+      ProjectionColumnGroupScan.aggregateByGroupNumericFlat(rowCountStore(leaves.length, rows), NO_PREDICATES,
+          NO_PREDICATE_COLUMNS, null, null, out, aggCols, null, 0, leaves.length, groups, missing, -1, null, null, null,
+          false, null, null);
+      missingRows = GroupLanes.get(missing, 0);
+    }
 
     assertEquals(2, groups.size(), "only the live leaf's two kept rows carry a group key");
     for (final int row : new int[] {0, 64}) {
       final long key = out[1].numericValues()[row];
       final int handle = groups.acquire(key, Long.MAX_VALUE);
-      final long[] block = groups.storageAtAccBase(handle);
+      final GroupBuffer block = groups.storageAtAccBase(handle);
       final int base = groups.offsetAtAccBase(handle);
-      assertEquals(1L, block[base], "one row folds into canonical group " + key);
-      assertEquals(1L, block[base + 2], "its one aggregate cell is counted");
-      assertEquals(1L, block[base + 3], "and summed");
+      assertEquals(1L, GroupLanes.get(block, base), "one row folds into canonical group " + key);
+      assertEquals(1L, GroupLanes.get(block, base + 2), "its one aggregate cell is counted");
+      assertEquals(1L, GroupLanes.get(block, base + 3), "and summed");
     }
     assertEquals(2, groups.size(), "re-probing a present key must not insert");
-    assertEquals((long) leaves.length * rows - 2L, missing[0],
+    assertEquals((long) leaves.length * rows - 2L, missingRows,
         "every row of a mask-emptied leaf has no group key, and so do the live leaf's cleared rows");
 
     assertSame(sharedPresence, out[0].presenceWords(), "no consumer may swap a lane out");

@@ -1,5 +1,7 @@
 package io.sirix.page;
 
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import io.sirix.node.LE;
 import java.math.BigInteger;
 import java.math.BigDecimal;
@@ -56,7 +58,6 @@ import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
@@ -318,14 +319,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       (int) FrameSlotAllocator.SIZE_CLASSES[FrameSlotAllocator.SIZE_CLASSES.length - 1];
 
   /**
-   * Reused cold-path workspace for constructing one bounded side-slot image without young-gen churn.
+   * Per-thread handle for the cold-path workspace in which one bounded side-slot image is built. The
+   * workspace is allocator scratch borrowed for one image and returned once the sidecar has taken its
+   * copy; the handle is reused so a borrow allocates nothing, and holds no memory in between.
    */
-  private static final ThreadLocal<MemorySegment> SIDE_SLOT_IMAGE_SCRATCH =
-      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(OverflowSlotSidecar.MAX_IMAGE_BYTES));
+  // Only the reusable handle lives with the thread; each image returns its borrowed buffer.
+  @SuppressWarnings("java:S5164")
+  private static final ThreadLocal<ScratchLease> SIDE_SLOT_IMAGE_SCRATCH = ThreadLocal.withInitial(ScratchLease::new);
+
+  /**
+   * Per-thread handle for the workspace of one off-frame field resize: allocator scratch borrowed for
+   * the resize and returned with it.
+   */
+  // Only the reusable handle lives with the thread; each resize returns its borrowed buffer.
+  @SuppressWarnings("java:S5164")
+  private static final ThreadLocal<ScratchLease> RESIZE_OVERFLOW_SCRATCH = ThreadLocal.withInitial(ScratchLease::new);
 
   /** Maximum old flyweight image plus DeltaVarIntCodec's documented nine-byte field growth. */
-  private static final ThreadLocal<MemorySegment> RESIZE_OVERFLOW_SCRATCH =
-      ThreadLocal.withInitial(() -> Arena.ofAuto().allocate(PageConstants.MAX_RECORD_SIZE + 9));
+  private static final int RESIZE_OVERFLOW_SCRATCH_BYTES = PageConstants.MAX_RECORD_SIZE + 9;
 
   /**
    * Sentinel returned by {@link #prepareHeapForDirectWriteOrOverflow(int, int)} when the record
@@ -1615,15 +1626,32 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Compute a field-width rewrite in bounded thread-local storage when its exact size is required.
-   * The result is either appended inline at its exact size or retained for canonical overflow
+   * Compute a field-width rewrite in bounded borrowed scratch when its exact size is required. The
+   * result is either appended inline at its exact size or retained for canonical overflow
    * publication, without ever exposing a partially written page slot.
    */
   private void resizeRecordFieldOffFrame(final FlyweightNode fn, final long nodeKey, final int slotIndex,
       final int fieldIndex, final int fieldCount, final DeltaVarIntCodec.FieldEncoder encoder, final long oldRecordBase,
       final int oldRecordOnlyLength, final int oldTotalLength, final int nodeKindId, final int deweyIdLength,
       final int deweyIdTrailerSize) {
-    final MemorySegment scratch = RESIZE_OVERFLOW_SCRATCH.get();
+    final ScratchLease lease = RESIZE_OVERFLOW_SCRATCH.get().acquire(RESIZE_OVERFLOW_SCRATCH_BYTES, ScratchUse.PAGE);
+    try {
+      // An exact view: the resize below is validated against the workspace's size.
+      resizeRecordFieldOffFrame(fn, nodeKey, slotIndex, fieldIndex, fieldCount, encoder, oldRecordBase,
+          oldRecordOnlyLength, oldTotalLength, nodeKindId, deweyIdLength, deweyIdTrailerSize,
+          lease.segment().asSlice(0L, RESIZE_OVERFLOW_SCRATCH_BYTES));
+    } finally {
+      lease.close();
+    }
+  }
+
+  // Sonar S107: the operands of a hot path are passed one by one so that they stay in registers. An
+  // operand object would cost a load at every use.
+  @SuppressWarnings("java:S107")
+  private void resizeRecordFieldOffFrame(final FlyweightNode fn, final long nodeKey, final int slotIndex,
+      final int fieldIndex, final int fieldCount, final DeltaVarIntCodec.FieldEncoder encoder, final long oldRecordBase,
+      final int oldRecordOnlyLength, final int oldTotalLength, final int nodeKindId, final int deweyIdLength,
+      final int deweyIdTrailerSize, final MemorySegment scratch) {
     final int newRecordLength = DeltaVarIntCodec.resizeField(slottedPage, oldRecordBase, oldRecordOnlyLength,
         fieldCount, fieldIndex, scratch, 0L, encoder);
     if (newRecordLength <= 0 || newRecordLength > scratch.byteSize()) {
@@ -2621,15 +2649,35 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /** Install a canonical generic record and its complete inline companion, if one is required. */
   private void installCanonicalOverflowCarrier(final DataRecord record, final byte[] recordBytes, final int slotNumber,
       final byte[] deweyIdBytes) {
-    if (record == null) {
+    final ScratchLease lease = borrowSideSlotImageScratch();
+    try {
+      // An exact view: building a complete image relies on the workspace's bound as its safety net.
+      installCanonicalOverflowCarrier(record, recordBytes, slotNumber, deweyIdBytes,
+          lease.segment().asSlice(0L, OverflowSlotSidecar.MAX_IMAGE_BYTES));
+    } finally {
+      lease.close();
+    }
+  }
+
+  /** The calling thread's side-slot image workspace, borrowed; the caller closes the lease. */
+  private static ScratchLease borrowSideSlotImageScratch() {
+    return SIDE_SLOT_IMAGE_SCRATCH.get().acquire(OverflowSlotSidecar.MAX_IMAGE_BYTES, ScratchUse.PAGE);
+  }
+
+  // Sonar S3776: runs for every page and is kept as one compiled unit. Splitting it changes what the
+  // compiler inlines on that path.
+  @SuppressWarnings("java:S3776")
+  private void installCanonicalOverflowCarrier(final DataRecord dataRecord, final byte[] recordBytes,
+      final int slotNumber, final byte[] deweyIdBytes, final MemorySegment scratch) {
+    if (dataRecord == null) {
       throw new NullPointerException("record");
     }
     if (recordBytes == null) {
       throw new NullPointerException("recordBytes");
     }
-    if (isCompressedStringRecord(record)) {
+    if (isCompressedStringRecord(dataRecord)) {
       throw new IllegalStateException(
-          "Overflow carrier must be canonical raw before installation: " + record.getNodeKey());
+          "Overflow carrier must be canonical raw before installation: " + dataRecord.getNodeKey());
     }
     checkSideSlotNumber(slotNumber);
     final int deweyIdLength = deweyIdBytes == null
@@ -2645,18 +2693,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final PageReference replacementReference = new PageReference();
     replacementReference.setPage(new OverflowPage(recordBytes));
 
-    final MemorySegment scratch = SIDE_SLOT_IMAGE_SCRATCH.get();
-    final int kindId = ((NodeKind) record.getKind()).getId();
+    final int kindId = ((NodeKind) dataRecord.getKind()).getId();
     long sideToken = 0L;
     int inlineDescriptorBytes = 0;
 
-    if (record instanceof FlyweightNode flyweight && isFusedAnyObjectNamedKindId(kindId)) {
+    if (dataRecord instanceof FlyweightNode flyweight && isFusedAnyObjectNamedKindId(kindId)) {
       final int fullImageBytes = tryBuildCompleteSideImage(flyweight, scratch, deweyIdBytes);
       if (fullImageBytes >= 0) {
         // A record that is intrinsically inline-sized but hit the page-frame capacity ceiling keeps
         // its complete canonical flyweight image. Projection/name scans therefore lose nothing.
         sideToken = prepareSideSlot(kindId, scratch, fullImageBytes);
-      } else if (record instanceof ObjectNamedStringNode fusedStringNode) {
+      } else if (dataRecord instanceof ObjectNamedStringNode fusedStringNode) {
         // The string value itself is intrinsically large. Its fixed scan metadata remains sufficient;
         // value readers deliberately resolve the same-key OverflowPage.
         final int descriptorBytes = fusedStringNode.serializeOverflowDescriptorToHeap(scratch, 0L);
@@ -2668,7 +2715,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           MemorySegment.copy(scratch, 0L, slottedPage, descriptorOffset, descriptorBytes);
           inlineDescriptorBytes = descriptorBytes;
         }
-      } else if (record instanceof ObjectNamedNumberNode fusedNumberNode) {
+      } else if (dataRecord instanceof ObjectNamedNumberNode fusedNumberNode) {
         // Arbitrary-precision numeric payloads can themselves exceed 512 bytes. Keep their complete
         // scan metadata and the reserved unknown-value marker; scalar accessors decline that marker
         // and point reads resolve the authoritative same-key OverflowPage.
@@ -2683,7 +2730,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         }
       } else {
         throw new IllegalArgumentException("Fused overflow record has no bounded metadata carrier: kind=" + kindId
-            + ", nodeKey=" + record.getNodeKey());
+            + ", nodeKey=" + dataRecord.getNodeKey());
       }
     } else if (areDeweyIDsStored) {
       // Generic/non-fused records are read from their OverflowPage. Only their Dewey metadata needs
@@ -2705,7 +2752,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       removeSideSlot(slotNumber);
       clearInlineSlotForOverflow(slotNumber);
       if (inlineDescriptorBytes > 0) {
-        completeDirectWrite(kindId, record.getNodeKey(), slotNumber, inlineDescriptorBytes, deweyIdBytes);
+        completeDirectWrite(kindId, dataRecord.getNodeKey(), slotNumber, inlineDescriptorBytes, deweyIdBytes);
       }
     }
   }
@@ -5167,14 +5214,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       if (replacementLength > OverflowSlotSidecar.MAX_IMAGE_BYTES) {
         throw new IllegalArgumentException("DeweyID update exceeds the side-slot ceiling: " + replacementLength);
       }
-      final MemorySegment scratch = SIDE_SLOT_IMAGE_SCRATCH.get();
-      if (recordLength > 0) {
-        MemorySegment.copy(oldSegment, oldBase, scratch, 0L, recordLength);
+      final ScratchLease lease = borrowSideSlotImageScratch();
+      try {
+        final MemorySegment scratch = lease.segment();
+        if (recordLength > 0) {
+          MemorySegment.copy(oldSegment, oldBase, scratch, 0L, recordLength);
+        }
+        MemorySegment.copy(deweyId, 0L, scratch, recordLength, deweyIdLen);
+        PageLayout.writeDeweyIdTrailer(scratch, replacementLength, deweyIdLen);
+        final long token = prepareSideSlot(sidecar.kind(slotNumber), scratch, replacementLength);
+        publishSideSlot(slotNumber, token);
+      } finally {
+        lease.close();
       }
-      MemorySegment.copy(deweyId, 0L, scratch, recordLength, deweyIdLen);
-      PageLayout.writeDeweyIdTrailer(scratch, replacementLength, deweyIdLen);
-      final long token = prepareSideSlot(sidecar.kind(slotNumber), scratch, replacementLength);
-      publishSideSlot(slotNumber, token);
       return;
     }
 
@@ -5208,11 +5260,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         if (newTotalLen > OverflowSlotSidecar.MAX_IMAGE_BYTES) {
           throw new IllegalArgumentException("DeweyID metadata exceeds the side-slot ceiling: " + newTotalLen);
         }
-        final MemorySegment scratch = SIDE_SLOT_IMAGE_SCRATCH.get();
-        MemorySegment.copy(deweyId, 0L, scratch, 0L, deweyIdLen);
-        PageLayout.writeDeweyIdTrailer(scratch, newTotalLen, deweyIdLen);
-        final long token = prepareSideSlot(0, scratch, newTotalLen);
-        publishSideSlot(slotNumber, token);
+        final ScratchLease lease = borrowSideSlotImageScratch();
+        try {
+          final MemorySegment scratch = lease.segment();
+          MemorySegment.copy(deweyId, 0L, scratch, 0L, deweyIdLen);
+          PageLayout.writeDeweyIdTrailer(scratch, newTotalLen, deweyIdLen);
+          final long token = prepareSideSlot(0, scratch, newTotalLen);
+          publishSideSlot(slotNumber, token);
+        } finally {
+          lease.close();
+        }
         return;
       }
 
@@ -5311,8 +5368,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   private byte[] serializeOverflowRecord(final DataRecord record) {
-    try (Arena arena = Arena.ofConfined()) {
-      final MemorySegmentBytesOut output = new MemorySegmentBytesOut(arena, 256);
+    try (MemorySegmentBytesOut output = MemorySegmentBytesOut.ofScratch(256, ScratchUse.PAGE)) {
       recordPersister.serialize(output, record, resourceConfig);
       final long length = output.position();
       if (length > Integer.MAX_VALUE) {
@@ -5636,8 +5692,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     if (stamp == STAMP_UNBACKED) {
       // Unbacked memory has no slot version to consult; detecting a close between snapshot and
-      // validation is the strongest check available, and all the non-frame allocators need — their
-      // release path is what recycles the memory.
+      // validation is the strongest check available, and all that memory outside the frame slots
+      // needs — its owner's release path is what recycles it.
       return !isClosed();
     }
     if ((stamp & 1L) != 0L) {
@@ -7887,14 +7943,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   private void processEntries(final ResourceConfiguration resourceConfiguration, final DataRecord[] records) {
-    // Use a confined arena for temporary serialization buffers.
-    // This allows immediate cleanup of memory for normal records (which are copied to slotMemory).
-    // For overflow records, we copy to a persistent arena since they need to outlive this method.
-    try (var tempArena = Arena.ofConfined()) {
-      // PERFORMANCE OPTIMIZATION: Reuse a single buffer for all records instead of allocating per-record.
-      // Initial size of 256 bytes covers most nodes; will grow automatically if needed.
-      // This eliminates ~N allocations where N = number of non-null records.
-      var reusableOut = new MemorySegmentBytesOut(tempArena, 256);
+    // Borrow allocator scratch for the temporary serialization buffer and return it when the page's
+    // records are placed: normal records are copied to slotMemory, overflow records into a buffer of
+    // their own, so nothing outlives this method in it.
+    // PERFORMANCE OPTIMIZATION: Reuse a single buffer for all records instead of allocating per-record.
+    // The smallest scratch capacity covers most nodes; the buffer grows automatically if needed, and
+    // its base segment is read again after every record because growth exchanges it.
+    try (MemorySegmentBytesOut reusableOut = MemorySegmentBytesOut.ofScratch(256, ScratchUse.PAGE)) {
 
       for (int i = 0; i < records.length; i++) {
         final DataRecord record = records[i];

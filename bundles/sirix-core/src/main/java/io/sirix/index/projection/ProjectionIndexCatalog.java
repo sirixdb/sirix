@@ -9,6 +9,8 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.cache.HeapCacheBudget;
+import io.sirix.cache.HeapCacheBudget.Pool;
 import io.sirix.page.NamePage;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.SegmentDictionaryDirectoryNode;
@@ -72,8 +74,9 @@ import java.util.stream.IntStream;
  * (avoids re-copying the def set and re-stringifying paths on every query);</li>
  * <li>the DECODED leaves keyed by (resource, definition, BUILD revision) — unrelated commits
  * advance the query revision but not the build revision, so an unchanged projection is decoded once
- * and shared by every subsequent revision instead of once per revision. Weighed in KiB
- * ({@code -Dsirix.projection.cacheBytes}, default 8 GiB).</li>
+ * and shared by every subsequent revision instead of once per revision. Byte-weighted
+ * ({@code -Dsirix.projection.cacheBytes}; the heap-envelope policy in
+ * {@code docs/DERIVED_QUERY_CACHES.md} owns its default and override ceiling).</li>
  * </ul>
  *
  * <h2>Failure policy</h2> Expected non-usability (no payloads, unsupported format version, stale
@@ -136,18 +139,27 @@ public final class ProjectionIndexCatalog {
   private static final ProjectionIndexRegistry.Handle NOT_USABLE =
       new ProjectionIndexRegistry.Handle(new String[0], List.of());
 
-  private static final long CACHE_BYTES =
-      Long.parseLong(System.getProperty("sirix.projection.cacheBytes", String.valueOf(8L << 30)));
+  private static final long CACHE_BYTES = HeapCacheBudget.global().bytes(Pool.PROJECTION);
+
+  private static final long CACHE_WEIGHT_UNIT = HeapCacheBudget.weightUnit(CACHE_BYTES);
 
   private static final Cache<DefsKey, DefEntry[]> DEFS = Caffeine.newBuilder().maximumSize(8192).build();
 
   private static final Cache<ProbeKey, Probe> PROBES = Caffeine.newBuilder().maximumSize(1 << 16).build();
 
-  /** Decoded leaves, weighed in KiB so entries beyond 2 GiB stay accounted. */
+  /** Decoded leaves, priced in overflow-safe units within the declared projection share. */
   private static final Cache<DataKey, ProjectionIndexRegistry.Handle> DATA =
-      Caffeine.newBuilder()
+      Caffeine.newBuilder().executor(Runnable::run)
+      // A handle that leaves the cache (weight pressure, invalidation, test isolation) retires
+      // its column store: the off-heap lanes of every column no query pins are released now,
+      // pinned ones at their last unpin. Runs on the removing thread (the executor above).
+      .<DataKey, ProjectionIndexRegistry.Handle>removalListener((key, handle, cause) -> {
+        if (handle != null) {
+          handle.retire();
+        }
+      })
               .maximumWeight(
-                  Math.max(1L, CACHE_BYTES >> 10)).<DataKey, ProjectionIndexRegistry.Handle>weigher((key, handle) -> {
+                  (CACHE_BYTES / CACHE_WEIGHT_UNIT)).<DataKey, ProjectionIndexRegistry.Handle>weigher((key, handle) -> {
                     // Column-lazy handles (P5b stage 2) weigh at their worst-case RESIDENT size (raw
                     // materialized leaves + decoded slice arrays) — Caffeine weights are fixed at
                     // insert, so a lazily-growing handle must be accounted at what it can grow to.
@@ -176,7 +188,7 @@ public final class ProjectionIndexCatalog {
                             : payload.length;
                       }
                     }
-                    return (int) Math.min(Integer.MAX_VALUE, 1 + (bytes >> 10));
+                    return HeapCacheBudget.weight(bytes, CACHE_WEIGHT_UNIT);
                   })
               .build();
 
@@ -1132,17 +1144,12 @@ public final class ProjectionIndexCatalog {
    * eager whole-column materialization.
    *
    * <p>
-   * Derived, not invented: an eager {@code List<byte[]>} of every leaf lives inside the {@link #DATA}
-   * cache's byte budget ({@code sirix.projection.cacheBytes}) — an entry heavier than half that
-   * budget is guaranteed cache-thrash — and it must also fit the heap beside the off-heap arena, so a
-   * quarter of {@code Runtime.maxMemory()} bounds it from the other side. At 100M rows a fat-string
-   * projection's leaves total ~8-10 GB; the first whole-leaf consumer (string LIKE, distinct over
-   * strings) OOMed the materializer inside the catalog load. The projected weight compared against
-   * this is the handle's worst-case RESIDENT bytes — the same conservative figure the cache weigher
-   * uses — so the route flips to windowed strictly BEFORE the eager list could have fit.
+   * The default is half the projection share of {@link HeapCacheBudget}; overrides remain within that
+   * share together with a quarter-fill payload-window allowance. The projected weight is the handle's
+   * conservative resident weight, so a large projection switches to windowed serving before
+   * allocating its whole eager list.
    */
-  private static final long EAGER_MATERIALIZE_BYTES_DEFAULT = Long.getLong("sirix.projection.eagerMaterializeBytes",
-      Math.min(CACHE_BYTES / 2, Runtime.getRuntime().maxMemory() / 4));
+  private static final long EAGER_MATERIALIZE_BYTES_DEFAULT = HeapCacheBudget.global().projectionFillBytes();
 
   private static volatile long eagerMaterializeBytes = EAGER_MATERIALIZE_BYTES_DEFAULT;
 
@@ -1261,12 +1268,9 @@ public final class ProjectionIndexCatalog {
         ? eagerMaterializeBytes + (eagerMaterializeBytes >> 2)
         // An under-budget handle materializes its leaves, so the projection IS its residency.
         : projectedWeightBytes;
-    // Clamp ONCE, after the branch — EITHER branch can exceed what this cache admits, and the
-    // windowed one is the likelier: eagerMaterializeBytes is settable, so 1.25x it can pass
-    // maximumWeight while the eager branch is bounded by that same budget. A charge above the
-    // ceiling self-evicts the entry on insert and makes every lookup re-decode a fresh handle,
-    // which is the failure this figure exists to prevent.
-    return Math.max(1L, Math.min(resident, Math.max(1L, CACHE_BYTES >> 1)));
+    // Never underprice a handle to make it fit: both the default and a configured per-store
+    // fill limit are subdivisions of the declared projection ceiling.
+    return Math.max(1L, resident);
   }
 
   /**
@@ -1282,11 +1286,9 @@ public final class ProjectionIndexCatalog {
     }
     // Resident cap from the SAME budget that declined the eager route: a quarter of it in windows,
     // sized by the projected per-leaf weight (conservative — includes decode expansion, so the cap
-    // errs toward fewer resident windows), and never below the machine's worker count so a parallel
-    // shard sweep does not thrash at its shard boundaries.
+    // errs toward fewer resident windows). A worker-count floor would exceed tiny declared budgets.
     final long projectedWindowBytes = Math.max(1L, projectedWeightBytes / Math.max(1, rowGroupCount)) * windowSize;
-    final int residentCap = (int) Math.min(Integer.MAX_VALUE,
-        Math.max(Runtime.getRuntime().availableProcessors(), (eagerMaterializeBytes / 4) / projectedWindowBytes));
+    final int residentCap = Math.clamp((eagerMaterializeBytes / 4) / projectedWindowBytes, 0, Integer.MAX_VALUE);
     if (DIAG) {
       System.err.println("[cat] windowed payloads: defId=" + defId + " rowGroups=" + rowGroupCount + " projected="
           + (projectedWeightBytes >> 20) + "MB windowLeaves=" + windowSize + " residentCap=" + residentCap);
