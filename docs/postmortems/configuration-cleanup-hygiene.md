@@ -16,6 +16,8 @@
 
 Public-API controls executed the audited baseline and the merged fix in fresh JVMs. Baseline controls accepted malformed caps, wrapped `17179869185G` to 1 GiB, admitted 12 metadata entries for a two-entry request, and sized caches from 2 GiB despite an effective 67,108,871-byte owner. Each control failed its independent contract assertion before the fix and passed afterward. These controls load the audited configuration/cache classes ahead of the current dependency classpath and exercise their public APIs; each startup-cap case uses a fresh JVM. The signed-wrap value is also a deterministic parameter of `explicitInvalidCapsFailWithThePropertyAndValue`.
 
+The launcher regression was also run with the exact audited `Main.kt` through the existing mocked Vert.x boundary. The old entry point failed with `ArgumentsAreDifferent` because it supplied the developer config path; restoring the corrected entry point made the same test pass. The control never starts the old live server.
+
 The metadata byte option now documents an estimate (1,000 bytes per entry, minimum one), not a retained-heap byte guarantee. The explicit entry option wins. Invalid explicit caps fail with their property and value; allocator requests are startup-only and limited to 1 TiB. Defaults remain 50,000 metadata entries, 50% record cache and 18.75% fragment cache of the effective allowance.
 
 ## Cleanup: sharing a service requires independent actions and clean ownership
