@@ -124,3 +124,56 @@
   Blob checks preserve all 45 base-only and 14 feature-only files exactly; the four overlaps
   were checked individually. No production path was added or removed by the interval repair.
 - The outer executor still owns publication and full hosted changed-source PIT confirmation.
+
+## Follow-up: shared execution deadline (decision required)
+
+- Issue: PR #1352 at `e5b2c72682dea5f803c2b2c8e0934efea2996197`,
+  [CI run 43730487790](https://github.com/sirixdb/sirix/actions/runs/43730487790/job/132862910158).
+  This finding remains unresolved; no passing mutation score or automatic repair is claimed.
+- Symptom: `Shared 1320s execution deadline exceeded`. The downloaded artifact contains an
+  empty `mutations.xml`, not a survivor report. Coverage completed in 852 seconds; PIT created
+  43 mutation units at 15:55:20 UTC and the process group was killed at 15:59:57 UTC.
+  The preceding Gradle compilation also consumed the shared deadline.
+- Invariant: every selected mutation must complete against the relevant deterministic tests
+  within the unchanged shared 1,320-second execution budget, and incomplete evidence must fail.
+  This applies to workflow invocation, `run`/`analyze_module`/`execute`, source and test selection,
+  coverage discovery, mutation units and XML/blocking reporting, across all supported modules,
+  Java/Kotlin outputs and nested classes. The timeout/reporting boundary already fails correctly.
+- Root cause established by the logs and inventory: whole-source selection expands seven changed
+  sources to 64 exact classes and 11,649 mutants. Of these, 9,803 belong to the executor's single
+  [default, unlimited-size mutation unit](https://pitest.org/quickstart/maven/#mutationunitsize).
+  Baseline discovery and unit construction consume most
+  of the hosted budget, leaving 277 seconds for mutant execution and reporting. Prior launcher,
+  heap and timestamp repairs do not address this workload. The evidence does not establish that
+  a particular batching or fixture change would make the full gate pass within its current limit.
+- Why earlier checks missed it: focused helper/fallback mutation runs validated individual
+  repairs, but did not demonstrate completion or coverage of the full changed-source selection.
+- Diagnostic acceptance checks, specified before any orchestration edit: run PIT's real dry-run
+  consumer with the artifact's complete target list and unchanged `*` test selection; retain
+  coverage, inventory and logs. Inspect mutation distribution and covering test identities
+  before considering a selection or scheduling change. No production/configuration edit followed.
+- Evidence: `build/ci-evidence/round4/inventory.gradle` adds only diagnostic `--dryRun=true` and
+  line-coverage export, plus a local compiler-worker heap cap. The invocation used `heavy.sh`,
+  two Gradle workers, a 2 GiB Gradle heap and the checked-in PIT configuration. Free disk on `/`
+  was 81 GiB before Gradle. All selected tests passed baseline coverage; the generated inventory
+  contains 11,649 `NOT_STARTED` entries. Dry run executes no mutants and is not a bounded gate
+  pass, a kill score, or evidence that any mutant survived. Its exported line coverage is 78%.
+- Exploratory result: matching exported class/method/block identities finds 2,231 mutants with
+  no covered block. This is a coverage-gap inference from the two generated protocols, not a
+  PIT `NO_COVERAGE` result from mutant execution. Examples include `MixedAgg.maxBd`/`minBd`
+  and `ScanDiagnostics.mergeFrom`. Runtime optimization alone would not supply those assertions.
+  All 258 covering test-class identities belong to the query module's compiled test output;
+  integration tests in `io.sirix.access` packages also belong to that output. Package names alone
+  are therefore not a safe module boundary. Discovery examined 1,111 test classes overall.
+- Existing regression evidence: all 23 Python tooling tests pass, including timeout/partial-XML
+  rejection in `ReportingTest`. Inventory, coverage-identity analysis and summaries are retained
+  under `build/ci-evidence/round4/`. No new application test was invented for this diagnosis.
+- Decision required: retain whole-source gating and authorize the broader coverage/survivor and
+  orchestration remediation under the existing limits, or explicitly approve a changed-code
+  mutation gate with whole-source analysis retained in a separately bounded lane. The latter
+  changes policy and must not be implemented implicitly. Neither deadlines, thresholds, targets,
+  test selection nor production row/page kernels were changed during this diagnosis. No full
+  changed-source mutation pass has been obtained.
+- Lesson: focused mutation success does not establish full-selection capacity or coverage;
+  obtain the complete inventory and baseline evidence before selecting a bounded-gate repair.
+  See [Lessons](../LESSONS.md).
