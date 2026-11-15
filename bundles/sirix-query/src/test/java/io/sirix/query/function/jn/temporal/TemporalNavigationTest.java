@@ -167,6 +167,8 @@ final class TemporalNavigationTest {
     evaluate("jn:store('" + DB + "','products','[{\"name\":\"Laptop\",\"price\":999}]')");
     evaluate("replace json value of jn:doc('" + DB + "','products')[0].price with 899");
 
+    assertEquals("true", query("sdb:nodekey(jn:doc('" + DB + "','products', 1)[0].price) eq "
+        + "sdb:nodekey(jn:doc('" + DB + "','products', 2)[0].price)"));
     assertEquals("999", query("jn:first(jn:doc('" + DB + "','products')[0].price)"));
     assertEquals("999", query("jn:previous(jn:doc('" + DB + "','products')[0].price)"));
     assertEquals("899", query("jn:last(jn:doc('" + DB + "','products', 1)[0].price)"));
@@ -291,12 +293,41 @@ final class TemporalNavigationTest {
   // ---------------------------------------------------------------------------------------------
 
   @Test
+  void typeChangingFieldReplacementStartsANewHistory() {
+    final String original = doc(2) + "[0].none";
+    final String replacement = doc(3) + "[0].none";
+
+    assertEquals("false", query("sdb:nodekey(" + original + ") eq sdb:nodekey(" + replacement + ")"));
+    assertEquals("null null", query("jn:all-times(" + original + ")"));
+    assertEquals("1 2", query("for $v in jn:all-times(" + original + ") return sdb:revision($v)"));
+    assertEquals("7", query("jn:all-times(" + replacement + ")"));
+    assertEquals("3", query("for $v in jn:all-times(" + replacement + ") return sdb:revision($v)"));
+    assertEquals("", query("jn:first(" + replacement + ")"));
+    assertEquals("7", query("jn:first-existing(" + replacement + ")"));
+    assertEquals("", query("jn:previous(" + replacement + ")"));
+    assertEquals("", query("jn:past(" + replacement + ")"));
+    assertEquals("7", query("jn:past(" + replacement + ", true())"));
+    assertEquals("", query("jn:next(" + original + ")"));
+    assertEquals("", query("jn:future(" + original + ")"));
+    assertEquals("null", query("jn:future(" + original + ", true())"));
+    assertEquals("", query("jn:next(" + replacement + ")"));
+    assertEquals("", query("jn:last(" + replacement + ")"));
+    assertEquals("", query("jn:future(" + replacement + ")"));
+    assertEquals("7", query("jn:future(" + replacement + ", true())"));
+  }
+
+  @Test
   void mixedTypesAtOnePathAcrossRevisions() {
-    // [0].none: null in revisions 1-2, the number 7 in revision 3, null again after the revert.
+    // [0].none: the null node is replaced by a new number node in revision 3, restored by the revert.
     final long key = Long.parseLong(query("sdb:nodekey(" + doc(1) + "[0].none)"));
     assertEquals(expected(Fn.ALL_TIMES.revisions(1, MOST_RECENT, existence(key)), key),
         actual(Fn.ALL_TIMES, doc(1) + "[0].none"));
     // [3]: a boolean node in revisions 1-4; revision 5 replaced it by a new string node.
+    assertEquals("false", query("sdb:nodekey(" + doc(4) + "[3]) eq sdb:nodekey(" + doc(5) + "[3])"));
+    assertEquals("false", query("sdb:nodekey(" + doc(4) + "[2]) eq sdb:nodekey(" + doc(5) + "[2])"));
+    assertEquals("", query("jn:first(" + doc(5) + "[2])"));
+    assertEquals("", query("jn:previous(" + doc(5) + "[2])"));
+    assertEquals("799", query("jn:all-times(" + doc(5) + "[2])"));
     assertEquals("true false false false", query("jn:all-times(" + doc(1) + "[3])"));
     assertEquals("\"now a string\"", query("jn:all-times(" + doc(5) + "[3])"));
     assertEquals("true false false false \"now a string\"",

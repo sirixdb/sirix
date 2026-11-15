@@ -18,13 +18,22 @@
   history" to the code. `sdb:item-history`, `jn:first-existing` and `jn:last-existing` already used
   the node key and worked on values.
 - Why tests missed it: every temporal-function test navigated objects or arrays; no test enumerated
-  the item kinds the signature admits, and no test passed a constructed item.
+  the item kinds the signature admits, and no test passed a constructed item. The initial spec also
+  generalized same-kind object-field replacement to all replacements. The select-item oracle
+  correctly followed separate node keys but did not independently assert that a type change
+  creates a new node, so it did not expose the overbroad documentation guarantee.
 - Regression test: `TemporalNavigationTest` (`./gradlew :sirix-query:test --tests
   'io.sirix.query.function.jn.temporal.TemporalNavigationTest'`): every function x every value kind
   x array position / field value x revision against an oracle that reads each revision with
   `sdb:select-item`, the shell reproduction, a differential against the enclosing record, field
   names, and the error code for computed items. It fails before the fix with the
-  `ClassCastException` and passes after.
+  `ClassCastException` and passes after. `typeChangingFieldReplacementStartsANewHistory` pins
+  null-to-number replacement to distinct keys and literal values/revisions for both histories,
+  including empty `jn:first` and `jn:previous` results on the replacement. The shell reproduction
+  pins key preservation for number-to-number replacement; `mixedTypesAtOnePathAcrossRevisions`
+  checks that same-kind and type-changing array replacements create new keys.
 - Lesson: when a function's signature admits a type, enumerate the implementing item classes in a
   spec and a test matrix; dispatch on the property the operation needs (here: a node key), not on
-  an interface only some of the admitted classes implement. See [LESSONS.md](../LESSONS.md).
+  an interface only some of the admitted classes implement. Separately assert identity preservation
+  or replacement with literal history expectations for each update category before promising
+  continuity in the spec. See [LESSONS.md](../LESSONS.md).

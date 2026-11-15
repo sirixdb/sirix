@@ -22,9 +22,20 @@ resource that carries a node key. Stored items are
 Values at array positions and values of object fields are both covered; under record fusion an
 object field and its primitive value share one node.
 
-Node identity follows the update operation, not the path: an in-place value update and
-`replace json value` of an object field keep the node, so its history spans the update, while
-`replace json value` of an array member inserts a new node whose history starts in that revision.
+Node identity follows the update operation, not the path. In-place value updates through the
+node API keep the node and its history. `replace json value` of an object field keeps the node
+only for a same-kind primitive replacement (number to number, string to string, boolean to
+boolean; null to null is a no-op). A type-changing replacement (for example null to `7` or
+string to object) removes the old node and inserts a new one; so does `replace json value`
+of an array member.
+
+The new value's node exists only from the replacing revision onward. `jn:previous` from that
+revision and `jn:first` return the empty sequence, because the node did not exist in the
+preceding revision or in revision 1. `jn:all-times` and `jn:past` yield only revisions in
+which that new node exists, starting no earlier than the replacing revision (`jn:past`
+returns them newest first and excludes the source revision unless requested). `jn:first`
+always reads revision 1; `jn:first-existing` instead returns the first revision in which
+the node exists.
 
 ## Behaviour
 
