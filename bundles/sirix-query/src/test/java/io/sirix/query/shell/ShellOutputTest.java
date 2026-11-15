@@ -155,6 +155,21 @@ final class ShellOutputTest {
   }
 
   @Test
+  void structuralJsonReplacementDiffUsesModificationColour() throws Exception {
+    try (final var store = BasicJsonDBStore.newBuilder().location(directory.resolve("replace-diff")).build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      store.create("shop", "products", "{\"price\":{\"amount\":999}}");
+      new Query(chain, "replace json value of jn:doc('shop','products').price with 899").execute(ctx);
+      final String source = "jn:diff('shop','products',1,2)";
+      final StringWriter out = new StringWriter();
+      new ShellOutput(ShellPalette.ANSI_16, new PrintWriter(out), new PrintWriter(Writer.nullWriter())).result(
+          new Query(chain, source), ctx, source);
+      assertTrue(out.toString().contains("\033[33m\"replace\"\033[0m"), out.toString());
+    }
+  }
+
+  @Test
   void terminalResultsArePrettyAndTimedAndErrorHasCode() throws Exception {
     final StringWriter out = new StringWriter();
     final StringWriter err = new StringWriter();

@@ -11,6 +11,10 @@ import java.util.Objects;
  * flushes).
  */
 public final class ShellResultWriter extends Writer {
+  private enum XmlMarkup {
+    NONE, START, DECLARATION, TAG, COMMENT, PI, CDATA
+  }
+
   private final Writer out;
   private final ShellPalette palette;
   private final boolean diff;
@@ -24,7 +28,11 @@ public final class ShellResultWriter extends Writer {
   private boolean escaped;
   private boolean pendingKey;
   private boolean expectKey;
-  private boolean xmlTag;
+  private XmlMarkup xmlMarkup = XmlMarkup.NONE;
+  private int xmlDepth;
+  private boolean xmlClosing;
+  private char xmlPrevious;
+  private char xmlBeforePrevious;
   private boolean number;
   private boolean pendingWord;
 
@@ -83,14 +91,14 @@ public final class ShellResultWriter extends Writer {
         put(c);
       if (escaped)
         escaped = false;
-      else if (c == '\\' && !xmlTag)
+      else if (c == '\\' && xmlMarkup == XmlMarkup.NONE)
         escaped = true;
       else if (c == quote) {
         quote = 0;
         if (pendingKey)
           emitKey(true);
         emit(palette.reset());
-        if (xmlTag)
+        if (xmlMarkup == XmlMarkup.TAG)
           emit(palette.blue());
       }
       return;
@@ -99,9 +107,26 @@ public final class ShellResultWriter extends Writer {
       number = false;
       emit(palette.reset());
     }
-    if (c == '"' || (xmlTag && c == '\'')) {
+    if (xmlMarkup != XmlMarkup.NONE) {
+      acceptXml(c);
+      return;
+    }
+    if (c == '<') {
+      xmlMarkup = XmlMarkup.START;
+      xmlClosing = false;
+      xmlPrevious = '<';
+      xmlBeforePrevious = 0;
+      emit(palette.blue());
+      put(c);
+      return;
+    }
+    if (xmlDepth > 0) {
+      put(c);
+      return;
+    }
+    if (c == '"') {
       quote = c;
-      if (expectKey && !xmlTag) {
+      if (expectKey) {
         pendingKey = true;
         keyLength = 1;
         key[0] = c;
@@ -112,37 +137,66 @@ public final class ShellResultWriter extends Writer {
       }
       return;
     }
-    if (c == '<') {
-      xmlTag = true;
-      emit(palette.blue());
-    } else if (!xmlTag) {
-      if (c == '{' || c == '[') {
-        if (depth < containers.length)
-          containers[depth] = c;
-        depth++;
-        expectKey = c == '{';
-      } else if (c == '}' || c == ']') {
-        if (depth > 0)
-          depth--;
-        expectKey = false;
-      } else if (c == ',')
-        expectKey = depth > 0 && depth <= containers.length && containers[depth - 1] == '{';
-      else if (!number && (Character.isDigit(c) || c == '-')) {
-        number = true;
-        emit(palette.orange());
-      }
+    if (c == '{' || c == '[') {
+      if (depth < containers.length)
+        containers[depth] = c;
+      depth++;
+      expectKey = c == '{';
+    } else if (c == '}' || c == ']') {
+      if (depth > 0)
+        depth--;
+      expectKey = false;
+    } else if (c == ',')
+      expectKey = depth > 0 && depth <= containers.length && containers[depth - 1] == '{';
+    else if (!number && (Character.isDigit(c) || c == '-')) {
+      number = true;
+      emit(palette.orange());
     }
-    if (diff && !xmlTag && depth == 0 && Character.isUnicodeIdentifierStart(c)) {
+    if (diff && depth == 0 && Character.isUnicodeIdentifierStart(c)) {
       pendingWord = true;
       keyLength = 1;
       key[0] = c;
       return;
     }
     put(c);
-    if (xmlTag && c == '>') {
-      xmlTag = false;
+  }
+
+  private void acceptXml(final char c) throws IOException {
+    if (xmlMarkup == XmlMarkup.START) {
+      xmlMarkup = switch (c) {
+        case '?' -> XmlMarkup.PI;
+        case '!' -> XmlMarkup.DECLARATION;
+        default -> XmlMarkup.TAG;
+      };
+      xmlClosing = c == '/';
+    } else if (xmlMarkup == XmlMarkup.DECLARATION)
+      xmlMarkup = c == '['
+          ? XmlMarkup.CDATA
+          : XmlMarkup.COMMENT;
+    if (xmlMarkup == XmlMarkup.TAG && (c == '"' || c == '\'')) {
+      quote = c;
+      emit(palette.green());
+    }
+    put(c);
+    if (c == '>' && switch (xmlMarkup) {
+      case TAG -> true;
+      case COMMENT -> xmlPrevious == '-' && xmlBeforePrevious == '-';
+      case PI -> xmlPrevious == '?';
+      case CDATA -> xmlPrevious == ']' && xmlBeforePrevious == ']';
+      default -> false;
+    }) {
+      if (xmlMarkup == XmlMarkup.TAG) {
+        if (xmlClosing) {
+          if (xmlDepth > 0)
+            xmlDepth--;
+        } else if (xmlPrevious != '/')
+          xmlDepth++;
+      }
+      xmlMarkup = XmlMarkup.NONE;
       emit(palette.reset());
     }
+    xmlBeforePrevious = xmlPrevious;
+    xmlPrevious = c;
   }
 
   private void emitKey(final boolean complete) throws IOException {
@@ -150,7 +204,7 @@ public final class ShellResultWriter extends Writer {
     if (diff && complete) {
       if (matches("\"insert\""))
         colour = palette.green();
-      else if (matches("\"update\""))
+      else if (matches("\"update\"") || matches("\"replace\""))
         colour = palette.orange();
       else if (matches("\"delete\""))
         colour = palette.red();
@@ -211,12 +265,13 @@ public final class ShellResultWriter extends Writer {
       emitWord();
     if (pendingKey)
       emitKey(false);
-    if (palette.enabled() && (quote != 0 || number || xmlTag))
+    if (palette.enabled() && (quote != 0 || number || xmlMarkup != XmlMarkup.NONE))
       emit(palette.reset());
     quote = 0;
     number = false;
     escaped = false;
-    xmlTag = false;
+    xmlMarkup = XmlMarkup.NONE;
+    xmlDepth = 0;
     expectKey = false;
     depth = 0;
     flush();

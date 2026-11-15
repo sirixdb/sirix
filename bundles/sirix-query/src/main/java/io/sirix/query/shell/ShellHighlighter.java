@@ -27,7 +27,8 @@ public final class ShellHighlighter implements Highlighter {
       "namespace", "function", "variable", "external", "import", "module", "version", "jsoniq", "xquery", "replace",
       "json", "value", "with", "insert", "delete", "append", "into", "rename", "node", "nodes", "first", "last",
       "before", "after", "copy", "modify", "updating", "true", "false", "null", "empty", "allowing", "stable");
-  private static final Set<String> CALLABLE_KEYWORDS = Set.of("true", "false", "not", "empty");
+  private static final Set<String> CALLABLE_KEYWORDS =
+      Set.of("true", "false", "not", "empty", "count", "last", "replace");
   private final ShellPalette palette;
   private String prefix = "";
 

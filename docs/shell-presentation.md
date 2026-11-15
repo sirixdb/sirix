@@ -47,7 +47,20 @@ Regression oracle: actual query execution followed by the neutral prompt for unc
 cases, and the existing 1-2-3-4-1 demo sequence for supported access.
 
 Expression keywords retain orange styling even immediately before an opening parenthesis.
-The callable built-ins `true`, `false`, `not` and `empty` retain blue function styling when
+The callable built-ins `true`, `false`, `not`, `empty`, `count`, `last` and `replace` retain blue function styling when
 called, while their bare keyword forms remain orange. Regression oracle: the palette's
 specified orange/blue styles on conditional, FLWOR, built-in and qualified calls, including
 incomplete input and multiline prefixes.
+
+XML attribute values use green quote styling within element tags. Quotes, braces, numbers
+and operation words in XML text remain text. Comments, processing instructions and CDATA
+retain their markup context through their complete terminator, including embedded `>`
+characters. Subsequent tags and attributes recover their specified styles. Streaming writes,
+flushes and finish/reuse preserve these rules and every payload character with fixed scratch
+storage. `ShellResultWriterTest` checks styled output for each split position, every writer
+overload, mixed JSON/XML/diff output and XML allocation behavior.
+
+JSON diff keys `update` and `replace` both use orange modification styling. The `replace`
+key stays blue in ordinary JSON output, and XML diff replacement words remain orange.
+`ShellResultWriterTest` checks the exact styles and `ShellOutputTest` executes a structural
+replacement followed by `jn:diff` through the terminal output entry point.

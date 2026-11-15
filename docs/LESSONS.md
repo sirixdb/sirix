@@ -59,5 +59,15 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 
 - **Test lexical precedence at overlapping forms:** an opening parenthesis can follow both an
   expression keyword and a function name. Assert rendered styles for both, including callable
-  keyword built-ins and incomplete/multiline input.
+  keyword built-ins, the demo's `count(...)`, `last()`, `replace(...)` and incomplete/multiline input.
   Evidence: [shell keyword precedence](postmortems/shell-keyword-precedence.md).
+
+- **Scope XML quoting to attributes in the streaming renderer.** Track element text and
+  complete comment, PI and CDATA terminators across writes. Check payloads and styles
+  after embedded quotes and `>` characters, including finish/reuse and mixed formats.
+  Evidence appears in [XML content quoting](postmortems/shell-xml-content-quotes.md).
+
+- **Cover every serialized diff operation in the palette contract.** Structural JSON
+  replace and scalar update both represent modifications. Pair the operation golden
+  with an actual structural replacement rendered through the terminal entry point.
+  Evidence appears in [JSON replacement colour](postmortems/shell-json-replace-colour.md).

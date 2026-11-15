@@ -3,6 +3,8 @@ package io.sirix.query.shell;
 import org.junit.jupiter.api.Test;
 import java.io.StringWriter;
 import java.util.Random;
+import java.util.List;
+import org.jline.utils.AttributedString;
 import java.io.Writer;
 import java.lang.management.ManagementFactory;
 import com.sun.management.ThreadMXBean;
@@ -14,8 +16,90 @@ final class ShellResultWriterTest {
   void goldenJsonAndDiffColours() throws Exception {
     assertEquals("{\033[36m\"x\"\033[0m:\033[33m12\033[0m,\033[36m\"s\"\033[0m:\033[32m\"ok\"\033[0m}",
         render("{\"x\":12,\"s\":\"ok\"}", false, ShellPalette.ANSI_16, 1));
-    final String result = render("{\"insert\":{},\"update\":{},\"delete\":{}}", true, ShellPalette.ANSI_16, 2);
-    assertEquals("{\033[32m\"insert\"\033[0m:{},\033[33m\"update\"\033[0m:{},\033[31m\"delete\"\033[0m:{}}", result);
+    final String result =
+        render("{\"insert\":{},\"update\":{},\"replace\":{},\"delete\":{}}", true, ShellPalette.ANSI_16, 2);
+    assertEquals(
+        "{\033[32m\"insert\"\033[0m:{},\033[33m\"update\"\033[0m:{},\033[33m\"replace\"\033[0m:{},\033[31m\"delete\"\033[0m:{}}",
+        result);
+  }
+
+  @Test
+  void xmlContentQuotesAndMarkupTerminatorsPreserveFollowingTagStyles() throws Exception {
+    for (final String content : List.of("text \" ' 12 {insert}", "<!-- \" ' > <fake/> -->",
+        "<?target \" ' > <fake/> ?>", "<![CDATA[\" ' > <fake/> {insert}]]>")) {
+      final String input = "<root>" + content + "<child a='v' b=\"w\"/></root>";
+      for (final boolean diff : new boolean[] {false, true}) {
+        for (int split = 0; split <= input.length(); split++) {
+          final StringWriter out = new StringWriter();
+          try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, diff)) {
+            writer.write(input, 0, split);
+            writer.flush();
+            writer.write(input, split, input.length() - split);
+          }
+          final String rendered = out.toString();
+          assertEquals(input, strip(rendered));
+          final var styled = AttributedString.fromAnsi(rendered);
+          assertStyle(styled, input.indexOf("<child"), "36");
+          assertStyle(styled, input.indexOf("'v'"), "32");
+          assertStyle(styled, input.indexOf("\"w\""), "32");
+          assertStyle(styled, input.indexOf("</root>"), "36");
+          final String contentStyle = content.startsWith("<")
+              ? "36"
+              : "0";
+          for (int position = 0; position < content.length(); position++)
+            assertStyle(styled, "<root>".length() + position, contentStyle);
+        }
+        assertEquals(input, strip(render(input, diff, ShellPalette.NONE, 1)));
+      }
+    }
+  }
+
+  @Test
+  void mixedXmlJsonAndPatchContextsRecoverAcrossEveryWriterOverloadAndFinish() throws Exception {
+    final String input = "{\"x\":1} <root><nested/>\" {\"insert\":1} <child/></root> \"json\" "
+        + "<?pi \" > ?> <!-- ' > --> insert node <a/>; replace node <b/>";
+    for (final int overload : new int[] {0, 1, 2}) {
+      final StringWriter out = new StringWriter();
+      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, true)) {
+        final char[] chars = input.toCharArray();
+        for (int i = 0; i < chars.length; i++) {
+          if (overload == 0)
+            writer.write(chars[i]);
+          else if (overload == 1)
+            writer.write(chars, i, 1);
+          else
+            writer.write(input, i, 1);
+          writer.flush();
+        }
+        writer.finish();
+        writer.write("{\"replace\":{}}");
+        writer.finish();
+      }
+      final String expected = input + "{\"replace\":{}}";
+      assertEquals(expected, strip(out.toString()));
+      final var styled = AttributedString.fromAnsi(out.toString());
+      assertStyle(styled, input.indexOf("<child/>"), "36");
+      assertStyle(styled, input.indexOf("{\"insert"), "0");
+      assertStyle(styled, input.indexOf("\"json\""), "32");
+      assertStyle(styled, input.indexOf("insert node"), "32");
+      assertStyle(styled, input.indexOf("replace node"), "33");
+      assertStyle(styled, expected.lastIndexOf("\"replace\""), "33");
+    }
+    for (final String unfinished : List.of("<a x='", "<a>\"", "<!-- \"", "<?pi '", "<![CDATA[\"")) {
+      final StringWriter out = new StringWriter();
+      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, true)) {
+        writer.write(unfinished);
+        writer.finish();
+        writer.write("{\"replace\":1}");
+      }
+      assertEquals(unfinished + "{\"replace\":1}", strip(out.toString()));
+      assertTrue(out.toString().contains("\033[33m\"replace\"\033[0m"));
+    }
+    assertTrue(render("{\"replace\":{}}", false, ShellPalette.ANSI_16, 1).contains("\033[36m\"replace\"\033[0m"));
+  }
+
+  private static void assertStyle(final AttributedString styled, final int offset, final String ansi) {
+    assertEquals(AttributedString.fromAnsi("\033[" + ansi + "mX").styleAt(0), styled.styleAt(offset));
   }
 
   @Test
@@ -58,7 +142,8 @@ final class ShellResultWriterTest {
   @Test
   void serializationUsesNoPerValueScratchAllocations() throws Exception {
     final ThreadMXBean bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
-    final String payload = "{\"n\":123,\"s\":\"hello\"}".repeat(10000);
+    final String payload = ("{\"n\":123,\"s\":\"hello\"} "
+        + "<root><!-- \" > --><?pi ' > ?><![CDATA[\" > ]]><a x='v'>\"12{insert}</a></root> ").repeat(10000);
     try (final ShellResultWriter writer = new ShellResultWriter(Writer.nullWriter(), ShellPalette.ANSI_16, true)) {
       for (int i = 0; i < 50; i++) {
         writer.write(payload);
@@ -103,6 +188,7 @@ final class ShellResultWriterTest {
     assertEquals("\033[36m<a x=\033[32m'a\\'\033[0m\033[36m/>\033[0m",
         render("<a x='a\\'/>", false, ShellPalette.ANSI_16, 1));
     assertEquals("\033[32m\"abc\033[0m", render("\"abc", false, ShellPalette.ANSI_16, 1));
+    assertEquals("{\033[36m\"key\033[0m", render("{\"key", false, ShellPalette.ANSI_16, 1));
     assertEquals("\033[33m12\033[0m", render("12", false, ShellPalette.ANSI_16, 1));
     assertEquals("\033[36m<abc\033[0m", render("<abc", false, ShellPalette.ANSI_16, 1));
     assertEquals("abc", render("abc", false, ShellPalette.ANSI_16, 1));
