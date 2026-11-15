@@ -75,65 +75,18 @@ public final class ShellHighlighter implements Highlighter {
       final char c = input.charAt(offset++);
       final Kind kind;
       if (c == '(' && offset < input.length() && input.charAt(offset) == ':') {
-        offset++;
-        int depth = 1;
-        while (offset < input.length() && depth != 0) {
-          if (offset + 1 < input.length() && input.charAt(offset) == '(' && input.charAt(offset + 1) == ':') {
-            depth++;
-            offset += 2;
-          } else if (offset + 1 < input.length() && input.charAt(offset) == ':' && input.charAt(offset + 1) == ')') {
-            depth--;
-            offset += 2;
-          } else
-            offset++;
-        }
+        offset = commentEnd(input, offset + 1);
         kind = Kind.COMMENT;
       } else if (c == '\'' || c == '"') {
-        while (offset < input.length()) {
-          final char next = input.charAt(offset++);
-          if (next == '\\' && offset < input.length())
-            offset++;
-          else if (next == c) {
-            if (offset < input.length() && input.charAt(offset) == c)
-              offset++;
-            else
-              break;
-          }
-        }
+        offset = stringEnd(input, offset, c);
         kind = Kind.STRING;
       } else if (Character.isDigit(c)
           || (c == '.' && offset < input.length() && Character.isDigit(input.charAt(offset)))) {
-        while (offset < input.length() && Character.isDigit(input.charAt(offset)))
-          offset++;
-        if (offset < input.length() && input.charAt(offset) == '.') {
-          offset++;
-          while (offset < input.length() && Character.isDigit(input.charAt(offset)))
-            offset++;
-        }
-        if (offset < input.length() && (input.charAt(offset) == 'e' || input.charAt(offset) == 'E')) {
-          offset++;
-          if (offset < input.length() && (input.charAt(offset) == '+' || input.charAt(offset) == '-'))
-            offset++;
-          while (offset < input.length() && Character.isDigit(input.charAt(offset)))
-            offset++;
-        }
+        offset = numberEnd(input, offset);
         kind = Kind.NUMBER;
       } else if (c == '$' || Character.isUnicodeIdentifierStart(c)) {
-        while (offset < input.length() && namePart(input.charAt(offset)))
-          offset++;
-        int next = offset;
-        while (next < input.length() && Character.isWhitespace(input.charAt(next)))
-          next++;
-        final String name = input.substring(start, offset);
-        kind = c == '$'
-            ? Kind.VARIABLE
-            : KEYWORDS.contains(name) && !CALLABLE_KEYWORDS.contains(name)
-                ? Kind.KEYWORD
-                : next < input.length() && input.charAt(next) == '('
-                    ? Kind.FUNCTION
-                    : KEYWORDS.contains(name)
-                        ? Kind.KEYWORD
-                        : Kind.TEXT;
+        offset = nameEnd(input, offset);
+        kind = nameKind(input, start, offset, c);
       } else
         kind = "{}[]()".indexOf(c) >= 0
             ? Kind.BRACE
@@ -141,6 +94,76 @@ public final class ShellHighlighter implements Highlighter {
       tokens.add(new Token(input.substring(start, offset), kind));
     }
     return tokens;
+  }
+
+  private static int commentEnd(final String input, int offset) {
+    int depth = 1;
+    while (offset < input.length() && depth != 0) {
+      if (offset + 1 < input.length() && input.charAt(offset) == '(' && input.charAt(offset + 1) == ':') {
+        depth++;
+        offset += 2;
+      } else if (offset + 1 < input.length() && input.charAt(offset) == ':' && input.charAt(offset + 1) == ')') {
+        depth--;
+        offset += 2;
+      } else
+        offset++;
+    }
+    return offset;
+  }
+
+  private static int stringEnd(final String input, int offset, final char delimiter) {
+    while (offset < input.length()) {
+      final char next = input.charAt(offset++);
+      if (next == '\\' && offset < input.length())
+        offset++;
+      else if (next == delimiter) {
+        if (offset < input.length() && input.charAt(offset) == delimiter)
+          offset++;
+        else
+          break;
+      }
+    }
+    return offset;
+  }
+
+  private static int numberEnd(final String input, int offset) {
+    while (offset < input.length() && Character.isDigit(input.charAt(offset)))
+      offset++;
+    if (offset < input.length() && input.charAt(offset) == '.') {
+      offset++;
+      while (offset < input.length() && Character.isDigit(input.charAt(offset)))
+        offset++;
+    }
+    if (offset < input.length() && (input.charAt(offset) == 'e' || input.charAt(offset) == 'E')) {
+      offset++;
+      if (offset < input.length() && (input.charAt(offset) == '+' || input.charAt(offset) == '-'))
+        offset++;
+      while (offset < input.length() && Character.isDigit(input.charAt(offset)))
+        offset++;
+    }
+    return offset;
+  }
+
+  private static Kind nameKind(final String input, final int start, final int end, final char first) {
+    if (first == '$')
+      return Kind.VARIABLE;
+    final String name = input.substring(start, end);
+    if (KEYWORDS.contains(name) && !CALLABLE_KEYWORDS.contains(name))
+      return Kind.KEYWORD;
+    int next = end;
+    while (next < input.length() && Character.isWhitespace(input.charAt(next)))
+      next++;
+    if (next < input.length() && input.charAt(next) == '(')
+      return Kind.FUNCTION;
+    return KEYWORDS.contains(name)
+        ? Kind.KEYWORD
+        : Kind.TEXT;
+  }
+
+  private static int nameEnd(final String input, int offset) {
+    while (offset < input.length() && namePart(input.charAt(offset)))
+      offset++;
+    return offset;
   }
 
   private static boolean namePart(final char c) {

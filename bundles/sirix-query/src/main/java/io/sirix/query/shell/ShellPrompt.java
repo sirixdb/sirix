@@ -65,26 +65,19 @@ public final class ShellPrompt {
   }
 
   public static @Nullable Reference reference(final String query) {
-    final List<ShellHighlighter.Token> tokens = new ArrayList<>();
-    for (final var token : ShellHighlighter.tokens(query)) {
-      if (token.kind() != ShellHighlighter.Kind.COMMENT && !token.text().isBlank())
-        tokens.add(token);
-    }
+    final List<ShellHighlighter.Token> tokens = significantTokens(query);
     if (tokens.size() < 6)
       return null;
     final boolean bound = tokens.getFirst().text().equals("let");
     final int start;
     if (bound) {
-      if (tokens.size() < 14 || tokens.get(1).kind() != ShellHighlighter.Kind.VARIABLE
-          || !tokens.get(2).text().equals(":") || !tokens.get(3).text().equals("="))
+      if (!boundPrefix(tokens))
         return null;
       start = 4;
     } else
       start = 0;
     final String name = tokens.get(start).text();
-    if (!(name.equals("jn:doc") || name.equals("jn:store") || name.equals("xn:doc") || name.equals("xn:store"))
-        || !tokens.get(start + 1).text().equals("(") || tokens.get(start + 2).kind() != ShellHighlighter.Kind.STRING
-        || !tokens.get(start + 3).text().equals(",") || tokens.get(start + 4).kind() != ShellHighlighter.Kind.STRING)
+    if (!literalCall(tokens, start, name))
       return null;
     final String database = unquote(tokens.get(start + 2).text());
     final String resource = unquote(tokens.get(start + 4).text());
@@ -98,25 +91,51 @@ public final class ShellPrompt {
         return null;
       end += 2;
     } else if (tokens.get(end).text().equals(",")) {
-      if (end + 2 >= tokens.size())
-        return null;
-      try {
-        revision = Integer.parseInt(tokens.get(end + 1).text());
-      } catch (final NumberFormatException exception) {
-        return null;
-      }
+      revision = literalRevision(tokens, end);
       if (revision < 1)
         return null;
       end += 2;
     }
-    if (!tokens.get(end).text().equals(")"))
-      return null;
-    if (bound) {
-      if (!name.equals("jn:doc") || revision != -1 || !simpleUpdate(tokens, end + 1, tokens.get(1).text()))
-        return null;
-    } else if (end != tokens.size() - 1)
+    if (!tokens.get(end).text().equals(")") || !supportedSuffix(tokens, end, name, revision, bound))
       return null;
     return new Reference(database, resource, revision, name.startsWith("xn:"));
+  }
+
+  private static int literalRevision(final List<ShellHighlighter.Token> tokens, final int end) {
+    if (end + 2 >= tokens.size())
+      return 0;
+    try {
+      return Integer.parseInt(tokens.get(end + 1).text());
+    } catch (final NumberFormatException _) {
+      return 0;
+    }
+  }
+
+  private static boolean supportedSuffix(final List<ShellHighlighter.Token> tokens, final int end, final String name,
+      final int revision, final boolean bound) {
+    if (bound)
+      return name.equals("jn:doc") && revision == -1 && simpleUpdate(tokens, end + 1, tokens.get(1).text());
+    return end == tokens.size() - 1;
+  }
+
+  private static List<ShellHighlighter.Token> significantTokens(final String query) {
+    final List<ShellHighlighter.Token> tokens = new ArrayList<>();
+    for (final var token : ShellHighlighter.tokens(query)) {
+      if (token.kind() != ShellHighlighter.Kind.COMMENT && !token.text().isBlank())
+        tokens.add(token);
+    }
+    return tokens;
+  }
+
+  private static boolean boundPrefix(final List<ShellHighlighter.Token> tokens) {
+    return tokens.size() >= 14 && tokens.get(1).kind() == ShellHighlighter.Kind.VARIABLE
+        && tokens.get(2).text().equals(":") && tokens.get(3).text().equals("=");
+  }
+
+  private static boolean literalCall(final List<ShellHighlighter.Token> tokens, final int start, final String name) {
+    return (name.equals("jn:doc") || name.equals("jn:store") || name.equals("xn:doc") || name.equals("xn:store"))
+        && tokens.get(start + 1).text().equals("(") && tokens.get(start + 2).kind() == ShellHighlighter.Kind.STRING
+        && tokens.get(start + 3).text().equals(",") && tokens.get(start + 4).kind() == ShellHighlighter.Kind.STRING;
   }
 
   private static boolean simpleUpdate(final List<ShellHighlighter.Token> tokens, final int start,

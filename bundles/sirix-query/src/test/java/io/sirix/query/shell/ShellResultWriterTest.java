@@ -210,6 +210,40 @@ final class ShellResultWriterTest {
     }
   }
 
+  @Test
+  void fullBufferDrainsPreservePayloadAcrossAllWriteOverloadsAndReuse() throws Exception {
+    for (final int length : new int[] {16383, 16384, 16385, 32768}) {
+      final String payload = "x".repeat(length);
+      for (int overload = 0; overload < 3; overload++) {
+        final StringWriter out = new StringWriter();
+        try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, false)) {
+          if (overload == 0)
+            writer.write(payload);
+          else if (overload == 1)
+            writer.write(payload.toCharArray());
+          else
+            for (int i = 0; i < length; i++)
+              writer.write('x');
+          writer.flush();
+          assertEquals(payload, out.toString());
+          writer.finish();
+          writer.write('y');
+        }
+        assertEquals(payload + "y", out.toString());
+      }
+    }
+  }
+
+  @Test
+  void unmatchedClosingTagsCannotUnderflowTheXmlContentContext() throws Exception {
+    final String input = "</orphan><root>\"text\"<child/></root>";
+    final String rendered = render(input, false, ShellPalette.ANSI_16, 1);
+    assertEquals(input, strip(rendered));
+    final var styled = AttributedString.fromAnsi(rendered);
+    assertStyle(styled, input.indexOf("\"text\""), "0");
+    assertStyle(styled, input.indexOf("<child/>"), "36");
+  }
+
   private static final class CountingWriter extends Writer {
     int writes;
     int flushes;

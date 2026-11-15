@@ -81,26 +81,7 @@ public final class ShellResultWriter extends Writer {
       emitWord();
     }
     if (quote != 0) {
-      if (pendingKey) {
-        if (keyLength == key.length)
-          emitKey(false);
-        else
-          key[keyLength++] = c;
-      }
-      if (!pendingKey)
-        put(c);
-      if (escaped)
-        escaped = false;
-      else if (c == '\\' && xmlMarkup == XmlMarkup.NONE)
-        escaped = true;
-      else if (c == quote) {
-        quote = 0;
-        if (pendingKey)
-          emitKey(true);
-        emit(palette.reset());
-        if (xmlMarkup == XmlMarkup.TAG)
-          emit(palette.blue());
-      }
+      acceptQuoted(c);
       return;
     }
     if (number && !(Character.isLetterOrDigit(c) || c == '.' || c == '-' || c == '+')) {
@@ -124,6 +105,33 @@ public final class ShellResultWriter extends Writer {
       put(c);
       return;
     }
+    acceptJson(c);
+  }
+
+  private void acceptQuoted(final char c) throws IOException {
+    if (pendingKey) {
+      if (keyLength == key.length)
+        emitKey(false);
+      else
+        key[keyLength++] = c;
+    }
+    if (!pendingKey)
+      put(c);
+    if (escaped)
+      escaped = false;
+    else if (c == '\\' && xmlMarkup == XmlMarkup.NONE)
+      escaped = true;
+    else if (c == quote) {
+      quote = 0;
+      if (pendingKey)
+        emitKey(true);
+      emit(palette.reset());
+      if (xmlMarkup == XmlMarkup.TAG)
+        emit(palette.blue());
+    }
+  }
+
+  private void acceptJson(final char c) throws IOException {
     if (c == '"') {
       quote = c;
       if (expectKey) {
@@ -137,6 +145,17 @@ public final class ShellResultWriter extends Writer {
       }
       return;
     }
+    updateJsonState(c);
+    if (diff && depth == 0 && Character.isUnicodeIdentifierStart(c)) {
+      pendingWord = true;
+      keyLength = 1;
+      key[0] = c;
+      return;
+    }
+    put(c);
+  }
+
+  private void updateJsonState(final char c) throws IOException {
     if (c == '{' || c == '[') {
       if (depth < containers.length)
         containers[depth] = c;
@@ -152,13 +171,6 @@ public final class ShellResultWriter extends Writer {
       number = true;
       emit(palette.orange());
     }
-    if (diff && depth == 0 && Character.isUnicodeIdentifierStart(c)) {
-      pendingWord = true;
-      keyLength = 1;
-      key[0] = c;
-      return;
-    }
-    put(c);
   }
 
   private void acceptXml(final char c) throws IOException {
@@ -178,25 +190,32 @@ public final class ShellResultWriter extends Writer {
       emit(palette.green());
     }
     put(c);
-    if (c == '>' && switch (xmlMarkup) {
+    if (markupEnded(c))
+      closeXmlMarkup();
+    xmlBeforePrevious = xmlPrevious;
+    xmlPrevious = c;
+  }
+
+  private boolean markupEnded(final char c) {
+    return c == '>' && switch (xmlMarkup) {
       case TAG -> true;
       case COMMENT -> xmlPrevious == '-' && xmlBeforePrevious == '-';
       case PI -> xmlPrevious == '?';
       case CDATA -> xmlPrevious == ']' && xmlBeforePrevious == ']';
       default -> false;
-    }) {
-      if (xmlMarkup == XmlMarkup.TAG) {
-        if (xmlClosing) {
-          if (xmlDepth > 0)
-            xmlDepth--;
-        } else if (xmlPrevious != '/')
-          xmlDepth++;
-      }
-      xmlMarkup = XmlMarkup.NONE;
-      emit(palette.reset());
+    };
+  }
+
+  private void closeXmlMarkup() throws IOException {
+    if (xmlMarkup == XmlMarkup.TAG) {
+      if (xmlClosing) {
+        if (xmlDepth > 0)
+          xmlDepth--;
+      } else if (xmlPrevious != '/')
+        xmlDepth++;
     }
-    xmlBeforePrevious = xmlPrevious;
-    xmlPrevious = c;
+    xmlMarkup = XmlMarkup.NONE;
+    emit(palette.reset());
   }
 
   private void emitKey(final boolean complete) throws IOException {
@@ -254,10 +273,9 @@ public final class ShellResultWriter extends Writer {
   }
 
   private void drain() throws IOException {
-    if (used != 0) {
+    if (used != 0)
       out.write(buffer, 0, used);
-      used = 0;
-    }
+    used = 0;
   }
 
   public void finish() throws IOException {

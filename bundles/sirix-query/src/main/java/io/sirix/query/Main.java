@@ -294,13 +294,13 @@ public final class Main {
   static String readStringFromScannerWithEndMark(LineReader lineReader, String prompt, ShellHighlighter highlighter) {
     StringBuilder strbuf = new StringBuilder();
 
-    for (int i = 0;; i++) {
+    while (true) {
       final String line;
       try {
         highlighter.prefix(strbuf.isEmpty()
             ? ""
             : strbuf.toString() + System.lineSeparator());
-        line = lineReader.readLine(i == 0
+        line = lineReader.readLine(strbuf.isEmpty()
             ? prompt
             : "");
       } catch (EndOfFileException e) {
@@ -312,7 +312,7 @@ public final class Main {
       }
       if (line == null || line.isEmpty())
         break;
-      if (i != 0)
+      if (!strbuf.isEmpty())
         strbuf.append(System.lineSeparator());
       strbuf.append(line);
     }

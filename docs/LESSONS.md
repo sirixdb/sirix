@@ -77,3 +77,9 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
   replace and scalar update both represent modifications. Pair the operation golden
   with an actual structural replacement rendered through the terminal entry point.
   Evidence appears in [JSON replacement colour](postmortems/shell-json-replace-colour.md).
+
+- **Exercise process and streaming boundaries explicitly.** Keep subprocess argv
+  portable and set the encoding of any byte golden. Pair process smoke tests with
+  in-process CLI assertions for mutation coverage. Assert exact buffer boundaries
+  across overloads and reuse; make shared cursor-reset postconditions explicit.
+  Evidence: [shell CI boundaries](postmortems/shell-ci-boundaries.md).
