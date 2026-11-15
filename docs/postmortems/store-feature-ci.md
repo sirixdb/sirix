@@ -35,7 +35,7 @@ mkdir -p build/ci-fix/tmp
   -I docs/postmortems/evidence/store-feature-ci/focused.gradle.txt \
   -I docs/postmortems/evidence/store-feature-ci/pit-derived.gradle.txt \
   :sirix-core:ciFocused \
-  --tests 'io.sirix.access.StoreFeaturesLifecycleTest' \
+  --tests 'io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest' \
   --tests 'io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest' \
   --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerTest' \
   --tests 'io.sirix.index.hot.HOTStructuralChildEvictionTest' \
@@ -44,7 +44,7 @@ mkdir -p build/ci-fix/tmp
   --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest' \
   :sirix-core:pitest -PprMutationModule=sirix-core \
   -PprMutationTargetsFile=docs/postmortems/evidence/store-feature-ci/targets.txt \
-  '-PprMutationTests=io.sirix.access.StoreFeaturesLifecycleTest*,io.sirix.index.aggregate.DerivedIndexMaintainerTest*' \
+  '-PprMutationTests=io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest*,io.sirix.index.aggregate.DerivedIndexMaintainerTest*' \
   -PprMutationReportDir=build/ci-fix/pit-derived-final
 ```
 
