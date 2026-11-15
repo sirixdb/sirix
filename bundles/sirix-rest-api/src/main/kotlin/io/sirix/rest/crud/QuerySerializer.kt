@@ -39,38 +39,39 @@ class QuerySerializer {
                     PermissionCheckingQuery(sirixCompileChain, query, keycloak, user, authz).execute(queryCtx)
 
                 if (sequence != null) {
-                    val itemIterator = sequence.iterate()
+                    sequence.iterate().use { itemIterator ->
 
-                    // Skip to the window start, STOPPING at end-of-sequence: brackit iterators
-                    // return null forever once exhausted, so an unbounded skip loop with a huge
-                    // start index (e.g. ?startResultSeqIndex=10^15) spun for that many iterations
-                    // on a worker thread and head-of-line-blocked the ordered context — a DoS any
-                    // VIEW-role user could trigger.
-                    var skipped = 0L
-                    while (skipped < startResultSeqIndex && itemIterator.next() != null) {
-                        skipped++
-                    }
-                    if (skipped < startResultSeqIndex) {
-                        return // sequence shorter than the window start — empty result
-                    }
-
-                    if (endResultSeqIndex == null) {
-                        while (true) {
-                            val item = itemIterator.next()
-
-                            if (item == null)
-                                break
-                            else
-                                serialize(serializer, item)
+                        // Skip to the window start, STOPPING at end-of-sequence: brackit iterators
+                        // return null forever once exhausted, so an unbounded skip loop with a huge
+                        // start index (e.g. ?startResultSeqIndex=10^15) spun for that many iterations
+                        // on a worker thread and head-of-line-blocked the ordered context — a DoS any
+                        // VIEW-role user could trigger.
+                        var skipped = 0L
+                        while (skipped < startResultSeqIndex && itemIterator.next() != null) {
+                            skipped++
                         }
-                    } else {
-                        for (i in startResultSeqIndex..endResultSeqIndex) {
-                            val item = itemIterator.next()
+                        if (skipped < startResultSeqIndex) {
+                            return // sequence shorter than the window start — empty result
+                        }
 
-                            if (item == null)
-                                break
-                            else
-                                serialize(serializer, item)
+                        if (endResultSeqIndex == null) {
+                            while (true) {
+                                val item = itemIterator.next()
+
+                                if (item == null)
+                                    break
+                                else
+                                    serialize(serializer, item)
+                            }
+                        } else {
+                            for (i in startResultSeqIndex..endResultSeqIndex) {
+                                val item = itemIterator.next()
+
+                                if (item == null)
+                                    break
+                                else
+                                    serialize(serializer, item)
+                            }
                         }
                     }
                 }

@@ -25,8 +25,10 @@ import io.sirix.api.Axis;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.axis.AbstractAxis;
+import io.sirix.cache.ShardedPageCache;
 import io.sirix.exception.SirixThreadedException;
 import io.sirix.utils.LogWrapper;
+import io.sirix.utils.WorkerTermination;
 import io.sirix.settings.Fixed;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +36,6 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 import static java.util.Objects.requireNonNull;
 
@@ -54,7 +55,8 @@ import static java.util.Objects.requireNonNull;
  * Make sure that the used class is thread-safe.
  * </p>
  */
-public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis {
+public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extends AbstractAxis
+    implements AutoCloseable {
 
   /** Logger. */
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ConcurrentAxis.class));
@@ -75,7 +77,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   private volatile boolean first;
 
   /** Runnable in which the producer is running. */
-  private volatile Runnable task;
+  private volatile ConcurrentAxisHelper task;
 
   /** Is axis already finished and has no results left? */
   private volatile boolean finished;
@@ -105,25 +107,15 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
 
   @Override
   public synchronized void reset(final long nodeKey) {
+    // AbstractAxis invokes reset during construction, before these fields are initialized.
+    if (executorService != null) {
+      WorkerTermination.shutdownAndAwait(executorService, true);
+    }
     super.reset(nodeKey);
     first = true;
     finished = false;
-
-    // CRITICAL: Shut down the old executor before creating a new one
-    if (executorService != null && !executorService.isShutdown()) {
-      executorService.shutdownNow();
-      try {
-        executorService.awaitTermination(1, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        LOGGER.warn("Interrupted while waiting for executor shutdown during reset", e);
-        Thread.currentThread().interrupt();
-      }
-    }
-
-    // Create a new executor service
-    executorService = Executors.newSingleThreadExecutor();
-
     if (producer != null) {
+      executorService = Executors.newSingleThreadExecutor();
       producer.reset(nodeKey);
     }
     if (results != null) {
@@ -140,7 +132,12 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
     if (first) {
       first = false;
       LOGGER.debug("ConcurrentAxis starting producer thread");
-      executorService.submit(task);
+      try {
+        executorService.submit(task);
+      } catch (final RuntimeException | Error failure) {
+        close();
+        throw failure;
+      }
     }
 
     if (finished) {
@@ -159,6 +156,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
       // Restore the interrupt flag and propagate: silently returning NULL_NODE_KEY here reported a
       // clean, shorter result sequence (an incorrect query answer indistinguishable from success)
       // and swallowed the cancellation signal.
+      close();
       Thread.currentThread().interrupt();
       throw new SirixThreadedException(e);
     }
@@ -182,19 +180,11 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    */
   @Override
   protected synchronized long done() {
-    // Only shutdown if not already shutdown to avoid IllegalStateException
-    if (executorService != null && !executorService.isShutdown()) {
-      executorService.shutdown();
-      try {
-        if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
-          LOGGER.warn("Executor service did not terminate within 5 seconds, forcing shutdown");
-          executorService.shutdownNow();
-        }
-      } catch (InterruptedException e) {
-        LOGGER.warn("Interrupted while waiting for executor termination", e);
-        executorService.shutdownNow();
-        Thread.currentThread().interrupt();
-      }
+    if (executorService != null) {
+      WorkerTermination.shutdownAndAwait(executorService, false);
+    }
+    if (task != null) {
+      ShardedPageCache.rethrowCleanupFailure(task.failure());
     }
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
@@ -212,15 +202,12 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
    * Cleanup method to ensure the executor service is properly shut down. This is called automatically
    * by done(), but can also be called explicitly for cleanup in case of exceptions.
    */
+  @Override
   public synchronized void close() {
-    if (executorService != null && !executorService.isShutdown()) {
-      executorService.shutdownNow();
-      try {
-        executorService.awaitTermination(1, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        LOGGER.warn("Interrupted while closing executor service", e);
-        Thread.currentThread().interrupt();
-      }
+    if (executorService != null) {
+      WorkerTermination.shutdownAndAwait(executorService, true);
     }
+    first = false;
+    finished = true;
   }
 }
