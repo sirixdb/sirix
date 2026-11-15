@@ -314,6 +314,18 @@ final class TemporalNavigationTest {
   }
 
   @Test
+  void navigationRepositionsTheSharedCursorOnTheItemsNode() {
+    // Items of one array share its cursor; binding $other moves it away from $value's node, so
+    // navigating $value must first move the cursor back (each value item's getTrx() does).
+    for (final String[] pair : new String[][] {{"[7]", "[2]"}, {"[2]", "[7]"}, {"[3]", "[0].price"}}) {
+      final String bound = "let $d := " + doc(4) + " let $value := $d" + pair[0] + " let $other := $d" + pair[1];
+      assertEquals("1 " + query("[jn:first(" + doc(4) + pair[0] + "), jn:all-times(" + doc(4) + pair[0] + ")]"),
+          query(bound + " return (count($other), [jn:first($value), jn:all-times($value)])"),
+          pair[0] + " after " + pair[1]);
+    }
+  }
+
+  @Test
   void objectsAndArraysKeepTheirResultViews() {
     assertEquals("{\"keep\":1}", query("jn:first(" + doc(5) + "[1])"));
     assertEquals(query(doc(1)), query("jn:first(" + doc(5) + ")"));

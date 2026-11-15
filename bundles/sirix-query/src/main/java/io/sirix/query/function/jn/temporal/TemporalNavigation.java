@@ -56,11 +56,11 @@ final class TemporalNavigation {
    *
    * @param function the function name, for the error message
    * @param argument the function argument
-   * @return the argument, which is a {@link TemporalJsonDBItem} or a {@link JsonDBItem}
+   * @return the argument, a {@link JsonDBItem} (objects and arrays are also {@link TemporalJsonDBItem}s)
    * @throws QueryException {@link JNFun#ERR_NOT_A_STORED_ITEM} if the argument is not a stored item
    */
   static Sequence requireStored(final QNm function, final Sequence argument) {
-    if (argument instanceof TemporalJsonDBItem<?> || argument instanceof JsonDBItem) {
+    if (argument instanceof JsonDBItem) {
       return argument;
     }
     final String type = argument instanceof Item item
