@@ -114,7 +114,7 @@ public final class ShellHighlighter implements Highlighter {
   private static int stringEnd(final String input, int offset, final char delimiter) {
     while (offset < input.length()) {
       final char next = input.charAt(offset++);
-      if (next == '\\' && offset < input.length())
+      if (delimiter == '"' && next == '\\' && offset < input.length())
         offset++;
       else if (next == delimiter) {
         if (offset < input.length() && input.charAt(offset) == delimiter)

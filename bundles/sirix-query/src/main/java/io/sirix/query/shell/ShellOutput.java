@@ -57,7 +57,7 @@ public final class ShellOutput {
     out.flush();
   }
 
-  private static DiffMode diffMode(final String source) {
+  static DiffMode diffMode(final String source) {
     final List<ShellHighlighter.Token> tokens = new ArrayList<>(14);
     for (final var token : ShellHighlighter.tokens(source)) {
       if (token.kind() != ShellHighlighter.Kind.COMMENT && !token.text().isBlank())

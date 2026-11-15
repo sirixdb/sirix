@@ -1,10 +1,16 @@
 package io.sirix.query.shell;
 
 import org.junit.jupiter.api.Test;
+import io.brackit.query.Query;
+import io.brackit.query.BrackitQueryContext;
+import io.brackit.query.QueryException;
+import java.io.StringWriter;
+import java.io.PrintWriter;
 import org.jline.utils.AttributedString;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 final class ShellHighlighterTest {
   @Test
@@ -112,6 +118,69 @@ final class ShellHighlighterTest {
     assertToken(ShellHighlighter.tokens("(: x :) return"), "return", ShellHighlighter.Kind.KEYWORD);
     assertToken(ShellHighlighter.tokens("1e+4 x"), "1e+4", ShellHighlighter.Kind.NUMBER);
     assertToken(ShellHighlighter.tokens("1e4 x"), "1e4", ShellHighlighter.Kind.NUMBER);
+  }
+
+  @Test
+  void singleQuotedBackslashesFollowExecutableParserAndRestoreStyles() {
+    final String[][] cases = {{"'C:\\'", "C:\\"}, {"'商店😀\\''path\\'", "商店😀\\'path\\"},
+        {"'it''s\\'", "it's\\"}, {"'\\'", "\\"}, {"\"C:\\\\\""},
+        {"\"商店😀\\\"path\\\\\""}, {"\"it\"\"s\""}};
+    for (final String[] sample : cases) {
+      final String head = "let $p := " + sample[0];
+      if (sample.length == 2) {
+        final StringWriter value = new StringWriter();
+        new Query(head + " return $p").serialize(new BrackitQueryContext(), new PrintWriter(value));
+        assertEquals(sample[1], value.toString(), sample[0]);
+        final StringWriter count = new StringWriter();
+        new Query(head + " return count($p)").serialize(new BrackitQueryContext(), new PrintWriter(count));
+        assertEquals("1", count.toString(), sample[0]);
+      }
+      final String input = head + "\nreturn {\"n\":count($p)} (: done :)";
+      final var tokens = ShellHighlighter.tokens(input);
+      assertToken(tokens, sample[0], ShellHighlighter.Kind.STRING);
+      assertToken(tokens, "return", ShellHighlighter.Kind.KEYWORD);
+      assertToken(tokens, "count", ShellHighlighter.Kind.FUNCTION);
+      assertToken(tokens, "{", ShellHighlighter.Kind.BRACE);
+      assertToken(tokens, "}", ShellHighlighter.Kind.BRACE);
+      assertToken(tokens, "(: done :)", ShellHighlighter.Kind.COMMENT);
+      for (final ShellPalette palette : ShellPalette.values()) {
+        final ShellHighlighter highlighter = new ShellHighlighter(palette);
+        for (int split = 0; split <= input.length(); split++) {
+          highlighter.prefix(input.substring(0, split));
+          final var styled = highlighter.highlight(null, input.substring(split));
+          assertEquals(input.substring(split), styled.toString());
+          assertSpan(styled, split, "let $p := ".length(), sample[0].length(), palette.green());
+          assertSpan(styled, split, input.indexOf("return"), "return".length(), palette.orange());
+          assertSpan(styled, split, input.indexOf("count"), "count".length(), palette.blue());
+          assertSpan(styled, split, input.indexOf('{'), 1, palette.blue());
+          assertSpan(styled, split, input.indexOf('}'), 1, palette.blue());
+          assertSpan(styled, split, input.indexOf("(: done :)"), "(: done :)".length(), palette.subtle());
+        }
+      }
+    }
+  }
+
+  @Test
+  void unterminatedQuotedBackslashesAndDoubledDelimitersStayInOneString() {
+    for (final String input : List.of("'C:\\", "\"C:\\", "'商店😀\\''open", "\"abc\\\"", "\"a\"\"open")) {
+      assertThrows(QueryException.class, () -> new Query(input).evaluate(new BrackitQueryContext()), input);
+      assertEquals(List.of(new ShellHighlighter.Token(input, ShellHighlighter.Kind.STRING)),
+          ShellHighlighter.tokens(input));
+      final ShellHighlighter highlighter = new ShellHighlighter(ShellPalette.ANSI_16);
+      for (int split = 0; split <= input.length(); split++) {
+        highlighter.prefix(input.substring(0, split));
+        final var styled = highlighter.highlight(null, input.substring(split));
+        assertEquals(input.substring(split), styled.toString());
+        assertSpan(styled, split, 0, input.length(), "\033[32m");
+      }
+    }
+  }
+
+  private static void assertSpan(final AttributedString styled, final int prefixLength, final int start,
+      final int length, final String ansi) {
+    final var expected = AttributedString.fromAnsi(ansi + "X").styleAt(0);
+    for (int position = Math.max(start, prefixLength); position < start + length; position++)
+      assertEquals(expected, styled.styleAt(position - prefixLength), "Character " + position);
   }
 
   private static void assertToken(final List<ShellHighlighter.Token> tokens, final String text,

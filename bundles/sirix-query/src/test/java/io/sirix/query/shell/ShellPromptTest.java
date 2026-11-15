@@ -46,6 +46,29 @@ final class ShellPromptTest {
   }
 
   @Test
+  void backslashNamesStayNeutralAfterSingleQuotedTokenBoundariesRecover() {
+    for (final String prefix : List.of("jn", "xn")) {
+      for (final String function : List.of("doc", "store")) {
+        for (final String literal : List.of("'C:\\'", "'商店😀\\''path\\'", "\"C:\\\\\"")) {
+          for (final String names : List.of(literal + ",'resource'", "'shop'," + literal)) {
+            final String call = prefix + ":" + function + "(" + names + (function.equals("store")
+                ? ",'[]')"
+                : ")");
+            assertNull(ShellPrompt.reference(call), call);
+            if (prefix.equals("jn") && function.equals("doc")) {
+              for (final String update : List.of("replace json value of $d[0] with 1", "append json 1 into $d",
+                  "delete json $d[0]")) {
+                final String source = "let $d := " + call + " return " + update;
+                assertNull(ShellPrompt.reference(source), source);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   void encodedNamesStayNeutralAcrossLiteralFieldsAndForms() {
     for (final String prefix : List.of("jn", "xn")) {
       for (final String function : List.of("doc", "store")) {

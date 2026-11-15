@@ -94,3 +94,9 @@ literal in XQuery strings, and either quote may delimit them. Check styles after
 as well as payload preservation: the real diff must restore the next operation's colour.
 Exercise both quote forms, doubled delimiters, split writes and JSON controls.
 Evidence: [XML patch quoting](postmortems/shell-xml-patch-quotes.md).
+
+The input scanner needs the same language distinction: JSONiq single-quoted strings
+use literal backslashes, while double-quoted strings retain escapes. Validate the value
+with the executable parser and the subsequent token styles independently, across every
+multiline prefix boundary. Check both diff selectors and keep unsupported prompt names
+neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).

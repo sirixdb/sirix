@@ -98,3 +98,14 @@ unterminated strings; finish resets lexical state for reuse without changing pay
 Tests: `ShellResultWriterTest` uses independent literal/style examples across overloads,
 splits and palettes; `ShellOutputTest` executes `xn:diff` after changing text to `C:\`
 and deleting the following sibling, checking the emitted patch and subsequent delete style.
+
+Input single-quoted literals treat backslashes as ordinary characters; doubled apostrophes
+remain inside the literal. Double-quoted JSONiq input retains backslash escapes and doubled
+delimiters. A closing delimiter restores independent keyword, function, brace and comment
+styles, including when the delimiter is adjacent to the multiline prefix boundary. The
+shared token scanner supplies editing, both direct diff selectors and conservative prompt
+inference. Prompt names containing backslashes remain unsupported and neutral.
+`ShellHighlighterTest` checks values against executable Brackit queries and checks expected
+tokens/styles across every prefix split, Unicode and unterminated input. Classifier-only
+cases in `ShellOutputTest` cover both diff modes and both literal arguments without creating
+filesystem names that are invalid on Windows; existing real-diff tests cover rendering.

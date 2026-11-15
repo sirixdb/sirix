@@ -5,6 +5,7 @@ import io.brackit.query.BrackitQueryContext;
 import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryException;
 import io.sirix.query.SirixStringSerializer;
+import io.sirix.query.shell.ShellResultWriter.DiffMode;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -265,6 +266,28 @@ final class ShellOutputTest {
         assertTrue(rendered.contains("\033[36m\"update\"\033[0m"), source + rendered);
         assertSerializedPayload(chain, ctx, source, rendered);
       }
+    }
+  }
+
+  @Test
+  void directDiffClassificationUsesLiteralBoundariesWithoutNativeNames() {
+    for (final String prefix : List.of("jn", "xn")) {
+      final DiffMode expected = prefix.equals("jn")
+          ? DiffMode.JSON
+          : DiffMode.XML;
+      for (final String literal : List.of("'C:\\'", "'商店😀\\''path\\'", "\"C:\\\\\"", "\"a\\\"b\"")) {
+        for (final String arguments : List.of(literal + ",'resource'", "'shop'," + literal)) {
+          final String call = prefix + ":diff(" + arguments + ",1,2)";
+          assertEquals(expected, ShellOutput.diffMode(call), call);
+          assertEquals(expected, ShellOutput.diffMode("(: before :)\n" + call + " (: after :)"), call);
+          for (final String source : List.of("(" + call + ")", call + ", 42",
+              "if (false()) then " + call + " else ()", "declare function local:unused() { " + call + " }; ()"))
+            assertEquals(DiffMode.NONE, ShellOutput.diffMode(source), source);
+        }
+      }
+      for (final String source : List.of(prefix + ":diff('C:\\", prefix + ":diff('shop','resource\\",
+          prefix + ":diff(\"shop\\\",'resource',1,2)"))
+        assertEquals(DiffMode.NONE, ShellOutput.diffMode(source), source);
     }
   }
 
