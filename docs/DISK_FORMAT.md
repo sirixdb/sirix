@@ -586,7 +586,7 @@ explicitly decided; **nothing remains open**:
   compact directory, structural encoders, codec bake-off) and a populated HOTLeafPage.
   Byte-pinned record-page fixtures require the deterministic salt mode described in §2.
 - **KVLP header redundancy** — DECIDED: retained. The header's pageKey/revision/indexType
-  duplication and heapEnd/heapUsed fields stay on disk. `PageKind.writeEncodedBody` copies
+  duplication and heapEnd/heapUsed fields stay on disk. `PageKind.serializeKeyValueLeafPage` emits
   the header with persisted heapEnd normalized to heapUsed, matching the compact payload
   rather than the runtime heap's allocation history. The redundancy makes pages self-describing
   for recovery/forensics plus cross-checkable against the parent reference. Cost: 21 bytes per

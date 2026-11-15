@@ -17,7 +17,8 @@ import java.util.Objects;
  *
  * <p>
  * All page metadata, slot directory, and record data live in a single contiguous
- * {@link MemorySegment}. In-memory format = on-disk format. ZERO conversion at commit time.
+ * {@link MemorySegment}. The persisted encoding and header-retention rationale are specified in
+ * {@code docs/DISK_FORMAT.md} §§2 and 5.
  *
  * <h2>Page Layout (Runtime)</h2>
  * 
@@ -47,7 +48,7 @@ import java.util.Objects;
  * <pre>
  * Bytes 0-3: heapOffset (int) — offset into heap region (relative to HEAP_START)
  * Bytes 4-6: dataLength (3 bytes, unsigned) — total byte length of the record in the heap
- * Byte 7:   nodeKindId (1 byte) — NodeKind ordinal for fast dispatch
+ * Byte 7:   nodeKindId (1 byte) — NodeKind id for fast dispatch
  * </pre>
  *
  * <h2>Heap Record Format</h2>
@@ -57,15 +58,6 @@ import java.util.Objects;
  * [fieldOffsetTable: fieldCount × 1 byte] — O(1) access to any field
  * [data region: varint fields + hash + optional payload]
  * </pre>
- *
- * <h2>Header redundancy — retained by design (format decision)</h2> The header's
- * recordPageKey/revision/indexType duplicate information the reader already knows from the page's
- * reference, and heapEnd/heapUsed are runtime bump-allocator state. They stay in the on-disk header
- * deliberately: (1) "in-memory format = on-disk format" means the 160-byte block is bulk-copied
- * verbatim — stripping fields would reintroduce a per-commit conversion pass; (2) the redundancy
- * makes every page SELF-DESCRIBING, so recovery/forensic tooling can interpret a page from its
- * bytes alone and readers can cross-check the header against the reference (a mismatch is
- * corruption caught early). The cost is 21 bytes per ~64 KiB page.
  */
 public final class PageLayout {
 
