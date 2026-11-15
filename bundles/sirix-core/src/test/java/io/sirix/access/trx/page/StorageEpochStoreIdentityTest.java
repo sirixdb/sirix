@@ -124,6 +124,9 @@ final class StorageEpochStoreIdentityTest {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER)) {
       final ResourceConfiguration.Builder config = ResourceConfiguration.newBuilder("resource")
+                                                                        // Independent stores must have reproducible
+                                                                        // bytes.
+                                                                        .saltRecordPages(false)
                                                                         .storageType(storage)
                                                                         .stringCompressionType(compression)
                                                                         .customCommitTimestamps(true);

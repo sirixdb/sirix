@@ -624,7 +624,9 @@ final class DerivedElisionSectionTest {
   }
 
   private static ResourceConfiguration newConfig(final boolean pathSummary) {
-    return new ResourceConfiguration.Builder("derivedElision").buildPathSummary(pathSummary).build();
+    return new ResourceConfiguration.Builder("derivedElision").buildPathSummary(pathSummary)
+                                                              .saltRecordPages(false)
+                                                              .build();
   }
 
   private KeyValueLeafPage newPage(final ResourceConfiguration config) {

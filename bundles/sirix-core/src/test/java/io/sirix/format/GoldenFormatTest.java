@@ -19,6 +19,7 @@ import io.sirix.index.path.summary.PathStats;
 import io.sirix.node.RevisionReferencesNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.page.CASPage;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PathPage;
@@ -44,6 +45,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.StringJoiner;
+import java.util.Arrays;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -74,6 +76,19 @@ public final class GoldenFormatTest {
   }
 
   // ==================== golden constants ====================
+
+  @Test
+  public void deterministicRecordPageSaltIsPinned() {
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("golden").saltRecordPages(false).build();
+    try (final KeyValueLeafPage page = new KeyValueLeafPage(1, IndexType.DOCUMENT, config, 0, null, null);
+        final BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
+      PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
+      // 3-byte envelope + varint page key + i32 revision + index type precede the 32-byte header.
+      // Only header offsets 24..31 are allocated to salt; existing golden constants do not move.
+      assertGolden("deterministic-record-page-salt", "0000000000000000",
+          hex(Arrays.copyOfRange(sink.toByteArray(), 9 + 24, 9 + 32)));
+    }
+  }
 
   private static final String GOLDEN_SUPERBLOCK_DATA =
       "53495249584442210000000000000000040302010010000000100000000000000030000000000000"

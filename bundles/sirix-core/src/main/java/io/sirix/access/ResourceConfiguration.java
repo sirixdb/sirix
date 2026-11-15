@@ -378,6 +378,9 @@ public final class ResourceConfiguration {
    */
   public final boolean verifyChecksumsOnRead;
 
+  /** Salt record pages on first serialization; disable only for reproducible test fixtures. */
+  public final boolean saltRecordPages;
+
   /**
    * The hash algorithm used for page checksums.
    *
@@ -463,6 +466,7 @@ public final class ResourceConfiguration {
     stringCompressionType = builder.stringCompressionType;
     regionCompressionType = builder.regionCompressionType;
     verifyChecksumsOnRead = builder.verifyChecksumsOnRead;
+    saltRecordPages = builder.saltRecordPages;
     hashAlgorithm = builder.hashAlgorithm;
     validTimeConfig = builder.validTimeConfig;
     resourceUuid = builder.resourceUuid;
@@ -638,7 +642,7 @@ public final class ResourceConfiguration {
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "deweyIdSiblingDistance", "verifyChecksumsOnRead",
       "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics", "repairBulkInsertHashes",
-      "resourceUuid", "regionCompression", "aggregateKernel"};
+      "resourceUuid", "regionCompression", "aggregateKernel", "saltRecordPages"};
 
   /**
    * Serialize the configuration.
@@ -717,6 +721,7 @@ public final class ResourceConfiguration {
       // Region wire compression (speed/size dial).
       jsonWriter.name(JSONNAMES[27]).value(config.regionCompressionType.name());
       jsonWriter.name(JSONNAMES[28]).value(config.aggregateKernel);
+      jsonWriter.name(JSONNAMES[29]).value(config.saltRecordPages);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -836,6 +841,7 @@ public final class ResourceConfiguration {
       UUID resourceUuid = null;
       RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
       boolean aggregateKernel = false;
+      boolean saltRecordPages = true;
       while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[17])) {
@@ -874,6 +880,8 @@ public final class ResourceConfiguration {
           regionCompressionType = RegionCompressionType.valueOf(jsonReader.nextString());
         } else if (name.equals(JSONNAMES[28])) {
           aggregateKernel = jsonReader.nextBoolean();
+        } else if (name.equals(JSONNAMES[29])) {
+          saltRecordPages = jsonReader.nextBoolean();
         } else if (name.equals("extensions")) {
           if (jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
             throw new SirixIOException(configFile + ": settings field 'extensions' must be an object");
@@ -908,6 +916,7 @@ public final class ResourceConfiguration {
              .stringCompressionType(stringCompressionType)
              .regionCompressionType(regionCompressionType)
              .aggregateKernel(aggregateKernel)
+             .saltRecordPages(saltRecordPages)
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
              .hashAlgorithm(hashAlgorithm)
@@ -1048,6 +1057,8 @@ public final class ResourceConfiguration {
      * Whether to verify page checksums on read operations. Default is true for data integrity.
      */
     private boolean verifyChecksumsOnRead = true;
+
+    private boolean saltRecordPages = true;
 
     /**
      * Hash algorithm for page checksums. Default is XXH3 for maximum performance.
@@ -1367,6 +1378,19 @@ public final class ResourceConfiguration {
      */
     public Builder verifyChecksumsOnRead(boolean verify) {
       this.verifyChecksumsOnRead = verify;
+      return this;
+    }
+
+    /**
+     * Salt record pages on their first serialization (default: true). Disabling this writes zero salt
+     * bytes for deterministic test fixtures; resources created this way lack the preparation for future
+     * erasure of page-checksum residues.
+     *
+     * @param enabled whether record pages receive a random salt
+     * @return this builder
+     */
+    public Builder saltRecordPages(final boolean enabled) {
+      saltRecordPages = enabled;
       return this;
     }
 

@@ -416,7 +416,7 @@ final class StringRegionPerTagCompletenessTest {
   }
 
   private static ResourceConfiguration newConfig() {
-    return new ResourceConfiguration.Builder("stringRegionPerTagCompleteness").build();
+    return new ResourceConfiguration.Builder("stringRegionPerTagCompleteness").saltRecordPages(false).build();
   }
 
   private KeyValueLeafPage newPage(final ResourceConfiguration config) {

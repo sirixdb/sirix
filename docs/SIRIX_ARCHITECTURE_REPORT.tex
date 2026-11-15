@@ -8354,16 +8354,12 @@ HOT_INDIRECT_PAGE [varint pageKey][i32 revision][u8 height][u8 nodeType][u8 layo
 \section{The slotted leaf page (\texttt{KeyValueLeafPage})}
 
 The leaf page is the format's centrepiece, a slotted page stored column-compressed then
-byte-compressed. Its frame and header layout are shown below; the canonical persisted-header
-rules are owned by \code{docs/DISK_FORMAT.md}.
+byte-compressed. Its frame is shown below; the persisted-header and salt rules are owned by
+\code{docs/DISK\_FORMAT.md} §2, and the offset layout by \code{PageLayout}.
 
 \begin{diagramS}
 [page envelope: see docs/DISK_FORMAT.md §2][varlong recordPageKey][i32 revision][u8 indexType]
 [160-byte header+bitmap region][encoded body][i32 regionTableLen|0 + PAX columns][overlong entries]
-
-header+bitmap (160 B):  0 8 recordPageKey · 8 4 revision · 12 2 populatedCount · 14 4 heapEnd
-  18 4 heapUsed · 22 1 indexType · 23 1 flags(bit0 deweyIDs, bit1 FSST) · 24 8 reserved
-  32 128 slotBitmap (16 × u64 = 1024 bits; bit set = slot populated)
 \end{diagramS}
 
 The \textbf{encoded body} carries the records as a column store, then one compression codec:

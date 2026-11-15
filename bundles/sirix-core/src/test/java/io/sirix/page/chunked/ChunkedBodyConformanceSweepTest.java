@@ -91,9 +91,10 @@ final class ChunkedBodyConformanceSweepTest {
   @Test
   @DisplayName("every generated page decodes identically chunked and monolithic, and frames deterministically")
   void sweep() {
-    final ResourceConfiguration plain = new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build();
+    final ResourceConfiguration plain =
+        new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).saltRecordPages(false).build();
     final ResourceConfiguration dewey =
-        new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).useDeweyIDs(true).build();
+        new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).useDeweyIDs(true).saltRecordPages(false).build();
 
     final Map<String, Integer> groupSizes = new LinkedHashMap<>();
     ChunkedSweepCases.byGroup().forEach((group, groupCases) -> groupSizes.put(group, groupCases.size()));

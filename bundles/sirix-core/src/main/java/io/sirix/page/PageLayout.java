@@ -17,7 +17,8 @@ import java.util.Objects;
  *
  * <p>
  * All page metadata, slot directory, and record data live in a single contiguous
- * {@link MemorySegment}. In-memory format = on-disk format. ZERO conversion at commit time.
+ * {@link MemorySegment}. The persisted encoding and header-retention rationale are specified in
+ * {@code docs/DISK_FORMAT.md} §§2 and 5.
  *
  * <h2>Page Layout (Runtime)</h2>
  * 
@@ -31,7 +32,7 @@ import java.util.Objects;
  * 18       4         heapUsed (int)              YES
  * 22       1         indexType (byte)             YES
  * 23       1         flags                       YES
- * 24       8         reserved                    YES
+ * 24       8         page salt                   YES
  * ──────── ───────── ────────────────────────── ─────
  * 32       128       slotBitmap (1024 bits)      YES
  * ─── DISK_HEADER_BITMAP_SIZE = 160 ────────── ─────
@@ -47,7 +48,7 @@ import java.util.Objects;
  * <pre>
  * Bytes 0-3: heapOffset (int) — offset into heap region (relative to HEAP_START)
  * Bytes 4-6: dataLength (3 bytes, unsigned) — total byte length of the record in the heap
- * Byte 7:   nodeKindId (1 byte) — NodeKind ordinal for fast dispatch
+ * Byte 7:   nodeKindId (1 byte) — NodeKind id for fast dispatch
  * </pre>
  *
  * <h2>Heap Record Format</h2>
@@ -57,15 +58,6 @@ import java.util.Objects;
  * [fieldOffsetTable: fieldCount × 1 byte] — O(1) access to any field
  * [data region: varint fields + hash + optional payload]
  * </pre>
- *
- * <h2>Header redundancy — retained by design (format decision)</h2> The header's
- * recordPageKey/revision/indexType duplicate information the reader already knows from the page's
- * reference, and heapEnd/heapUsed are runtime bump-allocator state. They stay in the on-disk header
- * deliberately: (1) "in-memory format = on-disk format" means the 160-byte block is bulk-copied
- * verbatim — stripping fields would reintroduce a per-commit conversion pass; (2) the redundancy
- * makes every page SELF-DESCRIBING, so recovery/forensic tooling can interpret a page from its
- * bytes alone and readers can cross-check the header against the reference (a mismatch is
- * corruption caught early). The cost is 21 bytes per ~64 KiB page.
  */
 public final class PageLayout {
 
@@ -110,7 +102,11 @@ public final class PageLayout {
   /** Offset of flags (byte, 1 byte). */
   public static final int OFF_FLAGS = 23;
 
-  /** Offset of reserved region (8 bytes). */
+  /** Offset of the opaque record-page salt (8 bytes); zero in deterministic mode. */
+  public static final int OFF_SALT = 24;
+
+  /** @deprecated Use {@link #OFF_SALT}. */
+  @Deprecated
   public static final int OFF_RESERVED = 24;
 
   // ==================== FLAGS ====================
@@ -336,6 +332,33 @@ public final class PageLayout {
   }
 
   // ==================== HEADER ACCESSORS ====================
+
+  /**
+   * Initialize the salt on the write path only. A nonzero header salt survives copying, cache
+   * invalidation and reload without any reader work. Zero denotes an unsalted page, so map the random
+   * source's zero to one with no retry.
+   */
+  static void initializeSalt(final MemorySegment page, final boolean enabled) {
+    page.set(JAVA_LONG_UNALIGNED, OFF_SALT, saltForWrite(page, enabled));
+  }
+
+  /** Select a wire salt without mutating a speculative disposable frame. */
+  static long saltForWrite(final MemorySegment page, final boolean enabled) {
+    if (!enabled) {
+      return 0L;
+    }
+    final long salt = page.get(JAVA_LONG_UNALIGNED, OFF_SALT);
+    return salt == 0L
+        ? nonzeroSalt(RecordPageSaltSource.current().nextSalt())
+        : salt;
+  }
+
+  /** Keep the initialization marker out of random salts, including the rare zero draw. */
+  static long nonzeroSalt(final long salt) {
+    return salt == 0L
+        ? 1L
+        : salt;
+  }
 
   /** Read the recordPageKey from the page header. */
   public static long getRecordPageKey(final MemorySegment page) {
