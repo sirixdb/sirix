@@ -217,9 +217,8 @@ final class NoPathSummarySourceScopeDifferentialTest {
         if (sourcePath.length > 1) {
           assertThrows(VectorizedRouteRefusedException.class,
               () -> executor.executeGroupByCount(null, sourcePath, "group"));
-          assertThrows(VectorizedRouteRefusedException.class,
-              () -> executor.executeGroupByCountMulti(null, sourcePath, new String[] {"group", "active"},
-                  new String[] {"group", "active"}, "count", null));
+          assertThrows(VectorizedRouteRefusedException.class, () -> executor.executeGroupByCountMulti(null, sourcePath,
+              new String[] {"group", "active"}, new String[] {"group", "active"}, "count", null));
           SequentialPipelineStrategy.setVectorizedExecutor(executor);
           final String source = revisionSource(revision, sourcePath);
           groups = normalizeGroups(run(chain, ctx,
@@ -235,11 +234,9 @@ final class NoPathSummarySourceScopeDifferentialTest {
         return new Snapshot(serialize(executor.executeAggregate(null, sourcePath, "count", "value")),
             serialize(executor.executeAggregate(null, sourcePath, "sum", "value")),
             serialize(executor.executePredicateCount(null, sourcePath, ACTIVE)),
-            serialize(executor.executePredicateAggregate(null, sourcePath, ACTIVE, "sum", "value")),
-            groups,
+            serialize(executor.executePredicateAggregate(null, sourcePath, ACTIVE, "sum", "value")), groups,
             normalizeGroups(serialize(executor.executePredicateGroupByCount(null, sourcePath, ACTIVE, "group"))),
-            serialize(executor.executeCountDistinct(null, sourcePath, "group")),
-            multiGroups);
+            serialize(executor.executeCountDistinct(null, sourcePath, "group")), multiGroups);
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();
