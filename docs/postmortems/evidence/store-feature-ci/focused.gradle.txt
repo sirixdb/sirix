@@ -1,0 +1,19 @@
+gradle.projectsEvaluated {
+    def core = gradle.rootProject.project(':sirix-core')
+    def baseline = core.tasks.named('test').get()
+    core.tasks.register('ciFocused', Test) {
+        dependsOn core.tasks.named('testClasses')
+        testClassesDirs = baseline.testClassesDirs
+        classpath = baseline.classpath
+        excludes = baseline.excludes
+        javaLauncher = baseline.javaLauncher
+        jvmArgs = baseline.jvmArgs
+        systemProperties = baseline.systemProperties
+        systemProperty 'java.io.tmpdir', gradle.rootProject.file('build/ci-fix/tmp').absolutePath
+        minHeapSize = '256m'
+        maxHeapSize = '2g'
+        maxParallelForks = 1
+        useJUnitPlatform()
+        testLogging { events 'failed'; exceptionFormat = 'full' }
+    }
+}

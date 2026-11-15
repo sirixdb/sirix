@@ -1,0 +1,65 @@
+{
+  "base_head": "4d8385db6ef1d28f560b81a3141f36b48b24a703",
+  "runtime": "Linux, GraalVM JDK 25.0.3, Gradle 9.9.0",
+  "source_sha256": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java": "de98bc74a9d86726fecc3e604ff9a577d334f30e416151a4a11c511421d4c90b",
+    "bundles/sirix-core/src/test/java/io/sirix/access/StoreFeaturesLifecycleTest.java": "14403a79d49bcab84d9b2af34021a1666dbfbab490c6e2727ed7b4c2a92041fc",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java": "65c44090edd1c4ee58d583109c0461d327da51028079f380fdc4dfc2a9d0e384",
+    "bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedIndexMaintainerTest.java": "6912787f0b3f97d419e5d0b1b0edf07eb14dd275c205a00910a8dfd2df014606"
+  },
+  "results": {
+    "core": {
+      "tests": 472,
+      "failures": 0,
+      "skipped": 0
+    },
+    "query": {
+      "tests": 332,
+      "failures": 0,
+      "skipped": 5
+    },
+    "mcp": {
+      "tests": 3,
+      "failures": 0,
+      "skipped": 0
+    },
+    "additional_bootstrap_control": {
+      "tests": 2,
+      "failures": 0
+    }
+  },
+  "mutation_scope": {
+    "target": "io.sirix.access.LocalDatabase",
+    "method": "openDerivedResource",
+    "sampling": false,
+    "statuses": {
+      "KILLED": 16
+    }
+  },
+  "ci_sample": {
+    "note": "Diagnostic run after cleanup fixture repair and initial recovery patch, before final snapshot reuse refinement; original CI targets/test patterns; not a clean whole-PR mutation verdict. See existing store-feature-pit-evidence.md for historical broader coverage accounting.",
+    "statuses": {
+      "KILLED": 58,
+      "SURVIVED": 46,
+      "NO_COVERAGE": 86
+    }
+  },
+  "evidence_note": "JUnit evidence retains test cases and failure details; stdout/stderr omitted from successful aggregate reports.",
+  "evidence_sha256": {
+    "before-cleanup.xml.gz": "f4da6c168960ed6df219860c53f6efd889064f5aab4d8936b8829f56b0698a12",
+    "before-derived.xml.gz": "f6bcad1d40013dd8a2a91626039f905e2c9d4f51641f3c7ed895ed04d9ff4d4d",
+    "before-hot.xml.gz": "82e9df57043b7b4db2363f6a17d80e933b330046d3c515b36cf98902d4ac9d8f",
+    "bootstrap-control-results.xml.gz": "99fdc26a1dd0b231109060d447ab5791716713f74621781a8104ba5a4f5aca14",
+    "ci-sample-mutations.xml.gz": "9687c8af9339f09a00f41f94293eb9a6d88e48ff3c90b4a36d7b3b6026069384",
+    "ci-sample-tests.txt": "35ca31cef612845cb84e7d22060ef55b02d8d4d49e07c951f5cb207a0745b350",
+    "core-results.xml.gz": "cdca26ab8c2eeb7447454063a22945b4bce931ad30b765ae44893f2e97e34df4",
+    "derived-before-assertion-mutations.xml.gz": "bd8334998058214e78a707674e8fc508de0ff1cc600925962ef9702e340ee95b",
+    "derived-excluded-methods.txt": "4be4208ef9d6b18be9ba4b2a5ac0ddc31055e33c284c680bde5b1594d92d9cd6",
+    "derived-mutations.xml.gz": "69d8c1734afa347b1e48e052ce9224a2c0ff61cb1988c7be4dc0d31e4edd7f04",
+    "focused.gradle.txt": "2cc9f72ce35d2f731149f55394cb6930d3166405cb8a4e84ca43f72d37916027",
+    "mcp-results.xml.gz": "eba23b1fff653b243a642b6528e607ae3091823550d5d525276715ed5b5348c5",
+    "pit-derived.gradle.txt": "ab996e3ba7c9cb2cd1333435d09ff8545bb4c682f9c90a920f1acad8fc95b26a",
+    "query-results.xml.gz": "8bf04c5ba545065989ecbb7a6065fb77f5b561d663d3c9587a32712123202e2d",
+    "targets.txt": "47e3fd6dac194dc38be9e25059794fe57362f67f1ea06acd861a1c7e7acbf6bc"
+  }
+}

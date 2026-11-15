@@ -1,0 +1,12 @@
+io.sirix.access.InterruptedFirstCommitRecoveryTest*
+io.sirix.access.node.json.ResourceSessionTest*
+io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest*
+io.sirix.access.trx.page.NodeStorageEngineWriterTruncateToRevisionIntegrationTest*
+io.sirix.backup.BackupRestoreTest*
+io.sirix.io.StorageProviderSpiTest*
+io.sirix.io.UberPageCorruptionTest*
+io.sirix.io.filechannel.FileChannelReaderBatchBoundsTest*
+io.sirix.io.filechannel.FileChannelStorageTest*
+io.sirix.io.memorymapped.ArenaGenerationLifetimeTest*
+io.sirix.io.memorymapped.MemoryMappedStorageTest*
+io.sirix.page.StoreFeaturesTest*

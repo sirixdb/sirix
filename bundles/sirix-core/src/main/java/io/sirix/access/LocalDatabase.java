@@ -226,10 +226,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final List<ByteHandler> sourceHandlers = source.getResourceConfig().byteHandlePipeline.getComponents();
     final boolean encrypted = sourceHandlers.stream().anyMatch(Encryptor.class::isInstance);
     if (Files.exists(derivedPath)) {
-      final ResourceConfiguration derivedConfig = ResourceConfiguration.deserialize(derivedPath);
-      final UberPage derivedUberPage = InterruptedFirstCommitRecovery.probeUberPage(derivedConfig);
-      derivedUberPage.getFeatures().requireWritable();
+      UberPage derivedUberPage = null;
       try {
+        final ResourceConfiguration derivedConfig = ResourceConfiguration.deserialize(derivedPath);
+        derivedUberPage = InterruptedFirstCommitRecovery.probeUberPage(derivedConfig);
+        derivedUberPage.getFeatures().requireWritable();
         if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
           throw new SirixIOException("Incomplete derived resource: " + name);
         }
@@ -247,7 +248,16 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       } catch (final UnsupportedStoreFeatureException unsupported) {
         throw unsupported;
       } catch (final RuntimeException unreadable) {
-        derivedUberPage.getFeatures().requireWritable();
+        // A missing/broken settings file must not bypass the binary feature check before deletion.
+        // Derived stores use the default pipeline, or the source's pipeline when encrypted.
+        if (derivedUberPage == null) {
+          final ResourceConfiguration.Builder probe = ResourceConfiguration.newBuilder(name);
+          if (encrypted) {
+            probe.byteHandlerPipeline(new ByteHandlerPipeline(source.getResourceConfig().byteHandlePipeline));
+          }
+          InterruptedFirstCommitRecovery.probeFeatures(probe.build().setDatabaseConfiguration(dbConfig))
+                                        .requireWritable();
+        }
         logger.warn("Rebuilding unreadable derived resource {} from the source log", name, unreadable);
         final Path path = source.getResourcePath().resolveSibling(name);
         final T existing = resourceStore.getOpenResourceSession(path);

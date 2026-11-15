@@ -12,6 +12,7 @@ import io.sirix.page.UberPage;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.parallel.Isolated;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
@@ -53,13 +54,13 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.concurrent.Semaphore;
 
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
@@ -476,7 +477,7 @@ class StoreFeaturesLifecycleTest {
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void unsupportedDerivedDamageNeverTriggersRebuild(final StorageType storageType) throws IOException {
     for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0)}) {
-      for (int damage = 0; damage < 3; damage++) {
+      for (int damage = 0; damage < 5; damage++) {
         createDerivedStore(storageType, damage == 2);
         replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
         replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
@@ -484,6 +485,10 @@ class StoreFeaturesLifecycleTest {
           SirixFiles.recursiveRemove(config.resourcePath.resolve("log"));
         } else if (damage == 1) {
           removeRevisionRecords();
+        } else if (damage == 3) {
+          Files.delete(config.getConfigFile());
+        } else if (damage == 4) {
+          Files.writeString(config.getConfigFile(), "broken");
         }
         Databases.clearGlobalCaches();
         final Map<Path, byte[]> before = snapshotResource();
@@ -531,6 +536,8 @@ class StoreFeaturesLifecycleTest {
       assertEquals(0, source.getMostRecentRevisionNumber());
       assertNotNull(((AbstractResourceSession<?, ?>) source).getDerivedResource());
     }
+    assertEquals(0, InterruptedFirstCommitRecovery.probeUberPage(config).getRevisionNumber(),
+        "the empty source must replace the invalid revision-one snapshot with a bootstrap store");
   }
 
   @ParameterizedTest
@@ -626,8 +633,12 @@ class StoreFeaturesLifecycleTest {
         }
         return realSession.beginNodeTrx();
       });
-      try (final var databases = mockStatic(Databases.class, CALLS_REAL_METHODS)) {
-        databases.when(() -> Databases.openJsonDatabase(databasePath)).thenReturn(database);
+      try (final var databases = mockStatic(Databases.class, invocation -> {
+        if (invocation.getMethod().getName().equals("openJsonDatabase")) {
+          return database;
+        }
+        return invocation.callRealMethod();
+      })) {
         assertThrows(UnsupportedStoreFeatureException.class, () -> BackupManager.backupDatabase(databasePath, target));
       }
       assertFalse(Files.exists(target), "a refused backup must remove its partial target");
@@ -903,6 +914,9 @@ class StoreFeaturesLifecycleTest {
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void committedFeaturesSurviveRollbackPastTheirFirstUseAndNextCommit(final StorageType storageType) {
+    // Windows locks live memory mappings against the in-place truncate (KNOWN_LIMITATIONS.md).
+    assumeFalse(OS.WINDOWS.isCurrentOs() && storageType == StorageType.MEMORY_MAPPED,
+        "MEMORY_MAPPED in-place truncation is unsupported on Windows");
     createStore(storageType);
     final var features = new StoreFeatures(0, 0, Integer.MIN_VALUE);
     try (final var database = Databases.openJsonDatabase(databasePath);

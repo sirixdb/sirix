@@ -333,7 +333,7 @@ final class DerivedIndexMaintainerTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"intact", "unencrypted", "different-key"})
+  @ValueSource(strings = {"intact", "unencrypted", "different-key", "missing-config", "broken-config"})
   void encryptedSnapshotsRetainSourceProtectionAcrossFoldsAndReopen(final String storeState) throws Exception {
     final var canonicalDirectory = directory.toPath().toRealPath();
     final var path = canonicalDirectory.resolve("encrypted");
@@ -373,7 +373,11 @@ final class DerivedIndexMaintainerTest {
         assertSum(session, latest, latest);
       }
     }
-    if (!storeState.equals("intact")) {
+    if (storeState.equals("missing-config")) {
+      Files.delete(derivedPath.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()));
+    } else if (storeState.equals("broken-config")) {
+      Files.writeString(derivedPath.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()), "broken");
+    } else if (!storeState.equals("intact")) {
       final var seedPath = canonicalDirectory.resolve("replacement");
       final var emptyPath = seedPath.resolve("resources").resolve("empty");
       final ByteHandlerPipeline replacementPipeline = storeState.equals("unencrypted")
