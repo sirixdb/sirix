@@ -92,6 +92,25 @@ final class VectorizedReleaseCorrectnessTest {
   }
 
   @ParameterizedTest
+  @EnumSource(Compilation.class)
+  void ordinaryPipelineRetainsRowsAcrossReopen(final Compilation compilation) {
+    // Independent JSONiq filter/order oracle: 3,1,2 filtered above 1 and sorted yields 2,3.
+    // This pipeline has no grouping annotation and must retain the ordinary compiled expression.
+    final String query = "for $r in " + DOC + "[] where $r.value > 1 order by $r.value return $r.value";
+    for (int phase = 0; phase < 2; phase++) {
+      ProjectionIndexRegistry.clear();
+      try (final BasicJsonDBStore store = newStore();
+          final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
+          final SirixCompileChain chain = compilation.create(store)) {
+        if (phase == 0) {
+          store.create(DB, RESOURCE, JsonShredder.createStringReader("[{\"value\":3},{\"value\":1},{\"value\":2}]"));
+        }
+        assertEquals(new Outcome(false, "2 3"), evaluate(chain, context, query), "phase " + phase);
+      }
+    }
+  }
+
+  @ParameterizedTest
   @CsvSource({"min,false", "max,false", "min,true", "max,true"})
   void pureStringExtremaRemainAdmitted(final String function, final boolean predicated) {
     checkAcrossReopen("[{\"selected\":true,\"value\":\"alpha\"}," + "{\"selected\":true,\"value\":\"omega\"}]",

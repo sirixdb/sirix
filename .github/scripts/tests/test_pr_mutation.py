@@ -308,6 +308,63 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(patterns, ['a.Case00Test*', 'a.Case01Test*', 'a.sub.DeepTest*'])
         self.assertEqual(unmapped, [])
 
+    def test_release_compiler_entry_points_select_the_end_to_end_refusal_contract(self):
+        """PIT's emitted test filter must reach refused and admitted public compiler routes."""
+        # Independent oracle: the release regression exercises every public compiler factory,
+        # both grouping arities, and warm/reopened stores. Name/package heuristics miss it.
+        owners = {'io/sirix/query/SirixCompileChain.java': 'io.sirix.query',
+                  'io/sirix/query/compiler/translator/SirixBlockPipelineStrategy.java':
+                      'io.sirix.query.compiler.translator',
+                  'io/sirix/query/compiler/translator/SirixPipelineStrategy.java':
+                      'io.sirix.query.compiler.translator',
+                  'io/sirix/query/scan/VectorizedRouteRefusedException.java': 'io.sirix.query.scan'}
+        contract = 'io.sirix.query.scan.VectorizedReleaseCorrectnessTest'
+        for path, package in owners.items():
+            source = 'src/main/java/' + path
+            # Crowded source packages cannot fall back to an accidental integration match.
+            unrelated = [package.replace('.', '/') + f'/Unrelated{index}Test.java'
+                         for index in range(mutation.PACKAGE_TEST_LIMIT + 1)]
+            with self.subTest(source=source), module_tree(
+                    {path: package}, unrelated + [contract.replace('.', '/') + '.java']) as root:
+                result = {}
+                with patch.object(mutation, 'resolve_targets', return_value=(['changed.Entry'], [])):
+                    command = mutation.prepare_analysis(root.parent.parent, root, 'sirix-core',
+                                                        [source], result)
+                self.assertIn('-PprMutationTests=' + contract + '*', command)
+                self.assertEqual(result['unmapped'], [])
+                # The same associations must obey the module cap, never silently drop it.
+                with patch.object(mutation, 'MODULE_TEST_LIMIT', 0):
+                    self.assertEqual(mutation.test_scope(root, [source]),
+                                     ([], [source], {source: 'over-limit'}))
+
+    def test_release_associations_do_not_select_absent_tests_or_similarly_named_sources(self):
+        source = 'src/main/java/io/sirix/query/SirixCompileChain.java'
+        with module_tree({'io/sirix/query/SirixCompileChain.java': 'io.sirix.query'}, []) as root:
+            self.assertEqual(mutation.test_scope(root, [source]),
+                             ([], [source], {source: 'unmapped'}))
+        with module_tree({'other/SirixCompileChain.java': 'other'},
+                         ['io/sirix/query/scan/VectorizedReleaseCorrectnessTest.java']) as root:
+            source = 'src/main/java/other/SirixCompileChain.java'
+            self.assertEqual(mutation.test_scope(root, [source]),
+                             ([], [source], {source: 'unmapped'}))
+
+    def test_release_associations_retain_heuristic_matches_and_share_their_cap(self):
+        source = 'src/main/java/io/sirix/query/compiler/translator/SirixBlockPipelineStrategy.java'
+        owner = 'io/sirix/query/compiler/translator/'
+        contract = 'io.sirix.query.scan.VectorizedReleaseCorrectnessTest'
+        for simple, kind in [('SirixBlockPipelineStrategyTest', 'named'),
+                             ('SirixBlockPipelineStrategyControlTest', 'related'),
+                             ('OtherTest', 'package')]:
+            with self.subTest(kind=kind), module_tree(
+                    {owner + 'SirixBlockPipelineStrategy.java': 'io.sirix.query.compiler.translator'},
+                    [owner + simple + '.java', contract.replace('.', '/') + '.java']) as root:
+                expected = sorted(['io.sirix.query.compiler.translator.' + simple + '*', contract + '*'])
+                self.assertEqual(mutation.test_scope(root, [source]),
+                                 (expected, [], {source: kind}))
+                with patch.object(mutation, 'MODULE_TEST_LIMIT', 1):
+                    self.assertEqual(mutation.test_scope(root, [source]),
+                                     ([], [source], {source: 'over-limit'}))
+
     def test_scope_caps_stay_small_enough_to_collect_baseline_coverage(self):
         # PIT executes every targetTests class to measure coverage, so the caps are what keeps
         # the job inside its budget. sirix-core's suite is ~3366 classes; these stay far below.

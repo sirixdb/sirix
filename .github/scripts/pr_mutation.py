@@ -27,6 +27,13 @@ MODULE_TEST_LIMIT = 60
 # Best first: an exactly named test, then a name-related one, then the source's own package.
 KIND_ORDER = ('named', 'related', 'package')
 UNRESOLVED_KINDS = ('unmapped', 'over-limit')
+# These entry points share an executable release contract whose name spans several classes.
+# Augment the heuristic matches; the ordinary module cap still applies to their union.
+CONTRACT_TESTS = {name: ('io.sirix.query.scan.VectorizedReleaseCorrectnessTest',) for name in (
+    'io.sirix.query.SirixCompileChain',
+    'io.sirix.query.compiler.translator.SirixBlockPipelineStrategy',
+    'io.sirix.query.compiler.translator.SirixPipelineStrategy',
+    'io.sirix.query.scan.VectorizedRouteRefusedException')}
 # Execution time reserved for each module still waiting, so none is starved by an earlier one.
 MIN_MODULE_SECONDS = 120
 # A large diff cannot afford every mutant of every changed class. A mutant whose covering test
@@ -343,8 +350,13 @@ def test_scope(module_root, sources):
     candidates = []
     tests = module_test_classes(module_root)
     for source in sources:
-        patterns, kind = resolve_tests(Path(source).stem,
-                                       source_package(module_root, source), tests)
+        stem, package = Path(source).stem, source_package(module_root, source)
+        patterns, kind = resolve_tests(stem, package, tests)
+        contracts = set(CONTRACT_TESTS.get(f'{package}.{stem}', ())) & tests.keys()
+        if contracts:
+            patterns = sorted(set(patterns) | contracts)
+            if kind == 'unmapped':
+                kind = 'related'
         candidates.append({'source': source, 'kind': kind, 'patterns': patterns})
     # Admit named matches before related/package matches; any candidate can exceed the cap.
     selected = set()

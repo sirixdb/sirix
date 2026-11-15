@@ -41,24 +41,35 @@ final class ValidTimeTimestampAllocationBudgetTest {
     final IntervalDomain domain = new IntervalDomain();
     final ValidTimeIntervalIndexWriter writer =
         new ValidTimeIntervalIndexWriter(null, null, null, null, domain, "vf", "vt");
-    // Warm normal helper entry as well as the loop body; late compilation can allocate VM strings.
-    for (int invocation = 0; invocation < ITERATIONS; invocation++) {
-      parseRepeatedly(inputs, from, inputs.length);
-      allocateIntervalsRepeatedly(inputs.length);
-      mapRepeatedly(inputs, from, to, writer, inputs.length);
-      parseInstantsRepeatedly(inputs, inputs.length);
+    for (int i = 0; i < ITERATIONS; i++) {
+      final String text = inputs[i % inputs.length];
+      UtcTimestampParser.parseNullable(text, from);
+      epochSink = from.epochSecond() + from.nano();
+      intervalSink = writer.toPrimitiveInterval(from, to, 1, 1);
+      instantSink = Instant.parse(text);
+      intervalSink = new Interval(true, i + 256L, i + 512L, false, 1024);
     }
     final long start = bean.getThreadAllocatedBytes(thread);
-    parseRepeatedly(inputs, from, ITERATIONS);
+    for (int i = 0; i < ITERATIONS; i++) {
+      UtcTimestampParser.parseNullable(inputs[i % inputs.length], from);
+      epochSink = from.epochSecond() + from.nano();
+    }
     final long parserBytes = bean.getThreadAllocatedBytes(thread) - start;
     final long ownedStart = bean.getThreadAllocatedBytes(thread);
-    allocateIntervalsRepeatedly(ITERATIONS);
+    for (int i = 0; i < ITERATIONS; i++) {
+      intervalSink = new Interval(true, i + 256L, i + 512L, false, 1024);
+    }
     final long ownedBytes = bean.getThreadAllocatedBytes(thread) - ownedStart;
     final long writerStart = bean.getThreadAllocatedBytes(thread);
-    mapRepeatedly(inputs, from, to, writer, ITERATIONS);
+    for (int i = 0; i < ITERATIONS; i++) {
+      UtcTimestampParser.parseNullable(inputs[i % inputs.length], from);
+      intervalSink = writer.toPrimitiveInterval(from, to, 1, 1);
+    }
     final long writerBytes = bean.getThreadAllocatedBytes(thread) - writerStart;
     final long generalStart = bean.getThreadAllocatedBytes(thread);
-    parseInstantsRepeatedly(inputs, ITERATIONS);
+    for (int i = 0; i < ITERATIONS; i++) {
+      instantSink = Instant.parse(inputs[i % inputs.length]);
+    }
     final long generalBytes = bean.getThreadAllocatedBytes(thread) - generalStart;
     assertEquals(Instant.parse(inputs[inputs.length - 1]).getEpochSecond(), from.epochSecond());
     assertEquals(123456789, from.nano());
@@ -70,33 +81,6 @@ final class ValidTimeTimestampAllocationBudgetTest {
     if (Boolean.getBoolean("sirix.workBudget.print")) {
       System.out.printf("valid-time allocation: parser=%d writer=%d owned=%d general=%d iterations=%d%n", parserBytes,
           writerBytes, ownedBytes, generalBytes, ITERATIONS);
-    }
-  }
-
-  private static void parseRepeatedly(final String[] inputs, final ParsedInstant from, final int operations) {
-    for (int i = 0; i < operations; i++) {
-      UtcTimestampParser.parseNullable(inputs[i % inputs.length], from);
-      epochSink = from.epochSecond() + from.nano();
-    }
-  }
-
-  private static void allocateIntervalsRepeatedly(final int operations) {
-    for (int i = 0; i < operations; i++) {
-      intervalSink = new Interval(true, i + 256L, i + 512L, false, 1024);
-    }
-  }
-
-  private static void mapRepeatedly(final String[] inputs, final ParsedInstant from, final ParsedInstant to,
-      final ValidTimeIntervalIndexWriter writer, final int operations) {
-    for (int i = 0; i < operations; i++) {
-      UtcTimestampParser.parseNullable(inputs[i % inputs.length], from);
-      intervalSink = writer.toPrimitiveInterval(from, to, 1, 1);
-    }
-  }
-
-  private static void parseInstantsRepeatedly(final String[] inputs, final int operations) {
-    for (int i = 0; i < operations; i++) {
-      instantSink = Instant.parse(inputs[i % inputs.length]);
     }
   }
 }

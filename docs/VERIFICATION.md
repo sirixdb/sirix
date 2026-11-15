@@ -216,6 +216,12 @@ in package `p` the first matching step wins:
    most `PACKAGE_TEST_LIMIT` of them.
 4. Otherwise the source is **unmapped**.
 
+The exact compiler/refusal associations in `CONTRACT_TESTS` additionally select
+`VectorizedReleaseCorrectnessTest` for the compile chain, both pipeline strategies and the
+refusal exception. This integration contract exercises refused and admitted grouping through
+every public compiler factory, including cold reopen. Associations augment the heuristic
+matches and share the same module cap; absent test classes are never selected.
+
 PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
 `[MIN_MUTANTS_PER_CLASS, MAX_MUTANTS_PER_CLASS]`, so a module's work scales with the size of the
 diff: one changed class gets every mutant the cap allows, while a 57-class diff samples a few
