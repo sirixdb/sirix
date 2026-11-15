@@ -27,7 +27,7 @@ final class ConfigurationStartupTest {
   Path directory;
 
   @BeforeEach
-  void resetManagerForAnIndependentStartupObservation() throws ReflectiveOperationException {
+  void resetManagerForAnIndependentStartupObservation() throws Exception {
     // PIT can reuse its JVM. Reset only the cache owner; the allocator's first allowance stays fixed.
     final Field manager = Databases.class.getDeclaredField("GLOBAL_BUFFER_MANAGER");
     manager.setAccessible(true);
