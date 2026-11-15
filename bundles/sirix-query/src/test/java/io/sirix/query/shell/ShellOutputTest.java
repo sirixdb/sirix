@@ -158,6 +158,48 @@ final class ShellOutputTest {
   }
 
   @Test
+  void actualXmlDiffBackslashReplacementRestoresFollowingDeleteColour() throws Exception {
+    try (final var store = BasicXmlDBStore.newBuilder().location(directory.resolve("xml-quoting")).build();
+        final var ctx = SirixQueryContext.createWithNodeStore(store);
+        final var chain = SirixCompileChain.createWithNodeStore(store)) {
+      final var collection = store.create("shop", new DocumentParser("<a>old<b/></a>"));
+      final long textKey;
+      final long deletedKey;
+      try (final var writer = collection.getDocument("resource1").getTrx().getResourceSession().beginNodeTrx()) {
+        writer.moveToFirstChild();
+        writer.moveToFirstChild();
+        textKey = writer.getNodeKey();
+        writer.setValue("C:\\");
+        writer.moveToRightSibling();
+        deletedKey = writer.getNodeKey();
+        writer.remove();
+        writer.commit();
+      }
+      final String source = "xn:diff('shop','resource1',1,2)";
+      final String nl = System.lineSeparator();
+      final String patch = "let $doc := xn:doc('shop','resource1', 1)" + nl + "return (" + nl
+          + "  replace value of node sdb:select-item($doc, " + textKey + ") with \"C:\\\"," + nl
+          + "  delete nodes sdb:select-item($doc, " + deletedKey + ")" + nl + ")" + nl;
+      for (final ShellPalette palette : ShellPalette.values()) {
+        final StringWriter out = new StringWriter();
+        new ShellOutput(palette, new PrintWriter(out), new PrintWriter(Writer.nullWriter()), () -> 0L).result(
+            new Query(chain, source), ctx, source);
+        final String expected = (palette.enabled() ? "" : nl) + "Query result" + nl + patch + nl
+            + (palette.enabled() ? "  0 ms" + nl : "") + nl;
+        assertEquals(expected, ShellResultWriterTest.strip(out.toString()));
+        assertTrue(out.toString().contains(palette.orange() + "replace" + palette.reset()), out.toString());
+        assertTrue(out.toString().contains(palette.red() + "delete" + palette.reset()), out.toString());
+        if (palette.enabled()) {
+          final var styled = AttributedString.fromAnsi(out.toString());
+          final int value = styled.toString().indexOf("\"C:\\\"");
+          for (int i = value; i < value + 5; i++)
+            assertEquals(AttributedString.fromAnsi(palette.green() + "X").styleAt(0), styled.styleAt(i));
+        }
+      }
+    }
+  }
+
+  @Test
   void skippedDeferredAndMixedDiffCallsKeepOrdinaryResultStyles() throws Exception {
     try (final var json = BasicJsonDBStore.newBuilder().location(directory.resolve("json-context")).build();
         final var xml = BasicXmlDBStore.newBuilder().location(directory.resolve("xml-context")).build();

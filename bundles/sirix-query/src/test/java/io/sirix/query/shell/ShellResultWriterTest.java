@@ -1,6 +1,7 @@
 package io.sirix.query.shell;
 
 import org.junit.jupiter.api.Test;
+import io.sirix.query.shell.ShellResultWriter.DiffMode;
 import java.io.StringWriter;
 import java.util.Random;
 import java.util.List;
@@ -30,10 +31,10 @@ final class ShellResultWriterTest {
     for (final String content : List.of("text \" ' 12 {insert}", "<!-- \" ' > <fake/> -->",
         "<?target \" ' > <fake/> ?>", "<![CDATA[\" ' > <fake/> {insert}]]>")) {
       final String input = "<root>" + content + "<child a='v' b=\"w\"/></root>";
-      for (final boolean diff : new boolean[] {false, true}) {
+      for (final DiffMode mode : DiffMode.values()) {
         for (int split = 0; split <= input.length(); split++) {
           final StringWriter out = new StringWriter();
-          try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, diff)) {
+          try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, mode)) {
             writer.write(input, 0, split);
             writer.flush();
             writer.write(input, split, input.length() - split);
@@ -51,7 +52,7 @@ final class ShellResultWriterTest {
           for (int position = 0; position < content.length(); position++)
             assertStyle(styled, "<root>".length() + position, contentStyle);
         }
-        assertEquals(input, strip(render(input, diff, ShellPalette.NONE, 1)));
+        assertEquals(input, strip(render(input, mode != DiffMode.NONE, ShellPalette.NONE, 1)));
       }
     }
   }
@@ -62,7 +63,7 @@ final class ShellResultWriterTest {
         + "<?pi \" > ?> <!-- ' > --> insert node <a/>; replace node <b/>";
     for (final int overload : new int[] {0, 1, 2}) {
       final StringWriter out = new StringWriter();
-      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, true)) {
+      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.JSON)) {
         final char[] chars = input.toCharArray();
         for (int i = 0; i < chars.length; i++) {
           if (overload == 0)
@@ -89,7 +90,7 @@ final class ShellResultWriterTest {
     }
     for (final String unfinished : List.of("<a x='", "<a>\"", "<!-- \"", "<?pi '", "<![CDATA[\"")) {
       final StringWriter out = new StringWriter();
-      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, true)) {
+      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.JSON)) {
         writer.write(unfinished);
         writer.finish();
         writer.write("{\"replace\":1}");
@@ -142,22 +143,122 @@ final class ShellResultWriterTest {
   }
 
   @Test
+  void xqueryPatchStringsPreserveStylesAcrossAllSplitsAndWriterOverloads() throws Exception {
+    for (final String literal : List.of("\"C:\\\"", "'C:\\'", "\"商店😀 delete \"\"insert\"\"\\\"",
+        "'商店😀 delete ''insert''\\'", "\"<delete/> {1}\\\"", "''", "\"\"")) {
+      for (final String prefix : List.of("replace value of node $doc/a with ", "rename node $doc/a as ",
+          "insert nodes ", "insert node attribute a { ", "let $doc := xn:doc(")) {
+        final String suffix = prefix.startsWith("let")
+            ? ", 'resource\\', 1) return (delete nodes $doc/b)"
+            : (prefix.startsWith("insert node attribute") ? " }" : "")
+                + "; delete nodes $doc/b; insert nodes <a/>; replace node $doc/a with <b/>";
+        final String input = prefix + literal + suffix;
+        for (int overload = 0; overload < 3; overload++) {
+          for (int split = 0; split <= input.length(); split++) {
+            final StringWriter out = new StringWriter();
+            try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.XML)) {
+              writePart(writer, input, 0, split, overload);
+              writer.flush();
+              writePart(writer, input, split, input.length() - split, overload);
+            }
+            final String rendered = out.toString();
+            assertEquals(input, strip(rendered));
+            final var styled = AttributedString.fromAnsi(rendered);
+            for (int offset = prefix.length(); offset < prefix.length() + literal.length(); offset++)
+              assertStyle(styled, offset, "32");
+            assertStyle(styled, input.indexOf("delete nodes"), "31");
+            if (!prefix.startsWith("let")) {
+              assertStyle(styled, input.lastIndexOf("insert nodes"), "32");
+              assertStyle(styled, input.lastIndexOf("replace node"), "33");
+            }
+          }
+        }
+        for (final ShellPalette palette : ShellPalette.values()) {
+          final StringWriter out = new StringWriter();
+          try (final ShellResultWriter writer = new ShellResultWriter(out, palette, DiffMode.XML)) {
+            writer.write(input);
+          }
+          assertEquals(input, strip(out.toString()));
+          assertTrue(out.toString().contains(palette.red() + "delete" + palette.reset()));
+        }
+      }
+    }
+  }
+
+  @Test
+  void jsonEscapesStayDistinctFromXqueryStringsAndFinishResetsUnterminatedStrings() throws Exception {
+    final String json = "{\"value\":\"C:\\\\商店\\\"delete\",\"delete\":1}";
+    for (final DiffMode mode : List.of(DiffMode.NONE, DiffMode.JSON)) {
+      final StringWriter out = new StringWriter();
+      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, mode)) {
+        for (int i = 0; i < json.length(); i++) {
+          writer.write(json.charAt(i));
+          writer.flush();
+        }
+      }
+      assertEquals(json, strip(out.toString()));
+      final var styled = AttributedString.fromAnsi(out.toString());
+      assertStyle(styled, json.indexOf("delete"), "32");
+      assertStyle(styled, json.lastIndexOf("\"delete\""), mode == DiffMode.JSON
+          ? "31"
+          : "36");
+      final String apostrophe = "'text' 12";
+      final StringWriter plainQuote = new StringWriter();
+      try (final ShellResultWriter writer = new ShellResultWriter(plainQuote, ShellPalette.ANSI_16, mode)) {
+        writer.write(apostrophe);
+      }
+      assertEquals("'text' \033[33m12\033[0m", plainQuote.toString());
+    }
+    for (final String unfinished : List.of("'商店\\", "\"商店\\", "'a''delete", "\"a\"\"delete")) {
+      final StringWriter out = new StringWriter();
+      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.XML)) {
+        writer.write(unfinished);
+        writer.flush();
+        writer.finish();
+        writer.write("delete nodes $doc/a");
+      }
+      assertEquals(unfinished + "delete nodes $doc/a", strip(out.toString()));
+      final var styled = AttributedString.fromAnsi(out.toString());
+      for (int i = 0; i < unfinished.length(); i++)
+        assertStyle(styled, i, "32");
+      assertStyle(styled, unfinished.length(), "31");
+    }
+  }
+
+  private static void writePart(final ShellResultWriter writer, final String input, final int offset,
+      final int length, final int overload) throws IOException {
+    if (overload == 0)
+      writer.write(input, offset, length);
+    else if (overload == 1)
+      writer.write(input.toCharArray(), offset, length);
+    else
+      for (int i = offset; i < offset + length; i++)
+        writer.write(input.charAt(i));
+  }
+
+  @Test
   void serializationUsesNoPerValueScratchAllocations() throws Exception {
     final ThreadMXBean bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
     final String payload = ("{\"n\":123,\"s\":\"hello\"} "
         + "<root><!-- \" > --><?pi ' > ?><![CDATA[\" > ]]><a x='v'>\"12{insert}</a></root> ").repeat(10000);
-    try (final ShellResultWriter writer = new ShellResultWriter(Writer.nullWriter(), ShellPalette.ANSI_16, true)) {
-      for (int i = 0; i < 50; i++) {
-        writer.write(payload);
-        writer.finish();
+    final String patch = "let $doc := xn:doc('shop\\','resource\\',1) return ("
+        + "replace value of node $doc/a with \"商店\\\", delete nodes $doc/b)";
+    for (final DiffMode mode : List.of(DiffMode.JSON, DiffMode.XML)) {
+      try (final ShellResultWriter writer = new ShellResultWriter(Writer.nullWriter(), ShellPalette.ANSI_16, mode)) {
+        for (int i = 0; i < 50; i++) {
+          writer.write(payload);
+          writer.write(patch);
+          writer.finish();
+        }
+        final long before = bean.getThreadAllocatedBytes(Thread.currentThread().threadId());
+        for (int i = 0; i < 10; i++) {
+          writer.write(payload);
+          writer.write(patch);
+          writer.finish();
+        }
+        final long allocated = bean.getThreadAllocatedBytes(Thread.currentThread().threadId()) - before;
+        assertTrue(allocated <= 512, "Unexpected per-value allocation: " + allocated);
       }
-      final long before = bean.getThreadAllocatedBytes(Thread.currentThread().threadId());
-      for (int i = 0; i < 10; i++) {
-        writer.write(payload);
-        writer.finish();
-      }
-      final long allocated = bean.getThreadAllocatedBytes(Thread.currentThread().threadId()) - before;
-      assertTrue(allocated <= 512, "Unexpected per-value allocation: " + allocated);
     }
   }
 
@@ -166,7 +267,7 @@ final class ShellResultWriterTest {
     final String expected = "{\033[36m\"x\"\033[0m:\033[33m1\033[0m}";
     for (final boolean chars : new boolean[] {false, true}) {
       final StringWriter out = new StringWriter();
-      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, false)) {
+      try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.NONE)) {
         if (chars)
           writer.write("!{\"x\":1}!".toCharArray(), 1, 7);
         else
@@ -176,7 +277,7 @@ final class ShellResultWriterTest {
       assertEquals(expected, out.toString());
     }
     final StringWriter out = new StringWriter();
-    try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.NONE, false)) {
+    try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.NONE, DiffMode.NONE)) {
       writer.write("!abc!".toCharArray(), 1, 3);
       writer.write('x');
       assertEquals("abcx", out.toString());
@@ -204,7 +305,7 @@ final class ShellResultWriterTest {
     final String nested = "[".repeat(255) + "{\"a\":1,\"b\":2}" + "]".repeat(255);
     assertTrue(render(nested, false, ShellPalette.ANSI_16, 1).contains("\033[36m\"b\"\033[0m"));
     final CountingWriter out = new CountingWriter();
-    try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, false)) {
+    try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.NONE)) {
       writer.write("x".repeat(30000));
       writer.flush();
       assertEquals(1, out.flushes);
@@ -218,7 +319,7 @@ final class ShellResultWriterTest {
       final String payload = "x".repeat(length);
       for (int overload = 0; overload < 3; overload++) {
         final StringWriter out = new StringWriter();
-        try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, false)) {
+        try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.NONE)) {
           if (overload == 0)
             writer.write(payload);
           else if (overload == 1)
@@ -263,7 +364,7 @@ final class ShellResultWriterTest {
         // The StringWriter remains readable after the adapter closes.
       }
     };
-    try (final ShellResultWriter writer = new ShellResultWriter(sink, ShellPalette.ANSI_16, false)) {
+    try (final ShellResultWriter writer = new ShellResultWriter(sink, ShellPalette.ANSI_16, DiffMode.NONE)) {
       writer.flush();
       writer.finish();
       writer.write(payload);
@@ -310,7 +411,7 @@ final class ShellResultWriterTest {
   private static String render(final String text, final boolean diff, final ShellPalette palette, final int chunk)
       throws Exception {
     final StringWriter out = new StringWriter();
-    try (final ShellResultWriter writer = new ShellResultWriter(out, palette, diff)) {
+    try (final ShellResultWriter writer = new ShellResultWriter(out, palette, diff ? DiffMode.JSON : DiffMode.NONE)) {
       for (int offset = 0; offset < text.length(); offset += chunk)
         writer.write(text, offset, Math.min(chunk, text.length() - offset));
     }

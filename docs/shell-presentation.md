@@ -86,3 +86,15 @@ doubled quote delimiters keep their existing behavior.
 `ShellPromptTest` executes entity/character-reference reads against distinct raw/decoded
 names at revisions 1 and 3, checks neutral prompts for both stores and fields, and covers
 JSON stores/updates plus plain-name controls.
+
+XML diff patches retain their XQuery lexical rules separately from JSON results/diffs.
+Outside XML markup, both single- and double-quoted XQuery strings are green; backslashes
+are literal and doubled delimiters remain part of the string. After a header name,
+replacement value, rename string or inserted quoted value closes, the next operation
+regains its independent colour. JSON double-quoted strings still use backslash escaping;
+single quotes do not delimit JSON strings. XML attribute quoting remains unchanged.
+Chunk splits and serializer flushes must preserve these rules, including Unicode and
+unterminated strings; finish resets lexical state for reuse without changing payload bytes.
+Tests: `ShellResultWriterTest` uses independent literal/style examples across overloads,
+splits and palettes; `ShellOutputTest` executes `xn:diff` after changing text to `C:\`
+and deleting the following sibling, checking the emitted patch and subsequent delete style.

@@ -86,3 +86,11 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
   empty-buffer decisions at callers that admit empty buffers.
   Evidence: [shell CI boundaries](postmortems/shell-ci-boundaries.md) and
   [CI follow-up](postmortems/shell-ci-follow-up.md).
+
+### Lexical language boundaries
+
+Preserve JSON versus XQuery patch context through the output adapter. A backslash is
+literal in XQuery strings, and either quote may delimit them. Check styles after strings
+as well as payload preservation: the real diff must restore the next operation's colour.
+Exercise both quote forms, doubled delimiters, split writes and JSON controls.
+Evidence: [XML patch quoting](postmortems/shell-xml-patch-quotes.md).

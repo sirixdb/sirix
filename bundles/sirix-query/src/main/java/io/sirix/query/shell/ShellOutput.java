@@ -4,6 +4,7 @@ import io.brackit.query.Query;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.sirix.query.SirixStringSerializer;
+import io.sirix.query.shell.ShellResultWriter.DiffMode;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Objects;
@@ -39,7 +40,7 @@ public final class ShellOutput {
       out.println();
     out.println(palette.subtle() + "Query result" + palette.reset());
     if (palette.enabled()) {
-      try (final ShellResultWriter writer = new ShellResultWriter(out, palette, isDiff(source))) {
+      try (final ShellResultWriter writer = new ShellResultWriter(out, palette, diffMode(source))) {
         final SirixStringSerializer serializer = new SirixStringSerializer(new PrintWriter(writer));
         serializer.setFormat(true);
         query.serialize(context, serializer);
@@ -56,7 +57,7 @@ public final class ShellOutput {
     out.flush();
   }
 
-  private static boolean isDiff(final String source) {
+  private static DiffMode diffMode(final String source) {
     final List<ShellHighlighter.Token> tokens = new ArrayList<>(14);
     for (final var token : ShellHighlighter.tokens(source)) {
       if (token.kind() != ShellHighlighter.Kind.COMMENT && !token.text().isBlank())
@@ -64,23 +65,25 @@ public final class ShellOutput {
     }
     final int size = tokens.size();
     if (size < 10)
-      return false;
+      return DiffMode.NONE;
     final String name = tokens.getFirst().text();
     final boolean json = name.equals("jn:diff");
     if (!json && !name.equals("xn:diff"))
-      return false;
+      return DiffMode.NONE;
     if (size > (json
         ? 14
         : 10) || size % 2 != 0 || !tokens.get(1).text().equals("(") || !tokens.getLast().text().equals(")"))
-      return false;
+      return DiffMode.NONE;
     for (int i = 2; i < size - 1; i += 2) {
       final ShellHighlighter.Kind expected = i < 6
           ? ShellHighlighter.Kind.STRING
           : ShellHighlighter.Kind.NUMBER;
       if (tokens.get(i).kind() != expected || (i > 2 && !tokens.get(i - 1).text().equals(",")))
-        return false;
+        return DiffMode.NONE;
     }
-    return true;
+    return json
+        ? DiffMode.JSON
+        : DiffMode.XML;
   }
 
   public void error(final QueryException exception) {

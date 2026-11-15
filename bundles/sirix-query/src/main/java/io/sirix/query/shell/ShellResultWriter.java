@@ -11,13 +11,17 @@ import java.util.Objects;
  * must preserve tokens across serializer flushes).
  */
 public final class ShellResultWriter extends Writer {
+  public enum DiffMode {
+    NONE, JSON, XML
+  }
+
   private enum XmlMarkup {
     NONE, START, DECLARATION, TAG, COMMENT, PI, CDATA
   }
 
   private final Writer out;
   private final ShellPalette palette;
-  private final boolean diff;
+  private final DiffMode diff;
   private final char[] buffer = new char[16384];
   private final char[] key = new char[16];
   private final char[] containers = new char[256];
@@ -36,10 +40,10 @@ public final class ShellResultWriter extends Writer {
   private boolean number;
   private boolean pendingWord;
 
-  public ShellResultWriter(final Writer out, final ShellPalette palette, final boolean diff) {
+  public ShellResultWriter(final Writer out, final ShellPalette palette, final DiffMode diff) {
     this.out = Objects.requireNonNull(out);
     this.palette = Objects.requireNonNull(palette);
-    this.diff = diff;
+    this.diff = Objects.requireNonNull(diff);
   }
 
   @Override
@@ -105,7 +109,7 @@ public final class ShellResultWriter extends Writer {
       put(c);
       return;
     }
-    acceptJson(c);
+    acceptValue(c);
   }
 
   private void acceptQuoted(final char c) throws IOException {
@@ -119,7 +123,7 @@ public final class ShellResultWriter extends Writer {
       put(c);
     if (escaped)
       escaped = false;
-    else if (c == '\\' && xmlMarkup == XmlMarkup.NONE)
+    else if (c == '\\' && xmlMarkup == XmlMarkup.NONE && diff != DiffMode.XML)
       escaped = true;
     else if (c == quote) {
       quote = 0;
@@ -131,10 +135,10 @@ public final class ShellResultWriter extends Writer {
     }
   }
 
-  private void acceptJson(final char c) throws IOException {
-    if (c == '"') {
+  private void acceptValue(final char c) throws IOException {
+    if (c == '"' || (diff == DiffMode.XML && c == '\'')) {
       quote = c;
-      if (expectKey) {
+      if (expectKey && diff != DiffMode.XML) {
         pendingKey = true;
         keyLength = 1;
         key[0] = c;
@@ -146,7 +150,7 @@ public final class ShellResultWriter extends Writer {
       return;
     }
     updateJsonState(c);
-    if (diff && depth == 0 && Character.isUnicodeIdentifierStart(c)) {
+    if (diff != DiffMode.NONE && depth == 0 && Character.isUnicodeIdentifierStart(c)) {
       pendingWord = true;
       keyLength = 1;
       key[0] = c;
@@ -220,7 +224,7 @@ public final class ShellResultWriter extends Writer {
 
   private void emitKey(final boolean complete) throws IOException {
     String colour = palette.blue();
-    if (diff && complete) {
+    if (diff != DiffMode.NONE && complete) {
       if (matches("\"insert\""))
         colour = palette.green();
       else if (matches("\"update\"") || matches("\"replace\""))
