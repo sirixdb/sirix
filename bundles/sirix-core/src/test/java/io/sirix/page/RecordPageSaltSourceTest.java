@@ -26,9 +26,8 @@ final class RecordPageSaltSourceTest {
   @Test
   void bufferedSaltsMatchNistAes256CtrAndContinueAcrossRefills() throws GeneralSecurityException {
     final HexFormat hex = HexFormat.of();
-    final byte[] seed = hex.parseHex("603deb1015ca71be2b73aef0857d7781"
-        + "1f352c073b6108d72d9810a30914dff4"
-        + "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff");
+    final byte[] seed = hex.parseHex(
+        "603deb1015ca71be2b73aef0857d7781" + "1f352c073b6108d72d9810a30914dff4" + "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff");
     final RecordPageSaltSource source = new RecordPageSaltSource(seed);
     final byte[] publishedPlaintext = hex.parseHex("6bc1bee22e409f96e93d7e117393172a");
     final byte[] publishedCiphertext = hex.parseHex("601ec313775789a5b7a7f504bbf3d228");

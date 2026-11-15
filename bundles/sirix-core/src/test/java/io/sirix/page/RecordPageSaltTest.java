@@ -62,9 +62,15 @@ final class RecordPageSaltTest {
   }
 
   private static long recoveredState(final long[] salts, final boolean stafford) {
-    final long first = stafford ? unmixStafford(salts[0]) : unmixMurmur(salts[0]);
-    final long third = stafford ? unmixStafford(salts[2]) : unmixMurmur(salts[2]);
-    final long fourth = stafford ? unmixStafford(salts[3]) : unmixMurmur(salts[3]);
+    final long first = stafford
+        ? unmixStafford(salts[0])
+        : unmixMurmur(salts[0]);
+    final long third = stafford
+        ? unmixStafford(salts[2])
+        : unmixMurmur(salts[2]);
+    final long fourth = stafford
+        ? unmixStafford(salts[3])
+        : unmixMurmur(salts[3]);
     return first + (fourth - third);
   }
 
