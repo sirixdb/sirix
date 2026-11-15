@@ -584,11 +584,28 @@ class ReportingTest(unittest.TestCase):
                   'statuses': {'KILLED': 2, 'NO_COVERAGE': 1, 'SURVIVED': 1},
                   'survivors': ['SURVIVED | a.Foo | run | 7 | negated conditional']}
         text = mutation.format_summary([result])
-        self.assertIn('Changed classes mutated: 2. Test patterns: 1. '
+        self.assertIn('Changed target classes: 2. Test patterns: 1. '
                       'Mutants sampled per class: 40.', text)
+        self.assertIn('Changed sources for which no mapped test was selected:', text)
+        self.assertNotIn('their mutants report', text)
         self.assertIn('Survived: 1. No coverage: 1.', text)
         self.assertIn('src/main/java/c/Baz.java', text)
         self.assertIn('negated conditional', text)
+
+    def test_summary_distinguishes_unmapped_modules_from_measured_coverage(self):
+        result = {'module': 'sirix-core', 'state': 'unmapped', 'targets': ['a.Foo'],
+                  'tests': [], 'unmapped': ['src/main/java/a/Foo.java'],
+                  'mutants_per_class': 40,
+                  'error': 'No test maps to any changed source; PIT has no baseline to collect'}
+        text = mutation.format_summary([result])
+        self.assertIn('No mutation analysis ran; no mutant has a status.', text)
+        self.assertIn('Changed target classes: 1. Test patterns: 0.', text)
+        self.assertIn('Changed sources for which no mapped test was selected:', text)
+        self.assertIn('src/main/java/a/Foo.java', text)
+        self.assertNotIn('NO_COVERAGE', text)
+        self.assertNotIn('No coverage:', text)
+        self.assertNotIn('classes mutated:', text)
+        self.assertNotIn('Killed:', text)
 
     def test_process_runs_literal_arguments_and_captures_log(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -330,13 +330,14 @@ def format_summary(results):
         lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", ''])
         if 'error' in result:
             lines.extend([escape(result['error']), ''])
+        if result['state'] == 'unmapped':
+            lines.extend(['No mutation analysis ran; no mutant has a status.', ''])
         if 'tests' in result:
-            lines.extend([f"Changed classes mutated: {len(result['targets'])}. "
+            lines.extend([f"Changed target classes: {len(result['targets'])}. "
                           f"Test patterns: {len(result['tests'])}. "
                           f"Mutants sampled per class: {result['mutants_per_class']}.", ''])
         if result.get('unmapped'):
-            lines.extend(['No test mapped to these changed sources; their mutants report '
-                          '`NO_COVERAGE`:', ''])
+            lines.extend(['Changed sources for which no mapped test was selected:', ''])
             lines.extend('- ' + escape(value) for value in result['unmapped'])
             lines.append('')
         if 'total' in result:
