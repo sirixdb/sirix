@@ -22,27 +22,21 @@ configure(mutationProject) {
         def standardTest = tasks.named('test').get()
         // Preserve each module's opens/exports and test properties, without its workstation-sized
         // heap, GC tuning or coverage agent. PIT forks two small minions on the CI runner.
-        def minionArgs = standardTest.jvmArgs.findAll {
-            !it.startsWith('-X') && !it.startsWith('-javaagent:')
-        }
-        // PIT's comma-separated --jvmArgs protocol re-splits commas in -D arguments into bare
-        // tokens, breaking minion startup. Filter synthesized properties only: opens/exports
-        // may be two-token options, so removing a jvmArgs element could orphan its paired token.
-        def unusable = []
-        standardTest.systemProperties.each { key, value ->
-            if (value == null) {
-                return
+        def minionArgs = providers.provider {
+            def inherited = standardTest.jvmArgs.findAll {
+                !it.startsWith('-X') && !it.startsWith('-javaagent:')
             }
-            def argument = "-D${key}=${value}".toString()
-            if (argument.contains(',')) {
-                unusable.add(key)
-            } else {
-                minionArgs.add(argument)
+            standardTest.systemProperties.each { key, value ->
+                if (value != null) {
+                    inherited.add("-D${key}=${value}".toString())
+                }
             }
-        }
-        if (!unusable.isEmpty()) {
-            logger.lifecycle('PR mutation: dropping test system properties whose value holds a '
-                    + "comma, which PIT would re-split into a bare minion argument: ${unusable}")
+            // Evaluate after configuration, including the query native-image test properties.
+            // Protect both transports: PIT's comma-separated CLI and its Java launcher argfile.
+            inherited.collect { argument ->
+                def quoted = '"' + argument.replace('\\', '\\\\').replace('"', '\\"') + '"'
+                argument.contains(',') ? '{' + quoted + '}' : quoted
+            }
         }
         pitest {
             pitestVersion = '1.25.5'
@@ -73,9 +67,10 @@ configure(mutationProject) {
             mutationThreshold = 0
             coverageThreshold = 0
             timeoutConstInMillis = 10000
-            jvmArgs = minionArgs + ['--enable-preview', '--add-modules=jdk.incubator.vector',
-                                    '-Xmx1536m', '-XX:MaxDirectMemorySize=1g',
-                                    '-Dsirix.stress.run.millis=200']
+            jvmArgs = minionArgs.map { inherited ->
+                inherited + ['--enable-preview', '--add-modules=jdk.incubator.vector',
+                             '-Xmx1536m', '-XX:MaxDirectMemorySize=1g', '-Dsirix.stress.run.millis=200']
+            }
             mainProcessJvmArgs = ['--enable-preview', '-Xmx1536m']
         }
     }

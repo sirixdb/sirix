@@ -25,7 +25,7 @@ final class VectorizedFallbackExpr implements Expr {
   public Sequence evaluate(final QueryContext context, final Tuple tuple) throws QueryException {
     try {
       return vectorized.evaluate(context, tuple);
-    } catch (final VectorizedRouteRefusedException refused) {
+    } catch (final VectorizedRouteRefusedException _) {
       return generic.evaluate(context, tuple);
     }
   }

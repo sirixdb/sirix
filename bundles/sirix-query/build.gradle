@@ -211,7 +211,7 @@ ext.nativeDowncallPreinitializeProperty = 'native.preinitializeDowncalls'
 ext.nativeDowncallPreinitializeRequested =
     project.providers.gradleProperty(nativeDowncallPreinitializeProperty).getOrElse('false').toBoolean()
 
-test {
+test { queryTest ->
     systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     useJUnitPlatform()
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
@@ -253,9 +253,10 @@ test {
         // Declared, so a change to an image's arguments re-runs the guard instead of leaving it cached.
         inputs.property("nativeImageBuildTimeArgs.${binary}", nativeBuildTimeArgsOf(binary))
     }
-    doFirst {
+    // Populate after the native binaries are configured, even when PIT runs without the test task.
+    gradle.projectsEvaluated {
         ['main', 'smokeTest'].each { binary ->
-            systemProperty "sirix.test.nativeImage.buildTimeArgs.${binary}", nativeBuildTimeArgsOf(binary).get()
+            queryTest.systemProperty "sirix.test.nativeImage.buildTimeArgs.${binary}", nativeBuildTimeArgsOf(binary).get()
         }
     }
     // The guard also reads the shared native-image.properties of every module. They are not on this

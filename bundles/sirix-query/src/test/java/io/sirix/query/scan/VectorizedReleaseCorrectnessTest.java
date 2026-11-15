@@ -57,7 +57,7 @@ final class VectorizedReleaseCorrectnessTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"\"engineering\"", "17"})
-  void nestedMissingGroupSurvivesReopen(final String key) throws Exception {
+  void nestedMissingGroupSurvivesReopen(final String key) {
     final String document = "{\"rows\":[{\"dept\":" + key + "},{\"other\":1},{\"dept\":" + key + "}]}";
     final String query =
         "for $r in " + DOC + ".rows[] let $d := $r.dept group by $d " + "return {\"dept\":$d,\"count\":count($r)}";
@@ -65,7 +65,7 @@ final class VectorizedReleaseCorrectnessTest {
   }
 
   @Test
-  void nestedCompositeMissingGroupSurvivesReopen() throws Exception {
+  void nestedCompositeMissingGroupSurvivesReopen() {
     final String document =
         "{\"rows\":[{\"dept\":\"Eng\",\"city\":\"A\"}," + "{\"city\":\"B\"},{\"dept\":\"Eng\",\"city\":\"B\"}]}";
     final String query = "for $r in " + DOC + ".rows[] let $d := $r.dept, $c := $r.city group by $d, $c "
@@ -75,13 +75,13 @@ final class VectorizedReleaseCorrectnessTest {
 
   @ParameterizedTest
   @CsvSource({"min,false", "max,false", "min,true", "max,true"})
-  void pureStringExtremaRemainAdmitted(final String function, final boolean predicated) throws Exception {
+  void pureStringExtremaRemainAdmitted(final String function, final boolean predicated) {
     checkAcrossReopen("[{\"selected\":true,\"value\":\"alpha\"}," + "{\"selected\":true,\"value\":\"omega\"}]",
         aggregate(function, predicated), false, null, 4);
   }
 
   @Test
-  void emptyTopLevelGroupSourceIsKnown() throws Exception {
+  void emptyTopLevelGroupSourceIsKnown() {
     final String query =
         "for $r in " + DOC + "[] let $d := $r.dept group by $d " + "return {\"dept\":$d,\"count\":count($r)}";
     checkAcrossReopen("[]", query, false, "", 4);
@@ -90,33 +90,33 @@ final class VectorizedReleaseCorrectnessTest {
   @ParameterizedTest
   @CsvSource({"sum,null", "avg,null", "min,null", "max,null", "sum,true", "avg,true", "min,true", "max,true",
       "sum,\"invalid\"", "avg,\"invalid\"", "min,\"invalid\"", "max,\"invalid\""})
-  void unfilteredMixedValuesPreserveGenericError(final String function, final String bad) throws Exception {
+  void unfilteredMixedValuesPreserveGenericError(final String function, final String bad) {
     checkAcrossReopen(mixedDocument(bad, true), aggregate(function, false), true, null, 4);
   }
 
   @ParameterizedTest
   @CsvSource({"sum,30.75", "avg,15.375", "min,10.25", "max,20.5"})
-  void exactDecimalAggregatesRemainAdmitted(final String function, final String expected) throws Exception {
+  void exactDecimalAggregatesRemainAdmitted(final String function, final String expected) {
     checkAcrossReopen("[{\"selected\":true,\"value\":10.25},{\"selected\":true,\"value\":20.5}]",
         aggregate(function, true), false, expected, 4);
   }
 
   @ParameterizedTest
   @CsvSource({"sum,1", "avg,0.5", "min,0", "max,1"})
-  void integerValuesSharingBooleanEncodingsRemainExact(final String function, final String expected) throws Exception {
+  void integerValuesSharingBooleanEncodingsRemainExact(final String function, final String expected) {
     checkAcrossReopen("[{\"value\":0},{\"value\":1}]", aggregate(function, false), false, expected, 4);
   }
 
   @ParameterizedTest
   @ValueSource(strings = {"sum", "avg", "min", "max"})
-  void falseBetweenNegativeNumbersIsNotNumericZero(final String function) throws Exception {
+  void falseBetweenNegativeNumbersIsNotNumericZero(final String function) {
     checkAcrossReopen("[{\"value\":-20},{\"value\":false},{\"value\":-10}]", aggregate(function, false), true, null, 4);
   }
 
   @ParameterizedTest
   @CsvSource({"sum,string", "sum,null", "sum,boolean", "avg,string", "avg,null", "avg,boolean", "min,string",
       "min,null", "min,boolean", "max,string", "max,null", "max,boolean"})
-  void matchingMixedValuesPreserveGenericError(final String function, final String kind) throws Exception {
+  void matchingMixedValuesPreserveGenericError(final String function, final String kind) {
     final String bad = switch (kind) {
       case "string" -> "\"not-a-number\"";
       case "null" -> "null";
@@ -128,20 +128,19 @@ final class VectorizedReleaseCorrectnessTest {
 
   @ParameterizedTest
   @CsvSource({"sum,30", "avg,15", "min,10", "max,20", "count,2"})
-  void excludedNonNumericValueDoesNotCauseError(final String function, final String expected) throws Exception {
+  void excludedNonNumericValueDoesNotCauseError(final String function, final String expected) {
     checkAcrossReopen(mixedDocument("\"not-a-number\"", false), aggregate(function, true), false, expected, 4);
   }
 
   @Test
-  void countIncludesMatchingNonNumericValues() throws Exception {
+  void countIncludesMatchingNonNumericValues() {
     checkAcrossReopen(mixedDocument("null", true), aggregate("count", true), false, "3", 4);
   }
 
   @ParameterizedTest
   @CsvSource({"sum,false,1", "sum,false,4", "sum,true,1", "sum,true,4", "avg,false,1", "avg,false,4", "avg,true,1",
       "avg,true,4"})
-  void cancellationFollowsGenericFoldOrder(final String function, final boolean predicated, final int threads)
-      throws Exception {
+  void cancellationFollowsGenericFoldOrder(final String function, final boolean predicated, final int threads) {
     // A left fold loses every small contribution between the cancelling large values.
     // Parallel middle chunks retain their small contributions, so merging changes the answer.
     final StringBuilder json = new StringBuilder(200_000).append('[');
@@ -161,7 +160,7 @@ final class VectorizedReleaseCorrectnessTest {
 
   @ParameterizedTest
   @CsvSource({"sum,1", "sum,1.00", "avg,1", "avg,1.00"})
-  void mixedNumericLanesPreservePromotionOrder(final String function, final String middle) throws Exception {
+  void mixedNumericLanesPreservePromotionOrder(final String function, final String middle) {
     final String document = "[{\"selected\":true,\"value\":1.0e16},{\"selected\":true,\"value\":" + middle
         + "},{\"selected\":true,\"value\":-1.0e16}]";
     checkAcrossReopen(document, aggregate(function, true), false, null, 1, 2);
@@ -179,18 +178,17 @@ final class VectorizedReleaseCorrectnessTest {
   }
 
   private void checkAcrossReopen(final String document, final String query, final boolean expectError,
-      final String expected, final int threads) throws Exception {
+      final String expected, final int threads) {
     checkAcrossReopen(document, query, expectError, expected, threads, -1, expectError);
   }
 
   private void checkAcrossReopen(final String document, final String query, final boolean expectError,
-      final String expected, final int threads, final int expectedDoubleCount) throws Exception {
+      final String expected, final int threads, final int expectedDoubleCount) {
     checkAcrossReopen(document, query, expectError, expected, threads, expectedDoubleCount, true);
   }
 
   private void checkAcrossReopen(final String document, final String query, final boolean expectError,
-      final String expected, final int threads, final int expectedDoubleCount, final boolean expectRefusal)
-      throws Exception {
+      final String expected, final int threads, final int expectedDoubleCount, final boolean expectRefusal) {
     final Outcome[] oracle = new Outcome[1];
     // Run the reopened comparison even while the warm regression is still red.
     assertAll(() -> {
@@ -221,7 +219,7 @@ final class VectorizedReleaseCorrectnessTest {
 
   private void check(final BasicJsonDBStore store, final SirixQueryContext context, final String query,
       final boolean expectError, final String expected, final int threads, final String phase,
-      final boolean expectRefusal, final Outcome generic) throws Exception {
+      final boolean expectRefusal, final Outcome generic) {
     assertEquals(expectError, generic.error(), "generic oracle: " + phase + ": " + query);
     if (expected != null) {
       assertEquals(expected, generic.text(), "independent expected value");

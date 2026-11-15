@@ -1874,11 +1874,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return cached;
     } catch (Exception e) {
-      if (e instanceof VectorizedRouteRefusedException refused) {
-        throw refused;
-      }
-      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized group-by-count failed: %s",
-          e.getMessage());
+      throw vectorizedFailure(e, "group-by-count");
     }
   }
 
@@ -2396,10 +2392,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         fresh = buildTypedGroupRecords(projected, outNames, countName);
       }
       if (fresh == null) {
-        if (predicate == null) {
-          requireKnownGroupSource(sourcePath);
-        }
-        fresh = typedGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
+        fresh = completeSourceGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
       }
       cached = multiGroupByCountCache.putIfAbsent(cacheKey, fresh);
       return cached == null
@@ -2411,6 +2404,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized multi-key group-by-count failed: %s",
           e.getMessage());
     }
+  }
+
+  /** Preserve explicit refusals across the legacy SPI's exception-wrapping boundary. */
+  private static QueryException vectorizedFailure(final Exception failure, final String operation) {
+    if (failure instanceof VectorizedRouteRefusedException refused) {
+      throw refused;
+    }
+    return new QueryException(failure, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized %s failed: %s", operation,
+        failure.getMessage());
+  }
+
+  private Sequence completeSourceGroupByCount(final String[] sourcePath, final PredicateNode predicate,
+      final String[] groupFields, final String[] outNames, final String countName) throws Exception {
+    if (predicate == null) {
+      requireKnownGroupSource(sourcePath);
+    }
+    return typedGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
   }
 
   /** A field-anchor scan cannot reconstruct missing groups without a source cardinality. */
@@ -5753,11 +5763,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           ? fresh
           : cached;
     } catch (Exception e) {
-      if (e instanceof VectorizedRouteRefusedException refused) {
-        throw refused;
-      }
-      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized predicate-aggregate failed: %s",
-          e.getMessage());
+      throw vectorizedFailure(e, "predicate-aggregate");
     }
   }
 
@@ -5955,19 +5961,24 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     for (final MixedAgg a : perThread) {
       merged.merge(a);
     }
-    if (sawNonNumeric[0]) {
-      // Pure-string extrema remain supported. Mixed types and other non-numeric aggregates
-      // must use the generic evaluator, including its precise error code.
-      final Sequence stringExtreme = merged.count() == 0
-          ? stringMinMaxOrNull(sourcePath, predicate, aggField, func)
+    return checkedAggregateResult(sourcePath, predicate, aggField, func, merged, sawNonNumeric[0]);
+  }
+
+  /** Validate once per result, after all workers have joined and before a result is cached. */
+  private Sequence checkedAggregateResult(final String[] sourcePath, final PredicateNode predicate, final String field,
+      final String function, final MixedAgg values, final boolean sawNonNumeric) throws Exception {
+    if (sawNonNumeric) {
+      // Pure-string extrema remain supported. Mixed types must use the generic evaluator's error.
+      final Sequence stringExtreme = values.count() == 0
+          ? stringMinMaxOrNull(sourcePath, predicate, field, function)
           : null;
       if (stringExtreme != null) {
         return stringExtreme;
       }
-      throw new VectorizedRouteRefusedException("matching aggregate values include non-numeric items");
+      throw new VectorizedRouteRefusedException("aggregate values include non-numeric items");
     }
-    requireOrderIndependentAggregate(merged, func);
-    return merged.result(func);
+    requireOrderIndependentAggregate(values, function);
+    return values.result(function);
   }
 
   /** Checked once after the scan; the row kernels and exact integer/decimal folds are unchanged. */
@@ -13802,24 +13813,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return new Int64(typedStats.visited());
         }
         final MixedAgg values = typedStats.values();
-        if (values.count() != typedStats.visited()) {
-          final Sequence stringExtreme = values.count() == 0
-              ? stringMinMaxOrNull(sourcePath, null, field, func)
-              : null;
-          if (stringExtreme != null) {
-            return stringExtreme;
-          }
-          throw new VectorizedRouteRefusedException("aggregate values include non-numeric items");
-        }
-        requireOrderIndependentAggregate(values, func);
-        return values.result(func);
+        return checkedAggregateResult(sourcePath, null, field, func, values, values.count() != typedStats.visited());
       }
       return statsToSequence(func, stats);
     } catch (Exception e) {
-      if (e instanceof VectorizedRouteRefusedException refused) {
-        throw refused;
-      }
-      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized aggregate failed: %s", e.getMessage());
+      throw vectorizedFailure(e, "aggregate");
     }
   }
 
@@ -23979,9 +23977,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return null;
     }
     switch (func) {
-      case "count", "sum", "avg", "min", "max" -> {
+      case "count", "sum", "min", "max" -> {
         /* supported */ }
       default -> {
+        // avg always uses the scan: XQuery requires xs:decimal division, not a summary double.
         return null;
       }
     }
@@ -24039,7 +24038,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           PATH_SUMMARY_STATS_SERVED.increment();
           return new Int64(p.getReferences());
         }
-        if (("min".equals(func) || "avg".equals(func)) && p.isStatsMinDirty()) {
+        if ("min".equals(func) && p.isStatsMinDirty()) {
           return null;
         }
         if ("max".equals(func) && p.isStatsMaxDirty()) {
@@ -24063,12 +24062,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         if (!p.isStatsSumTrustworthy() || !p.isStatsSumIntegral()) {
           return null;
         }
-        // avg is left to the scan even for integral columns: XQuery promotes it to xs:decimal
-        // (avg of 2, 2, 3 is 2.333333333333333333, not 2.3333333333333335), and reproducing
-        // brackit's decimal semantics from a long sum and a count is a way to be subtly wrong.
-        if ("avg".equals(func)) {
-          return null;
-        }
         final long count = p.getStatsValueCount();
         final long sum = p.getStatsSum();
         final boolean numeric = p.hasNumericStats();
@@ -24081,7 +24074,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         // Stats merge booleans as 0/1 and strings into the same observation count. Prove numeric
         // purity from existing metadata: complete observations, no strings, and bounds excluding
         // both boolean encodings. An integral column spanning [0,1] conservatively uses the scan.
-        if (!numeric || p.hasBytesStats() || count != p.getReferences() || (pMin <= 1L && pMax >= 0L)) {
+        if (!hasPureNumericStats(p, numeric, count, pMin, pMax)) {
           return null;
         }
         final Sequence served = switch (func) {
@@ -24105,6 +24098,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         summary.close();
       }
     }
+  }
+
+  private static boolean hasPureNumericStats(final PathNode path, final boolean numeric, final long count,
+      final long min, final long max) {
+    return numeric && !path.hasBytesStats() && count == path.getReferences() && (min > 1L || max < 0L);
   }
 
   // ==================== Implementation ====================
