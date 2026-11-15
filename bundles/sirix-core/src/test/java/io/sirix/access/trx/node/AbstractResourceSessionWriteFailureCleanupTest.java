@@ -292,8 +292,8 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
 
   private static StorageEngineWriter writerWithDocumentNode() {
     final StorageEngineWriter writer = mock(StorageEngineWriter.class);
-    when(writer.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1)).thenReturn(
-        mock(Node.class));
+    final Node document = mock(Node.class);
+    when(writer.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1)).thenReturn(document);
     return writer;
   }
 

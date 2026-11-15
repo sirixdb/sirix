@@ -90,7 +90,8 @@ final class ConcurrentAxisLifecycleTest {
     final Axis second = mock(Axis.class);
     when(first.getCursor()).thenReturn(cursor);
     when(first.asXmlNodeReadTrx()).thenReturn(cursor);
-    when(second.getCursor()).thenReturn(mock(XmlNodeReadOnlyTrx.class));
+    final XmlNodeReadOnlyTrx secondCursor = mock(XmlNodeReadOnlyTrx.class);
+    when(second.getCursor()).thenReturn(secondCursor);
     final IllegalStateException failure = new IllegalStateException("close");
     doThrow(failure).when(first).close();
     @SuppressWarnings("unchecked")
@@ -304,7 +305,7 @@ final class ConcurrentAxisLifecycleTest {
       try {
         latch.await();
         break;
-      } catch (final InterruptedException e) {
+      } catch (final InterruptedException _) {
         interrupted = true;
       }
     }

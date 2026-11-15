@@ -38,8 +38,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 /**
  * Differential gate for the parallel row-group directory walk
@@ -202,10 +204,19 @@ final class ProjectionParallelDirectoryWalkTest {
       final AtomicBoolean returned = new AtomicBoolean();
       final AtomicReference<Throwable> observed = new AtomicReference<>();
       final AtomicReference<List<ProjectionIndexHOTStorage.RowGroupDirectory>> result = new AtomicReference<>();
+      final SirixIOException cancelledIo = new SirixIOException(new ClosedByInterruptException());
       final Thread owner = new Thread(() -> {
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
-          result.set(ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(
-              rtx.getStorageEngineReader(), INDEX_NUMBER, ROW_GROUPS, identityPhysicalOrder(), worker -> {
+          final StorageEngineReader original = rtx.getStorageEngineReader();
+          final StorageEngineReader reader = mock(StorageEngineReader.class, delegatesTo(original));
+          doAnswer(_ -> {
+            if (Thread.currentThread().isInterrupted()) {
+              throw cancelledIo;
+            }
+            return original.getActualRevisionRootPage();
+          }).when(reader).getActualRevisionRootPage();
+          result.set(ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, INDEX_NUMBER,
+              ROW_GROUPS, identityPhysicalOrder(), worker -> {
                 assertTrue(Thread.currentThread().isDaemon(), "directory workers must be daemon threads");
                 if (leases.getAndIncrement() == 0 && !mode.equals("interrupt")) {
                   if (failure instanceof Error error) {
@@ -220,7 +231,7 @@ final class ProjectionParallelDirectoryWalkTest {
                     try {
                       release.await();
                       break;
-                    } catch (final InterruptedException e) {
+                    } catch (final InterruptedException _) {
                       interrupted = true;
                       cancellationObserved.countDown();
                     }
@@ -261,14 +272,12 @@ final class ProjectionParallelDirectoryWalkTest {
       }
       assertTrue(leases.get() >= 2, "fixture must actually engage parallel readers");
       assertEquals(mode.equals("interrupt"), interruptRestored.get());
-      if (mode.equals("interrupt") && result.get() == null) {
-        // Restoring interruption before fallback can cancel FileChannel I/O. That failure is valid;
-        // clean exhaustion or a partial result is not. The reader-release assertion below still applies.
-        final SirixIOException cancelled = assertInstanceOf(SirixIOException.class, observed.get());
-        assertInstanceOf(ClosedByInterruptException.class, cancelled.getCause());
-      } else if (mode.equals("infrastructure") || mode.equals("interrupt")) {
+      if (mode.equals("interrupt")) {
+        assertSame(cancelledIo, observed.get(), "the fallback must propagate cancelled storage access");
+        assertNull(result.get(), "cancellation must not publish a partial result");
+      } else if (mode.equals("infrastructure")) {
         assertNull(observed.get());
-        assertNotNull(result.get(), "fallback must return the complete result or propagate cancelled I/O");
+        assertNotNull(result.get(), "fallback must return the complete result");
         assertEquals(ROW_GROUPS, result.get().size());
       } else {
         assertSame(failure, observed.get());

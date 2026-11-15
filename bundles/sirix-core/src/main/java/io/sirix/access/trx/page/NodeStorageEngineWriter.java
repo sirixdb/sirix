@@ -4332,6 +4332,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isAutoCommitting, final boolean isIntermediateCommit) {
     storageEngineReader.assertNotClosed();
@@ -5219,6 +5221,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
+  @SuppressWarnings("java:S1181")
   public UberPage rollback() {
     storageEngineReader.assertNotClosed();
 

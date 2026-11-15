@@ -26,7 +26,7 @@ public final class WorkerTermination {
       while (!executor.isTerminated()) {
         try {
           executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
-        } catch (final InterruptedException e) {
+        } catch (final InterruptedException _) {
           interrupted = true;
           executor.shutdownNow();
         }

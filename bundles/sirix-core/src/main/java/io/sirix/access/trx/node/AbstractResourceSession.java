@@ -142,6 +142,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     RECOVERY_REQUIRED.keySet().removeIf(marker -> marker.startsWith(resource));
   }
 
+  // Volatile publishes the callback; test callbacks synchronize their own captured state.
+  @SuppressWarnings("java:S3077")
   static volatile @Nullable Consumer<String> recoveryTestHook;
 
   private static void notifyRecoveryTestHook(final String stage) {
@@ -825,6 +827,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   public StorageEngineWriter createPageTransaction(final int id, final int representRevision, final int storedRevision,
       final Abort abort, final boolean isBoundToNodeTrx, final @Nullable UberPage pendingBaseUberPage) {
     checkArgument(id >= 0, "id must be >= 0!");
@@ -853,10 +857,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Pipelined async commits pass the pending (phase-1-complete, canonical in-memory) uber page
     // of the still-hardening revision as the base for the successor epoch; readers keep resolving
     // "latest" through lastCommittedUberPage until the background hardening publishes it.
-    UberPage lastCommittedUberPage = pendingBaseUberPage != null
+    UberPage baseUberPage = pendingBaseUberPage != null
         ? pendingBaseUberPage
         : this.lastCommittedUberPage.get();
-    final int originalCommittedRev = lastCommittedUberPage.getRevisionNumber();
+    final int originalCommittedRev = baseUberPage.getRevisionNumber();
 
     // Marker recovery runs BEFORE the writer is constructed, and the ordering is load-bearing.
     // createStorageEngineWriter eagerly reads pages (NamePage's dictionaries, for one) through the
@@ -873,8 +877,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // abandoned prewrites and cleanup failures in this process.
     try {
       if (pendingBaseUberPage == null) {
-        lastCommittedUberPage =
-            truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedUberPage);
+        baseUberPage = truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, baseUberPage);
       }
     } catch (final RuntimeException | Error failure) {
       try {
@@ -884,11 +887,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       }
       throw failure;
     }
-    final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
+    final int lastCommittedRev = baseUberPage.getRevisionNumber();
     return this.storageEngineWriterFactory.createStorageEngineWriter(this,
-        abort == Abort.YES && lastCommittedUberPage.isBootstrap()
+        abort == Abort.YES && baseUberPage.isBootstrap()
             ? new UberPage()
-            : new UberPage(lastCommittedUberPage),
+            : new UberPage(baseUberPage),
         writer, id, representRevision == originalCommittedRev
             ? lastCommittedRev
             : representRevision,
@@ -948,6 +951,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   private UberPage truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(final Writer writer,
       final UberPage committedPage) {
     final Path marker = getCommitFile();
@@ -1492,6 +1497,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
+  @SuppressWarnings("java:S1181")
   public synchronized void close() {
     if (isClosed) {
       return;

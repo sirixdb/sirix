@@ -100,7 +100,7 @@ final class ProjectionDirectoryWorkerFenceTest {
       try {
         latch.await();
         break;
-      } catch (final InterruptedException e) {
+      } catch (final InterruptedException _) {
         interrupted = true;
         cancellationObserved.countDown();
       }

@@ -552,6 +552,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * background; the transaction immediately continues on a successor epoch based on the pending uber
    * page. Readers see the revision when the background hardening publishes it.
    */
+  // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
+  @SuppressWarnings("java:S1181")
   private void asyncCommitInternal(final String commitMessage) {
     runLocked(() -> {
       nodeReadOnlyTrx.assertNotClosed();
@@ -651,6 +653,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   private void hardenAfterForegroundFailure(final StorageEngineWriter writer, final UberPage pending,
       final @Nullable Runnable publish, final Throwable failure) {
     try {
@@ -671,6 +675,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Phase 2 + publication: harden the pending revision, make it visible to readers, and close the
    * superseded page transaction (releasing its writer channels).
    */
+  // Keep retirement inside writer ownership and preserve the first failure, including Error.
+  @SuppressWarnings("java:S1181")
   private void hardenAndPublish(final StorageEngineWriter committingWriter, final UberPage pendingUberPage,
       final @Nullable Runnable publishUpdateDiffs) {
     try (committingWriter) {
@@ -681,17 +687,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         resourceSession.setLastCommittedUberPage(pendingUberPage);
       } catch (final RuntimeException | Error hardeningFailure) {
         failure = hardeningFailure;
-        throw hardeningFailure;
-      } finally {
-        try {
-          resourceSession.clearPendingRevisionRoot(pendingUberPage.getRevisionNumber());
-        } catch (final RuntimeException | Error cleanupFailure) {
-          if (failure == null) {
-            throw cleanupFailure;
-          }
-          ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
-        }
       }
+      try {
+        resourceSession.clearPendingRevisionRoot(pendingUberPage.getRevisionNumber());
+      } catch (final RuntimeException | Error cleanupFailure) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
+      }
+      ShardedPageCache.rethrowCleanupFailure(failure);
     } catch (final RuntimeException | Error failure) {
       try {
         resourceSession.requireCommitRecovery();
@@ -739,6 +741,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * @param isIntermediateCommit if true, this is an intermediate auto-commit during bulk insert
    * @return this transaction for chaining
    */
+  // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
+  @SuppressWarnings("java:S1181")
   private W commitInternal(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
     runLocked(() -> {
@@ -1276,6 +1280,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   public synchronized W rollback() {
     nodeReadOnlyTrx.assertNotClosed();
     if (lock != null) {
@@ -1528,6 +1534,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     close(true);
   }
 
+  // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
+  @SuppressWarnings("java:S1181")
   private synchronized void close(final boolean abort) {
     Throwable failure = null;
     try {

@@ -1948,6 +1948,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
   public void close() {
     if (!CLOSE_INITIATED_VH.compareAndSet(this, 0, 1)) {
       return;
