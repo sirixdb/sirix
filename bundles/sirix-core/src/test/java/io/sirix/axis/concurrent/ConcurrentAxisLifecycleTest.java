@@ -2,6 +2,15 @@ package io.sirix.axis.concurrent;
 
 import io.sirix.api.Axis;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
+import io.sirix.api.Filter;
+import io.sirix.axis.ForAxis;
+import io.sirix.axis.NestedAxis;
+import io.sirix.axis.NonStructuralWrapperAxis;
+import io.sirix.axis.SelfAxis;
+import io.sirix.axis.filter.FilterAxis;
+import io.sirix.axis.filter.PredicateFilterAxis;
+import java.util.concurrent.ExecutorService;
 import io.sirix.exception.SirixThreadedException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.BlockingQueue;
@@ -32,6 +41,93 @@ import static org.mockito.Mockito.anyLong;
 
 @Timeout(10)
 final class ConcurrentAxisLifecycleTest {
+  @ParameterizedTest
+  @ValueSource(strings = {"close", "reset"})
+  void cancellationClosesNestedConcurrentProducers(final String mode) throws InterruptedException {
+    final JsonNodeReadOnlyTrx cursor = mock(JsonNodeReadOnlyTrx.class);
+    when(cursor.moveTo(anyLong())).thenReturn(true);
+    final Axis source = mock(Axis.class);
+    final AtomicInteger produced = new AtomicInteger();
+    final CountDownLatch prefetched = new CountDownLatch(1);
+    when(source.hasNext()).thenReturn(true);
+    when(source.nextLong()).thenAnswer(invocation -> {
+      final int key = produced.incrementAndGet();
+      if (key == 300) {
+        prefetched.countDown();
+      }
+      return (long) key;
+    });
+    final ConcurrentAxis<JsonNodeReadOnlyTrx> inner = new ConcurrentAxis<>(cursor, source);
+    final JsonNodeReadOnlyTrx outerCursor = mock(JsonNodeReadOnlyTrx.class);
+    when(outerCursor.moveTo(anyLong())).thenReturn(true);
+    @SuppressWarnings("unchecked")
+    final Filter<JsonNodeReadOnlyTrx> filter = mock(Filter.class);
+    when(filter.getTrx()).thenReturn(cursor);
+    when(filter.filter()).thenReturn(true);
+    final Axis nested = new NestedAxis(new FilterAxis<>(inner, filter), new SelfAxis(cursor));
+    try (ConcurrentAxis<JsonNodeReadOnlyTrx> outer = new ConcurrentAxis<>(outerCursor, nested)) {
+      assertTrue(outer.hasNext());
+      outer.nextLong();
+      prefetched.await();
+      final ExecutorService outerExecutor = outer.executorService;
+      final ExecutorService innerExecutor = inner.executorService;
+      if (mode.equals("reset")) {
+        outer.reset(0);
+      } else {
+        outer.close();
+      }
+      assertTrue(outerExecutor.isTerminated());
+      assertTrue(innerExecutor.isTerminated());
+    }
+    assertTrue(inner.executorService.isTerminated());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"nested", "for", "filter", "predicate", "nonStructural", "union", "intersect", "except"})
+  void compositeCloseAttemptsEveryOwnedAxis(final String kind) {
+    final XmlNodeReadOnlyTrx cursor = mock(XmlNodeReadOnlyTrx.class);
+    final Axis first = mock(Axis.class);
+    final Axis second = mock(Axis.class);
+    when(first.getCursor()).thenReturn(cursor);
+    when(first.asXmlNodeReadTrx()).thenReturn(cursor);
+    when(second.getCursor()).thenReturn(mock(XmlNodeReadOnlyTrx.class));
+    final IllegalStateException failure = new IllegalStateException("close");
+    doThrow(failure).when(first).close();
+    @SuppressWarnings("unchecked")
+    final Filter<XmlNodeReadOnlyTrx> filter = mock(Filter.class);
+    when(filter.getTrx()).thenReturn(cursor);
+    final Axis composite = switch (kind) {
+      case "for" -> new ForAxis(first, second);
+      case "filter" -> new FilterAxis<>(first, filter);
+      case "predicate" -> new PredicateFilterAxis(cursor, first);
+      case "nonStructural" -> new NonStructuralWrapperAxis(first);
+      case "union" -> new ConcurrentUnionAxis<>(mock(XmlNodeReadOnlyTrx.class), first, second);
+      case "intersect" -> new ConcurrentIntersectAxis<>(mock(XmlNodeReadOnlyTrx.class), first, second);
+      case "except" -> new ConcurrentExceptAxis<>(mock(XmlNodeReadOnlyTrx.class), first, second);
+      default -> new NestedAxis(first, second);
+    };
+    assertSame(failure, assertThrows(IllegalStateException.class, composite::close));
+    verify(first).close();
+    if (kind.equals("nested") || kind.equals("for") || kind.equals("union") || kind.equals("intersect")
+        || kind.equals("except")) {
+      verify(second).close();
+    }
+  }
+
+  @Test
+  void helperClosesDescendantsAfterFailureAndRetainsThePrimaryError() {
+    final Axis producer = mock(Axis.class);
+    final IllegalStateException failure = new IllegalStateException("iteration");
+    final IllegalStateException cleanup = new IllegalStateException("descendant close");
+    when(producer.hasNext()).thenThrow(failure);
+    doThrow(cleanup).when(producer).close();
+    final ConcurrentAxisHelper helper = new ConcurrentAxisHelper(producer, new LinkedBlockingQueue<>());
+    helper.run();
+    verify(producer).close();
+    assertSame(failure, helper.failure());
+    assertSame(cleanup, failure.getSuppressed()[0]);
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {"close", "reset", "interrupt", "singleInterrupt", "alreadyShutdown"})
   void cancellationFencesProducerBeforeReturnOrReset(final String mode) throws InterruptedException {

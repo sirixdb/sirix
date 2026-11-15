@@ -135,7 +135,11 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
       try {
         executorService.submit(task);
       } catch (final RuntimeException | Error failure) {
-        close();
+        try {
+          close();
+        } catch (final RuntimeException | Error cleanupFailure) {
+          ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
+        }
         throw failure;
       }
     }
@@ -156,9 +160,15 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
       // Restore the interrupt flag and propagate: silently returning NULL_NODE_KEY here reported a
       // clean, shorter result sequence (an incorrect query answer indistinguishable from success)
       // and swallowed the cancellation signal.
-      close();
-      Thread.currentThread().interrupt();
-      throw new SirixThreadedException(e);
+      final SirixThreadedException failure = new SirixThreadedException(e);
+      try {
+        close();
+      } catch (final RuntimeException | Error cleanupFailure) {
+        ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
+      } finally {
+        Thread.currentThread().interrupt();
+      }
+      throw failure;
     }
 
     // NULL_NODE_KEY marks end of the sequence computed by the producer.
@@ -207,7 +217,11 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
     if (executorService != null) {
       WorkerTermination.shutdownAndAwait(executorService, true);
     }
-    first = false;
-    finished = true;
+    try {
+      producer.close();
+    } finally {
+      first = false;
+      finished = true;
+    }
   }
 }

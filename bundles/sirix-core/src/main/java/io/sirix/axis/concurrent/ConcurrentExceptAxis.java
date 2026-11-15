@@ -69,6 +69,13 @@ public final class ConcurrentExceptAxis<R extends NodeCursor & NodeReadOnlyTrx> 
   }
 
   @Override
+  public void close() {
+    try (op1) {
+      op2.close();
+    }
+  }
+
+  @Override
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
 
@@ -151,8 +158,7 @@ public final class ConcurrentExceptAxis<R extends NodeCursor & NodeReadOnlyTrx> 
    */
   @Override
   protected long done() {
-    op1.close();
-    op2.close();
+    close();
     return super.done();
   }
 }

@@ -59,6 +59,11 @@ public final class NonStructuralWrapperAxis extends AbstractAxis {
   }
 
   @Override
+  public void close() {
+    mParentAxis.close();
+  }
+
+  @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     if (mParentAxis != null) {

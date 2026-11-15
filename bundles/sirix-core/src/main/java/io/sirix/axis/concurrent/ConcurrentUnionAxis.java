@@ -71,6 +71,13 @@ public final class ConcurrentUnionAxis<R extends NodeCursor & NodeReadOnlyTrx> e
   }
 
   @Override
+  public void close() {
+    try (op1) {
+      op2.close();
+    }
+  }
+
+  @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
 
@@ -146,8 +153,7 @@ public final class ConcurrentUnionAxis<R extends NodeCursor & NodeReadOnlyTrx> e
    */
   @Override
   protected long done() {
-    op1.close();
-    op2.close();
+    close();
     return super.done();
   }
 }

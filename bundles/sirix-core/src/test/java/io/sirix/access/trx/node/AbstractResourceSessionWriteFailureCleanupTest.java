@@ -4,6 +4,20 @@
 package io.sirix.access.trx.node;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.User;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.io.StorageType;
+import java.nio.file.Path;
+import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import io.sirix.access.ResourceStore;
 import io.sirix.access.trx.node.InternalResourceSession.Abort;
 import io.sirix.access.trx.page.StorageEngineWriterFactory;
@@ -39,11 +53,75 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 final class AbstractResourceSessionWriteFailureCleanupTest {
+
+  @TempDir
+  Path directory;
+
+  @ParameterizedTest
+  @ValueSource(ints = {1, 2})
+  @Timeout(30)
+  void retryCompletesRealNodeOwnershipAfterWriterRefusal(final int refusals) throws ReflectiveOperationException {
+    final Path databasePath = directory.resolve("database");
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    final User firstUser = new User("first", UUID.randomUUID());
+    final User secondUser = new User("second", UUID.randomUUID());
+    try (Database<JsonResourceSession> firstDatabase = Databases.openJsonDatabase(databasePath, firstUser);
+        Database<JsonResourceSession> secondDatabase = Databases.openJsonDatabase(databasePath, secondUser)) {
+      firstDatabase.createResource(ResourceConfiguration.newBuilder("resource")
+                                                      .storageType(StorageType.FILE_CHANNEL)
+                                                      .build());
+      try (JsonResourceSession first = firstDatabase.beginResourceSession("resource");
+          JsonResourceSession second = secondDatabase.beginResourceSession("resource")) {
+        final JsonNodeTrx transaction = first.beginNodeTrx();
+        final StorageEngineWriter writer = spy(transaction.getStorageEngineWriter());
+        final Field writerField = AbstractNodeTrxImpl.class.getDeclaredField("storageEngineWriter");
+        writerField.setAccessible(true);
+        writerField.set(transaction, writer);
+        final Field readerField = AbstractNodeTrxImpl.class.getDeclaredField("nodeReadOnlyTrx");
+        readerField.setAccessible(true);
+        final InternalNodeReadOnlyTrx<?> reader = (InternalNodeReadOnlyTrx<?>) readerField.get(transaction);
+        reader.setPageReadTransaction(writer);
+        final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) first;
+        session.storageEngineWriterMap.put(transaction.getId(), writer);
+        final RuntimeException refusal = new IllegalStateException("worker still owns writer");
+        final AtomicInteger attempts = new AtomicInteger();
+        doThrow(refusal).doCallRealMethod().when(writer).rollback();
+        doAnswer(invocation -> {
+          if (attempts.getAndIncrement() < refusals) {
+            throw refusal;
+          }
+          return invocation.callRealMethod();
+        }).when(writer).close();
+        final Field schedulerField = AbstractNodeTrxImpl.class.getDeclaredField("commitScheduler");
+        schedulerField.setAccessible(true);
+        final ScheduledExecutorService scheduler = (ScheduledExecutorService) schedulerField.get(transaction);
+
+        assertSame(refusal, assertThrows(RuntimeException.class, first::close));
+        assertFalse(first.isClosed());
+        assertFalse(transaction.isClosed());
+        assertTrue(second.hasRunningNodeWriteTrx());
+        assertFalse(scheduler.isShutdown());
+        assertEquals(refusals == 1, writer.isClosed());
+
+        first.close();
+        assertTrue(first.isClosed());
+        assertTrue(transaction.isClosed());
+        assertTrue(scheduler.isTerminated());
+        assertFalse(second.hasRunningNodeWriteTrx());
+        try (JsonNodeTrx next = second.beginNodeTrx()) {
+          assertFalse(next.isClosed());
+        }
+        first.close();
+        assertFalse(second.hasRunningNodeWriteTrx());
+      }
+    }
+  }
 
   @Test
   @SuppressWarnings("unchecked")
@@ -86,6 +164,7 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
       return transaction;
     }).when(transaction).rollback();
     doThrow(failure).when(transaction).close();
+    when(transaction.isClosed()).thenReturn(true);
 
     assertSame(failure, assertThrows(RuntimeException.class, session::close));
     verify(original).close();
@@ -144,6 +223,7 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
       session.storageEngineWriterMap.remove(1);
       throw nodeFailure;
     }).when(transaction).close();
+    when(transaction.isClosed()).thenReturn(true);
     doThrow(readerFailure).when(reader).close();
     final ObjectPool<StorageEngineReader> pool = mock(ObjectPool.class);
     final Field poolField = AbstractResourceSession.class.getDeclaredField("pool");

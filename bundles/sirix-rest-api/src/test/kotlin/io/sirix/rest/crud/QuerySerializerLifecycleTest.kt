@@ -6,29 +6,32 @@ import io.brackit.query.jdm.Item
 import io.brackit.query.jdm.Iter
 import io.brackit.query.jdm.Sequence
 import io.brackit.query.module.Module
+import io.brackit.query.sequence.ItemSequence
 import io.brackit.query.util.serialize.Serializer
 import io.sirix.api.json.JsonNodeReadOnlyTrx
-import io.sirix.api.json.JsonResourceSession
 import io.sirix.query.SirixCompileChain
 import io.sirix.query.SirixQueryContext
-import io.sirix.query.json.PrefetchingChildAxis
+import io.sirix.api.Axis
+import io.sirix.axis.concurrent.ConcurrentAxis
+import io.sirix.io.StorageType
+import io.sirix.query.json.BasicJsonDBStore
+import io.sirix.query.json.JsonDBItem
+import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicReference
+import org.junit.jupiter.api.io.TempDir
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Tag
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.junit.jupiter.params.provider.CsvSource
 import org.mockito.Mockito
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
 @Tag("offline")
@@ -81,77 +84,95 @@ class QuerySerializerLifecycleTest {
         Mockito.verify(iterator).close()
     }
 
-    @Test
-    fun abandoningBoundedResultClosesPrefetchAndItsReaders() {
-        val session = Mockito.mock(JsonResourceSession::class.java)
-        val cursor = Mockito.mock(JsonNodeReadOnlyTrx::class.java)
-        val entered = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        val readers = ConcurrentLinkedQueue<JsonNodeReadOnlyTrx>()
-        Mockito.`when`(cursor.resourceSession).thenReturn(session)
-        Mockito.`when`(cursor.revisionNumber).thenReturn(1)
-        Mockito.`when`(cursor.maxNodeKey).thenReturn(32768L)
-        Mockito.`when`(cursor.childCount).thenReturn(32768L)
-        Mockito.`when`(cursor.hasFirstChild()).thenReturn(true)
-        Mockito.`when`(cursor.firstChildKey).thenReturn(1L)
-        Mockito.`when`(cursor.hasRightSibling()).thenReturn(true)
-        Mockito.`when`(cursor.rightSiblingKey).thenReturn(2L)
-        Mockito.`when`(cursor.moveTo(Mockito.anyLong())).thenReturn(true)
-        Mockito.`when`(session.beginNodeReadOnlyTrx(1)).thenAnswer {
-            val reader = Mockito.mock(JsonNodeReadOnlyTrx::class.java)
-            Mockito.`when`(reader.moveTo(Mockito.anyLong())).thenAnswer {
-                entered.countDown()
-                release.await()
-                true
-            }
-            readers.add(reader)
-            reader
-        }
-        val axis = PrefetchingChildAxis(cursor)
-        val iterator = Mockito.mock(Iter::class.java)
-        Mockito.`when`(iterator.next()).thenAnswer {
-            axis.nextLong()
-            Int32.ONE
-        }
-        Mockito.doAnswer {
-            axis.close()
-            cursor.close()
-            null
-        }.`when`(iterator).close()
-        val prefetchField = PrefetchingChildAxis::class.java.getDeclaredField("prefetcher")
-        prefetchField.isAccessible = true
-        var prefetch: Any? = null
-        var emitted = 0
-        try {
-            paginate(iterator, Mockito.mock(Serializer::class.java), 0, 1) { _, _ ->
-                if (++emitted == 2) {
-                    entered.await() // The result is abandoned while a real prefetch reader is active.
-                    prefetch = prefetchField.get(axis)
+    @TempDir
+    lateinit var directory: Path
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    @Timeout(30)
+    fun abandoningRealDescendantQueryFencesProducersBeforeReadersClose(sequenceInput: Boolean) {
+        BasicJsonDBStore.newBuilder().location(directory).storageType(StorageType.FILE_CHANNEL)
+            .buildPathSummary(true).build().use { store ->
+            val records = (1..600).joinToString(",") { """{"left":{"match":1},"right":{"match":2}}""" }
+            store.create("lifecycle", "records", """{"root":{"deep":{"rows":[$records]}}}""")
+            SirixQueryContext.createWithJsonStore(store).use { context ->
+                SirixCompileChain.createWithJsonStore(store).use { chain ->
+                    val document = "jn:doc('lifecycle','records')"
+                    val query = "$document=>>match"
+                    val module = chain.compile(query)
+                    if (sequenceInput) {
+                        val input = module.body.javaClass.getDeclaredField("context")
+                        input.isAccessible = true
+                        val contextExpression = Mockito.spy(input.get(module.body) as Expr)
+                        Mockito.doAnswer { invocation ->
+                            ItemSequence(invocation.callRealMethod() as Item)
+                        }.`when`(contextExpression).evaluate(Mockito.any(), Mockito.any())
+                        input.set(module.body, contextExpression)
+                    }
+                    val body = Mockito.spy(module.body)
+                    val result = AtomicReference<Sequence>()
+                    val iterator = AtomicReference<Iter>()
+                    Mockito.doAnswer { invocation ->
+                        val sequence = invocation.callRealMethod() as Sequence
+                        result.set(sequence)
+                        val observedSequence = Mockito.spy(sequence)
+                        Mockito.doAnswer { iteration ->
+                            (iteration.callRealMethod() as Iter).also { iterator.set(it) }
+                        }.`when`(observedSequence).iterate()
+                        observedSequence
+                    }.`when`(body).evaluate(Mockito.any(), Mockito.any())
+                    val observedModule = Mockito.spy(module)
+                    Mockito.doReturn(body).`when`(observedModule).body
+                    val observedChain = Mockito.spy(chain)
+                    Mockito.doReturn(observedModule).`when`(observedChain).compile(query)
+                    val producers = ArrayList<ConcurrentAxis<*>>()
+                    val readers = ArrayList<JsonNodeReadOnlyTrx>()
+                    var emitted = 0
+                    val serializer = Mockito.mock(Serializer::class.java)
+                    Mockito.doAnswer {
+                        assertTrue(producers.isNotEmpty(), "the real descendant plan must start a producer")
+                        producers.forEach { assertTrue(it.executorService.isTerminated) }
+                        assertTrue(readers.none { it.isClosed }, "producer fencing precedes session teardown")
+                        null
+                    }.`when`(serializer).close()
+                    QuerySerializer.serializePaginated(observedChain, query, context, 0, 0,
+                        Mockito.mock(OAuth2Auth::class.java), Mockito.mock(AuthorizationProvider::class.java),
+                        User.fromName("reader"), serializer) { _, item ->
+                        emitted++
+                        assertEquals("1", item.toString())
+                        val plans = if (sequenceInput) {
+                            val cache = iterator.get().javaClass.getDeclaredField("nodeKindToLazySequence")
+                            cache.isAccessible = true
+                            (cache.get(iterator.get()) as Map<*, *>).values.filterNotNull()
+                        } else listOf(result.get())
+                        plans.forEach { sequence ->
+                            val getAxis = sequence.javaClass.getDeclaredMethod("getAxis")
+                            getAxis.isAccessible = true
+                            collectProducers(getAxis.invoke(sequence) as Axis, producers)
+                        }
+                        val session = (item as JsonDBItem).trx.resourceSession
+                        val mapField = session.javaClass.superclass.getDeclaredField("nodeTrxMap")
+                        mapField.isAccessible = true
+                        @Suppress("UNCHECKED_CAST")
+                        readers.addAll((mapField.get(session) as Map<Int, JsonNodeReadOnlyTrx>).values)
+                    }
+                    assertEquals(1, emitted)
+                    assertTrue(readers.isNotEmpty())
+                    readers.first().resourceSession.close()
+                    assertTrue(readers.all { it.isClosed })
                 }
             }
-            assertEquals(2, emitted)
-            assertNull(prefetchField.get(axis), "iterator close must detach its prefetcher")
-            Mockito.verify(cursor).close()
-        } finally {
-            release.countDown()
-            axis.close()
         }
-        val running = requireNotNull(prefetch)
-        val outstandingField = running.javaClass.getDeclaredField("outstanding")
-        outstandingField.isAccessible = true
-        val outstanding = outstandingField.get(running) as AtomicInteger
-        val readersField = running.javaClass.getDeclaredField("workerTrxs")
-        readersField.isAccessible = true
-        val workerReaders = readersField.get(running) as Map<*, *>
-        // The final worker owns deferred release. No timing threshold is part of the assertion;
-        // the test timeout is only a deadlock guard.
-        while (outstanding.get() != 0 || workerReaders.isNotEmpty()) {
-            if (Thread.currentThread().isInterrupted) throw InterruptedException()
-            Thread.yield()
+    }
+
+    private fun collectProducers(axis: Axis, producers: MutableList<ConcurrentAxis<*>>) {
+        if (axis is ConcurrentAxis<*>) producers.add(axis)
+        axis.javaClass.declaredFields.forEach { field ->
+            if (Axis::class.java.isAssignableFrom(field.type)) {
+                field.isAccessible = true
+                collectProducers(field.get(axis) as Axis, producers)
+            }
         }
-        assertTrue(readers.isNotEmpty())
-        readers.forEach { Mockito.verify(it).close() }
-        Mockito.verify(iterator).close()
     }
 
     private fun paginate(

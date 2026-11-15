@@ -1500,24 +1500,21 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         // let another transaction attach to it.
         indexController.notifyTransactionAbort();
 
-        // Release all state immediately.
-        final int trxId = getId();
-        nodeReadOnlyTrx.close();
-
-        // CRITICAL FIX: Close StorageEngineWriter to trigger TIL.close() and clean up uncommitted pages
-        // Without this, TIL instances with uncommitted pages leak
         if (storageEngineWriter != null && !storageEngineWriter.isClosed()) {
           storageEngineWriter.close();
         }
 
+        final int trxId = getId();
+        nodeReadOnlyTrx.close();
+
         resourceSession.closeWriteTransaction(trxId);
-        removeCommitFile();
 
         pathSummaryWriter = null;
         nodeFactory = null;
 
         // Shutdown pool.
         commitScheduler.shutdown();
+        removeCommitFile();
         try {
           commitScheduler.awaitTermination(2, TimeUnit.SECONDS);
         } catch (final InterruptedException e) {

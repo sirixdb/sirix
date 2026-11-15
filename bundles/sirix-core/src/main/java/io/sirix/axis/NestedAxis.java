@@ -55,6 +55,13 @@ public final class NestedAxis extends AbstractAxis {
   }
 
   @Override
+  public void close() {
+    try (parentAxis) {
+      childAxis.close();
+    }
+  }
+
+  @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     if (parentAxis != null) {

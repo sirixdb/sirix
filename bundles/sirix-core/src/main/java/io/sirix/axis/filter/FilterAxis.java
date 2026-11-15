@@ -73,6 +73,11 @@ public final class FilterAxis<R extends NodeReadOnlyTrx & NodeCursor> extends Ab
   }
 
   @Override
+  public void close() {
+    axis.close();
+  }
+
+  @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     if (axis != null) {
