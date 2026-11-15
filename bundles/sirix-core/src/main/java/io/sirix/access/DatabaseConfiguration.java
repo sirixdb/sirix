@@ -181,8 +181,8 @@ public final class DatabaseConfiguration {
   static long parseSegmentSize(final String value) {
     final long bytes = ConfigurationProperties.parsePositiveBytes(SEGMENT_ALLOCATION_SIZE_PROPERTY, value);
     if (bytes > 1L << 40) {
-      throw new IllegalArgumentException("Invalid -D" + SEGMENT_ALLOCATION_SIZE_PROPERTY + "=" + value
-          + ": maximum allocator cap is 1 TiB");
+      throw new IllegalArgumentException(
+          "Invalid -D" + SEGMENT_ALLOCATION_SIZE_PROPERTY + "=" + value + ": maximum allocator cap is 1 TiB");
     }
     return bytes;
   }
@@ -194,8 +194,8 @@ public final class DatabaseConfiguration {
 
   /**
    * Maximum buffer size for memory segment allocation. Default is 16GB (configurable via
-   * -Dsirix.allocator.maxSize=XXG). This is a startup request for the process-wide allocator.
-   * The first initialization fixes its allowance; opening another database does not resize it.
+   * -Dsirix.allocator.maxSize=XXG). This is a startup request for the process-wide allocator. The
+   * first initialization fixes its allowance; opening another database does not resize it.
    */
   private long maxSegmentAllocationSize = DEFAULT_SEGMENT_ALLOCATION_SIZE;
 

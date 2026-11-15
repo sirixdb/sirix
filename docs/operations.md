@@ -163,11 +163,15 @@ its allowance (subject to physical headroom); later persisted database requests 
 and a mismatching request is logged with the effective allowance. Cache properties are read at
 manager construction, so set them before any database or global cache access.
 
+Explicit cache byte caps use the same checked binary-unit parser; malformed, nonpositive and
+overflowing values fail instead of falling back. Entry counts must be positive decimal integers.
+
 The deprecated `sirix.cache.page` byte estimate and the long `PageCache` constructor translate
 1,000 bytes to one entry, rounding down with a minimum of one. They do **not** measure or bound
 retained heap bytes. `sirix.cache.page.max.entries` takes precedence over the byte property, which
 takes precedence over the constructor estimate. The default remains 50,000 entries. An invalid
-explicit entry count fails rather than silently restoring the default.
+explicit entry count fails rather than silently restoring the default. Estimates that would exceed
+2,147,483,647 entries also fail; use the explicit entry cap instead.
 
 Set byte counts for record caches and entry counts for metadata:
 

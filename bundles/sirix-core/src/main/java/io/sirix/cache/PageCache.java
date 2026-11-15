@@ -85,9 +85,9 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   /**
-   * Compatibility byte estimate: one entry per 1,000 bytes (minimum one entry). Metadata eviction
-   * is count-based, so this is not a retained-heap byte guarantee. The explicit entry property wins
-   * over the deprecated byte property, which in turn wins over this constructor argument.
+   * Compatibility byte estimate: one entry per 1,000 bytes (minimum one entry). Metadata eviction is
+   * count-based, so this is not a retained-heap byte guarantee. The explicit entry property wins over
+   * the deprecated byte property, which in turn wins over this constructor argument.
    *
    * @param maxWeight legacy estimated byte budget; must be positive
    */

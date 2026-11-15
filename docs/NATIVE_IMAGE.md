@@ -64,10 +64,8 @@ remap/teardown; closing a shared arena in a native image requires
 lifecycle passes in a native image — see `NativeWriteSmokeMain` (`:sirix-query:writeSmoke`
 on the JVM, or build natively with `-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain`).
 
-Lifetime overrides are read once at startup. `sirix.arena.strategy=global` and
-`sirix.mmstorage.skipArenaClose=true` require the explicit opt-in
-`-Dsirix.diagnostics.allowUnsafeLifetime=true`; they retain native memory until exit and are
-unsupported in production. The native-image `auto` default remains supported.
+See [Cache budgets](operations.md#4-cache-budgets) for startup lifetime policy and the
+restrictions on diagnostic overrides. The native-image `auto` default remains supported.
 
 ### Why not `-H:+SharedArenaSupport` (GraalVM 25.0.3 matrix, reproduced)
 

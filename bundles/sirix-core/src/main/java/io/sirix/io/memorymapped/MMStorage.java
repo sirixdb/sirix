@@ -169,8 +169,8 @@ public final class MMStorage implements IOStorage {
      * {@code -H:+SharedArenaSupport}, which GraalVM 25 cannot combine with
      * {@code jdk.incubator.vector}) and the unmap happens once the generation becomes unreachable.
      * {@code -Dsirix.mmstorage.skipArenaClose=true} is kept as a legacy escape hatch that skips the
-     * release entirely, and requires {@code -Dsirix.diagnostics.allowUnsafeLifetime=true}.
-     * It is unsupported in production.
+     * release entirely, and requires {@code -Dsirix.diagnostics.allowUnsafeLifetime=true}. It is
+     * unsupported in production.
      */
     private static final boolean SKIP_ARENA_CLOSE = SharedArenas.skipArenaClose();
 

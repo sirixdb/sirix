@@ -46,7 +46,7 @@ EXPOSE 9443
 # `docker compose up` runs on a laptop. Raise these for production/benchmarks,
 # e.g. -e SIRIX_XMX=16g -e SIRIX_MAX_DIRECT=4g (and bump the compose memory limits).
 # Extra JVM flags (cache budgets, GC tuning, system properties) can be appended
-# via SIRIX_JAVA_OPTS, e.g. -e SIRIX_JAVA_OPTS="-Dsirix.cache.page=512m".
+# via SIRIX_JAVA_OPTS; see docs/operations.md for cache units and override precedence.
 # SIRIX_AUTH_MODE=none starts the server without Keycloak (development only —
 # see docs/QUICKSTART.md); the default is Keycloak-based OAuth2.
 #

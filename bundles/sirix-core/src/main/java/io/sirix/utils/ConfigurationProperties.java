@@ -12,7 +12,9 @@ public final class ConfigurationProperties {
       throw new IllegalArgumentException("Default for " + property + " must be positive: " + defaultValue);
     }
     final String value = System.getProperty(property);
-    return value == null ? defaultValue : parsePositiveBytes(property, value);
+    return value == null
+        ? defaultValue
+        : parsePositiveBytes(property, value);
   }
 
   /** Parse bytes or binary K/KB, M/MB and G/GB units, rejecting malformed or overflowing caps. */
@@ -66,8 +68,8 @@ public final class ConfigurationProperties {
     throw invalid(property, value, "an entry count in [1, 2147483647]", null);
   }
 
-  private static IllegalArgumentException invalid(final String property, final String value,
-      final String expected, final Throwable cause) {
+  private static IllegalArgumentException invalid(final String property, final String value, final String expected,
+      final Throwable cause) {
     return new IllegalArgumentException("Invalid -D" + property + "=" + value + ": expected " + expected, cause);
   }
 }

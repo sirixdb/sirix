@@ -693,8 +693,10 @@ public final class Databases {
     allocator.init(requestedBytes);
     final long effectiveBytes = allocator.getMaxBufferSize();
     if (effectiveBytes != requestedBytes) {
-      logger.warn("Allocator startup request: {} bytes; effective process allowance: {} bytes. "
-          + "The first initialization wins; later database requests do not resize it.", requestedBytes, effectiveBytes);
+      logger.warn(
+          "Allocator startup request: {} bytes; effective process allowance: {} bytes. "
+              + "The first initialization wins; later database requests do not resize it.",
+          requestedBytes, effectiveBytes);
     }
     if (MANAGER.sessions().isEmpty()) {
       initializeGlobalBufferManager(effectiveBytes);
@@ -718,16 +720,15 @@ public final class Databases {
   public static final String PROP_RECORD_PAGE_CACHE = "sirix.cache.recordPage";
 
   /**
-   * System property for record page fragment cache size in bytes. Default is 18.75% of the
-   * allocator allowance.
-   * Example: -Dsirix.cache.recordPageFragment=536870912 (for 512MB cache)
+   * System property for record page fragment cache size in bytes. Default is 18.75% of the allocator
+   * allowance. Example: -Dsirix.cache.recordPageFragment=536870912 (for 512MB cache)
    */
   public static final String PROP_RECORD_PAGE_FRAGMENT_CACHE = "sirix.cache.recordPageFragment";
 
   /**
-   * Deprecated estimated metadata bytes: one entry per 1,000 bytes, minimum one entry.
-   * Prefer {@link PageCache#MAX_ENTRIES_PROPERTY}, which takes precedence. This is a count-based
-   * cache, not a retained-heap byte cap; the default is 50,000 entries.
+   * Deprecated estimated metadata bytes: one entry per 1,000 bytes, minimum one entry. Prefer
+   * {@link PageCache#MAX_ENTRIES_PROPERTY}, which takes precedence. This is a count-based cache, not
+   * a retained-heap byte cap; the default is 50,000 entries.
    */
   public static final String PROP_PAGE_CACHE = PageCache.LEGACY_BYTES_PROPERTY;
 
@@ -889,7 +890,8 @@ public final class Databases {
    *
    * @param recordPageCacheBytes maximum weight in bytes for the record page cache
    * @param recordPageFragmentCacheBytes maximum weight in bytes for the record page fragment cache
-   * @param pageCacheBytes legacy metadata estimate (1,000 bytes per entry), subject to entry-count override
+   * @param pageCacheBytes legacy metadata estimate (1,000 bytes per entry), subject to entry-count
+   *        override
    */
   public static synchronized void reinitializeBufferManagerForTesting(long recordPageCacheBytes,
       long recordPageFragmentCacheBytes, long pageCacheBytes) {

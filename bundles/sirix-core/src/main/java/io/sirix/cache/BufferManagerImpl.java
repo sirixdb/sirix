@@ -251,10 +251,11 @@ public final class BufferManagerImpl implements BufferManager {
   /**
    * Create a BufferManagerImpl with specified cache sizes.
    * <p>
-   * Record cache sizes are in bytes. Metadata uses a legacy estimate of 1,000 bytes per entry;
-   * the explicit entry-count property takes precedence (see {@link PageCache}).
+   * Record cache sizes are in bytes. Metadata uses a legacy estimate of 1,000 bytes per entry; the
+   * explicit entry-count property takes precedence (see {@link PageCache}).
    *
-   * @param maxPageCacheWeight estimated bytes for the count-based metadata cache (1,000 bytes per entry)
+   * @param maxPageCacheWeight estimated bytes for the count-based metadata cache (1,000 bytes per
+   *        entry)
    * @param maxRecordPageCacheWeight maximum weight in bytes for the record page cache
    * @param maxRecordPageFragmentCacheWeight maximum weight in bytes for the record page fragment
    *        cache

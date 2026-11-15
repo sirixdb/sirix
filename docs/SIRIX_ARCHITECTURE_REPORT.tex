@@ -2214,20 +2214,20 @@ instance held by \code{Databases}), modeled on a relational engine's shared buff
 per-resource cache. All resources draw from the same pool, and per-resource isolation comes from
 \emph{keying}: every cached page is addressed by an offset-bearing \code{PageReference} that embeds the
 database and resource ids, so pages can be evicted database by database or resource by resource without
-separate pools. Pages live off-heap as \code{MemorySegment} frames from an FFM-arena allocator, so the
-cache footprint does not count against the Java heap and the in-memory page stays byte-identical to its
+separate pools. Record pages live off-heap as \code{MemorySegment} frames from an FFM-arena allocator,
+while metadata caches also retain Java heap objects. The record-page frame stays byte-identical to its
 on-disk image (Ch.~\ref{ch:pds}).
 
-The pool is really several caches, each holding one kind of thing and sized as a fraction of the
-off-heap budget (overridable with \code{-Dsirix.cache.*}):
+The pool is really several caches, each holding one kind of thing. Current capacities, units and
+override precedence are owned by \code{docs/operations.md}, section 4 (Cache budgets):
 
 \dcap{The buffer pool: what is cached, and roughly how much}
 \begin{diagramS}
 cache                        holds                                             rough share / cap
   record-page cache          KeyValueLeafPages (the primary data)              ~50 % of budget
   record-page-fragment cache single fragments, for sliding-snapshot rebuild    ~18.75 %
-  page cache (Caffeine)      metadata pages: uber, revision-root, indirect, …   ~6.25 %
-  revision-root cache        RevisionRootPage by (resource, revision)           5 000 entries
+  page cache (Caffeine)      metadata pages: uber, revision-root, indirect, …   entry cap; see owner
+  revision-root cache        RevisionRootPage by (resource, revision)           entry cap; see owner
   index-node cache           secondary-index tree nodes                         50 000 entries
   names cache                NamePage dictionaries                              500 entries
   path-summary cache         PathSummary structures                            20 entries
@@ -2238,22 +2238,21 @@ cache                        holds                                             r
 \begin{tikzpicture}[font=\sffamily\scriptsize,>=Latex,
   c/.style={draw=slate!55,fill=layerbg,rounded corners=2pt,minimum width=2.8cm,minimum height=0.75cm,align=center},
   sw/.style={draw=ember!70!black,fill=ember!10,rounded corners=2pt,align=center}]
-  \node[font=\bfseries\color{ember}] at (3.4,2.55) {JVM-wide off-heap buffer pool};
+  \node[font=\bfseries\color{ember}] at (3.4,2.55) {JVM-wide buffer pool};
   \node[c] (rp) at (0,1.55)   {record-page\\$\sim$50\%};
   \node[c] (fr) at (3.4,1.55) {fragment\\$\sim$19\%};
-  \node[c] (pc) at (6.8,1.55) {metadata page\\$\sim$6\%};
+  \node[c] (pc) at (6.8,1.55) {metadata page\\entry cap};
   \node[c] (rr) at (0,0.45)   {revision-root};
   \node[c] (ix) at (3.4,0.45) {index-node};
   \node[c] (nm) at (6.8,0.45) {names + path-summary};
-  \node[sw] (cs) at (3.4,-1.15) {clock-sweeper threads\\(second chance; never evict below the\\oldest live reader's revision)};
+  \node[sw] (cs) at (3.4,-1.15) {clock-sweeper threads\\(second chance; skip guarded pages)};
   \draw[->,ember!70!black,dashed] (cs.north) -- (ix.south);
   \draw[->,ember!70!black,dashed] (cs.north) to[bend left=11] (rp.south);
-  \draw[->,ember!70!black,dashed] (cs.north) to[bend right=11] (pc.south);
+  \draw[->,ember!70!black,dashed] (cs.north) -- (fr.south);
 \end{tikzpicture}
-\caption{The buffer pool is one off-heap region shared by all resources, partitioned into caches sized
-as fractions of the budget and evicted by background clock-sweeper threads. A sweeper skips any page a
-live reader has \emph{guarded} (\S\ref{sec:reclaim}), so the lock-free read guarantee holds under memory
-pressure.}
+\caption{The buffer pool is shared by all resources. Record caches use allocator memory and background
+clock sweeping; metadata uses a Caffeine entry cap. A sweeper skips any page a live reader has
+\emph{guarded} (\S\ref{sec:reclaim}), so the lock-free read guarantee holds under memory pressure.}
 \label{fig:bufferpool}
 \end{figure}
 
@@ -7798,9 +7797,7 @@ A handful of \code{-D} properties tune behaviour that is not per-resource:
 \begin{diagramS}
 compression / caching
   -Dsirix.compression               none (default) | lz4    the outer ByteHandler pipeline default
-  -Dsirix.cache.recordPage          override the record-page cache share of the off-heap budget
-  -Dsirix.cache.recordPageFragment  override the fragment-cache share
-  -Dsirix.cache.page                override the metadata page-cache share
+  Cache sizing, units and precedence: docs/operations.md, section 4 (Cache budgets)
 
 FileChannel backend / commit profile
   -Dsirix.filechannel.bufferBytes   pooled direct read buffer size (default 128 KiB)
@@ -8814,9 +8811,9 @@ in its home chapter; here they are organised by the goal they serve.
 \textbf{Sizing memory.} Give the JVM \code{-Xmx} of at least 8\,GB for write workloads (a smaller heap
 stalls large \code{PUT}s, \S\ref{app:deploy}), set \code{-Ddisable.single.threaded.check} for embedded
 multi-thread callers, and do \emph{not} set \code{-XX:+AlwaysPreTouch} (it forces the full resident set
-up front). The page cache is off-heap and budgeted separately; \code{-Dsirix.cache.recordPage} and its
-siblings shift the off-heap budget between the record-page, fragment, and metadata caches when a
-workload is skewed toward one (\S\ref{sec:buffering}).
+up front). Record-page and fragment caches use the off-heap allocator; metadata uses an entry cap.
+For sizing, startup policy and override precedence, see \code{docs/operations.md}, section 4
+(Cache budgets).
 
 \textbf{Lowering commit latency.} The legacy commit pays a metadata-journal fsync on every file
 growth. The preallocated profile (\code{sirix.commit.preallocated} with

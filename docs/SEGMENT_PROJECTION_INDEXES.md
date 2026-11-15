@@ -1371,8 +1371,8 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
 The off-heap allocator (`FrameSlotAllocator`, the only implementation) has seven size classes from 4 KiB to
 256 KiB, each a `MAP_NORESERVE` virtual reservation with a per-slot version counter that the optimistic readers
 validate (`cache/Allocators.java:44-50`; `cache/FrameSlotAllocator.java:7-135`, `:296`, `:403-430`). Its budget is
-`sirix.allocator.maxSize` (default `16G`, persisted per database) clamped to `physical − Xmx − max(2 GiB, physical/10)`
-(`core/access/DatabaseConfiguration.java:172-179`; `cache/MemorySegmentAllocator.java:24-55`). **`sirix.offheap.bytes`
+configured as described in [Cache budgets](operations.md#4-cache-budgets), including startup-only
+requests and effective-allowance reporting. **`sirix.offheap.bytes`
 is not a sirix-core property**: the benchmark mains read it and call `Allocators.getInstance().init(bytes)` before
 opening the database (default 24 GiB; `query/bench/jsonbench/JsonBenchRunMain.java:96-97`), which is why the kit warns
 that other entry points silently ignore it (`kit/README.md:245-256`).
@@ -1382,7 +1382,7 @@ that other entry points silently ignore it (`kit/README.md:245-256`).
 | record page | `PageReference` → `KeyValueLeafPage` | budget / 2 (bytes) | global `ClockSweeper` second chance above 80 % (100 ms cycle, 10 % scan), guarded pages skipped; inline eviction above 110 % | `sirix.cache.recordPage` |
 | record page fragment | fragment offset → `KeyValueLeafPage` | budget × 3/16 | same | `sirix.cache.recordPageFragment` |
 | HOT complete leaves, raw fragments, resolved-slot mini pages and verified sorted payloads | committed page/slot identity → retained view or copied payload | [Residency and budgets](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads) | guarded clock caches; byte-bounded sets for private payloads and immutable validated descriptors | see owner |
-| page (metadata pages) | `PageReference` → `Page` | **50 000 entries** (legacy bytes estimate one entry per 1,000 bytes; explicit entry cap wins) | Caffeine size | `sirix.cache.page.max.entries` |
+| page (metadata pages) | `PageReference` → `Page` | [Entry cap and legacy estimate](operations.md#4-cache-budgets) | Caffeine size | see owner |
 | revision root | (db, resource, revision) → `RevisionRootPage` | 20 000 entries | Caffeine | `sirix.cache.revisionRoot.max.entries` |
 | HOT lookup | `HOTLookupKey` → node keys | [Budget and heap-share bounded](HOT_INDEX_SPECIFICATION.md#61-behaviour) | set-associative | `sirix.hotLookupCache.maxEntries` |
 | global verdicts / segment verdicts / dictionary records | … → bitsets, byte tables, records | [Heap-envelope shares](DERIVED_QUERY_CACHES.md#heap-envelope) | Caffeine weight | see owner |
@@ -1392,8 +1392,8 @@ that other entry points silently ignore it (`kit/README.md:245-256`).
 Cites: `core/access/Databases.java:504-620`; `cache/BufferManagerImpl.java:83-139`, `:211-344`, `:463-520`;
 `cache/ShardedPageCache.java:27-51`, `:709-742`, `:1187-1259`; `cache/ClockSweeper.java:43-62`, `:134-250`;
 `cache/PageCache.java:29-107`; `io/StorageType.java:155-212`. The clock sweepers do not consult the MVCC revision
-watermark; guard counts are the only protection (`cache/ClockSweeper.java:43-55`). `Databases.java` Javadoc and log
-labels still say 25 % and 12.5 % (`:541-545`, `:589`, `:593`) while the code uses 50 % and 18.75 %.
+watermark; guard counts are the only protection (`cache/ClockSweeper.java:43-55`). Effective cache sizing
+and startup log examples are documented in [Cache budgets](operations.md#4-cache-budgets).
 
 ### 8.6 The writer contract: writing pages before the commit
 
@@ -1963,15 +1963,15 @@ the end. HOT-specific properties are in [HOT_INDEX_SPECIFICATION.md §6](HOT_IND
 
 ### A.2 Memory and caches
 
+Allocator startup sizing and metadata entry caps, including the legacy byte estimate, are owned by
+[Cache budgets](operations.md#4-cache-budgets).
+
 | Property | Default | Effect | Cite |
 |---|---|---|---|
 | `sirix.allocator` | unset | accepted unset or as `frame`; any other value (the removed `pool`, `windowspool`) fails at first use | `cache/Allocators.java:44-50` |
-| `sirix.allocator.maxSize` | `16G` | startup request for the process allocator; first initialization wins (clamped to physical headroom) | `core/access/DatabaseConfiguration.java:172-179` |
 | `sirix.offheap.bytes` (benchmark mains only) | 24 GiB (JSONBench/ClickBench runners and loaders) | arena size initialized before opening the database | `query/bench/jsonbench/JsonBenchRunMain.java:96-97` |
 | `sirix.cache.recordPage` | budget / 2 | record page cache bytes | `core/access/Databases.java:504`, `:565` |
 | `sirix.cache.recordPageFragment` | budget × 3/16 | fragment cache bytes | `:510`, `:567` |
-| `sirix.cache.page` | 50,000,000 estimated bytes | legacy alias: one entry per 1,000 bytes, minimum one; explicit entry cap wins | `:516`, `:569` |
-| `sirix.cache.page.max.entries` | 50 000 | actual page cache cap | `cache/PageCache.java:36` |
 | `sirix.cache.revisionRoot.max.entries` | 20 000 | revision root cache | `core/access/Databases.java:524`, `:533` |
 | `sirix.clockSweeper.highWaterPercent` | 80 | fill level at which sweeping starts | `cache/ClockSweeper.java:62` |
 | `sirix.projection.cacheBytes` | 8 GiB | projection handle cache weight | `proj/ProjectionIndexCatalog.java:139-140` |

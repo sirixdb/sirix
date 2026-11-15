@@ -35,8 +35,8 @@ import java.util.Locale;
  * </ul>
  *
  * <p>
- * Policies are read once at startup; later property changes cannot change live arena ownership.
- * All call sites must pair {@link #newSharedArena()} with {@link #close(Arena)} instead of calling
+ * Policies are read once at startup; later property changes cannot change live arena ownership. All
+ * call sites must pair {@link #newSharedArena()} with {@link #close(Arena)} instead of calling
  * {@code arena.close()} directly — auto/global arenas throw {@link UnsupportedOperationException}
  * on {@code close()}.
  */
