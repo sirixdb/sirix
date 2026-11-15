@@ -30,6 +30,29 @@ def class_bytes(name, source):
             + struct.pack('>HIH', 3, 2, 4))
 
 
+# A complete module result whose changed lines were all killed.
+CLEAN_CHANGED = {'total': 1, 'killed': 1, 'survived': 0, 'no_coverage': 0, 'detected': 1,
+                 'survivors': []}
+
+
+def write_manifest(output, modules, lines=None):
+    """The manifest `select` writes: what to mutate, plus the lines that decide the outcome."""
+    changed_lines = {module: {source: [] for source in sources}
+                     for module, sources in modules.items()} if lines is None else lines
+    (output / 'selection.json').write_text(
+        json.dumps({'modules': modules, 'changed_lines': changed_lines}))
+
+
+def git_repository(temp):
+    """An initialized repository with a deterministic identity, for real diff behaviour."""
+    def git(*args):
+        return subprocess.check_output(
+            ['git', '-C', str(temp), '-c', 'user.name=Test',
+             '-c', 'user.email=test@example.invalid', *args], shell=False).decode().strip()
+    git('init', '-q')
+    return git
+
+
 @contextlib.contextmanager
 def module_tree(sources, tests):
     """A temporary `bundles/sirix-core` holding the given main sources and test sources."""
@@ -53,9 +76,22 @@ class SelectionTest(unittest.TestCase):
         source = b'bundles/sirix-core/src/main/java/io/sirix/Foo.java'
         paths = source + b'\x00docs/a b.md\x00'
         base, head = 'a' * 40, 'b' * 40
-        with patch.object(mutation.subprocess, 'check_output', side_effect=[paths, source + b'\x00']) as git:
-            selected = mutation.changed_sources(Path('/repo'), base, head)
+        patch_text = (b'diff --git a/bundles/sirix-core/src/main/java/io/sirix/Foo.java'
+                      b' b/bundles/sirix-core/src/main/java/io/sirix/Foo.java\n'
+                      b'--- a/bundles/sirix-core/src/main/java/io/sirix/Foo.java\n'
+                      b'+++ b/bundles/sirix-core/src/main/java/io/sirix/Foo.java\n'
+                      b'@@ -7 +7,2 @@ class Foo {\n-old\n+new\n+added\n')
+        with patch.object(mutation.subprocess, 'check_output',
+                          side_effect=[paths, source + b'\x00', patch_text]) as git:
+            selected, lines = mutation.changed_sources(Path('/repo'), base, head)
         self.assertEqual(selected, {'sirix-core': ['src/main/java/io/sirix/Foo.java']})
+        self.assertEqual(lines, {'sirix-core': {'src/main/java/io/sirix/Foo.java': [7, 8]}})
+        line_args = git.call_args_list[2].args[0]
+        self.assertIn('--merge-base', line_args)
+        self.assertIn(base, line_args)
+        self.assertIn('-U0', line_args)
+        self.assertEqual(line_args[-2:], ['--', 'bundles/'])
+        self.assertFalse(git.call_args_list[2].kwargs['shell'])
         diff_args = git.call_args_list[0].args[0]
         self.assertIn(base + '...' + head, diff_args)
         self.assertIn('--diff-filter=ACMRT', diff_args)
@@ -83,14 +119,14 @@ class SelectionTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'path'):
                     mutation.changed_sources(root, 'a' * 40, 'b' * 40)
         path = b'bundles/sirix-core/src/main/java/Missing.java\x00'
-        with patch.object(mutation.subprocess, 'check_output', side_effect=[path, b'']):
+        with patch.object(mutation.subprocess, 'check_output', side_effect=[path, b'', b'']):
             with self.assertRaisesRegex(ValueError, 'head commit'):
                 mutation.changed_sources(root, 'a' * 40, 'b' * 40)
 
     def test_empty_diff_does_not_query_or_expand_tree(self):
         root = Path('/repo')
         with patch.object(mutation.subprocess, 'check_output', return_value=b'') as git:
-            self.assertEqual(mutation.changed_sources(root, 'a' * 40, 'b' * 40), {})
+            self.assertEqual(mutation.changed_sources(root, 'a' * 40, 'b' * 40), ({}, {}))
         self.assertEqual(git.call_count, 1)
 
     def test_real_git_tree_rejects_hostile_tracked_filename(self):
@@ -112,7 +148,8 @@ class SelectionTest(unittest.TestCase):
                 'commit', '-qm', 'ordinary change')
             head = git('rev-parse', 'HEAD')
             self.assertEqual(mutation.changed_sources(root, base, head),
-                             {'sirix-core': ['src/main/java/a/Foo.java']})
+                             ({'sirix-core': ['src/main/java/a/Foo.java']},
+                              {'sirix-core': {'src/main/java/a/Foo.java': [1]}}))
             (source.parent / '-output.java').write_text('hostile filename')
             git('add', '--', '.')
             git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
@@ -401,12 +438,14 @@ class ReportingTest(unittest.TestCase):
               </mutation>
               <mutation detected='false' status='NO_COVERAGE'><mutatedClass>a.Bar</mutatedClass></mutation>
             </mutations>''')
-            result = mutation.read_report(report)
+            result = mutation.read_report(report, {})
             self.assertEqual(result['total'], 4)
             self.assertEqual(result['killed'], 1)
             self.assertEqual(result['detected'], 2)
             self.assertEqual(len(result['survivors']), 2)
             self.assertIn('42', result['survivors'][0])
+            # No changed source mapped, so the report judged nothing: never clean.
+            self.assertEqual(result['unattributed'], 4)
             self.assertFalse(mutation.is_clean([{'state': 'complete', **result}]))
             summary = mutation.format_summary([{'module': 'sirix-core', 'state': 'complete', **result}])
             self.assertIn('25.0%', summary)
@@ -421,12 +460,16 @@ class ReportingTest(unittest.TestCase):
                 if contents is not None:
                     report.write_text(contents)
                 with self.assertRaises((OSError, ValueError, mutation.ET.ParseError)):
-                    mutation.read_report(report)
+                    mutation.read_report(report, {})
         self.assertFalse(mutation.is_clean([{'state': 'timed out'}]))
         self.assertFalse(mutation.is_clean([{'state': 'error'}]))
         self.assertTrue(mutation.is_clean([]))
-        self.assertTrue(mutation.is_clean([{'state': 'complete', 'total': 1,
-                                           'detected': 1, 'survivors': []}]))
+        self.assertTrue(mutation.is_clean([{'state': 'complete', 'total': 1, 'detected': 1,
+                                           'survivors': [], 'unattributed': 0,
+                                           'changed': CLEAN_CHANGED}]))
+        # A complete report whose changed-line verdict is missing is never silently clean.
+        self.assertFalse(mutation.is_clean([{'state': 'complete', 'total': 1,
+                                             'detected': 1, 'survivors': []}]))
 
     def test_summary_escapes_untrusted_markdown(self):
         text = mutation.format_summary([{'module': '<script>', 'state': 'error | bad',
@@ -437,13 +480,13 @@ class ReportingTest(unittest.TestCase):
     def test_run_records_error_and_blocking_switch(self):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
-            (output / 'selection.json').write_text(json.dumps({'sirix-core': ['missing.java']}))
+            write_manifest(output, {'sirix-core': ['missing.java']})
             with patch.object(mutation, 'resolve_targets', return_value=([], ['missing.java'])):
                 code = mutation.run(Path(temp), output, 10, blocking=False)
                 self.assertEqual(code, 0)
                 self.assertIn('missing.java', (output / 'summary.md').read_text())
                 self.assertEqual(mutation.run(Path(temp), output, 10, blocking=True), 1)
-            (output / 'selection.json').write_text('{}')
+            write_manifest(output, {})
             self.assertEqual(mutation.run(Path(temp), output, 10, blocking=True), 0)
             self.assertIn('No changed', (output / 'summary.md').read_text())
 
@@ -451,12 +494,19 @@ class ReportingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / 'proof'
             output.mkdir()
-            (output / 'selection.json').write_text(json.dumps({'sirix-core': ['src/main/java/a/Foo.java']}))
+            source = Path(temp) / 'bundles/sirix-core/src/main/java/a/Foo.java'
+            source.parent.mkdir(parents=True)
+            source.write_text('package a;\nclass Foo {}\n')
+            write_manifest(output, {'sirix-core': ['src/main/java/a/Foo.java']},
+                           {'sirix-core': {'src/main/java/a/Foo.java': [2]}})
 
             def execute(command, root, log, timeout):
                 report = output / 'sirix-core/report/mutations.xml'
                 report.parent.mkdir(parents=True, exist_ok=True)
-                report.write_text('<mutations><mutation detected="true" status="KILLED"/></mutations>')
+                report.write_text('<mutations><mutation detected="true" status="KILLED">'
+                                  '<sourceFile>Foo.java</sourceFile>'
+                                  '<mutatedClass>a.Foo</mutatedClass>'
+                                  '<lineNumber>2</lineNumber></mutation></mutations>')
                 self.assertGreater(timeout, 0)
                 self.assertLessEqual(timeout, 10)
                 return 0
@@ -468,6 +518,8 @@ class ReportingTest(unittest.TestCase):
                 result = json.loads((output / 'results.json').read_text())[0]
                 self.assertEqual(result['targets'], ['a.Foo'])
                 self.assertEqual(result['state'], 'complete')
+                self.assertEqual(result['changed_line_count'], 1)
+                self.assertEqual(result['changed']['killed'], 1)
 
             def timed_out(command, root, log, timeout):
                 execute(command, root, log, timeout)
@@ -491,9 +543,8 @@ class ReportingTest(unittest.TestCase):
         # 'timed out' although its scope was one test class.
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
-            (output / 'selection.json').write_text(json.dumps(
-                {'sirix-core': ['src/main/java/a/Foo.java'],
-                 'sirix-query': ['src/main/java/a/Bar.java']}))
+            write_manifest(output, {'sirix-core': ['src/main/java/a/Foo.java'],
+                                    'sirix-query': ['src/main/java/a/Bar.java']})
             timeouts = []
             with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
                  patch.object(mutation, 'execute',
@@ -511,8 +562,7 @@ class ReportingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
             modules = ('sirix-core', 'sirix-query', 'sirix-rest-api')
-            (output / 'selection.json').write_text(json.dumps(
-                {module: ['src/main/java/a/Foo.java'] for module in modules}))
+            write_manifest(output, {module: ['src/main/java/a/Foo.java'] for module in modules})
             timeouts = []
             with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
                  patch.object(mutation, 'execute',
@@ -527,39 +577,56 @@ class ReportingTest(unittest.TestCase):
             for timeout in timeouts[1:]:
                 self.assertGreaterEqual(timeout, floor)
 
-    def test_only_complete_fully_detected_reports_are_clean(self):
+    def test_only_complete_reports_without_undetected_changed_lines_are_clean(self):
         complete = {'module': 'sirix-core', 'state': 'complete', 'total': 4, 'killed': 2,
                     'survived': 0, 'no_coverage': 0, 'detected': 4, 'statuses': {},
-                    'survivors': []}
+                    'survivors': [], 'changed': {'total': 2, 'killed': 2, 'survived': 0,
+                                                 'no_coverage': 0, 'detected': 2, 'survivors': []}}
         self.assertTrue(mutation.is_clean([complete]))
         self.assertTrue(mutation.is_clean([]))  # a docs-only PR skips cleanly
-        for broken in ({'survived': 1, 'detected': 3}, {'no_coverage': 2, 'detected': 2},
-                       {'no_coverage': 4, 'detected': 0}, {'state': 'timed out'},
-                       {'state': 'unmapped'}, {'state': 'error'}, {'total': 0, 'detected': 0}):
+        for broken in ({'changed': {**complete['changed'], 'survived': 1, 'detected': 1}},
+                       {'changed': {**complete['changed'], 'no_coverage': 1, 'detected': 1}},
+                       {'changed': {**complete['changed'], 'no_coverage': 2, 'detected': 0}},
+                       {'state': 'timed out'}, {'state': 'unmapped'}, {'state': 'error'},
+                       {'total': 0, 'detected': 0}, {'changed': None},
+                       {'unattributed': 4}):  # nothing mapped, so nothing was judged
             with self.subTest(broken=broken):
                 self.assertFalse(mutation.is_clean([{**complete, **broken}]))
                 self.assertFalse(mutation.is_clean([complete, {**complete, **broken}]))
+        # Pre-existing debt on unchanged lines of the same classes never fails the run.
+        advisory = {**complete, 'survived': 348, 'no_coverage': 2828, 'total': 3193,
+                    'detected': 17, 'survivors': ['SURVIVED | a.Foo | old | 9 | x'],
+                    'unchanged': {'total': 3176, 'killed': 0, 'survived': 348,
+                                  'no_coverage': 2828, 'detected': 0, 'classes': [['a.Foo', 3176]]}}
+        self.assertTrue(mutation.is_clean([advisory]))
 
     def test_completed_uncovered_report_fails_blocking_but_keeps_advisory_reporting(self):
         """PIT's detected=false contract forbids clean scores for all-uncovered reports."""
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
-            (output / 'selection.json').write_text(json.dumps({'sirix-core': ['unused.java']}))
+            write_manifest(output, {'sirix-core': ['unused.java']})
 
             def execute(command, root, log, timeout):
                 report = output / 'sirix-core/report/mutations.xml'
                 report.parent.mkdir(parents=True, exist_ok=True)
-                report.write_text('<mutations><mutation detected="false" '
-                                  'status="NO_COVERAGE"/></mutations>')
+                report.write_text('<mutations><mutation detected="false" status="NO_COVERAGE">'
+                                  '<sourceFile>Unused.java</sourceFile>'
+                                  '<mutatedClass>Unused</mutatedClass>'
+                                  '<lineNumber>1</lineNumber></mutation></mutations>')
                 return 0
 
             with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
-                 patch.object(mutation, 'execute', side_effect=execute):
+                 patch.object(mutation, 'execute', side_effect=execute), \
+                 patch.object(mutation, 'changed_line_index',
+                              return_value={('', 'Unused.java'): {1}}):
                 self.assertEqual(mutation.run(output, output, 10, blocking=True), 1)
                 self.assertEqual(mutation.run(output, output, 10, blocking=False), 0)
             result = json.loads((output / 'results.json').read_text())[0]
             self.assertEqual(result['state'], 'complete')
             self.assertEqual((result['total'], result['detected'], result['no_coverage']), (1, 0, 1))
+            self.assertEqual(result['changed'], {'total': 1, 'killed': 0, 'survived': 0,
+                                                 'no_coverage': 1, 'detected': 0,
+                                                 'survivors': ['NO_COVERAGE | Unused | ? | 1 | ?']})
             self.assertIn('No coverage: 1.', (output / 'summary.md').read_text())
 
     def test_report_counts_survived_and_uncovered_statuses(self):
@@ -571,7 +638,7 @@ class ReportingTest(unittest.TestCase):
                             '<mutation detected="false" status="NO_COVERAGE"/>'
                             '<mutation detected="true" status="TIMED_OUT"/>'
                             '</mutations>')
-            report = mutation.read_report(path)
+            report = mutation.read_report(path, {})
         self.assertEqual((report['total'], report['killed'], report['survived'],
                           report['no_coverage'], report['detected']), (4, 1, 1, 1, 2))
         self.assertEqual(len(report['survivors']), 2)
@@ -579,13 +646,20 @@ class ReportingTest(unittest.TestCase):
     def test_summary_reports_counts_scope_and_unmapped_sources(self):
         result = {'module': 'sirix-core', 'state': 'complete', 'targets': ['a.Baz', 'a.Foo'],
                   'tests': ['a.FooTest*'], 'unmapped': ['src/main/java/c/Baz.java'],
-                  'mutants_per_class': 40,
+                  'mutants_per_class': 40, 'changed_line_count': 3,
                   'total': 4, 'killed': 2, 'survived': 1, 'no_coverage': 1, 'detected': 2,
                   'statuses': {'KILLED': 2, 'NO_COVERAGE': 1, 'SURVIVED': 1},
-                  'survivors': ['SURVIVED | a.Foo | run | 7 | negated conditional']}
+                  'survivors': ['SURVIVED | a.Foo | run | 7 | negated conditional'],
+                  'changed': {'total': 2, 'killed': 1, 'survived': 1, 'no_coverage': 0,
+                              'detected': 1,
+                              'survivors': ['SURVIVED | a.Foo | run | 7 | negated conditional']},
+                  'unchanged': {'total': 2, 'killed': 1, 'survived': 0, 'no_coverage': 1,
+                                'detected': 1, 'classes': [['a.Baz', 1]]}}
         text = mutation.format_summary([result])
         self.assertIn('Changed target classes: 2. Test patterns: 1. '
                       'Mutants sampled per class: 40.', text)
+        self.assertIn('Changed lines: 3. Mutants on changed lines: 2. Killed: 1. '
+                      'Survived: 1. No coverage: 0.', text)
         self.assertIn('Changed sources for which no mapped test was selected:', text)
         self.assertNotIn('their mutants report', text)
         self.assertIn('Survived: 1. No coverage: 1.', text)
@@ -621,18 +695,20 @@ class ReportingTest(unittest.TestCase):
             output = Path(temp)
             with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
                  patch.object(mutation, 'execute', return_value=1):
-                result = mutation.analyze_module(output, output, 'sirix-core', [], float('inf'), 10)
+                result = mutation.analyze_module(output, output, 'sirix-core', [], {},
+                                                 float('inf'), 10)
             self.assertIn('PIT exited 1', result['error'])
             with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
                  patch.object(mutation, 'execute') as execute:
-                result = mutation.analyze_module(output, output, 'sirix-core', [], 0, 10)
+                result = mutation.analyze_module(output, output, 'sirix-core', [], {}, 0, 10)
             self.assertEqual(result['state'], 'timed out')
             execute.assert_not_called()
             with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
                  patch.object(mutation, 'execute', return_value=0):
-                result = mutation.analyze_module(output, output, 'sirix-core', [], float('inf'), 10)
+                result = mutation.analyze_module(output, output, 'sirix-core', [], {},
+                                                 float('inf'), 10)
             self.assertEqual(result['state'], 'error')  # no XML despite zero process exit
-            result = mutation.analyze_module(output, output, '../outside', [], 0, 10)
+            result = mutation.analyze_module(output, output, '../outside', [], {}, 0, 10)
             self.assertIn('Unknown module', result['error'])
             self.assertFalse((output.parent / 'outside').exists())
             with patch.object(mutation, 'resolve_targets', return_value=([], [])):
@@ -640,13 +716,15 @@ class ReportingTest(unittest.TestCase):
                     mutation.prepare_analysis(output, output, 'sirix-core', [], {})
 
     def test_summary_limits_display_without_hiding_full_result_count(self):
+        survivors = [f'mutant-{index}' for index in range(101)]
         result = {'module': 'sirix-core', 'state': 'complete', 'total': 101, 'killed': 0,
-                  'detected': 0, 'statuses': {'SURVIVED': 101},
-                  'survivors': [f'mutant-{index}' for index in range(101)]}
+                  'detected': 0, 'statuses': {'SURVIVED': 101}, 'survivors': survivors,
+                  'changed': {'total': 101, 'killed': 0, 'survived': 101, 'no_coverage': 0,
+                              'detected': 0, 'survivors': survivors}}
         text = mutation.format_summary([result])
         self.assertIn('Remaining entries', text)
         self.assertNotIn('- mutant-100', text)
-        self.assertEqual(len(result['survivors']), 101)
+        self.assertEqual(len(result['changed']['survivors']), 101)
 
     def test_process_timeout_terminates_group_and_preserves_log(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -668,14 +746,17 @@ class CommandLineTest(unittest.TestCase):
             args = ['pr_mutation.py', 'select', '--base', 'a' * 40, '--head', 'b' * 40,
                     '--output', temp]
             selected = {'sirix-core': ['src/main/java/Foo.java']}
-            with patch.object(sys, 'argv', args), patch.object(mutation, 'changed_sources', return_value=selected), \
+            lines = {'sirix-core': {'src/main/java/Foo.java': [3, 4]}}
+            with patch.object(sys, 'argv', args), \
+                 patch.object(mutation, 'changed_sources', return_value=(selected, lines)), \
                  patch.object(sys, 'stdout', new_callable=io.StringIO):
                 self.assertEqual(mutation.main(), 0)
-            self.assertEqual(json.loads((Path(temp) / 'selection.json').read_text()), selected)
+            self.assertEqual(json.loads((Path(temp) / 'selection.json').read_text()),
+                             {'modules': selected, 'changed_lines': lines})
 
     def test_run_cli_skips_empty_selection_and_module_entrypoint_exits_zero(self):
         with tempfile.TemporaryDirectory() as temp:
-            (Path(temp) / 'selection.json').write_text('{}')
+            write_manifest(Path(temp), {})
             args = ['pr_mutation.py', 'run', '--output', temp, '--blocking']
             with patch.object(sys, 'argv', args):
                 self.assertEqual(mutation.main(), 0)
@@ -693,6 +774,334 @@ class CommandLineTest(unittest.TestCase):
                      self.assertRaises(SystemExit) as exit_status:
                     mutation.main()
                 self.assertEqual(exit_status.exception.code, 2)
+
+
+class ChangedLineMapTest(unittest.TestCase):
+    """The diff-line map: what the PR itself changed, in the numbering PIT reports."""
+
+    def test_real_diff_maps_multi_hunk_renames_deletions_and_ignores_other_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            git = git_repository(root)
+            source = root / 'bundles/sirix-core/src/main/java/a/Renamed.java'
+            source.parent.mkdir(parents=True)
+            moved = source.parent / 'Moved.java'
+            other = root / 'bundles/sirix-core/src/test/java/a/FooTest.java'
+            other.parent.mkdir(parents=True)
+            (source.parent / 'Old.java').write_text(
+                '\n'.join(f'line{number}' for number in range(1, 21)) + '\n')
+            (source.parent / 'Deleted.java').write_text('package a;\nclass Deleted {}\n')
+            moved.write_text('package a;\nclass Moved {}\n')
+            other.write_text('package a;\nclass FooTest {}\n')
+            (root / 'docs').mkdir()
+            (root / 'docs/note.md').write_text('base\n')
+            git('add', '--', '.')
+            git('commit', '-qm', 'base')
+            base = git('rev-parse', 'HEAD')
+            # One rename with three separate edits: a changed line, a deleted line, an append.
+            git('mv', '--', 'bundles/sirix-core/src/main/java/a/Old.java', str(source))
+            kept = [f'line{number}' for number in range(1, 21)]
+            kept[4] = 'CHANGED5'
+            del kept[7]  # line8 disappears and contributes no new-side line
+            source.write_text('\n'.join(kept + ['added1', 'added2']) + '\n')
+            # A pure rename, a test source and a doc: none of them may contribute lines.
+            git('mv', '--', 'bundles/sirix-core/src/main/java/a/Moved.java',
+                'bundles/sirix-core/src/main/java/a/Relocated.java')
+            # A deletion is excluded from the selection and contributes no changed line.
+            git('rm', '-q', '--', 'bundles/sirix-core/src/main/java/a/Deleted.java')
+            other.write_text('package a;\nclass FooTest { void t() {} }\n')
+            (root / 'docs/note.md').write_text('base\nchanged\n')
+            git('add', '--', '.')
+            git('commit', '-qm', 'rename plus edits')
+            head = git('rev-parse', 'HEAD')
+            selected, lines = mutation.changed_sources(root, base, head)
+        self.assertEqual(selected, {'sirix-core': ['src/main/java/a/Relocated.java',
+                                                   'src/main/java/a/Renamed.java']})
+        self.assertEqual(lines['sirix-core']['src/main/java/a/Renamed.java'], [5, 20, 21])
+        self.assertEqual(lines['sirix-core']['src/main/java/a/Relocated.java'], [])
+        self.assertEqual(set(lines['sirix-core']), set(selected['sirix-core']))
+
+    def test_added_file_and_working_tree_edits_are_the_measured_lines(self):
+        """The new side is the working tree, the content that was compiled and mutated."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            git = git_repository(root)
+            added = root / 'bundles/sirix-core/src/main/java/a/Added.java'
+            added.parent.mkdir(parents=True)
+            (added.parent / 'Keep.java').write_text('package a;\nclass Keep {}\n')
+            git('add', '--', '.')
+            git('commit', '-qm', 'base')
+            base = git('rev-parse', 'HEAD')
+            added.write_text('package a;\nclass Added {\n  int x = 1;\n}\n')
+            git('add', '--', '.')
+            git('commit', '-qm', 'add a file')
+            head = git('rev-parse', 'HEAD')
+            # An uncommitted edit of the compiled file still belongs to the judged lines.
+            added.write_text('package a;\nclass Added {\n  int x = 1;\n  int y = 2;\n}\n')
+            selected, lines = mutation.changed_sources(root, base, head)
+        self.assertEqual(selected, {'sirix-core': ['src/main/java/a/Added.java']})
+        self.assertEqual(lines['sirix-core']['src/main/java/a/Added.java'], [1, 2, 3, 4, 5])
+
+    def test_only_the_branch_point_separates_the_pr_from_the_base_branch(self):
+        """The base side is the merge base, so another branch's lines are never judged."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            git = git_repository(root)
+            source = root / 'bundles/sirix-core/src/main/java/a/Shared.java'
+            source.parent.mkdir(parents=True)
+            body = [f'line{number}' for number in range(1, 11)]
+            source.write_text('\n'.join(body) + '\n')
+            git('add', '--', '.')
+            git('commit', '-qm', 'branch point')
+            branch_point = git('rev-parse', 'HEAD')
+            base_moved = list(body)
+            base_moved[0] = 'BASE_BRANCH_EDIT'
+            source.write_text('\n'.join(base_moved) + '\n')
+            git('commit', '-qam', 'base branch edits line 1')
+            base = git('rev-parse', 'HEAD')
+            git('checkout', '-q', '-b', 'pr', branch_point)
+            pr_body = list(body)
+            pr_body[9] = 'PR_EDIT'
+            source.write_text('\n'.join(pr_body) + '\n')
+            git('commit', '-qam', 'the PR edits line 10')
+            head = git('rev-parse', 'HEAD')
+            selected, lines = mutation.changed_sources(root, base, head)
+        self.assertEqual(selected, {'sirix-core': ['src/main/java/a/Shared.java']})
+        self.assertEqual(lines['sirix-core']['src/main/java/a/Shared.java'], [10])
+
+    def test_hunk_header_forms_and_unattributable_hunks(self):
+        prefix = 'bundles/sirix-core/src/main/java/a/'
+        patch_text = ('diff --git a/{0}Foo.java b/{0}Foo.java\n'
+                      '--- a/{0}Foo.java\n+++ b/{0}Foo.java\n'
+                      '@@ -4 +4 @@\n-old\n+new\n'            # single-line form, no count
+                      '@@ -9,2 +10,0 @@\n-gone1\n-gone2\n'   # deletion: no new-side line
+                      '@@ -30,0 +31,3 @@\n+a\n+++ b/evil\n+c\n'  # added text may look like a header
+                      '@@ -59,0 +60 @@\n+still Foo\n'          # ... and must not capture this hunk
+                      'diff --git a/{0}Gone.java b/{0}Gone.java\n'  # a deleted file: no new side
+                      'deleted file mode 100644\n--- a/{0}Gone.java\n+++ /dev/null\n'
+                      '@@ -1,2 +0,0 @@\n-package a;\n-class Gone {{}}\n'
+                      'diff --git a/{0}Bar.java b/{0}Bar.java\n'
+                      '--- a/{0}Bar.java\n+++ b/{0}Bar.java\n'
+                      '@@ -1 +1 @@\n-x\n+y\n').format(prefix)
+        sources = {prefix + 'Foo.java': ('sirix-core', 'src/main/java/a/Foo.java')}
+        with patch.object(mutation.subprocess, 'check_output', return_value=patch_text.encode()):
+            lines = mutation.changed_line_map(Path('/repo'), 'a' * 40, sources)
+        # Bar.java is outside the selection, so its hunk is measured for nobody.
+        self.assertEqual(lines, {prefix + 'Foo.java': [4, 31, 32, 33, 60]})
+        for hostile, refusal in [('@@ -1 +1 @@\n+orphan\n', 'precedes any file header'),
+                                 ('diff --git a/x b/x\n--- a/x\n'
+                                  '+++ "b/quoted name.java"\n@@ -1 +1 @@\n+q\n', 'quoted'),
+                                 ('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ nonsense @@\n',
+                                  'Unparsable diff hunk')]:
+            with self.subTest(hostile=hostile), \
+                 patch.object(mutation.subprocess, 'check_output', return_value=hostile.encode()):
+                with self.assertRaisesRegex(ValueError, refusal):
+                    mutation.changed_line_map(Path('/repo'), 'a' * 40, sources)
+
+    def test_index_keys_changed_lines_the_way_pit_reports_a_mutant(self):
+        sources = {'a/Foo.java': 'a', 'b/Bar.java': 'b.c', 'Plain.java': None,
+                   'c/Commented.java': None}
+        with module_tree({path: package or '' for path, package in sources.items()}, []) as root:
+            (root / 'src/main/java/Plain.java').write_text('// package commented.out;\nclass Plain {}\n')
+            (root / 'src/main/java/c/Commented.java').write_text(
+                '/*\npackage wrong.one;\n*/\npackage c.real;\nclass Commented {}\n')
+            index = mutation.changed_line_index(root, {
+                'src/main/java/a/Foo.java': [7, 8], 'src/main/java/b/Bar.java': [],
+                'src/main/java/Plain.java': [2], 'src/main/java/c/Commented.java': [5],
+                'src/main/java/gone/Absent.java': [1]})
+        self.assertEqual(index, {('a', 'Foo.java'): {7, 8}, ('b.c', 'Bar.java'): set(),
+                                 ('', 'Plain.java'): {2}, ('c.real', 'Commented.java'): {5}})
+        with module_tree({'a/Foo.java': 'a'}, []) as root:
+            for hostile in ([0], ['x'], [-1]):
+                with self.subTest(hostile=hostile), self.assertRaises(ValueError):
+                    mutation.changed_line_index(root, {'src/main/java/a/Foo.java': hostile})
+
+
+class ChangedLineVerdictTest(unittest.TestCase):
+    """Only the PR's own lines decide the outcome; the rest is advisory debt."""
+
+    # `Pure.java` stands for a pure rename: mapped, but with no changed line of its own.
+    INDEX = {('a', 'Foo.java'): {42, 43}, ('a', 'Kot.kt'): {5}, ('a', 'Pure.java'): set()}
+
+    def report(self, temp, mutants):
+        path = Path(temp) / 'mutations.xml'
+        path.write_text('<mutations>' + ''.join(mutants) + '</mutations>')
+        return mutation.read_report(path, self.INDEX)
+
+    @staticmethod
+    def mutant(status, source, klass, line, detected=None):
+        detected = (status in ('KILLED', 'TIMED_OUT')) if detected is None else detected
+        return (f'<mutation detected="{str(detected).lower()}" status="{status}">'
+                f'<sourceFile>{source}</sourceFile><mutatedClass>{klass}</mutatedClass>'
+                f'<mutatedMethod>run</mutatedMethod><lineNumber>{line}</lineNumber>'
+                f'<description>negated conditional</description></mutation>')
+
+    def test_report_splits_changed_from_unchanged_lines_across_class_shapes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = self.report(temp, [
+                self.mutant('KILLED', 'Foo.java', 'a.Foo', 42),          # changed line
+                self.mutant('KILLED', 'Foo.java', 'a.Foo$Inner', 43),    # nested class, changed
+                self.mutant('KILLED', 'Kot.kt', 'a.KotKt', 5),           # Kotlin facade, changed
+                self.mutant('SURVIVED', 'Foo.java', 'a.Foo', 41),        # unchanged line
+                self.mutant('NO_COVERAGE', 'Foo.java', 'a.Extra', 90),   # extra top-level class
+                self.mutant('SURVIVED', 'Pure.java', 'a.Pure', 1),       # mapped, no changed line
+                self.mutant('SURVIVED', 'Other.java', 'a.Other', 42)])   # file never mapped
+        self.assertEqual(report['changed'], {'total': 3, 'killed': 3, 'survived': 0,
+                                             'no_coverage': 0, 'detected': 3, 'survivors': []})
+        # A mutant whose file never mapped is advisory too, and counted as unattributed.
+        self.assertEqual(report['unchanged']['total'], 4)
+        self.assertEqual(report['unchanged']['survived'], 3)
+        self.assertEqual(report['unchanged']['no_coverage'], 1)
+        self.assertEqual(sorted(report['unchanged']['classes']),
+                         [['a.Extra', 1], ['a.Foo', 1], ['a.Other', 1], ['a.Pure', 1]])
+        self.assertEqual(report['unattributed'], 1)
+        self.assertEqual((report['total'], report['detected']), (7, 3))
+        self.assertEqual(len(report['survivors']), 4)  # the artifact keeps every undetected mutant
+        self.assertTrue(mutation.is_clean([{'state': 'complete', **report}]))
+
+    def test_an_undetected_changed_line_mutant_fails_whatever_the_class_total_says(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for status in ('SURVIVED', 'NO_COVERAGE'):
+                with self.subTest(status=status):
+                    report = self.report(temp, [
+                        self.mutant('KILLED', 'Foo.java', 'a.Foo', 42),
+                        self.mutant(status, 'Foo.java', 'a.Foo', 43)]
+                        + [self.mutant('KILLED', 'Foo.java', 'a.Foo', 99)] * 50)
+                    self.assertEqual(report['changed'][status.lower()], 1)
+                    self.assertFalse(mutation.is_clean([{'state': 'complete', **report}]))
+                    self.assertEqual(len(report['changed']['survivors']), 1)
+                    self.assertIn('43', report['changed']['survivors'][0])
+
+    def test_changed_lines_without_any_coverage_fail_even_with_no_survivor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = self.report(temp, [self.mutant('NO_COVERAGE', 'Foo.java', 'a.Foo', 42),
+                                        self.mutant('NO_COVERAGE', 'Foo.java', 'a.Foo', 43),
+                                        self.mutant('KILLED', 'Foo.java', 'a.Foo', 1)])
+        self.assertEqual((report['changed']['total'], report['changed']['no_coverage'],
+                          report['changed']['detected']), (2, 2, 0))
+        self.assertFalse(mutation.is_clean([{'state': 'complete', **report}]))
+
+    def test_pre_existing_debt_on_unchanged_lines_never_fails_the_run(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = self.report(temp, [self.mutant('KILLED', 'Foo.java', 'a.Foo', 42)]
+                                 + [self.mutant('SURVIVED', 'Foo.java', 'a.Foo', 7)] * 348
+                                 + [self.mutant('NO_COVERAGE', 'Foo.java', 'a.Foo', 8)] * 2828)
+        self.assertEqual(report['changed'], {'total': 1, 'killed': 1, 'survived': 0,
+                                            'no_coverage': 0, 'detected': 1, 'survivors': []})
+        self.assertEqual((report['unchanged']['survived'], report['unchanged']['no_coverage']),
+                         (348, 2828))
+        self.assertTrue(mutation.is_clean([{'state': 'complete', **report}]))
+
+    def test_a_diff_with_no_mutable_changed_line_reports_its_count_without_blocking(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = self.report(temp, [self.mutant('SURVIVED', 'Foo.java', 'a.Foo', 7)])
+        result = {'module': 'sirix-core', 'state': 'complete', 'changed_line_count': 3,
+                  'targets': ['a.Foo'], 'tests': ['a.FooTest*'], 'unmapped': [],
+                  'mutants_per_class': 40, **report}
+        self.assertTrue(mutation.is_clean([result]))
+        text = mutation.format_summary([result])
+        self.assertIn('Changed lines: 3. Mutants on changed lines: 0.', text)
+
+    def test_summary_separates_the_verdict_from_advisory_debt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            report = self.report(temp, [self.mutant('SURVIVED', 'Foo.java', 'a.Foo', 42),
+                                        self.mutant('SURVIVED', 'Other.java', 'a.Other', 1)]
+                                 + [self.mutant('NO_COVERAGE', 'Foo.java', 'a.Foo', 9)] * 5
+                                 + [self.mutant('SURVIVED', 'Kot.kt', 'a.KotKt', 80)] * 2)
+        text = mutation.format_summary([{'module': 'sirix-core', 'state': 'complete',
+                                         'changed_line_count': 3, 'targets': ['a.Foo'],
+                                         'tests': ['a.FooTest*'], 'unmapped': [],
+                                         'mutants_per_class': 40, **report}])
+        self.assertIn('Changed lines: 3. Mutants on changed lines: 1. Killed: 0. '
+                      'Survived: 1. No coverage: 0.', text)
+        self.assertIn('Unchanged lines of the same classes (advisory, never blocking). '
+                      'Mutants: 8. Killed: 0. Survived: 3. No coverage: 5.', text)
+        self.assertIn('- a.Foo: 5', text)
+        self.assertIn('- a.KotKt: 2', text)
+        self.assertIn('Undetected mutants on changed lines', text)
+        self.assertIn('Mutants whose source file did not map to a changed source: 1.', text)
+        # The blocking list holds the changed-line mutant only, not the advisory ones.
+        self.assertEqual(text.count('| a.Other |'), 0)
+
+    def test_advisory_class_listing_is_bounded_and_ordered_by_debt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            mutants = [self.mutant('SURVIVED', 'Foo.java', f'a.C{index:02d}', 7)
+                       for index in range(mutation.ADVISORY_CLASS_LIMIT + 2)]
+            mutants.append(self.mutant('SURVIVED', 'Foo.java', 'a.C00', 8))
+            report = self.report(temp, mutants)
+        classes = report['unchanged']['classes']
+        self.assertEqual(len(classes), mutation.ADVISORY_CLASS_LIMIT)
+        self.assertEqual(classes[0], ['a.C00', 2])  # the heaviest debt first
+
+    def test_a_mutant_without_a_usable_line_is_advisory_and_lists_no_debt(self):
+        """PIT always reports a line; one that is missing or unparsable proves nothing."""
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'mutations.xml'
+            path.write_text(
+                '<mutations>'
+                '<mutation detected="true" status="KILLED"><sourceFile>Foo.java</sourceFile>'
+                '<mutatedClass>a.Foo</mutatedClass><lineNumber>42</lineNumber></mutation>'
+                '<mutation detected="true" status="KILLED"><sourceFile>Foo.java</sourceFile>'
+                '<mutatedClass>a.Foo</mutatedClass></mutation>'
+                '<mutation detected="true" status="KILLED"><sourceFile>Foo.java</sourceFile>'
+                '<mutatedClass>a.Foo</mutatedClass><lineNumber>4 2</lineNumber></mutation>'
+                '</mutations>')
+            # Line 1 is a changed line here, so a defaulted line number would be judged.
+            report = mutation.read_report(path, {('a', 'Foo.java'): {1, 42}})
+        self.assertEqual(report['changed']['total'], 1)
+        self.assertEqual((report['unchanged']['total'], report['unchanged']['killed']), (2, 2))
+        self.assertEqual(report['unchanged']['classes'], [])  # advisory debt, none undetected
+        self.assertEqual(report['unattributed'], 0)
+        text = mutation.format_summary([{'module': 'sirix-core', 'state': 'complete', **report}])
+        self.assertIn('Mutants: 2. Killed: 2.', text)
+        self.assertNotIn('Classes with the most undetected', text)
+        self.assertTrue(mutation.is_clean([{'state': 'complete', **report}]))
+
+    def test_run_judges_changed_lines_end_to_end(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            output = root / 'out'
+            output.mkdir()
+            source = root / 'bundles/sirix-core/src/main/java/a/Foo.java'
+            source.parent.mkdir(parents=True)
+            source.write_text('package a;\nclass Foo {}\n')
+            write_manifest(output, {'sirix-core': ['src/main/java/a/Foo.java']},
+                           {'sirix-core': {'src/main/java/a/Foo.java': [42]}})
+            mutants = [self.mutant('KILLED', 'Foo.java', 'a.Foo', 42),
+                       self.mutant('SURVIVED', 'Foo.java', 'a.Foo', 7)]
+
+            def execute(command, module_root, log, timeout):
+                report = output / 'sirix-core/report/mutations.xml'
+                report.parent.mkdir(parents=True, exist_ok=True)
+                report.write_text('<mutations>' + ''.join(mutants) + '</mutations>')
+                return 0
+
+            with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
+                 patch.object(mutation, 'execute', side_effect=execute):
+                self.assertEqual(mutation.run(root, output, 10, blocking=True), 0)
+                result = json.loads((output / 'results.json').read_text())[0]
+                self.assertEqual(result['changed_line_count'], 1)
+                self.assertEqual(result['changed']['killed'], 1)
+                self.assertEqual(result['unchanged']['survived'], 1)
+                # The same run blocks as soon as the survivor sits on a changed line.
+                mutants[1] = self.mutant('SURVIVED', 'Foo.java', 'a.Foo', 42)
+                self.assertEqual(mutation.run(root, output, 10, blocking=True), 1)
+
+    def test_run_refuses_a_manifest_without_a_changed_line_map(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            for manifest in ({'sirix-core': ['src/main/java/a/Foo.java']},
+                             {'modules': {'sirix-core': ['src/main/java/a/Foo.java']}},
+                             {'modules': {'sirix-core': []}, 'changed_lines': {}},
+                             {'modules': {'sirix-core': ['src/main/java/a/Foo.java',
+                                                         'src/main/java/a/Bar.java']},
+                              'changed_lines': {'sirix-core': {'src/main/java/a/Foo.java': [1]}}},
+                             []):
+                with self.subTest(manifest=manifest):
+                    (output / 'selection.json').write_text(json.dumps(manifest))
+                    with self.assertRaises(ValueError):
+                        mutation.run(output, output, 10, blocking=True)
 
 
 if __name__ == '__main__':
