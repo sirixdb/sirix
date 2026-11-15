@@ -77,7 +77,9 @@ checks instead of inventing application tests.
 
 Mutation-test changed logic: inspect the PIT artifact, kill surviving/uncovered mutants with
 meaningful assertions or justify each equivalent/unreachable mutant in the PR (class, method,
-line, mutation and reason). A missing report or timeout is incomplete evidence. The bounded
+line, mutation and reason). The PR lane judges only the mutants on the lines your diff changed;
+mutants on unchanged lines of the same classes are reported as advisory pre-existing debt, so do
+not widen the PR to chase them. A missing report or timeout is incomplete evidence. The bounded
 PR lane is initially informational; scope, local commands and the blocking switch are in
 [Verification](docs/VERIFICATION.md#pr-mutation-testing).
 

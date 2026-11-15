@@ -177,6 +177,20 @@ Both diff revisions must be full hexadecimal commit IDs; option-like values are 
 before Git runs. Diff paths must be canonical relative paths and selected sources must exist in
 the head commit. Literal pathspecs follow `--`; source symlinks cannot escape the module. Every
 subprocess uses an argument list with `shell=False`.
+
+Changed **lines** come from a second diff, `git diff -U0 --merge-base <base> -- bundles/`, whose
+base side is the merge base of `<base>` and the checked-out revision and whose new side is the
+**working tree** - the exact content `Build` compiled and PIT mutates - so every mapped line
+number describes the file that was actually mutated. Rename detection runs over the whole
+`bundles/` diff rather than per path, so a renamed-and-edited file contributes only its edited
+lines and a pure rename contributes none; deleted lines contribute no new-side line, and a deleted
+file (`+++ /dev/null`, excluded from the selection anyway) contributes nothing. Hunks are
+attributed through their `+++ b/<path>` header and kept only for already selected sources; a hunk
+that precedes any file header, an unparsable hunk header and a path Git had to quote all fail
+selection instead of silently reporting a file as untouched. `selection.json` records `modules`
+(what to mutate) and `changed_lines` (what to judge, one entry per selected source); `run` refuses
+a manifest that does not map every selected source rather than judging nothing.
+
 The checkout is the PR merge revision, matching `Build`. JVM `SourceFile` attributes map source
 files to **exact compiled class names**, including nested/anonymous classes, extra top-level
 classes and Kotlin file facades. No prefix glob or whole-module fallback broadens mutation scope.
@@ -228,18 +242,49 @@ Random jqwik/property exploration, the random model oracle, HOT structural prope
 suites are excluded from the PR mutation baseline; keep exploration in its normal test lane and
 promote discovered seeds to deterministic regressions. The weekly curated core PIT task is unchanged.
 
-The `pr-mutation` artifact contains source selection, exact targets and test filters, every
-undetected mutant in `results.json`, HTML/XML reports, logs and `summary.md`. The job summary
-shows, per module, the state, the number of mutated classes and test patterns, the unmapped
-sources, killed/survived/no-coverage/total counts, killed/total separately from PIT's
-detected/total score (which includes timed-out mutants), status counts and up to 100 undetected
-mutants; the artifact retains the full list.
+The `pr-mutation` artifact contains source selection with its changed-line map, exact targets and
+test filters, every undetected mutant in `results.json`, HTML/XML reports, logs and `summary.md`.
+The job summary shows, per module, the state, the number of mutated classes and test patterns, the
+unmapped sources, the changed-line counts that decide the outcome (changed lines, mutants on them,
+killed, survived, no coverage), the whole-report killed/total separately from PIT's detected/total
+score (which includes timed-out mutants), status counts, up to 100 undetected changed-line mutants
+and - separately, marked advisory - the unchanged-line totals with the classes carrying the most
+undetected mutants; the artifact retains the full list. `results.json` keeps that split per module
+under `changed` and `unchanged`, with `unattributed` counting any mutant whose source file never
+mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
 Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
 
-A run is **clean** when every module completed, produced mutants and every mutant was detected.
-Both `SURVIVED` and `NO_COVERAGE` fail the analysis, including a report with only uncovered
-mutants. Inspect both; kill them or justify each with evidence in the PR. The Gradle
-`mutationThreshold`/`coverageThreshold` stay at 0, so PIT itself never decides the outcome.
+### Blocking criterion: the PR's own lines
+
+A run is **clean** when every module completed, PIT produced mutants, and every mutant **on a
+changed line** was detected. A mutant sits on a changed line when its `<sourceFile>` and the
+package of its `<mutatedClass>` match a changed source and its `<lineNumber>` is in that file's
+changed-line set; nested, anonymous and extra top-level classes and Kotlin file facades are
+therefore attributed to the file they were compiled from. On changed lines both `SURVIVED` and
+`NO_COVERAGE` fail, including a result whose changed-line mutants are all uncovered - untested new
+code is a finding, not the absence of one. Inspect them; kill them or justify each with evidence
+in the PR.
+
+Mutants on **unchanged** lines of the same classes are advisory: the summary and `results.json`
+report their counts and the classes carrying the most of them, and they never fail the job. They
+are pre-existing test debt the PR did not introduce. On
+[PR 1354](https://github.com/sirixdb/sirix/pull/1354) all 17 changed-line mutants were killed
+while 348 survivors and 2,828 uncovered mutants sat on unchanged lines of the same classes; a
+whole-class criterion leaves every larger PR red however completely its own change is tested.
+Reduce that debt in dedicated work rather than by widening a PR.
+
+Incomplete analysis still fails on its own, independently of any line: a module that timed out,
+errored, mapped to no test (`unmapped`), produced zero mutations, or attributed none of its
+mutants to a changed source is never clean - an empty attribution judges nothing and must not
+read as a pass. The Gradle `mutationThreshold`/`coverageThreshold` stay at 0, so PIT itself never
+decides the outcome.
+
+**Known limitation.** Per-class mutant sampling is chosen before the line map is applied and,
+when the `CLASSLIMIT` limit binds, spreads its sample evenly over each class, so a large diff in a
+large class can leave zero mutants on changed lines - nothing to judge, and the job stays green. The summary always prints a module's
+changed-line count beside its changed-line mutant count, so `0` mutants judged out of many changed
+lines is visible rather than silent; a focused rerun without `prMutationMaxMutations` (below)
+mutates every line of the changed classes.
 
 The job runs on normal `pull_request` events, including forks and Dependabot, with only
 `contents: read`, no secrets, no persisted checkout credentials and read-only Gradle caches.
@@ -247,14 +292,15 @@ Never use `pull_request_target` or add credentials to run untrusted PR code. Rep
 and job summaries, so reporting needs no PR write token.
 
 **Required or advisory:** the job is **advisory** by decision. It has `continue-on-error`, so it
-reports without gating: its scope is the PR's own changed classes, a red result is normally a
+reports without gating: its scope is the PR's own changed lines, a red result is normally a
 test-quality finding for the author rather than a broken build, and the per-source test mapping
 is a heuristic that can legitimately find no test. It stays visibly informational even when
-undetected mutants or incomplete analysis fail its analysis step. Once representative PRs have no
-unresolved undetected mutants or incomplete runs, maintainers can set the repository Actions variable
+undetected changed-line mutants or incomplete analysis fail its analysis step. Once representative
+PRs have no unresolved undetected changed-line mutants or incomplete runs, maintainers can set the
+repository Actions variable
 **`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing` in branch
 protection. That single switch removes job-level tolerance; the reporter already rejects
-undetected mutants and incomplete runs. Review documented equivalent/unreachable-mutant justifications
+undetected changed-line mutants and incomplete runs. Review documented equivalent/unreachable-mutant justifications
 before enabling; there is no silent survivor allowlist. Revert the variable to restore
 informational rollout while investigating an infrastructure failure.
 
@@ -265,7 +311,7 @@ python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation.py
 python3 .github/scripts/pr_mutation.py select \
   --base "$(git rev-parse origin/main)" --head "$(git rev-parse HEAD)" --output /tmp/pr-mutation
 python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1320
-# Add --blocking to reject undetected mutants and incomplete analysis locally.
+# Add --blocking to reject undetected changed-line mutants and incomplete analysis locally.
 ```
 
 For a broader deterministic test selection, reuse the artifact's `targets.txt` and run:

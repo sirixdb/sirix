@@ -36,6 +36,11 @@ MIN_MODULE_SECONDS = 120
 MUTANT_BUDGET = 300
 MIN_MUTANTS_PER_CLASS = 4
 MAX_MUTANTS_PER_CLASS = 40
+# Job-summary bounds; GitHub drops a summary above 1 MiB and the artifact retains every entry.
+SUMMARY_MUTANT_LIMIT = 100
+ADVISORY_CLASS_LIMIT = 10
+# A unified-diff hunk header: the new-side start line and, when present, its line count.
+HUNK = re.compile(r'^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@')
 
 
 class Unmapped(Exception):
@@ -69,6 +74,41 @@ def repository_path(value):
     return value
 
 
+def changed_line_map(root, base, sources):
+    """New-side line numbers of the PR's own changes, per selected source.
+
+    The new side is the working tree - the revision `Build` compiled and PIT mutates - so a
+    mapped line number always describes the file whose mutants are judged. Rename detection
+    needs both paths, so the diff covers all of `bundles/` and hunks are kept per selected path.
+    """
+    patch = subprocess.check_output(
+        ['git', '--literal-pathspecs', '-c', 'core.quotePath=false', '-C', str(root), 'diff',
+         '-U0', '--no-textconv', '--merge-base', commit_id(base), '--', 'bundles/'], shell=False)
+    lines = {path: set() for path in sources}
+    current, in_header, named = None, False, False
+    for entry in os.fsdecode(patch).splitlines():
+        if entry.startswith('diff --git '):
+            current, in_header, named = None, True, False
+        elif in_header and entry.startswith('+++ '):
+            target = entry[len('+++ '):]
+            if target.startswith('"'):
+                raise ValueError(f'Git quoted a diff path; cannot attribute changed lines: {target}')
+            # `/dev/null`: a deleted file has no new side, so it contributes no line.
+            current, named = (target[len('b/'):] if target.startswith('b/') else None), True
+        elif entry.startswith('@@'):
+            # Only a header can start with '@@': every body line starts with '+', '-' or '\'.
+            hunk = HUNK.match(entry)
+            if not hunk:
+                raise ValueError(f'Unparsable diff hunk header: {entry[:60]!r}')
+            if not named:
+                raise ValueError(f'Diff hunk precedes any file header: {entry[:60]!r}')
+            in_header = False
+            if current in lines:
+                start = int(hunk[1])
+                lines[current].update(range(start, start + (1 if hunk[2] is None else int(hunk[2]))))
+    return {path: sorted(numbers) for path, numbers in lines.items()}
+
+
 def changed_sources(root, base, head):
     base_sha, head_sha = commit_id(base), commit_id(head)
     raw = subprocess.check_output(['git', '-C', str(root), 'diff', '--name-only', '-z',
@@ -76,8 +116,9 @@ def changed_sources(root, base, head):
                                   shell=False)
     paths = [repository_path(os.fsdecode(path)) for path in raw.split(b'\0') if path]
     selected = select_sources(paths)
-    sources = [f'bundles/{DIRECTORIES[module]}/{source}'
-               for module, files in selected.items() for source in files]
+    sources = {f'bundles/{DIRECTORIES[module]}/{source}': (module, source)
+               for module, files in selected.items() for source in files}
+    lines = {module: {} for module in selected}
     if sources:
         tree = subprocess.check_output(['git', '--literal-pathspecs', '-C', str(root), 'ls-tree',
                                         '-r', '--name-only', '-z', head_sha, '--', *sources],
@@ -85,7 +126,10 @@ def changed_sources(root, base, head):
         tracked = {os.fsdecode(path) for path in tree.split(b'\0') if path}
         if set(sources) != tracked:
             raise ValueError('Selected source path is absent from the head commit')
-    return selected
+        for path, numbers in changed_line_map(root, base_sha, sources).items():
+            module, source = sources[path]
+            lines[module][source] = numbers
+    return selected, lines
 
 
 class ClassReader:
@@ -164,15 +208,43 @@ def source_path(module_root, source):
     return path
 
 
+def declared_package(text):
+    """The source's own package, ignoring commented-out declarations."""
+    stripped = re.sub(r'/\*.*?\*/|//[^\n]*', '', text, flags=re.S)
+    package = re.search(r'^\s*package\s+([\w.]+)', stripped, re.M)
+    return package.group(1) if package else ''
+
+
+def changed_line_index(module_root, lines):
+    """Key the changed lines of each source the way PIT names a mutant's location.
+
+    PIT reports `sourceFile` as a bare file name and the package through `mutatedClass`, so this
+    key attributes nested, anonymous and extra top-level classes and Kotlin file facades to the
+    source they were compiled from. A mapped source with no changed line keeps an empty entry:
+    its mutants are advisory, not unattributed.
+    """
+    index = {}
+    for source, numbers in lines.items():
+        path = source_path(module_root, source)
+        if not path.is_file():
+            continue
+        selected = set()
+        for number in numbers:
+            line = int(number)
+            if line < 1:
+                raise ValueError(f'Changed line {line} of {source!r} is not a line number')
+            selected.add(line)
+        index.setdefault((declared_package(path.read_text()), path.name), set()).update(selected)
+    return index
+
+
 def resolve_targets(module_root, sources):
     expected = {}
     for source in sources:
         path = source_path(module_root, source)
         if not path.is_file():
             continue
-        text = re.sub(r'/\*.*?\*/|//[^\n]*', '', path.read_text(), flags=re.S)
-        package = re.search(r'^\s*package\s+([\w.]+)', text, re.M)
-        expected[(package.group(1) if package else '', path.name)] = source
+        expected[(declared_package(path.read_text()), path.name)] = source
     found = set()
     targets = set()
     for language in ('java', 'kotlin'):
@@ -236,9 +308,7 @@ def is_related_test_name(simple, base):
 
 
 def source_package(module_root, source):
-    text = source_path(module_root, source).read_text()
-    package = re.search(r'^\s*package\s+([\w.]+)', text, re.M)
-    return package.group(1) if package else ''
+    return declared_package(source_path(module_root, source).read_text())
 
 
 def resolve_tests(stem, package, tests):
@@ -294,34 +364,141 @@ def test_scope(module_root, sources):
             {candidate['source']: candidate['kind'] for candidate in candidates})
 
 
-def read_report(path):
+def mutant_line(element):
+    try:
+        return int(element.findtext('lineNumber', ''))
+    except (TypeError, ValueError):
+        return 0
+
+
+def classify_mutant(element, index):
+    """Judge a mutant only when its own line is in the PR's diff; the rest stays advisory."""
+    source_file = element.findtext('sourceFile', '')
+    package = element.findtext('mutatedClass', '').rpartition('.')[0]
+    lines = index.get((package, source_file))
+    if lines is None:
+        return 'unchanged', False
+    return ('changed' if mutant_line(element) in lines else 'unchanged'), True
+
+
+def describe_mutant(element):
+    fields = [element.get('status', 'UNKNOWN')]
+    fields.extend(element.findtext(tag, '?') for tag in
+                  ('mutatedClass', 'mutatedMethod', 'lineNumber', 'description'))
+    return ' | '.join(fields)
+
+
+def undetected(elements):
+    return [element for element in elements if element.get('detected') != 'true']
+
+
+def tally(elements):
+    counts = Counter(element.get('status', 'UNKNOWN') for element in elements)
+    return {'total': len(elements), 'killed': counts['KILLED'], 'survived': counts['SURVIVED'],
+            'no_coverage': counts['NO_COVERAGE'],
+            'detected': sum(element.get('detected') == 'true' for element in elements)}
+
+
+def read_report(path, index):
     mutations = ET.parse(path).getroot().findall('mutation')
     if not mutations:
         raise ValueError('PIT produced no mutations; no score is available')
-    counts = Counter(mutation.get('status', 'UNKNOWN') for mutation in mutations)
-    survivors = []
-    for mutation in mutations:
-        if mutation.get('detected') != 'true':
-            fields = [mutation.get('status', 'UNKNOWN')]
-            fields.extend(mutation.findtext(tag, '?') for tag in
-                          ('mutatedClass', 'mutatedMethod', 'lineNumber', 'description'))
-            survivors.append(' | '.join(fields))
-    return {'total': len(mutations), 'killed': counts['KILLED'],
-            'survived': counts['SURVIVED'], 'no_coverage': counts['NO_COVERAGE'],
-            'detected': sum(m.get('detected') == 'true' for m in mutations),
-            'statuses': dict(sorted(counts.items())), 'survivors': survivors}
+    groups = {'changed': [], 'unchanged': []}
+    unattributed = 0
+    for element in mutations:
+        kind, attributed = classify_mutant(element, index)
+        groups[kind].append(element)
+        unattributed += not attributed
+    changed = tally(groups['changed'])
+    changed['survivors'] = [describe_mutant(element) for element in undetected(groups['changed'])]
+    advisory = tally(groups['unchanged'])
+    debt = Counter(element.findtext('mutatedClass', '?')
+                   for element in undetected(groups['unchanged']))
+    advisory['classes'] = [[name, count] for name, count in debt.most_common(ADVISORY_CLASS_LIMIT)]
+    report = tally(mutations)
+    report.update(statuses=dict(sorted(Counter(element.get('status', 'UNKNOWN')
+                                               for element in mutations).items())),
+                  survivors=[describe_mutant(element) for element in undetected(mutations)],
+                  changed=changed, unchanged=advisory, unattributed=unattributed)
+    return report
 
 
 def is_clean(results):
-    return all(result['state'] == 'complete' and result.get('total', 0) > 0
-               and result.get('detected') == result['total'] for result in results)
+    """Only undetected mutants on the PR's changed lines, and incomplete analysis, fail a run."""
+    for result in results:
+        if result['state'] != 'complete' or result.get('total', 0) <= 0:
+            return False
+        # A report whose mutants all failed to map to a changed source judged nothing at all.
+        if result['total'] - result.get('unattributed', 0) <= 0:
+            return False
+        changed = result.get('changed')
+        # A complete report without a changed-line verdict is incomplete, never clean.
+        if not changed or changed['detected'] != changed['total']:
+            return False
+    return True
+
+
+def escape(value):
+    """Job-summary text that cannot inject Markdown, HTML or a table cell break."""
+    return html.escape(str(value)).replace('|', '&#124;').replace('\n', ' ')
+
+
+def format_verdict(result):
+    """The changed-line verdict: the counts that decide the outcome, then their mutants."""
+    changed = result.get('changed')
+    if not changed:
+        return []
+    # The changed-line count beside the mutant count keeps a sampled-away verdict visible.
+    counted = (f"Changed lines: {result['changed_line_count']}. "
+               if 'changed_line_count' in result else '')
+    lines = [f"{counted}Mutants on changed lines: {changed['total']}. "
+             f"Killed: {changed['killed']}. Survived: {changed['survived']}. "
+             f"No coverage: {changed['no_coverage']}.", '']
+    if changed['survivors']:
+        lines.extend(['Undetected mutants on changed lines (these decide the outcome; '
+                      'every undetected mutant is in `results.json`):', ''])
+        lines.extend('- ' + escape(value) for value in changed['survivors'][:SUMMARY_MUTANT_LIMIT])
+        if len(changed['survivors']) > SUMMARY_MUTANT_LIMIT:
+            lines.append('- Remaining entries: see `results.json`.')
+        lines.append('')
+    return lines
+
+
+def format_report(result):
+    """The whole report, for context: PIT's own score over every mutated class."""
+    if 'total' not in result:
+        return []
+    total = result['total']
+    lines = [f"Killed: {result['killed']}/{total} ({100 * result['killed'] / total:.1f}%). "
+             f"Survived: {result.get('survived', 0)}. "
+             f"No coverage: {result.get('no_coverage', 0)}. "
+             f"Detected (PIT score, includes timeouts): {result['detected']}/{total} "
+             f"({100 * result['detected'] / total:.1f}%).", '', escape(result['statuses']), '']
+    if result.get('unattributed'):
+        lines.extend([f"Mutants whose source file did not map to a changed source: "
+                      f"{result['unattributed']}.", ''])
+    return lines
+
+
+def format_advisory(result):
+    """Unchanged-line debt: counts and the classes carrying the most of it. Never blocking."""
+    advisory = result.get('unchanged')
+    if not advisory or not advisory['total']:
+        return []
+    lines = [f"Unchanged lines of the same classes (advisory, never blocking). "
+             f"Mutants: {advisory['total']}. Killed: {advisory['killed']}. "
+             f"Survived: {advisory['survived']}. No coverage: {advisory['no_coverage']}.", '']
+    if advisory['classes']:
+        lines.extend(['Classes with the most undetected unchanged-line mutants:', ''])
+        lines.extend(f'- {escape(name)}: {escape(count)}' for name, count in advisory['classes'])
+        lines.append('')
+    return lines
 
 
 def format_summary(results):
-    def escape(value):
-        return html.escape(str(value)).replace('|', '&#124;').replace('\n', ' ')
-
     lines = ['# Changed-source mutation testing', '',
+             'Blocking criterion: undetected mutants on the lines this pull request changed. '
+             'Mutants on unchanged lines of the same classes are advisory pre-existing debt. '
              'Informational unless `MUTATION_BLOCKING` is enabled. Full reports, targets and logs '
              'are in the `pr-mutation` artifact.', '']
     if not results:
@@ -340,21 +517,9 @@ def format_summary(results):
             lines.extend(['Changed sources for which no mapped test was selected:', ''])
             lines.extend('- ' + escape(value) for value in result['unmapped'])
             lines.append('')
-        if 'total' in result:
-            total = result['total']
-            lines.extend([f"Killed: {result['killed']}/{total} ({100 * result['killed'] / total:.1f}%). "
-                          f"Survived: {result.get('survived', 0)}. "
-                          f"No coverage: {result.get('no_coverage', 0)}. "
-                          f"Detected (PIT score, includes timeouts): {result['detected']}/{total} "
-                          f"({100 * result['detected'] / total:.1f}%).", '',
-                          escape(result['statuses']), ''])
-            if result['survivors']:
-                lines.extend(['Undetected mutants (all entries also in `results.json`):', ''])
-                # Keep GitHub's 1 MiB job-summary limit; the artifact retains every entry.
-                lines.extend('- ' + escape(value) for value in result['survivors'][:100])
-                if len(result['survivors']) > 100:
-                    lines.append('- Remaining entries: see `results.json`.')
-                lines.append('')
+        lines.extend(format_verdict(result))
+        lines.extend(format_report(result))
+        lines.extend(format_advisory(result))
     return '\n'.join(lines)
 
 
@@ -392,25 +557,28 @@ def prepare_analysis(root, directory, module, sources, result):
             f'-PprMutationTests={",".join(tests)}']
 
 
-def attach_report(result, report):
+def attach_report(result, report, index):
     try:
-        result.update(read_report(report))
+        result.update(read_report(report, index))
     except (OSError, ValueError, ET.ParseError) as error:
         if result['state'] == 'complete':
             result.update(state='error', error=str(error))
 
 
-def analyze_module(root, output, module, sources, deadline, seconds):
+def analyze_module(root, output, module, sources, lines, deadline, seconds):
     result = {'module': module, 'sources': sources, 'state': 'error'}
     if module not in DIRECTORIES:
         return {**result, 'error': 'Unknown module; refusing to execute PIT'}
     directory = output / module
     directory.mkdir(parents=True, exist_ok=True)
     report = directory / 'report/mutations.xml'
+    index = {}
     try:
         # Never attach cached/rerun XML to a new selection, even when mapping fails.
         if report.exists():
             report.unlink()
+        index = changed_line_index(root / 'bundles' / DIRECTORIES[module], lines)
+        result['changed_line_count'] = sum(len(numbers) for numbers in index.values())
         command = prepare_analysis(root, directory, module, sources, result)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -425,7 +593,7 @@ def analyze_module(root, output, module, sources, deadline, seconds):
         result.update(state='unmapped', error=str(error))
     except (OSError, ValueError, IndexError, struct.error) as error:
         result.update(state='error', error=str(error))
-    attach_report(result, report)
+    attach_report(result, report, index)
     return result
 
 
@@ -434,8 +602,26 @@ def write_results(output, results):
     (output / 'summary.md').write_text(format_summary(results))
 
 
+def read_selection(output):
+    """The manifest `select` wrote: what to mutate, plus the lines that decide the outcome."""
+    manifest = json.loads((output / 'selection.json').read_text())
+    if not isinstance(manifest, dict) or not {'modules', 'changed_lines'} <= set(manifest):
+        raise ValueError('selection.json carries no changed-line map; rerun the select command')
+    selected, lines = manifest['modules'], manifest['changed_lines']
+    missing = []
+    for module, sources in selected.items():
+        mapped = lines.get(module)
+        if mapped is None:
+            missing.append(module)
+            continue
+        missing.extend(f'{module}/{source}' for source in sorted(set(sources) - set(mapped)))
+    if missing:
+        raise ValueError('Selection manifest has no changed lines for: ' + ', '.join(missing))
+    return selected, lines
+
+
 def run(root, output, seconds, blocking):
-    selected = json.loads((output / 'selection.json').read_text())
+    selected, changed = read_selection(output)
     deadline = time.monotonic() + seconds
     results = []
     pending = len(selected)
@@ -445,7 +631,7 @@ def run(root, output, seconds, blocking):
         remaining = max(0.0, deadline - time.monotonic())
         reserve = min(MIN_MODULE_SECONDS, remaining / pending)
         share = remaining - reserve * (pending - 1)
-        results.append(analyze_module(root, output, module, sources,
+        results.append(analyze_module(root, output, module, sources, changed[module],
                                       time.monotonic() + share, round(share)))
         pending -= 1
         write_results(output, results)
@@ -469,9 +655,10 @@ def main():
     if args.command == 'select':
         if not args.base or not args.head:
             parser.error('select requires --base and --head')
-        selection = changed_sources(args.root.resolve(), args.base, args.head)
-        (output / 'selection.json').write_text(json.dumps(selection, indent=2) + '\n')
-        print(json.dumps(selection, indent=2))
+        selected, lines = changed_sources(args.root.resolve(), args.base, args.head)
+        manifest = {'modules': selected, 'changed_lines': lines}
+        (output / 'selection.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        print(json.dumps(manifest, indent=2))
         return 0
     if args.seconds <= 0:
         parser.error('--seconds must be positive')
