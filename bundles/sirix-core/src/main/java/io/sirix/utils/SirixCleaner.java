@@ -16,11 +16,8 @@ public final class SirixCleaner {
   private SirixCleaner() {}
 
   private static final class Service {
-    private static final Cleaner CLEANER = Cleaner.create(runnable -> {
-      final Thread thread = new Thread(runnable, "sirix-cleaner");
-      thread.setDaemon(true);
-      return thread;
-    });
+    // The JDK daemon does not inherit application thread locals or its context class loader.
+    private static final Cleaner CLEANER = Cleaner.create();
 
     private Service() {}
   }

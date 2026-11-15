@@ -360,6 +360,15 @@ def allocatorColdStartupTest = tasks.register('allocatorColdStartupTest', Test) 
     filter { includeTestsMatching 'io.sirix.access.AllocatorColdStartupTest' }
 }
 
+def cleanerStartupTest = tasks.register('cleanerStartupTest', Test) {
+    group = 'verification'
+    description = 'Checks first Cleaner registration without inheriting application thread context.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching 'io.sirix.utils.CleanerStartupTest' }
+}
+
 def sharedArenaPolicyCases = [
     'diagnostic-global': ['global', 'false', 'true'],
     'diagnostic-skip': ['shared', 'true', 'true'],
@@ -387,7 +396,7 @@ def sharedArenaPolicyTests = sharedArenaPolicyCases.collect { mode, settings ->
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest] + sharedArenaPolicyTests).each { testTask ->
+    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests).each { testTask ->
         testTask.configure { isolatedTest ->
             standardTest.copyTo(isolatedTest)
             // copyTo flattens argument providers (including JaCoCo) into jvmArgs. Keep only
@@ -407,6 +416,10 @@ gradle.projectsEvaluated {
         minHeapSize = '128m'
         systemProperty 'sirix.allocator.maxSize', '128M'
         systemProperty 'sirix.cache.page.max.entries', '7'
+    }
+    cleanerStartupTest.configure {
+        maxHeapSize = '256m'
+        minHeapSize = '128m'
     }
     sharedArenaPolicyTests.eachWithIndex { policyTask, index ->
         def mode = sharedArenaPolicyCases.keySet().toList()[index]
@@ -435,13 +448,14 @@ gradle.projectsEvaluated {
 // The standard test excludes these suites, so its execution data alone omits their coverage.
 tasks.named('jacocoTestReport') {
     executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(),
-            storageEpochStoreIdentityTest.get(), configurationStartupTest.get(), allocatorColdStartupTest.get()
+            storageEpochStoreIdentityTest.get(), configurationStartupTest.get(), allocatorColdStartupTest.get(), cleanerStartupTest.get()
     executionData sharedArenaPolicyTests.collect { it.get() }
 }
 
 tasks.named('test', Test).configure {
-    dependsOn configurationStartupTest, allocatorColdStartupTest
+    dependsOn configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest
     dependsOn sharedArenaPolicyTests
+    exclude 'io/sirix/utils/CleanerStartupTest*.class'
     exclude 'io/sirix/access/AllocatorColdStartupTest*.class'
     exclude 'io/sirix/io/SharedArenaStartupPolicyTest*.class'
     exclude 'io/sirix/access/ConfigurationStartupTest*.class'
