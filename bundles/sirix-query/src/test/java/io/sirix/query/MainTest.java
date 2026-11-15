@@ -194,13 +194,15 @@ final class MainTest {
   void redirectedOutputIsGoldenRegardlessOfColourEnvironment() throws Exception {
     final Path logging = directory.resolve("logback.xml");
     Files.writeString(logging, "<configuration><root level='OFF'/></configuration>");
+    final Path query = directory.resolve("Unicode query.xq");
+    Files.writeString(query, "{'name':'商店😀','n':12}", StandardCharsets.UTF_8);
     for (int mode = 0; mode < 3; mode++) {
       final List<String> arguments =
           new ArrayList<>(List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
               "--enable-preview", "--add-modules=jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED",
               "-Xmx128m", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8", "-Duser.home=" + directory,
               "-Dlogback.configurationFile=" + logging, "-cp", System.getProperty("java.class.path"),
-              Main.class.getName(), "-q", "{'name':'商店😀','n':12}"));
+              Main.class.getName(), "-qf", query.toString()));
       if (mode == 1)
         arguments.add("--no-color");
       final Path output = directory.resolve("out" + mode);

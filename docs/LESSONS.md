@@ -82,4 +82,7 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
   portable and set the encoding of any byte golden. Pair process smoke tests with
   in-process CLI assertions for mutation coverage. Assert exact buffer boundaries
   across overloads and reuse; make shared cursor-reset postconditions explicit.
-  Evidence: [shell CI boundaries](postmortems/shell-ci-boundaries.md).
+  Keep Unicode output goldens independent of native argv conversion, and keep
+  empty-buffer decisions at callers that admit empty buffers.
+  Evidence: [shell CI boundaries](postmortems/shell-ci-boundaries.md) and
+  [CI follow-up](postmortems/shell-ci-follow-up.md).

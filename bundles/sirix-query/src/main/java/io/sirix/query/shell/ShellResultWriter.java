@@ -273,8 +273,7 @@ public final class ShellResultWriter extends Writer {
   }
 
   private void drain() throws IOException {
-    if (used != 0)
-      out.write(buffer, 0, used);
+    out.write(buffer, 0, used);
     used = 0;
   }
 
@@ -297,7 +296,8 @@ public final class ShellResultWriter extends Writer {
 
   @Override
   public void flush() throws IOException {
-    drain();
+    if (used != 0)
+      drain();
     out.flush();
   }
 

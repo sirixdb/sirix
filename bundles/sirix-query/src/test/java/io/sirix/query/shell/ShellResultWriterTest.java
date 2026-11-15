@@ -6,9 +6,11 @@ import java.util.Random;
 import java.util.List;
 import org.jline.utils.AttributedString;
 import java.io.Writer;
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import com.sun.management.ThreadMXBean;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ShellResultWriterTest {
@@ -232,6 +234,49 @@ final class ShellResultWriterTest {
         assertEquals(payload + "y", out.toString());
       }
     }
+  }
+
+  @Test
+  void failedFullBufferDrainRetainsPayloadAndEmptyFlushesDoNotWrite() throws Exception {
+    final String payload = "x".repeat(16384);
+    final StringWriter output = new StringWriter();
+    final Writer sink = new Writer() {
+      private boolean fail = true;
+
+      @Override
+      public void write(final char[] chars, final int offset, final int length) throws IOException {
+        assertTrue(length > 0, "Empty flushes must not write payload");
+        if (fail) {
+          fail = false;
+          throw new IOException("sink unavailable");
+        }
+        output.write(chars, offset, length);
+      }
+
+      @Override
+      public void flush() {
+        // The sink has no buffering of its own.
+      }
+
+      @Override
+      public void close() {
+        // The StringWriter remains readable after the adapter closes.
+      }
+    };
+    try (final ShellResultWriter writer = new ShellResultWriter(sink, ShellPalette.ANSI_16, false)) {
+      writer.flush();
+      writer.finish();
+      writer.write(payload);
+      final IOException failure = assertThrows(IOException.class, () -> writer.write('y'));
+      assertEquals("sink unavailable", failure.getMessage());
+      assertEquals("", output.toString());
+      writer.write('y');
+      writer.flush();
+      assertEquals(payload + "y", output.toString());
+      writer.flush();
+      writer.finish();
+    }
+    assertEquals(payload + "y", output.toString());
   }
 
   @Test
