@@ -32,8 +32,10 @@ configure(mutationProject) {
             targetClasses = targets
             targetTests = providers.gradleProperty('prMutationTests').get().split(',').toList()
             // Fresh random exploration belongs in the ordinary test lanes, not PIT's baseline.
+            // Isolated startup/allocation suites need their dedicated JVMs, just as for test.
             excludedTestClasses = ['io.sirix.property.*', '*JsonModelBasedOracleRandomTest',
-                                   '*HOTStructuralPropertyTest*', '*SoakTest*']
+                                   '*HOTStructuralPropertyTest*', '*SoakTest*'] +
+                    standardTest.excludes.collect { it.replace('/', '.').replace('.class', '') }
             threads = 2
             timestampedReports = false
             outputFormats = ['HTML', 'XML']

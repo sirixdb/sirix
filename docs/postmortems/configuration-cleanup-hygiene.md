@@ -44,6 +44,53 @@ The first Deep verification run exhausted javac's 512 MiB default while compilin
 
 The repair was verified by forcing core, core tests, query, MCP main and MCP test compilation rather than accepting a cached core build. [The subsequent Deep verification run](https://github.com/sirixdb/sirix/actions/runs/43684989597) passed both Error Prone/NullAway and curated PIT on the repaired head.
 
+## CI: diagnostics and isolated startup suites crossed execution boundaries
+
+- Symptom / trigger: the allocator allowance warning corrupted CLI query and history stdout on
+  Linux, macOS and Windows in [the PR run](https://github.com/sirixdb/sirix/actions/runs/43708637917).
+- Invariant: command stdout contains only command results; enabled diagnostics go to stderr.
+  This holds for XML/JSON queries, history dumps and other commands sharing core/query logging.
+- Root cause: the new warning exposed shared main/test ConsoleAppenders targeting stdout. Earlier
+  output tests had not exercised an allocator request differing from the effective allowance.
+- Regression: `QueryTest` (all five cases) and `DumpResourceHistoryTest` failed locally before the
+  fix. `ConsoleLoggingTest` executes all four packaged main/test Logback configurations and emits
+  independent warning/info witnesses, requiring empty stdout and both witnesses on stderr.
+
+The same run's PIT artifact records a shared 1,320-second deadline exhausted during module-wide
+baseline coverage, before mutation results. Its baseline also ran `AllocatorColdStartupTest`,
+`ConfigurationStartupTest`, `StorageEpochStoreIdentityTest`, `ValidTimeDisabledLookupCacheTest`
+and the dictionary allocation suite outside their required forks.
+
+- Invariant: a test excluded from the normal shared JVM must also be excluded from PIT's shared
+  JVM. This includes allocator/configuration/Cleaner startup, all arena-policy modes, storage-epoch,
+  disabled-cache and allocation suites; their dedicated Gradle tasks retain responsibility for them.
+- Root cause: PIT copied normal JVM arguments/properties but ignored the normal test exclusions.
+  Adding new first-initialization fixtures made that mismatch observable immediately.
+- Regression: a focused real PIT invocation selecting `ConfigurationPropertiesTest*` together with
+  `AllocatorColdStartupTest*` fails before mutation on the old configuration. Carrying the normal
+  exclusions into PIT removes the incompatible fixture while preserving the ordinary mutation suite.
+  No shared deadline or mutation target is widened or suppressed.
+- Lesson: preserve output-channel and JVM-isolation contracts when adding diagnostics or reusing
+  test suites; validate them through the real logging and mutation consumers.
+
+The REST job failed before tests because downloading the unchanged Keycloak base image returned
+`short read: expected 81209403 bytes but got 12582912: unexpected EOF`. This external download
+failure requires no code change.
+
+Local verification after the CI boundary fix:
+
+- `ConsoleLoggingTest` passes against all four packaged configurations; the full Kotlin CLI suite
+  has 24 tests, zero failures and one skip, and the Kotlin API suite has 12 tests, zero failures and
+  three skips. The six previously failing CLI cases now pass.
+- All seven dedicated core startup/policy tasks pass, as do both query threshold modes and the
+  generic temporal-reader lifetime task. Diagnostic-skip runs retain two intentional policy skips.
+- Focused PIT using `ConfigurationPropertiesTest*` and `PageCacheConfigurationTest*`, plus every
+  normal excluded class pattern as an adversarial test selection, discovers only the two ordinary
+  suites and kills all 24 parser mutants (zero uncovered). The initial parser-only selection left
+  three positive-entry-count mutants uncovered; adding the existing cache consumer tests kills them.
+- This verifies the baseline-exclusion repair, not completion of the full changed-source PIT lane.
+  The full shared-deadline run and macOS/Windows execution were not repeated locally.
+
 ## Evidence quality and limits
 
 - The first eviction fixture used `NamePage`, which ordinary metadata admission rejects. `IndirectPage` plus retained/evicted counts prevents rejected admission from producing a false result.
