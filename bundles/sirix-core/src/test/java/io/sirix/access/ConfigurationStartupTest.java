@@ -93,6 +93,14 @@ final class ConfigurationStartupTest {
             ((ShardedPageCache<?>) Databases.getGlobalBufferManager().getRecordPageFragmentCache()).getMaxWeightBytes());
         Databases.reinitializeBufferManagerForTesting(48L << 20, 8L << 20);
         assertEquals(50_000, ((PageCache) Databases.getGlobalBufferManager().getPageCache()).maxEntries());
+        for (final String expected : new String[] {
+            "  - RecordPageCache: 50331648 bytes (48 MB)",
+            "  - RecordPageFragmentCache: 8388608 bytes (8 MB)",
+            "  - PageCache legacy estimate: 3000 bytes; effective entry cap logged by PageCache",
+            "  - PageCache legacy estimate: 50000000 bytes; effective entry cap logged by PageCache",
+            "  - PageCache: 3 entries", "  - PageCache: 50000 entries"}) {
+          assertTrue(events.list.stream().anyMatch(event -> event.getFormattedMessage().equals(expected)), expected);
+        }
       } finally {
         if (previousEntries != null) {
           System.setProperty("sirix.cache.page.max.entries", previousEntries);
