@@ -1,0 +1,66 @@
+{
+  "scope": "R6 scheduler close and affected lifecycle callers",
+  "totals": {
+    "tests": 126,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "classes": [
+    {
+      "class": "io.sirix.access.AsyncCommitTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.CommitSafetyTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+      "tests": 72,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "log": "build/lifecycle-scheduler-close-focused.log",
+  "mutation_status": "Pending outer executor; historical PIT does not validate R6",
+  "notes": [
+    "Seven automatic startup-test dependencies also ran through the focused Gradle task graph.",
+    "No full suite, lint, PIT, work budgets, compiled-shape comparison, publication or pipeline control was run in this fix phase."
+  ]
+}

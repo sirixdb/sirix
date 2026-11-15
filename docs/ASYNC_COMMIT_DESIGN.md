@@ -105,8 +105,16 @@ terminal after the permit is released.
 Public transaction close retains its dirty-transaction protection. Resource-session
 close can explicitly abort a dirty successor after fencing the failed predecessor;
 see [`ResourceSession.close()`](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java).
-The scheduler is fenced outside the node lock before the shared write permit is
-released. A live append worker that refuses teardown keeps its owners reachable
+An external transaction closer fences the scheduler outside the node lock and
+transaction monitor before releasing the shared write permit. A post-commit hook
+running on the scheduler itself completes cleanup, publishes CLOSED and releases
+admission without joining its own executor; shutdown completes when that callback
+returns. Both hook-dispatch paths stop after a hook closes the transaction. The
+remaining timed-task epilogue only releases its lock and returns to the executor;
+it does not revisit reader, writer or epoch payloads. A repeated external transaction
+close still fences termination. Timed cleanup uses the existing transaction lock,
+untimed cleanup uses the monitor, and an atomic admission-release guard prevents
+double release by independent closers. A live append worker that refuses teardown keeps its owners reachable
 for retry. After fencing, independent cleanup continues despite failures, retaining
 the first error and suppressing later ones. Terminal object state alone does not
 prove recovery; the [admission barrier](operations.md#marker-recovery) protects reuse.
