@@ -15,22 +15,50 @@ configure(mutationProject) {
         if (targets.isEmpty() || targets.any { it.contains('*') || it.contains('?') }) {
             throw new GradleException('PR mutation targets must be nonempty, exact class names')
         }
+        def mutantLimit = providers.gradleProperty('prMutationMaxMutations').getOrNull()
+        if (mutantLimit != null && !(mutantLimit ==~ /[1-9][0-9]*/)) {
+            throw new GradleException("PR mutation mutant limit must be a positive integer: ${mutantLimit}")
+        }
         def standardTest = tasks.named('test').get()
         // Preserve each module's opens/exports and test properties, without its workstation-sized
         // heap, GC tuning or coverage agent. PIT forks two small minions on the CI runner.
         def minionArgs = standardTest.jvmArgs.findAll {
             !it.startsWith('-X') && !it.startsWith('-javaagent:')
         }
+        // PIT's comma-separated --jvmArgs protocol re-splits commas in -D arguments into bare
+        // tokens, breaking minion startup. Filter synthesized properties only: opens/exports
+        // may be two-token options, so removing a jvmArgs element could orphan its paired token.
+        def unusable = []
         standardTest.systemProperties.each { key, value ->
-            if (value != null) {
-                minionArgs.add("-D${key}=${value}".toString())
+            if (value == null) {
+                return
             }
+            def argument = "-D${key}=${value}".toString()
+            if (argument.contains(',')) {
+                unusable.add(key)
+            } else {
+                minionArgs.add(argument)
+            }
+        }
+        if (!unusable.isEmpty()) {
+            logger.lifecycle('PR mutation: dropping test system properties whose value holds a '
+                    + "comma, which PIT would re-split into a bare minion argument: ${unusable}")
         }
         pitest {
             pitestVersion = '1.25.5'
             junit5PluginVersion = '1.2.3'
             targetClasses = targets
             targetTests = providers.gradleProperty('prMutationTests').get().split(',').toList()
+            // Sampled per class by the reporter, so a large diff still finishes: a mutant whose
+            // covering test hangs costs a minion restart, and those dominate the budget. PIT has
+            // no maxMutationsPerClass setting; the limit is the CLASSLIMIT interceptor feature
+            // (org.pitest.mutationtest.filter.LimitNumberOfMutationsPerClassFilterFactory), whose
+            // createEvenlyDistributedSampling strides across the class rather than taking the
+            // first N, without guaranteeing every method is reached. Optional on purpose:
+            // a manual focused rerun omits it and then mutates every mutant of its targets.
+            if (mutantLimit != null) {
+                features = ["+CLASSLIMIT(limit[${mutantLimit}])".toString()]
+            }
             // Fresh random exploration belongs in the ordinary test lanes, not PIT's baseline.
             // Isolated startup/allocation suites need their dedicated JVMs, just as for test.
             excludedTestClasses = ['io.sirix.property.*', '*JsonModelBasedOracleRandomTest',

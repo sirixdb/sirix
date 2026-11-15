@@ -19,6 +19,28 @@ MODULES = {name: name for name in ('sirix-core', 'sirix-query', 'sirix-rest-api'
 MODULES['sirix-examples'] = 'sirix-example'
 DIRECTORIES = {module: directory for directory, module in MODULES.items()}
 
+# PIT collects baseline coverage for every targetTests class. Bound test selection as well as
+# mutant sampling, so coverage collection cannot fall back to the whole module suite.
+TEST_SUFFIXES = ('Test', 'Tests', 'IT')
+PACKAGE_TEST_LIMIT = 25
+MODULE_TEST_LIMIT = 60
+# Best first: an exactly named test, then a name-related one, then the source's own package.
+KIND_ORDER = ('named', 'related', 'package')
+UNRESOLVED_KINDS = ('unmapped', 'over-limit')
+# Execution time reserved for each module still waiting, so none is starved by an earlier one.
+MIN_MODULE_SECONDS = 120
+# A large diff cannot afford every mutant of every changed class. A mutant whose covering test
+# hangs costs a whole minion restart, and those restarts - not the mutant count - exhausted the
+# budget for PR 1351's 57 changed sirix-core classes once the test scope was fixed. Sample per
+# class instead, so the work scales with the diff and even a small diff has a per-class cap.
+MUTANT_BUDGET = 300
+MIN_MUTANTS_PER_CLASS = 4
+MAX_MUTANTS_PER_CLASS = 40
+
+
+class Unmapped(Exception):
+    """No test maps to any changed source, so PIT has no coverage baseline to collect."""
+
 
 def select_sources(paths):
     selected = {}
@@ -163,25 +185,113 @@ def resolve_targets(module_root, sources):
     return sorted(targets), sorted(set(sources) - found)
 
 
+def module_test_classes(module_root):
+    """Discover declared top-level test types and packages without requiring compilation."""
+    classes = {}
+    for language, suffix in (('java', '.java'), ('kotlin', '.kt')):
+        root = module_root / 'src/test' / language
+        if not root.is_dir():
+            continue
+        for path in root.rglob('*' + suffix):
+            if path.name in ('package-info.java', 'module-info.java'):
+                continue
+            text = re.sub(r'//[^\n]*|/\*.*?\*/|""".*?"""|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',
+                          ' ', path.read_text(), flags=re.S)
+            declaration = re.search(r'^\s*package\s+([\w.]+)', text, re.M)
+            package = declaration.group(1) if declaration else ''
+            keywords = 'class|interface|enum|record' if language == 'java' else 'class|interface|object'
+            depth = 0
+            for token in re.finditer(r'\b(?:' + keywords + r')\s+([\w$]+)|[{}]', text):
+                if token[0] == '{':
+                    depth += 1
+                elif token[0] == '}':
+                    depth -= 1
+                elif depth == 0:
+                    name = token[1]
+                    classes[f'{package}.{name}' if package else name] = package
+    return classes
+
+
+def is_test_name(simple):
+    return any(simple.endswith(suffix) and simple != suffix for suffix in TEST_SUFFIXES)
+
+
+def base_names(stem):
+    """The names a test class may be built from: the class itself and its unwrapped form."""
+    names = [stem]
+    if stem.startswith('Abstract') and stem != 'Abstract':
+        names.append(stem[len('Abstract'):])
+    if stem.endswith('Impl') and stem != 'Impl':
+        names.append(stem[:-len('Impl')])
+    return [name for index, name in enumerate(names) if name not in names[:index]]
+
+
+def is_related_test_name(simple, base):
+    """`Foo` relates to `FooTest` and `FooSlotTest`, never to a merely similar `FoobarTest`."""
+    if not simple.startswith(base) or not is_test_name(simple):
+        return False
+    # Every entry in TEST_SUFFIXES starts a new word, so one uppercase test covers both
+    # `FooTest` (the remainder is the suffix) and `FooSlotTest` (the remainder adds a word).
+    return simple[len(base):][:1].isupper()
+
+
+def source_package(module_root, source):
+    text = source_path(module_root, source).read_text()
+    package = re.search(r'^\s*package\s+([\w.]+)', text, re.M)
+    return package.group(1) if package else ''
+
+
+def resolve_tests(stem, package, tests):
+    """Prefer named and module-wide related tests, with a bounded package fallback."""
+    prefix = package + '.' if package else ''
+    named = [name for name in (f'{prefix}{stem}{suffix}' for suffix in ('Test', 'Tests'))
+             if name in tests]
+    if named:
+        return sorted(named), 'named'
+    bases = base_names(stem)
+    related = sorted(name for name in tests
+                     if any(is_related_test_name(name.rpartition('.')[2], base) for base in bases))
+    if related:
+        return related, 'related'
+    # `package and ...`: an undeclared package must not make every test a subpackage match.
+    in_package = sorted(name for name, owner in tests.items()
+                        if (owner == package or (package and owner.startswith(prefix)))
+                        and is_test_name(name.rpartition('.')[2]))
+    if in_package and len(in_package) <= PACKAGE_TEST_LIMIT:
+        return in_package, 'package'
+    return [], 'unmapped'
+
+
+def mutants_per_class(targets):
+    """Bound PIT's per-class sampling, so a module's work scales with the size of the diff."""
+    return max(MIN_MUTANTS_PER_CLASS,
+               min(MAX_MUTANTS_PER_CLASS, MUTANT_BUDGET // max(1, len(targets))))
+
+
 def test_scope(module_root, sources):
-    """Prefer directly named tests; without one for every source, use the module suite."""
-    tests = []
+    """Bounded per-source test selection. No input may widen the scope to the module suite."""
+    candidates = []
+    tests = module_test_classes(module_root)
     for source in sources:
-        path = Path(source)
-        text = source_path(module_root, source).read_text()
-        package = re.search(r'^\s*package\s+([\w.]+)', text, re.M)
-        prefix = package.group(1) + '.' if package else ''
-        matches = []
-        for language, suffix in (('java', '.java'), ('kotlin', '.kt')):
-            directory = module_root / f'src/test/{language}' / prefix.replace('.', '/')
-            for ending in ('Test', 'Tests'):
-                name = path.stem + ending
-                if (directory / (name + suffix)).is_file():
-                    matches.append(prefix + name + '*')
-        if not matches:
-            return ['*']
-        tests.extend(matches)
-    return sorted(set(tests))
+        patterns, kind = resolve_tests(Path(source).stem,
+                                       source_package(module_root, source), tests)
+        candidates.append({'source': source, 'kind': kind, 'patterns': patterns})
+    # Admit named matches before related/package matches; any candidate can exceed the cap.
+    selected = set()
+    for kind in KIND_ORDER:
+        for candidate in candidates:
+            if candidate['kind'] != kind:
+                continue
+            merged = selected | set(candidate['patterns'])
+            if len(merged) > MODULE_TEST_LIMIT:
+                candidate['kind'] = 'over-limit'
+                continue
+            selected = merged
+    # A trailing glob reaches @Nested classes and may also match other name-prefixed classes.
+    return (sorted(name + '*' for name in selected),
+            sorted(candidate['source'] for candidate in candidates
+                   if candidate['kind'] in UNRESOLVED_KINDS),
+            {candidate['source']: candidate['kind'] for candidate in candidates})
 
 
 def read_report(path):
@@ -197,6 +307,7 @@ def read_report(path):
                           ('mutatedClass', 'mutatedMethod', 'lineNumber', 'description'))
             survivors.append(' | '.join(fields))
     return {'total': len(mutations), 'killed': counts['KILLED'],
+            'survived': counts['SURVIVED'], 'no_coverage': counts['NO_COVERAGE'],
             'detected': sum(m.get('detected') == 'true' for m in mutations),
             'statuses': dict(sorted(counts.items())), 'survivors': survivors}
 
@@ -219,9 +330,21 @@ def format_summary(results):
         lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", ''])
         if 'error' in result:
             lines.extend([escape(result['error']), ''])
+        if result['state'] == 'unmapped':
+            lines.extend(['No mutation analysis ran; no mutant has a status.', ''])
+        if 'tests' in result:
+            lines.extend([f"Changed target classes: {len(result['targets'])}. "
+                          f"Test patterns: {len(result['tests'])}. "
+                          f"Mutants sampled per class: {result['mutants_per_class']}.", ''])
+        if result.get('unmapped'):
+            lines.extend(['Changed sources for which no mapped test was selected:', ''])
+            lines.extend('- ' + escape(value) for value in result['unmapped'])
+            lines.append('')
         if 'total' in result:
             total = result['total']
             lines.extend([f"Killed: {result['killed']}/{total} ({100 * result['killed'] / total:.1f}%). "
+                          f"Survived: {result.get('survived', 0)}. "
+                          f"No coverage: {result.get('no_coverage', 0)}. "
                           f"Detected (PIT score, includes timeouts): {result['detected']}/{total} "
                           f"({100 * result['detected'] / total:.1f}%).", '',
                           escape(result['statuses']), ''])
@@ -254,13 +377,18 @@ def prepare_analysis(root, directory, module, sources, result):
         raise ValueError('No compiled classes for changed sources: ' + ', '.join(missing))
     if not targets:
         raise ValueError('Empty target selection; refusing whole-module mutation')
-    tests = test_scope(module_root, sources)
-    result.update(targets=targets, tests=tests)
+    tests, unmapped, mapping = test_scope(module_root, sources)
+    mutants = mutants_per_class(targets)
+    result.update(targets=targets, tests=tests, unmapped=unmapped, resolution=mapping,
+                  mutants_per_class=mutants)
+    if not tests:
+        raise Unmapped('No test maps to any changed source; PIT has no baseline to collect')
     target_file = directory / 'targets.txt'
     target_file.write_text('\n'.join(targets) + '\n')
     return [str(root / 'gradlew'), f':{module}:pitest', '--no-daemon',
             f'-PprMutationModule={module}', f'-PprMutationTargetsFile={target_file}',
             f'-PprMutationReportDir={directory / "report"}',
+            f'-PprMutationMaxMutations={mutants}',
             f'-PprMutationTests={",".join(tests)}']
 
 
@@ -286,13 +414,15 @@ def analyze_module(root, output, module, sources, deadline, seconds):
         command = prepare_analysis(root, directory, module, sources, result)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise subprocess.TimeoutExpired('PIT shared deadline', seconds)
+            raise subprocess.TimeoutExpired('PIT module execution share', seconds)
         code = execute(command, root, directory / 'pitest.log', remaining)
         if code != 0:
             raise ValueError(f'PIT exited {code}; see {module}/pitest.log')
         result['state'] = 'complete'
     except subprocess.TimeoutExpired:
-        result.update(state='timed out', error=f'Shared {seconds}s execution deadline exceeded')
+        result.update(state='timed out', error=f'{seconds}s module execution share exceeded')
+    except Unmapped as error:
+        result.update(state='unmapped', error=str(error))
     except (OSError, ValueError, IndexError, struct.error) as error:
         result.update(state='error', error=str(error))
     attach_report(result, report)
@@ -308,8 +438,16 @@ def run(root, output, seconds, blocking):
     selected = json.loads((output / 'selection.json').read_text())
     deadline = time.monotonic() + seconds
     results = []
+    pending = len(selected)
     for module, sources in selected.items():
-        results.append(analyze_module(root, output, module, sources, deadline, seconds))
+        # Reserve time for later modules while allowing this module to use the rest.
+        # Divide equally if the remaining budget cannot supply every pending module's floor.
+        remaining = max(0.0, deadline - time.monotonic())
+        reserve = min(MIN_MODULE_SECONDS, remaining / pending)
+        share = remaining - reserve * (pending - 1)
+        results.append(analyze_module(root, output, module, sources,
+                                      time.monotonic() + share, round(share)))
+        pending -= 1
         write_results(output, results)
     if not results:
         write_results(output, results)
