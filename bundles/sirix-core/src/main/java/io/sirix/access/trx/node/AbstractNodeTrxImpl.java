@@ -2,6 +2,8 @@ package io.sirix.access.trx.node;
 
 import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.ReplayWorkDiagnostics;
+import io.sirix.utils.WorkerTermination;
+import io.sirix.cache.ShardedPageCache;
 import io.sirix.diff.DiagnosticDiffMap;
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.User;
@@ -667,12 +669,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private void hardenAndPublish(final StorageEngineWriter committingWriter, final UberPage pendingUberPage,
       final @Nullable Runnable publishUpdateDiffs) {
-    notifyAsyncCommitTestHook("before-harden");
-    committingWriter.hardenCommit(pendingUberPage, true);
-    resourceSession.setLastCommittedUberPage(pendingUberPage);
-    // Publish-then-clear: there is no window in which the revision resolves through neither path.
-    resourceSession.clearPendingRevisionRoot(pendingUberPage.getRevisionNumber());
-    committingWriter.close();
+    try (committingWriter) {
+      try {
+        notifyAsyncCommitTestHook("before-harden");
+        committingWriter.hardenCommit(pendingUberPage, true);
+        resourceSession.setLastCommittedUberPage(pendingUberPage);
+      } finally {
+        resourceSession.clearPendingRevisionRoot(pendingUberPage.getRevisionNumber());
+      }
+    }
     if (publishUpdateDiffs != null) {
       try {
         publishUpdateDiffs.run();
@@ -1476,50 +1481,79 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public void close() {
+    close(false);
+  }
+
+  @Override
+  public void abort() {
+    try {
+      close(true);
+    } finally {
+      if (commitScheduler.isShutdown()) {
+        WorkerTermination.shutdownAndAwait(commitScheduler, false);
+      }
+    }
+  }
+
+  private void close(final boolean abort) {
     runLocked(() -> {
       if (!isClosed()) {
-        // Drain the async-commit pipeline so every hardening finished (or its failure is known)
-        // before resources are torn down. A failure is logged, not thrown: close() must still
-        // release resources — the data loss already happened and was latched.
+        Throwable failure = null;
         try {
           awaitPendingAsyncCommit();
-        } catch (final RuntimeException e) {
-          LOGGER.error(
-              "Async commit pipeline failed before close — the last pipelined revision(s) " + "did not become durable.",
-              e);
+        } catch (final RuntimeException | Error e) {
+          failure = e;
         }
 
-        // Make sure to commit all dirty data.
-        if (modificationCount > 0) {
-          throw new SirixUsageException("Must commit/rollback transaction first!");
+        if (!abort && modificationCount > 0) {
+          final SirixUsageException dirty = new SirixUsageException("Must commit/rollback transaction first!");
+          ShardedPageCache.rethrowCleanupFailure(ShardedPageCache.retainCleanupFailure(failure, dirty));
         }
 
-        // A load-time build can have no modifications in the current epoch after a successful
-        // intermediate commit while still owning cross-epoch builder state. Closing is a lineage
-        // abort for that state and must retire it before cached listeners or caller-held handles can
-        // let another transaction attach to it.
-        indexController.notifyTransactionAbort();
+        try {
+          indexController.notifyTransactionAbort();
+        } catch (final RuntimeException | Error e) {
+          failure = ShardedPageCache.retainCleanupFailure(failure, e);
+        }
 
         if (storageEngineWriter != null && !storageEngineWriter.isClosed()) {
-          storageEngineWriter.close();
+          try {
+            storageEngineWriter.close();
+          } catch (final RuntimeException | Error e) {
+            failure = ShardedPageCache.retainCleanupFailure(failure, e);
+            if (!storageEngineWriter.isClosed()) {
+              ShardedPageCache.rethrowCleanupFailure(failure);
+            }
+          }
         }
 
         final int trxId = getId();
-        nodeReadOnlyTrx.close();
-
+        try {
+          nodeReadOnlyTrx.close();
+        } catch (final RuntimeException | Error e) {
+          ShardedPageCache.rethrowCleanupFailure(ShardedPageCache.retainCleanupFailure(failure, e));
+        }
         resourceSession.closeWriteTransaction(trxId);
 
         pathSummaryWriter = null;
         nodeFactory = null;
-
-        // Shutdown pool.
         commitScheduler.shutdown();
-        removeCommitFile();
-        try {
-          commitScheduler.awaitTermination(2, TimeUnit.SECONDS);
-        } catch (final InterruptedException e) {
-          throw new SirixThreadedException(e);
+        if (!asyncCommitTerminalFailure) {
+          try {
+            removeCommitFile();
+          } catch (final RuntimeException | Error e) {
+            failure = ShardedPageCache.retainCleanupFailure(failure, e);
+          }
         }
+        if (!abort) {
+          try {
+            commitScheduler.awaitTermination(2, TimeUnit.SECONDS);
+          } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            failure = ShardedPageCache.retainCleanupFailure(failure, new SirixThreadedException(e));
+          }
+        }
+        ShardedPageCache.rethrowCleanupFailure(failure);
       }
     });
   }
