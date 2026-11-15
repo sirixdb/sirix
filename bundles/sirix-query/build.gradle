@@ -327,6 +327,31 @@ tasks.named('test', Test).configure {
     dependsOn temporalNodeReaderLifetimeGenericTest
 }
 
+// Thresholds are startup constants: exercise independent keys and legacy child-only overrides
+// in fresh JVMs, without changing the thresholds used by query work-budget tests.
+def translatorThresholdTests = ['independent', 'legacy'].collect { mode ->
+    tasks.register("translatorThreshold${mode.capitalize()}Test", Test) {
+        group = 'verification'
+        description = "Checks ${mode} translator threshold configuration in a separate JVM."
+        testClassesDirs = sourceSets.test.output.classesDirs
+        classpath = sourceSets.test.runtimeClasspath
+        useJUnitPlatform()
+        filter { includeTestsMatching 'io.sirix.query.SirixTranslatorThresholdTest' }
+        def standardTest = tasks.named('test', Test).get()
+        jvmArgs = standardTest.jvmArgs
+        minHeapSize = standardTest.minHeapSize
+        maxHeapSize = standardTest.maxHeapSize
+        systemProperties = new LinkedHashMap(standardTest.systemProperties)
+        systemProperty 'org.sirix.xquery.optimize.child.threshold', '17'
+        systemProperties.remove('org.sirix.xquery.optimize.descendant.threshold')
+        if (mode == 'independent') {
+            systemProperty 'org.sirix.xquery.optimize.descendant.threshold', '31'
+        }
+        systemProperty 'sirix.test.threshold.case', mode
+    }
+}
+tasks.named('test', Test).configure { dependsOn translatorThresholdTests }
+
 // Scale-bench runner: shreds a configurable record count and runs all 9
 // analytical queries, printing ms and result sizes. Usage (via Gradle):
 //   ./gradlew :sirix-query:scaleBench -Pscale.args="10000000 false 1" \

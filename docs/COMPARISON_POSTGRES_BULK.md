@@ -53,27 +53,29 @@ does not distort.
 
 ### Memory, stated properly
 
-`-Xmx` does **not** describe SirixDB's footprint. Its page cache is off-heap, sized from
-`DatabaseConfiguration`'s segment-allocation budget (default **16 GB**, `-Dsirix.allocator.maxSize`),
-and split by `Databases.initializeGlobalBufferManager`: record pages get half the budget, fragments
-three sixteenths, metadata a sixteenth. Read back from a live process at the default:
+`-Xmx` does **not** describe SirixDB's footprint. Record pages and fragments use off-heap memory;
+metadata has a separate entry cap. Current sizing and startup policy are owned by
+[Cache budgets](operations.md#4-cache-budgets). The historical campaign recorded these byte
+settings; its metadata byte setting is neither measured residency nor a current default:
 
-| SirixDB cache (off-heap) | bytes |
+| Historical SirixDB cache setting | requested bytes |
 |---|---:|
 | `recordPageCache` | 8,589,934,592 (8.00 GB) |
 | `recordPageFragmentCache` | 3,221,225,472 (3.00 GB) |
-| metadata `pageCache` | 1,073,741,824 (1.00 GB) |
+| metadata `pageCache` (legacy setting) | 1,073,741,824 (1.00 GB) |
 
 An earlier revision of this document reported `-Xmx8g` against `shared_buffers=1GB` and called the
 result buffer-pressured. That was wrong in both directions: it understated SirixDB (whose 8 GB
 record cache holds the entire 2.12 GB corpus, so SirixDB was **cache-resident**) and it compared a
 JVM heap against a buffer pool, which are not the same thing. Every query number below is therefore
-measured **twice**, at matched cache sizes:
+measured **twice**, with the following historical record-cache settings. The metadata byte
+arguments below do not establish matched metadata residency, and their interpretation has since
+changed; use the operations guide when configuring a new run:
 
 | regime | SirixDB | PostgreSQL |
 |---|---|---|
-| **A** | `recordPage=1GB`, `recordPageFragment=384MB`, `page=128MB` | `shared_buffers=1GB` |
-| **B** | defaults — 8 GB / 3 GB / 1 GB | `shared_buffers=8GB` |
+| **A** | `recordPage=1GB`, `recordPageFragment=384MB`, legacy `page=128MB` | `shared_buffers=1GB` |
+| **B** | historical defaults — record 8 GB / fragment 3 GB; legacy metadata request 1 GB | `shared_buffers=8GB` |
 
 ### Regime (per BENCHMARK_DESIGN.md §2.1)
 

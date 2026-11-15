@@ -1,5 +1,6 @@
 package io.sirix.page;
 
+import io.sirix.utils.SirixCleaner;
 import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
 import io.sirix.node.LE;
@@ -209,9 +210,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     return closeSite;
   }
 
-  /** Shared Cleaner for all KeyValueLeafPage leak-detection registrations. */
-  private static final Cleaner LEAK_CLEANER = Cleaner.create();
-
   /**
    * Heap-allocated state captured by the leak-detection {@link Cleaner.Cleanable} so it does NOT
    * capture the enclosing {@code KeyValueLeafPage} instance — capturing {@code this} would make the
@@ -223,9 +221,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * <li>A {@code closed} flag the page's {@link #close()} flips — the Cleaner action reads it and
    * skips logging when the page was closed properly.</li>
    * </ul>
-   * Non-static state class so users can read the closed flag through the {@code Cleaner.Cleanable}
-   * owner; reference is held by the page only when {@link #DEBUG_MEMORY_LEAKS} is on, so production
-   * builds pay zero overhead.
+   * Static state class to avoid retaining the page through an implicit enclosing-instance reference;
+   * allocated only when {@link #DEBUG_MEMORY_LEAKS} is on.
    */
   private static final class LeakDetectorState implements Runnable {
     final long pageKey;
@@ -675,7 +672,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         }
         constructedLeakDetectorState =
             new LeakDetectorState(recordPageKey, indexType, revision, constructedCreationStackTrace);
-        LEAK_CLEANER.register(this, constructedLeakDetectorState);
+        SirixCleaner.register(this, constructedLeakDetectorState);
       }
       this.creationStackTrace = constructedCreationStackTrace;
       this.leakDetectorState = constructedLeakDetectorState;
@@ -769,7 +766,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         ALL_PAGE_0_INSTANCES.add(this);
       }
       this.leakDetectorState = new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
-      LEAK_CLEANER.register(this, leakDetectorState);
+      SirixCleaner.register(this, leakDetectorState);
     } else {
       this.creationStackTrace = null;
       this.leakDetectorState = null;
@@ -5787,7 +5784,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     stampBindingGeneration = generation + 2;
   }
 
-  // Leak detection lives in LeakDetectorState above (registered with LEAK_CLEANER in
+  // Leak detection lives in LeakDetectorState above (registered with SirixCleaner in
   // each constructor when DEBUG_MEMORY_LEAKS is on). The deprecated finalize() override
   // was removed — Cleaner is the sanctioned post-Java-9 replacement: it doesn't run on
   // the GC thread, doesn't resurrect objects, and survives finalize() being removed in

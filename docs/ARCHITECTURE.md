@@ -2252,13 +2252,16 @@ graph TB
 
 ### Cache Hierarchy
 
-| Cache | Purpose | Eviction Policy | Typical Size |
-|-------|---------|-----------------|--------------|
-| **RecordPageCache** | Hot data pages | Clock sweep | 50MB+ |
-| **RecordPageFragmentCache** | Version fragments | Clock sweep | 25MB+ |
-| **PageCache** | Metadata pages | Caffeine LRU | 500K entries |
-| **RevisionRootPageCache** | Revision roots | Caffeine LRU | 5K entries |
-| **PathSummaryCache** | Path summary data | Caffeine LRU | 20 entries |
+Capacities, units and startup overrides are owned by
+[Cache budgets](operations.md#4-cache-budgets).
+
+| Cache | Purpose | Eviction Policy |
+|-------|---------|-----------------|
+| **RecordPageCache** | Hot data pages | Clock sweep |
+| **RecordPageFragmentCache** | Version fragments | Clock sweep |
+| **PageCache** | Metadata pages | Caffeine LRU |
+| **RevisionRootPageCache** | Revision roots | Caffeine LRU |
+| **PathSummaryCache** | Path summary data | Caffeine LRU |
 
 ---
 

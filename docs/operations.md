@@ -123,15 +123,15 @@ guide has always asked for remains a safe setting for the server.
 ## 4. Cache budgets
 
 Sirix's `BufferManager` is a multi-tier cache. The defaults are computed as
-fractions of the **memory budget** (the off-heap allocator's max segment size),
-and can be overridden via system properties.
+fractions of the **effective process allocator allowance**, or fixed entry counts,
+and can be overridden via startup system properties.
 
 | Cache | Default | Property | Purpose |
 |---|---|---|---|
 | `RecordPageCache` | 50% of budget | `sirix.cache.recordPage` | Most-recent record-page versions — primary data cache |
 | `RecordPageFragmentCache` | 18.75% of budget | `sirix.cache.recordPageFragment` | Older revision fragments needed to reconstruct historical records |
-| `PageCache` | 6.25% of budget (min 100 MB) | `sirix.cache.page` | Index pages, RevisionRoot pages — metadata, not records |
-| `RevisionRootPageCache` | 5,000 entries (fixed count) | — | Revision root pointers |
+| `PageCache` | 50,000 entries | `sirix.cache.page.max.entries` | Metadata pages, not records; count cap rather than a heap byte limit |
+| `RevisionRootPageCache` | 20,000 entries | `sirix.cache.revisionRoot.max.entries` | Revision root pointers |
 | `HOTLookupCache` | [Budget-derived and heap-share bounded](HOT_INDEX_SPECIFICATION.md#61-behaviour) | `sirix.hotLookupCache.maxEntries` | Memoized committed-revision point lookups (`0` disables) |
 | `NamesCache` | 500 entries (fixed) | — | Interned QName / property-name strings |
 | `PathSummaryCache` | 20 entries (fixed) | — | Per-resource path-summary readers |
@@ -147,22 +147,53 @@ once selected between it and two pool allocators, which are removed. It may be l
 `frame`; any other value, `pool` and `windowspool` included, stops the process at the allocator's first
 use. Remove the property from launch scripts that still set it.
 
-Set explicit byte counts when you know your working set:
+The allocator is process-wide. `sirix.allocator.maxSize` defaults to `16G`, accepts positive byte
+counts or binary K/KB, M/MB and G/GB suffixes, and is limited to 1 TiB. Malformed, nonpositive and
+overflowing caps fail with the property name and value. The first allocator initialization fixes
+its allowance (subject to physical headroom); later persisted database requests cannot resize it,
+and a mismatching request is logged with the effective allowance. Cache properties are read at
+manager construction, so set them before any database or global cache access.
+
+Explicit cache byte caps use the same checked binary-unit parser; malformed, nonpositive and
+overflowing values fail instead of falling back. Entry counts must be positive decimal integers.
+
+The deprecated `sirix.cache.page` byte estimate and the long `PageCache` constructor translate
+1,000 bytes to one entry, rounding down with a minimum of one. They do **not** measure or bound
+retained heap bytes. `sirix.cache.page.max.entries` takes precedence over the byte property, which
+takes precedence over the constructor estimate. The default remains 50,000 entries. An invalid
+explicit entry count fails rather than silently restoring the default. Estimates that would exceed
+2,147,483,647 entries also fail; use the explicit entry cap instead.
+
+Set byte counts for record caches and entry counts for metadata:
 
 ```
 -Dsirix.cache.recordPage=8589934592   # 8 GB
 -Dsirix.cache.recordPageFragment=3221225472   # 3 GB
--Dsirix.cache.page=536870912   # 512 MB
+-Dsirix.cache.page.max.entries=50000
 ```
 
 Initial sizing log line (look for it in startup output):
 
 ```
-INFO  io.sirix.access.Databases - Initializing global BufferManager with memory budget: 16 GB
-INFO  io.sirix.access.Databases -   - RecordPageCache: 8589934592 bytes (8192 MB) (default: 25% of budget)
-INFO  io.sirix.access.Databases -   - RecordPageFragmentCache: 3221225472 bytes (3072 MB) (default: 12.5% of budget)
-INFO  io.sirix.access.Databases -   - PageCache: 1073741824 bytes (1024 MB) (default)
+INFO  io.sirix.access.Databases - Initializing global BufferManager with effective allocator allowance: 17179869184 bytes
+INFO  io.sirix.access.Databases -   - RecordPageCache: 8589934592 bytes (8192 MB) (default: 50% of budget)
+INFO  io.sirix.access.Databases -   - RecordPageFragmentCache: 3221225472 bytes (3072 MB) (default: 18.75% of budget)
+INFO  io.sirix.cache.PageCache - PageCache created with maxEntries: 50000
 ```
+
+Arena lifetime is also a startup policy: HotSpot uses `shared` (explicit close); native images
+use `auto` (GC reclamation, for Vector API compatibility). `sirix.arena.strategy=global` and
+`sirix.mmstorage.skipArenaClose=true` require `sirix.diagnostics.allowUnsafeLifetime=true`.
+These retain native memory until process exit and are unsupported in production. Changing the
+properties later cannot change ownership of live arenas.
+
+The query path-summary thresholds are independent: `org.sirix.xquery.optimize.child.threshold`
+defaults to `100000`, and `org.sirix.xquery.optimize.descendant.threshold` defaults to `-1`.
+An existing child-only override now affects children only; set the descendant property explicitly
+to apply a threshold there too.
+
+REST startup forwards its arguments to the Vert.x launcher. Supply the verticle and a portable
+operator-owned configuration path, for example `io.sirix.rest.SirixVerticle -conf /etc/sirix/config.json`.
 
 ---
 

@@ -64,6 +64,9 @@ remap/teardown; closing a shared arena in a native image requires
 lifecycle passes in a native image — see `NativeWriteSmokeMain` (`:sirix-query:writeSmoke`
 on the JVM, or build natively with `-Pnative.mainClass=io.sirix.query.bench.NativeWriteSmokeMain`).
 
+See [Cache budgets](operations.md#4-cache-budgets) for startup lifetime policy and the
+restrictions on diagnostic overrides. The native-image `auto` default remains supported.
+
 ### Why not `-H:+SharedArenaSupport` (GraalVM 25.0.3 matrix, reproduced)
 
 | Build/run config (GraalVM 25.0.3, Vector API reachable) | Outcome |

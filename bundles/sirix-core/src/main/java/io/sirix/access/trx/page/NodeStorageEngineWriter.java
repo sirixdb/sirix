@@ -24,6 +24,7 @@ package io.sirix.access.trx.page;
 import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
 import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 
+import io.sirix.utils.SirixCleaner;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.access.trx.node.AbstractResourceSession;
 
@@ -114,9 +115,9 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.ref.Cleaner;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.lang.ref.Cleaner.Cleanable;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.channels.FileChannel;
@@ -298,13 +299,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile @Nullable Throwable transactionRollbackOnlyCause;
 
   /**
-   * Shared Cleaner that runs the leak-detection callback on every NodeStorageEngineWriter once it
-   * becomes phantom-reachable. Used as the post-Java-9 replacement for the deprecated
-   * {@code finalize()} override.
-   */
-  private static final Cleaner LEAK_CLEANER = Cleaner.create();
-
-  /**
    * State captured for leak diagnostics. Static class with no reference to the enclosing writer —
    * capturing {@code this} would make the writer strongly reachable through the Cleaner queue and
    * defeat the leak detection it implements.
@@ -315,6 +309,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final int logIdentity;
     final AtomicReference<TransactionIntentLog> logRef;
     final AtomicBoolean closed = new AtomicBoolean(false);
+    // Keep registration bookkeeping off the writer to preserve its hot field layout.
+    private Cleanable cleanable;
 
     LeakDetectorState(final int trxId, final int writerIdentity, final int logIdentity,
         final TransactionIntentLog log) {
@@ -322,6 +318,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       this.writerIdentity = writerIdentity;
       this.logIdentity = logIdentity;
       this.logRef = new AtomicReference<>(log);
+    }
+
+    void deregister() {
+      final Cleanable registration = cleanable;
+      cleanable = null;
+      registration.clean();
     }
 
     @Override
@@ -1142,12 +1144,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     };
 
     // Register a Cleaner-driven leak detector for this writer. Replaces the deprecated
-    // finalize() override; runs on a Cleaner thread (not the GC thread), no resurrection,
+    // finalize() override; runs on an independent cleanup thread (not the GC thread), no resurrection,
     // survives finalize() removal in future JDKs. close() flips the closed flag so the
     // detector skips the leak warning on properly-closed writers.
     this.leakDetectorState = new LeakDetectorState(storageEngineReader.getTrxId(), System.identityHashCode(this),
         System.identityHashCode(log), log);
-    LEAK_CLEANER.register(this, leakDetectorState);
+    this.leakDetectorState.cleanable = SirixCleaner.register(this, leakDetectorState);
     // Acquire native scratch only after every fallible heap initialization has completed.
     bufferBytes = MemorySegmentBytesOut.ofScratch(Writer.FLUSH_SIZE * 2L, ScratchUse.COMMIT_FLUSH);
     storageEngineReader.bindTransactionView(this);
@@ -5490,6 +5492,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     isClosed = true;
     try {
       leakDetectorState.closed.set(true);
+      leakDetectorState.deregister();
       injectAsyncFlushFault("close-after-terminal-flags");
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);

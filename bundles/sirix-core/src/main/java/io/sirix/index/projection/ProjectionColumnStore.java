@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
 import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 
+import io.sirix.utils.SirixCleaner;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.HeapCacheBudget;
 import io.sirix.cache.MemorySegmentAllocator;
@@ -13,7 +14,6 @@ import io.sirix.cache.ScratchLease;
 import io.sirix.cache.ScratchUse;
 import io.sirix.node.SegmentAccess;
 import java.lang.foreign.MemorySegment;
-import java.lang.ref.Cleaner;
 
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec.NumericBucketDecoder;
@@ -791,8 +791,6 @@ public final class ProjectionColumnStore {
    * (docs/DERIVED_QUERY_CACHES.md, "Column lanes").
    */
   private final ColumnSlabs columnSlabs;
-  /** Backstop for a store dropped without {@link #retire()}; see {@link ColumnSlabs#run()}. */
-  private static final Cleaner SLAB_CLEANER = Cleaner.create();
   /**
    * Slab fills the allocator refused, causing the caller to take its budget-decline path.
    */
@@ -984,7 +982,7 @@ public final class ProjectionColumnStore {
     this.stringSupplementary = new byte[columnKinds.length];
     this.corruptColumns = new byte[columnKinds.length];
     this.columnSlabs = new ColumnSlabs(columnKinds.length);
-    SLAB_CLEANER.register(this, columnSlabs);
+    SirixCleaner.register(this, columnSlabs);
     this.residencyPins = new AtomicIntegerArray(columnKinds.length + 1);
     this.chargedSliceBytes = new long[columnKinds.length];
     this.chargedIdentityBytes = new long[columnKinds.length];

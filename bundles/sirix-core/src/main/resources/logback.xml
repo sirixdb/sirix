@@ -31,7 +31,8 @@
 <configuration>
     <timestamp key="byDay" datePattern="yyyyMMdd'T'HHmmss"/>
 
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.err</target>
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
@@ -58,6 +59,6 @@
     <logger name="io.sirix.page.SirixLZ77NativeDecoder" level="warn"/>
 
     <root level="error">
-        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="STDERR"/>
     </root>
 </configuration>

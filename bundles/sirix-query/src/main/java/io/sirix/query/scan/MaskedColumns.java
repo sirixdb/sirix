@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static io.sirix.cache.ShardedPageCache.retainCleanupFailure;
 import static io.sirix.cache.ShardedPageCache.rethrowCleanupFailure;
 
+import io.sirix.utils.SirixCleaner;
 import io.sirix.cache.Allocators;
 import io.sirix.index.projection.NumericLane;
 import io.sirix.index.projection.ProjectionColumnStore;
@@ -18,6 +19,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.ref.Cleaner;
+import java.lang.ref.Cleaner.Cleanable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -57,9 +59,6 @@ public final class MaskedColumns implements AutoCloseable {
   }
 
 
-  /** Backstop for a view that was never closed: the release action, never the view, is registered. */
-  private static final Cleaner CLEANER = Cleaner.create();
-
   private final ProjectionColumnStore store;
   private final long[][] rowMasks;
   private final KeyLanes keys;
@@ -84,7 +83,7 @@ public final class MaskedColumns implements AutoCloseable {
   /** The cache entry a leased view reads, for task leases that outlive the view. */
   private DerivedCacheBudget.@Nullable Entry entry;
   /** What {@link #close()} releases — the entry lease or the owned slab; runs once. */
-  private @Nullable Runnable release;
+  private @Nullable Cleanable release;
   private @Nullable MaskedColumns sharedInterner;
 
   MaskedColumns(final ProjectionColumnStore store, final long[][] rowMasks, final KeyLanes keys,
@@ -166,8 +165,7 @@ public final class MaskedColumns implements AutoCloseable {
       throw new IllegalStateException("view already holds a lease or a slab");
     }
     DerivedCacheBudget.handoff("cleaner");
-    CLEANER.register(this, once);
-    release = once;
+    release = SirixCleaner.register(this, once);
   }
 
   /**
@@ -204,11 +202,11 @@ public final class MaskedColumns implements AutoCloseable {
   /** Release what this view holds (its entry lease or its slab); idempotent. */
   @Override
   public void close() {
-    final Runnable held = release;
+    final Cleanable held = release;
     if (held != null) {
       release = null;
       entry = null;
-      held.run();
+      held.clean(); // Deregister on close; only abandoned views need a GC fallback.
     }
   }
 
