@@ -587,9 +587,12 @@ final class AsyncFlushFailurePathTest {
                                              .build());
 
       try (final JsonResourceSession session = db.beginResourceSession(RESOURCE)) {
-        final JsonNodeTrx owner = bound ? session.beginNodeTrx(AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) : null;
+        final JsonNodeTrx owner = bound
+            ? session.beginNodeTrx(AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)
+            : null;
         final NodeStorageEngineWriter failedWriter = (NodeStorageEngineWriter) (bound
-            ? owner.getStorageEngineWriter() : session.createStorageEngineWriter());
+            ? owner.getStorageEngineWriter()
+            : session.createStorageEngineWriter());
         final PageReference reference =
             new PageReference().setDatabaseId(failedWriter.getDatabaseId()).setResourceId(failedWriter.getResourceId());
         final IndirectPage page = new IndirectPage();
@@ -607,9 +610,11 @@ final class AsyncFlushFailurePathTest {
         assertEquals(Constants.NULL_ID_INT, reference.getLogKey());
 
         final PageReference cachedOffset = new PageReference().setDatabaseId(failedWriter.getDatabaseId())
-            .setResourceId(failedWriter.getResourceId()).setKey(reference.getKey());
+                                                              .setResourceId(failedWriter.getResourceId())
+                                                              .setKey(reference.getKey());
         final PageReference siblingOffset = new PageReference().setDatabaseId(failedWriter.getDatabaseId())
-            .setResourceId(failedWriter.getResourceId() + 1).setKey(reference.getKey());
+                                                               .setResourceId(failedWriter.getResourceId() + 1)
+                                                               .setKey(reference.getKey());
         final IndirectPage stale = new IndirectPage();
         final IndirectPage sibling = new IndirectPage();
         final var cache = Databases.getGlobalBufferManager().getPageCache();
@@ -649,8 +654,8 @@ final class AsyncFlushFailurePathTest {
           assertTrue(session.hasRunningNodeWriteTrx());
         } finally {
           release.countDown();
-          final ExecutionException observed = assertThrows(ExecutionException.class,
-              () -> close.get(30, TimeUnit.SECONDS));
+          final ExecutionException observed =
+              assertThrows(ExecutionException.class, () -> close.get(30, TimeUnit.SECONDS));
           assertSame(cleanup, observed.getCause());
           executor.shutdown();
           assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));

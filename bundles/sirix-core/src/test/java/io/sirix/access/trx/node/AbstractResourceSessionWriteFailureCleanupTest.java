@@ -73,9 +73,8 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
     final User secondUser = new User("second", UUID.randomUUID());
     try (Database<JsonResourceSession> firstDatabase = Databases.openJsonDatabase(databasePath, firstUser);
         Database<JsonResourceSession> secondDatabase = Databases.openJsonDatabase(databasePath, secondUser)) {
-      firstDatabase.createResource(ResourceConfiguration.newBuilder("resource")
-                                                      .storageType(StorageType.FILE_CHANNEL)
-                                                      .build());
+      firstDatabase.createResource(
+          ResourceConfiguration.newBuilder("resource").storageType(StorageType.FILE_CHANNEL).build());
       try (JsonResourceSession first = firstDatabase.beginResourceSession("resource");
           JsonResourceSession second = secondDatabase.beginResourceSession("resource")) {
         final JsonNodeTrx transaction = first.beginNodeTrx();

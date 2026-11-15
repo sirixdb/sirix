@@ -266,35 +266,23 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"json,false,close-after-side-batch-discard",
-      "json,true,close-after-side-batch-discard",
-      "xml,false,close-after-side-batch-discard",
-      "xml,true,close-after-side-batch-discard",
-      "json,false,close-after-reader-close",
-      "json,true,close-after-reader-close",
-      "xml,false,close-after-reader-close",
-      "xml,true,close-after-reader-close",
-      "json,false,close-after-log-close",
-      "json,true,close-after-log-close",
-      "xml,false,close-after-log-close",
-      "xml,true,close-after-log-close",
-      "json,false,close-after-storage-writer-close",
-      "json,true,close-after-storage-writer-close",
-      "xml,false,close-after-storage-writer-close",
-      "xml,true,close-after-storage-writer-close",
-      "json,false,close-after-buffer-release",
-      "json,true,close-after-buffer-release",
-      "xml,false,close-after-buffer-release",
-      "xml,true,close-after-buffer-release",
-      "json,false,close-after-terminal-flags",
-      "json,true,close-after-terminal-flags",
-      "xml,false,close-after-terminal-flags",
-      "xml,true,close-after-terminal-flags"})
+  @CsvSource({"json,false,close-after-side-batch-discard", "json,true,close-after-side-batch-discard",
+      "xml,false,close-after-side-batch-discard", "xml,true,close-after-side-batch-discard",
+      "json,false,close-after-reader-close", "json,true,close-after-reader-close", "xml,false,close-after-reader-close",
+      "xml,true,close-after-reader-close", "json,false,close-after-log-close", "json,true,close-after-log-close",
+      "xml,false,close-after-log-close", "xml,true,close-after-log-close",
+      "json,false,close-after-storage-writer-close", "json,true,close-after-storage-writer-close",
+      "xml,false,close-after-storage-writer-close", "xml,true,close-after-storage-writer-close",
+      "json,false,close-after-buffer-release", "json,true,close-after-buffer-release",
+      "xml,false,close-after-buffer-release", "xml,true,close-after-buffer-release",
+      "json,false,close-after-terminal-flags", "json,true,close-after-terminal-flags",
+      "xml,false,close-after-terminal-flags", "xml,true,close-after-terminal-flags"})
   void terminalWriterFailureRequiresRecoveryWithoutStrandingAdmission(final String format, final boolean unbound,
-      final String failingStage)
-      throws Exception {
+      final String failingStage) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
-      final NodeTrx transaction = unbound ? null : fixture.first.beginNodeTrx();
+      final NodeTrx transaction = unbound
+          ? null
+          : fixture.first.beginNodeTrx();
       final StorageEngineWriter writer = unbound
           ? fixture.first.createStorageEngineWriter(1)
           : transaction.getStorageEngineWriter();
@@ -349,13 +337,14 @@ final class NodeTransactionAbortLifecycleTest {
   @ParameterizedTest
   @CsvSource({"json,truncation", "xml,truncation", "json,index catalogue invalidation",
       "xml,index catalogue invalidation", "json,resource cache invalidation", "xml,resource cache invalidation"})
-  void recoveryFailureRejectsAdmissionAndCanBeRetried(final String format, final String failingStage)
-      throws Exception {
+  void recoveryFailureRejectsAdmissionAndCanBeRetried(final String format, final String failingStage) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
       final InternalResourceSession<?, ?> session = (InternalResourceSession<?, ?>) fixture.second;
       session.requireCommitRecovery();
-      final Path data = fixture.second.getResourceConfig().getResource()
-          .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve("sirix.data");
+      final Path data = fixture.second.getResourceConfig()
+                                      .getResource()
+                                      .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                                      .resolve("sirix.data");
       final long durableSize = Files.size(data);
       Files.write(data, new byte[4096], StandardOpenOption.APPEND);
       final IllegalStateException failure = new IllegalStateException(failingStage);
@@ -423,8 +412,8 @@ final class NodeTransactionAbortLifecycleTest {
   void readerGuardFailureStillReleasesNodeOwnership(final String format) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
       final NodeTrx transaction = fixture.first.beginNodeTrx();
-      final AbstractNodeReadOnlyTrx<?, ?, ?> reader = (AbstractNodeReadOnlyTrx<?, ?, ?>)
-          field(AbstractNodeTrxImpl.class, "nodeReadOnlyTrx").get(transaction);
+      final AbstractNodeReadOnlyTrx<?, ?, ?> reader =
+          (AbstractNodeReadOnlyTrx<?, ?, ?>) field(AbstractNodeTrxImpl.class, "nodeReadOnlyTrx").get(transaction);
       reader.releaseCurrentPageGuard();
       final PageGuard guard = mock(PageGuard.class);
       final IllegalStateException failure = new IllegalStateException("reader guard close");
@@ -693,11 +682,11 @@ final class NodeTransactionAbortLifecycleTest {
       firstDatabase = open(format, path, new User("first", UUID.randomUUID()));
       secondDatabase = open(format, path, new User("second", UUID.randomUUID()));
       firstDatabase.createResource(ResourceConfiguration.newBuilder("resource")
-                                                       .storageType(storageType)
-                                                       .storeDiffs(false)
-                                                       .hashKind(HashType.NONE)
-                                                       .buildPathSummary(false)
-                                                       .build());
+                                                        .storageType(storageType)
+                                                        .storeDiffs(false)
+                                                        .hashKind(HashType.NONE)
+                                                        .buildPathSummary(false)
+                                                        .build());
       first = firstDatabase.beginResourceSession("resource");
       second = secondDatabase.beginResourceSession("resource");
       try (NodeTrx transaction = first.beginNodeTrx()) {
