@@ -163,9 +163,13 @@ a short reason explaining the performance cost; do not weaken allocation or work
 independently of the test lanes after `Build` and the short `Python mutation tooling` job,
 and reuses that run's compiled output. It adds no dependency to the test, Sonar or deploy lanes.
 Its **30-minute job limit** is below the Linux query test lane (45 minutes); PIT processes share a **22-minute execution budget**, leaving
-room for setup and report upload. A deadline kills the process group, preserves partial reports
-and explicitly reports incomplete analysis. A large diff may need follow-up focused runs;
-timeouts and missing evidence are never a clean score.
+room for setup and report upload. Each module may use all the time still left except a
+`MIN_MODULE_SECONDS` floor for every module after it, so one slow module cannot starve the
+others while the module with the most changed classes - usually the first - is not capped to an
+equal split either. A module that finishes early donates its remainder to those that follow,
+and the floor degrades to an equal split when the whole budget is smaller than one floor. A deadline kills the process group,
+preserves partial reports and explicitly reports incomplete analysis. A large diff may need
+follow-up focused runs; timeouts and missing evidence are never a clean score.
 
 Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
 main Java/Kotlin sources only, excluding deleted files, tests, docs and package/module descriptors.
@@ -180,9 +184,27 @@ Unmapped sources fail analysis explicitly (for example a file with no emitted by
 these individually in the PR. New Gradle modules need an entry in `MODULES` in
 [pr_mutation.py](../.github/scripts/pr_mutation.py).
 
-Tests named `<Source>Test` or `<Source>Tests` in the source's package are preferred when every
-changed source has one; otherwise PIT discovers the module's tests. The artifact records the
-actual test filters. This focused selection can omit integration assertions; if a survivor is
+Test selection is resolved **per changed source** and is never widened to the module suite.
+PIT's coverage phase has to execute every class in `targetTests`, and Sirix test classes open
+databases during JUnit 5 discovery, so the test scope - not the mutant count - dominates the
+budget: a module suite (3366 classes for `sirix-core`) cannot be collected inside it. For a
+source `Foo` in package `p` the first matching step wins:
+
+1. `p.FooTest` or `p.FooTests`.
+2. Any test in the module whose simple name starts with `Foo` - or with `Foo` minus a leading
+   `Abstract` or trailing `Impl` - at a word boundary and ends with `Test`, `Tests` or `IT`
+   (so `KeyValueLeafPage` reaches `KeyValueLeafPageSlotTest`, but `Page` never reaches
+   `PagerTest`).
+3. Tests in `p` and its subpackages, only when there are at most `PACKAGE_TEST_LIMIT` of them.
+4. Otherwise the source is **unmapped**.
+
+A source that resolves to nothing never changes the scope chosen for the other changed sources;
+the union is capped at `MODULE_TEST_LIMIT` distinct test classes, and the cap drops the most
+weakly resolved sources first, never an exactly named test. Unmapped sources stay in
+`targetClasses`, so a PR touching production code always mutates it; their mutants report
+`NO_COVERAGE` and `results.json` plus the job summary name every unmapped source and the
+resolution kind of each. A module where nothing maps reports state `unmapped` instead of running
+PIT without a baseline. This focused selection can omit integration assertions; if a survivor is
 already killed by a broader deterministic test, rerun with that test included and link the report.
 Random jqwik/property exploration, the random model oracle, HOT structural properties and soak
 suites are excluded from the PR mutation baseline; keep exploration in its normal test lane and
@@ -190,24 +212,35 @@ promote discovered seeds to deterministic regressions. The weekly curated core P
 
 The `pr-mutation` artifact contains source selection, exact targets and test filters, every
 undetected mutant in `results.json`, HTML/XML reports, logs and `summary.md`. The job summary
-shows killed/total separately from PIT's detected/total score (which includes timed-out mutants),
-status counts and up to 100 undetected mutants per module; the artifact retains the full list.
+shows, per module, the state, the number of mutated classes and test patterns, the unmapped
+sources, killed/survived/no-coverage/total counts, killed/total separately from PIT's
+detected/total score (which includes timed-out mutants), status counts and up to 100 undetected
+mutants; the artifact retains the full list.
 Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
-Inspect both `SURVIVED` and `NO_COVERAGE`; kill them or justify each with evidence in the PR.
+
+A run is **clean** when every module completed and produced mutants and no mutant `SURVIVED`.
+`SURVIVED` means a mapped test ran and did not notice the change - a test-quality defect, so it
+fails the analysis. `NO_COVERAGE` is reported but does not: under changed-source scoping it is a
+coverage-gap report, and driving it to zero would need the whole-suite baseline this job cannot
+afford. Inspect both; kill them or justify each with evidence in the PR. The Gradle
+`mutationThreshold`/`coverageThreshold` stay at 0, so PIT itself never decides the outcome.
 
 The job runs on normal `pull_request` events, including forks and Dependabot, with only
 `contents: read`, no secrets, no persisted checkout credentials and read-only Gradle caches.
 Never use `pull_request_target` or add credentials to run untrusted PR code. Reports are artifacts
 and job summaries, so reporting needs no PR write token.
 
-**Rollout:** initially the job has `continue-on-error`; it remains visibly informational even
-when survivors or incomplete analysis fail its analysis step. Once representative PRs have no
-unresolved survivors/uncovered mutants or incomplete runs, maintainers can set the repository
-Actions variable **`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing`
-in branch protection. That single switch removes job-level tolerance; the reporter already
-rejects undetected mutants and incomplete runs. Review documented equivalent/unreachable-mutant
-justifications before enabling; there is no silent survivor allowlist. Revert the variable to
-restore informational rollout while investigating an infrastructure failure.
+**Required or advisory:** the job is **advisory** by decision. It has `continue-on-error`, so it
+reports without gating: its scope is the PR's own changed classes, a red result is normally a
+test-quality finding for the author rather than a broken build, and the per-source test mapping
+is a heuristic that can legitimately find no test. It stays visibly informational even when
+survivors or incomplete analysis fail its analysis step. Once representative PRs have no
+unresolved survivors or incomplete runs, maintainers can set the repository Actions variable
+**`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing` in branch
+protection. That single switch removes job-level tolerance; the reporter already rejects
+survivors and incomplete runs. Review documented equivalent/unreachable-mutant justifications
+before enabling; there is no silent survivor allowlist. Revert the variable to restore
+informational rollout while investigating an infrastructure failure.
 
 Local reproduction (JDK 25; compile the selected modules' `classes testClasses` first):
 

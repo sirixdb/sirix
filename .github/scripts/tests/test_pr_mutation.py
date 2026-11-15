@@ -1,4 +1,5 @@
 """Behavioral contracts for changed-source selection and honest PIT reporting (no JVM)."""
+import contextlib
 import importlib.util
 import io
 import json
@@ -27,6 +28,22 @@ def class_bytes(name, source):
     return (b'\xca\xfe\xba\xbe' + struct.pack('>HHH', 0, 69, 8) + pool
             + struct.pack('>HHHHHHH', 0, 2, 0, 0, 0, 0, 1)
             + struct.pack('>HIH', 3, 2, 4))
+
+
+@contextlib.contextmanager
+def module_tree(sources, tests):
+    """A temporary `bundles/sirix-core` holding the given main sources and test sources."""
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp) / 'bundles/sirix-core'
+        for path, package in sources.items():
+            source = root / 'src/main/java' / path
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text(f'package {package};\nclass {Path(path).stem} {{}}\n')
+        for path in tests:
+            test = root / 'src/test/java' / path
+            test.parent.mkdir(parents=True, exist_ok=True)
+            test.touch()
+        yield root
 
 
 class SelectionTest(unittest.TestCase):
@@ -147,18 +164,137 @@ class SelectionTest(unittest.TestCase):
                              ['src/main/java/a/Missing.java'])
 
 
-    def test_focused_tests_and_module_fallback(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            source = root / 'src/main/java/a/Foo.java'
-            source.parent.mkdir(parents=True)
-            source.write_text('package a; class Foo {}')
-            test = root / 'src/test/java/a/FooTest.java'
-            test.parent.mkdir(parents=True)
-            test.touch()
-            self.assertEqual(mutation.test_scope(root, ['src/main/java/a/Foo.java']), ['a.FooTest*'])
-            test.unlink()
-            self.assertEqual(mutation.test_scope(root, ['src/main/java/a/Foo.java']), ['*'])
+    def test_named_tests_are_preferred_and_never_widen_to_the_module_suite(self):
+        with module_tree({'a/Foo.java': 'a'}, ['a/FooTest.java']) as root:
+            self.assertEqual(mutation.test_scope(root, ['src/main/java/a/Foo.java']),
+                             (['a.FooTest*'], [], {'src/main/java/a/Foo.java': 'named'}))
+        # The regressed behavior: an unresolvable source used to return ['*'], sending the whole
+        # module suite (3366 classes for sirix-core) into PIT's coverage phase.
+        with module_tree({'a/Foo.java': 'a'}, ['b/UnrelatedTest.java']) as root:
+            patterns, unmapped, kinds = mutation.test_scope(root, ['src/main/java/a/Foo.java'])
+            self.assertEqual(patterns, [])
+            self.assertEqual(unmapped, ['src/main/java/a/Foo.java'])
+            self.assertEqual(kinds, {'src/main/java/a/Foo.java': 'unmapped'})
+
+    def test_one_unresolvable_source_keeps_the_other_sources_scoped(self):
+        # PR 1351's defect: 8 of 12 changed sirix-core sources had no same-package named test,
+        # and the first of them discarded the mappings already found for the rest.
+        sources = {'a/Foo.java': 'a', 'c/Baz.java': 'c'}
+        with module_tree(sources, ['a/FooTest.java']) as root:
+            patterns, unmapped, kinds = mutation.test_scope(
+                root, ['src/main/java/a/Foo.java', 'src/main/java/c/Baz.java'])
+            self.assertEqual(patterns, ['a.FooTest*'])
+            self.assertEqual(unmapped, ['src/main/java/c/Baz.java'])
+            self.assertEqual(kinds['src/main/java/a/Foo.java'], 'named')
+
+    def test_related_names_match_across_packages_and_respect_word_boundaries(self):
+        cases = [('KeyValueLeafPage', ['b/KeyValueLeafPageSlotTest.java'],
+                  ['b.KeyValueLeafPageSlotTest*'], 'related'),
+                 ('BufferManagerImpl', ['a/BufferManagerTest.java'],
+                  ['a.BufferManagerTest*'], 'related'),
+                 ('AbstractReader', ['a/ReaderTest.java'], ['a.ReaderTest*'], 'related'),
+                 # 'Page' must not drag in 'PagerTest': the remainder is not a new word.
+                 ('Page', ['b/PagerTest.java'], [], 'unmapped'),
+                 # A bare 'Test.java' in the source's own package is a helper name, so the
+                 # package fallback must not treat it as a test.
+                 ('Page', ['a/Test.java'], [], 'unmapped'),
+                 # A same-prefix source that is not a test must not enter the scope.
+                 ('Page', ['b/PageHelper.java'], [], 'unmapped')]
+        for stem, tests, expected, kind in cases:
+            source = f'src/main/java/a/{stem}.java'
+            with self.subTest(stem=stem, tests=tests):
+                with module_tree({f'a/{stem}.java': 'a'}, tests) as root:
+                    patterns, _, kinds = mutation.test_scope(root, [source])
+                self.assertEqual(patterns, expected)
+                self.assertEqual(kinds[source], kind)
+
+    def test_small_packages_fall_back_and_large_packages_do_not(self):
+        source = 'src/main/java/a/Foo.java'
+        within = [f'a/Case{index:02d}Test.java' for index in range(mutation.PACKAGE_TEST_LIMIT)]
+        with module_tree({'a/Foo.java': 'a'}, within + ['a/sub/DeepTest.java']) as root:
+            patterns, unmapped, kinds = mutation.test_scope(root, [source])
+        self.assertEqual(kinds[source], 'unmapped')  # 26 > PACKAGE_TEST_LIMIT
+        self.assertEqual((patterns, unmapped), ([], [source]))
+        with module_tree({'a/Foo.java': 'a'}, within[:2] + ['a/sub/DeepTest.java']) as root:
+            patterns, unmapped, kinds = mutation.test_scope(root, [source])
+        self.assertEqual(kinds[source], 'package')  # subpackages count, and are selected
+        self.assertEqual(patterns, ['a.Case00Test*', 'a.Case01Test*', 'a.sub.DeepTest*'])
+        self.assertEqual(unmapped, [])
+
+    def test_scope_caps_stay_small_enough_to_collect_baseline_coverage(self):
+        # PIT executes every targetTests class to measure coverage, so the caps are what keeps
+        # the job inside its budget. sirix-core's suite is ~3366 classes; these stay far below.
+        self.assertLess(mutation.PACKAGE_TEST_LIMIT, mutation.MODULE_TEST_LIMIT)
+        self.assertLessEqual(mutation.MODULE_TEST_LIMIT, 100)
+
+    def test_package_fallback_matches_subpackages_but_not_sibling_prefixes(self):
+        source = 'src/main/java/a/Foo.java'
+        with module_tree({'a/Foo.java': 'a'}, ['ab/SiblingTest.java']) as root:
+            # 'ab' merely starts with 'a'; it is not a subpackage of it.
+            self.assertEqual(mutation.test_scope(root, [source])[2][source], 'unmapped')
+
+    def test_a_source_without_a_package_does_not_select_every_test(self):
+        source = 'src/main/java/Foo.java'
+        with module_tree({'Foo.java': ''}, ['a/OneTest.java', 'b/TwoTest.java']) as root:
+            Path(root / 'src/main/java/Foo.java').write_text('class Foo {}\n')
+            patterns, unmapped, kinds = mutation.test_scope(root, [source])
+        self.assertEqual((patterns, unmapped), ([], [source]))
+        self.assertEqual(kinds[source], 'unmapped')
+
+    def test_module_limit_drops_weakly_resolved_sources_before_named_ones(self):
+        limit, packages = mutation.PACKAGE_TEST_LIMIT, ('p0', 'p1', 'p2')
+        sources = {'a/Foo.java': 'a'}
+        tests = ['a/FooTest.java']
+        for package in packages:
+            sources[f'{package}/Alpha.java'] = package
+            tests.extend(f'{package}/Zebra{index:02d}Test.java' for index in range(limit))
+        selected = ['src/main/java/a/Foo.java'] + [f'src/main/java/{p}/Alpha.java'
+                                                   for p in packages]
+        with module_tree(sources, tests) as root:
+            patterns, unmapped, kinds = mutation.test_scope(root, selected)
+        self.assertLessEqual(len(patterns), mutation.MODULE_TEST_LIMIT)
+        self.assertIn('a.FooTest*', patterns)  # an exact match is never dropped for the cap
+        self.assertEqual(kinds['src/main/java/a/Foo.java'], 'named')
+        self.assertEqual([kinds[source] for source in selected[1:]],
+                         ['package', 'package', 'over-limit'])
+        self.assertEqual(unmapped, ['src/main/java/p2/Alpha.java'])
+
+    def test_module_limit_admits_exactly_the_cap_and_rejects_one_more(self):
+        limit, cap = mutation.PACKAGE_TEST_LIMIT, mutation.MODULE_TEST_LIMIT
+        sources, tests = {'a/Foo.java': 'a'}, ['a/FooTest.java']
+        # 1 named + 25 + 25 = 51, then 'q' lands exactly on the cap and 'r' exceeds it by one.
+        for package, count in (('p0', limit), ('p1', limit), ('q', cap - 1 - 2 * limit), ('r', 1)):
+            sources[f'{package}/Alpha.java'] = package
+            tests.extend(f'{package}/Zebra{index:02d}Test.java' for index in range(count))
+        selected = ['src/main/java/a/Foo.java'] + [f'src/main/java/{package}/Alpha.java'
+                                                   for package in ('p0', 'p1', 'q', 'r')]
+        with module_tree(sources, tests) as root:
+            patterns, unmapped, kinds = mutation.test_scope(root, selected)
+        self.assertEqual(len(patterns), cap)
+        self.assertEqual([kinds[source] for source in selected[1:]],
+                         ['package', 'package', 'package', 'over-limit'])
+        self.assertEqual(unmapped, ['src/main/java/r/Alpha.java'])
+
+    def test_unresolved_sources_are_still_mutated_when_any_test_maps(self):
+        sources = {'a/Foo.java': 'a', 'c/Baz.java': 'c'}
+        selected = ['src/main/java/c/Baz.java', 'src/main/java/a/Foo.java']
+        with module_tree(sources, ['a/FooTest.java']) as root:
+            result = {}
+            with patch.object(mutation, 'resolve_targets', return_value=(['a.Baz', 'a.Foo'], [])):
+                command = mutation.prepare_analysis(root.parent.parent, root, 'sirix-core',
+                                                    selected, result)
+        self.assertEqual(result['targets'], ['a.Baz', 'a.Foo'])  # R4: unmapped stays mutated
+        self.assertEqual(result['unmapped'], ['src/main/java/c/Baz.java'])
+        self.assertIn('-PprMutationTests=a.FooTest*', command)
+
+    def test_a_module_with_no_mapped_test_reports_unmapped_instead_of_running_pit(self):
+        with module_tree({'a/Foo.java': 'a'}, []) as root:
+            with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
+                 patch.object(mutation, 'execute') as execute, \
+                 self.assertRaisesRegex(mutation.Unmapped, 'no baseline'):
+                mutation.prepare_analysis(root.parent.parent, root, 'sirix-core',
+                                          ['src/main/java/a/Foo.java'], {})
+            execute.assert_not_called()
 
 
     def test_reader_skips_member_attributes_and_missing_source_metadata(self):
@@ -261,7 +397,7 @@ class ReportingTest(unittest.TestCase):
                 return 0
 
             with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
-                 patch.object(mutation, 'test_scope', return_value=['a.FooTest*']), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
                  patch.object(mutation, 'execute', side_effect=execute):
                 self.assertEqual(mutation.run(Path(temp), output, 10, blocking=True), 0)
                 result = json.loads((output / 'results.json').read_text())[0]
@@ -273,7 +409,7 @@ class ReportingTest(unittest.TestCase):
                 raise mutation.subprocess.TimeoutExpired(command, timeout)
 
             with patch.object(mutation, 'resolve_targets', return_value=(['a.Foo'], [])), \
-                 patch.object(mutation, 'test_scope', return_value=['a.FooTest*']), \
+                 patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
                  patch.object(mutation, 'execute', side_effect=timed_out):
                 self.assertEqual(mutation.run(Path(temp), output, 10, blocking=True), 1)
                 result = json.loads((output / 'results.json').read_text())[0]
@@ -284,6 +420,84 @@ class ReportingTest(unittest.TestCase):
                 self.assertEqual(mutation.run(Path(temp), output, 10, blocking=True), 1)
                 result = json.loads((output / 'results.json').read_text())[0]
                 self.assertNotIn('killed', result)  # stale XML was removed before source mapping
+
+    def test_each_module_gets_a_fair_share_so_one_cannot_starve_the_next(self):
+        # PR 1351: sirix-core consumed the single shared deadline, so sirix-rest-api reported
+        # 'timed out' although its scope was one test class.
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            (output / 'selection.json').write_text(json.dumps(
+                {'sirix-core': ['src/main/java/a/Foo.java'],
+                 'sirix-query': ['src/main/java/a/Bar.java']}))
+            timeouts = []
+            with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
+                 patch.object(mutation, 'execute',
+                              side_effect=lambda command, root, log, timeout:
+                              timeouts.append(timeout) or 0):
+                mutation.run(Path(temp), output, 10, blocking=False)
+            self.assertEqual(len(timeouts), 2)
+            # A 10s budget is smaller than the floor, so it degrades to an equal split.
+            self.assertLess(timeouts[0], 6)
+            self.assertGreater(timeouts[0], 4)
+            # The mocked first module returned at once, so it donates its remainder.
+            self.assertGreater(timeouts[1], 9)
+
+    def test_a_real_budget_reserves_a_floor_without_capping_the_first_module(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            modules = ('sirix-core', 'sirix-query', 'sirix-rest-api')
+            (output / 'selection.json').write_text(json.dumps(
+                {module: ['src/main/java/a/Foo.java'] for module in modules}))
+            timeouts = []
+            with patch.object(mutation, 'prepare_analysis', return_value=['unused']), \
+                 patch.object(mutation, 'execute',
+                              side_effect=lambda command, root, log, timeout:
+                              timeouts.append(timeout) or 0):
+                mutation.run(Path(temp), output, 1320, blocking=False)
+            floor = mutation.MIN_MODULE_SECONDS
+            # The module with the most changed classes is usually first; an equal split would
+            # have capped it at 440s. It may use everything but the other two modules' floor.
+            self.assertGreater(timeouts[0], 1320 - 2 * floor - 1)
+            self.assertLess(timeouts[0], 1320 - 2 * floor + 1)
+            for timeout in timeouts[1:]:
+                self.assertGreaterEqual(timeout, floor)
+
+    def test_survivors_fail_but_uncovered_mutants_only_report(self):
+        complete = {'module': 'sirix-core', 'state': 'complete', 'total': 4, 'killed': 2,
+                    'survived': 0, 'no_coverage': 2, 'detected': 2, 'statuses': {},
+                    'survivors': []}
+        self.assertTrue(mutation.is_clean([complete]))
+        self.assertTrue(mutation.is_clean([]))  # a docs-only PR skips cleanly
+        for broken in ({'survived': 1}, {'state': 'timed out'}, {'state': 'unmapped'},
+                       {'state': 'error'}, {'total': 0}):
+            with self.subTest(broken=broken):
+                self.assertFalse(mutation.is_clean([{**complete, **broken}]))
+
+    def test_report_counts_survived_and_uncovered_statuses(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'mutations.xml'
+            path.write_text('<mutations>'
+                            '<mutation detected="true" status="KILLED"/>'
+                            '<mutation detected="false" status="SURVIVED"/>'
+                            '<mutation detected="false" status="NO_COVERAGE"/>'
+                            '<mutation detected="true" status="TIMED_OUT"/>'
+                            '</mutations>')
+            report = mutation.read_report(path)
+        self.assertEqual((report['total'], report['killed'], report['survived'],
+                          report['no_coverage'], report['detected']), (4, 1, 1, 1, 2))
+        self.assertEqual(len(report['survivors']), 2)
+
+    def test_summary_reports_counts_scope_and_unmapped_sources(self):
+        result = {'module': 'sirix-core', 'state': 'complete', 'targets': ['a.Baz', 'a.Foo'],
+                  'tests': ['a.FooTest*'], 'unmapped': ['src/main/java/c/Baz.java'],
+                  'total': 4, 'killed': 2, 'survived': 1, 'no_coverage': 1, 'detected': 2,
+                  'statuses': {'KILLED': 2, 'NO_COVERAGE': 1, 'SURVIVED': 1},
+                  'survivors': ['SURVIVED | a.Foo | run | 7 | negated conditional']}
+        text = mutation.format_summary([result])
+        self.assertIn('Changed classes mutated: 2. Test patterns: 1.', text)
+        self.assertIn('Survived: 1. No coverage: 1.', text)
+        self.assertIn('src/main/java/c/Baz.java', text)
+        self.assertIn('negated conditional', text)
 
     def test_process_runs_literal_arguments_and_captures_log(self):
         with tempfile.TemporaryDirectory() as temp:
