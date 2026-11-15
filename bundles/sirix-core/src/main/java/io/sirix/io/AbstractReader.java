@@ -4,6 +4,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.CacheablePage;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.MemorySegmentBytesIn;
@@ -581,6 +582,8 @@ public abstract class AbstractReader implements Reader {
   private PageReference readCommittedUberPageReference() {
     try {
       return readVerifiedBeacon(IOStorage.PRIMARY_BEACON_OFFSET);
+    } catch (final UnsupportedStoreFeatureException unsupported) {
+      throw unsupported;
     } catch (final Exception primaryException) {
       LOGGER.warn("Primary UberPage beacon at offset {} is corrupt, attempting secondary beacon at offset {}",
           IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET, primaryException);
@@ -590,6 +593,8 @@ public abstract class AbstractReader implements Reader {
         LOGGER.info("Successfully recovered UberPage from secondary beacon at offset {}",
             IOStorage.SECONDARY_BEACON_OFFSET);
         return ref;
+      } catch (final UnsupportedStoreFeatureException unsupported) {
+        throw unsupported;
       } catch (final Exception secondaryException) {
         LOGGER.error("Both UberPage beacons are corrupt — unrecoverable");
         primaryException.addSuppressed(secondaryException);

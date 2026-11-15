@@ -1,0 +1,8 @@
+io.sirix.io.StorageType$3
+io.sirix.io.StorageType$4
+io.sirix.io.InterruptedFirstCommitRecovery
+io.sirix.io.AbstractReader
+io.sirix.access.trx.node.AbstractResourceSession
+io.sirix.access.LocalDatabase
+io.sirix.io.filechannel.FileChannelStorage
+io.sirix.io.memorymapped.MMStorage

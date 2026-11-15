@@ -1,6 +1,7 @@
 package io.sirix.page;
 
 import io.sirix.node.Bytes;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -130,6 +131,13 @@ class StoreFeaturesTest {
         "030080ffffffffffffffffff0100000000" // overflowing length
     }) {
       assertThrows(RuntimeException.class, () -> decode(HEX.parseHex(malformed)), malformed);
+    }
+  }
+
+  @Test
+  void unsupportedMetadataHasADistinctFailure() {
+    for (final String unsupported : new String[] {"03000101000000", "0301800001000000", "03008002810001000000"}) {
+      assertThrows(UnsupportedStoreFeatureException.class, () -> decode(HEX.parseHex(unsupported)));
     }
   }
 

@@ -1,6 +1,7 @@
 package io.sirix.page;
 
 import io.sirix.BinaryEncodingVersion;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Utils;
@@ -14,10 +15,13 @@ final class UberPageFormat {
   private UberPageFormat() {}
 
   static UberPage read(final BytesIn<?> source) {
-    BinaryEncodingVersion.fromByte(source.readByte());
+    final byte version = source.readByte();
+    if (version != BinaryEncodingVersion.V0.byteVersion()) {
+      throw new UnsupportedStoreFeatureException("Unknown uber page version " + Byte.toUnsignedInt(version));
+    }
     final int flags = Byte.toUnsignedInt(source.readByte());
     if ((flags & ~EXTENSION_BLOCK) != 0) {
-      throw new IllegalStateException("Unknown uber page flags 0x" + Integer.toHexString(flags));
+      throw new UnsupportedStoreFeatureException("Unknown uber page flags 0x" + Integer.toHexString(flags));
     }
     final StoreFeatures features = flags == 0
         ? StoreFeatures.NONE
@@ -49,7 +53,7 @@ final class UberPageFormat {
         }
         features = new StoreFeatures(source.readInt(), source.readInt(), source.readInt());
       } else if ((tag & 0x80) != 0) {
-        throw new IllegalStateException("Unknown required uber extension 0x" + Integer.toHexString(tag));
+        throw new UnsupportedStoreFeatureException("Unknown required uber extension 0x" + Integer.toHexString(tag));
       } else {
         source.skip(payloadLength);
       }

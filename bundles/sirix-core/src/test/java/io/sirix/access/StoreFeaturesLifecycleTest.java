@@ -15,6 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
+import io.sirix.io.filechannel.FileChannelReader;
+import io.sirix.io.filechannel.FileChannelStorage;
+import io.sirix.io.memorymapped.MMStorage;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.page.PagePersister;
+import io.sirix.page.SerializationType;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.io.AbstractReader;
 import io.sirix.io.RevisionIndex;
 import io.sirix.io.Reader;
@@ -43,6 +50,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.concurrent.Semaphore;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -59,6 +67,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 
 /** Fault images use the independent beacon contract, never the feature codec being tested. */
 @Isolated
@@ -304,10 +313,12 @@ class StoreFeaturesLifecycleTest {
     }
     final byte[] dataBefore = Files.readAllBytes(dataFile());
     final byte[] revisionsBefore = Files.readAllBytes(revisionsFile());
+    final long beaconsBefore = AbstractReader.beaconReads();
     try (final var database = Databases.openJsonDatabase(databasePath);
         final var session = database.beginResourceSession("resource");
         final var reader = session.beginNodeReadOnlyTrx()) {
       assertEquals(1, reader.getRevisionNumber());
+      assertEquals(secondaryOnly ? 2 : 1, AbstractReader.beaconReads() - beaconsBefore);
       assertThrows(UnsupportedStoreFeatureException.class, session::beginNodeTrx);
       final IOStorage storage = StorageType.getStorage(config);
       try (final Reader direct = storage.createReader()) {
@@ -680,6 +691,218 @@ class StoreFeaturesLifecycleTest {
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void unsupportedBeaconNeverFallsBack(final StorageType storageType) throws IOException {
+    for (final byte[] payload : unsupportedUberPayloads()) {
+      createStore(storageType);
+      replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, StoreFeatures.NONE);
+      replaceBeaconPayload(IOStorage.PRIMARY_BEACON_OFFSET, payload);
+      Databases.clearGlobalCaches();
+      final Map<Path, byte[]> before = snapshotResource();
+      try (final var database = Databases.openJsonDatabase(databasePath)) {
+        assertThrows(UnsupportedStoreFeatureException.class, () -> database.beginResourceSession("resource"));
+      }
+      assertThrows(UnsupportedStoreFeatureException.class,
+          () -> InterruptedFirstCommitRecovery.openStorageForTool(config));
+      assertUnsupportedBackupAndRestore();
+      assertResourceUnchanged(before);
+      replaceBeaconPayload(IOStorage.SECONDARY_BEACON_OFFSET, payload);
+      zeroBeacon(IOStorage.PRIMARY_BEACON_OFFSET);
+      final Map<Path, byte[]> secondaryBefore = snapshotResource();
+      assertThrows(UnsupportedStoreFeatureException.class, () -> StorageType.getStorage(config));
+      assertResourceUnchanged(secondaryBefore);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void unsupportedDerivedBeaconRemainsUntouched(final StorageType storageType) throws IOException {
+    for (final byte[] payload : unsupportedUberPayloads()) {
+      createDerivedStore(storageType, false);
+      replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, StoreFeatures.NONE);
+      replaceBeaconPayload(IOStorage.PRIMARY_BEACON_OFFSET, payload);
+      Databases.clearGlobalCaches();
+      final Map<Path, byte[]> before = snapshotResource();
+      try (final var database = Databases.openJsonDatabase(databasePath);
+          final var parent = database.beginResourceSession("resource")) {
+        assertEquals(null, ((AbstractResourceSession<?, ?>) parent).getDerivedResource());
+      }
+      assertUnsupportedBackupAndRestore();
+      assertResourceUnchanged(before);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void corruptPrimaryStillUsesCompatibleSecondary(final StorageType storageType) throws IOException {
+    createStore(storageType);
+    materializeRevisionRecords();
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, StoreFeatures.NONE);
+    zeroBeacon(IOStorage.PRIMARY_BEACON_OFFSET);
+    final Map<Path, byte[]> before = snapshotResource();
+    try (final var database = Databases.openJsonDatabase(databasePath);
+        final var session = database.beginResourceSession("resource");
+        final var reader = session.beginNodeReadOnlyTrx()) {
+      assertEquals(1, reader.getRevisionNumber());
+    }
+    assertResourceUnchanged(before);
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void publishedReadOnlyFeaturesRefuseDirectPageWriters(final StorageType storageType) throws IOException {
+    createStore(storageType);
+    try (final var database = Databases.openJsonDatabase(databasePath);
+        final var session = database.beginResourceSession("resource")) {
+      final var internal = (InternalResourceSession<?, ?>) session;
+      internal.setLastCommittedUberPage(new UberPage(2, new StoreFeatures(0, 1, 0)));
+      final Map<Path, byte[]> before = snapshotResource();
+      assertThrows(UnsupportedStoreFeatureException.class, () -> {
+        try (final var ignored = internal.createPageTransaction(99, 1, 1, Abort.NO, false)) {
+        }
+      });
+      assertResourceUnchanged(before);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void readOnlyStorageRefusesItsOwnWriter(final StorageType storageType) throws IOException {
+    createStore(storageType);
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    Databases.clearGlobalCaches();
+    final Map<Path, byte[]> before = snapshotResource();
+    final IOStorage storage = StorageType.getStorage(config);
+    try {
+      assertThrows(UnsupportedStoreFeatureException.class, storage::createWriter);
+    } finally {
+      storage.close();
+    }
+    assertResourceUnchanged(before);
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void healthyReadOnlyDerivedStoreRemainsUnavailableForWrites(final StorageType storageType) throws IOException {
+    createDerivedStore(storageType, false);
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    Databases.clearGlobalCaches();
+    final Map<Path, byte[]> before = snapshotResource();
+    try (final var database = Databases.openJsonDatabase(databasePath);
+        final var parent = database.beginResourceSession("resource")) {
+      assertEquals(null, ((AbstractResourceSession<?, ?>) parent).getDerivedResource());
+    }
+    assertResourceUnchanged(before);
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void readOnlyContextCannotRecreateADeletedDataFile(final StorageType storageType) throws IOException {
+    createStore(storageType);
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    Databases.clearGlobalCaches();
+    final IOStorage storage = storageType == StorageType.FILE_CHANNEL
+        ? new FileChannelStorage(config, Caffeine.newBuilder().buildAsync())
+        : new MMStorage(config, Caffeine.newBuilder().buildAsync());
+    try {
+      Files.delete(dataFile());
+      final Map<Path, byte[]> before = snapshotResource();
+      assertThrows(UnsupportedStoreFeatureException.class, storage::createReader);
+      assertResourceUnchanged(before);
+      assertFalse(Files.exists(dataFile()));
+    } finally {
+      storage.close();
+    }
+  }
+
+  @Test
+  void standaloneOpenAndPureProbePreserveTheirContracts() throws IOException {
+    createStore(StorageType.FILE_CHANNEL);
+    materializeRevisionRecords();
+    final var opened = InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(config);
+    try {
+      assertEquals(1, opened.uberPage().getRevisionNumber());
+      assertEquals(2, opened.storage().getRevisionIndexHolder().get().size());
+    } finally {
+      opened.storage().close();
+    }
+    zeroBeacon(IOStorage.PRIMARY_BEACON_OFFSET);
+    zeroBeacon(IOStorage.SECONDARY_BEACON_OFFSET);
+    try (final var channel = FileChannel.open(dataFile(), StandardOpenOption.WRITE)) {
+      channel.truncate(IOStorage.PRIMARY_BEACON_OFFSET + 16);
+    }
+    final Map<Path, byte[]> emptyBefore = snapshotResource();
+    assertEquals(StoreFeatures.NONE, InterruptedFirstCommitRecovery.probeFeatures(config));
+    assertTrue(InterruptedFirstCommitRecovery.probeUberPage(config).isBootstrap());
+    assertResourceUnchanged(emptyBefore);
+    final byte[] corrupt = HexFormat.of().parseHex("0300807f02000000");
+    replaceBeaconPayload(IOStorage.PRIMARY_BEACON_OFFSET, corrupt);
+    replaceBeaconPayload(IOStorage.SECONDARY_BEACON_OFFSET, corrupt);
+    final Map<Path, byte[]> corruptBefore = snapshotResource();
+    assertThrows(SirixIOException.class, () -> InterruptedFirstCommitRecovery.probeUberPage(config));
+    assertResourceUnchanged(corruptBefore);
+  }
+
+  @Test
+  void failedOpeningSnapshotClosesItsStorage() throws IOException {
+    createStore(StorageType.FILE_CHANNEL);
+    final Map<Path, byte[]> before = snapshotResource();
+    final IOStorage storage = mock(IOStorage.class);
+    final var failure = new SirixIOException("opening snapshot unavailable");
+    when(storage.getOpeningUberPage()).thenThrow(failure);
+    try (final var factory = mockStatic(StorageType.class)) {
+      factory.when(() -> StorageType.getStorage(eq(config), isNull())).thenReturn(storage);
+      assertEquals(failure, assertThrows(SirixIOException.class,
+          () -> InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(config)));
+      verify(storage).close();
+    }
+    assertResourceUnchanged(before);
+  }
+
+  @Test
+  void rawReaderChecksFeaturesBeforeSalvageAndOnExplicitRefresh() throws IOException {
+    createStore(StorageType.FILE_CHANNEL);
+    installDamagedRevisionFixture(new StoreFeatures(0, 1, 0));
+    final Map<Path, byte[]> before = snapshotResource();
+    try (final var data = FileChannel.open(dataFile(), StandardOpenOption.READ);
+        final var revisions = FileChannel.open(revisionsFile(), StandardOpenOption.READ, StandardOpenOption.WRITE);
+        final var reader = new FileChannelReader(data, revisions, new ByteHandlerPipeline(config.byteHandlePipeline),
+            SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build())) {
+      assertTrue(reader.getRevisionFileData(1).offset() >= IOStorage.DATA_REGION_START);
+      assertResourceUnchanged(before);
+      replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(1, 0, 0));
+      replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, StoreFeatures.NONE);
+      final Map<Path, byte[]> refreshedBefore = snapshotResource();
+      assertThrows(UnsupportedStoreFeatureException.class, reader::readUberPageReference);
+      assertResourceUnchanged(refreshedBefore);
+    }
+  }
+
+  private static byte[][] unsupportedUberPayloads() {
+    final var hex = HexFormat.of();
+    return new byte[][] {
+        hex.parseHex("03008002810002000000"),
+        hex.parseHex("03008010c10c010000000000000000000000c20002000000"),
+        hex.parseHex("03010002000000"),
+        hex.parseHex("03000102000000"),
+        hex.parseHex("0300800ec10c01000000000000000000000002000000")};
+  }
+
+  private void assertUnsupportedBackupAndRestore() {
+    final Path backup = directory.resolve("unsupported-backup");
+    final Path restored = directory.resolve("unsupported-restored");
+    assertThrows(UnsupportedStoreFeatureException.class, () -> BackupManager.backupDatabase(databasePath, backup));
+    final var failure = assertThrows(SirixIOException.class,
+        () -> BackupManager.restoreDatabase(databasePath, restored));
+    assertTrue(failure.getCause() instanceof UnsupportedStoreFeatureException);
+    assertFalse(Files.exists(backup));
+    assertFalse(Files.exists(restored));
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void committedFeaturesSurviveRollbackPastTheirFirstUseAndNextCommit(final StorageType storageType) {
     createStore(storageType);
     final var features = new StoreFeatures(0, 0, Integer.MIN_VALUE);
@@ -865,9 +1088,13 @@ class StoreFeaturesLifecycleTest {
     final ByteBuffer payload = ByteBuffer.allocate(22).order(ByteOrder.LITTLE_ENDIAN);
     payload.put(new byte[] {3, 0, (byte) 0x80, 14, (byte) 0xc1, 12});
     payload.putInt(features.incompat()).putInt(features.readOnlyCompat()).putInt(features.compat()).putInt(revisions);
+    replaceBeaconPayload(offset, payload.array());
+  }
+
+  private void replaceBeaconPayload(final long offset, final byte[] payload) throws IOException {
     final ByteBuffer slot = ByteBuffer.allocate(IOStorage.BEACON_SLOT_BYTES).order(ByteOrder.LITTLE_ENDIAN);
-    slot.putInt(payload.capacity()).put(payload.array());
-    slot.order(ByteOrder.BIG_ENDIAN).putLong(PageHasher.computeLong(payload.array()));
+    slot.putInt(payload.length).put(payload);
+    slot.order(ByteOrder.BIG_ENDIAN).putLong(PageHasher.computeLong(payload));
     slot.clear();
     try (final var channel = FileChannel.open(dataFile(), StandardOpenOption.WRITE)) {
       while (slot.hasRemaining()) {
