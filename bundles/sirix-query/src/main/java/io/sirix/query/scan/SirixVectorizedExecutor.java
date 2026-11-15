@@ -3954,18 +3954,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * The distinct values come from the typed group-key kernel, which already carries this file's
    * page-boundary, sparse-anchor and FSST-decoding guards; taking the extremum over the distinct
    * values equals taking it over all of them. The cost is a hash map of the column's distinct values,
-   * i.e. the same memory {@code count(distinct-values(...))} already pays, which is the right trade
-   * against declining a shape the caller cannot fall back from
-   * ({@code VectorizedGroupByExpr#requireSupported} turns a {@code null} into an error rather than
-   * into a generic-pipeline retry).
+   * i.e. the same memory {@code count(distinct-values(...))} already pays. This preserves a direct
+   * pure-string route without retrying the aggregate through the generic evaluator.
    *
    * @param sourcePath the scan source
    * @param predicateOrNull an optional predicate restricting the rows
    * @param field the aggregated field
    * @param func {@code "min"} or {@code "max"}; anything else declines
-   * @return the extremum, or {@code null} when this is not a pure-string column and the caller must
-   *         keep failing loudly (mixed types, JSON nulls, booleans, or an aggregate other than
-   *         min/max, where XQuery's own semantics are an error rather than a value)
+   * @return the extremum, or {@code null} when this route cannot serve the aggregate; the caller
+   *         signals refusal so the generic evaluator supplies its value or error
    */
   private Sequence stringMinMaxOrNull(final String[] sourcePath, final PredicateNode predicateOrNull,
       final String field, final String func) throws Exception {
@@ -24276,10 +24273,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * decimal space and divides via {@code Dec#div} — accumulate {@link BigDecimal} exactly and
    * delegate the avg division to brackit for digit-for-digit parity. Exact accumulation is also
    * ORDER-FREE, so the parallel fold cannot drift from the interpreter's sequential fold.</li>
-   * <li>any double row: the interpreter's running sum becomes xs:double and stays there — fold
-   * everything in double space (the parallel re-association can differ from the sequential fold in
-   * the last ulp for adversarial values; exact for binary-fraction data — documented
-   * limitation).</li>
+   * <li>Any double row makes sum/avg order-sensitive. Callers must apply
+   * {@link SirixVectorizedExecutor#requireOrderIndependentAggregate} before serving a result from
+   * these per-kind totals.</li>
    * </ul>
    */
   private static final class MixedAgg {

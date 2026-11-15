@@ -257,9 +257,9 @@ else falls back to the generic (always correct) pipeline.
   to the generic evaluator after detecting double contributors, even with one
   worker: merging separate integer/decimal/double totals also changes order.
   There is no permitted ulp discrepancy. Pure long/decimal folds remain exact;
-  pure-double projection `sum`/`avg` retain their existing seed-first fold in
-  document order. The refusal changes cost (initial scan plus generic fold),
-  not the row/page kernels or the ordered projection kernel.
+  projection serving follows the **Double projection columns** contract above.
+  The refusal changes cost (initial scan plus generic fold), not the row/page
+  kernels or the ordered projection kernel.
 
 `VectorizedReleaseCorrectnessTest` pins these three contracts against forced
 generic evaluation before and after closing/reopening the store. Its execution
