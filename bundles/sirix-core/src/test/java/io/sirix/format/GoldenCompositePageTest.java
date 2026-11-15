@@ -3,6 +3,7 @@ package io.sirix.format;
 import io.brackit.query.atomic.QNm;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
@@ -71,7 +72,8 @@ public final class GoldenCompositePageTest {
 
   @Test
   public void keyValueLeafPageBytesArePinned() throws IOException {
-    final var config = storageEngineReader.getResourceSession().getResourceConfig();
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder("golden-composite").saltRecordPages(false).build();
     final KeyValueLeafPage page = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config,
         storageEngineReader.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
     try {
@@ -111,8 +113,8 @@ public final class GoldenCompositePageTest {
     }
   }
 
-  private static ElementNode elementNode(final io.sirix.access.ResourceConfiguration config, final long nodeKey,
-      final long leftSibling, final long rightSibling) {
+  private static ElementNode elementNode(final ResourceConfiguration config, final long nodeKey, final long leftSibling,
+      final long rightSibling) {
     final LongArrayList attributeKeys = new LongArrayList();
     attributeKeys.add(88L);
     final LongArrayList namespaceKeys = new LongArrayList();

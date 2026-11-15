@@ -7,13 +7,14 @@
 - Invariant and scope: neighboring persisted salts must not reveal a removed salt. The shared saltForWrite boundary covers ordinary/disposable writes, monolithic/chunked encoding, new/reset pages and existing-salt reuse. Deterministic mode remains zero, disposable source headers remain intact, and every reader remains unchanged.
 - Fix: replace the source at that boundary with a per-thread AES-256-CTR keystream seeded with non-blocking OS randomness. A reused 2 KiB buffer amortizes cipher calls across 256 salts. The cipher counter continues across refills. Missing crypto fails closed; no global security configuration changes or reader operations are introduced.
 - Why tests missed it: uniqueness, byte differences and correct decoding do not establish unpredictability. No test attempted state recovery.
-- Regression test: RecordPageSaltTest.neighboringSaltsCannotReconstructTheRemovedSalt executes the attack against both write helpers, with ThreadLocalRandom and SplittableRandom positive controls; the former implementation necessarily satisfies the attack relation. RecordPageSaltSourceTest checks NIST SP 800-38A F.5.5 and an independent AES-ECB/BigInteger counter oracle across eight batch refills. Existing deterministic, copy/reload, reset, disposable refusal and allocation checks retain their assertions and bounds.
+- Regression test: PageLayoutTest.neighboringSaltsCannotReconstructTheRemovedSalt executes the attack against both write helpers, with ThreadLocalRandom and SplittableRandom positive controls; the former implementation necessarily satisfies the attack relation. RecordPageSaltSourceTest checks NIST SP 800-38A F.5.5 and an independent AES-ECB/BigInteger counter oracle across eight batch refills. Existing deterministic, copy/reload, reset, disposable refusal and allocation checks retain their assertions and bounds.
 - Error cases: unavailable non-blocking OS randomness or AES support prevents salted serialization; deterministic and already salted pages do not initialize a source. No insecure fallback is provided.
 - Lesson: verify the randomness threat model, cryptographic primitive and batching behavior separately. See [Lessons](../LESSONS.md).
 
 ## Focused verification
 
-The review fix ran `:sirix-core:test` restricted to `RecordPageSaltTest`,
+The review fix ran `:sirix-core:test` restricted to `RecordPageSaltTest` (now split
+into `PageKindTest` and `PageLayoutTest`),
 `RecordPageSaltSourceTest` and `RecordPageSaltAllocationTest`: 13 tests passed,
 none skipped. The existing 4,096-byte allocation bound over 100,000 fresh salts
 was unchanged and passed. The same invocation ran PIT with `DEFAULTS` and
