@@ -46,7 +46,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
@@ -95,8 +94,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private volatile @Nullable Thread commitSchedulerThread;
 
   private final int transactionId;
-
-  private final AtomicBoolean writeOwnershipReleased = new AtomicBoolean();
 
   /**
    * Hash kind of Structure.
@@ -1576,12 +1573,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
           failure = ShardedPageCache.retainCleanupFailure(failure, e);
         }
       }
-      if (writeOwnershipReleased.compareAndSet(false, true)) {
-        try {
-          resourceSession.closeWriteTransaction(transactionId);
-        } catch (final RuntimeException | Error e) {
-          failure = ShardedPageCache.retainCleanupFailure(failure, e);
-        }
+      try {
+        resourceSession.closeWriteTransaction(transactionId);
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
     }
     ShardedPageCache.rethrowCleanupFailure(failure);

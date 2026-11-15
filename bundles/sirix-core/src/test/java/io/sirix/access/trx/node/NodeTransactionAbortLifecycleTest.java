@@ -792,6 +792,121 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   @ParameterizedTest
+  @CsvSource({"json,false,false,false",
+      "json,false,false,true",
+      "json,false,true,false",
+      "json,false,true,true",
+      "json,true,false,false",
+      "json,true,false,true",
+      "json,true,true,false",
+      "json,true,true,true",
+      "xml,false,false,false",
+      "xml,false,false,true",
+      "xml,false,true,false",
+      "xml,false,true,true",
+      "xml,true,false,false",
+      "xml,true,false,true",
+      "xml,true,true,false",
+      "xml,true,true,true"})
+  void lateConcurrentCloseRetainsOwnerUntilPermitRelease(final String format, final boolean abort,
+      final boolean timed, final boolean failWriter) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = timed
+          ? fixture.first.beginNodeTrx(1, TimeUnit.DAYS)
+          : fixture.first.beginNodeTrx();
+      final int transactionId = transaction.getId();
+      final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.first;
+      final ScheduledExecutorService executor = scheduler(transaction);
+      final ScheduledExecutorService gatedExecutor = mock(ScheduledExecutorService.class, delegatesTo(executor));
+      field(AbstractNodeTrxImpl.class, "commitScheduler").set(transaction, gatedExecutor);
+      final CountDownLatch beforeRelease = new CountDownLatch(1);
+      final CountDownLatch allowRelease = new CountDownLatch(1);
+      final AtomicReference<Thread> firstCloser = new AtomicReference<>();
+      doAnswer(invocation -> {
+        final boolean terminated = executor.isTerminated();
+        if (terminated && Thread.currentThread() == firstCloser.get()) {
+          beforeRelease.countDown();
+          await(allowRelease);
+        }
+        return terminated;
+      }).when(gatedExecutor).isTerminated();
+      final IllegalStateException primary = new IllegalStateException("terminal writer close failed");
+      if (failWriter) {
+        final StorageEngineWriter writer = transaction.getStorageEngineWriter();
+        flushHook = field(writer.getClass(), "asyncFlushFaultHook");
+        final AtomicInteger failures = new AtomicInteger();
+        flushHook.set(null, (BiConsumer<StorageEngineWriter, String>) (owner, stage) -> {
+          if (owner == writer && stage.equals("close-after-terminal-flags") && failures.getAndIncrement() == 0) {
+            throw primary;
+          }
+        });
+      }
+      if (abort) {
+        setValue(transaction, 1);
+      }
+      final CompletableFuture<Throwable> firstFinished = new CompletableFuture<>();
+      final CompletableFuture<Void> secondFinished = new CompletableFuture<>();
+      final Thread first = new Thread(() -> {
+        try {
+          if (abort) {
+            fixture.first.close();
+          } else {
+            transaction.close();
+          }
+          firstFinished.complete(null);
+        } catch (final Throwable failure) {
+          firstFinished.complete(failure);
+        }
+      });
+      final Thread second = new Thread(() -> {
+        try {
+          fixture.first.close();
+          secondFinished.complete(null);
+        } catch (final Throwable failure) {
+          secondFinished.completeExceptionally(failure);
+        }
+      });
+      firstCloser.set(first);
+      try {
+        first.start();
+        assertTrue(beforeRelease.await(10, TimeUnit.SECONDS));
+        assertTrue(transaction.isClosed());
+        assertSame(transaction, session.nodeTrxMap.get(transactionId));
+        assertFalse(session.isClosed());
+        assertEquals(0, session.writeLock.availablePermits());
+        second.start();
+        secondFinished.get(10, TimeUnit.SECONDS);
+        assertFalse(firstFinished.isDone());
+        assertTrue(session.isClosed());
+        assertTrue(session.nodeTrxMap.isEmpty());
+        assertTrue(session.storageEngineWriterMap.isEmpty());
+        assertEquals(1, session.writeLock.availablePermits());
+        try (NodeTrx next = fixture.second.beginNodeTrx()) {
+          setCursor(next);
+          assertEquals(0, value(next));
+          allowRelease.countDown();
+          assertSame(failWriter ? primary : null, firstFinished.get(10, TimeUnit.SECONDS));
+          transaction.close();
+          fixture.first.close();
+          assertEquals(0, session.writeLock.availablePermits());
+          setValue(next, 3);
+          next.commit();
+        }
+        assertEquals(1, session.writeLock.availablePermits());
+        assertTrue(executor.isTerminated());
+        try (NodeTrx next = fixture.second.beginNodeTrx()) {
+          setCursor(next);
+          assertEquals(3, value(next));
+        }
+      } finally {
+        allowRelease.countDown();
+        first.join(10000);
+        second.join(10000);
+      }
+    }
+  }
+
+  @ParameterizedTest
   @ValueSource(strings = {"json", "xml"})
   void ordinaryPostCommitHooksContinueInOrder(final String format) throws Exception {
     try (Fixture fixture = new Fixture(format, directory);

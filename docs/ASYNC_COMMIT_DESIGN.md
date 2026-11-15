@@ -113,8 +113,12 @@ returns. Both hook-dispatch paths stop after a hook closes the transaction. The
 remaining timed-task epilogue only releases its lock and returns to the executor;
 it does not revisit reader, writer or epoch payloads. A repeated external transaction
 close still fences termination. Timed cleanup uses the existing transaction lock,
-untimed cleanup uses the monitor, and an atomic admission-release guard prevents
-double release by independent closers. Public rollback uses that same ownership
+untimed cleanup uses the monitor. The session registry retains the node writer
+through reader cleanup and scheduler fencing. Under a short session-monitor section,
+owner removal releases the permit in finally; absent owners make repeated callbacks
+no-ops even after session closure. This registry boundary prevents double release
+without a separate node guard. Session finalization cannot clear pending internal
+node owners or publish closed before they discharge admission ownership. Public rollback uses that same ownership
 lock and checks open state only after acquiring it, outside recovery failure handling.
 Session close snapshots under its monitor, releases it before node abort/fencing,
 and serializes the independent-owner tail only after node owners are processed.
