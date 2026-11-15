@@ -1861,10 +1861,10 @@ public enum PageKind {
       if (disposableWriterTable == null) {
         PageLayout.initializeSalt(slottedPage, resourceConfig.saltRecordPages);
         sink.writeSegment(slottedPage, PageLayout.OFF_HEAP_USED,
-            PageLayout.DISK_HEADER_BITMAP_SIZE - PageLayout.OFF_HEAP_USED);
+            (long) PageLayout.DISK_HEADER_BITMAP_SIZE - PageLayout.OFF_HEAP_USED);
       } else {
         // The snapshot caller can still refuse this encoding. Keep its logical frame intact.
-        sink.writeSegment(slottedPage, PageLayout.OFF_HEAP_USED, PageLayout.OFF_SALT - PageLayout.OFF_HEAP_USED);
+        sink.writeSegment(slottedPage, PageLayout.OFF_HEAP_USED, (long) PageLayout.OFF_SALT - PageLayout.OFF_HEAP_USED);
         sink.writeLong(PageLayout.saltForWrite(slottedPage, resourceConfig.saltRecordPages));
         sink.writeSegment(slottedPage, PageLayout.HEADER_SIZE, PageLayout.BITMAP_SIZE);
       }

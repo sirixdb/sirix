@@ -11,6 +11,9 @@ import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 
 final class RecordPageSaltSource {
+  // Fixed-size cipher state lives with the thread to avoid per-page setup; it retains no
+  // page/resource.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<RecordPageSaltSource> SOURCES = ThreadLocal.withInitial(RecordPageSaltSource::new);
   private final Cipher generator;
   private final byte[] input = new byte[2048];
