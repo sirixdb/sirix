@@ -5,6 +5,9 @@ package io.sirix.access.trx.page;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.sirix.access.DatabaseConfiguration;
@@ -20,16 +23,19 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
+import io.sirix.cache.PageContainer;
 import io.sirix.index.IndexType;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.node.json.StringNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageConstants;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.settings.Constants;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.FSSTCompressor;
@@ -47,6 +53,7 @@ import java.util.TreeSet;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -119,6 +126,107 @@ final class StorageEpochFsstInlineDecisionTest {
     // Asserted last so that, against an engine without the fix, the failure names the decision.
     assertTrue(VersioningType.ownedReplaysKeepingFsstBinding() > replaysBefore,
         "the flushed page must have been re-read through the owned-fragment replay");
+  }
+
+  /**
+   * The replay rebuilds a page created in this transaction onto fresh, unbound pages. They must adopt
+   * the owned fragment's binding: its strings were encoded at insert against the transaction's table,
+   * and a page without that binding could neither decode them nor keep later edits inline.
+   */
+  @ParameterizedTest
+  @EnumSource(value = HashType.class, names = {"NONE", "ROLLING"})
+  void aPageCreatedInTheTransactionKeepsItsBindingAcrossARotation(final HashType hash) throws IOException {
+    final long replaysBefore = VersioningType.ownedReplaysKeepingFsstBinding();
+    final Decisions plain = extendAndEdit(directory.resolve("plain"), hash, false);
+    final Decisions rotated = extendAndEdit(directory.resolve("rotated"), hash, true);
+    assertEquals(plain.values(), rotated.values());
+    assertEquals(new TreeSet<Long>(), plain.carriers(), "the plain twin keeps every encoded value inline");
+    assertEquals(plain.carriers(), rotated.carriers(), "rotation must not change any inline-or-carrier decision");
+    assertEquals(plain.tableIds(), rotated.tableIds(), "rotation must not change any page's table binding");
+    assertTrue(VersioningType.ownedReplaysKeepingFsstBinding() > replaysBefore,
+        "the new page must have been re-read through the owned-fragment replay");
+  }
+
+  /**
+   * The rebuilt pages are the ones the first copy-on-write built: the full newest committed fragment
+   * alone, so its encoded strings stay encoded and no older fragment is decompressed into read-side
+   * carriers.
+   */
+  @Test
+  void theReplayRebuildsTheFullPageTheFirstCopyOnWriteRead() throws IOException {
+    final Path path = directory.resolve("replay");
+    createResource(path, HashType.NONE, StorageType.FILE_CHANNEL);
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER);
+        final JsonResourceSession session = database.beginResourceSession("resource")) {
+      final List<Long> keys = new ArrayList<>(SMALL_RECORDS);
+      try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+        insertRecords(writer, SMALL_RECORDS, keys, StorageEpochFsstInlineDecisionTest::oversizedCompressible);
+        writer.commit(null, Instant.parse("2019-01-01T00:00:00Z"));
+      }
+      try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+        assertTrue(writer.moveTo(keys.get(1)) && writer.moveToFirstChild());
+        writer.setStringValue(oversizedCompressible(1, 1));
+        writer.getStorageEngineWriter().asyncFlushStorageEpoch();
+        writer.getStorageEngineWriter().awaitPendingAsyncFlush();
+        assertTrue(writer.moveTo(keys.get(2)) && writer.moveToFirstChild());
+        writer.setStringValue(oversizedCompressible(2, 1));
+
+        assertTrue(writer.moveTo(keys.get(250)) && writer.moveToFirstChild());
+        final long untouched = writer.getNodeKey();
+        final int slot = StorageEngineReader.recordPageOffset(untouched);
+        final PageContainer container = documentPage((NodeStorageEngineWriter) writer.getStorageEngineWriter(), 0L);
+        final KeyValueLeafPage complete = (KeyValueLeafPage) container.getComplete();
+        final KeyValueLeafPage modifying = (KeyValueLeafPage) container.getModified();
+        assertNotEquals(KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID, complete.getFsstSymbolTableId(),
+            "the rebuilt page keeps its table");
+        assertEquals(complete.getFsstSymbolTableId(), modifying.getFsstSymbolTableId());
+        assertTrue(complete.isFusedObjectNamedStringValueCompressed(slot),
+            "an untouched encoded string stays encoded on the rebuilt page");
+        assertNull(complete.getPageReference(untouched), "no older fragment was decompressed into a carrier");
+        writer.commit(null, Instant.parse("2020-01-01T00:00:00Z"));
+      }
+    }
+  }
+
+  /**
+   * A leaf bound to its table only by id gets its symbols before an epoch materializes it; otherwise
+   * its pending strings could only be judged raw.
+   */
+  @Test
+  void materializationResolvesATableBoundOnlyById() throws IOException {
+    final long encodedBefore = BulkAdoptionDiagnostics.pendingStringsEncodedBeforeMaterialization();
+    final Path path = directory.resolve("id-only");
+    createResource(path, HashType.NONE, StorageType.FILE_CHANNEL);
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER);
+        final JsonResourceSession session = database.beginResourceSession("resource")) {
+      try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+        insertRecords(writer, SMALL_RECORDS, new ArrayList<>(SMALL_RECORDS),
+            StorageEpochFsstInlineDecisionTest::oversizedCompressible);
+        writer.commit(null, Instant.parse("2019-01-01T00:00:00Z"));
+      }
+      try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+        final NodeStorageEngineWriter engine = (NodeStorageEngineWriter) writer.getStorageEngineWriter();
+        final long tableId =
+            engine.getNamePage(engine.getActualRevisionRootPage()).getLatestFsstSymbolTableId(DatabaseType.JSON);
+        final ResourceConfiguration config = session.getResourceConfig();
+        final long pageKey = 4000L;
+        final KeyValueLeafPage page =
+            new KeyValueLeafPage(pageKey, IndexType.DOCUMENT, config, writer.getRevisionNumber(), null, null, false);
+        try {
+          page.setFsstSymbolTableId(tableId);
+          final long nodeKey = (pageKey << Constants.NDP_NODE_COUNT_EXPONENT) + 5;
+          page.setRecord(new StringNode(nodeKey, 0L, 0, 0, 0L, 0L, 0L,
+              oversizedCompressible(5, 1).getBytes(StandardCharsets.UTF_8), config.nodeHashFunction, (byte[]) null,
+              false, null));
+          engine.stageOverflowCarriersOfLiveLeaf(page);
+          assertNotNull(page.getFsstSymbolTable(), "the table bound by id must have been resolved");
+          assertTrue(page.getReferencesMap().isEmpty(), "the encoded value fits inline");
+        } finally {
+          page.close();
+        }
+      }
+    }
+    assertTrue(BulkAdoptionDiagnostics.pendingStringsEncodedBeforeMaterialization() > encodedBefore);
   }
 
   /**
@@ -337,6 +445,67 @@ final class StorageEpochFsstInlineDecisionTest {
     }
     Databases.clearGlobalCaches();
     return decisions(path);
+  }
+
+  private Decisions extendAndEdit(final Path path, final HashType hash, final boolean rotate) throws IOException {
+    createResource(path, hash, StorageType.FILE_CHANNEL);
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER);
+        final JsonResourceSession session = database.beginResourceSession("resource")) {
+      final List<Long> keys = new ArrayList<>(2 * SMALL_RECORDS);
+      try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+        insertRecords(writer, SMALL_RECORDS, keys, StorageEpochFsstInlineDecisionTest::oversizedCompressible);
+        writer.commit(null, Instant.parse("2019-01-01T00:00:00Z"));
+      }
+      try (final JsonNodeTrx writer = session.beginNodeTrx()) {
+        // Appended records land on pages this transaction creates; their values are encoded at insert.
+        assertTrue(writer.moveToDocumentRoot() && writer.moveToFirstChild());
+        final long array = writer.getNodeKey();
+        for (int i = SMALL_RECORDS; i < 2 * SMALL_RECORDS; i++) {
+          assertTrue(writer.moveTo(array));
+          writer.insertSubtreeAsLastChild(
+              JsonShredder.createStringReader("{\"v\":\"" + oversizedCompressible(i, 0) + "\"}"),
+              JsonNodeTrx.Commit.NO);
+          assertTrue(writer.moveTo(array) && writer.moveToLastChild());
+          keys.add(writer.getNodeKey());
+        }
+        if (rotate) {
+          writer.getStorageEngineWriter().asyncFlushStorageEpoch();
+          writer.getStorageEngineWriter().awaitPendingAsyncFlush();
+        }
+        boolean inspected = false;
+        for (int i = SMALL_RECORDS + 600; i < 2 * SMALL_RECORDS; i += 61) {
+          assertTrue(writer.moveTo(keys.get(i)) && writer.moveToFirstChild());
+          writer.setStringValue(oversizedCompressible(i, 1));
+          if (rotate && !inspected) {
+            // The edit re-read a page this transaction created and flushed: both rebuilt pages hold the
+            // owned fragment's encoded strings, so both must name its table.
+            inspected = true;
+            final PageContainer container = documentPage((NodeStorageEngineWriter) writer.getStorageEngineWriter(),
+                writer.getNodeKey() >> Constants.NDP_NODE_COUNT_EXPONENT);
+            final KeyValueLeafPage complete = (KeyValueLeafPage) container.getComplete();
+            final KeyValueLeafPage modifying = (KeyValueLeafPage) container.getModified();
+            assertNotEquals(KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID, complete.getFsstSymbolTableId(),
+                "the rebuilt complete page adopts the owned binding");
+            assertNotNull(complete.getFsstSymbolTable());
+            assertEquals(complete.getFsstSymbolTableId(), modifying.getFsstSymbolTableId());
+            assertNotNull(modifying.getFsstSymbolTable());
+          }
+        }
+        writer.commit(null, Instant.parse("2020-01-01T00:00:00Z"));
+      }
+    }
+    Databases.clearGlobalCaches();
+    return decisions(path);
+  }
+
+  private static PageContainer documentPage(final NodeStorageEngineWriter engine, final long pageKey) {
+    for (final PageContainer container : engine.getLog().getList()) {
+      if (container.getComplete() instanceof final KeyValueLeafPage page && page.getIndexType() == IndexType.DOCUMENT
+          && page.getPageKey() == pageKey) {
+        return container;
+      }
+    }
+    throw new AssertionError("document page " + pageKey + " is not in the live intent log");
   }
 
   private static void createResource(final Path path, final HashType hash, final StorageType storage) {

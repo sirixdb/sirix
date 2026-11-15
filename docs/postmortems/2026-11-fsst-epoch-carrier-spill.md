@@ -59,3 +59,42 @@
   Every route into a size-based placement decision must apply the same encoding as the canonical
   route. Differential tests must pin the configuration that changes geometry (here the hash kind)
   instead of inheriting a JVM default. See [Lessons](../LESSONS.md).
+
+## Verification evidence
+
+Fails before, passes after. One fix was reverted at a time on the fixed head; the suites were run
+with `-Dsirix.hashType=NONE`:
+
+| Engine | Identity regression | Full-page rotation | Async flush | Property trials |
+| --- | --- | --- | --- | --- |
+| fixed | passes | passes (`NONE`, `ROLLING`, `POSTORDER`) | passes (`NONE`, `ROLLING`) | 10/10 pass |
+| replay fix reverted | 120 vs 123 frames | decision differs under all three | passes | 7/10 fail |
+| encode-first fix reverted | passes | decisions equal | 6 raw carriers under both | both import-mode trials fail |
+| both reverted | 120 vs 123 frames | fails | fails | 6/10 fail |
+
+The replay fix alone repairs the reported failure. The encode-first defect is independent and shows
+in the async-flush import mode.
+
+Mutation testing: a focused PIT 1.25.5 run limited to the changed methods of `KeyValueLeafPage`,
+`VersioningType`, `NodeStorageEngineWriter` and `BulkAdoptionDiagnostics`. The covering tests were
+`StorageEpochFsstInlineDecisionTest`, `KeyValueLeafPagePendingFsstMaterializationTest`,
+`StorageEpochStoreIdentityTest`, `AsyncFlushOwnedFragmentChainTest` and
+`AdoptedOverflowCarrierStagingTest`, run with the identity task's deterministic codec setting.
+The PR lane cannot select them, because it inherits the standard test task's excludes.
+On changed lines: 53 killed, 0 without coverage, 6 survived. The first pass left 11 survivors and
+18 uncovered mutants; the tests that killed them are the page-level unit test, the id-only
+resolution test, the rebuilt-container assertions and the page created inside the transaction.
+Each remaining survivor is equivalent:
+
+- `KeyValueLeafPage.compressPendingStringRecords`, both `originalValue.length > 0` boundaries: an
+  empty value encodes to `null`, because `encodeOrNull` declines anything shorter than
+  `MIN_COMPRESSION_SIZE`.
+- `VersioningType.committedFragmentsTheFirstCopyOnWriteRead`, `chain.size() > 1` changed to `>= 1`:
+  truncating a one-fragment chain returns an equal list.
+- `VersioningType.ownedFragmentCopier`, both `null` returns: `copySlotPreservingMetadata` treats a
+  `null` copier exactly like an inactive one. The fallback copier is inactive whenever the owned
+  fragment has no table, and its only other trigger is the unreachable state below.
+- `VersioningType.acceptsBinding` forced to `true`: it differs only for a rebuilt page bound to a
+  different table than the owned fragment. The live page binds one table for life and the replay
+  reproduces the first copy-on-write's binding, so that state cannot arise. Were it to arise,
+  `setFsstSymbolTableId` would refuse the rebind.
