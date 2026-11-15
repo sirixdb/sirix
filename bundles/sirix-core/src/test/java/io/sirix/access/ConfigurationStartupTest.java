@@ -40,6 +40,8 @@ final class ConfigurationStartupTest {
 
   @Test
   void persistedRequestsCannotResizeTheProcessAndLogsDescribeEffectiveCaps() {
+    assertEquals(128L << 20, DatabaseConfiguration.defaultSegmentAllocationSize(),
+        "the launcher cap must also be the pre-database cache startup request");
     final long allowance = 64L << 20;
     Allocators.getInstance().init(allowance);
     final Logger logger = (Logger) LoggerFactory.getLogger(Databases.class);

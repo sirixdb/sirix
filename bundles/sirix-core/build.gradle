@@ -364,6 +364,7 @@ gradle.projectsEvaluated {
         }
     }
     configurationStartupTest.configure {
+        systemProperty 'sirix.allocator.maxSize', '128M'
         maxHeapSize = '256m'
         minHeapSize = '128m'
         systemProperty 'sirix.cache.page.max.entries', '7'
