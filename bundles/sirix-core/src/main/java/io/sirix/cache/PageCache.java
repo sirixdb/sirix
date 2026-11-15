@@ -44,8 +44,6 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   public static final long LEGACY_BYTES_PER_ENTRY = 1_000;
 
-  private final int maxEntries;
-
   /** Default entry-count cap. */
   public static final int DEFAULT_MAX_ENTRIES = 50_000;
 
@@ -58,7 +56,6 @@ public final class PageCache implements Cache<PageReference, Page> {
     if (maxEntries <= 0) {
       throw new IllegalArgumentException("maxEntries must be > 0, got " + maxEntries);
     }
-    this.maxEntries = maxEntries;
     final RemovalListener<PageReference, Page> removalListener = (PageReference key, Page page, RemovalCause cause) -> {
       assert key != null;
       key.setPage(null);
@@ -116,7 +113,8 @@ public final class PageCache implements Cache<PageReference, Page> {
 
   /** Effective count cap used by the eviction policy. */
   public int maxEntries() {
-    return maxEntries;
+    // Cold configuration path: report the actual policy without enlarging the hot cache object.
+    return Math.toIntExact(cache.policy().eviction().orElseThrow().getMaximum());
   }
 
   @Override
