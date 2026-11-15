@@ -81,6 +81,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -104,6 +105,56 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     implements ResourceSession<R, W>, InternalResourceSession<R, W> {
 
   private volatile @Nullable ValidTimeReadCache validTimeReadCache;
+
+  private final ThreadLocal<Boolean> inCommitCallback = new ThreadLocal<>();
+  private final ThreadLocal<@Nullable InternalNodeTrx<?>> commitExecution = new ThreadLocal<>();
+  private final ConcurrentLinkedQueue<Runnable> sessionCallbacks = new ConcurrentLinkedQueue<>();
+
+  @Override
+  public final void assertNotInCommitCallback() {
+    if (Boolean.TRUE.equals(inCommitCallback.get())) {
+      throw new IllegalStateException("Lifecycle calls are forbidden from a commit callback of this session");
+    }
+  }
+
+  @Override
+  public final void enterCommitCallback() {
+    assertNotInCommitCallback();
+    inCommitCallback.set(Boolean.TRUE);
+  }
+
+  @Override
+  public final void exitCommitCallback() {
+    inCommitCallback.set(Boolean.FALSE);
+  }
+
+  @Override
+  public final @Nullable InternalNodeTrx<?> enterCommitExecution(final InternalNodeTrx<?> owner) {
+    final @Nullable InternalNodeTrx<?> previous = commitExecution.get();
+    commitExecution.set(requireNonNull(owner));
+    return previous;
+  }
+
+  @Override
+  public final void exitCommitExecution(final @Nullable InternalNodeTrx<?> previous) {
+    commitExecution.set(previous);
+  }
+
+  @SuppressWarnings("java:S1181")
+  private void dispatchSessionCallbacks(final @Nullable Throwable priorFailure) {
+    Throwable failure = priorFailure;
+    Runnable callback;
+    while ((callback = sessionCallbacks.poll()) != null) {
+      try {
+        callback.run();
+      } catch (final RuntimeException | Error next) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, next);
+      }
+    }
+    if (priorFailure == null) {
+      ShardedPageCache.rethrowCleanupFailure(failure);
+    }
+  }
 
   @Override
   public final ValidTimeReadCache getValidTimeReadCache() {
@@ -1377,6 +1428,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public W beginNodeTrx(final int maxNodeCount, final int maxTime, final TimeUnit timeUnit,
       final AfterCommitState afterCommitState) {
+    assertNotInCommitCallback();
     synchronized (this) {
       // Authorize before acquiring a writer or touching its intent log.
       ResourceAccessScope.checkWrite(this);
@@ -1441,6 +1493,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     LOGGER.trace("Lock: lock acquired (beginNodeTrx)");
 
     boolean success = false;
+    Throwable failure = null;
     try {
       synchronized (this) {
         assertNotClosing();
@@ -1486,11 +1539,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         success = true;
         return wtx;
       }
+    } catch (final RuntimeException | Error e) {
+      failure = e;
+      throw e;
     } finally {
       if (!success) {
         writeLock.release();
         LOGGER.trace("Lock: lock released (beginNodeTrx failed)");
       }
+      dispatchSessionCallbacks(failure);
     }
   }
 
@@ -1516,6 +1573,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
   @SuppressWarnings("java:S1181")
   public void close() {
+    assertNotInCommitCallback();
+    for (final R transaction : nodeTrxMap.values()) {
+      if (transaction instanceof InternalNodeTrx<?> nodeTrx) {
+        nodeTrx.assertCanClose();
+      }
+    }
     final Set<NodeReadOnlyTrx> transactions = Collections.newSetFromMap(new IdentityHashMap<>());
     final Set<NodeReadOnlyTrx> unfinishedTransactions = Collections.newSetFromMap(new IdentityHashMap<>());
     final Set<StorageEngineReader> readers = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -1529,6 +1592,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       readers.addAll(storageEngineReaderMap.values());
       closeAttempts++;
     }
+    Throwable primaryFailure = null;
     try {
       Throwable failure = null;
       final ValidTimeReadCache cache = validTimeReadCache;
@@ -1634,10 +1698,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         }
         ShardedPageCache.rethrowCleanupFailure(failure);
       }
+    } catch (final RuntimeException | Error e) {
+      primaryFailure = e;
+      throw e;
     } finally {
       synchronized (this) {
         closeAttempts--;
       }
+      dispatchSessionCallbacks(primaryFailure);
     }
   }
 
@@ -1834,12 +1902,35 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     if (revisionListeners.isEmpty()) {
       return;
     }
-    for (final IntConsumer listener : revisionListeners) {
+    final Runnable notification = () -> {
+      enterCommitCallback();
       try {
-        listener.accept(page.getRevisionNumber());
-      } catch (final RuntimeException failure) {
-        LOGGER.error("Revision listener failed after durable publication", failure);
+        for (final IntConsumer listener : revisionListeners) {
+          try {
+            listener.accept(page.getRevisionNumber());
+          } catch (final RuntimeException | Error failure) {
+            LOGGER.error("Revision listener failed after durable publication", failure);
+          }
+        }
+      } finally {
+        exitCommitCallback();
       }
+    };
+    final @Nullable InternalNodeTrx<?> executionOwner = commitExecution.get();
+    if (executionOwner != null) {
+      executionOwner.enqueueCallback(notification);
+      return;
+    }
+    for (final R transaction : nodeTrxMap.values()) {
+      if (transaction instanceof InternalNodeTrx<?> nodeTrx) {
+        nodeTrx.enqueueCallback(notification);
+        return;
+      }
+    }
+    if (Thread.holdsLock(this)) {
+      sessionCallbacks.add(notification);
+    } else {
+      notification.run();
     }
   }
 
@@ -1917,7 +2008,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  public StorageEngineWriter createStorageEngineWriter() {
+    assertNotInCommitCallback();
+    return createStorageEngineWriter(getMostRecentRevisionNumber());
+  }
+
+  @Override
   public StorageEngineWriter createStorageEngineWriter(final int revision) {
+    assertNotInCommitCallback();
     synchronized (this) {
       ResourceAccessScope.checkWrite(this);
       lastCommittedUberPage.get().getFeatures().requireWritable();
@@ -1937,6 +2035,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     LOGGER.debug("Lock: lock acquired (createStorageEngineWriter)");
 
     boolean success = false;
+    Throwable failure = null;
     try {
       synchronized (this) {
         assertNotClosing();
@@ -1954,11 +2053,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         success = true;
         return storageEngineWriter;
       }
+    } catch (final RuntimeException | Error e) {
+      failure = e;
+      throw e;
     } finally {
       if (!success) {
         writeLock.release();
         LOGGER.debug("Lock: lock released (createStorageEngineWriter failed)");
       }
+      dispatchSessionCallbacks(failure);
     }
   }
 

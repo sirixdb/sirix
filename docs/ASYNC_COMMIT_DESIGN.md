@@ -105,21 +105,24 @@ terminal after the permit is released.
 Public transaction close retains its dirty-transaction protection. Resource-session
 close can explicitly abort a dirty successor after fencing the failed predecessor;
 see [`ResourceSession.close()`](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java).
-An external transaction closer fences the scheduler outside the node lock and
-transaction monitor before releasing the shared write permit. A post-commit hook
-running on the scheduler itself completes cleanup, publishes CLOSED and releases
-admission without joining its own executor; shutdown completes when that callback
-returns. Both hook-dispatch paths stop after a hook closes the transaction. The
-remaining timed-task epilogue only releases its lock and returns to the executor;
-it does not revisit reader, writer or epoch payloads. A repeated external transaction
-close still fences termination. Timed cleanup uses the existing transaction lock,
-untimed cleanup uses the monitor. The session registry retains the node writer
-through reader cleanup and scheduler fencing. Under a short session-monitor section,
-owner removal releases the permit in finally; absent owners make repeated callbacks
-no-ops even after session closure. This registry boundary prevents double release
-without a separate node guard. Session finalization cannot clear pending internal
-node owners or publish closed before they discharge admission ownership. Public rollback uses that same ownership
-lock and checks open state only after acquiring it, outside recovery failure handling.
+Lifecycle calls on a transaction/session from its pre-commit hooks, post-commit hooks or
+revision listeners reject with IllegalStateException before acquiring any lock. Pre-hooks keep
+their before-publication/veto timing. Post-hooks/listeners run after outermost transaction T
+and the scheduled Runnable boundary; KEEP_OPEN retains lifetime write admission P. They
+borrow the current transaction view while a callback execution phase prevents competing
+execution from retiring it. It is not an immutable revision snapshot. Notification errors are
+accumulated/logged after phase release and cannot veto a durable revision; pre-hook errors
+still propagate before publication.
+
+An external closer must enter outside every enclosing T acquisition. It cleans up at the
+shared execution boundary, releases T, fences scheduler termination, then removes the node
+owner and releases P atomically in the session registry. There is no scheduler-thread close
+exception. Untimed row operations retain their existing no-lock contract; cold commit,
+rollback and close boundaries share callback execution ownership. JSON rollback's bookkeeping
+resets run inside that boundary, without an outer transaction monitor. The registry retains
+node ownership through reader cleanup and scheduler fencing; absent owners make repeated
+release callbacks no-ops, including after session closure. Remaining internal owners prevent
+session finalization. Open checks precede recovery bookkeeping under execution ownership.
 Session close snapshots under its monitor, releases it before node abort/fencing,
 and serializes the independent-owner tail only after node owners are processed.
 Internal abort owns rollback and cleanup as one atomic node transition, preserving

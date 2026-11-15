@@ -56,10 +56,12 @@ import java.util.function.Consumer;
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.nio.file.Files.deleteIfExists;
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.Executors.newScheduledThreadPool;
 
 /**
- * Abstract implementation for {@link InternalNodeTrx}.
+ * Abstract implementation for {@link InternalNodeTrx}. Lifecycle calls from this session's commit
+ * callbacks reject before locking. Post-publication callbacks run outside outermost execution T and
+ * the scheduled task boundary while lifetime admission P stays owned. Close must enter outside T;
+ * cleanup releases T before scheduler termination and atomic session-registration/P release.
  *
  * @author Joao Sousa
  */
@@ -91,7 +93,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private final ScheduledExecutorService commitScheduler;
 
-  private volatile @Nullable Thread commitSchedulerThread;
+  private final TransactionExecutionLock executionLock;
 
   private final int transactionId;
 
@@ -255,16 +257,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       final R typeSpecificTrx, final InternalResourceSession<R, W> resourceSession,
       final AfterCommitState afterCommitState, final AbstractNodeHashing<N, R> nodeHashing,
       final PathSummaryWriter<R> pathSummaryWriter, final NF nodeFactory,
-      final RecordToRevisionsIndex nodeToRevisionsIndex, @Nullable final Lock transactionLock,
+      final RecordToRevisionsIndex nodeToRevisionsIndex, @Nullable final TransactionExecutionLock transactionLock,
       final Duration afterCommitDelay, final int maxNodeCount) {
     // Do not accept negative values.
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     checkArgument(!afterCommitDelay.isNegative(), "After commit delay cannot be negative");
-    this.commitScheduler = newScheduledThreadPool(1, task -> {
-      final Thread thread = threadFactory.newThread(task);
-      commitSchedulerThread = thread;
-      return thread;
-    });
+    this.executionLock = transactionLock == null ? new TransactionExecutionLock() : transactionLock;
+    this.commitScheduler = executionLock.newScheduler(threadFactory);
     this.hashType = hashType;
     this.nodeReadOnlyTrx = requireNonNull(nodeReadOnlyTrx);
     this.transactionId = nodeReadOnlyTrx.getId();
@@ -359,6 +358,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public final void markRollbackOnly(final Throwable cause) {
+    resourceSession.assertNotInCommitCallback();
     rollbackOnlyCause = requireNonNull(cause);
   }
 
@@ -491,6 +491,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public W commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
+    resourceSession.assertNotInCommitCallback();
     nodeReadOnlyTrx.assertNotClosed();
     assertNotRollbackOnly();
     if (commitTimestamp != null && !resourceSession.getResourceConfig().customCommitTimestamps()) {
@@ -528,6 +529,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   @Override
   public final void awaitPendingAsyncCommit() {
+    resourceSession.assertNotInCommitCallback();
     if (lock != null) {
       lock.lock();
     }
@@ -559,7 +561,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
   @SuppressWarnings("java:S1181")
   private void asyncCommitInternal(final String commitMessage) {
-    runLocked(() -> {
+    resourceSession.assertNotInCommitCallback();
+    runCommit(() -> {
       nodeReadOnlyTrx.assertNotClosed();
       assertNotRollbackOnly();
       if (publicationScopeDepth != 0) {
@@ -576,9 +579,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         if (pathSummaryWriter != null) {
           pathSummaryWriter.flushPendingStats();
         }
-        for (final PreCommitHook hook : preCommitHooks) {
-          hook.preCommit(this);
-        }
+        invokePreCommitHooks();
 
         // Apply commit-time index maintenance (incremental projection
         // updates) while index writes can still ride this commit.
@@ -640,6 +641,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
           } finally {
             asyncCommitPermit.release();
           }
+          executionLock.dispatch();
         });
       } catch (final RuntimeException | Error failure) {
         try {
@@ -649,15 +651,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
         throw failure;
       }
+      enqueuePostCommitHooks();
     });
-
-    // Execute post-commit hooks (parity with sync intermediate commits).
-    for (final PostCommitHook hook : postCommitHooks) {
-      hook.postCommit(this);
-      if (isClosed()) {
-        break;
-      }
-    }
   }
 
   // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
@@ -752,7 +747,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @SuppressWarnings("java:S1181")
   private W commitInternal(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
-    runLocked(() -> {
+    resourceSession.assertNotInCommitCallback();
+    runCommit(() -> {
       nodeReadOnlyTrx.assertNotClosed();
       assertNotRollbackOnly();
       if (publicationScopeDepth != 0) {
@@ -780,9 +776,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
 
         // Execute pre-commit hooks.
-        for (final PreCommitHook hook : preCommitHooks) {
-          hook.preCommit(this);
-        }
+        invokePreCommitHooks();
 
         // Apply commit-time index maintenance (incremental projection
         // updates) while index writes can still ride this commit. A final
@@ -849,15 +843,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
         throw e;
       }
+      enqueuePostCommitHooks();
     });
-
-    // Execute post-commit hooks.
-    for (final PostCommitHook hook : postCommitHooks) {
-      hook.postCommit(this);
-      if (isClosed()) {
-        break;
-      }
-    }
 
     return self();
   }
@@ -1291,16 +1278,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public W rollback() {
-    if (lock == null) {
-      synchronized (this) {
-        return rollbackInMemory();
-      }
-    }
-    lock.lock();
+    resourceSession.assertNotInCommitCallback();
+    executionLock.lock();
     try {
       return rollbackInMemory();
     } finally {
-      lock.unlock();
+      executionLock.unlock();
     }
   }
 
@@ -1377,6 +1360,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       nodeReadOnlyTrx.moveTo(rollbackNodeKey);
       mutationSequence++;
       markStructuralMutation();
+      afterRollback();
 
       return self();
     } catch (final RuntimeException | Error failure) {
@@ -1390,6 +1374,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
+  protected void afterRollback() {}
+
   private void removeCommitFile() {
     try {
       deleteIfExists(resourceSession.getCommitFile());
@@ -1400,12 +1386,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public W revertTo(final int revision) {
-    if (lock != null) {
-      lock.lock();
-    }
+    resourceSession.assertNotInCommitCallback();
+    executionLock.lock();
 
     try {
       nodeReadOnlyTrx.assertNotClosed();
+      awaitPendingAsyncCommit();
       resourceSession.assertAccess(revision);
 
       // Revert severs the current write lineage just like rollback; a load-time builder may not
@@ -1447,14 +1433,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       moveToDocumentRoot();
       mutationSequence++;
       markStructuralMutation();
+      afterRevert();
     } finally {
-      if (lock != null) {
-        lock.unlock();
-      }
+      executionLock.unlock();
     }
 
     return self();
   }
+
+  protected void afterRevert() {}
 
   @Override
   public W addPreCommitHook(final PreCommitHook hook) {
@@ -1497,16 +1484,23 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   @Override
   public W truncateTo(final int revision) {
-    nodeReadOnlyTrx.assertNotClosed();
-    final int currentRevision = getRevisionNumber();
-    checkArgument(revision >= 0 && revision < currentRevision, "revision %s must be in [0, current revision %s).",
-        revision, currentRevision);
+    resourceSession.assertNotInCommitCallback();
+    executionLock.lock();
+    try {
+      nodeReadOnlyTrx.assertNotClosed();
+      awaitPendingAsyncCommit();
+      final int currentRevision = getRevisionNumber();
+      checkArgument(revision >= 0 && revision < currentRevision, "revision %s must be in [0, current revision %s).",
+          revision, currentRevision);
 
-    resourceSession.assertAccess(revision);
-    indexController.notifyTransactionAbort();
-    storageEngineWriter.truncateTo(revision);
+      resourceSession.assertAccess(revision);
+      indexController.notifyTransactionAbort();
+      storageEngineWriter.truncateTo(revision);
 
-    return self();
+      return self();
+    } finally {
+      executionLock.unlock();
+    }
   }
 
   @Override
@@ -1541,6 +1535,66 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
+  public final void assertCanClose() {
+    resourceSession.assertNotInCommitCallback();
+    executionLock.assertCanClose();
+  }
+
+  @Override
+  public final void enqueueCallback(final Runnable callback) {
+    executionLock.enqueue(() -> {
+      asyncCommitPermit.acquireUninterruptibly();
+      asyncCommitPermit.release();
+      callback.run();
+    });
+  }
+
+  private void runCommit(final Runnable work) {
+    executionLock.lock();
+    try {
+      final @Nullable InternalNodeTrx<?> previous = resourceSession.enterCommitExecution(this);
+      try {
+        work.run();
+      } finally {
+        resourceSession.exitCommitExecution(previous);
+      }
+    } finally {
+      executionLock.unlock();
+    }
+  }
+
+  private void invokePreCommitHooks() {
+    if (preCommitHooks.isEmpty()) {
+      return;
+    }
+    resourceSession.enterCommitCallback();
+    try {
+      for (final PreCommitHook hook : preCommitHooks) {
+        hook.preCommit(this);
+      }
+    } finally {
+      resourceSession.exitCommitCallback();
+    }
+  }
+
+  private void enqueuePostCommitHooks() {
+    if (postCommitHooks.isEmpty()) {
+      return;
+    }
+    for (final PostCommitHook hook : postCommitHooks) {
+      enqueueCallback(() -> {
+        awaitPendingAsyncCommit();
+        resourceSession.enterCommitCallback();
+        try {
+          hook.postCommit(this);
+        } finally {
+          resourceSession.exitCommitCallback();
+        }
+      });
+    }
+  }
+
+  @Override
   public void close() {
     close(false);
   }
@@ -1553,25 +1607,29 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
   @SuppressWarnings("java:S1181")
   private void close(final boolean abort) {
+    assertCanClose();
     Throwable failure = null;
     try {
-      if (lock == null) {
-        synchronized (this) {
-          closeInMemory(abort);
-        }
-      } else {
-        runLocked(() -> closeInMemory(abort));
-      }
-    } catch (final RuntimeException | Error e) {
-      failure = e;
-    }
-    if (isClosed()) {
-      if (Thread.currentThread() != commitSchedulerThread) {
+      executionLock.lock();
+      try {
+        closeInMemory(abort);
+      } catch (final RuntimeException | Error e) {
+        failure = e;
+      } finally {
         try {
-          WorkerTermination.shutdownAndAwait(commitScheduler, false);
+          executionLock.unlock();
         } catch (final RuntimeException | Error e) {
           failure = ShardedPageCache.retainCleanupFailure(failure, e);
         }
+      }
+    } catch (final RuntimeException | Error e) {
+      failure = ShardedPageCache.retainCleanupFailure(failure, e);
+    }
+    if (isClosed()) {
+      try {
+        WorkerTermination.shutdownAndAwait(commitScheduler, false);
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
       try {
         resourceSession.closeWriteTransaction(transactionId);
@@ -1597,6 +1655,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
     try {
       awaitPendingAsyncCommit();
+    } catch (final RuntimeException | Error e) {
+      cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+    }
+    try {
+      executionLock.drainBeforeRetirement();
     } catch (final RuntimeException | Error e) {
       cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
     }

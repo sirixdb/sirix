@@ -1,5 +1,7 @@
 # Bug: reader cleanup retired the writer's admission owner
 
+Historical round: the callback behavior/evidence below predates the clarified contract in [commit callback ownership](commit-callback-reentrancy.md). Callback lifecycle reentrancy is now rejected; KEEP_OPEN admission and pre-hook timing are preserved. Historical passing counts do not validate the new dispatch boundary.
+
 - Fix / issue: lifecycle audit V05/V06, review R9; continuation of [R7/R8](scheduler-close-lock-ordering.md).
 - Symptom: concurrent session closes, or public transaction close racing session close, could permanently retain the shared writer permit even though the node payload and session reported closed.
 - Trigger: another user keeps the resource alive; pause the first closer after node reader cleanup and before write-permit release, then close the same session from another thread.

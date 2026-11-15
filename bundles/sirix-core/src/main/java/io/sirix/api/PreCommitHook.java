@@ -1,7 +1,5 @@
 package io.sirix.api;
 
-import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-
 /**
  * Pre commit hook.
  *
@@ -11,9 +9,12 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 @FunctionalInterface
 public interface PreCommitHook {
   /**
-   * Pre commit hook. Called before a revision is commited.
+   * Called before publication; an exception vetoes the commit. Lifecycle calls (commit,
+   * rollback/abort, transaction close or session close) on the same transaction/session are
+   * forbidden inside every pre/post hook and revision listener, and reject with
+   * IllegalStateException before locking. Ordinary read-only work remains allowed.
    *
-   * @param rtx Sirix {@link XmlNodeReadOnlyTrx}
+   * @param rtx borrowed Sirix transaction view
    * @throws NullPointerException if {@code rtx} is {@code null}
    */
   void preCommit(NodeReadOnlyTrx rtx);

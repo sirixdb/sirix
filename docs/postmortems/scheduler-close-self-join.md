@@ -1,5 +1,7 @@
 # Bug: timed commit callback joined its own scheduler
 
+Historical round: the callback behavior/evidence below predates the clarified contract in [commit callback ownership](commit-callback-reentrancy.md). Callback lifecycle reentrancy is now rejected; KEEP_OPEN admission and pre-hook timing are preserved. Historical passing counts do not validate the new dispatch boundary.
+
 - Fix / issue: lifecycle audit V05/V06, review R6.
 - Symptom: a supported timed post-commit hook calling transaction close or session close never returned; the shared write permit remained held.
 - Trigger: open a timed XML or JSON writer and register a post-commit hook that closes that writer or its resource session.

@@ -36,12 +36,21 @@ public interface NodeTrx extends NodeReadOnlyTrx {
     return commit(commitMessage, null);
   }
 
+  /**
+   * Commit modifications. Lifecycle reentrancy from this session's pre/post hooks or revision
+   * listeners is rejected with IllegalStateException before acquiring execution locks.
+   *
+   * @param commitMessage optional message
+   * @param commitTimeStamp optional configured custom timestamp
+   * @return this transaction
+   */
   NodeTrx commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp);
 
   /**
    * Rollback all modifications of the exclusive write transaction. A failed rollback keeps mutations
    * and commits blocked until rollback successfully reconstructs the transaction. Calling rollback on
-   * a closed transaction is rejected before recovery handling.
+   * a closed transaction is rejected before recovery handling. Lifecycle calls from this session's
+   * commit hooks/listeners are rejected with IllegalStateException before locking.
    *
    * @return NodeTrx return current instance
    * @throws SirixException if the changes in this revision couldn't be rollbacked
@@ -68,7 +77,9 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   NodeTrx revertTo(int revision);
 
   /**
-   * Add pre commit hook.
+   * Add a before-publication hook. It may veto publication by throwing. Lifecycle operations
+   * (commit, rollback/abort, transaction close or session close) on the same transaction/session
+   * from any commit hook or revision listener throw IllegalStateException before locking.
    *
    * @param hook pre commit hook
    * @return NodeTrx return current instance
@@ -76,7 +87,13 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   NodeTrx addPreCommitHook(PreCommitHook hook);
 
   /**
-   * Add a post commit hook.
+   * Add an after-publication notification. Delivery follows the outermost transaction execution
+   * and scheduled task boundary, with execution locks released. KEEP_OPEN still owns its lifetime
+   * write permit. The argument is a borrowed current transaction view, not an immutable revision
+   * snapshot; do not retain it beyond the callback. Ordinary non-lifecycle work is allowed.
+   * Lifecycle operations on this transaction/session from a hook/listener throw
+   * IllegalStateException before locking. Notification failures are logged after delivery and
+   * cannot veto or roll back the committed revision.
    *
    * @param hook post commit hook
    * @return NodeTrx return current instance
@@ -88,7 +105,9 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * mutators and commits against a delay-scheduled auto-commit. Read-side coordination that touches
    * transaction-owned state (e.g. wtx-visible index serving, which flushes pending index maintenance
    * and navigates the transaction) must run under it, or it races the auto-commit thread.
-   * Transactions configured without a lock (no auto-commit timer) are single-threaded by contract;
+   * Post-publication notifications from nested commits wait for the outermost execution scope to
+   * finish. Close must be called after this scope returns, so it cannot join the scheduler under
+   * an enclosing lock. Transactions configured without a lock are single-threaded by contract;
    * the default simply runs {@code work}.
    *
    * @param work the work to run under the transaction's lock
