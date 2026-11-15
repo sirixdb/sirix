@@ -119,6 +119,7 @@ public final class InterruptedFirstCommitRecovery {
    * repair. The caller owns and must close the returned storage.
    */
   public static StorageAndUberPage openStorageForTool(final ResourceConfiguration resourceConfig) {
+    requireToolCompatible(resourceConfig);
     final IOStorage storage = StorageType.getStorage(resourceConfig);
     try {
       final UberPage page = loadUberPage(storage);
@@ -127,6 +128,24 @@ public final class InterruptedFirstCommitRecovery {
     } catch (final RuntimeException failure) {
       storage.close();
       throw failure;
+    }
+  }
+
+  public static void requireToolCompatible(final ResourceConfiguration resourceConfig) {
+    final Path dataFile = dataFilePath(resourceConfig);
+    try {
+      if (!Files.exists(dataFile) || Files.size(dataFile) == 0) {
+        return;
+      }
+      try (final FileChannel channel = FileChannel.open(dataFile, StandardOpenOption.READ)) {
+        final FileChannelReader reader =
+            new FileChannelReader(channel, channel, new ByteHandlerPipeline(resourceConfig.byteHandlePipeline),
+                SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build());
+        final UberPage page = (UberPage) reader.readUberPageReference().getPage();
+        page.getFeatures().requireToolCompatible();
+      }
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
     }
   }
 

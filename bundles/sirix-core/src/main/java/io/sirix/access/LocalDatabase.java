@@ -22,6 +22,7 @@ import io.sirix.cache.BufferManager;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.index.projection.ProjectionIndexCatalog;
@@ -230,6 +231,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name);
         DerivedIndexMaintainer.validateSnapshot(derived);
         return derived;
+      } catch (final UnsupportedStoreFeatureException unsupported) {
+        throw unsupported;
       } catch (final RuntimeException unreadable) {
         logger.warn("Rebuilding unreadable derived resource {} from the source log", name, unreadable);
         final Path path = source.getResourcePath().resolveSibling(name);

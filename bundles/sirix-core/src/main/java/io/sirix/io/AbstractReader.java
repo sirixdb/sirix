@@ -14,6 +14,7 @@ import io.sirix.index.hot.page.HOTProjectionRead;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
+import io.sirix.page.StoreFeatures;
 import io.sirix.page.interfaces.Page;
 import io.sirix.node.Bytes;
 import io.sirix.page.PageLayout;
@@ -44,6 +45,8 @@ public abstract class AbstractReader implements Reader {
    * Used to serialize/deserialze pages.
    */
   protected final PagePersister pagePersister;
+
+  private @Nullable StoreFeatures storeFeatures;
 
   /** Only overflow decoders always finish with independently owned payload bytes. */
   private final boolean borrowOverflowInput;
@@ -546,8 +549,18 @@ public abstract class AbstractReader implements Reader {
   public PageReference readUberPageReference() {
     final PageReference reference = readCommittedUberPageReference();
     // A valid but unsupported primary must never fall back to an older compatible secondary.
-    ((UberPage) reference.getPage()).getFeatures().requireReadable();
+    final StoreFeatures features = ((UberPage) reference.getPage()).getFeatures();
+    features.requireReadable();
+    storeFeatures = features;
     return reference;
+  }
+
+  protected final boolean permitsRevisionRecordHealing() {
+    StoreFeatures features = storeFeatures;
+    if (features == null) {
+      features = ((UberPage) readUberPageReference().getPage()).getFeatures();
+    }
+    return features.readOnlyCompat() == 0;
   }
 
   private PageReference readCommittedUberPageReference() {

@@ -18,9 +18,12 @@ import io.sirix.page.PageReference;
 import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.io.PageHasher;
 import io.sirix.io.StorageType;
+import io.sirix.io.RevisionFileData;
+import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.page.StoreFeatures;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -140,6 +143,104 @@ class StoreFeaturesLifecycleTest {
           () -> InterruptedFirstCommitRecovery.openStorageForTool(config));
       assertArrayEquals(before, Files.readAllBytes(dataFile()));
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void readOnlySalvageDoesNotHealRevisionRecords(final boolean secondaryOnly) throws IOException {
+    createStore(StorageType.FILE_CHANNEL);
+    installDamagedRevisionFixture(new StoreFeatures(0, 1, 0));
+    if (secondaryOnly) {
+      zeroBeacon(IOStorage.PRIMARY_BEACON_OFFSET);
+    }
+    final byte[] dataBefore = Files.readAllBytes(dataFile());
+    final byte[] revisionsBefore = Files.readAllBytes(revisionsFile());
+    try (final var database = Databases.openJsonDatabase(databasePath);
+        final var session = database.beginResourceSession("resource");
+        final var reader = session.beginNodeReadOnlyTrx()) {
+      assertEquals(1, reader.getRevisionNumber());
+      assertThrows(UnsupportedStoreFeatureException.class, session::beginNodeTrx);
+      final IOStorage storage = StorageType.getStorage(config);
+      try (final Reader direct = storage.createReader()) {
+        assertTrue(direct.getRevisionFileData(1).offset() >= IOStorage.DATA_REGION_START);
+      } finally {
+        storage.close();
+      }
+    }
+    assertArrayEquals(dataBefore, Files.readAllBytes(dataFile()));
+    assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile()));
+  }
+
+  @Test
+  void featureFreeSalvageStillHealsRevisionRecords() throws IOException {
+    createStore(StorageType.FILE_CHANNEL);
+    installDamagedRevisionFixture(StoreFeatures.NONE);
+    try (final var database = Databases.openJsonDatabase(databasePath);
+        final var session = database.beginResourceSession("resource");
+        final var reader = session.beginNodeReadOnlyTrx()) {
+      assertEquals(1, reader.getRevisionNumber());
+    }
+    assertTrue(Files.size(revisionsFile()) >= IOStorage.revisionsFileOffset(2));
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void damagedRevisionToolRefusalPreservesBothFiles(final StorageType storageType) throws IOException {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0),
+        new StoreFeatures(0, 0, 1)}) {
+      createStore(storageType);
+      installDamagedRevisionFixture(features);
+      final byte[] dataBefore = Files.readAllBytes(dataFile());
+      final byte[] revisionsBefore = Files.readAllBytes(revisionsFile());
+      assertThrows(UnsupportedStoreFeatureException.class,
+          () -> InterruptedFirstCommitRecovery.openStorageForTool(config));
+      assertArrayEquals(dataBefore, Files.readAllBytes(dataFile()));
+      assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile()));
+      final Path backup = directory.resolve("damaged-backup");
+      assertThrows(UnsupportedStoreFeatureException.class, () -> BackupManager.backupDatabase(databasePath, backup));
+      assertArrayEquals(dataBefore, Files.readAllBytes(dataFile()));
+      assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile()));
+      assertFalse(Files.exists(backup));
+      final Path restored = directory.resolve("damaged-restored");
+      final var failure =
+          assertThrows(SirixIOException.class, () -> BackupManager.restoreDatabase(databasePath, restored));
+      assertTrue(failure.getMessage().contains("Unknown store feature bits"));
+      assertArrayEquals(dataBefore, Files.readAllBytes(dataFile()));
+      assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile()));
+      assertFalse(Files.exists(restored));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void parentOpenPreservesUnsupportedDerivedSibling(final StorageType storageType) throws IOException {
+    databasePath = directory.resolve("derived-db");
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    final String derivedName = "resource" + DerivedIndexMaintainer.SUFFIX;
+    try (final var database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                   .storageType(storageType)
+                                                   .useConventionalValidTimePaths()
+                                                   .build());
+      database.createResource(ResourceConfiguration.newBuilder(derivedName).storageType(storageType).build());
+      try (final var derived = database.beginResourceSession(derivedName); final var writer = derived.beginNodeTrx()) {
+        config = derived.getResourceConfig();
+        writer.commit();
+      }
+    }
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(1, 0, 0));
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(1, 0, 0));
+    Databases.clearGlobalCaches();
+    final byte[] dataBefore = Files.readAllBytes(dataFile());
+    final byte[] revisionsBefore = Files.readAllBytes(revisionsFile());
+    try (final var database = Databases.openJsonDatabase(databasePath);
+        final var source = database.beginResourceSession("resource");
+        final var reader = source.beginNodeReadOnlyTrx()) {
+      assertEquals(0, reader.getRevisionNumber());
+      assertThrows(UnsupportedStoreFeatureException.class, () -> database.beginResourceSession(derivedName));
+    }
+    assertArrayEquals(dataBefore, Files.readAllBytes(dataFile()));
+    assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile()));
   }
 
   @ParameterizedTest
@@ -391,6 +492,40 @@ class StoreFeaturesLifecycleTest {
 
   private Path dataFile() {
     return config.resourcePath.resolve("data").resolve(IOStorage.FILENAME);
+  }
+
+  private Path revisionsFile() {
+    return config.resourcePath.resolve("data").resolve(IOStorage.REVISIONS_FILENAME);
+  }
+
+  private void installDamagedRevisionFixture(final StoreFeatures features) throws IOException {
+    final RevisionFileData revision;
+    final IOStorage storage = StorageType.getStorage(config);
+    try (final Reader reader = storage.createReader()) {
+      revision = reader.getRevisionFileData(0, 2)[1];
+    } finally {
+      storage.close();
+    }
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
+    final ByteBuffer entry = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN);
+    entry.putInt(1).putInt(0).putLong(revision.offset()).putLong(revision.timestamp().toEpochMilli());
+    entry.putLong(IOStorage.expectedRevisionRecordChecksum(revision.offset(), revision.timestamp().toEpochMilli(),
+        revision.pageHash())).putLong(revision.pageHash());
+    entry.putLong(PageHasher.computeLong(entry.array(), 0, 40, PageHasher.DEFAULT_ALGORITHM));
+    try (final var channel = FileChannel.open(dataFile(), StandardOpenOption.WRITE)) {
+      for (final long beacon : new long[] {IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET}) {
+        entry.clear();
+        final long offset = beacon + IOStorage.BEACON_SLOT_BYTES - 16L * 48 + 48;
+        while (entry.hasRemaining()) {
+          channel.write(entry, offset + entry.position());
+        }
+      }
+    }
+    try (final var channel = FileChannel.open(revisionsFile(), StandardOpenOption.WRITE)) {
+      channel.truncate(IOStorage.revisionsFileOffset(1));
+    }
+    Databases.clearGlobalCaches();
   }
 
   private Path marker() {
