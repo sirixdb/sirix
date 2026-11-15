@@ -1011,15 +1011,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * </p>
    *
    * @param resourceConfiguration the resource's serialization configuration
+   * @return how many pending string records were FSST-encoded before their inline-or-carrier decision
    */
-  public void materializePendingRecords(final ResourceConfiguration resourceConfiguration) {
+  public int materializePendingRecords(final ResourceConfiguration resourceConfiguration) {
     if (resourceConfiguration == null) {
       throw new NullPointerException("resourceConfiguration");
     }
     final DataRecord[] pending = records;
     if (pending == null) {
-      return;
+      return 0;
     }
+    // Same inline-or-carrier decision as the commit path: encode first, then judge the encoded size.
+    final int encoded = compressPendingStringRecordsForMaterialization(pending);
     processEntries(resourceConfiguration, pending);
     // processEntries consumes every entry by contract (inline, carrier, or the bound-flyweight
     // shortcut all null the slot). The page is about to be marked immutable for an in-place flush,
@@ -1031,6 +1034,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
     }
     records = null;
+    return encoded;
   }
 
   @Override
@@ -8223,36 +8227,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Compress records[] strings (legacy path)
     if (records != null) {
-      for (final DataRecord record : records) {
-        if (record == null) {
-          continue;
-        }
-        if (record instanceof StringNode stringNode) {
-          if (!stringNode.isCompressed()) {
-            byte[] originalValue = stringNode.getRawValueWithoutDecompression();
-            if (originalValue != null && originalValue.length > 0) {
-              byte[] compressedValue =
-                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
-              if (compressedValue != null
-                  && compressedRecordFitsInline(stringNode, originalValue.length, compressedValue.length)) {
-                stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
-              }
-            }
-          }
-        } else if (record instanceof ObjectNamedStringNode fusedNode) {
-          if (!fusedNode.isCompressed()) {
-            final byte[] originalValue = fusedNode.getRawValueWithoutDecompression();
-            if (originalValue != null && originalValue.length > 0) {
-              final byte[] compressedValue =
-                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
-              if (compressedValue != null
-                  && compressedRecordFitsInline(fusedNode, originalValue.length, compressedValue.length)) {
-                fusedNode.setRawValue(compressedValue, true, fsstSymbolTable);
-              }
-            }
-          }
-        }
-      }
+      compressPendingStringRecords(records, parsedSymbols);
     }
 
     // Compress slotted page strings (zero records[] path)
@@ -8318,6 +8293,87 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         }
       }
     }
+  }
+
+  /**
+   * Encode every still-raw string record of {@code pending} against this page's own table when, and
+   * only when, the encoded record fits inline.
+   *
+   * <p>
+   * This is the step that decides whether a string value is stored inline or in an overflow carrier,
+   * so every route that materializes pending records into page form must run it first: commit-time
+   * serialization ({@link #compressStringValues()}) and the storage-epoch rotation
+   * ({@link #materializePendingRecords(ResourceConfiguration)}). A route that skipped it would judge
+   * the value's RAW size against the inline ceiling and spill a value its twin keeps inline.
+   *
+   * @param pending the page's pending records; {@code null} entries are skipped
+   * @param parsedSymbols this page's parsed symbol table, non-empty
+   * @return how many records were encoded
+   */
+  private int compressPendingStringRecords(final DataRecord[] pending, final byte[][] parsedSymbols) {
+    int encoded = 0;
+    for (final DataRecord record : pending) {
+      if (record instanceof StringNode stringNode) {
+        if (!stringNode.isCompressed()) {
+          final byte[] originalValue = stringNode.getRawValueWithoutDecompression();
+          if (originalValue != null && originalValue.length > 0) {
+            final byte[] compressedValue =
+                FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+            if (compressedValue != null
+                && compressedRecordFitsInline(stringNode, originalValue.length, compressedValue.length)) {
+              stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
+              encoded++;
+            }
+          }
+        }
+      } else if (record instanceof ObjectNamedStringNode fusedNode && !fusedNode.isCompressed()) {
+        final byte[] originalValue = fusedNode.getRawValueWithoutDecompression();
+        if (originalValue != null && originalValue.length > 0) {
+          final byte[] compressedValue =
+              FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+          if (compressedValue != null
+              && compressedRecordFitsInline(fusedNode, originalValue.length, compressedValue.length)) {
+            fusedNode.setRawValue(compressedValue, true, fsstSymbolTable);
+            encoded++;
+          }
+        }
+      }
+    }
+    return encoded;
+  }
+
+  /**
+   * Run the inline-or-carrier compression step on records about to be materialized outside the commit
+   * path. A page bound to a table only by id has no symbols to encode with; materializing its raw
+   * strings would silently take the carrier route the commit path avoids, so that state is refused —
+   * the writer resolves the table before it materializes.
+   *
+   * @return how many records were encoded
+   */
+  private int compressPendingStringRecordsForMaterialization(final DataRecord[] pending) {
+    final byte[] table = fsstSymbolTable;
+    if (table != null && table.length != 0) {
+      final byte[][] parsedSymbols = FSSTCompressor.parsedFor(table);
+      return parsedSymbols.length == 0
+          ? 0
+          : compressPendingStringRecords(pending, parsedSymbols);
+    }
+    if (fsstSymbolTableId != NO_FSST_SYMBOL_TABLE_ID && holdsRawStringRecord(pending)) {
+      throw new IllegalStateException("record page " + recordPageKey + " is bound to FSST symbol table "
+          + fsstSymbolTableId + " but its symbols are unresolved; resolve the table before materializing its"
+          + " pending string records, or they would be judged by their raw size");
+    }
+    return 0;
+  }
+
+  private static boolean holdsRawStringRecord(final DataRecord[] pending) {
+    for (final DataRecord record : pending) {
+      if (record instanceof StringNode stringNode && !stringNode.isCompressed()
+          || record instanceof ObjectNamedStringNode fusedNode && !fusedNode.isCompressed()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

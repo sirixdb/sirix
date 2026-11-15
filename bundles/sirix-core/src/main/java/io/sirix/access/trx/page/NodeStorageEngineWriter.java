@@ -6295,7 +6295,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageReference reference;
     final KeyValueLeafPage completeTwin;
     try {
-      page.materializePendingRecords(resourceConfiguration);
+      materializePendingRecordsAgainstBoundTable(page, resourceConfiguration);
       final PageReference indexReference =
           storageEngineReader.getPageReference(newRevisionRootPage, IndexType.DOCUMENT, -1);
       // Walking the trie CoWs the indirect spine into the log exactly as an ordinary insert would.
@@ -6377,8 +6377,30 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // The live leaf is mutable foreground state (its generation is current), so materializing here
     // is the same kind of mutation the blit itself was. A survivor throws inside.
     page.resetFlushDeferralsIfCarriersResolved();
-    page.materializePendingRecords(getResourceSession().getResourceConfig());
+    materializePendingRecordsAgainstBoundTable(page, getResourceSession().getResourceConfig());
     stageLeafOverflowCarriers(page);
+  }
+
+  /**
+   * Materialize a leaf's pending records outside the commit path with the commit path's inline rule.
+   *
+   * <p>
+   * Whether a string value is stored inline or in an overflow carrier depends only on its encoded
+   * size and the page budget. The page encodes its pending strings against the table it is bound to
+   * before it judges their size, so a page bound only by id gets its symbols here first. Judged raw,
+   * an FSST-compressible value would become a carrier the plain transaction keeps inline; staged into
+   * the data file with a durable key, such a carrier is never restored by the commit, which
+   * re-encodes only the spilled carriers of a page already bound to its table.
+   */
+  private void materializePendingRecordsAgainstBoundTable(final KeyValueLeafPage page,
+      final ResourceConfiguration resourceConfiguration) {
+    if (page.getFsstSymbolTable() == null && page.getFsstSymbolTableId() != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
+      storageEngineReader.ensureFsstSymbolTable(page);
+    }
+    final int encoded = page.materializePendingRecords(resourceConfiguration);
+    if (encoded != 0) {
+      BulkAdoptionDiagnostics.pendingStringsEncodedBeforeMaterialization(encoded);
+    }
   }
 
   /**

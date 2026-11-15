@@ -1206,7 +1206,8 @@ public enum VersioningType {
       reference.setKey(chainKeys.getFirst().key());
       reference.setPageFragments(new ArrayList<>(chainKeys.subList(1, chainKeys.size())));
       try {
-        container = combineRecordPagesForModification(chain, revToRestore, storageEngineReader, reference, log);
+        container = combineRecordPagesForModification(committedFragmentsTheFirstCopyOnWriteRead(chain), revToRestore,
+            storageEngineReader, reference, log);
       } finally {
         reference.setKey(ownedKey);
       }
@@ -1214,10 +1215,7 @@ public enum VersioningType {
     final KeyValueLeafPage ownedKvp = (KeyValueLeafPage) owned;
     final KeyValueLeafPage completeKvp = (KeyValueLeafPage) container.getComplete();
     final KeyValueLeafPage modifyingKvp = (KeyValueLeafPage) container.getModified();
-    // Neither target carries the owned fragment's symbol table: compressed strings are decompressed on
-    // the way over, as in every multi-fragment combine; the modifying page rebuilds its own table at
-    // commit.
-    final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(ownedKvp.getFsstSymbolTable());
+    final FsstAwareSlotCopier copier = ownedFragmentCopier(ownedKvp, completeKvp, modifyingKvp);
     for (final int offset : ownedKvp.populatedSlots()) {
       final int nodeKindId = ownedKvp.getSlotNodeKindId(offset);
       copySlotPreservingMetadata(ownedKvp, completeKvp, offset, nodeKindId, copier);
@@ -1232,6 +1230,61 @@ public enum VersioningType {
       }
     }
     return container;
+  }
+
+  /**
+   * The committed fragments the first copy-on-write of this page combined.
+   *
+   * <p>
+   * That read stops at a newest committed fragment which already holds every slot
+   * ({@code NodeStorageEngineReader#getPageFragments}); the owned read cannot tell, so it hands over
+   * the whole chain. Replaying the combine on more fragments than the first copy-on-write saw is not
+   * the same page: a multi-fragment combine decompresses every string and leaves the page unbound to
+   * its FSST symbol table, where the first copy-on-write had propagated the binding — so a storage
+   * epoch would turn a bound page into an unbound one, and its later edits would be judged by their
+   * raw size.
+   * </p>
+   */
+  private static <V extends DataRecord, T extends KeyValuePage<V>> List<T> committedFragmentsTheFirstCopyOnWriteRead(
+      final List<T> chain) {
+    return chain.size() > 1 && chain.getFirst().size() == Constants.NDP_NODE_COUNT
+        ? chain.subList(0, 1)
+        : chain;
+  }
+
+  /**
+   * How the owned fragment's slots move onto the rebuilt pages, so the page keeps the FSST binding it
+   * had before the epoch flushed it.
+   *
+   * <p>
+   * The owned fragment is the modifying page itself, serialized: its compressed strings were encoded
+   * against the table that page was bound to. When the rebuilt pages are unbound (a multi-fragment
+   * combine leaves every string raw) or bound to that same table, they adopt the binding and take the
+   * owned slots verbatim, exactly as they were before the flush. Only a rebuilt page bound to a
+   * DIFFERENT table — a binding the live page could never have had — falls back to decompressing.
+   * </p>
+   *
+   * @return the copier for the owned fragment's slots; inactive when the slots are copied verbatim
+   */
+  private static FsstAwareSlotCopier ownedFragmentCopier(final KeyValueLeafPage owned, final KeyValueLeafPage complete,
+      final KeyValueLeafPage modifying) {
+    final long ownedTableId = owned.getFsstSymbolTableId();
+    if (ownedTableId == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID || !acceptsBinding(complete, ownedTableId)
+        || !acceptsBinding(modifying, ownedTableId)) {
+      return new FsstAwareSlotCopier(owned.getFsstSymbolTable());
+    }
+    propagateFsstSymbolTable(owned, complete);
+    if (modifying != complete) {
+      propagateFsstSymbolTable(owned, modifying);
+    }
+    OWNED_REPLAYS_KEEPING_FSST_BINDING.increment();
+    return new FsstAwareSlotCopier(null);
+  }
+
+  private static boolean acceptsBinding(final KeyValueLeafPage page, final long tableId) {
+    final long boundId = page.getFsstSymbolTableId();
+    return boundId == tableId
+        || boundId == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID && page.getFsstSymbolTable() == null;
   }
 
   // ===== HOT Leaf Page Combining Methods =====
@@ -1330,6 +1383,16 @@ public enum VersioningType {
   private static final LongAdder CARRY_FORWARD_ROTATIONS = new LongAdder();
 
   private static final LongAdder CARRY_FORWARD_ENTRIES_REEMITTED = new LongAdder();
+
+  private static final LongAdder OWNED_REPLAYS_KEEPING_FSST_BINDING = new LongAdder();
+
+  /**
+   * Owned-fragment re-reads whose rebuilt page kept the FSST symbol-table binding the page had before
+   * a storage epoch flushed it, taking the owned slots verbatim instead of decompressing them.
+   */
+  public static long ownedReplaysKeepingFsstBinding() {
+    return OWNED_REPLAYS_KEEPING_FSST_BINDING.sum();
+  }
 
   /**
    * Whether merge diagnostics are collecting. A test that asserts on these counters MUST check this

@@ -27,9 +27,22 @@ public final class BulkAdoptionDiagnostics {
   private static final LongAdder KVL_PAGES_PINNED_AFTER_DEFERRAL_CAP = new LongAdder();
   private static final LongAdder KVL_ENCODES_DISCARDED_FOR_UNRESOLVED_CARRIERS = new LongAdder();
   private static final LongAdder KVL_ENCODES_SKIPPED_FOR_UNRESOLVED_CARRIERS = new LongAdder();
+  private static final LongAdder PENDING_STRINGS_ENCODED_BEFORE_MATERIALIZATION = new LongAdder();
 
   private BulkAdoptionDiagnostics() {
     throw new AssertionError("no instances");
+  }
+
+  static void pendingStringsEncodedBeforeMaterialization(final int count) {
+    PENDING_STRINGS_ENCODED_BEFORE_MATERIALIZATION.add(count);
+  }
+
+  /**
+   * Pending string records a leaf FSST-encoded against its own table before an epoch materialized
+   * them, so their inline-or-carrier decision saw the encoded size, as the commit path's does.
+   */
+  public static long pendingStringsEncodedBeforeMaterialization() {
+    return PENDING_STRINGS_ENCODED_BEFORE_MATERIALIZATION.sum();
   }
 
   static void carrierStaged() {

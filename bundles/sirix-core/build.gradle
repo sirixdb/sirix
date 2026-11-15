@@ -341,6 +341,7 @@ def storageEpochStoreIdentityTest = tasks.register('storageEpochStoreIdentityTes
     filter {
         includeTestsMatching 'io.sirix.access.trx.page.StorageEpochStoreIdentityTest'
         includeTestsMatching 'io.sirix.access.trx.page.StorageEpochDifferentialTest'
+        includeTestsMatching 'io.sirix.access.trx.page.StorageEpochFsstInlineDecisionTest'
     }
 }
 
@@ -498,6 +499,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/budget/InlineSlotCopyAllocationBudgetTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
+    exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'
     dependsOn validTimeDisabledLookupCacheTest
     dependsOn dictionaryReadViewAllocationTest
     dependsOn storageEpochStoreIdentityTest
