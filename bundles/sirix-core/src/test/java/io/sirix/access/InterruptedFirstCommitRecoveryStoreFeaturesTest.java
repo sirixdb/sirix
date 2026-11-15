@@ -42,6 +42,10 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
+import io.sirix.io.SharedArenas;
+import com.github.benmanes.caffeine.cache.AsyncCache;
+import io.sirix.io.RevisionIndexHolder;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
@@ -59,9 +63,11 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -72,7 +78,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 
 /** Fault images use the independent beacon contract, never the feature codec being tested. */
 @Isolated
-class StoreFeaturesLifecycleTest {
+class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @TempDir
   Path directory;
   private Path databasePath;
@@ -212,6 +218,72 @@ class StoreFeaturesLifecycleTest {
       storage.getRevisionIndexHolder().update(RevisionIndex.EMPTY);
       storage.loadRevisionIndex(storage.getRevisionIndexHolder());
       assertEquals(3, storage.getRevisionIndexHolder().get().size());
+    } finally {
+      storage.close();
+    }
+  }
+
+  /** Cold-open preload is part of the storage factory contract, not a lazy read side effect. */
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void coldStorageFactoryPreloadsCommittedRevisionMetadata(final StorageType backend) {
+    createStore(backend);
+    materializeRevisionRecords();
+    Databases.clearGlobalCaches();
+    final IOStorage storage = backend.getInstance(config);
+    try {
+      assertEquals(2, storage.getRevisionIndexHolder().get().size());
+      assertNotNull(StorageType.CACHE_REPOSITORY.get(dataFile()).getIfPresent(1),
+          "revision one must be cached before the factory returns");
+    } finally {
+      storage.close();
+    }
+  }
+
+  @Test
+  void failedMappedPreloadReleasesItsNativeMapping() {
+    createStore(StorageType.MEMORY_MAPPED);
+    materializeRevisionRecords();
+    Databases.clearGlobalCaches();
+    final var failure = new IllegalStateException("preload failure");
+    final var cacheDelegate = delegatesTo(Caffeine.newBuilder().buildAsync());
+    final AsyncCache<Integer, RevisionFileData> failingCache = mock(AsyncCache.class, invocation -> {
+      if (invocation.getMethod().getName().equals("getAll")) {
+        throw failure;
+      }
+      return cacheDelegate.answer(invocation);
+    });
+    StorageType.CACHE_REPOSITORY.put(dataFile(), failingCache);
+    final Arena arena = Arena.ofShared();
+    try (final var arenas = mockStatic(SharedArenas.class, invocation -> {
+      if (invocation.getMethod().getName().equals("newSharedArena")) {
+        return arena;
+      }
+      return invocation.callRealMethod();
+    })) {
+      assertSame(failure,
+          assertThrows(IllegalStateException.class, () -> StorageType.MEMORY_MAPPED.getInstance(config)));
+      assertFalse(arena.scope().isAlive(), "failed factory must unmap its native storage before rethrowing");
+    } finally {
+      if (arena.scope().isAlive()) {
+        arena.close();
+      }
+      StorageType.clearRevisionMetadataCaches();
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void readOnlyOpeningSnapshotCannotCreateMissingDataFile(final StorageType backend) throws IOException {
+    final var configuration = ResourceConfiguration.newBuilder("missing").storageType(backend).build();
+    configuration.resourcePath = directory.resolve("missing-data");
+    final var opening = new UberPage(1, new StoreFeatures(0, 1, 0));
+    final IOStorage storage = backend == StorageType.MEMORY_MAPPED
+        ? new MMStorage(configuration, Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), opening)
+        : new FileChannelStorage(configuration, Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), opening);
+    try {
+      assertThrows(UnsupportedStoreFeatureException.class, storage::createReader);
+      assertFalse(Files.exists(configuration.resourcePath), "read-only refusal must preserve the missing directory");
     } finally {
       storage.close();
     }

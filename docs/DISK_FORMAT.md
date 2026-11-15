@@ -555,7 +555,7 @@ reusing a resource session adds no beacon probe. Opening a database handle does 
 Tool opens check all three words before initialization; backup and restore also preflight every
 persisted resource directory, including hidden derived siblings, before opening parents or
 creating a target. Later explicit revision-index refresh reads the current beacon.
-The open-work and preservation regressions are in `StoreFeaturesLifecycleTest`.
+The open-work and preservation regressions are in `InterruptedFirstCommitRecoveryStoreFeaturesTest`.
 
 For 1.x, bits 0–23 in each word belong to the open-source core and bits 24–31 to extensions.
 Features must be staged on the transaction's private UberPage before first use and published

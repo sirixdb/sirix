@@ -212,11 +212,6 @@ ext.nativeDowncallPreinitializeRequested =
     project.providers.gradleProperty(nativeDowncallPreinitializeProperty).getOrElse('false').toBoolean()
 
 test {
-    onOutput { descriptor, output ->
-        if (descriptor.className == 'io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest') {
-            logger.lifecycle(output.message.trim())
-        }
-    }
     systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     useJUnitPlatform()
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
@@ -303,6 +298,35 @@ test {
     }
     
     jvmArgs = baseArgs
+}
+
+// Keep FFM allocation measurements independent of sibling suites' compilation profiles.
+// Blocking compilation completes warm-up work before the measured zero-byte windows.
+def bitemporalLoaderAllocationTest = tasks.register('bitemporalLoaderAllocationTest', Test) {
+    group = 'verification'
+    description = 'Checks loader allocation budgets and their allocating controls in a clean JVM.'
+    onOutput { descriptor, output ->
+        if (descriptor.className == 'io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest') {
+            logger.lifecycle(output.message.trim())
+        }
+    }
+    reports.html.outputLocation = layout.buildDirectory.dir('reports/tests/test/bitemporal-loader')
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching 'io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest' }
+}
+gradle.projectsEvaluated {
+    def standardTest = tasks.named('test', Test).get()
+    bitemporalLoaderAllocationTest.configure { isolatedTest ->
+        standardTest.copyTo(isolatedTest)
+        isolatedTest.jvmArgs = standardTest.jvmArgs
+        isolatedTest.jvmArgs '-Xbatch'
+    }
+}
+tasks.named('test', Test).configure {
+    exclude 'io/sirix/query/bench/bitemporal/BitemporalLoaderBudgetTest.class'
+    dependsOn bitemporalLoaderAllocationTest
 }
 
 def temporalNodeReaderLifetimeGenericTest = tasks.register('temporalNodeReaderLifetimeGenericTest', Test) {

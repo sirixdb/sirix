@@ -134,6 +134,9 @@ final class BitemporalLoaderBudgetTest {
       event.from = 0;
       event.to = 366;
       event.put = true;
+      // Exercise the same entry and native-access paths before either measured series. No retry
+      // or best-window selection: both final windows must still allocate exactly zero bytes.
+      assertEquals(500_000, replaceRepeatedly(relation, old, next, event, 1_000_000, false));
       final long[] allocated = new long[2 * WINDOWS_PER_CONTROL];
       final long[] inserted = new long[allocated.length];
       for (int window = 0; window < allocated.length; window++) {

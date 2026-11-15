@@ -1,0 +1,88 @@
+{
+  "base": "9a6e1f8995aa684a40372180754c970d10166289",
+  "prior_head": "b548587677a616a4792fe4055647316973283ce9",
+  "rebased_head": "311da3d0aceafd0189e3fe37db312b996b693a1b",
+  "runtime": "Linux; GraalVM JDK 25.0.3; Gradle 9.9.0; explicit HotSpot C2 allocation stress with -Xbatch, -XX:-UseJVMCICompiler, -XX:CompileThresholdScaling=10",
+  "results": {
+    ":sirix-core:ciFocused": {
+      "tests": 105,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    ":sirix-core:test": {
+      "tests": 325,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    ":sirix-core:dictionaryReadViewAllocationTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    ":sirix-query:test": {
+      "tests": 327,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5
+    },
+    ":sirix-query:bitemporalLoaderAllocationTest": {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    ":sirix-mcp:test": {
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "selector_unit_tests": 58,
+  "blocking_wrapper_exit_code": 0,
+  "mutation_changed": {
+    "total": 28,
+    "killed": 28,
+    "survived": 0,
+    "no_coverage": 0,
+    "detected": 28,
+    "survivors": []
+  },
+  "mutation_full": {
+    "total": 189,
+    "killed": 79,
+    "survived": 42,
+    "no_coverage": 68
+  },
+  "original_blockers": {
+    "total": 14,
+    "killed": 14
+  },
+  "all_mutated_production_hashes_unchanged": true,
+  "limits": "No macOS execution locally. The original 1360-byte event is retained but its allocated-object attribution was not available. Outer CI must execute the repaired macOS lane. No source outside this worktree was modified.",
+  "evidence_sha256": {
+    "allocation-before-local.log.gz": "daf38a2a6232ebf377a902e545ff98b5b9a4f988eeaa635c67d392f13aa41ff4",
+    "allocation-c2-stress.log.gz": "88a75c77734b43021bcf2e77ba033e8a4f63b9599f13d23d57f14795a132de2b",
+    "allocation-stress.gradle.txt": "2dc1f634e1a7af6620333a612d868fa6eaea2825c3b537953c89dcf3d6a3b01f",
+    "blocker-accounting.json": "77be4a222bca184bedc179f19e97846d7d31ce03ff6369664eda48a485ffe466",
+    "budgets.log.gz": "3773cd9a8f85ac17679625541a38f0eaa1b91bfd79c2b91cd59c3894c592aa76",
+    "final-source-hashes.json": "7ecd8994fca7981286ca18c78fdc42f0330e8a8c9a07c24ab940480c5942d3c2",
+    "focused.log.gz": "38bd8a25babd07f63da70fc62e858727c4b3b250e8df984bd5493d7c278b7385",
+    "format.log.gz": "5e9d5eebf79105dcfd4f04a65e2b07ab061519dc44c90d75c6cdb0b242ff1da7",
+    "macos-before.html.gz": "f192f0955f30a8812a1a35801c86d0c75959207508b2f25f2b5f885f8c4aafa5",
+    "mutation-results.json": "0fd7b199cb2400e52dba71e2fc3ce42fbacedf9fc8b93ad84454668039300f69",
+    "mutation-source-hashes.json": "030d07c00c63c2d71621992e92ae8ab55929e7161fa2501680533ea21feb21a6",
+    "mutations.xml.gz": "e25f6dda103c2090ee1277f38e7e49657f254664997815b2286679f4040086e9",
+    "original-allocation-fixture.java.txt": "b48f0e3e5a87a9445ec47e3549719e717045674b25493921b7b84bff98dae5a2",
+    "original-allocation.gradle.txt": "2d9efd00268abf4dc66fa471dd36e1a895f1ef216be36123d32188c990205d47",
+    "original-blockers.txt.gz": "6ac1f1fe6b3cc988babea6c6d4f90bdb1ec81d88fcf8cb87ae0955b3265dab82",
+    "pitest.log.gz": "dacc67151b21a4e55176094bf7acafcc8b6d5eee192504b2e8b63f861fd02367",
+    "rebase-range-diff.txt.gz": "4891daa8ba3fe2a48b1a7ee4e9ef31d429f3ac0f1694adea1da22fcef38e899e",
+    "selection.json": "84e7c0716d73fa03b1782d7b926178d575af7fdd802c1ae4ecb52d6ba5725bea",
+    "selector-tests.log.gz": "731189ca8cb397380508c2751f2a80837d3e77ac1bbbfab592da2b98ecc58724",
+    "test-results.xml.gz": "1bf6d2c3982f0cd6b06e5cb4b0dcb321ee7ac02bca8c1d786187fe23863b79a2"
+  }
+}

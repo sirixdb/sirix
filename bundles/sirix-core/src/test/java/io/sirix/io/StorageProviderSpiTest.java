@@ -1,6 +1,10 @@
 package io.sirix.io;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.page.UberPage;
+import io.sirix.io.ram.RAMStorage;
+import org.junit.Rule;
+import org.junit.rules.TemporaryFolder;
 import org.junit.Test;
 
 import java.util.Optional;
@@ -13,21 +17,52 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Tests for the {@link StorageProvider} SPI — the integration surface the sirix-enterprise
- * modules (io_uring, S3) plug into.
+ * Tests for the {@link StorageProvider} SPI — the integration surface the sirix-enterprise modules
+ * (io_uring, S3) plug into.
  *
- * <p>Two test providers are registered via {@code META-INF/services/io.sirix.io.StorageProvider}:
- * {@code TEST_STORAGE} (available) and {@code UNAVAILABLE_TEST_STORAGE} (unavailable). Their
- * names deliberately match no {@link StorageType} constant so they never interfere with other
- * tests' storage dispatch.
+ * <p>
+ * Two test providers are registered via {@code META-INF/services/io.sirix.io.StorageProvider}:
+ * {@code TEST_STORAGE} (available) and {@code UNAVAILABLE_TEST_STORAGE} (unavailable). Their names
+ * deliberately match no {@link StorageType} constant so they never interfere with other tests'
+ * storage dispatch.
  *
- * <p>Regression coverage: {@link StorageType#fromString} used to map any registered external
- * provider name to a {@code FILE_CHANNEL} "marker" (referencing a dispatch method that never
- * existed). The marker was persisted into the resource configuration, so a resource configured
- * for an enterprise provider silently used the built-in FileChannelStorage on every open — the
- * requested backend was never selected and no error surfaced.
+ * <p>
+ * Regression coverage: {@link StorageType#fromString} used to map any registered external provider
+ * name to a {@code FILE_CHANNEL} "marker" (referencing a dispatch method that never existed). The
+ * marker was persisted into the resource configuration, so a resource configured for an enterprise
+ * provider silently used the built-in FileChannelStorage on every open — the requested backend was
+ * never selected and no error surfaced.
  */
 public final class StorageProviderSpiTest {
+
+  @Rule
+  public final TemporaryFolder directory = new TemporaryFolder();
+
+  @Test
+  public void openingSnapshotDefaultKeepsLegacyProviderUsable() {
+    final var configuration = ResourceConfiguration.newBuilder("provider").storageType(StorageType.IN_MEMORY).build();
+    configuration.resourcePath = directory.getRoot().toPath();
+    final StorageProvider legacy = new StorageProvider() {
+      @Override
+      public String getName() {
+        return "legacy";
+      }
+
+      @Override
+      public boolean isAvailable() {
+        return true;
+      }
+
+      @Override
+      public IOStorage createStorage(final ResourceConfiguration config) {
+        assertSame(configuration, config);
+        return new RAMStorage(config);
+      }
+    };
+    final IOStorage storage = legacy.createStorage(configuration, new UberPage());
+    assertTrue(storage.getOpeningUberPage().isBootstrap());
+    storage.close();
+  }
 
   @Test
   public void builtInTypesResolveCaseInsensitively() {

@@ -1,0 +1,8 @@
+gradle.taskGraph.whenReady {
+    gradle.rootProject.project(':sirix-query').tasks.named('bitemporalLoaderAllocationTest').configure {
+        jvmArgs '-XX:-UseJVMCICompiler', '-XX:CompileThresholdScaling=10'
+        doFirst {
+            logger.lifecycle("Allocation stress effective JVM arguments: ${allJvmArgs}")
+        }
+    }
+}

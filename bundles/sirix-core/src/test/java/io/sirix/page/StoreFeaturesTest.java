@@ -178,6 +178,16 @@ class StoreFeaturesTest {
   }
 
   @Test
+  void uberPageRejectsTrailingBytesInBothRepresentations() throws IOException {
+    // The owned page image ends after its i32 revision count, with or without FEATURES.
+    for (final String image : new String[] {"03000001000000", "0300800ec10c00000000000000000100000001000000"}) {
+      final byte[] valid = HEX.parseHex(image);
+      assertEquals(1, decode(valid).getRevisionCount());
+      assertThrows(IllegalStateException.class, () -> decode(Arrays.copyOf(valid, valid.length + 1)));
+    }
+  }
+
+  @Test
   void seededWordsRoundTripIncludingUnsignedHighBits() throws IOException {
     final var random = new Random(0x51F17E);
     for (int i = 0; i < 1000; i++) {
