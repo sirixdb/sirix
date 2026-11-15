@@ -1455,7 +1455,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
       try {
-        rtx.close();
+        if (rtx instanceof InternalNodeTrx<?> nodeTrx) {
+          nodeTrx.abort();
+        } else {
+          rtx.close();
+        }
       } catch (final RuntimeException | Error e) {
         failure = ShardedPageCache.retainCleanupFailure(failure, e);
         if (rtx instanceof NodeTrx && !rtx.isClosed()) {
