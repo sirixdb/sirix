@@ -872,7 +872,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         : this.lastCommittedUberPage.get();
     final int originalCommittedRev = lastCommittedUberPage.getRevisionNumber();
 
-    // Crash recovery runs BEFORE the writer is constructed, and the ordering is load-bearing.
+    // Marker recovery runs BEFORE the writer is constructed, and the ordering is load-bearing.
     // createStorageEngineWriter eagerly reads pages (NamePage's dictionaries, for one) through the
     // shared caches. Doing that first meant the new transaction read the file while it still carried
     // the aborted commit's bytes and then kept those pages alive in swizzled PageReferences and its
@@ -883,11 +883,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // nothing guarded: the writer below reads the recovered file through clean caches.
     //
     // The commit marker legitimately exists while an in-process async commit hardens — the
-    // truncate check exists for CRASH recovery and must not fire for pipelined successor epochs.
+    // recovery check must not fire for that known pending base. Ordinary admission also recovers
+    // abandoned prewrites and cleanup failures in this process.
     try {
       if (pendingBaseUberPage == null) {
-        lastCommittedUberPage = truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer,
-            lastCommittedUberPage);
+        lastCommittedUberPage =
+            truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedUberPage);
       }
     } catch (final RuntimeException | Error failure) {
       try {
@@ -902,8 +903,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         abort == Abort.YES && lastCommittedUberPage.isBootstrap()
             ? new UberPage()
             : new UberPage(lastCommittedUberPage),
-        writer, id, representRevision == originalCommittedRev ? lastCommittedRev : representRevision,
-        storedRevision == originalCommittedRev ? lastCommittedRev : storedRevision,
+        writer, id, representRevision == originalCommittedRev
+            ? lastCommittedRev
+            : representRevision,
+        storedRevision == originalCommittedRev
+            ? lastCommittedRev
+            : storedRevision,
         lastCommittedRev, isBoundToNodeTrx, bufferManager);
   }
 

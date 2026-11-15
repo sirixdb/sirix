@@ -138,12 +138,10 @@ public final class ConcurrentIntersectAxis<R extends NodeCursor & NodeReadOnlyTr
     }
     return done();
   }
+
   /**
-   * Close both concurrent operands on termination. Each {@link ConcurrentAxis} runs a producer
-   * thread that blocks in {@code results.put(...)} on a bounded queue; when this set-operation axis
-   * finishes early (e.g. one operand exhausts while the other is mid-stream), the undrained
-   * producer would otherwise block forever, leaking a non-daemon thread and an open read
-   * transaction per query. close() shutdownNow()s the executor, interrupting the blocked put.
+   * Exhaustion of one operand can leave the other producer blocked on its bounded queue. Close both
+   * operands before returning; transaction ownership follows {@link Axis#close()}.
    */
   @Override
   protected long done() {

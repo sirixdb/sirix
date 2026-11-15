@@ -39,7 +39,9 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   NodeTrx commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp);
 
   /**
-   * Rollback all modifications of the exclusive write transaction.
+   * Rollback all modifications of the exclusive write transaction. A failed rollback keeps mutations
+   * and commits blocked until rollback successfully reconstructs the transaction. Calling rollback on
+   * a closed transaction is rejected before recovery handling.
    *
    * @return NodeTrx return current instance
    * @throws SirixException if the changes in this revision couldn't be rollbacked
@@ -134,7 +136,8 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   PathSummaryReader getPathSummary();
 
   /**
-   * Closing current WriteTransaction.
+   * Close the write transaction after draining pending asynchronous work. Uncommitted modifications
+   * must first be committed or rolled back.
    *
    * @throws SirixIOException if write transaction couldn't be closed
    */

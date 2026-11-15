@@ -444,11 +444,14 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   int getRevisionNumber(Instant pointInTime, int revisionCeiling);
 
   /**
-   * Safely close resource session and immediately release all resources. If there are running
-   * transactions, they will automatically be closed. Uncommitted write transactions are rolled back
-   * before closing.
+   * Close this session's transactions and independent resources, retaining the first failure and
+   * suppressing subsequent cleanup failures. Uncommitted writers are rolled back before closing; if
+   * rollback fails, session teardown explicitly aborts the transaction after fencing its workers.
+   * This abort does not relax {@link NodeTrx#close()}'s dirty-transaction protection.
    * <p>
-   * This is an idempotent operation and does nothing if the resource session is already closed.
+   * A writer that refuses teardown while an append worker is still active retains session ownership;
+   * retry close after that worker terminates. Otherwise teardown publishes closed state even when
+   * reporting a cleanup failure. An already closed session requires no further cleanup.
    *
    * @throws SirixException if can't close
    */

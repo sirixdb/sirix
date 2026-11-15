@@ -79,17 +79,40 @@ preserving changes the successor made while hardening was in flight.
   epoch, exactly as for a crashed synchronous commit.
 - **Commit-marker gating.** While an async commit is in flight the marker
   file legitimately exists; the successor page transaction's
-  truncate-on-open check is skipped for pipelined creation (the check exists
-  for *crash* recovery; in-process the in-flight state is known).
+  recovery check is skipped only for pipelined creation with a known pending
+  base. Ordinary writer admission follows [marker recovery](operations.md#marker-recovery),
+  including after an in-process failure.
 - **Failure poisoning.** A phase-2 failure latches the transaction
-  terminally (same pattern as the async-flush path): the next operation
-  throws, close/rollback drain the pipeline first. The already-reinstantiated
-  epoch N+1 is based on a revision that never became durable, so poisoning —
-  not retrying — is the only sound response.
+  terminally, including failures retiring the pending root or closing the
+  predecessor. Repeated `awaitPendingAsyncCommit()` calls retain the original
+  cause; commit and rollback drain the pipeline and reject the poisoned
+  successor. A failure after beacon publication can leave revision N durable;
+  recovery selects the verified beacon rather than assuming N was lost.
 - **Lineage.** Epoch N+1's page transaction is created from the pending
   (phase-1-complete, canonical in memory) uber page of revision N, not from
   `lastCommittedUberPage`. The depth-1 pipeline makes the pending chain at
   most one deep.
+
+## Failure and teardown ownership
+
+Background hardening and both inline fallbacks (successor setup failure or
+task-submission failure) release their acquired async permit exactly once.
+Inline hardening preserves the setup/submission error and suppresses subsequent
+hardening or cleanup errors. All routes close the detached predecessor and
+retire its pending root even when hardening fails; a hardening failure remains
+terminal after the permit is released.
+
+Public transaction close retains its dirty-transaction protection. Resource-session
+close can explicitly abort a dirty successor after fencing the failed predecessor;
+see [`ResourceSession.close()`](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java).
+The scheduler is fenced outside the node lock before the shared write permit is
+released. A live append worker that refuses teardown keeps its owners reachable
+for retry. After fencing, independent cleanup continues despite failures, retaining
+the first error and suppressing later ones. Terminal object state alone does not
+prove recovery; the [admission barrier](operations.md#marker-recovery) protects reuse.
+
+`NodeTransactionAbortLifecycleTest` covers paired setup/submission and hardening
+faults, retained causes, dirty successors and paused workers in XML and JSON.
 
 ## Constraints
 
