@@ -55,21 +55,36 @@ Page keys (`PageReference.getKey()`) are absolute byte offsets of the record's l
 The header region stays a sparse hole until the first commit writes it (`IOStorage.exists()`
 checks size > 0 to distinguish fresh resources). Beacon recovery validates
 `[len][payload][XXH3]` — both length bounds and checksum — and falls back primary → secondary;
-storage open validates the superblock (magic/version/endianness/role/CRC) and fails fast with an
+storage open validates the superblock (magic/version/endianness/role/checksum) and fails fast with an
 actionable message on any mismatch.
 
-**Commit protocol** (`FileChannelWriter.writeUberPageReference`):
-flush buffered tail → write superblocks if missing → **stage the revision record into both beacon
-slot images' tail log** → `force(false)` data (write-ahead barrier; it now hardens the tail log
-too) → write SECONDARY beacon slot → write PRIMARY beacon slot — both through an O_DSYNC channel
-(in-place overwrites; each write durable at return, which gives the secondary-before-primary
-ordering AND makes the primary's write-return the commit acknowledge; FUA on capable NVMe stacks).
-ONE explicit fsync per commit (the data tail write-ahead barrier); no commit-end barrier exists.
-Validated empirically by `CrashRecoveryInjectionTest` (SIGKILL loop, opt-in
-`-Dsirix.crash.run=true`).
+**Commit protocol** (see
+[`FileChannelWriter.writeUberPageReference`](../bundles/sirix-core/src/main/java/io/sirix/io/filechannel/FileChannelWriter.java)):
+flush the buffered page tail → write missing superblocks → stage the revision-record tail log
+in both beacon slots → force the data file (write-ahead barrier) → write SECONDARY then
+PRIMARY beacon images → make the beacons durable before acknowledging the commit.
+
+The defaults are `sirix.commit.preallocated=true`, `sirix.commit.bufferedBeacons=true`
+and `sirix.commit.lazyRevisionRecord=true`. With preallocation and buffered beacons,
+the beacon images are ordinary buffered writes followed by **one `force(false)`** on the
+data channel. A steady-state commit therefore has **two data-file barriers**: the write-ahead
+barrier and the beacon barrier. Commit acknowledgement follows the latter, not the primary
+buffered write's return. Allocation growth upgrades the write-ahead barrier to `force(true)`;
+bootstrap, revision-record ring eviction and fallback paths may need additional forces.
+
+With `-Dsirix.commit.bufferedBeacons=false` (or preallocation disabled), the writer uses
+the ordered O_DSYNC beacon channel: SECONDARY is durable before PRIMARY is issued, and
+PRIMARY's write-return acknowledges publication. In this profile there is no separate
+commit-end beacon force. The grow-file profile uses `force(true)` for its write-ahead
+barrier. These profiles share the durability requirement: a valid published beacon must
+reference an already durable page tail. They depend on the filesystem and device honoring
+the force/write-through contract. The [power-loss simulation](../bundles/sirix-core/src/test/java/io/sirix/crash/PowerLossSimulationTest.java)
+models lost, reordered and torn unforced writes; the opt-in
+[`CrashRecoveryInjectionTest`](../bundles/sirix-core/src/test/java/io/sirix/crash/CrashRecoveryInjectionTest.java)
+checks process death, which retains the OS page cache and is not equivalent to power loss.
 
 **Revision-record tail log** (`-Dsirix.commit.lazyRevisionRecord`, default on, requires
-`-Dsirix.commit.preallocated`). Previously the protocol carried a THIRD device round-trip: the
+`-Dsirix.commit.preallocated`). The older synchronous-record profile used an additional durability step: the
 revisions channel was opened O_SYNC and the commit additionally issued `force(true)` on it, so the
 new revision's 32-byte slot record was durable before any beacon advertised it. That force is
 gone. The revisions channel is opened BUFFERED and the record instead rides a 16-entry ring in the
@@ -81,8 +96,8 @@ slot + 4096-768 + 48*(revision mod 16) :
 ```
 
 Because the ring lives inside the beacon image, a committed revision's record is durable exactly
-when its beacon is — the ordering guarantee the old force provided, at zero extra round-trips
-(3 → 2 per commit). The invariants that make this safe:
+when its beacon is — the ordering guarantee the old per-record force provided, without
+a separate revisions-file force on every steady-state commit. The invariants that make this safe:
 
 - **Eviction guard.** Before a revision's entry would overwrite the ring slot of an older
   revision, the writer forces the revisions file and advances a per-resource durability watermark
@@ -103,21 +118,22 @@ when its beacon is — the ordering guarantee the old force provided, at zero ex
 Covered by `LazyRevisionRecordRecoveryTest` (staging, salvage + heal, out-of-window failure,
 post-eviction durability, torn-entry rejection).
 
-**Crash-window contract**: a commit whose primary beacon write was lost opens at the previous
-revision silently — correct, because that commit was never acknowledged to the client. A torn
-PRIMARY with an intact NEWER secondary opens at the durable-but-unacknowledged newer revision
-(the secondary was fsynced before the primary was written). Recovery truncation REPAIRS both
-beacon slots to the truncated-to revision (`FileChannelWriter.repairBeaconSlotsAfterTruncate`):
-without this, a lost-primary crash left the secondary advertising the truncated-away revision
-until the next commit, and a primary corruption inside that window made fallback dereference
-the stale-forward secondary — resource unopenable despite intact data (regression-tested by
-`CrashRecoveryTest.staleForwardSecondaryBeacon_isRepairedOnRecovery`). An EXPLICIT rollback
-(`StorageEngineWriter.truncateTo` / `NodeTrx.truncateTo` to an older revision) instead truncates
-away the revision BOTH slots advertise; `NodeStorageEngineWriter.truncateTo` therefore rewrites
-both beacons with the reconstructed rolled-back uber page (its serialized form is only the
-revision count) through the regular dual-beacon protocol — dying between an explicit rollback
-and the next commit is no longer an unopenable state (regression-tested by
-`NodeStorageEngineWriterTruncateToRevisionIntegrationTest.test_truncate_survives_process_death_before_next_commit`).
+**Crash-window contract:** recovery prefers a valid PRIMARY and otherwise falls back to
+SECONDARY. A commit that did not return may be absent or may be visible if its beacon
+reached stable storage; an acknowledged commit must survive under the durability contract.
+With buffered beacons, issuing SECONDARY first does not guarantee it becomes durable first:
+the final force covers both. With ordered O_DSYNC beacons, SECONDARY is already durable when
+PRIMARY is issued. Neither profile permits a visible beacon to reference an unforced tail.
+
+Recovery truncation repairs both slots to the recovered revision, so a stale-forward
+secondary cannot later resurrect a discarded revision; see
+[`CrashRecoveryTest.staleForwardSecondaryBeacon_isRepairedOnRecovery`](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java).
+Explicit rollback has a different ordering: `NodeStorageEngineWriter.truncateTo` first
+publishes the reconstructed target uber page through the durable dual-beacon protocol,
+then truncates the discarded tail. A crash leaves either the original or target revision,
+not a beacon pointing past truncated files. See
+[`ExplicitRollbackCrashSimulationTest`](../bundles/sirix-core/src/test/java/io/sirix/crash/ExplicitRollbackCrashSimulationTest.java)
+and [`NodeStorageEngineWriter.truncateTo`](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java).
 
 ### sirix.revisions
 
@@ -428,10 +444,17 @@ there are no old-format readers, migrations, or compatibility switches.
   read when `verifyChecksumsOnRead` (default true). HOT child, fragment, and side-map references
   persist offsets without hashes; their integrity limits are specified in
   [HOT index specification §3.6](HOT_INDEX_SPECIFICATION.md#36-hot-format-and-integrity).
-- The roots are covered too: both files' superblocks carry a CRC, both uber beacon
+- The roots are covered too: both files' superblocks carry an XXH3 checksum, both uber beacon
   slots carry an XXH3 trailer, and revision records and readable RevisionRootPages follow the
   integrity contract in [§1, sirix.revisions](#sirixrevisions).
-- **Still not covered**: record/page length prefixes.
+- **Still not covered**: record/page length prefixes. Length bounds are validated,
+  but the prefix bytes themselves are not checksummed.
+- These non-cryptographic checksums detect covered accidental corruption, not malicious
+  rewriting. HOT offset-only references do not provide end-to-end payload authentication;
+  subtree hashes and dual beacons do not make this a cryptographic tamper-evident log.
+  Keep independent backups and appropriate access controls. The executable coverage includes
+  [`ChecksumVerificationTest`](../bundles/sirix-core/src/test/java/io/sirix/io/ChecksumVerificationTest.java),
+  but does not extend checksum coverage to the offset-only references or length prefixes.
 
 ## 4. Storage backends
 

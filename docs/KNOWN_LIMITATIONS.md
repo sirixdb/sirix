@@ -41,17 +41,13 @@ Categories used:
 
 ### Async pre-flush (`KEEP_OPEN_ASYNC_FLUSH`) caveats
 
-- **Rollback + preallocated commits (NOW ON BY DEFAULT):** an async-flushed transaction that
-  ROLLS BACK leaves its already-appended (never-published) pages in the data file, and
-  pages the transaction re-read from those offsets in the shared record/fragment caches.
-  Under the legacy grow path (offset derivation from physical file size) the orphaned
-  region is never reused and the stale cache entries are unreachable. With preallocated
-  commits — the default since the durable-commit fast path was enabled by default — the
-  next writer re-derives its append frontier from the last committed revision and can
-  REUSE those offsets: a retried import then writes different pages at offsets the caches
-  still associate with the aborted transaction's content. Until per-resource cache
-  invalidation on rollback lands, run async-flush bulk imports that may be retried after
-  failure with `-Dsirix.commit.preallocated=false`.
+- **Rollback and reused offsets (fixed):** rollback now fences outstanding async flush
+  work and invalidates caches for aborted, uncommitted writes before the offsets can
+  be reused. Preallocated commits remain enabled by default; disabling them is no
+  longer required for retryable async imports. See
+  [`NodeStorageEngineWriter.invalidateCachesForAbortedUncommittedWrites` and `rollback`](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java)
+  and the all-versioning-strategies regression
+  [`AsyncFlushColdReopenVersioningTest.rollbackInvalidatesReclaimableAsyncPageOffsets`](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushColdReopenVersioningTest.java).
 - **Crash durability:** async-flush imports mint NO intermediate revisions — nothing of
   the import is durable until the single final commit publishes. The synchronous
   auto-commit mode (`-Dsirix.import.asyncFlush=false`) restores
@@ -205,26 +201,6 @@ else falls back to the generic (always correct) pipeline.
   publish/lookup guards exclude only the `-1` missing sentinel, so scans
   anchored on negative-hash fields populate and reuse the page-skip bitmap
   like everyone else (was: permanent full page sweeps).
-- **Multi-key group-by with a sparse anchor — re-anchor on a PROVABLY-DENSE
-  group field (scan path).** An anchor-based scan never visits a record missing
-  the anchor field, so a SPARSE anchor used to fail loudly even when another
-  group field was present on every record. The unpredicated multi-key kernel now
-  chooses the scan anchor among the group fields by PROVABLE density: a field is
-  dense iff the path summary's OBJECT_KEY reference count for its (unambiguously
-  resolved, query-scoped) path equals the top-level array's record total —
-  `getReferences()` is incremented once per referencing node, and for a
-  top-level array of objects a key occurs at most once per record, so equality
-  proves presence on every record. The scan then anchors on the dense field,
-  visits every record, and the remaining (possibly sparse) keys fall out as
-  their values, including the `'m'` missing bucket the typed encoder already
-  emits. Works for the dense field in ANY group-key position and across
-  provenance (jn:store / shredder). Density is never guessed: if NO group field
-  is provably dense (path summary off, nested source, ambiguous path, or every
-  candidate genuinely sparse) the kernel keeps the loud bail / projection
-  fallback. It also REFUSES to re-anchor when the FIRST group field is absent on
-  EVERY record — brackit's interpreter collapses such a grouping to a single
-  all-null tuple (an empty FIRST grouping key swallows the whole tuple), which a
-  dense-anchored scan cannot reproduce, so that shape fails closed.
 - **Aggregate edge semantics.** `avg`/`min`/`max` over zero contributing rows
   return the empty sequence (was a fabricated 0); `count(... return $u.f)`
   counts non-empty derefs of ANY value type (was: numeric values only, and
@@ -240,19 +216,22 @@ else falls back to the generic (always correct) pipeline.
   which HALF_EVEN-rounded terminating quotients away (`1.0 div 2.0` = 0,
   `10.2 div 4` = 2.6).
 
+- **Top-level multi-key grouping (fixed):** the scan prefers a provably dense
+  group field as its anchor. If all keys are sparse and the top-level record total
+  is known, the scan completes a pass per group field, counts each
+  record under the first key it carries, and reconstructs the all-missing group
+  from the total. A covering projection is no longer required for this case.
+  [`TypedGroupByDifferentialTest`](../bundles/sirix-query/src/test/java/io/sirix/query/scan/TypedGroupByDifferentialTest.java)
+  covers both-sparse keys, a further absent key, and reversed key order in
+  `multiKeyBothSparseWithoutProjectionIsCompletedNotRefused`,
+  `multiKeyBothSparsePlusAbsentKeyIsCompleted` and
+  `multiKeySparseKeyOrderDoesNotChangeTheGrouping`. An entirely absent **first**
+  group key still fails closed rather than reproducing the interpreter's
+  order-dependent all-null grouping; see `multiKeyAbsentFirstKeyFailsLoudEvenWithDenseSecond`.
+  Do not extend the top-level guarantee to nested sources or unknown record totals.
+
 ### Remaining limitations
 
-- **Multi-key group-by where NO group field is provably dense (scan path).**
-  Re-anchoring (see fixed gaps) handles a sparse anchor whenever ANOTHER group
-  field is provably dense. When density cannot be proven for ANY group field —
-  every candidate genuinely sparse, the source is nested (record total not
-  cheaply known), the path summary is off, or the path is ambiguous — the anchor
-  walk still cannot reconstruct the secondary key values of unvisited records,
-  so it fails LOUDLY (`QueryException` naming the anchor field). A covering
-  projection index serves the same query correctly (presence bitmaps see every
-  record). Likewise an entirely-absent FIRST group field fails closed: the
-  interpreter collapses that grouping to one all-null tuple, which the scan
-  cannot reproduce.
 - **Nested sources with sparse group fields (scan path).** The record total
   is only cheaply known for top-level array sources; for nested sources a
   sparse single group key still yields silently-partial groups (pre-existing,
@@ -279,7 +258,7 @@ else falls back to the generic (always correct) pipeline.
   is explicit: drop the catalog definition, commit, then create it again so a
   fresh physical index id is initialized. There is no force-rebuild property.
 
-The `TypedGroupByDifferentialTest` suite (89 cases) pins vectorized ≡
+The `TypedGroupByDifferentialTest` suite pins vectorized ≡
 interpreted for the supported shapes, including typed (numeric/boolean/double)
 and multi-key group keys, the negative-hash nameKey regressions, adversarial
 sparse shapes (missing-on-30%, missing-on-all, present-but-null, mixed-kind
@@ -288,9 +267,8 @@ double/decimal predicate family across scan and projection paths, exact
 decimal/genuine-double aggregate parity (jn:store vs shredder provenance), and
 the multi-key dense-anchor selection (sparse anchor + dense second key in both
 orders, dense anchor as the 2nd/3rd key, numeric dense anchor, mixed
-provenance, plus the fail-closed cases: both-sparse-no-projection loud bail with
-the same query correct via a covering projection, and absent-first-key loud
-bail).
+provenance). See the fixed top-level grouping entry above for sparse completion
+and the absent-first-key guard.
 
 ## Cleanup actions queued
 

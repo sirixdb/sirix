@@ -20,9 +20,8 @@ whole files: every JSON object, array, field, and value is a node with a
 stable identity across revisions. Commit `N+1` copies only the page fragments
 it touches; everything else is a reference into the past. A *sliding
 snapshot* algorithm bounds how many fragments any read must consult to
-reconstruct a page, so a database with 10,000 revisions opens and reads as
-fast as one with ten — we benchmarked exactly that claim, found it false in
-two places, and fixed both (see "Receipts" below).
+reconstruct a page. See [`BENCHMARKS.md`](BENCHMARKS.md) for measured
+history-depth costs and workload limitations.
 
 ## What this buys you
 
@@ -42,15 +41,14 @@ version of one field without touching the rest of the document. There is no
 columns. Auditing "what did this record say when we made that decision?" is a
 one-liner.
 
-### 2. Diffs are semantic and instant
+### 2. Diffs are semantic
 
 Because revisions share structure physically, SirixDB computes diffs by tree
 comparison with rolling hashes, not by serializing two snapshots and running a
 text diff. Diffing two revisions of a document returns exact node-level
-operations (insert/update/delete with stable node keys) in **~0.3 ms** in our
-benchmark — and it stays flat regardless of document size, because unchanged
-subtrees hash-skip. The same machinery powers the web UI's revision scrubber
-and structured diff view.
+operations (insert/update/delete with stable node keys), skipping unchanged
+subtrees when their hashes match. The same machinery powers the web UI's
+revision scrubber and structured diff view.
 
 ### 3. Storage grows with *change*, not with *data size*
 
@@ -59,23 +57,16 @@ document and you pay for one page-fragment chain, not a 100 MB copy. We
 decomposed the actual per-commit byte cost on disk (currently ~1.7 KB fixed
 overhead per small commit, fully attributed byte-by-byte in
 [`STORAGE_COST.md`](STORAGE_COST.md), with a roadmap to ~700 B). For
-small-document workloads PostgreSQL's storage is still tighter (see the
-honest comparison below); the crossover argument is about *large documents
-with small edits*, and we won't quote a crossover point until we've
-benchmarked it.
+the withdrawn PostgreSQL comparison and its methodological limits, see
+[`COMPARISON_POSTGRES.md`](COMPARISON_POSTGRES.md). It does not support a
+storage crossover claim.
 
 ### 4. Crash safety you can audit, not just trust
 
-The commit protocol is two ordered write barriers: data write-ahead, then a
-dual-slot "uber beacon" flipped with data-integrity write-through (O_DSYNC;
-FUA on NVMe), with the revisions file opened O_SYNC. One explicit fsync per
-commit. We built a **power-loss simulation harness** that records every write
-and force at the FileChannel level, then materializes thousands of crash
-states — torn writes, dropped unforced writes, metadata/size splits — and
-cold-opens each one: acked revisions must survive, unacked ones must be
-rejected *cleanly*. 0 failures across the state space, and the harness is in
-the tree (`bundles/sirix-core/src/test/java/io/sirix/crash/`), not in a
-slide deck.
+The [disk-format contract](DISK_FORMAT.md#1-files) owns the commit protocol,
+durability profiles and crash-window guarantees. The
+[operations guide](operations.md#10-known-limitations-and-operational-caveats)
+links the process-crash and power-loss simulation coverage and explains its limits.
 
 ### 5. Analytics without an ETL hop
 
@@ -145,13 +136,9 @@ read/query latency*. Both verdicts and the full perf tables are in
   and fixed at the root. On a 12,800-revision database the same workload went
   from 361 to **11,198 reads/s**, reader p99 from 334 ms to **4.8 ms**, with
   **zero errors** — the aged database now outruns the pre-fix fresh one.
-- **Honest PostgreSQL comparison** ([`COMPARISON_POSTGRES.md`](COMPARISON_POSTGRES.md)):
-  PG 17 with a history table wins raw small-document numbers — ingest 4,015
-  vs ~430 commits/s (PG sits at 84% of the device's fsync floor; that's its
-  home turf) and total storage 4.7 vs ~12 MiB. SirixDB wins per-statement
-  embedded reads, 0.3 ms semantic diffs, and sub-document time travel, which
-  PG simply doesn't have. Durability settings were verified equivalent before
-  measuring.
+- **PostgreSQL comparison status**: see
+  [`COMPARISON_POSTGRES.md`](COMPARISON_POSTGRES.md) for why its cross-system
+  ratios are withdrawn.
 - **Correctness sweeps as release gates**: adversarial round-trip fidelity
   (83 JSON shapes × every serializer mode), a JSONiq result-correctness sweep,
   and the vectorized differential suite all run as tests. Several of the bugs
@@ -162,8 +149,8 @@ read/query latency*. Both verdicts and the full perf tables are in
 
 ## Where SirixDB is the wrong choice (today)
 
-- **High-rate small-document OLTP.** PostgreSQL ingests ~10× faster in that
-  regime and stores it tighter. If you don't need history, you don't need us.
+- **Workloads without a history requirement.** Evaluate whether document
+  versioning is needed; benchmark candidate engines on your own workload.
 - **Distributed workloads.** Single-node, single-writer-per-resource by
   design. Horizontal scale is not on the short-term roadmap.
 - **Relational queries across many entities.** It's a document store; joins
@@ -184,7 +171,7 @@ read/query latency*. Both verdicts and the full perf tables are in
 - **Debugging production state** — keep the full history of a fast-changing
   JSON state tree and bisect *data* the way you bisect code.
 - **Versioned content/configuration APIs** — serve any historical version
-  with the same latency as the head revision.
+  directly; use the [benchmark methodology](BENCHMARKS.md) to assess latency.
 
 ## Try it
 
@@ -193,5 +180,5 @@ read/query latency*. Both verdicts and the full perf tables are in
 - Quickstart (one process, no auth, for evaluation):
   [`QUICKSTART.md`](QUICKSTART.md)
 - Sources: https://github.com/sirixdb/sirix — the engine,
-  https://github.com/sirixdb/brackit — the query compiler,
-  https://github.com/sirixdb/sirixdb-web-gui — the UI.
+  https://github.com/sirixdb/brackit — the query compiler. For browser access,
+  use the live demo linked above.

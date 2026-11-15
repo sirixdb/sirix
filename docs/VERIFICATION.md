@@ -86,7 +86,7 @@ before importing signing credentials or publishing, covering tag pushes, release
 manually selected refs. The stress workflow enables the gate on its core test compile, including
 manual runs against refs outside main CI's branch filters. Deep verification gates its dedicated
 core and MCP compile with `-PerrorProne`. Each of these four workflows runs one gated compile;
-other jobs and the Sonar workflow avoid repeating static analysis. Error Prone errors fail compilation;
+other jobs, including Sonar, avoid repeating static analysis. Error Prone errors fail compilation;
 NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
 has a JSpecify `@NullMarked` package default. Legacy unmarked code, including core and query,
 is outside NullAway checking, even where individual nullable contracts are annotated.
@@ -106,23 +106,131 @@ Error Prone 2.51.0 ([upstream bug](https://github.com/google/error-prone/issues/
 
 ## SonarCloud analysis
 
-[`sonarqube.yml`](../.github/workflows/sonarqube.yml) runs on pushes to `main` and eligible
-pull requests targeting `main`. It builds and tests with JaCoCo XML reports before running `sonar` separately.
+The `Run Sonarqube` job in [`gradle.yml`](../.github/workflows/gradle.yml) runs on pushes to
+`main` and eligible pull requests targeting `main`, after both Linux core lanes and the query/Kotlin
+lane succeed. The core lanes upload raw JaCoCo probes and test results; the query/Kotlin lane uploads
+reports and test results. The scanner restores the same run's compiled modules and reports and never
+reruns tests. The checkout matches the producing
+lanes (the PR merge ref on pull requests), so coverage probes and analyzed bytecode use the same sources.
 It waits for the quality gate, so a successful upload alone cannot make the check green.
 The required quality-gate policy is **no new bugs or vulnerabilities on new code**;
 configure its conditions in SonarCloud.
-PR analysis uses GitHub Actions' automatic PR parameters and the source commit with full history.
+PR analysis uses GitHub Actions' automatic PR parameters and a full-history checkout.
 Fork and Dependabot PRs skip this secret-dependent job; their normal CI still runs.
-The REST integration suite remains outside this job. The offline REST authorization tests run
-without Docker or Keycloak, and their JaCoCo execution data feeds both the REST and query reports.
+Never build untrusted PR code with secrets through `pull_request_target`.
+Scheduled and release-branch CI do not run Sonar. Instrumentation, coverage reports, coverage uploads,
+and the additional MCP/offline REST tests run only for Sonar-eligible events, using the shared
+`Build` job's `sonar-enabled` output. The REST integration suite remains outside the
+coverage handoff. The query lane also runs the MCP tests and the offline REST authorization tests
+that the former serial Sonar build ran; offline REST needs neither Docker nor Keycloak, and its
+JaCoCo execution data feeds both the REST and query reports. The analyzed module set is unchanged.
 
-The core XML report includes the isolated test forks' execution data. Their agent-handling
+The independent `Python mutation tooling` job runs the script's adversarial and CLI tests with
+branch coverage (85% minimum) and uploads `coverage-python`. Sonar requires this lane, downloads
+its XML to `build/reports/python/python-coverage.xml`, verifies the report exists, and imports it
+through `sonar.python.coverage.reportPaths`. The root Python test directory is explicitly
+classified with `sonar.tests` and test-inclusion patterns that also preserve module Java/Kotlin
+tests. Python production source remains in analysis; tests are analyzed as tests and do not count
+toward production coverage. This small Python lane does not change the existing test lanes'
+dependencies or run a local JVM.
+
+The core XML report merges both lanes' raw execution data, including the isolated test forks,
+using `:sirix-core:jacocoMergedReport`. Merging probes before generating XML preserves the union of
+branch coverage when both lanes visit the same method. Missing lane/fork data or module reports fails
+the job instead of silently reducing coverage. The isolated forks' agent-handling
 safety invariant is documented beside the fork-option copy in
 [`bundles/sirix-core/build.gradle`](../bundles/sirix-core/build.gradle).
+
+To check the analysis-only task graph locally after restoring coverage artifacts:
+
+```bash
+./gradlew :sirix-core:jacocoMergedReport sonar --dry-run
+```
+
+It must contain only the merge and scanner/resolver tasks, with no compilation or test tasks. When
+changing this handoff, record Linux lane durations (including report generation), scanner duration, and end-to-end duration
+from the workflow jobs API. Compare SonarCloud's `coverage` and `new_coverage` measures with the former
+`build jacocoTestReport -x :sirix-rest-api:test` flow at the same source head; a different head is not
+a coverage-equivalence check. Preserve the quality-gate wait and fork/Dependabot secret boundary.
 
 Review issues against the low-latency requirements in `AGENTS.md`. Prefer clean code when it
 costs no hot-path performance. Any rule exception must name the specific rule and scope, with
 a short reason explaining the performance cost; do not weaken allocation or work-budget tests.
+
+## PR mutation testing
+
+`PIT changed-source mutation testing` in [gradle.yml](../.github/workflows/gradle.yml) runs
+independently of the test lanes after `Build` and the short `Python mutation tooling` job,
+and reuses that run's compiled output. It adds no dependency to the test, Sonar or deploy lanes.
+Its **30-minute job limit** is below the Linux query test lane (45 minutes); PIT processes share a **22-minute execution budget**, leaving
+room for setup and report upload. A deadline kills the process group, preserves partial reports
+and explicitly reports incomplete analysis. A large diff may need follow-up focused runs;
+timeouts and missing evidence are never a clean score.
+
+Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
+main Java/Kotlin sources only, excluding deleted files, tests, docs and package/module descriptors.
+Both diff revisions must be full hexadecimal commit IDs; option-like values are rejected
+before Git runs. Diff paths must be canonical relative paths and selected sources must exist in
+the head commit. Literal pathspecs follow `--`; source symlinks cannot escape the module. Every
+subprocess uses an argument list with `shell=False`.
+The checkout is the PR merge revision, matching `Build`. JVM `SourceFile` attributes map source
+files to **exact compiled class names**, including nested/anonymous classes, extra top-level
+classes and Kotlin file facades. No prefix glob or whole-module fallback broadens mutation scope.
+Unmapped sources fail analysis explicitly (for example a file with no emitted bytecode); justify
+these individually in the PR. New Gradle modules need an entry in `MODULES` in
+[pr_mutation.py](../.github/scripts/pr_mutation.py).
+
+Tests named `<Source>Test` or `<Source>Tests` in the source's package are preferred when every
+changed source has one; otherwise PIT discovers the module's tests. The artifact records the
+actual test filters. This focused selection can omit integration assertions; if a survivor is
+already killed by a broader deterministic test, rerun with that test included and link the report.
+Random jqwik/property exploration, the random model oracle, HOT structural properties and soak
+suites are excluded from the PR mutation baseline; keep exploration in its normal test lane and
+promote discovered seeds to deterministic regressions. The weekly curated core PIT task is unchanged.
+
+The `pr-mutation` artifact contains source selection, exact targets and test filters, every
+undetected mutant in `results.json`, HTML/XML reports, logs and `summary.md`. The job summary
+shows killed/total separately from PIT's detected/total score (which includes timed-out mutants),
+status counts and up to 100 undetected mutants per module; the artifact retains the full list.
+Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
+Inspect both `SURVIVED` and `NO_COVERAGE`; kill them or justify each with evidence in the PR.
+
+The job runs on normal `pull_request` events, including forks and Dependabot, with only
+`contents: read`, no secrets, no persisted checkout credentials and read-only Gradle caches.
+Never use `pull_request_target` or add credentials to run untrusted PR code. Reports are artifacts
+and job summaries, so reporting needs no PR write token.
+
+**Rollout:** initially the job has `continue-on-error`; it remains visibly informational even
+when survivors or incomplete analysis fail its analysis step. Once representative PRs have no
+unresolved survivors/uncovered mutants or incomplete runs, maintainers can set the repository
+Actions variable **`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing`
+in branch protection. That single switch removes job-level tolerance; the reporter already
+rejects undetected mutants and incomplete runs. Review documented equivalent/unreachable-mutant
+justifications before enabling; there is no silent survivor allowlist. Revert the variable to
+restore informational rollout while investigating an infrastructure failure.
+
+Local reproduction (JDK 25; compile the selected modules' `classes testClasses` first):
+
+```bash
+python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation.py'
+python3 .github/scripts/pr_mutation.py select \
+  --base "$(git rev-parse origin/main)" --head "$(git rev-parse HEAD)" --output /tmp/pr-mutation
+python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1320
+# Add --blocking to reject undetected mutants and incomplete analysis locally.
+```
+
+For a broader deterministic test selection, reuse the artifact's `targets.txt` and run:
+
+```bash
+./gradlew :sirix-core:pitest -PprMutationModule=sirix-core \
+  -PprMutationTargetsFile=/tmp/pr-mutation/sirix-core/targets.txt \
+  -PprMutationTests='io.sirix.utils.NamePageHashTest*' \
+  -PprMutationReportDir=/tmp/pr-mutation-expanded
+```
+
+The opt-in [Gradle configuration](../gradle/pr-mutation.gradle) uses the existing
+[Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions. Its absence from
+normal task graphs preserves existing test-lane timing.
 
 ## Running the layers
 

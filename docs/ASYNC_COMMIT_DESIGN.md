@@ -18,8 +18,8 @@ Query application semantics are documented in [Query Updates](../README.md#query
 Micro-benchmark context (100k inserts, threshold 8k, this repo's bench
 environment): sync auto-commit 556 ms, async flush 141 ms, single commit
 106 ms. The sync-commit overhead is dominated by per-epoch durability
-barriers (any required index-catalogue fsync, buffered-tail flush, data force, two DSYNC
-beacon writes) — exactly the part this mode moves off the writer thread.
+barriers in the [commit protocol](DISK_FORMAT.md#1-files) — exactly the part
+this mode moves off the writer thread.
 
 ## Design: split the commit at the durability barrier
 
@@ -70,8 +70,9 @@ preserving changes the successor made while hardening was in flight.
   not-yet-forced bytes). No frozen-TIL indirection, no forwarding links —
   the stale-reference machinery of the async *flush* path is not involved.
 - **Durable-before-visible.** Readers resolve "latest" through
-  `lastCommittedUberPage`, which phase 2 publishes only after the beacon
-  write returns. A revision can never be opened and then lost to a crash.
+  `lastCommittedUberPage`, which phase 2 publishes only after
+  `writeUberPageReference(...)` returns with durable beacons. A revision can never
+  be opened and then lost to a crash.
 - **Crash semantics unchanged.** A crash during/after phase 1 but before the
   beacon leaves the commit marker file present and no beacon for revision N:
   the existing truncate-to-last-committed recovery discards the partial

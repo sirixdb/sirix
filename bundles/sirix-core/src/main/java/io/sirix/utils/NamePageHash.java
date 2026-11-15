@@ -37,6 +37,13 @@ public final class NamePageHash {
     throw new AssertionError();
   }
 
+  /**
+   * Returns the low two base-128 digits of the unsigned key, least significant first. Each offset is
+   * in [0, 127]; bits 14 through 31 do not affect either offset.
+   *
+   * @param key hash key, including negative values
+   * @return the two offsets
+   */
   public static int[] generateOffsets(final int key) {
     final int[] returnval = new int[2];
     returnval[0] = key & 127;
