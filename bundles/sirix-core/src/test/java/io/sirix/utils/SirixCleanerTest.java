@@ -30,11 +30,14 @@ final class SirixCleanerTest {
       calls.incrementAndGet();
       thread.set(Thread.currentThread());
     });
-    cleanup.clean();
-    cleanup.clean();
-    assertEquals(1, calls.get());
-    assertSame(Thread.currentThread(), thread.get());
-    Reference.reachabilityFence(owner);
+    try {
+      cleanup.clean();
+      cleanup.clean();
+      assertEquals(1, calls.get());
+      assertSame(Thread.currentThread(), thread.get());
+    } finally {
+      Reference.reachabilityFence(owner);
+    }
   }
 
   @Test
@@ -45,21 +48,25 @@ final class SirixCleanerTest {
         final AtomicInteger calls = new AtomicInteger();
         final Cleanable cleanup = SirixCleaner.register(owner, calls::incrementAndGet);
         final CountDownLatch start = new CountDownLatch(1);
-        final Future<?> first = workers.submit(() -> {
-          start.await();
-          cleanup.clean();
-          return null;
-        });
-        final Future<?> second = workers.submit(() -> {
-          start.await();
-          cleanup.clean();
-          return null;
-        });
-        start.countDown();
-        first.get(10, TimeUnit.SECONDS);
-        second.get(10, TimeUnit.SECONDS);
-        assertEquals(1, calls.get(), "two closing threads must return the resource exactly once");
-        Reference.reachabilityFence(owner);
+        try {
+          final Future<?> first = workers.submit(() -> {
+            start.await();
+            cleanup.clean();
+            return null;
+          });
+          final Future<?> second = workers.submit(() -> {
+            start.await();
+            cleanup.clean();
+            return null;
+          });
+          start.countDown();
+          first.get(10, TimeUnit.SECONDS);
+          second.get(10, TimeUnit.SECONDS);
+          assertEquals(1, calls.get(), "two closing threads must return the resource exactly once");
+        } finally {
+          start.countDown();
+          Reference.reachabilityFence(owner);
+        }
       }
     }
   }
@@ -73,10 +80,13 @@ final class SirixCleanerTest {
       calls.incrementAndGet();
       throw expected;
     });
-    assertSame(expected, assertThrows(IllegalStateException.class, cleanup::clean));
-    cleanup.clean();
-    assertEquals(1, calls.get());
-    Reference.reachabilityFence(owner);
+    try {
+      assertSame(expected, assertThrows(IllegalStateException.class, cleanup::clean));
+      cleanup.clean();
+      assertEquals(1, calls.get());
+    } finally {
+      Reference.reachabilityFence(owner);
+    }
   }
 
   @Test

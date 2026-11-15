@@ -29,9 +29,12 @@ public final class SirixCleaner {
   public static Cleanable register(final Object owner, final Runnable action) {
     requireNonNull(owner);
     final Cleanup cleanup = new Cleanup(requireNonNull(action));
-    cleanup.registration = Service.CLEANER.register(owner, cleanup);
-    Reference.reachabilityFence(owner);
-    return cleanup;
+    try {
+      cleanup.registration = Service.CLEANER.register(owner, cleanup);
+      return cleanup;
+    } finally {
+      Reference.reachabilityFence(owner);
+    }
   }
 
   /** Kept separate from the referent; also the action the JDK Cleaner invokes after collection. */
