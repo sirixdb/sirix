@@ -67,6 +67,16 @@ final class PageCacheConfigurationTest {
   }
 
   @Test
+  void invalidConstructorArgumentsAreRejectedEvenWithOverrides() {
+    System.setProperty(PageCache.MAX_ENTRIES_PROPERTY, "7");
+    System.setProperty(PageCache.LEGACY_BYTES_PROPERTY, "3000");
+    assertThrows(IllegalArgumentException.class, () -> new PageCache(0));
+    assertThrows(IllegalArgumentException.class, () -> new PageCache(-1));
+    assertThrows(IllegalArgumentException.class, () -> new PageCache(0L));
+    assertThrows(IllegalArgumentException.class, () -> new PageCache(-1L));
+  }
+
+  @Test
   void malformedAndOverflowingCapsDoNotFallBack() {
     System.setProperty(PageCache.LEGACY_BYTES_PROPERTY, "8589934592G");
     assertThrows(IllegalArgumentException.class, () -> new PageCache(50_000_000L));
