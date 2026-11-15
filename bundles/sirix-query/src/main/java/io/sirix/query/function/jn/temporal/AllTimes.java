@@ -15,9 +15,8 @@ import io.brackit.query.sequence.LazySequence;
 
 /**
  * <p>
- * Function for selecting a node in the future or the future-or-self. The first parameter is the
- * context node. Second parameter is if ithe current node should be included or not. Supported
- * signature is:
+ * Temporal semantics are specified in {@code docs/TEMPORAL_FUNCTIONS_SPEC.md}. Supported signature
+ * is:
  * </p>
  * <ul>
  * <li><code>jn:all-times($doc as json-item()) as json-item()*</code></li>

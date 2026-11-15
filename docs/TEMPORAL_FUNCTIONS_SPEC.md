@@ -62,9 +62,11 @@ Invariants:
    (`sdb:select-item(jn:doc('db','res', s), k)`); a field name stays a field name.
 2. **Absence is empty.** When the node does not exist in a named revision the single-revision
    functions return the empty sequence, exactly as they do for objects.
-3. **Uniform across kinds.** For every stored item the result equals what the same function
-   returns when the node is reached through its enclosing object or array in each revision.
-   Objects and arrays keep their existing result views (object, array, array slice, key array).
+3. **Uniform across kinds.** When a field resolves to the same node in every revision and its
+   enclosing object exists throughout those revisions, navigating the field value directly
+   yields the same values as selecting that field from the object's temporal results. This
+   equivalence does not extend to paths that resolve to replacement nodes. Objects and arrays
+   keep their existing result views (object, array, array slice, key array).
 
 ## Errors
 
