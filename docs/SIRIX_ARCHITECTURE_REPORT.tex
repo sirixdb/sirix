@@ -811,8 +811,8 @@ distinct lifetimes and release proofs are specified in
 \section{Structural sharing}
 
 When revision $N{+}1$ mutates a node, only the pages on its root-to-leaf path are copied;
-sibling subtrees keep their old references. The \code{UberPage} is itself immutable:
-a commit publishes a \emph{new} \code{RevisionRootPage} and atomically swaps the pointer
+sibling subtrees keep their old references. A commit publishes a \emph{new}
+\code{RevisionRootPage} and atomically swaps the \code{UberPage} pointer
 (Figure~\ref{fig:cow}).
 
 \begin{figure}[t]
@@ -1850,19 +1850,19 @@ intervals.
 
 Recovery (\pp{io/sirix/io/AbstractReader.java}, \pp{FileChannelWriter.java},
 \pp{InterruptedFirstCommitRecovery.java}) rests on three pillars: \textbf{dual-beacon
-redundancy} (validate bounds {+} XXH3, fall back PRIMARY\,\textrightarrow\,SECONDARY);
+redundancy} (selection follows the crash-window and store-feature contracts in
+\href{DISK_FORMAT.md\#1-files}{\code{DISK\_FORMAT.md}});
 \textbf{checksummed records and page bodies} (a torn record or page is caught before it is
 trusted); and \textbf{beacon repair} after truncation. The \textbf{interrupted-first-commit}
 gap (a crash before a resource's header/beacons exist, leaving a non-empty file with a
 zero header) is healed \emph{conservatively} by \code{InterruptedFirstCommitRecovery}: it
-re-initialises the resource empty only if the on-disk bytes \emph{prove} that at most the
-empty bootstrap revision was ever acknowledged (all-zero or checksum-valid superblock;
-beacons either zero or advertising only revision~0; and no checksum-valid revision record);
-otherwise it rethrows the original failure untouched.
+re-initialises the resource empty only when the safety proof in
+\href{../bundles/sirix-core/src/main/java/io/sirix/io/InterruptedFirstCommitRecovery.java}{\code{InterruptedFirstCommitRecovery}}
+establishes that data and root metadata are disposable. If the proof fails, it rethrows the original failure.
 
 \dcap{Dual-beacon recovery: which uber page wins after a crash}
 \begin{diagramS}
-on open, validate both 4 KiB beacon slots (length bounds + XXH3):
+on open, try PRIMARY, then SECONDARY after corruption (length bounds + XXH3):
 
   PRIMARY(4096)     SECONDARY(8192)    resolution
   rev N  ok         rev N  ok          clean: use rev N
@@ -8315,8 +8315,10 @@ Each follows the page envelope specified in \pp{docs/DISK\_FORMAT.md}, \S2;
 \code{i32}/\code{i64} are fixed little-endian, \code{varint}/\code{varlong} stop-bit, \code{u8} one byte,
 and an \emph{array} is an \code{i32} count then the elements.
 
+The \code{UberPage} encoding is specified in
+\href{DISK_FORMAT.md\#uberpage-store-feature-words}{\code{DISK\_FORMAT.md}, UberPage store feature words}.
+
 \begin{diagramS}
-UberPage          [i32 revisionCount]
 IndirectPage      [delegate]
 RevisionRootPage  [delegate — NO sub-tag][i32 revision][i64 maxNodeKeyDoc][i64 maxNodeKeyChanged]
                   [i64 maxNodeKeyRecordToRev][i64 revisionTimestamp][bool msg? → i32 len + bytes]

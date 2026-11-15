@@ -4,6 +4,7 @@ import io.sirix.JsonTestHelper;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.index.IndexType;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
@@ -311,7 +312,7 @@ public final class GoldenFormatTest {
       persister.serializePage(config, bytes, new UberPage(), SerializationType.DATA);
       final byte[] wire = bytes.toByteArray();
       wire[1] = Byte.MAX_VALUE;
-      assertThrows(IllegalStateException.class,
+      assertThrows(UnsupportedStoreFeatureException.class,
           () -> persister.deserializePage(config, Bytes.wrapForRead(wire), SerializationType.DATA));
     }
   }

@@ -1,6 +1,7 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.page.interfaces.Page;
@@ -62,8 +63,14 @@ public final class LegacyEnvelopeImagesTest {
         }
       }
       extended[4] = (byte) 0xbe;
-      assertTrue(assertThrows(IllegalStateException.class, () -> persister.deserializePage(config,
-          Bytes.wrapForRead(extended), SerializationType.DATA)).getMessage().contains("required page extension 190"));
+      final Class<? extends RuntimeException> unsupportedType = kind == PageKind.UBERPAGE.getID()
+          ? UnsupportedStoreFeatureException.class
+          : IllegalStateException.class;
+      final String requiredMessage = kind == PageKind.UBERPAGE.getID()
+          ? "required uber extension 0xbe"
+          : "required page extension 190";
+      assertTrue(assertThrows(unsupportedType, () -> persister.deserializePage(config,
+          Bytes.wrapForRead(extended), SerializationType.DATA)).getMessage().contains(requiredMessage));
     }
   }
 }

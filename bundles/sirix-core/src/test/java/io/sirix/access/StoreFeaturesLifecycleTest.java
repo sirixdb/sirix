@@ -318,7 +318,9 @@ class StoreFeaturesLifecycleTest {
         final var session = database.beginResourceSession("resource");
         final var reader = session.beginNodeReadOnlyTrx()) {
       assertEquals(1, reader.getRevisionNumber());
-      assertEquals(secondaryOnly ? 2 : 1, AbstractReader.beaconReads() - beaconsBefore);
+      assertEquals(secondaryOnly
+          ? 2
+          : 1, AbstractReader.beaconReads() - beaconsBefore);
       assertThrows(UnsupportedStoreFeatureException.class, session::beginNodeTrx);
       final IOStorage storage = StorageType.getStorage(config);
       try (final Reader direct = storage.createReader()) {
@@ -882,20 +884,17 @@ class StoreFeaturesLifecycleTest {
 
   private static byte[][] unsupportedUberPayloads() {
     final var hex = HexFormat.of();
-    return new byte[][] {
-        hex.parseHex("03008002810002000000"),
-        hex.parseHex("03008010c10c010000000000000000000000c20002000000"),
-        hex.parseHex("03010002000000"),
-        hex.parseHex("03000102000000"),
-        hex.parseHex("0300800ec10c01000000000000000000000002000000")};
+    return new byte[][] {hex.parseHex("03008002810002000000"),
+        hex.parseHex("03008010c10c010000000000000000000000c20002000000"), hex.parseHex("03010002000000"),
+        hex.parseHex("03000102000000"), hex.parseHex("0300800ec10c01000000000000000000000002000000")};
   }
 
   private void assertUnsupportedBackupAndRestore() {
     final Path backup = directory.resolve("unsupported-backup");
     final Path restored = directory.resolve("unsupported-restored");
     assertThrows(UnsupportedStoreFeatureException.class, () -> BackupManager.backupDatabase(databasePath, backup));
-    final var failure = assertThrows(SirixIOException.class,
-        () -> BackupManager.restoreDatabase(databasePath, restored));
+    final var failure =
+        assertThrows(SirixIOException.class, () -> BackupManager.restoreDatabase(databasePath, restored));
     assertTrue(failure.getCause() instanceof UnsupportedStoreFeatureException);
     assertFalse(Files.exists(backup));
     assertFalse(Files.exists(restored));

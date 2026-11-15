@@ -98,8 +98,8 @@ one-second recheck also finds missed notifications. Ordinary source commits neit
 derived writer lock nor write aggregate pages. The hidden resource uses `FILE_CHANNEL`,
 `SLIDING_SNAPSHOT`, custom source timestamps, and no diffs, node history or path summary.
 For an encrypted source, it inherits the source byte-handler pipeline and encryption key reference.
-Opening an existing derived resource checks that it preserves the source's encryption configuration;
-an incompatible resource is rebuilt rather than accepted.
+Opening an existing derived resource checks that it preserves the source's encryption configuration.
+An encryption mismatch uses the recreation rules below.
 
 The maintainer builds new declarations from the committed projection and applies subsequent slabs
 without projection or document reads. It mirrors only aggregate declarations into the derived
@@ -210,7 +210,8 @@ the last mapping with a verified source log identity. Declaration-free mappings 
 and cannot anchor recovery; the worker walks back to a verified mapping and replays through normal
 bounded batches and separate folds.
 
-A missing, incomplete or unreadable derived resource is recreated from the authoritative source.
+A missing, incomplete or unreadable derived resource is recreated from the authoritative source
+subject to the [store-feature compatibility contract](DISK_FORMAT.md#uberpage-store-feature-words).
 Rebuilding scans committed projections for declarations and replays subsequent covered slabs;
 queries use the exact fallback until a matching derived snapshot is available.
 

@@ -63,8 +63,9 @@ See `ResourceSettingsExtensionsTest` for independent settings mutations.
 Page keys (`PageReference.getKey()`) are absolute byte offsets of the record's length prefix.
 The header region stays a sparse hole until the first commit writes it (`IOStorage.exists()`
 checks size > 0 to distinguish fresh resources). Beacon recovery validates
-`[len][payload][XXH3]` — both length bounds and checksum — and falls back primary → secondary;
-storage open validates the superblock (magic/version/endianness/role/checksum) and fails fast with an
+`[len][payload][XXH3]` bounds and checksum before decoding the root. The crash-window contract
+below defines beacon selection. Storage open validates the superblock
+(magic/version/endianness/role/checksum) and fails fast with an
 actionable message on any mismatch. The three spare bytes at offsets 13–15 must be zero;
 nonzero values are refused even when the checksum is valid. Their future use requires a
 `LAYOUT_VERSION` decision, not an optional extension block. `SuperblockSpareBytesTest` pins
@@ -131,8 +132,9 @@ a separate revisions-file force on every steady-state commit. The invariants tha
 Covered by `LazyRevisionRecordRecoveryTest` (staging, salvage + heal, out-of-window failure,
 post-eviction durability, torn-entry rejection).
 
-**Crash-window contract:** recovery prefers a valid PRIMARY and otherwise falls back to
-SECONDARY. A commit that did not return may be absent or may be visible if its beacon
+**Crash-window contract:** recovery prefers PRIMARY and falls back to SECONDARY after
+corruption. Compatibility refusal follows the [store feature policy](#uberpage-store-feature-words).
+A commit that did not return may be absent or may be visible if its beacon
 reached stable storage; an acknowledged commit must survive under the durability contract.
 With buffered beacons, issuing SECONDARY first does not guarantee it becomes durable first:
 the final force covers both. With ordered O_DSYNC beacons, SECONDARY is already durable when
@@ -538,10 +540,11 @@ defines the access policy for unknown bits:
 | `readOnlyCompat` | Permit read-only access | Refuse, including revert, truncate and index creation | Refuse |
 | `compat` | Ignore | Ignore | Refuse |
 
-This build implements the words but assigns no supported feature bits. Refusal raises
+This build implements the words but assigns no supported feature bits. Feature-word refusal raises
 `UnsupportedStoreFeatureException`, naming the word and hexadecimal mask and requesting an upgrade.
-Unsupported features are not corruption: a valid unsupported primary beacon must not fall back
-to an older compatible secondary, and recovery must not rebuild an unsupported derived store.
+Unknown UberPage versions, flags and required entries also raise this exception.
+Compatibility refusal from either selected beacon propagates immediately, preserving the
+store's requirements. Recovery must preserve unsupported derived stores.
 An unknown read-only-compatible bit also forbids implicit file creation, record healing and
 orphan-spill cleanup. Reads still require intact or recoverable revision metadata; a missing
 revisions file cannot be created to make such an open succeed.
