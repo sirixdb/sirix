@@ -94,10 +94,10 @@ class StoreFeaturesLifecycleTest {
     try (final var database = openDatabase(type)) {
       for (int resource = 0; resource < 16; resource++) {
         assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource-" + resource)
-                                                     .storageType((resource & 1) == 0
-                                                         ? StorageType.FILE_CHANNEL
-                                                         : StorageType.MEMORY_MAPPED)
-                                                     .build()));
+                                                                .storageType((resource & 1) == 0
+                                                                    ? StorageType.FILE_CHANNEL
+                                                                    : StorageType.MEMORY_MAPPED)
+                                                                .build()));
       }
     }
     Databases.clearGlobalCaches();
@@ -150,8 +150,7 @@ class StoreFeaturesLifecycleTest {
     }
     materializeRevisionRecords();
     final long before = AbstractReader.beaconReads();
-    try (final var database = openDatabase(type);
-        final var session = database.beginResourceSession("resource")) {
+    try (final var database = openDatabase(type); final var session = database.beginResourceSession("resource")) {
       assertEquals(1, session.getMostRecentRevisionNumber());
       assertEquals(1, AbstractReader.beaconReads() - before, "resource initialization must reuse its committed beacon");
       assertEquals(session, database.beginResourceSession("resource"));
@@ -168,7 +167,8 @@ class StoreFeaturesLifecycleTest {
     final var opened = InterruptedFirstCommitRecovery.openStorageForTool(config);
     try {
       assertEquals(1, opened.uberPage().getRevisionNumber());
-      assertEquals(1, AbstractReader.beaconReads() - before, "tool initialization must reuse its compatibility snapshot");
+      assertEquals(1, AbstractReader.beaconReads() - before,
+          "tool initialization must reuse its compatibility snapshot");
     } finally {
       opened.storage().close();
     }
@@ -195,7 +195,8 @@ class StoreFeaturesLifecycleTest {
     try {
       assertEquals(1, storage.getOpeningUberPage().getRevisionNumber());
       try (final var database = Databases.openJsonDatabase(databasePath);
-          final var session = database.beginResourceSession("resource"); final var writer = session.beginNodeTrx()) {
+          final var session = database.beginResourceSession("resource");
+          final var writer = session.beginNodeTrx()) {
         writer.commit();
       }
       storage.getRevisionIndexHolder().update(RevisionIndex.EMPTY);
@@ -784,10 +785,8 @@ class StoreFeaturesLifecycleTest {
                                                    .storageType(storageType)
                                                    .useConventionalValidTimePaths()
                                                    .build());
-      database.createResource(ResourceConfiguration.newBuilder(name)
-                                                   .storageType(storageType)
-                                                   .aggregateKernel(true)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(name).storageType(storageType).aggregateKernel(true).build());
       try (final var derived = database.beginResourceSession(name); final var writer = derived.beginNodeTrx()) {
         config = derived.getResourceConfig();
         if (invalidSnapshot) {
@@ -811,7 +810,9 @@ class StoreFeaturesLifecycleTest {
     final Map<Path, byte[]> snapshot = new HashMap<>();
     try (final var paths = Files.walk(config.resourcePath)) {
       for (final Path path : paths.toList()) {
-        snapshot.put(config.resourcePath.relativize(path), Files.isDirectory(path) ? null : Files.readAllBytes(path));
+        snapshot.put(config.resourcePath.relativize(path), Files.isDirectory(path)
+            ? null
+            : Files.readAllBytes(path));
       }
     }
     return snapshot;
