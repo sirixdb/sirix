@@ -9,6 +9,8 @@ import io.sirix.query.SirixQueryContext;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.json.BasicJsonDBStore;
 import java.nio.file.Path;
+import java.util.List;
+import org.jline.utils.AttributedString;
 import java.io.Writer;
 import java.io.BufferedWriter;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -141,17 +143,106 @@ final class ShellOutputTest {
         writer.setValue("2");
         writer.commit();
       }
-      final String source = "xn:diff('shop','resource1',1,2)";
-      final StringWriter out = new StringWriter();
-      new ShellOutput(ShellPalette.ANSI_16, new PrintWriter(out), new PrintWriter(Writer.nullWriter())).result(
-          new Query(chain, source), ctx, source);
-      assertTrue(out.toString().contains("\033[33mreplace\033[0m"), out.toString());
+      for (final String source : List.of("xn:diff('shop','resource1',1,2)",
+          "(: leading :) xn:diff (: argument list :) ('shop','resource1',1,2) (: trailing :)")) {
+        final String rendered = render(chain, ctx, source);
+        assertTrue(rendered.contains("\033[33mreplace\033[0m"), rendered);
+        assertSerializedPayload(chain, ctx, source, rendered);
+      }
     }
     final String source = "(: jn:diff('a','b',1,2) :) {\"insert\":1}";
     final StringWriter out = new StringWriter();
     new ShellOutput(ShellPalette.ANSI_16, new PrintWriter(out), new PrintWriter(Writer.nullWriter())).result(
         new Query(source), new BrackitQueryContext(), source);
     assertTrue(out.toString().contains("\033[36m\"insert\"\033[0m"), out.toString());
+  }
+
+  @Test
+  void skippedDeferredAndMixedDiffCallsKeepOrdinaryResultStyles() throws Exception {
+    try (final var json = BasicJsonDBStore.newBuilder().location(directory.resolve("json-context")).build();
+        final var xml = BasicXmlDBStore.newBuilder().location(directory.resolve("xml-context")).build();
+        final var ctx = SirixQueryContext.createWithJsonStoreAndNodeStoreAndCommitStrategy(xml, json,
+            SirixQueryContext.CommitStrategy.AUTO);
+        final var chain = SirixCompileChain.createWithNodeAndJsonStore(xml, json)) {
+      json.create("shop", "products", "{\"price\":999}");
+      new Query(chain, "replace json value of jn:doc('shop','products').price with 899").execute(ctx);
+      final var collection = xml.create("shop", new DocumentParser("<a>1</a>"));
+      try (final var writer = collection.getDocument("resource1").getTrx().getResourceSession().beginNodeTrx()) {
+        writer.moveToFirstChild();
+        writer.moveToFirstChild();
+        writer.setValue("2");
+        writer.commit();
+      }
+      final String ordinary = "{\"insert\":1,\"update\":2,\"replace\":3,\"delete\":4}";
+      for (final String call : List.of("jn:diff('shop','products',1,2)", "xn:diff('shop','resource1',1,2)")) {
+        for (final String source : List.of("if (false()) then " + call + " else " + ordinary,
+            "(if (false()) then " + call + " else (), " + ordinary + ")",
+            "((for $unused in () return " + call + "), " + ordinary + ")",
+            "declare function local:unused() { " + call + " }; " + ordinary, "(" + call + ", " + ordinary + ")",
+            "(" + ordinary + ", " + call + ")")) {
+          final String rendered = render(chain, ctx, source);
+          final var styled = AttributedString.fromAnsi(rendered);
+          for (final String operation : List.of("insert", "update", "replace", "delete")) {
+            final int offset = styled.toString().lastIndexOf("\"" + operation + "\"");
+            assertTrue(offset >= 0, source);
+            assertEquals(AttributedString.fromAnsi("\033[36mX").styleAt(0), styled.styleAt(offset), source);
+          }
+          assertSerializedPayload(chain, ctx, source, rendered);
+        }
+        for (final String word : List.of("insert", "append", "replace", "rename", "delete")) {
+          for (final String source : List.of("if (false()) then " + call + " else '" + word + "'",
+              "(" + call + ", '" + word + "')")) {
+            final String rendered = render(chain, ctx, source);
+            final var styled = AttributedString.fromAnsi(rendered);
+            assertEquals(AttributedString.fromAnsi("\033[0mX").styleAt(0),
+                styled.styleAt(styled.toString().lastIndexOf(word)), source);
+            assertSerializedPayload(chain, ctx, source, rendered);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void onlySupportedDirectDiffFormsSelectOperationStyles() throws Exception {
+    try (final var store = BasicJsonDBStore.newBuilder().location(directory.resolve("direct-context")).build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      store.create("shop", "products", "{\"price\":999}");
+      new Query(chain, "replace json value of jn:doc('shop','products').price with 899").execute(ctx);
+      for (final String source : List.of("jn:diff('shop','products',1,2)", "jn:diff('shop','products',1,2,0)",
+          "jn:diff('shop','products',1,2,0,0)",
+          "(: leading :) jn:diff ('shop',(: argument :) 'products',1,2) (: trailing :)")) {
+        final String rendered = render(chain, ctx, source);
+        assertTrue(rendered.contains("\033[33m\"update\"\033[0m"), source + rendered);
+        assertSerializedPayload(chain, ctx, source, rendered);
+      }
+      for (final String source : List.of("(jn:diff('shop','products',1,2))", "jn:diff(('shop'),'products',1,2)",
+          "jn:diff('shop','products',1,1+1)", "jn:diff('shop','products',1,2).diffs")) {
+        final String rendered = render(chain, ctx, source);
+        assertTrue(rendered.contains("\033[36m\"update\"\033[0m"), source + rendered);
+        assertSerializedPayload(chain, ctx, source, rendered);
+      }
+    }
+  }
+
+  private static String render(final SirixCompileChain chain, final SirixQueryContext ctx, final String source)
+      throws Exception {
+    final StringWriter out = new StringWriter();
+    new ShellOutput(ShellPalette.ANSI_16, new PrintWriter(out), new PrintWriter(Writer.nullWriter()), () -> 0L).result(
+        new Query(chain, source), ctx, source);
+    return out.toString();
+  }
+
+  private static void assertSerializedPayload(final SirixCompileChain chain, final SirixQueryContext ctx,
+      final String source, final String rendered) {
+    final StringWriter serialized = new StringWriter();
+    final SirixStringSerializer serializer = new SirixStringSerializer(new PrintWriter(serialized));
+    serializer.setFormat(true);
+    new Query(chain, source).serialize(ctx, serializer);
+    final String plain = ShellResultWriterTest.strip(rendered);
+    final String nl = System.lineSeparator();
+    assertEquals("Query result" + nl + serialized + nl + "  0 ms" + nl + nl, plain, source);
   }
 
   @Test

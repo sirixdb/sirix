@@ -7,6 +7,8 @@ import io.sirix.query.SirixStringSerializer;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Objects;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.LongSupplier;
 
 /** Presentation of an already serialized result; the plain branch retains the CLI byte contract. */
@@ -53,12 +55,30 @@ public final class ShellOutput {
   }
 
   private static boolean isDiff(final String source) {
+    final List<ShellHighlighter.Token> tokens = new ArrayList<>(14);
     for (final var token : ShellHighlighter.tokens(source)) {
-      if (token.kind() == ShellHighlighter.Kind.FUNCTION
-          && (token.text().equals("jn:diff") || token.text().equals("xn:diff")))
-        return true;
+      if (token.kind() != ShellHighlighter.Kind.COMMENT && !token.text().isBlank())
+        tokens.add(token);
     }
-    return false;
+    final int size = tokens.size();
+    if (size < 10)
+      return false;
+    final String name = tokens.getFirst().text();
+    final boolean json = name.equals("jn:diff");
+    if (!json && !name.equals("xn:diff"))
+      return false;
+    if (size > (json
+        ? 14
+        : 10) || size % 2 != 0 || !tokens.get(1).text().equals("(") || !tokens.getLast().text().equals(")"))
+      return false;
+    for (int i = 2; i < size - 1; i += 2) {
+      final ShellHighlighter.Kind expected = i < 6
+          ? ShellHighlighter.Kind.STRING
+          : ShellHighlighter.Kind.NUMBER;
+      if (tokens.get(i).kind() != expected || (i > 2 && !tokens.get(i - 1).text().equals(",")))
+        return false;
+    }
+    return true;
   }
 
   public void error(final QueryException exception) {

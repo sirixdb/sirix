@@ -64,3 +64,12 @@ JSON diff keys `update` and `replace` both use orange modification styling. The 
 key stays blue in ordinary JSON output, and XML diff replacement words remain orange.
 `ShellResultWriterTest` checks the exact styles and `ShellOutputTest` executes a structural
 replacement followed by `jn:diff` through the terminal output entry point.
+
+Diff operation colours apply when the complete significant source is a direct literal
+`jn:diff` or `xn:diff` call. Both support four arguments. JSON's registered five- and
+six-argument forms also qualify. Database/resource arguments must be string literals,
+and revision/subtree arguments must be numeric literals. Whitespace and comments may
+surround or separate these tokens. Skipped, deferred, nested, dynamic and mixed-result
+expressions retain ordinary result styling. `ShellOutputTest` executes the reported
+skipped branch, both stores' direct diffs, mixed results and deferred calls, checking
+actual output styles and serialized payloads.
