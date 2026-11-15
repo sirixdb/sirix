@@ -15,6 +15,11 @@ import io.sirix.index.path.summary.PathSummaryReader;
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public interface Axis extends LongIterable, LongIterator, SirixAxis, AutoCloseable {
+  /**
+   * Release traversal-owned work, including producers owned through composed axes. Call this when
+   * abandoning traversal early, before closing the transactions used by the axis. Closing an axis
+   * does not close caller-owned transactions; axes without owned work need no cleanup.
+   */
   @Override
   default void close() {}
 

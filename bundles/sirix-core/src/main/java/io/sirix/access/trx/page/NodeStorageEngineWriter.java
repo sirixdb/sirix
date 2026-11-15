@@ -5208,8 +5208,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storagePageReaderWriter.discardSpilledWrites();
       return;
     }
-    // Use the retained immutable session/config directly: close() invokes this after the reader has
-    // been closed, where the forwarding accessor correctly refuses normal read operations.
+    // Use the retained immutable session/config directly during rollback cleanup, independent of
+    // the forwarding reader's lifecycle. Failed close hands recovery to the next admission.
     final ResourceConfiguration resourceConfiguration = storageEngineReader.resourceSession.getResourceConfig();
     Databases.clearCachesForResource(resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
     hasUncommittedReclaimableWrites = false;

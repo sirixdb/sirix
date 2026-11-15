@@ -209,8 +209,9 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   }
 
   /**
-   * Cleanup method to ensure the executor service is properly shut down. This is called automatically
-   * by done(), but can also be called explicitly for cleanup in case of exceptions.
+   * Cancel and fence the producer before closing its owned traversal. Unlike normal exhaustion in
+   * {@link #done()}, early close requests cancellation. Interruption is restored after the fence;
+   * cancellation alone does not permit the caller to close the producer's transaction.
    */
   @Override
   public synchronized void close() {
