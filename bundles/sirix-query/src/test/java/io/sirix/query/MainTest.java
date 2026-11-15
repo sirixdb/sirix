@@ -13,7 +13,10 @@ import java.nio.charset.StandardCharsets;
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.io.Console;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +39,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -112,6 +116,42 @@ final class MainTest {
   }
 
   @Test
+  void consoleStateControlsSystemTerminalRoutingAndLifetime() throws Exception {
+    final Console console = mock(Console.class);
+    final Terminal terminal = mock(Terminal.class);
+    final StringWriter output = new StringWriter();
+    when(terminal.writer()).thenReturn(new PrintWriter(output));
+    final TerminalBuilder terminals = mock(TerminalBuilder.class, RETURNS_SELF);
+    when(terminals.build()).thenReturn(terminal);
+    try (final MockedStatic<TerminalBuilder> factory = mockStatic(TerminalBuilder.class)) {
+      factory.when(TerminalBuilder::builder).thenReturn(terminals);
+      final String[] args = {"-q", "1", "--no-color"};
+      when(console.isTerminal()).thenReturn(false);
+      assertEquals(0, Main.run(args, console));
+      verify(terminals, never()).build();
+      assertEquals("", output.toString());
+      when(console.isTerminal()).thenReturn(true);
+      assertEquals(0, Main.run(args, console));
+      final String nl = System.lineSeparator();
+      assertEquals(nl + "Query result" + nl + "1" + nl + nl, output.toString());
+      verify(terminals).system(true);
+      verify(terminals).build();
+      verify(terminal).close();
+      final LineReader reader = mock(LineReader.class);
+      when(reader.readLine(anyString())).thenThrow(new EndOfFileException());
+      final LineReaderBuilder readers = mock(LineReaderBuilder.class, RETURNS_SELF);
+      when(readers.build()).thenReturn(reader);
+      try (final MockedStatic<LineReaderBuilder> readerFactory = mockStatic(LineReaderBuilder.class)) {
+        readerFactory.when(LineReaderBuilder::builder).thenReturn(readers);
+        assertEquals(0, Main.run(new String[] {"--no-color"}, console));
+        verify(reader).readLine("sirix> ");
+        verify(readers).terminal(terminal);
+        verify(terminal, times(2)).close();
+      }
+    }
+  }
+
+  @Test
   void interactiveQueriesRenderRecoverFromErrorsAndCloseTheirTerminal() throws Exception {
     final LineReader reader = mock(LineReader.class);
     when(reader.readLine(anyString()))
@@ -157,6 +197,26 @@ final class MainTest {
   }
 
   private static String[] invoke(final String input, final String... arguments) {
+    return invoke(0, input, arguments);
+  }
+
+  @Test
+  void batchQueryErrorsPreserveDiagnosticsAndFailureStatusAcrossDispatches() throws Exception {
+    for (final String[] failure : new String[][] {{"1+", "err:XPST0003"}, {"1 idiv 0", "err:FOAR0001"}}) {
+      final Path queryFile = directory.resolve("invalid query.xq");
+      Files.writeString(queryFile, failure[0]);
+      for (final String[] args : new String[][] {{"-q", failure[0]}, {"-qf", queryFile.toString()}, {"-qf", "-"}, {}}) {
+        final String[] output = invoke(-1, failure[0], args);
+        assertTrue(output[1].startsWith("Error: " + failure[1]), output[1]);
+      }
+    }
+    final Path missing = directory.resolve("missing.xq");
+    final String[] output = invoke(-1, "", "-qf", missing.toString());
+    assertEquals("", output[0]);
+    assertEquals("I/O Error: " + missing + System.lineSeparator(), output[1]);
+  }
+
+  private static String[] invoke(final int expectedStatus, final String input, final String... arguments) {
     final InputStream previousIn = System.in;
     final PrintStream previousOut = System.out;
     final PrintStream previousErr = System.err;
@@ -167,7 +227,10 @@ final class MainTest {
       System.setIn(new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)));
       System.setOut(out);
       System.setErr(err);
-      Main.main(arguments);
+      if (expectedStatus == 0)
+        Main.main(arguments);
+      else
+        assertEquals(expectedStatus, Main.run(arguments, null));
       return new String[] {output.toString(StandardCharsets.UTF_8), error.toString(StandardCharsets.UTF_8)};
     } finally {
       System.setIn(previousIn);
@@ -187,6 +250,26 @@ final class MainTest {
       writer.print(text);
       writer.flush();
       assertArrayEquals(text.getBytes(charset), bytes.toByteArray());
+    }
+  }
+
+  @Test
+  void batchQueryErrorExitsTheProcessWithADiagnostic() throws Exception {
+    final Path error = directory.resolve("error.txt");
+    final Process process = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+        "--enable-preview", "--add-modules=jdk.incubator.vector", "--enable-native-access=ALL-UNNAMED", "-Xmx128m",
+        "-Dstderr.encoding=UTF-8", "-Duser.home=" + directory, "-cp", System.getProperty("java.class.path"),
+        Main.class.getName(), "-q", "1+").redirectOutput(directory.resolve("out.txt").toFile())
+                                         .redirectError(error.toFile())
+                                         .start();
+    try {
+      assertTrue(process.waitFor(60, TimeUnit.SECONDS), Files.readString(error));
+      assertTrue(process.exitValue() != 0, "Query errors must fail the process");
+      assertTrue(Files.readString(error).contains("Error: err:XPST0003:"), Files.readString(error));
+    } finally {
+      if (process.isAlive())
+        process.destroyForcibly();
+      process.waitFor();
     }
   }
 

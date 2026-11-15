@@ -86,6 +86,9 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
   empty-buffer decisions at callers that admit empty buffers.
   Evidence: [shell CI boundaries](postmortems/shell-ci-boundaries.md) and
   [CI follow-up](postmortems/shell-ci-follow-up.md).
+  Keep process termination at the entry point and expose command status separately
+  so mutation tests can assert batch failures without terminating their JVM.
+  Evidence: [CLI mutation coverage](postmortems/shell-cli-mutation-coverage.md).
 
 ### Lexical language boundaries
 

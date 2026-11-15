@@ -74,7 +74,7 @@ public final class ShellOutput {
         ? 14
         : 10) || size % 2 != 0 || !tokens.get(1).text().equals("(") || !tokens.getLast().text().equals(")"))
       return DiffMode.NONE;
-    for (int i = 2; i < size - 1; i += 2) {
+    for (int i = 2; i < size; i += 2) {
       final ShellHighlighter.Kind expected = i < 6
           ? ShellHighlighter.Kind.STRING
           : ShellHighlighter.Kind.NUMBER;

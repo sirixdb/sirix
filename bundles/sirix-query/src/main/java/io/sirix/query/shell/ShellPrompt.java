@@ -66,16 +66,14 @@ public final class ShellPrompt {
 
   public static @Nullable Reference reference(final String query) {
     final List<ShellHighlighter.Token> tokens = significantTokens(query);
-    if (tokens.size() < 6)
+    if (tokens.isEmpty())
       return null;
     final boolean bound = tokens.getFirst().text().equals("let");
-    final int start;
-    if (bound) {
-      if (!boundPrefix(tokens))
-        return null;
-      start = 4;
-    } else
-      start = 0;
+    final int start = bound
+        ? 4
+        : 0;
+    if (tokens.size() - start < 6 || (bound && !boundPrefix(tokens)))
+      return null;
     final String name = tokens.get(start).text();
     if (!literalCall(tokens, start, name))
       return null;
@@ -128,8 +126,8 @@ public final class ShellPrompt {
   }
 
   private static boolean boundPrefix(final List<ShellHighlighter.Token> tokens) {
-    return tokens.size() >= 14 && tokens.get(1).kind() == ShellHighlighter.Kind.VARIABLE
-        && tokens.get(2).text().equals(":") && tokens.get(3).text().equals("=");
+    return tokens.get(1).kind() == ShellHighlighter.Kind.VARIABLE && tokens.get(2).text().equals(":")
+        && tokens.get(3).text().equals("=");
   }
 
   private static boolean literalCall(final List<ShellHighlighter.Token> tokens, final int start, final String name) {

@@ -210,8 +210,9 @@ final class ShellPromptTest {
   @Test
   void unsupportedAndIncompleteUpdateShapesStayNeutral() {
     for (final String input : List.of("jn:doc('a','b') + 1", "jn:store('a','b',$data)", "jn:store('a','b','[]',true())",
-        "jn:doc('a','b',1,2)", "let $d", "let $d = jn:doc('a','b')", "let $d := jn:doc('a','b') return 42",
-        "let $d := jn:doc('a','b') return delete json $d", "let $d := jn:doc('a','b') return replace json value",
+        "jn:doc('a','b',1,2)", "", "(: comment only :)", "let $d", "let $d := jn:doc(", "let $d = jn:doc('a','b')",
+        "let $d := jn:doc('a','b') return 42", "let $d := jn:doc('a','b') return delete json $d",
+        "let $d := jn:doc('a','b') return replace json value",
         "let $d := jn:doc('a','b') return replace json value of $d",
         "let $d := jn:doc('a','b',1) return delete json $d[0]",
         "let $d := jn:doc('a','b') return if (false()) then delete json $d[0] else ()",

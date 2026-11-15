@@ -48,6 +48,7 @@ import io.brackit.query.util.io.URIHandler;
 import io.sirix.service.json.shredder.JsonShredder;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Console;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
@@ -74,6 +75,7 @@ import org.jline.terminal.TerminalBuilder;
 import org.jline.utils.InfoCmp.Capability;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.jspecify.annotations.Nullable;
 
 /**
  * @author Sebastian Baechle
@@ -92,12 +94,16 @@ public final class Main {
   }
 
   public static void main(final String[] args) {
+    final int status = run(args, System.console());
+    if (status != 0)
+      System.exit(status);
+  }
+
+  static int run(final String[] args, final @Nullable Console console) {
     Config config = new Config();
     try {
       config = parseParams(args);
-      // System.console() remains nullable by its API contract.
-      @SuppressWarnings("SystemConsoleNull")
-      final boolean tty = System.console() != null && System.console().isTerminal();
+      final boolean tty = console != null && console.isTerminal();
       try (Terminal terminal = tty
           ? TerminalBuilder.builder().system(true).build()
           : null;
@@ -121,10 +127,11 @@ public final class Main {
     } catch (Exception e) {
       if (e instanceof QueryException queryException) {
         handleQueryException(config, queryException);
-        System.exit(-1);
       } else
         handleException(e);
+      return -1;
     }
+    return 0;
   }
 
   static PrintWriter outputWriter(final PrintStream stream) {
@@ -186,7 +193,7 @@ public final class Main {
       executeInteractiveQuery(config, compileChain, ctx);
     } else if (config.isSet("-iqf")) {
       executeFileInteractiveQuery(config, compileChain, ctx);
-    } else if (System.console() != null && System.console().isTerminal()) {
+    } else if (config.terminal != null) {
       // No query given and stdin is a terminal: start the interactive shell.
       // Piped input (e.g. `echo '1+1' | sirix-shell`) is still read as a single query below.
       executeInteractiveQuery(config, compileChain, ctx);
@@ -280,15 +287,11 @@ public final class Main {
   }
 
   private static void handleException(Exception e) {
-    if (e instanceof QueryException) {
-      System.err.println("Error: " + e.getMessage());
-    } else if (e instanceof IOException) {
+    if (e instanceof IOException) {
       System.err.println("I/O Error: " + e.getMessage());
     } else {
       System.err.println("Error: " + e.getMessage());
     }
-
-    System.exit(-1);
   }
 
   static String readStringFromScannerWithEndMark(LineReader lineReader, String prompt, ShellHighlighter highlighter) {
