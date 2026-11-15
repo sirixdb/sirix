@@ -201,7 +201,9 @@ final class ShellPromptTest {
         "let $d := jn:doc('a','b') return replace json value of $d[0] with 1")) {
       for (int end = 0; end <= input.length(); end++) {
         final String partial = input.substring(0, end);
-        assertDoesNotThrow(() -> ShellPrompt.reference(partial), partial);
+        assertDoesNotThrow(() -> {
+          ShellPrompt.reference(partial);
+        }, partial);
       }
     }
   }
