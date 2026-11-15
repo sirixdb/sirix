@@ -98,3 +98,17 @@ Each remaining survivor is equivalent:
   different table than the owned fragment. The live page binds one table for life and the replay
   reproduces the first copy-on-write's binding, so that state cannot arise. Were it to arise,
   `setFsstSymbolTableId` would refuse the rebind.
+
+Write-path cost: a temporary JMH benchmark (not committed) timed one `NONE`-hash edit transaction
+against a reused table on a full page and its neighbour: 81 oversized edits in three passes, then a
+commit. One arm adds a spilling epoch per pass; the control never rotates. Fixed and base
+(`650263ffe`) jars alternated over six rounds, one fork per arm per round, each round on an idle
+machine pinned to the performance cores, with 15 warm-up and 40 measured single-shot iterations.
+
+| Arm | Base, per-round means (ms/op) | Fixed, per-round means (ms/op) | Medians |
+| --- | --- | --- | --- |
+| No rotation (control) | 40.8, 46.4, 47.0, 42.7, 42.6, 31.1 | 43.1, 40.8, 39.8, 39.0, 37.2, 36.0 | 42.7 to 39.4: parity |
+| Spilling epoch per pass | 113.6, 119.0, 131.1, 124.4, 121.7, 97.0 | 71.2, 83.6, 69.6, 63.2, 74.6, 74.8 | 120.3 to 72.9: 39 % faster |
+
+The rotating path saves the decompress-on-merge of the committed chain and the raw carrier pages.
+The non-rotating path changes only by the extracted pending-record loop.
