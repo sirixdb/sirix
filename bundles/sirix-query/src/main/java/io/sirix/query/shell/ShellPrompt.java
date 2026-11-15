@@ -5,6 +5,7 @@ import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.node.XmlDBCollection;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import org.jspecify.annotations.Nullable;
 
 /** Conservative context indicator: never guesses dynamic query arguments or executes a query. */
@@ -12,13 +13,16 @@ public final class ShellPrompt {
   public record Reference(String database, String resource, int revision, boolean xml) {
   }
 
+  private static final Set<String> UPDATE_KEYWORDS =
+      Set.of("replace", "json", "value", "of", "with", "append", "into", "delete", "true", "false", "null");
+
   private String text = "sirix> ";
 
   public String text() {
     return text;
   }
 
-  public void observe(final String query, final QueryContext context, final boolean updating) {
+  public void observe(final String query, final QueryContext context) {
     text = "sirix> ";
     final Reference ref = reference(query);
     if (ref == null)
@@ -40,7 +44,7 @@ public final class ShellPrompt {
           return;
         latest = json.getDatabase().beginResourceSession(ref.resource()).getMostRecentRevisionNumber();
       }
-      final int revision = updating || ref.revision() < 0
+      final int revision = ref.revision() < 0
           ? latest
           : ref.revision();
       text = "sirix " + safe(ref.database()) + "/" + safe(ref.resource()) + "@" + revision + "> ";
@@ -66,38 +70,83 @@ public final class ShellPrompt {
       if (token.kind() != ShellHighlighter.Kind.COMMENT && !token.text().isBlank())
         tokens.add(token);
     }
-    Reference found = null;
-    for (int i = 0; i < tokens.size(); i++) {
-      final String name = tokens.get(i).text();
-      if (tokens.get(i).kind() != ShellHighlighter.Kind.FUNCTION
-          || !(name.equals("jn:doc") || name.equals("jn:store") || name.equals("xn:doc") || name.equals("xn:store")))
-        continue;
-      if (i + 5 >= tokens.size() || !tokens.get(i + 1).text().equals("(")
-          || tokens.get(i + 2).kind() != ShellHighlighter.Kind.STRING || !tokens.get(i + 3).text().equals(",")
-          || tokens.get(i + 4).kind() != ShellHighlighter.Kind.STRING)
+    if (tokens.size() < 6)
+      return null;
+    final boolean bound = tokens.getFirst().text().equals("let");
+    final int start;
+    if (bound) {
+      if (tokens.size() < 14 || tokens.get(1).kind() != ShellHighlighter.Kind.VARIABLE
+          || !tokens.get(2).text().equals(":") || !tokens.get(3).text().equals("="))
         return null;
-      final String database = unquote(tokens.get(i + 2).text());
-      final String resource = unquote(tokens.get(i + 4).text());
-      if (database == null || resource == null)
+      start = 4;
+    } else
+      start = 0;
+    final String name = tokens.get(start).text();
+    if (!(name.equals("jn:doc") || name.equals("jn:store") || name.equals("xn:doc") || name.equals("xn:store"))
+        || !tokens.get(start + 1).text().equals("(")
+        || tokens.get(start + 2).kind() != ShellHighlighter.Kind.STRING
+        || !tokens.get(start + 3).text().equals(",")
+        || tokens.get(start + 4).kind() != ShellHighlighter.Kind.STRING)
+      return null;
+    final String database = unquote(tokens.get(start + 2).text());
+    final String resource = unquote(tokens.get(start + 4).text());
+    if (database == null || resource == null)
+      return null;
+    int end = start + 5;
+    int revision = -1;
+    if (name.endsWith(":store")) {
+      if (end + 2 >= tokens.size() || !tokens.get(end).text().equals(",")
+          || tokens.get(end + 1).kind() != ShellHighlighter.Kind.STRING)
         return null;
-      int revision = -1;
-      if (name.endsWith(":doc") && tokens.get(i + 5).text().equals(",")) {
-        if (i + 7 >= tokens.size() || !tokens.get(i + 7).text().equals(")"))
-          return null;
-        try {
-          revision = Integer.parseInt(tokens.get(i + 6).text());
-        } catch (final NumberFormatException exception) {
-          return null;
-        }
-        if (revision < 1)
-          return null;
+      end += 2;
+    } else if (tokens.get(end).text().equals(",")) {
+      if (end + 2 >= tokens.size())
+        return null;
+      try {
+        revision = Integer.parseInt(tokens.get(end + 1).text());
+      } catch (final NumberFormatException exception) {
+        return null;
       }
-      final Reference ref = new Reference(database, resource, revision, name.startsWith("xn:"));
-      if (found != null && !found.equals(ref))
+      if (revision < 1)
         return null;
-      found = ref;
+      end += 2;
     }
-    return found;
+    if (!tokens.get(end).text().equals(")"))
+      return null;
+    if (bound) {
+      if (!name.equals("jn:doc") || revision != -1
+          || !simpleUpdate(tokens, end + 1, tokens.get(1).text()))
+        return null;
+    } else if (end != tokens.size() - 1)
+      return null;
+    return new Reference(database, resource, revision, name.startsWith("xn:"));
+  }
+
+  private static boolean simpleUpdate(final List<ShellHighlighter.Token> tokens, final int start,
+      final String variable) {
+    if (start + 4 >= tokens.size() || !tokens.get(start).text().equals("return"))
+      return false;
+    final String operation = tokens.get(start + 1).text();
+    final boolean target = switch (operation) {
+      case "delete" -> tokens.get(start + 2).text().equals("json")
+          && tokens.get(start + 3).text().equals(variable);
+      case "replace" -> start + 6 < tokens.size() && tokens.get(start + 2).text().equals("json")
+          && tokens.get(start + 3).text().equals("value") && tokens.get(start + 4).text().equals("of")
+          && tokens.get(start + 5).text().equals(variable);
+      case "append" -> tokens.get(start + 2).text().equals("json")
+          && tokens.get(tokens.size() - 2).text().equals("into") && tokens.getLast().text().equals(variable);
+      default -> false;
+    };
+    if (!target)
+      return false;
+    for (int i = start + 1; i < tokens.size(); i++) {
+      final var token = tokens.get(i);
+      if (token.kind() == ShellHighlighter.Kind.FUNCTION
+          || (token.kind() == ShellHighlighter.Kind.VARIABLE && !token.text().equals(variable))
+          || (token.kind() == ShellHighlighter.Kind.KEYWORD && !UPDATE_KEYWORDS.contains(token.text())))
+        return false;
+    }
+    return true;
   }
 
   private static @Nullable String unquote(final String text) {

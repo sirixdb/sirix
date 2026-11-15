@@ -37,3 +37,17 @@ prompt rather than implying that a complete query is syntactically incomplete. T
 results do not add the plain CLI's leading blank line. `MainTest` checks the input/prompt
 contract and multiline/EOF/interrupt behavior; `ShellOutputTest` checks exact terminal
 spacing while the legacy plain-byte oracle remains unchanged.
+
+Revision inference is limited to complete standalone literal doc/store calls and simple
+single-binding JSON updates of the demo resource at its latest revision. Nested calls (including
+`sdb:commit`), conditional/iterated/deferred expressions, historical update sources and
+compound expressions stay neutral. This applies equally to JSON and XML; the shell neither
+re-executes queries nor treats the updating-expression flag as proof of executed access.
+Regression oracle: actual query execution followed by the neutral prompt for uncertain
+cases, and the existing 1-2-3-4-1 demo sequence for supported access.
+
+Expression keywords retain orange styling even immediately before an opening parenthesis.
+The callable built-ins `true`, `false`, `not` and `empty` retain blue function styling when
+called, while their bare keyword forms remain orange. Regression oracle: the palette's
+specified orange/blue styles on conditional, FLWOR, built-in and qualified calls, including
+incomplete input and multiline prefixes.

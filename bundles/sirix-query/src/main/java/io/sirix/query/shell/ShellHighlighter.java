@@ -27,6 +27,7 @@ public final class ShellHighlighter implements Highlighter {
       "namespace", "function", "variable", "external", "import", "module", "version", "jsoniq", "xquery", "replace",
       "json", "value", "with", "insert", "delete", "append", "into", "rename", "node", "nodes", "first", "last",
       "before", "after", "copy", "modify", "updating", "true", "false", "null", "empty", "allowing", "stable");
+  private static final Set<String> CALLABLE_KEYWORDS = Set.of("true", "false", "not", "empty");
   private final ShellPalette palette;
   private String prefix = "";
 
@@ -122,13 +123,16 @@ public final class ShellHighlighter implements Highlighter {
         int next = offset;
         while (next < input.length() && Character.isWhitespace(input.charAt(next)))
           next++;
+        final String name = input.substring(start, offset);
         kind = c == '$'
             ? Kind.VARIABLE
-            : next < input.length() && input.charAt(next) == '('
-                ? Kind.FUNCTION
-                : KEYWORDS.contains(input.substring(start, offset))
-                    ? Kind.KEYWORD
-                    : Kind.TEXT;
+            : KEYWORDS.contains(name) && !CALLABLE_KEYWORDS.contains(name)
+                ? Kind.KEYWORD
+                : next < input.length() && input.charAt(next) == '('
+                    ? Kind.FUNCTION
+                    : KEYWORDS.contains(name)
+                        ? Kind.KEYWORD
+                        : Kind.TEXT;
       } else
         kind = "{}[]()".indexOf(c) >= 0
             ? Kind.BRACE

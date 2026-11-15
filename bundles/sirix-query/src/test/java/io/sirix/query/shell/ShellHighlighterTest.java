@@ -23,6 +23,26 @@ final class ShellHighlighterTest {
   }
 
   @Test
+  void expressionKeywordsBeforeParenthesesKeepKeywordStyle() {
+    final ShellHighlighter highlighter = new ShellHighlighter(ShellPalette.ANSI_16);
+    final var keywordStyle = AttributedString.fromAnsi("\033[33mX").styleAt(0);
+    final var functionStyle = AttributedString.fromAnsi("\033[36mX").styleAt(0);
+    for (final String input : List.of("if (true()) then 1 else 2", "for $x in (1,2) return ($x+1)",
+        "typeswitch (1)", "switch (1)", "if(", "return\n(")) {
+      final String keyword = input.startsWith("for") ? "return" : input.split("[ (\\n]", 2)[0];
+      assertEquals(keywordStyle, highlighter.highlight(null, input).styleAt(input.indexOf(keyword)), input);
+    }
+    for (final String name : List.of("true", "false", "not", "empty", "fn:true", "local:if")) {
+      assertEquals(functionStyle, highlighter.highlight(null, name + " ()").styleAt(0), name);
+    }
+    for (final String name : List.of("true", "false", "not", "empty")) {
+      assertEquals(keywordStyle, highlighter.highlight(null, name).styleAt(0), name);
+    }
+    highlighter.prefix("for $x in (1,2)\n");
+    assertEquals(keywordStyle, highlighter.highlight(null, "return ($x+1)").styleAt(0));
+  }
+
+  @Test
   void incompleteEscapedAndUnicodeInputRoundTripsWhileTyping() {
     for (final String input : List.of("'unterminated 😀", "\"a\\\"b\"", "'it''s'", "(: (:", "(: x :) 1", "[]{}()",
         "-3 .5 2e+4", "$变量", "")) {

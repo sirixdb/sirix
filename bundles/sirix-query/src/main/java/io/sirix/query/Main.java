@@ -216,7 +216,7 @@ public final class Main {
       throw new UncheckedIOException(exception);
     }
     if (config.prompt != null)
-      config.prompt.observe(query, ctx, xq.getModule().getBody().isUpdating());
+      config.prompt.observe(query, ctx);
   }
 
   private static void executeInteractiveQuery(Config config, CompileChain compileChain, QueryContext ctx)

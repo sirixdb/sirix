@@ -51,3 +51,13 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 - **Do not label line accumulation as syntactic continuation:** a blank-line shell protocol
   cannot infer whether the preceding query is incomplete. Check prompts and spacing together
   in a real terminal transcript. Evidence: [shell continuation prompt](postmortems/shell-continuation-prompt.md).
+
+- **Infer shell context only from supported executed forms:** a literal call in arbitrary source
+  may be skipped or nested in a mutation that is not an updating expression. Keep uncertain
+  expressions neutral and test both stores with actual commits and skipped/deferred accesses.
+  Evidence: [shell revision inference](postmortems/shell-revision-inference.md).
+
+- **Test lexical precedence at overlapping forms:** an opening parenthesis can follow both an
+  expression keyword and a function name. Assert rendered styles for both, including callable
+  keyword built-ins and incomplete/multiline input.
+  Evidence: [shell keyword precedence](postmortems/shell-keyword-precedence.md).
