@@ -8,6 +8,7 @@ import io.sirix.cache.Allocators;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.node.MemorySegmentBytesIn;
+import io.sirix.node.LE;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageKind;
@@ -76,7 +77,8 @@ final class ChunkedBodyWireFormatTest {
   @Test
   @DisplayName("a chunked page decodes to the same slotted page as the monolith it replaces")
   void chunkedDecodesToTheMonolithPage() {
-    final ResourceConfiguration config = newConfig();
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("chunked-body").saltRecordPages(false).build();
     final KeyValueLeafPage monolith = deserialize(config, serialize(config, populatedPage(config), false));
     final KeyValueLeafPage chunked = deserialize(config, serialize(config, populatedPage(config), true));
     try {
@@ -133,7 +135,8 @@ final class ChunkedBodyWireFormatTest {
   @Test
   @DisplayName("a small chunk target cuts the heap into many chunks, and they still decode as one")
   void smallTargetProducesManyChunks() {
-    final ResourceConfiguration config = newConfig();
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("chunked-body").saltRecordPages(false).build();
     final KeyValueLeafPage monolith = deserialize(config, serialize(config, populatedPage(config), false));
     ChunkedBodyConfig.setTargetChunkBytesForTesting(64);
     final MemorySegment wire = serialize(config, populatedPage(config), true);
@@ -189,10 +192,43 @@ final class ChunkedBodyWireFormatTest {
   @Test
   @DisplayName("the same content frames to the same bytes twice")
   void framingIsDeterministic() {
-    final ResourceConfiguration config = newConfig();
+    final ResourceConfiguration config =
+        new ResourceConfiguration.Builder("chunked-body").saltRecordPages(false).build();
     final MemorySegment first = serialize(config, populatedPage(config), true);
     final MemorySegment second = serialize(config, populatedPage(config), true);
     assertArrayEquals(toArray(first), toArray(second), "two passes over the same content diverged");
+  }
+
+  @Test
+  @DisplayName("salted chunked and monolithic pages decode identically except for their independent salts")
+  void saltedBodiesDecodeIdenticallyExceptForSalt() {
+    final ResourceConfiguration config = newConfig();
+    assertTrue(config.saltRecordPages, "this companion must exercise the production default");
+    try (final KeyValueLeafPage monolithSource = populatedPage(config);
+        final KeyValueLeafPage chunkedSource = populatedPage(config)) {
+      final MemorySegment monolithWire = serialize(config, monolithSource, false);
+      final MemorySegment chunkedWire = serialize(config, chunkedSource, true);
+      try (final KeyValueLeafPage monolith = deserialize(config, monolithWire);
+          final KeyValueLeafPage chunked = deserialize(config, chunkedWire)) {
+        final MemorySegment monolithFrame = monolith.getSlottedPage();
+        final MemorySegment chunkedFrame = chunked.getSlottedPage();
+        final long monolithSalt = monolithFrame.get(LE.LONG, PageLayout.OFF_SALT);
+        final long chunkedSalt = chunkedFrame.get(LE.LONG, PageLayout.OFF_SALT);
+        assertNotEquals(0L, monolithSalt);
+        assertNotEquals(0L, chunkedSalt);
+        assertNotEquals(monolithSalt, chunkedSalt);
+        for (int slot = 0; slot < 120; slot++) {
+          final int offset = slot * 5 + 1;
+          assertArrayEquals(monolithSource.getSlotAsByteArray(offset), monolith.getSlotAsByteArray(offset));
+          assertArrayEquals(chunkedSource.getSlotAsByteArray(offset), chunked.getSlotAsByteArray(offset));
+        }
+        // Framing necessarily changes the wire body. In the decoded representation, only the
+        // independent salts may differ: keep the exact header, bitmap and heap oracle otherwise.
+        monolithFrame.set(LE.LONG, PageLayout.OFF_SALT, 0L);
+        chunkedFrame.set(LE.LONG, PageLayout.OFF_SALT, 0L);
+        assertSameSlottedPage(monolith, chunked);
+      }
+    }
   }
 
   /**

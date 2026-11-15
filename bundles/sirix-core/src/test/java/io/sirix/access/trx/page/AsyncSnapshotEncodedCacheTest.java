@@ -412,7 +412,7 @@ final class AsyncSnapshotEncodedCacheTest {
   @DisplayName("Disposable and ordinary numeric pages have identical wire bytes")
   void disposableNumericWireMatchesOrdinarySerialization() {
     final ResourceConfiguration config =
-        new ResourceConfiguration.Builder("async-cache-region-wire-equality")
+        new ResourceConfiguration.Builder("async-cache-region-wire-equality").saltRecordPages(false)
                                                                              .byteHandlerPipeline(
                                                                                  new ByteHandlerPipeline())
                                                                              .build();

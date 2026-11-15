@@ -201,6 +201,17 @@ host byte order:
 
 ## 2. Pages
 
+**Record-page salt:** header offsets 24–31 (formerly reserved) hold an opaque little-endian
+64-bit salt. The record-page writer draws it on first serialization and retains it in the header
+across subsequent writes, copies and reloads; a reset page starts with a new salt. Readers ignore
+these bytes, and parent checksums cover them through the existing page-byte checksum. No page size,
+version or flag changes. `ResourceConfiguration.Builder.saltRecordPages(false)` writes zeros for
+reproducible fixtures. The persisted `saltRecordPages` setting defaults to true, including when
+absent from older settings. Existing unsalted pages receive salt when next serialized.
+The allocation-free, non-blocking `ThreadLocalRandom` source draws once per new unsalted page
+(zero is the initialization marker, so a zero draw is mapped to one). This and XXH3 provide no cryptographic
+commitment; the future eraser must destroy the salt with the erased data.
+
 Every page serializes as `[pageKind u8][binaryVersion u8][flags u8][body]`
 (`PageKind.writeVersionAndFlags` / `readVersionAndFlags`). The flags byte is extension space
 **per page kind, not a shared namespace** — the same bit number means a different thing depending on

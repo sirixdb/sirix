@@ -10,6 +10,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.util.Objects;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Slotted page layout (PostgreSQL/LeanStore-style: Header + Bitmap + Directory + Heap) for
@@ -31,7 +32,7 @@ import java.util.Objects;
  * 18       4         heapUsed (int)              YES
  * 22       1         indexType (byte)             YES
  * 23       1         flags                       YES
- * 24       8         reserved                    YES
+ * 24       8         page salt                   YES
  * ──────── ───────── ────────────────────────── ─────
  * 32       128       slotBitmap (1024 bits)      YES
  * ─── DISK_HEADER_BITMAP_SIZE = 160 ────────── ─────
@@ -110,7 +111,11 @@ public final class PageLayout {
   /** Offset of flags (byte, 1 byte). */
   public static final int OFF_FLAGS = 23;
 
-  /** Offset of reserved region (8 bytes). */
+  /** Offset of the opaque record-page salt (8 bytes); zero in deterministic mode. */
+  public static final int OFF_SALT = 24;
+
+  /** @deprecated Use {@link #OFF_SALT}. */
+  @Deprecated
   public static final int OFF_RESERVED = 24;
 
   // ==================== FLAGS ====================
@@ -336,6 +341,34 @@ public final class PageLayout {
   }
 
   // ==================== HEADER ACCESSORS ====================
+
+  /**
+   * Initialize the salt on the write path only. A nonzero header salt survives copying, cache
+   * invalidation and reload without any reader work. Zero denotes an unsalted page, so map the random
+   * source's zero to one with no retry. ThreadLocalRandom avoids allocation and contention per page;
+   * this salt and XXH3 are not a cryptographic commitment.
+   */
+  static void initializeSalt(final MemorySegment page, final boolean enabled) {
+    page.set(JAVA_LONG_UNALIGNED, OFF_SALT, saltForWrite(page, enabled));
+  }
+
+  /** Select a wire salt without mutating a speculative disposable frame. */
+  static long saltForWrite(final MemorySegment page, final boolean enabled) {
+    if (!enabled) {
+      return 0L;
+    }
+    final long salt = page.get(JAVA_LONG_UNALIGNED, OFF_SALT);
+    return salt == 0L
+        ? nonzeroSalt(ThreadLocalRandom.current().nextLong())
+        : salt;
+  }
+
+  /** Keep the initialization marker out of random salts, including the rare zero draw. */
+  static long nonzeroSalt(final long salt) {
+    return salt == 0L
+        ? 1L
+        : salt;
+  }
 
   /** Read the recordPageKey from the page header. */
   public static long getRecordPageKey(final MemorySegment page) {
