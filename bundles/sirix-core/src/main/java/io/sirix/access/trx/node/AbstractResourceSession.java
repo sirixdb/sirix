@@ -6,6 +6,7 @@ import io.sirix.access.ResourceAccessScope;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.IntConsumer;
+import java.util.function.Consumer;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -66,6 +67,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -128,6 +130,26 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * Write lock to assure only one exclusive write transaction exists.
    */
   final Semaphore writeLock;
+
+  private record RecoveryIdentity(long databaseId, long resourceId) {
+  }
+
+  private static final ConcurrentMap<Path, RecoveryIdentity> RECOVERY_REQUIRED = new ConcurrentHashMap<>();
+
+  private final RecoveryIdentity recoveryIdentity;
+
+  public static void forgetCommitRecovery(final Path resource) {
+    RECOVERY_REQUIRED.keySet().removeIf(marker -> marker.startsWith(resource));
+  }
+
+  static volatile @Nullable Consumer<String> recoveryTestHook;
+
+  private static void notifyRecoveryTestHook(final String stage) {
+    final Consumer<String> hook = recoveryTestHook;
+    if (hook != null) {
+      hook.accept(stage);
+    }
+  }
 
   private final CopyOnWriteArrayList<IntConsumer> revisionListeners;
   private @Nullable Runnable derivedInitializer;
@@ -383,6 +405,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       final StorageEngineWriterFactory storageEngineWriterFactory) {
     this.resourceStore = requireNonNull(resourceStore);
     resourceConfig = requireNonNull(resourceConf);
+    recoveryIdentity = new RecoveryIdentity(resourceConf.getDatabaseId(), resourceConf.getID());
     this.bufferManager = requireNonNull(bufferManager);
     this.storage = requireNonNull(storage);
     this.storageEngineWriterFactory = storageEngineWriterFactory;
@@ -433,6 +456,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     this.resourceStore = requireNonNull(resourceStore);
     this.user = requireNonNull(user);
     resourceConfig = sharedSession.resourceConfig;
+    recoveryIdentity = sharedSession.recoveryIdentity;
     bufferManager = sharedSession.bufferManager;
     storage = sharedSession.storage;
     storageEngineWriterFactory = sharedSession.storageEngineWriterFactory;
@@ -815,15 +839,24 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     if (representRevision < index.size()) {
       index.requireReadable(representRevision);
     }
-    final Writer writer = storage.createWriter();
+    final Writer writer;
+    try {
+      writer = storage.createWriter();
+    } catch (final RuntimeException | Error failure) {
+      final Path marker = getCommitFile();
+      if (recoveryIdentity.equals(RECOVERY_REQUIRED.get(marker)) || !Files.notExists(marker)) {
+        throw new SirixIOException("Recovery of " + marker + " failed during backend open", failure);
+      }
+      throw failure;
+    }
 
     // Pipelined async commits pass the pending (phase-1-complete, canonical in-memory) uber page
     // of the still-hardening revision as the base for the successor epoch; readers keep resolving
     // "latest" through lastCommittedUberPage until the background hardening publishes it.
-    final UberPage lastCommittedUberPage = pendingBaseUberPage != null
+    UberPage lastCommittedUberPage = pendingBaseUberPage != null
         ? pendingBaseUberPage
         : this.lastCommittedUberPage.get();
-    final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
+    final int originalCommittedRev = lastCommittedUberPage.getRevisionNumber();
 
     // Crash recovery runs BEFORE the writer is constructed, and the ordering is load-bearing.
     // createStorageEngineWriter eagerly reads pages (NamePage's dictionaries, for one) through the
@@ -837,15 +870,27 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     //
     // The commit marker legitimately exists while an in-process async commit hardens — the
     // truncate check exists for CRASH recovery and must not fire for pipelined successor epochs.
-    if (pendingBaseUberPage == null) {
-      truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev);
+    try {
+      if (pendingBaseUberPage == null) {
+        lastCommittedUberPage = truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer,
+            lastCommittedUberPage);
+      }
+    } catch (final RuntimeException | Error failure) {
+      try {
+        writer.close();
+      } catch (final RuntimeException | Error cleanup) {
+        ShardedPageCache.retainCleanupFailure(failure, cleanup);
+      }
+      throw failure;
     }
-
+    final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
     return this.storageEngineWriterFactory.createStorageEngineWriter(this,
         abort == Abort.YES && lastCommittedUberPage.isBootstrap()
             ? new UberPage()
             : new UberPage(lastCommittedUberPage),
-        writer, id, representRevision, storedRevision, lastCommittedRev, isBoundToNodeTrx, bufferManager);
+        writer, id, representRevision == originalCommittedRev ? lastCommittedRev : representRevision,
+        storedRevision == originalCommittedRev ? lastCommittedRev : storedRevision,
+        lastCommittedRev, isBoundToNodeTrx, bufferManager);
   }
 
   /** Depth-1 pipelined async commit: the pending (phase-1-complete, unhardened) revision root. */
@@ -883,32 +928,53 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     storageEngineWriterMap.remove(transactionID);
   }
 
-  private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(final Writer writer,
-      final int lastCommittedRev) {
-    if (!Files.exists(getCommitFile())) {
-      return;
+  @Override
+  public final void requireCommitRecovery() {
+    final Path marker = getCommitFile();
+    RECOVERY_REQUIRED.put(marker, recoveryIdentity);
+    try {
+      Files.createFile(marker);
+    } catch (final FileAlreadyExistsException existing) {
+      if (!Files.isRegularFile(marker)) {
+        throw new SirixIOException("Recovery marker is not a regular file: " + marker, existing);
+      }
+    } catch (final IOException failure) {
+      throw new SirixIOException("Cannot establish recovery marker " + marker, failure);
     }
-    // A backend that cannot truncate must not be ASKED to. This runs on the way into every
-    // beginNodeTrx, and a commit marker only disappears on a successful commit or rollback — so a
-    // throw here is not one failed transaction, it is a resource that can never open a write
-    // transaction again. In-memory storage cannot identify the pages to discard (no per-revision
-    // tracking, no retained previous uber page), and its data does not outlive the process, so the
-    // marker describes a commit whose pages are gone with it: log and carry on.
-    if (!writer.supportsTruncateTo()) {
-      LOGGER.warn(
-          "Resource {} has a commit marker from an aborted commit, but {} cannot truncate —"
-              + " skipping crash recovery. Use a persistent StorageType where rollback matters.",
-          resourceConfig.getResource(), writer.getClass().getSimpleName());
-      return;
+  }
+
+  private UberPage truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(final Writer writer,
+      final UberPage committedPage) {
+    final Path marker = getCommitFile();
+    if (!recoveryIdentity.equals(RECOVERY_REQUIRED.get(marker)) && Files.notExists(marker)) {
+      return committedPage;
     }
-    invalidateIndexCataloguesAfter(lastCommittedRev);
-    writer.truncateTo(lastCommittedRev);
-    // The truncated range's offsets are reused by subsequent commits, but pages of the aborted
-    // commit may already sit in the warm global caches under those offsets (caches survive
-    // close now) — drop THIS RESOURCE's entries so post-recovery reads can never observe
-    // pre-truncation bytes. Resource-scoped: a sibling resource's file was not truncated, so its
-    // cached pages are still valid and may be in active use.
-    Databases.clearCachesForResource(resourceConfig.getDatabaseId(), resourceConfig.getID());
+    String stage = "marker establishment";
+    try {
+      requireCommitRecovery();
+      stage = "truncate support";
+      if (!writer.supportsTruncateTo()) {
+        throw new SirixIOException("Storage backend " + writer.getClass().getSimpleName() + " cannot truncate");
+      }
+      stage = "durable root discovery";
+      final UberPage durable = (UberPage) writer.read(writer.readUberPageReference(), resourceConfig);
+      final int revision = durable.getRevisionNumber();
+      stage = "truncation";
+      notifyRecoveryTestHook(stage);
+      writer.truncateTo(revision);
+      stage = "index catalogue invalidation";
+      notifyRecoveryTestHook(stage);
+      invalidateIndexCataloguesAfter(revision);
+      stage = "resource cache invalidation";
+      notifyRecoveryTestHook(stage);
+      Databases.clearCachesForResource(resourceConfig.getDatabaseId(), resourceConfig.getID());
+      lastCommittedUberPage.set(durable);
+      notifyRecoveryTestHook("complete");
+      RECOVERY_REQUIRED.remove(marker, recoveryIdentity);
+      return durable;
+    } catch (final RuntimeException | Error failure) {
+      throw new SirixIOException("Recovery of " + marker + " failed during " + stage, failure);
+    }
   }
 
   @Override
@@ -1616,12 +1682,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public void closeWriteTransaction(final int transactionID) {
     assertNotClosed();
 
-    // Remove from internal map.
-    removeFromPageMapping(transactionID);
-
-    // Make new transactions available.
-    LOGGER.trace("Lock unlock (closeWriteTransaction).");
-    writeLock.release();
+    try {
+      removeFromPageMapping(transactionID);
+    } finally {
+      writeLock.release();
+    }
   }
 
   /**
@@ -1648,13 +1713,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public void closePageWriteTransaction(final int transactionID, final StorageEngineWriter storageEngineWriter) {
     assertNotClosed();
 
-    // Remove from internal map. Identity-scoped: see closePageReadTransaction.
-    storageEngineReaderMap.remove(transactionID, requireNonNull(storageEngineWriter));
-
-    // Make new transactions available. Unconditional — this writer took a permit in
-    // createStorageEngineWriter whether or not its bookkeeping entry is still present.
-    LOGGER.trace("Lock unlock (closePageWriteTransaction).");
-    writeLock.release();
+    try {
+      storageEngineReaderMap.remove(transactionID, requireNonNull(storageEngineWriter));
+    } finally {
+      writeLock.release();
+    }
   }
 
   /**

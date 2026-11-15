@@ -127,3 +127,4 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   both sides of each growth boundary, mixed parent containers and retained-buffer
   reuse; bound exceptional growth separately from steady-state allocation.
   Evidence: [JSON container depth](postmortems/shell-json-container-depth.md).
+| Async hardening's background path was safe while two inline ownership routes were not; `isClosed` was mistaken for recovered storage. | Derive failure tests for every ownership transfer, including paired construction/submission and hardening faults. Fence workers, release independent owners, and require marker recovery before offset reuse; test a second session with warm caches. | [write-up](postmortems/async-commit-ownership-recovery.md), `NodeTransactionAbortLifecycleTest`, `AsyncFlushFailurePathTest` |

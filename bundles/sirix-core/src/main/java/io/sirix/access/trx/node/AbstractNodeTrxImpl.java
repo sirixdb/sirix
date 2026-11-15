@@ -18,7 +18,6 @@ import io.sirix.axis.PostOrderAxis;
 import io.sirix.diff.DiffTuple;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
-import io.sirix.exception.SirixThreadedException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexType;
@@ -91,6 +90,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Scheduled executor service.
    */
   private final ScheduledExecutorService commitScheduler;
+
+  private final int transactionId;
+
+  private boolean writeOwnershipReleased;
 
   /**
    * Hash kind of Structure.
@@ -260,6 +263,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.commitScheduler = newScheduledThreadPool(1, threadFactory);
     this.hashType = hashType;
     this.nodeReadOnlyTrx = requireNonNull(nodeReadOnlyTrx);
+    this.transactionId = nodeReadOnlyTrx.getId();
     this.typeSpecificTrx = typeSpecificTrx;
     this.resourceSession = requireNonNull(resourceSession);
     this.lock = transactionLock;
@@ -500,11 +504,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /** One background hardening in flight at most; acquired by phase 1, released after phase 2. */
   private final Semaphore asyncCommitPermit = new Semaphore(1);
 
-  /** First background hardening failure; latches the transaction terminally. */
   private volatile @Nullable Throwable asyncCommitFailure;
-
-  /** Permanent failure latch — a lost hardening invalidates every successor epoch. */
-  private volatile boolean asyncCommitTerminalFailure;
 
   private @Nullable Indexes pendingIndexCatalogue;
 
@@ -533,12 +533,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       final Throwable failure = asyncCommitFailure;
       if (failure != null) {
         pendingIndexCatalogue = null;
-        asyncCommitFailure = null;
-        asyncCommitTerminalFailure = true;
         throw new SirixIOException("Async commit hardening failed", failure);
-      }
-      if (asyncCommitTerminalFailure) {
-        throw new SirixIOException("Transaction in terminal failure state from prior async commit error");
       }
       final Indexes predecessor = pendingIndexCatalogue;
       if (predecessor != null) {
@@ -610,50 +605,65 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // Phase 1 succeeded: the epoch will become durable (or the pipeline poisons the trx).
       // Expose the pending revision root so the successor epoch (the only reader that can reach
       // the unpublished revision) resolves it from memory.
-      resourceSession.putPendingRevisionRoot(pendingUberPage.getRevisionNumber(),
-          committingWriter.getActualRevisionRootPage());
-      modificationCount = 0L;
-
-      clearUpdateDiffsAfterAsyncCommit();
-
       try {
+        resourceSession.putPendingRevisionRoot(pendingUberPage.getRevisionNumber(),
+            committingWriter.getActualRevisionRootPage());
+        modificationCount = 0L;
+        clearUpdateDiffsAfterAsyncCommit();
         reInstantiate(getId(), pendingUberPage.getRevisionNumber(), pendingUberPage);
         pendingIndexCatalogue = committingCatalogue;
         state = State.RUNNING;
-      } catch (final RuntimeException | Error e) {
-        // Successor epoch could not be created — harden inline so the committed data survives,
-        // then surface the failure with a truthful terminal state (mirrors commitInternal).
-        hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
-        asyncCommitPermit.release();
-        state = State.COMMITTED;
-        throw e;
+      } catch (final RuntimeException | Error failure) {
+        try {
+          hardenAfterForegroundFailure(committingWriter, pendingUberPage, publishUpdateDiffs, failure);
+        } finally {
+          asyncCommitPermit.release();
+          state = State.COMMITTED;
+        }
+        throw failure;
       }
 
       try {
+        notifyAsyncCommitTestHook("before-submit");
         CompletableFuture.runAsync(() -> {
           try {
             hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
-          } catch (final Throwable t) {
-            asyncCommitFailure = t;
-            asyncCommitTerminalFailure = true;
+          } catch (final Throwable failure) {
+            asyncCommitFailure = failure;
+            state = State.COMMITTED;
           } finally {
             asyncCommitPermit.release();
           }
         });
-      } catch (final Throwable t) {
-        // Submission failed (e.g. RejectedExecutionException): harden inline — correctness over
-        // pipelining.
+      } catch (final RuntimeException | Error failure) {
         try {
-          hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
+          hardenAfterForegroundFailure(committingWriter, pendingUberPage, publishUpdateDiffs, failure);
         } finally {
           asyncCommitPermit.release();
         }
+        throw failure;
       }
     });
 
     // Execute post-commit hooks (parity with sync intermediate commits).
     for (final PostCommitHook hook : postCommitHooks) {
       hook.postCommit(this);
+    }
+  }
+
+  private void hardenAfterForegroundFailure(final StorageEngineWriter writer, final UberPage pending,
+      final @Nullable Runnable publish, final Throwable failure) {
+    try {
+      hardenAndPublish(writer, pending, publish);
+    } catch (final RuntimeException | Error hardeningFailure) {
+      ShardedPageCache.retainCleanupFailure(failure, hardeningFailure);
+      asyncCommitFailure = failure;
+      state = State.COMMITTED;
+    }
+    try {
+      resourceSession.requireCommitRecovery();
+    } catch (final RuntimeException | Error markerFailure) {
+      ShardedPageCache.retainCleanupFailure(failure, markerFailure);
     }
   }
 
@@ -664,13 +674,31 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void hardenAndPublish(final StorageEngineWriter committingWriter, final UberPage pendingUberPage,
       final @Nullable Runnable publishUpdateDiffs) {
     try (committingWriter) {
+      Throwable failure = null;
       try {
         notifyAsyncCommitTestHook("before-harden");
         committingWriter.hardenCommit(pendingUberPage, true);
         resourceSession.setLastCommittedUberPage(pendingUberPage);
+      } catch (final RuntimeException | Error hardeningFailure) {
+        failure = hardeningFailure;
+        throw hardeningFailure;
       } finally {
-        resourceSession.clearPendingRevisionRoot(pendingUberPage.getRevisionNumber());
+        try {
+          resourceSession.clearPendingRevisionRoot(pendingUberPage.getRevisionNumber());
+        } catch (final RuntimeException | Error cleanupFailure) {
+          if (failure == null) {
+            throw cleanupFailure;
+          }
+          ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
+        }
       }
+    } catch (final RuntimeException | Error failure) {
+      try {
+        resourceSession.requireCommitRecovery();
+      } catch (final RuntimeException | Error markerFailure) {
+        ShardedPageCache.retainCleanupFailure(failure, markerFailure);
+      }
+      throw failure;
     }
     if (publishUpdateDiffs != null) {
       try {
@@ -770,22 +798,22 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // uncommitted work (close() only refuses when modificationCount > 0).
       modificationCount = 0L;
 
-      // Remember successfully committed uber page in resource session.
-      resourceSession.setLastCommittedUberPage(uberPage);
-
-      if (resourceSession.getResourceConfig().storeDiffs()) {
-        try {
-          serializeUpdateDiffs(preCommitRevision);
-        } catch (final RuntimeException | Error e) {
-          // Post-durability failure: the revision IS committed; a failed diff-sidecar write must
-          // neither strand the transaction in COMMITTING nor pretend the commit failed. Surface
-          // it loudly and keep the transaction alive.
-          LOGGER.error("Update-diff serialization failed after revision {} was durably committed — "
-              + "the diff file for this revision is missing.", preCommitRevision, e);
-        }
-      }
-
       try {
+        // Remember successfully committed uber page in resource session.
+        resourceSession.setLastCommittedUberPage(uberPage);
+
+        if (resourceSession.getResourceConfig().storeDiffs()) {
+          try {
+            serializeUpdateDiffs(preCommitRevision);
+          } catch (final RuntimeException | Error e) {
+            // Post-durability failure: the revision IS committed; a failed diff-sidecar write must
+            // neither strand the transaction in COMMITTING nor pretend the commit failed. Surface
+            // it loudly and keep the transaction alive.
+            LOGGER.error("Update-diff serialization failed after revision {} was durably committed — "
+                + "the diff file for this revision is missing.", preCommitRevision, e);
+          }
+        }
+
         // Reinstantiate everything.
         if (afterCommitState == AfterCommitState.KEEP_OPEN || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
             || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
@@ -803,6 +831,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         // Terminal COMMITTED (never stuck COMMITTING): further mutations are rejected with a
         // truthful state, and close() is clean because nothing uncommitted remains.
         state = State.COMMITTED;
+        try {
+          resourceSession.requireCommitRecovery();
+        } catch (final RuntimeException | Error markerFailure) {
+          ShardedPageCache.retainCleanupFailure(e, markerFailure);
+        }
         throw e;
       }
     });
@@ -1244,12 +1277,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public synchronized W rollback() {
+    nodeReadOnlyTrx.assertNotClosed();
     if (lock != null) {
       lock.lock();
     }
     try {
-      nodeReadOnlyTrx.assertNotClosed();
-
       // Drain the async-commit pipeline: rolling back on top of an un-hardened (or failed)
       // predecessor epoch is unsound.
       awaitPendingAsyncCommit();
@@ -1284,7 +1316,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       resourceSession.closeNodePageWriteTransaction(getId());
       nodeReadOnlyTrx.setPageReadTransaction(null);
-      removeCommitFile();
 
       storageEngineWriter =
           resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.YES, true);
@@ -1292,6 +1323,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
           storageEpochRotationSupported && afterCommitState != AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
       nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
       resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
+      removeCommitFile();
 
       nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
@@ -1321,6 +1353,14 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       markStructuralMutation();
 
       return self();
+    } catch (final RuntimeException | Error failure) {
+      rollbackOnlyCause = failure;
+      try {
+        resourceSession.requireCommitRecovery();
+      } catch (final RuntimeException | Error markerFailure) {
+        ShardedPageCache.retainCleanupFailure(failure, markerFailure);
+      }
+      throw failure;
     } finally {
       if (lock != null) {
         lock.unlock();
@@ -1474,82 +1514,105 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
+  public boolean isClosed() {
+    return state == State.CLOSED;
+  }
+
+  @Override
   public void close() {
     close(false);
   }
 
   @Override
   public void abort() {
-    try {
-      close(true);
-    } finally {
-      if (commitScheduler.isShutdown()) {
-        WorkerTermination.shutdownAndAwait(commitScheduler, false);
-      }
-    }
+    close(true);
   }
 
-  private void close(final boolean abort) {
-    runLocked(() -> {
-      if (!isClosed()) {
-        Throwable failure = null;
+  private synchronized void close(final boolean abort) {
+    Throwable failure = null;
+    try {
+      runLocked(() -> {
+        if (isClosed()) {
+          return;
+        }
+        Throwable cleanupFailure = null;
         try {
           awaitPendingAsyncCommit();
         } catch (final RuntimeException | Error e) {
-          failure = e;
+          cleanupFailure = e;
         }
-
         if (!abort && modificationCount > 0) {
           final SirixUsageException dirty = new SirixUsageException("Must commit/rollback transaction first!");
-          ShardedPageCache.rethrowCleanupFailure(ShardedPageCache.retainCleanupFailure(failure, dirty));
+          ShardedPageCache.rethrowCleanupFailure(ShardedPageCache.retainCleanupFailure(cleanupFailure, dirty));
         }
-
+        if (cleanupFailure != null || (abort && modificationCount > 0)) {
+          try {
+            resourceSession.requireCommitRecovery();
+          } catch (final RuntimeException | Error e) {
+            cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+          }
+        }
         try {
           indexController.notifyTransactionAbort();
         } catch (final RuntimeException | Error e) {
-          failure = ShardedPageCache.retainCleanupFailure(failure, e);
+          cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
         }
-
         if (storageEngineWriter != null && !storageEngineWriter.isClosed()) {
           try {
             storageEngineWriter.close();
           } catch (final RuntimeException | Error e) {
-            failure = ShardedPageCache.retainCleanupFailure(failure, e);
+            cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
             if (!storageEngineWriter.isClosed()) {
-              ShardedPageCache.rethrowCleanupFailure(failure);
+              ShardedPageCache.rethrowCleanupFailure(cleanupFailure);
             }
           }
         }
-
-        final int trxId = getId();
         try {
           nodeReadOnlyTrx.close();
         } catch (final RuntimeException | Error e) {
-          ShardedPageCache.rethrowCleanupFailure(ShardedPageCache.retainCleanupFailure(failure, e));
+          cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
         }
-        resourceSession.closeWriteTransaction(trxId);
-
+        modificationCount = 0L;
+        pendingIndexCatalogue = null;
         pathSummaryWriter = null;
         nodeFactory = null;
-        commitScheduler.shutdown();
-        if (!asyncCommitTerminalFailure) {
+        try {
+          updateOperationsUnordered.clear();
+        } catch (final RuntimeException | Error e) {
+          cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+        }
+        try {
+          commitScheduler.shutdown();
+        } catch (final RuntimeException | Error e) {
+          cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
+        }
+        state = State.CLOSED;
+        if (cleanupFailure != null) {
           try {
-            removeCommitFile();
+            resourceSession.requireCommitRecovery();
           } catch (final RuntimeException | Error e) {
-            failure = ShardedPageCache.retainCleanupFailure(failure, e);
+            cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
           }
         }
-        if (!abort) {
-          try {
-            commitScheduler.awaitTermination(2, TimeUnit.SECONDS);
-          } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-            failure = ShardedPageCache.retainCleanupFailure(failure, new SirixThreadedException(e));
-          }
-        }
-        ShardedPageCache.rethrowCleanupFailure(failure);
+        ShardedPageCache.rethrowCleanupFailure(cleanupFailure);
+      });
+    } catch (final RuntimeException | Error e) {
+      failure = e;
+    }
+    if (isClosed() && !writeOwnershipReleased) {
+      try {
+        WorkerTermination.shutdownAndAwait(commitScheduler, false);
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
-    });
+      writeOwnershipReleased = true;
+      try {
+        resourceSession.closeWriteTransaction(transactionId);
+      } catch (final RuntimeException | Error e) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, e);
+      }
+    }
+    ShardedPageCache.rethrowCleanupFailure(failure);
   }
 
   @Override

@@ -62,6 +62,8 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   Path getCommitFile();
 
+  void requireCommitRecovery();
+
   void assertAccess(int revision);
 
   StorageEngineWriter createPageTransaction(int trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);

@@ -3,6 +3,7 @@ package io.sirix.access;
 import io.brackit.query.atomic.QNm;
 import io.sirix.api.Database;
 import io.sirix.api.NodeTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.access.trx.node.AbstractNodeTrxImpl;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -68,6 +69,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 
 final class DatabaseOwnershipTest {
   @TempDir
@@ -838,7 +840,12 @@ final class DatabaseOwnershipTest {
       } else {
         ((XmlNodeTrx) writer).insertElementAsFirstChild(new QNm("pending"));
       }
-      setWriterField(writer, "asyncCommitFailure", new IOException("injected hardening failure"));
+      final StorageEngineWriter original = writer.getStorageEngineWriter();
+      final StorageEngineWriter refusing = mock(StorageEngineWriter.class, delegatesTo(original));
+      final SirixIOException refusal = new SirixIOException("writer teardown refused");
+      doThrow(refusal).when(refusing).rollback();
+      doThrow(refusal).when(refusing).close();
+      setWriterField(writer, "storageEngineWriter", refusing);
       try (final Database<?> sibling = forceRemoval
           ? openDatabase(path, type)
           : null) {
@@ -873,8 +880,7 @@ final class DatabaseOwnershipTest {
               other.getRtxIndexController(other.getMostRecentRevisionNumber()));
         }
       } finally {
-        setWriterField(writer, "asyncCommitFailure", null);
-        setWriterField(writer, "asyncCommitTerminalFailure", false);
+        setWriterField(writer, "storageEngineWriter", original);
       }
       if (forceRemoval) {
         Databases.removeDatabase(path);
