@@ -30,6 +30,13 @@ KIND_ORDER = ('named', 'related', 'package')
 UNRESOLVED_KINDS = ('unmapped', 'over-limit')
 # Execution time reserved for each module still waiting, so none is starved by an earlier one.
 MIN_MODULE_SECONDS = 120
+# A large diff cannot afford every mutant of every changed class. A mutant whose covering test
+# hangs costs a whole minion restart, and those restarts - not the mutant count - exhausted the
+# budget for PR 1351's 57 changed sirix-core classes once the test scope was fixed. Sample per
+# class instead, so the work scales with the diff while a small diff still gets every mutant.
+MUTANT_BUDGET = 300
+MIN_MUTANTS_PER_CLASS = 4
+MAX_MUTANTS_PER_CLASS = 40
 
 
 class Unmapped(Exception):
@@ -244,6 +251,12 @@ def resolve_tests(stem, package, tests):
     return [], 'unmapped'
 
 
+def mutants_per_class(targets):
+    """Bound PIT's per-class sampling, so a module's work scales with the size of the diff."""
+    return max(MIN_MUTANTS_PER_CLASS,
+               min(MAX_MUTANTS_PER_CLASS, MUTANT_BUDGET // max(1, len(targets))))
+
+
 def test_scope(module_root, sources):
     """Bounded per-source test selection. No input may widen the scope to the module suite."""
     candidates = []
@@ -313,7 +326,8 @@ def format_summary(results):
             lines.extend([escape(result['error']), ''])
         if 'tests' in result:
             lines.extend([f"Changed classes mutated: {len(result['targets'])}. "
-                          f"Test patterns: {len(result['tests'])}.", ''])
+                          f"Test patterns: {len(result['tests'])}. "
+                          f"Mutants sampled per class: {result['mutants_per_class']}.", ''])
         if result.get('unmapped'):
             lines.extend(['No test mapped to these changed sources; their mutants report '
                           '`NO_COVERAGE`:', ''])
@@ -357,7 +371,9 @@ def prepare_analysis(root, directory, module, sources, result):
     if not targets:
         raise ValueError('Empty target selection; refusing whole-module mutation')
     tests, unmapped, mapping = test_scope(module_root, sources)
-    result.update(targets=targets, tests=tests, unmapped=unmapped, resolution=mapping)
+    mutants = mutants_per_class(targets)
+    result.update(targets=targets, tests=tests, unmapped=unmapped, resolution=mapping,
+                  mutants_per_class=mutants)
     if not tests:
         raise Unmapped('No test maps to any changed source; PIT has no baseline to collect')
     target_file = directory / 'targets.txt'
@@ -365,6 +381,7 @@ def prepare_analysis(root, directory, module, sources, result):
     return [str(root / 'gradlew'), f':{module}:pitest', '--no-daemon',
             f'-PprMutationModule={module}', f'-PprMutationTargetsFile={target_file}',
             f'-PprMutationReportDir={directory / "report"}',
+            f'-PprMutationMaxMutations={mutants}',
             f'-PprMutationTests={",".join(tests)}']
 
 

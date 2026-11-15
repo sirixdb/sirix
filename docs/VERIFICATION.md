@@ -198,6 +198,16 @@ source `Foo` in package `p` the first matching step wins:
 3. Tests in `p` and its subpackages, only when there are at most `PACKAGE_TEST_LIMIT` of them.
 4. Otherwise the source is **unmapped**.
 
+PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
+`[MIN_MUTANTS_PER_CLASS, MAX_MUTANTS_PER_CLASS]`, so a module's work scales with the size of the
+diff: one changed class gets every mutant the cap allows, while a 57-class diff samples a few
+per class. This is what keeps a large diff inside the budget once the test scope is correct - a
+mutant whose covering test hangs costs a whole minion restart, and those restarts, not the
+mutant count, are the dominant cost. The limit is PIT's `CLASSLIMIT` feature, which distributes
+the sample evenly across each class rather than taking the first mutants, so a changed method
+late in a class is still reached. The job summary records the sampled figure per module, and a
+PR needing every mutant of a class can rerun it focused with the artifact's `targets.txt`.
+
 A source that resolves to nothing never changes the scope chosen for the other changed sources;
 the union is capped at `MODULE_TEST_LIMIT` distinct test classes, and the cap drops the most
 weakly resolved sources first, never an exactly named test. Unmapped sources stay in
@@ -264,6 +274,15 @@ For a broader deterministic test selection, reuse the artifact's `targets.txt` a
 The opt-in [Gradle configuration](../gradle/pr-mutation.gradle) uses the existing
 [Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions. Its absence from
 normal task graphs preserves existing test-lane timing.
+
+It reuses each module's `test` task `opens`/`exports` and system properties for the minion JVMs.
+PIT takes `--jvmArgs` as a **comma-separated** list, so it re-splits any argument holding a comma
+and hands the remainder to the minion JVM as a bare token ahead of its main class: the minion then
+dies before running a test (`Main method not found in class ...`, then `MINION_DIED`), which
+surfaces as a coverage-generation failure for the whole module. Test system properties whose value
+holds a comma are therefore dropped, and their names logged in `pitest.log`. The module's own
+`jvmArgs` are never filtered: some are declared as two tokens (`'--add-opens'`,
+`'a/b=ALL-UNNAMED'`), so dropping one element would orphan the option it belongs to.
 
 ## Running the layers
 

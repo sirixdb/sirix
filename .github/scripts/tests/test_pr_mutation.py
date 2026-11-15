@@ -275,6 +275,21 @@ class SelectionTest(unittest.TestCase):
                          ['package', 'package', 'package', 'over-limit'])
         self.assertEqual(unmapped, ['src/main/java/r/Alpha.java'])
 
+    def test_mutant_sampling_scales_with_the_diff_and_stays_within_bounds(self):
+        budget, low, high = (mutation.MUTANT_BUDGET, mutation.MIN_MUTANTS_PER_CLASS,
+                             mutation.MAX_MUTANTS_PER_CLASS)
+        # PR 1351's 57 changed sirix-core classes share the budget; one changed class gets all
+        # the mutants the cap allows; a very large diff still samples the floor per class.
+        self.assertEqual(mutation.mutants_per_class(['c'] * 57), budget // 57)
+        self.assertEqual(mutation.mutants_per_class(['c']), high)
+        self.assertEqual(mutation.mutants_per_class(['c'] * (budget * 2)), low)
+        self.assertEqual(mutation.mutants_per_class([]), high)  # never divides by zero
+        for count in (1, 2, 17, 57, 500):
+            with self.subTest(count=count):
+                sampled = mutation.mutants_per_class(['c'] * count)
+                self.assertGreaterEqual(sampled, low)
+                self.assertLessEqual(sampled, high)
+
     def test_unresolved_sources_are_still_mutated_when_any_test_maps(self):
         sources = {'a/Foo.java': 'a', 'c/Baz.java': 'c'}
         selected = ['src/main/java/c/Baz.java', 'src/main/java/a/Foo.java']
@@ -490,11 +505,13 @@ class ReportingTest(unittest.TestCase):
     def test_summary_reports_counts_scope_and_unmapped_sources(self):
         result = {'module': 'sirix-core', 'state': 'complete', 'targets': ['a.Baz', 'a.Foo'],
                   'tests': ['a.FooTest*'], 'unmapped': ['src/main/java/c/Baz.java'],
+                  'mutants_per_class': 40,
                   'total': 4, 'killed': 2, 'survived': 1, 'no_coverage': 1, 'detected': 2,
                   'statuses': {'KILLED': 2, 'NO_COVERAGE': 1, 'SURVIVED': 1},
                   'survivors': ['SURVIVED | a.Foo | run | 7 | negated conditional']}
         text = mutation.format_summary([result])
-        self.assertIn('Changed classes mutated: 2. Test patterns: 1.', text)
+        self.assertIn('Changed classes mutated: 2. Test patterns: 1. '
+                      'Mutants sampled per class: 40.', text)
         self.assertIn('Survived: 1. No coverage: 1.', text)
         self.assertIn('src/main/java/c/Baz.java', text)
         self.assertIn('negated conditional', text)
