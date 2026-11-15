@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.ref.Cleaner.Cleanable;
 import java.lang.ref.Reference;
+import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -112,6 +113,31 @@ final class SirixCleanerTest {
       Reference.reachabilityFence(firstOwner);
       Reference.reachabilityFence(secondOwner);
     }
+  }
+
+  @Test
+  void closedRegistrationIsCollectibleWhileItsOwnerStaysLive() throws InterruptedException {
+    final Object owner = new Object();
+    final AtomicInteger calls = new AtomicInteger();
+    final ReferenceQueue<Cleanable> collected = new ReferenceQueue<>();
+    final WeakReference<Cleanable> registration = closeAndForgetRegistration(owner, calls, collected);
+    try {
+      for (int round = 0; round < 30 && registration.get() != null; round++) {
+        System.gc();
+        collected.remove(100);
+      }
+      assertEquals(1, calls.get());
+      assertNull(registration.get(), "normal close must deregister the callback before its owner is collected");
+    } finally {
+      Reference.reachabilityFence(owner);
+    }
+  }
+
+  private static WeakReference<Cleanable> closeAndForgetRegistration(final Object owner,
+      final AtomicInteger calls, final ReferenceQueue<Cleanable> collected) {
+    final Cleanable cleanup = SirixCleaner.register(owner, calls::incrementAndGet);
+    cleanup.clean();
+    return new WeakReference<>(cleanup, collected);
   }
 
   @Test
