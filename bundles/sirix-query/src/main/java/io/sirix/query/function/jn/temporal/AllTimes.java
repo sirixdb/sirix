@@ -12,7 +12,6 @@ import io.brackit.query.jdm.Stream;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.LazySequence;
-import io.sirix.query.json.TemporalJsonDBItem;
 
 /**
  * <p>
@@ -44,7 +43,7 @@ public final class AllTimes extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final TemporalJsonDBItem<? extends TemporalJsonDBItem<?>> item = ((TemporalJsonDBItem<?>) args[0]);
+    final Sequence item = TemporalNavigation.requireStored(ALL_TIMES, args[0]);
 
     return new LazySequence() {
       @Override
@@ -55,7 +54,7 @@ public final class AllTimes extends AbstractFunction {
           @Override
           public Item next() {
             if (stream == null) {
-              stream = item.getAllTimes();
+              stream = TemporalNavigation.range(TemporalNavigation.Range.ALL_TIMES, item, false);
             }
             return (Item) stream.next();
           }
