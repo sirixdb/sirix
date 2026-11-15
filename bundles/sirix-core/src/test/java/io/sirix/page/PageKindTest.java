@@ -18,6 +18,7 @@ import java.util.Random;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Salt is an opaque 8-byte part of the header, never a reader discriminator. */
@@ -95,6 +96,51 @@ final class PageKindTest {
     final boolean previous = ChunkedBodyConfig.setEnabledForTesting(chunked);
     try {
       assertArbitrarySaltBitsAreIgnored();
+    } finally {
+      ChunkedBodyConfig.setEnabledForTesting(previous);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void optionalExtensionsPreserveSaltAndRecordsWhileRequiredEntriesRefuse(final boolean chunked) {
+    final boolean previous = ChunkedBodyConfig.setEnabledForTesting(chunked);
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("salted-extensions").build();
+    try (final KeyValueLeafPage page = newPage(config)) {
+      final byte[] original = serialize(config, page);
+      final long originalSalt = salt(original);
+      assertNotEquals(0L, originalSalt);
+      // Independent extension-block vector: two entry bytes, optional tag 62, zero payload.
+      final byte[] extended = new byte[original.length + 3];
+      System.arraycopy(original, 0, extended, 0, 3);
+      extended[2] |= (byte) 0x80;
+      extended[3] = 2;
+      extended[4] = 62;
+      extended[5] = 0;
+      System.arraycopy(original, 3, extended, 6, original.length - 3);
+      for (final boolean lazy : new boolean[] {false, true}) {
+        try (final KeyValueLeafPage read = deserialize(config, extended, lazy)) {
+          assertArrayEquals(RECORD, read.getSlotAsByteArray(7));
+          assertEquals(originalSalt, read.getSlottedPage().get(LE.LONG, 24));
+          assertArrayEquals(original, serialize(config, read), "rewrite drops the unknown entry and retains salt");
+        }
+      }
+      final BytesIn<?> originalInput = Bytes.wrapForRead(original);
+      originalInput.readByte();
+      final long originalOffset = PageKind.KEYVALUELEAFPAGE.probeRegionTableOffset(originalInput, new long[5], null);
+      final BytesIn<?> extendedInput = Bytes.wrapForRead(extended);
+      extendedInput.readByte();
+      assertEquals(originalOffset + 3,
+          PageKind.KEYVALUELEAFPAGE.probeRegionTableOffset(extendedInput, new long[5], null));
+      extended[4] = (byte) 190;
+      for (final boolean lazy : new boolean[] {false, true}) {
+        assertTrue(assertThrows(IllegalStateException.class,
+            () -> deserialize(config, extended, lazy)).getMessage().contains("required page extension 190"));
+      }
+      final BytesIn<?> requiredInput = Bytes.wrapForRead(extended);
+      requiredInput.readByte();
+      assertThrows(IllegalStateException.class,
+          () -> PageKind.KEYVALUELEAFPAGE.probeRegionTableOffset(requiredInput, new long[5], null));
     } finally {
       ChunkedBodyConfig.setEnabledForTesting(previous);
     }

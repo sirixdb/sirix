@@ -186,7 +186,7 @@ jobs:
     name: PIT changed-source mutation testing
     needs: [Build, PythonTooling]
     if: github.event_name == 'pull_request'
-    # Informational rollout. Enable only after survivor/incomplete baselines are resolved.
+    # Advisory rollout policy and blocking switch: docs/VERIFICATION.md#pr-mutation-testing.
     continue-on-error: ${{ vars.MUTATION_BLOCKING != 'true' }}
     permissions:
       contents: read
