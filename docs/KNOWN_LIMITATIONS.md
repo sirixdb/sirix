@@ -249,6 +249,8 @@ else falls back to the generic (always correct) pipeline.
   numeric purity: complete observations, no string statistics, and numeric
   bounds excluding both boolean encodings (`0` and `1`). Ambiguous summaries
   use the typed scan, including genuinely integral columns spanning that range.
+  Summary serving always declines `avg` to preserve the generic evaluator's
+  decimal division semantics.
   A refused scan pays for the initial scan plus generic evaluation; the per-row
   kernels are unchanged.
 - **Double-bearing aggregate columns and parallel summation order.** Once a
