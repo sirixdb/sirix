@@ -10,7 +10,6 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.util.Objects;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Slotted page layout (PostgreSQL/LeanStore-style: Header + Bitmap + Directory + Heap) for
@@ -345,8 +344,7 @@ public final class PageLayout {
   /**
    * Initialize the salt on the write path only. A nonzero header salt survives copying, cache
    * invalidation and reload without any reader work. Zero denotes an unsalted page, so map the random
-   * source's zero to one with no retry. ThreadLocalRandom avoids allocation and contention per page;
-   * this salt and XXH3 are not a cryptographic commitment.
+   * source's zero to one with no retry.
    */
   static void initializeSalt(final MemorySegment page, final boolean enabled) {
     page.set(JAVA_LONG_UNALIGNED, OFF_SALT, saltForWrite(page, enabled));
@@ -359,7 +357,7 @@ public final class PageLayout {
     }
     final long salt = page.get(JAVA_LONG_UNALIGNED, OFF_SALT);
     return salt == 0L
-        ? nonzeroSalt(ThreadLocalRandom.current().nextLong())
+        ? nonzeroSalt(RecordPageSaltSource.current().nextSalt())
         : salt;
   }
 

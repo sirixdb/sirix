@@ -208,9 +208,14 @@ these bytes, and parent checksums cover them through the existing page-byte chec
 version or flag changes. `ResourceConfiguration.Builder.saltRecordPages(false)` writes zeros for
 reproducible fixtures. The persisted `saltRecordPages` setting defaults to true, including when
 absent from older settings. Existing unsalted pages receive salt when next serialized.
-The allocation-free, non-blocking `ThreadLocalRandom` source draws once per new unsalted page
-(zero is the initialization marker, so a zero draw is mapped to one). This and XXH3 provide no cryptographic
-commitment; the future eraser must destroy the salt with the erased data.
+A per-writer-thread AES-256-CTR cryptographic keystream fills a reusable 2 KiB buffer
+(256 salts), preserving the cipher counter across refills. Its independent 256-bit key and
+128-bit initial counter come from the non-blocking OS CSPRNG (`NativePRNGNonBlocking` on
+Unix, `Windows-PRNG` on Windows); unavailable crypto fails closed. Neighboring salts do not
+expose the generator state as invertible non-cryptographic PRNG outputs would. Drawing a salt
+uses reused storage with no per-page allocation or shared lock, and no per-record work.
+Zero is the initialization marker, so a zero draw is mapped to one. The 64-bit salt and XXH3
+provide no cryptographic commitment; the future eraser must destroy the salt with the erased data.
 
 Every page serializes as `[pageKind u8][binaryVersion u8][flags u8][body]`
 (`PageKind.writeVersionAndFlags` / `readVersionAndFlags`). The flags byte is extension space
