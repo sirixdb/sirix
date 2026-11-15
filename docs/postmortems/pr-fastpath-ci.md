@@ -177,3 +177,12 @@
 - Lesson: focused mutation success does not establish full-selection capacity or coverage;
   obtain the complete inventory and baseline evidence before selecting a bounded-gate repair.
   See [Lessons](../LESSONS.md).
+
+## Follow-up: the numeric-summary proof was incomplete
+
+The earlier 18-mutant helper run exercised the metadata heuristic, not its premise that
+absent byte bounds meant no string observations. A later numeric deferred observation can
+erase that marker. The query-level value-summary route and `hasPureNumericStats` heuristic
+have therefore been removed; structural counts and projection routes remain. See the
+[replacement contract and regression](path-summary-numeric-purity.md). The earlier local
+mutation result is historical evidence, not proof of numeric purity.

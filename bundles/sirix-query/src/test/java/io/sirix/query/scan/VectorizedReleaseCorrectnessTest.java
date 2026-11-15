@@ -132,6 +132,25 @@ final class VectorizedReleaseCorrectnessTest {
   }
 
   @ParameterizedTest
+  @CsvSource({"sum,0", "sum,1", "sum,2", "avg,0", "avg,1", "avg,2", "min,0", "min,1", "min,2", "max,0", "max,1",
+      "max,2"})
+  void mixedStringPlacementPreservesGenericError(final String function, final int position) {
+    final String document = switch (position) {
+      case 0 -> "[{\"value\":\"bad\"},{\"value\":10},{\"value\":20}]";
+      case 1 -> "[{\"value\":10},{\"value\":\"bad\"},{\"value\":20}]";
+      case 2 -> "[{\"value\":10},{\"value\":20},{\"value\":\"bad\"}]";
+      default -> throw new IllegalArgumentException(Integer.toString(position));
+    };
+    checkAcrossReopen(document, aggregate(function, false), true, null, 4);
+  }
+
+  @ParameterizedTest
+  @CsvSource({"sum,30", "avg,15", "min,10", "max,20"})
+  void unfilteredExactIntegersRemainAdmitted(final String function, final String expected) {
+    checkAcrossReopen("[{\"value\":10},{\"value\":20}]", aggregate(function, false), false, expected, 4);
+  }
+
+  @ParameterizedTest
   @CsvSource({"sum,30.75", "avg,15.375", "min,10.25", "max,20.5"})
   void exactDecimalAggregatesRemainAdmitted(final String function, final String expected) {
     checkAcrossReopen("[{\"selected\":true,\"value\":10.25},{\"selected\":true,\"value\":20.5}]",
@@ -301,13 +320,19 @@ final class VectorizedReleaseCorrectnessTest {
                 }
               });
       SequentialPipelineStrategy.setVectorizedExecutor(observed);
+      final long summariesBefore = SirixVectorizedExecutor.pathSummaryStatsServed();
       final Outcome actual = evaluate(chain, context, query);
       // Field-count controls need not route; the regressions are the grouping/value aggregates.
       if (!query.startsWith("count(")) {
         assertTrue(executions.get() > 0, "fast path was never admitted: " + phase + ": " + query);
       }
-      assertEquals(generic, actual, phase + ": " + query);
-      assertEquals(expectRefusal, refusals.get() > 0, "route refusal: " + phase + ": " + query);
+      assertAll(() -> assertEquals(generic, actual, phase + ": " + query),
+          () -> assertEquals(expectRefusal, refusals.get() > 0, "route refusal: " + phase + ": " + query), () -> {
+            if (isValueAggregate(query)) {
+              assertEquals(summariesBefore, SirixVectorizedExecutor.pathSummaryStatsServed(),
+                  "value summary must decline: " + phase + ": " + query);
+            }
+          });
     } finally {
       SequentialPipelineStrategy.setVectorizedExecutor(null);
       executor.close();
@@ -315,8 +340,17 @@ final class VectorizedReleaseCorrectnessTest {
 
     // Also exercise the ordinary store-resolved executor provider, without instrumentation.
     try (final SirixCompileChain chain = compilation.create(store)) {
+      final long summariesBefore = SirixVectorizedExecutor.pathSummaryStatsServed();
       assertEquals(generic, evaluate(chain, context, query), "auto-wired: " + phase + ": " + query);
+      if (isValueAggregate(query)) {
+        assertEquals(summariesBefore, SirixVectorizedExecutor.pathSummaryStatsServed(),
+            "auto-wired value summary must decline: " + phase + ": " + query);
+      }
     }
+  }
+
+  private static boolean isValueAggregate(final String query) {
+    return query.startsWith("sum(") || query.startsWith("avg(") || query.startsWith("min(") || query.startsWith("max(");
   }
 
   private BasicJsonDBStore newStore() {

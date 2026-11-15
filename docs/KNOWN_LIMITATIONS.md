@@ -245,12 +245,13 @@ else falls back to the generic (always correct) pipeline.
   therefore follow the generic evaluator instead of silently skipping items.
   Pure-string `min`/`max` retain their existing exact route. Predicate-excluded
   invalid values do not cause a refusal, and field counts still count present
-  values of every type. Path-summary value statistics also require proof of
-  numeric purity: complete observations, no string statistics, and numeric
-  bounds excluding both boolean encodings (`0` and `1`). Ambiguous summaries
-  use the typed scan, including genuinely integral columns spanning that range.
-  Summary serving always declines `avg` to preserve the generic evaluator's
-  decimal division semantics.
+  values of every type. Path-summary value statistics cannot establish numeric
+  purity: deferred observations share a count and a later numeric value can erase
+  an earlier string marker. Summary serving therefore declines `sum`/`avg`/`min`/`max`
+  for all columns, including genuinely integral ones. Without a usable projection,
+  value aggregates use the existing typed scan and its cached results; ambiguous
+  types refuse to the generic evaluator. Structural field counts still use exact
+  path-summary reference counts, independently of optional value statistics.
   A refused scan pays for the initial scan plus generic evaluation; the per-row
   kernels are unchanged.
 - **Double-bearing aggregate columns and parallel summation order.** Once a

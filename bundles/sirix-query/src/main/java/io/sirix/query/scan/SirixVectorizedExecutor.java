@@ -983,14 +983,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private final ConcurrentHashMap<String, Boolean> sourcePathPresenceCache = new ConcurrentHashMap<>();
 
-  /**
-   * Cache of {@link #tryPathSummaryStats(String[], String, String)} results, keyed by
-   * {@code pathNodeKey + "#" + func}. The executor is bound to a single (session, revision) so each
-   * PathNode's statistics are stable for its lifetime; we don't need to reopen the PathSummary for
-   * repeat aggregate queries on the same path. Without this cache every {@code sum($doc[].age)} call
-   * paid the cost of {@code beginNodeReadOnlyTrx + openPathSummary} — roughly 0.5–1 ms per query on
-   * 10 M records, completely dominating the µs-level stats lookup itself.
-   */
+  /** Cache of structural field counts for this executor's immutable revision, keyed by path. */
   private final ConcurrentHashMap<String, Sequence> pathStatsCache = new ConcurrentHashMap<>();
 
   /**
@@ -13704,9 +13697,6 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (projectedFirst != null) {
         return statsToSequence(func, projectedFirst);
       }
-      // PathStatistics short-circuit: when the resource maintains per-path stats, an
-      // unfiltered aggregate over a single field resolves directly from the PathSummary
-      // — microseconds instead of a parallel scan of every data page.
       final Sequence fast = tryPathSummaryStats(sourcePath, field, func);
       if (fast != null) {
         return fast;
@@ -23943,9 +23933,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Aggregates answered from the PATH SUMMARY's per-path statistics ({@link #tryPathSummaryStats}),
-   * since process start. The positive witness that a query genuinely WAS summary-served — a returned
-   * answer and a declined fallback are otherwise indistinguishable to a caller.
+   * Field counts answered from PATH SUMMARY references ({@link #tryPathSummaryStats}), since process
+   * start. The positive witness that a query genuinely WAS summary-served — a returned answer and a
+   * declined fallback are otherwise indistinguishable to a caller.
    */
   private static final LongAdder PATH_SUMMARY_STATS_SERVED = new LongAdder();
 
@@ -23954,52 +23944,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return PATH_SUMMARY_STATS_SERVED.sum();
   }
 
-  /**
-   * Try to answer an unfiltered aggregate over a single field from its exact PathNode. A field
-   * {@code count} uses the structural reference count and therefore needs only the path summary;
-   * value aggregates use the optional per-path statistics. Returns {@code null} to signal the caller
-   * should fall back to a full parallel scan when:
-   * <ul>
-   * <li>the resource lacks the metadata required by the requested function,</li>
-   * <li>no PathNode matches the requested field's local name,</li>
-   * <li>the requested min/max bound is marked dirty (a prior delete may have tightened it — a rescan
-   * is correct, skip the fast path), or</li>
-   * <li>the function is not one of the supported aggregates.</li>
-   * </ul>
-   */
+  /** Returns the exact structural field count, or null when the path summary cannot serve it. */
   private Sequence tryPathSummaryStats(final String[] sourcePath, final String field, final String func) {
-    final boolean fieldCount = "count".equals(func) && field != null;
-    // A field count is structural: the exact named PathNode's reference count is maintained even
-    // when optional value statistics are disabled. Value aggregates still require statistics.
-    if (fieldCount
-        ? !session.getResourceConfig().withPathSummary
-        : !session.getResourceConfig().withPathStatistics) {
+    if (!"count".equals(func) || field == null || !session.getResourceConfig().withPathSummary) {
       return null;
     }
-    switch (func) {
-      case "count", "sum", "min", "max" -> {
-        /* supported */ }
-      default -> {
-        // avg always uses the scan: XQuery requires xs:decimal division, not a summary double.
-        return null;
-      }
-    }
-    if (field == null) {
-      return null;
-    }
-    // Count retains the named OBJECT_KEY path even for array-valued fields. Value scans cannot use
-    // that key because the fused array slot carries its anonymous child and retain their existing
-    // fail-closed resolver.
-    final CountPathScope countPathScope = fieldCount
-        ? resolveCountPathScope(sourcePath, field)
-        : null;
-    if (countPathScope != null && countPathScope.absent()) {
+    final CountPathScope countPathScope = resolveCountPathScope(sourcePath, field);
+    if (countPathScope.absent()) {
       PATH_SUMMARY_STATS_SERVED.increment();
       return new Int64(0L);
     }
-    final long targetPathNodeKey = countPathScope == null
-        ? resolveTargetPathNodeKey(sourcePath, field)
-        : countPathScope.namedPathNodeKey();
+    final long targetPathNodeKey = countPathScope.namedPathNodeKey();
     if (targetPathNodeKey == -1L) {
       return null;
     }
@@ -24010,99 +23965,27 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (cached != null) {
       return cached;
     }
-    final Sequence computed = computePathStatsSequence(targetPathNodeKey, func);
+    final Sequence computed = computePathStatsSequence(targetPathNodeKey);
     if (computed != null) {
       pathStatsCache.putIfAbsent(statsKey, computed);
     }
     return computed;
   }
 
-  /**
-   * Actually read the PathNode's per-path statistics and package them as a Brackit Sequence. Opens a
-   * read-only trx + PathSummaryReader for the call duration. Called at most once per
-   * {@code (pathNodeKey, func)} during the executor's lifetime — results are cached by the caller.
-   */
-  private Sequence computePathStatsSequence(final long targetPathNodeKey, final String func) {
-
+  private Sequence computePathStatsSequence(final long targetPathNodeKey) {
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
       try {
-        final PathNode p = summary.getPathNodeForPathNodeKey(targetPathNodeKey);
-        if (p == null) {
+        final PathNode path = summary.getPathNodeForPathNodeKey(targetPathNodeKey);
+        if (path == null) {
           return null;
         }
-        if ("count".equals(func)) {
-          // PathNode references count OBJECT_KEY occurrences, not merely primitive observations.
-          // They therefore include null, object and array values while excluding a missing field;
-          // the exact ancestor resolver above excludes same-named fields at other depths.
-          PATH_SUMMARY_STATS_SERVED.increment();
-          return new Int64(p.getReferences());
-        }
-        if ("min".equals(func) && p.isStatsMinDirty()) {
-          return null;
-        }
-        if ("max".equals(func) && p.isStatsMaxDirty()) {
-          return null;
-        }
-        // A stale observation count disqualifies every VALUE aggregate: a subtree move leaves
-        // statistics attributed to the path the values left. Structural count returned above from
-        // PathNode references, which path-summary maintenance re-attributes with the moved nodes.
-        if (p.isStatsCountDirty()) {
-          return null;
-        }
-        // Value aggregates are served ONLY from an all-integral, still-reproducible column.
-        //
-        // Two independent reasons, both of which cost correctness if ignored. A sum stops being
-        // reproducible once a non-integral value is deleted, because floating-point addition is
-        // not invertible — the statistics mark that themselves. And even with no deletes at all, a
-        // double column's sum depends on the ORDER the values were added and on the rounding at
-        // each step: the interpreter walking the documents and an accumulator maintained per
-        // insert do not agree, and the summary's answer is not "the" answer merely because it is
-        // arithmetically better. Integers have neither problem, which is the case worth serving.
-        if (!p.isStatsSumTrustworthy() || !p.isStatsSumIntegral()) {
-          return null;
-        }
-        final long count = p.getStatsValueCount();
-        final long sum = p.getStatsSum();
-        final boolean numeric = p.hasNumericStats();
-        final long pMin = numeric
-            ? p.getStatsMin()
-            : Long.MAX_VALUE;
-        final long pMax = numeric
-            ? p.getStatsMax()
-            : Long.MIN_VALUE;
-        // Stats merge booleans as 0/1 and strings into the same observation count. Prove numeric
-        // purity from existing metadata: complete observations, no strings, and bounds excluding
-        // both boolean encodings. An integral column spanning [0,1] conservatively uses the scan.
-        if (!hasPureNumericStats(p, numeric, count, pMin, pMax)) {
-          return null;
-        }
-        final Sequence served = switch (func) {
-          // Reached only for an all-integral column (guarded above), so the long accumulator IS
-          // the exact sum and its integer type is the right one.
-          case "sum" -> new Int64(sum);
-          // min/max over ZERO values are the EMPTY sequence, not 0.
-          case "min" -> count == 0
-              ? new ItemSequence()
-              : new Int64(pMin);
-          case "max" -> count == 0
-              ? new ItemSequence()
-              : new Int64(pMax);
-          default -> null;
-        };
-        if (served != null) {
-          PATH_SUMMARY_STATS_SERVED.increment();
-        }
-        return served;
+        PATH_SUMMARY_STATS_SERVED.increment();
+        return new Int64(path.getReferences());
       } finally {
         summary.close();
       }
     }
-  }
-
-  private static boolean hasPureNumericStats(final PathNode path, final boolean numeric, final long count,
-      final long min, final long max) {
-    return numeric && !path.hasBytesStats() && count == path.getReferences() && (min > 1L || max < 0L);
   }
 
   // ==================== Implementation ====================
