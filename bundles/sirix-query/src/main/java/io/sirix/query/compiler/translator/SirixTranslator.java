@@ -127,9 +127,9 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
   /**
-   * Constructor with explicit pipeline strategy. Pass a
-   * {@link io.brackit.query.compiler.translator.BlockPipelineStrategy} to enable parallel
-   * (block-based) FLWOR execution via Brackit's ForkJoinPool model.
+   * Constructor with explicit pipeline strategy. Pass a {@link SirixBlockPipelineStrategy} to enable
+   * parallel (block-based) FLWOR execution via Brackit's ForkJoinPool model with Sirix's grouping
+   * refusal recovery.
    *
    * @param options options map
    * @param pipelineStrategy the strategy for pipelines without membership joins; membership joins use
