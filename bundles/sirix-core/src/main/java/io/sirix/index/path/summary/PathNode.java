@@ -85,8 +85,8 @@ public final class PathNode implements StructNode, NameNode {
   /**
    * Per-path value statistics — populated only when the owning resource has
    * {@code ResourceConfiguration.withPathStatistics == true}. Maintained at commit time via
-   * recordValue / removeValue hooks in {@link PathSummaryWriter}; read at query time for the
-   * aggregate-short-circuit path in the vectorized executor.
+   * recordValue / removeValue hooks in {@link PathSummaryWriter}. See {@link PathStats} for
+   * query-serving guidance.
    *
    * <p>
    * Lazily allocated — a PathNode that has never seen a value carries a single {@code null} reference
@@ -588,9 +588,8 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   /**
-   * Whether {@code sum}/{@code avg} may still be answered from these statistics: the accumulator must
-   * be recoverable ({@code !sumDirty}) AND the exact total must fit the {@code long} that would be
-   * served.
+   * Whether the sum is recoverable ({@code !sumDirty}) and its exact integral total fits a
+   * {@code long}. This does not certify input-type purity or query-serving eligibility.
    */
   public boolean isStatsSumTrustworthy() {
     final PathStats s = stats;
@@ -598,8 +597,8 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   /**
-   * Whether every numeric observation folded in so far was an integer-TYPED value, which is the only
-   * case {@code sum} may be served for — see {@link PathStats#sumFraction}.
+   * Whether the numeric lanes have no fractional remainder or floating-point provenance. This does
+   * not rule out non-numeric observations; see {@link PathStats#sumFraction}.
    *
    * <p>
    * No accessor exposes the exact double sum ({@code sum + sumFraction}) on purpose. It would be a
@@ -622,15 +621,11 @@ public final class PathNode implements StructNode, NameNode {
    * Folds {@code delta} into the persisted 128-bit integral accumulator.
    *
    * <p>
-   * {@code xs:integer} is arbitrary precision but the served {@code sum}/{@code avg} is a
-   * {@code long}, so a column of 64-bit ids (hashes, snowflake ids, ClickBench's {@code UserID})
-   * leaves that range after a few dozen values. Accumulating in 128 bits and asking
-   * {@link PathStats#sumFitsLong()} at serving time keeps that verdict a function of the observed
-   * values alone; a running 64-bit accumulator that dropped the overflowing addend instead made it a
-   * function of the flush cadence, so the same document could decline through one supported load path
-   * and serve through another. Nothing here sets {@link PathStats#sumDirty}: overflow is derived, and
-   * the flag is reserved for what is genuinely unrecoverable — a floating-point delete, a NaN, a
-   * move.
+   * A column of 64-bit ids can exceed the {@code long} range after a few values. Accumulating in 128
+   * bits keeps the exact total and {@link PathStats#sumFitsLong()} verdict independent of flush
+   * cadence; dropping an overflowing addend would make persisted statistics depend on the load path.
+   * Nothing here sets {@link PathStats#sumDirty}: overflow is derived, and the flag is reserved for
+   * what is genuinely unrecoverable — a floating-point delete, a NaN, a move.
    */
   private static void addToSum(final PathStats s, final long delta) {
     final long updatedLo = s.sum + delta;
@@ -646,8 +641,8 @@ public final class PathNode implements StructNode, NameNode {
    * Deliberately NOT {@code addToSum(s, -delta)}: {@code -Long.MIN_VALUE} is {@code Long.MIN_VALUE},
    * so cancelling an observation of that value through negation would add it again. The resulting
    * total can be perfectly representable — insert {@code MIN, M, M} and delete the {@code MIN} and
-   * the accumulator lands on {@code -2} — so the derived trust verdict would approve it and the
-   * summary would serve a sum the scan disagrees with. See {@link PathStats#subBorrow}.
+   * the accumulator lands on {@code -2} — so a representability check would miss the error. See
+   * {@link PathStats#subBorrow}.
    */
   private static void subtractFromSum(final PathStats s, final long delta) {
     final long updatedLo = s.sum - delta;
@@ -899,7 +894,7 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   // =====================================================================
-  // Statistics accessors (public — used by query-time short-circuit).
+  // Statistics accessors.
   // =====================================================================
 
   public @Nullable PathStats getStats() {

@@ -172,11 +172,9 @@ own `AbstractNumeric#addLong` escalates to `BigDecimal` on overflow; the kernel 
 (exactly in the scalar lanes, by a magnitude bound for the SIMD page kernel) and redoes the fold
 through the exact accumulator. The same wrap existed a second time in the path-summary statistics
 (`PathStats.sum`); that accumulator is now 128 bits wide (see `docs/DISK_FORMAT.md`, §2
-"PathStats trailer"). Value aggregates no longer serve from path-summary statistics: persisted
-metadata cannot prove numeric purity after mixed-type deferred observations. They use a supported
-projection or the existing typed scan, with generic fallback for ambiguous types. Structural field
-counts retain their exact summary route. Regression tests: `VectorizedAggregateExactnessTest` and
-`VectorizedReleaseCorrectnessTest.mixedStringPlacementPreservesGenericError`.
+"PathStats trailer"). Current summary-serving restrictions are specified in
+[Known limitations](KNOWN_LIMITATIONS.md#remaining-limitations).
+Regression test: `VectorizedAggregateExactnessTest`.
 
 **2. `min`/`max` over a string column failed instead of answering.** *(fixed)* Q6 is
 `MIN(EventDate), MAX(EventDate)`; Q21/Q22 take `MIN(URL)`/`MIN(Title)`. The numeric kernels

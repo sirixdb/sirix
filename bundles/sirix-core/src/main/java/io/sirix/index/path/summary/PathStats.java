@@ -20,12 +20,13 @@ import java.io.UncheckedIOException;
  *
  * <p>
  * Lifted out of {@link PathNode}'s field set so the node carries a single nullable reference (8 B)
- * instead of 11 always-present primitives + lazy heap blobs. Empty-state PathNodes that never see
- * an analytical query pay only that one reference.
+ * instead of 11 always-present primitives + lazy heap blobs. PathNodes that never record value
+ * statistics pay only that one reference.
  *
  * <p>
- * Read/written by {@link PathSummaryWriter} at commit time; read by the vectorized executor's
- * aggregate-short-circuit fast paths at query time.
+ * Read/written by {@link PathSummaryWriter} at commit time. Query-serving restrictions are
+ * documented in {@code docs/KNOWN_LIMITATIONS.md}, under "Vectorized executor (analytical fast
+ * paths)".
  */
 public final class PathStats {
 
@@ -48,9 +49,8 @@ public final class PathStats {
    * bulk load happened to chunk the input. A 64-bit accumulator that drops an overflowing addend
    * answers {@code [M, M, -M]} one way when a flush lands after the second value and another way when
    * it does not, so the same document loaded two supported ways would persist different statistics
-   * and decline in different places. Here every intermediate is exact and {@link #sumFitsLong()} asks
-   * the only question a reader cares about: is the TRUE total representable as the {@code long} that
-   * {@code sum}/{@code avg} would be served from?
+   * across load paths. Every intermediate is exact; {@link #sumFitsLong()} checks whether the total
+   * fits a {@code long}, independently of flush cadence. It does not establish input-type purity.
    */
   public long sumHi;
   public long min = EMPTY_MIN;
@@ -72,23 +72,19 @@ public final class PathStats {
    * column.
    *
    * <p>
-   * Maintained but never SERVED: any non-integral observation also sets {@link #doubleTyped}, and the
-   * reader declines every value aggregate on a double-typed column — deliberately, because a double
-   * sum depends on the order the values were added, so the summary's answer and the scan's would
-   * differ even when both are arithmetically defensible. This exists so the accumulator is not
-   * silently wrong if that policy is ever relaxed, not because anything reads it today.
+   * Floating-point observations also set {@link #doubleTyped}: their sum depends on addition order,
+   * so this remainder cannot reproduce the generic evaluator's document-order fold.
    */
   public double sumFraction;
 
   /**
-   * Set when the sum can no longer be reproduced exactly, after which readers must not serve
-   * {@code sum}/{@code avg} from these statistics.
+   * Set when the sum can no longer be reproduced exactly and must not be treated as an exact total.
    *
    * <p>
    * Needed because floating-point addition is not invertible: subtracting a double on delete does not
    * restore the value the accumulator held before it was added, so a maintained double sum drifts
    * away from the true one. Same reasoning as {@link #minDirty} — the honest move is to record that
-   * the aggregate is no longer trustworthy and let the query fall back to the scan.
+   * the aggregate is no longer trustworthy.
    */
   public boolean sumDirty;
 
@@ -99,8 +95,7 @@ public final class PathStats {
    * Stickiness is the point: {@code 1.0E16} is integral, so folding it into the long accumulator
    * looks lossless — but the interpreter sums that column with double arithmetic and rounds at every
    * step, landing on {@code 1.0E16} where an exact integer sum lands on {@code 10000000000000002}.
-   * The summary is not entitled to be "more accurate" than the answer it is standing in for, so a
-   * column that was ever floating-point declines value aggregates.
+   * The flag preserves that type distinction even when the fractional remainder is zero.
    */
   public boolean doubleTyped;
 
@@ -109,11 +104,9 @@ public final class PathStats {
    * statistics.
    *
    * <p>
-   * Moving a subtree re-parents records without re-attributing their observations: the summary adapts
-   * its structure, but the values stay counted under the path they left. Recomputing the affected
-   * paths would mean walking the moved subtree, so the statistics instead record that they are stale
-   * and let queries fall back to the scan -- the same bargain {@link #minDirty} already makes for the
-   * bounds.
+   * If a structural change cannot re-attribute observations, values can stay counted under a path
+   * they left. Callers unable to repair the affected paths mark the statistics stale instead; see
+   * {@link PathSummaryWriter#invalidateStatsForMovedSubtree(long)}.
    */
   public boolean countDirty;
 
@@ -179,7 +172,7 @@ public final class PathStats {
    * negation is not total: {@code -Long.MIN_VALUE} is {@code Long.MIN_VALUE}, so cancelling an
    * observation of that value by adding its negation ADDS it a second time. That is not a corner that
    * can be waved off now that representability is derived from the exact total — the doubled value
-   * can land back inside {@code long} range, where nothing marks it and the wrong sum is served.
+   * can land back inside {@code long} range, where a representability check cannot detect the error.
    * Subtracting the sign-extended pair directly has no such hole.
    */
   public static long subBorrow(final long hi, final long subHi, final long lo, final long subLo) {
