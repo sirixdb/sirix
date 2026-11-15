@@ -29,7 +29,6 @@ package io.sirix.query.function.xml.io;
 
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
-import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -40,7 +39,6 @@ import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.node.XmlDBStore;
 import io.sirix.utils.XmlDocumentCreator;
 import io.brackit.query.QueryContext;
-import io.brackit.query.QueryException;
 import io.brackit.query.Query;
 import io.brackit.query.jdm.Iter;
 import io.brackit.query.jdm.Sequence;
@@ -51,12 +49,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.stubbing.Answer;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
@@ -88,41 +82,45 @@ public final class OpenRevisionsTest {
   }
 
   @Test
-  public void test() throws IOException, QueryException {
-    XmlDocumentCreator.createVersionedWithUpdatesAndDeletes(holder.getXmlNodeTrx());
+  public void intervalStartingAtFirstCommitReturnsAllRevisions() {
+    assertIntervalStartingAtFirstCommit(false);
+  }
+
+  @Test
+  public void intervalStartingAtTimestampTieBeginsWithLastTiedRevision() {
+    assertIntervalStartingAtFirstCommit(true);
+  }
+
+  private void assertIntervalStartingAtFirstCommit(final boolean timestampTie) {
     holder.getXmlNodeTrx().close();
-
-    final Instant revisionTwoTimestamp;
-
-    try (final XmlNodeReadOnlyTrx rtx = holder.getResourceSession().beginNodeReadOnlyTrx(1)) {
-      revisionTwoTimestamp = rtx.getRevisionTimestamp();
-    }
-
-    final ZonedDateTime dateTime = ZonedDateTime.ofInstant(revisionTwoTimestamp, ZoneId.of("UTC"));
-
-    final Path database = XmlTestHelper.PATHS.PATH1.getFile();
-
-    // Initialize query context and store.
+    final Instant start = Instant.parse("2018-05-01T00:00:00Z");
+    final Path database = XmlTestHelper.PATHS.PATH2.getFile();
     try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(database.getParent()).build()) {
-      final QueryContext ctx = SirixQueryContext.createWithNodeStore(store);
-
-      final String dbName = database.toString();
-      final String resName = XmlTestHelper.RESOURCE;
-
-      final String xq1 = "xn:open-revisions('" + dbName + "','" + resName + "', xs:dateTime(\""
-          + DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(dateTime)
-          + "\"), xs:dateTime(\"2200-05-01T00:00:00-00:00\"))";
-
-      final Query query = new Query(SirixCompileChain.createWithNodeStore(store), xq1);
-      final Sequence nodes = query.evaluate(ctx);
-
-      try (final Iter iter = nodes.iterate()) {
-        Assert.assertNotNull(iter.next());
-        Assert.assertNotNull(iter.next());
-        Assert.assertNotNull(iter.next());
-        Assert.assertNotNull(iter.next());
-        Assert.assertNotNull(iter.next());
-        Assert.assertNull(iter.next());
+      final XmlDBCollection collection = store.create(database.toString(), new DocumentParser("<root/>"), "", start);
+      final var session = collection.getDatabase().beginResourceSession("resource1");
+      try (final var writer = session.beginNodeTrx()) {
+        for (int revision = 2; revision <= 5; revision++) {
+          writer.commit(null, start.plusMillis(timestampTie
+              ? revision - 2
+              : revision - 1));
+        }
+      }
+      try (final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store);
+          final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store)) {
+        final String query = "xn:open-revisions('" + database + "','resource1', xs:dateTime('" + start
+            + "'), xs:dateTime('2018-05-01T00:00:01Z'))";
+        final Sequence nodes = new Query(chain, query).evaluate(context);
+        Assert.assertNotNull(nodes);
+        try (final Iter iter = nodes.iterate()) {
+          for (int revision = timestampTie
+              ? 2
+              : 1; revision <= 5; revision++) {
+            final XmlDBNode node = (XmlDBNode) iter.next();
+            Assert.assertNotNull(node);
+            Assert.assertEquals(revision, node.getTrx().getRevisionNumber());
+          }
+          Assert.assertNull(iter.next());
+        }
       }
     }
   }

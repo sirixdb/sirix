@@ -75,3 +75,52 @@
   during this interval. This is incomplete evidence, not a green full mutation report;
   the outer executor must confirm the full CI lane. The checked-in mutation scope and
   thresholds were not reduced.
+
+## Follow-up: revision interval baseline flake
+
+- Fix / issue: PR #1352, [CI run 43720439139](https://github.com/sirixdb/sirix/actions/runs/43720439139/job/132832004606).
+- Symptom: coverage discovery completed, but `OpenRevisionsTest.test` failed without mutation.
+- Root cause: the test created five wall-clock commits and expected the interval starting at
+  revision 1's timestamp to include all five. Persisted timestamps have millisecond precision;
+  if revisions 1 and 2 tie, floor lookup correctly starts at revision 2. Instrumentation and
+  runner speed change the chance of that tie, not the contract.
+- Behaviour / invariant: interval expectations must follow the last revision at a timestamp,
+  independent of commit speed. Cover distinct timestamps and a tie at the starting boundary;
+  retain the existing before-creation, after-latest and concurrent-commit interval cases.
+- Regression / acceptance checks (specified before editing): build five revisions with explicit
+  timestamps, first with a tie between revisions 1 and 2. The old five-revision expectation must
+  fail deterministically. Replace the wall-clock fixture with distinct/tied timestamp cases and
+  assert exact revision IDs (1–5 / 2–5), then run the complete interval and point-in-time suites
+  through ordinary tests and PIT coverage alongside the fallback-expression mutation target.
+  The independent oracle is the public `ResourceSession.getRevisionNumber(Instant, int)`
+  floor/last-tie contract, with hand-selected timestamps;
+  returning the first tie, skipping a revision, reordering or duplicating nodes must fail.
+- Lesson: elapsed wall-clock time is not a fixture guarantee. Specify timestamps explicitly
+  when the expected result depends on their ordering or equality; see [Lessons](../LESSONS.md).
+
+### Revision-interval repair verification
+
+- The tied fixture with the old five-revision expectation failed deterministically:
+  `expected:<1> but was:<2>` (`build/ci-evidence/round3/tie-before.log`).
+- After correction and rebase, the interval/point-in-time and fast-path regression suites,
+  including the isolated lifetime and translator threshold tasks, passed 247 tests without skips.
+  Query work/allocation budgets passed 332 tests (five existing opt-in skips); core budgets
+  passed 325 and MCP budgets passed three. All 23 mutation-tooling tests and query Spotless
+  passed. No work/allocation bound was changed.
+- PIT coverage ran all eight `OpenRevisionsTest` cases, the sibling XML point-in-time suite,
+  native-image configuration and translator startup guards, and the fallback-expression suite.
+  Coverage completed successfully; all seven fallback-expression mutants were killed, with
+  none uncovered, surviving or timed out. This is targeted evidence, not a full changed-source run.
+  Logs, XML/HTML and generated JUnit execution IDs are under `build/ci-evidence/round3/`.
+- Path audit: both callers of the replacement fixture execute the public query with fixed
+  timestamps. The distinct case checks revisions 1–5, and the tied-start case checks 2–5,
+  in order, followed by end-of-sequence. The existing interval and XML/JSON point-in-time
+  fixtures use explicit boundaries outside the commit interval or explicit custom timestamps;
+  none retain the removed assumption that rapid commits must have distinct timestamps.
+- Rebased the eight feature/fix commits onto `21cef670d56a6ef25bef835d5fef16bc8b0c8f6d`,
+  whose dependency squash already contains their earlier branch ancestry. Preserve the base's
+  corrected grouping documentation and all lessons, independent translator thresholds and
+  startup-test exclusions, alongside the prior PIT argument, property and heap repairs.
+  Blob checks preserve all 45 base-only and 14 feature-only files exactly; the four overlaps
+  were checked individually. No production path was added or removed by the interval repair.
+- The outer executor still owns publication and full hosted changed-source PIT confirmation.
