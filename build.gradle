@@ -211,6 +211,8 @@ subprojects {
 
         tasks.withType(JavaCompile).configureEach {
             dependsOn rootProject.tasks.named('verifyNullMarkedPackages')
+            // Error Prone forks javac: the daemon heap does not replace its 512 MiB default.
+            options.forkOptions.memoryMaximumSize = '2g'
             if (name == 'compileTestJava') {
                 options.errorprone.option('NullAway:HandleTestAssertionLibraries', true)
             }
