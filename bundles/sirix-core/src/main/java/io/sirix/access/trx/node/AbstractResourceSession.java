@@ -77,7 +77,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.IdentityHashMap;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.Optional;
@@ -1532,7 +1531,6 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @SuppressWarnings("java:S1181")
   public void close() {
     final Set<NodeReadOnlyTrx> transactions = Collections.newSetFromMap(new IdentityHashMap<>());
-    final Map<Integer, R> nodeTransactions;
     final Set<NodeReadOnlyTrx> unfinishedTransactions = Collections.newSetFromMap(new IdentityHashMap<>());
     final Set<StorageEngineReader> readers = Collections.newSetFromMap(new IdentityHashMap<>());
     synchronized (this) {
@@ -1540,8 +1538,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         return;
       }
       transactions.addAll(sharedTrxMap.values());
-      nodeTransactions = new HashMap<>(nodeTrxMap);
-      transactions.addAll(nodeTransactions.values());
+      transactions.addAll(nodeTrxMap.values());
       readers.addAll(storageEngineWriterMap.values());
       readers.addAll(storageEngineReaderMap.values());
       closeAttempts++;
@@ -1606,10 +1603,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
           }
         }
         sharedTrxMap.clear();
-        nodeTrxMap.clear();
-        for (final Map.Entry<Integer, R> entry : nodeTransactions.entrySet()) {
-          if (unfinishedTransactions.contains(entry.getValue())) {
-            nodeTrxMap.put(entry.getKey(), entry.getValue());
+        for (final Map.Entry<Integer, R> entry : nodeTrxMap.entrySet()) {
+          if (!(entry.getValue() instanceof InternalNodeTrx<?>)
+              && !unfinishedTransactions.contains(entry.getValue())) {
+            nodeTrxMap.remove(entry.getKey(), entry.getValue());
           }
         }
         storageEngineReaderMap.clear();
@@ -1630,7 +1627,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
             storageEngineReaderMap.put(writer.getTrxId(), writer);
           }
         }
-        if (unfinishedWriters != null || !unfinishedTransactions.isEmpty()) {
+        if (unfinishedWriters != null || !nodeTrxMap.isEmpty()) {
           ShardedPageCache.rethrowCleanupFailure(failure);
           return;
         }
@@ -1746,9 +1743,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closeWriteTransaction(final int transactionID) {
-    assertNotClosed();
-
+  public synchronized void closeWriteTransaction(final int transactionID) {
+    if (!(nodeTrxMap.get(transactionID) instanceof NodeTrx)) {
+      return;
+    }
     try {
       removeFromPageMapping(transactionID);
     } finally {
@@ -1762,10 +1760,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closeReadTransaction(final int transactionID) {
+  public synchronized void closeReadTransaction(final int transactionID) {
+    if (nodeTrxMap.get(transactionID) instanceof NodeTrx) {
+      return;
+    }
     assertNotClosed();
-
-    // Remove from internal map.
     removeFromPageMapping(transactionID);
   }
 
