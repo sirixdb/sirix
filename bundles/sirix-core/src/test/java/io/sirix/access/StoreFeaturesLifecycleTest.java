@@ -3,6 +3,7 @@ package io.sirix.access;
 import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.backup.BackupManager;
 import io.sirix.access.trx.node.InternalResourceSession;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.access.trx.node.json.JsonResourceSessionImpl;
 import io.sirix.access.trx.page.StorageEngineWriterFactory;
 import io.sirix.cache.BufferManager;
@@ -20,7 +21,9 @@ import io.sirix.io.PageHasher;
 import io.sirix.io.StorageType;
 import io.sirix.io.RevisionFileData;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
+import io.sirix.index.aggregate.TemporalAggregateStorage;
 import io.sirix.page.StoreFeatures;
+import io.sirix.utils.SirixFiles;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -34,11 +37,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.concurrent.Semaphore;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
@@ -214,20 +220,7 @@ class StoreFeaturesLifecycleTest {
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void parentOpenPreservesUnsupportedDerivedSibling(final StorageType storageType) throws IOException {
-    databasePath = directory.resolve("derived-db");
-    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
-    final String derivedName = "resource" + DerivedIndexMaintainer.SUFFIX;
-    try (final var database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder("resource")
-                                                   .storageType(storageType)
-                                                   .useConventionalValidTimePaths()
-                                                   .build());
-      database.createResource(ResourceConfiguration.newBuilder(derivedName).storageType(storageType).build());
-      try (final var derived = database.beginResourceSession(derivedName); final var writer = derived.beginNodeTrx()) {
-        config = derived.getResourceConfig();
-        writer.commit();
-      }
-    }
+    createDerivedStore(storageType, false);
     replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(1, 0, 0));
     replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(1, 0, 0));
     Databases.clearGlobalCaches();
@@ -237,10 +230,151 @@ class StoreFeaturesLifecycleTest {
         final var source = database.beginResourceSession("resource");
         final var reader = source.beginNodeReadOnlyTrx()) {
       assertEquals(0, reader.getRevisionNumber());
-      assertThrows(UnsupportedStoreFeatureException.class, () -> database.beginResourceSession(derivedName));
+      assertThrows(UnsupportedStoreFeatureException.class, () -> {
+        final var opened = InterruptedFirstCommitRecovery.openStorageAndLoadUberPage(config);
+        opened.storage().close();
+      });
     }
     assertArrayEquals(dataBefore, Files.readAllBytes(dataFile()));
     assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile()));
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void unsupportedOpenPreservesMissingFilesAndSpills(final StorageType storageType) throws IOException {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0)}) {
+      createStore(storageType);
+      replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
+      replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
+      Files.delete(revisionsFile());
+      final Path spill = Files.createDirectories(config.resourcePath.resolve("projection-sort-spill"));
+      Files.writeString(spill.resolve("orphan.tmp"), "preserve this run");
+      Databases.clearGlobalCaches();
+      final Map<Path, byte[]> before = snapshotResource();
+      assertEquals(features, InterruptedFirstCommitRecovery.probeFeatures(config));
+      assertResourceUnchanged(before);
+      try (final var database = Databases.openJsonDatabase(databasePath)) {
+        assertThrows(UnsupportedStoreFeatureException.class, () -> database.beginResourceSession("resource"));
+      }
+      assertThrows(UnsupportedStoreFeatureException.class, () -> StorageType.getStorage(config));
+      assertResourceUnchanged(before);
+      assertFalse(Files.exists(revisionsFile()));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void readOnlyOpenPreservesOrphanSpills(final StorageType storageType) throws IOException {
+    createStore(storageType);
+    replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+    final Path spill = Files.createDirectories(config.resourcePath.resolve("projection-sort-spill"));
+    Files.writeString(spill.resolve("orphan.tmp"), "preserve this run");
+    Databases.clearGlobalCaches();
+    final Map<Path, byte[]> before = snapshotResource();
+    try (final var database = Databases.openJsonDatabase(databasePath);
+        final var session = database.beginResourceSession("resource");
+        final var reader = session.beginNodeReadOnlyTrx()) {
+      assertEquals(1, reader.getRevisionNumber());
+    }
+    assertResourceUnchanged(before);
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void xmlOpenPreservesUnsupportedFilesAndSpills(final StorageType storageType) throws IOException {
+    for (final boolean missing : new boolean[] {false, true}) {
+      databasePath = directory.resolve("xml-" + storeNumber++);
+      Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
+      try (final var database = Databases.openXmlDatabase(databasePath)) {
+        database.createResource(ResourceConfiguration.newBuilder("resource").storageType(storageType).build());
+        try (final var session = database.beginResourceSession("resource"); final var writer = session.beginNodeTrx()) {
+          config = session.getResourceConfig();
+          writer.commit();
+        }
+      }
+      replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+      replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, new StoreFeatures(0, 1, 0));
+      if (missing) {
+        Files.delete(revisionsFile());
+      }
+      final Path spill = Files.createDirectories(config.resourcePath.resolve("projection-sort-spill"));
+      Files.writeString(spill.resolve("orphan.tmp"), "preserve this run");
+      Databases.clearGlobalCaches();
+      final Map<Path, byte[]> before = snapshotResource();
+      try (final var database = Databases.openXmlDatabase(databasePath)) {
+        if (missing) {
+          assertThrows(UnsupportedStoreFeatureException.class, () -> database.beginResourceSession("resource"));
+        } else {
+          try (final var session = database.beginResourceSession("resource");
+              final var reader = session.beginNodeReadOnlyTrx()) {
+            assertEquals(1, reader.getRevisionNumber());
+          }
+        }
+      }
+      assertResourceUnchanged(before);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void unsupportedDerivedDamageNeverTriggersRebuild(final StorageType storageType) throws IOException {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0)}) {
+      for (int damage = 0; damage < 3; damage++) {
+        createDerivedStore(storageType, damage == 2);
+        replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
+        replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
+        if (damage == 0) {
+          SirixFiles.recursiveRemove(config.resourcePath.resolve("log"));
+        } else if (damage == 1) {
+          removeRevisionRecords();
+        }
+        Databases.clearGlobalCaches();
+        final Map<Path, byte[]> before = snapshotResource();
+        try (final var database = Databases.openJsonDatabase(databasePath);
+            final var source = database.beginResourceSession("resource");
+            final var reader = source.beginNodeReadOnlyTrx()) {
+          assertEquals(0, reader.getRevisionNumber());
+        }
+        assertResourceUnchanged(before);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void toolsRefuseHiddenDerivedFeaturesBeforeOpeningParents(final StorageType storageType) throws IOException {
+    for (final StoreFeatures features : new StoreFeatures[] {new StoreFeatures(1, 0, 0), new StoreFeatures(0, 1, 0),
+        new StoreFeatures(0, 0, 1)}) {
+      createDerivedStore(storageType, false);
+      replaceBeacon(IOStorage.PRIMARY_BEACON_OFFSET, 2, features);
+      replaceBeacon(IOStorage.SECONDARY_BEACON_OFFSET, 2, features);
+      Files.delete(revisionsFile());
+      Databases.clearGlobalCaches();
+      final Map<Path, byte[]> before = snapshotResource();
+      final Path backup = directory.resolve("hidden-backup");
+      final Path restored = directory.resolve("hidden-restored");
+      assertThrows(UnsupportedStoreFeatureException.class, () -> BackupManager.backupDatabase(databasePath, backup));
+      final var failure =
+          assertThrows(SirixIOException.class, () -> BackupManager.restoreDatabase(databasePath, restored));
+      assertTrue(failure.getMessage().contains("Unknown store feature bits"));
+      assertFalse(Files.exists(backup));
+      assertFalse(Files.exists(restored));
+      assertResourceUnchanged(before);
+      assertFalse(Files.exists(revisionsFile()));
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void featureFreeDerivedSnapshotDamageStillRebuilds(final StorageType storageType) throws IOException {
+    createDerivedStore(storageType, true);
+    Databases.clearGlobalCaches();
+    try (final var database = Databases.openJsonDatabase(databasePath);
+        final var source = database.beginResourceSession("resource")) {
+      assertEquals(0, source.getMostRecentRevisionNumber());
+      assertNotNull(((AbstractResourceSession<?, ?>) source).getDerivedResource());
+    }
   }
 
   @ParameterizedTest
@@ -496,6 +630,56 @@ class StoreFeaturesLifecycleTest {
 
   private Path revisionsFile() {
     return config.resourcePath.resolve("data").resolve(IOStorage.REVISIONS_FILENAME);
+  }
+
+  private void createDerivedStore(final StorageType storageType, final boolean invalidSnapshot) throws IOException {
+    databasePath = directory.resolve("derived-" + storeNumber++);
+    Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    final String name = "index-fixture";
+    try (final var database = Databases.openJsonDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                   .storageType(storageType)
+                                                   .useConventionalValidTimePaths()
+                                                   .build());
+      database.createResource(ResourceConfiguration.newBuilder(name)
+                                                   .storageType(storageType)
+                                                   .aggregateKernel(true)
+                                                   .build());
+      try (final var derived = database.beginResourceSession(name); final var writer = derived.beginNodeTrx()) {
+        config = derived.getResourceConfig();
+        if (invalidSnapshot) {
+          try (final var aggregate = new TemporalAggregateStorage(writer.getStorageEngineWriter(), 0)) {
+            aggregate.put(ByteBuffer.allocate(5).put((byte) 4).putInt(-1).array(),
+                ByteBuffer.allocate(4).putInt(1).array());
+          }
+        }
+        writer.commit();
+        if (invalidSnapshot) {
+          assertThrows(IllegalStateException.class, () -> DerivedIndexMaintainer.validateSnapshot(derived));
+        }
+      }
+    }
+    final Path derivedPath = config.resourcePath.resolveSibling("resource" + DerivedIndexMaintainer.SUFFIX);
+    Files.move(config.resourcePath, derivedPath);
+    config = ResourceConfiguration.deserialize(derivedPath);
+  }
+
+  private Map<Path, byte[]> snapshotResource() throws IOException {
+    final Map<Path, byte[]> snapshot = new HashMap<>();
+    try (final var paths = Files.walk(config.resourcePath)) {
+      for (final Path path : paths.toList()) {
+        snapshot.put(config.resourcePath.relativize(path), Files.isDirectory(path) ? null : Files.readAllBytes(path));
+      }
+    }
+    return snapshot;
+  }
+
+  private void assertResourceUnchanged(final Map<Path, byte[]> before) throws IOException {
+    final Map<Path, byte[]> after = snapshotResource();
+    assertEquals(before.keySet(), after.keySet());
+    for (final var entry : before.entrySet()) {
+      assertArrayEquals(entry.getValue(), after.get(entry.getKey()), entry.getKey().toString());
+    }
   }
 
   private void installDamagedRevisionFixture(final StoreFeatures features) throws IOException {

@@ -23,6 +23,8 @@ package io.sirix.io.memorymapped;
 
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.io.InterruptedFirstCommitRecovery;
+import io.sirix.page.StoreFeatures;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.io.filechannel.SpillChannelHolder;
 import io.sirix.page.PagePersister;
@@ -65,6 +67,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @author Johannes Lichtenberger
  */
 public final class MMStorage implements IOStorage {
+
+  private final StoreFeatures features;
 
   /**
    * Data file name.
@@ -215,6 +219,8 @@ public final class MMStorage implements IOStorage {
   public MMStorage(final ResourceConfiguration resourceConfig, final AsyncCache<Integer, RevisionFileData> cache,
       final RevisionIndexHolder revisionIndexHolder) {
     assert resourceConfig != null : "resourceConfig must not be null!";
+    features = InterruptedFirstCommitRecovery.probeFeatures(resourceConfig);
+    features.requireReadable();
     final Path file = resourceConfig.resourcePath;
     revisionsFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(REVISIONS_FILENAME);
     dataFilePath = file.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(FILENAME);
@@ -344,6 +350,7 @@ public final class MMStorage implements IOStorage {
 
   private void createRevisionsOffsetFileIfItDoesNotExist(Path revisionsOffsetFilePath) throws IOException {
     if (!Files.exists(revisionsOffsetFilePath)) {
+      features.requireWritable();
       Files.createFile(revisionsOffsetFilePath);
     }
   }
@@ -352,6 +359,7 @@ public final class MMStorage implements IOStorage {
     final Path concreteStorage = getDataFilePath();
 
     if (!Files.exists(concreteStorage)) {
+      features.requireWritable();
       Files.createDirectories(concreteStorage.getParent());
       Files.createFile(concreteStorage);
     }
@@ -361,6 +369,7 @@ public final class MMStorage implements IOStorage {
 
   @Override
   public synchronized Writer createWriter() {
+    features.requireWritable();
     // Guard the release with the acquired flag (see createReader) — a failed acquire must not add a
     // permit to the Semaphore(1).
     boolean sempahoreAcquired = false;

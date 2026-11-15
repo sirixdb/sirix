@@ -3,6 +3,7 @@ package io.sirix.io;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.DatabaseConfiguration;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -11,6 +12,7 @@ import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
+import io.sirix.page.StoreFeatures;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +21,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
@@ -90,6 +93,7 @@ public final class InterruptedFirstCommitRecovery {
    * @return the storage and the uber page to start from
    */
   public static StorageAndUberPage openStorageAndLoadUberPage(final ResourceConfiguration resourceConfig) {
+    probeFeatures(resourceConfig).requireReadable();
     try {
       final IOStorage storage = StorageType.getStorage(resourceConfig);
       return new StorageAndUberPage(storage, loadUberPage(storage));
@@ -102,6 +106,7 @@ public final class InterruptedFirstCommitRecovery {
         // Not provable — keep the existing actionable failure untouched.
         throw openFailure;
       }
+      probeFeatures(resourceConfig).requireWritable();
       LOGGER.warn("Interrupted FIRST commit detected for {}: the data file is non-empty but its uber-page "
           + "beacons either were never written or advertise only the EMPTY bootstrap revision, and the "
           + "revisions file holds no checksum-valid revision record — no commit carrying data ever became "
@@ -119,7 +124,7 @@ public final class InterruptedFirstCommitRecovery {
    * repair. The caller owns and must close the returned storage.
    */
   public static StorageAndUberPage openStorageForTool(final ResourceConfiguration resourceConfig) {
-    requireToolCompatible(resourceConfig);
+    probeFeatures(resourceConfig).requireToolCompatible();
     final IOStorage storage = StorageType.getStorage(resourceConfig);
     try {
       final UberPage page = loadUberPage(storage);
@@ -131,18 +136,58 @@ public final class InterruptedFirstCommitRecovery {
     }
   }
 
-  public static void requireToolCompatible(final ResourceConfiguration resourceConfig) {
+  public static StoreFeatures probeFeatures(final ResourceConfiguration resourceConfig) {
     final Path dataFile = dataFilePath(resourceConfig);
     try {
       if (!Files.exists(dataFile) || Files.size(dataFile) == 0) {
-        return;
+        return StoreFeatures.NONE;
       }
-      try (final FileChannel channel = FileChannel.open(dataFile, StandardOpenOption.READ)) {
-        final FileChannelReader reader =
-            new FileChannelReader(channel, channel, new ByteHandlerPipeline(resourceConfig.byteHandlePipeline),
-                SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build());
-        final UberPage page = (UberPage) reader.readUberPageReference().getPage();
-        page.getFeatures().requireToolCompatible();
+      try (final FileChannel channel = FileChannel.open(dataFile, StandardOpenOption.READ);
+          final FileChannelReader reader = new FileChannelReader(channel, channel,
+              new ByteHandlerPipeline(resourceConfig.byteHandlePipeline), SerializationType.DATA, new PagePersister(),
+              Caffeine.newBuilder().build())) {
+        try {
+          return reader.readStoreFeatures();
+        } catch (final SirixIOException corrupt) {
+          final ByteBuffer slots =
+              ByteBuffer.allocate((int) (IOStorage.DATA_REGION_START - IOStorage.PRIMARY_BEACON_OFFSET));
+          while (slots.hasRemaining()) {
+            if (channel.read(slots, IOStorage.PRIMARY_BEACON_OFFSET + slots.position()) <= 0) {
+              break;
+            }
+          }
+          if (isAllZero(slots.array(), 0, slots.capacity())) {
+            return StoreFeatures.NONE;
+          }
+          throw corrupt;
+        }
+      }
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
+  public static void probeDatabaseFeatures(final Path database, final boolean forTool) {
+    final Path resources = database.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    if (!Files.isDirectory(resources)) {
+      return;
+    }
+    try (final DirectoryStream<Path> paths = Files.newDirectoryStream(resources)) {
+      for (final Path path : paths) {
+        if (!Files.isDirectory(path)) {
+          continue;
+        }
+        try {
+          final StoreFeatures features = probeFeatures(ResourceConfiguration.deserialize(path));
+          if (forTool) {
+            features.requireToolCompatible();
+          }
+        } catch (final RuntimeException failure) {
+          if (forTool) {
+            throw failure;
+          }
+          LOGGER.debug("Resource compatibility will be resolved when opening {}", path, failure);
+        }
       }
     } catch (final IOException failure) {
       throw new SirixIOException(failure);

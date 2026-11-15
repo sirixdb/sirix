@@ -148,6 +148,8 @@ public final class BackupManager {
     // Resolve the type BEFORE creating the target, so a non-deserializable config fails cleanly.
     final DatabaseType databaseType = Databases.getDatabaseType(source);
 
+    InterruptedFirstCommitRecovery.probeDatabaseFeatures(source, true);
+
     final boolean targetExisted = Files.exists(target);
     final List<ResourceSummary> resourceSummaries = new ArrayList<>();
     long totalBytes = 0;
@@ -162,7 +164,6 @@ public final class BackupManager {
       // Open the database FIRST: opening may mint or re-key the persisted database id (and
       // rewrite dbsetting.obj), so copying the config afterwards captures the final state.
       try (final Database<?> database = openDatabase(source, databaseType)) {
-        requireToolCompatible(database);
         // Phase A — database-level files (dbsetting.obj, keyselector/, …); the resource
         // subtrees are copied per-resource under the writer lock in phase B. dbsetting.obj is
         // only ever replaced via an atomic temp-file move, so reading it concurrently is safe.
@@ -256,6 +257,12 @@ public final class BackupManager {
 
     final DatabaseType databaseType = Databases.getDatabaseType(source);
 
+    try {
+      InterruptedFirstCommitRecovery.probeDatabaseFeatures(source, true);
+    } catch (final RuntimeException failure) {
+      throw new SirixIOException("Verification of backup resource features failed: " + failure.getMessage(), failure);
+    }
+
     final boolean targetExisted = Files.exists(target);
     boolean success = false;
     try {
@@ -290,13 +297,13 @@ public final class BackupManager {
    */
   private static List<ResourceSummary> verifyRestoredDatabase(final Path target, final DatabaseType databaseType) {
     final List<ResourceSummary> resourceSummaries = new ArrayList<>();
+    try {
+      InterruptedFirstCommitRecovery.probeDatabaseFeatures(target, true);
+    } catch (final RuntimeException failure) {
+      throw new SirixIOException("Verification of restored resource features failed — "
+          + "the restore has been rolled back: " + failure.getMessage(), failure);
+    }
     try (final Database<?> database = openDatabase(target, databaseType)) {
-      try {
-        requireToolCompatible(database);
-      } catch (final RuntimeException failure) {
-        throw new SirixIOException("Verification of restored resource features failed — "
-            + "the restore has been rolled back: " + failure.getMessage(), failure);
-      }
       for (final Path resourcePath : database.listResources()) {
         if (!Files.isDirectory(resourcePath)) {
           continue;
@@ -326,14 +333,6 @@ public final class BackupManager {
       case JSON -> Databases.openJsonDatabase(databaseDir);
       case XML -> Databases.openXmlDatabase(databaseDir);
     };
-  }
-
-  private static void requireToolCompatible(final Database<?> database) {
-    for (final Path resourcePath : database.listResources()) {
-      if (Files.isDirectory(resourcePath)) {
-        InterruptedFirstCommitRecovery.requireToolCompatible(ResourceConfiguration.deserialize(resourcePath));
-      }
-    }
   }
 
   private static void requireSirixDatabase(final Path databaseDir) {

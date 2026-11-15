@@ -563,6 +563,10 @@ public abstract class AbstractReader implements Reader {
     return features.readOnlyCompat() == 0;
   }
 
+  public final StoreFeatures readStoreFeatures() {
+    return ((UberPage) readCommittedUberPageReference().getPage()).getFeatures();
+  }
+
   private PageReference readCommittedUberPageReference() {
     try {
       return readVerifiedBeacon(IOStorage.PRIMARY_BEACON_OFFSET);

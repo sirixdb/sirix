@@ -24,6 +24,8 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.IOStorage;
+import io.sirix.io.InterruptedFirstCommitRecovery;
+import io.sirix.page.StoreFeatures;
 import io.sirix.io.StorageType;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionSortedRunSpill;
@@ -158,6 +160,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourcePath);
+    final StoreFeatures features = InterruptedFirstCommitRecovery.probeFeatures(resourceConfig);
+    features.requireReadable();
 
     // Resource must be associated with this database.
     assert resourceConfig.resourcePath.getParent().getParent().equals(dbConfig.getDatabaseFile());
@@ -165,12 +169,15 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // Keep track of the resource-ID.
     biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
-    ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
+    if (features.readOnlyCompat() == 0) {
+      ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
+    }
 
     // Use the global BufferManager for this resource session.
     // Cache keys include (databaseId, resourceId) to prevent collisions.
     final T session = resourceStore.beginResourceSession(resourceConfig, bufferManager, resourcePath);
-    if (DerivedIndexMaintainer.enabled(resourceConfig) && resourceConfig.getValidTimeConfig() != null
+    if (features.readOnlyCompat() == 0 && DerivedIndexMaintainer.enabled(resourceConfig)
+        && resourceConfig.getValidTimeConfig() != null
         && session instanceof JsonResourceSession json
         && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
       final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
@@ -215,6 +222,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final List<ByteHandler> sourceHandlers = source.getResourceConfig().byteHandlePipeline.getComponents();
     final boolean encrypted = sourceHandlers.stream().anyMatch(Encryptor.class::isInstance);
     if (Files.exists(derivedPath)) {
+      InterruptedFirstCommitRecovery.probeFeatures(ResourceConfiguration.deserialize(derivedPath)).requireWritable();
       try {
         if (ResourceConfiguration.ResourcePaths.compareStructure(derivedPath) != 0) {
           throw new SirixIOException("Incomplete derived resource: " + name);
@@ -234,6 +242,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       } catch (final UnsupportedStoreFeatureException unsupported) {
         throw unsupported;
       } catch (final RuntimeException unreadable) {
+        InterruptedFirstCommitRecovery.probeFeatures(ResourceConfiguration.deserialize(derivedPath)).requireWritable();
         logger.warn("Rebuilding unreadable derived resource {} from the source log", name, unreadable);
         final Path path = source.getResourcePath().resolveSibling(name);
         final T existing = resourceStore.getOpenResourceSession(path);
