@@ -69,8 +69,9 @@ paths; it does not mean nothing got slower.
 
 **Mutation testing** guards the tests themselves. AI-generated tests tend to assert too little —
 they run the code and check something trivially true. PIT mutates the production code and reports
-which mutants the tests fail to kill. Scope is deliberately curated (see the `pitest` block in
-`bundles/sirix-core/build.gradle`); a whole-module run would take hours. Its `targetTests` must
+which mutants the tests fail to kill. The weekly core task's scope is deliberately curated (see
+the `pitest` block in `bundles/sirix-core/build.gradle`); a whole-module run would take hours.
+The separate [PR lane](#pr-mutation-testing) selects changed sources. Both tasks' `targetTests` must
 contain only DETERMINISTIC tests: PIT requires a suite that is green without mutation, and a
 randomly-seeded run (jqwik defaults, `JsonModelBasedOracleRandomTest`) can legitimately fail by
 discovering a real, previously unknown bug — which aborts the whole mutation analysis. When a
@@ -164,11 +165,10 @@ independently of the test lanes after `Build` and the short `Python mutation too
 and reuses that run's compiled output. It adds no dependency to the test, Sonar or deploy lanes.
 Its **30-minute job limit** is below the Linux query test lane (45 minutes); PIT processes share a **22-minute execution budget**, leaving
 room for setup and report upload. Each module may use all the time still left except a
-`MIN_MODULE_SECONDS` floor for every module after it, so one slow module cannot starve the
-others while the module with the most changed classes - usually the first - is not capped to an
-equal split either. A module that finishes early donates its remainder to those that follow,
-and the floor degrades to an equal split when the whole budget is smaller than one floor. A deadline kills the process group,
-preserves partial reports and explicitly reports incomplete analysis. A large diff may need
+`MIN_MODULE_SECONDS` floor for every module after it. Modules run in name order; a module that
+finishes early donates its remainder to those that follow. If the remaining budget cannot
+provide that floor for every pending module, it is divided equally among them. A deadline kills
+the process group, preserves partial reports and explicitly reports incomplete analysis. A large diff may need
 follow-up focused runs; timeouts and missing evidence are never a clean score.
 
 Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
@@ -186,9 +186,9 @@ these individually in the PR. New Gradle modules need an entry in `MODULES` in
 
 Test selection is resolved **per changed source** and is never widened to the module suite.
 PIT's coverage phase has to execute every class in `targetTests`, and Sirix test classes open
-databases during JUnit 5 discovery, so the test scope - not the mutant count - dominates the
-budget: a module suite (3366 classes for `sirix-core`) cannot be collected inside it. Test
-identities come from declared top-level Java/Kotlin type names and packages, not source
+databases during JUnit 5 discovery, so whole-module coverage collection can exhaust the budget
+before mutation analysis starts. Test identities come from declared top-level Java/Kotlin type
+names and packages, not source
 filenames or directories. Discovery does not require compiled test classes. For a source `Foo`
 in package `p` the first matching step wins:
 
@@ -197,7 +197,8 @@ in package `p` the first matching step wins:
    `Abstract` or trailing `Impl` - at a word boundary and ends with `Test`, `Tests` or `IT`
    (so `KeyValueLeafPage` reaches `KeyValueLeafPageSlotTest`, but `Page` never reaches
    `PagerTest`).
-3. Tests in `p` and its subpackages, only when there are at most `PACKAGE_TEST_LIMIT` of them.
+3. Tests in `p` and its subpackages ending with `Test`, `Tests` or `IT`, only when there are at
+   most `PACKAGE_TEST_LIMIT` of them.
 4. Otherwise the source is **unmapped**.
 
 PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
@@ -206,17 +207,22 @@ diff: one changed class gets every mutant the cap allows, while a 57-class diff 
 per class. This is what keeps a large diff inside the budget once the test scope is correct - a
 mutant whose covering test hangs costs a whole minion restart, and those restarts, not the
 mutant count, are the dominant cost. The limit is PIT's `CLASSLIMIT` feature, which distributes
-the sample evenly across each class rather than taking the first mutants, so a changed method
-late in a class is still reached. The job summary records the sampled figure per module, and a
-PR needing every mutant of a class can rerun it focused with the artifact's `targets.txt`.
+the sample evenly across each class rather than taking the first mutants; it does not guarantee
+that every changed method is exercised. The job summary records the per-class limit per module.
+For every mutant of a class, omit `prMutationMaxMutations` in a focused Gradle rerun using the
+artifact's `targets.txt`, as in the example below.
 
 A source that resolves to nothing never changes the scope chosen for the other changed sources;
-the union is capped at `MODULE_TEST_LIMIT` distinct test classes, and the cap drops the most
-weakly resolved sources first, never an exactly named test. Unmapped sources stay in
-`targetClasses`, so a PR touching production code always mutates it; their mutants report
-`NO_COVERAGE` and `results.json` plus the job summary name every unmapped source and the
-resolution kind of each. A module where nothing maps reports state `unmapped` instead of running
-PIT without a baseline. This focused selection can omit integration assertions; if a survivor is
+the union is capped at `MODULE_TEST_LIMIT` distinct declared test names. Named matches are
+admitted before related matches, then package fallbacks; any source whose full candidate set
+would exceed the cap is marked `over-limit`, including a named match. Selected names receive a
+trailing `*` to include nested classes; other classes sharing that prefix can also match.
+When any tests are selected, all changed classes remain in `targetClasses`; mutants without
+coverage from those tests report `NO_COVERAGE`. A source without its own mapping may still be
+covered by tests selected for another source. `results.json` records unresolved sources
+(`unmapped` or `over-limit`) and every source's resolution kind; the job summary lists unresolved
+sources. A module where nothing maps reports state `unmapped` instead of running PIT without a
+baseline. This focused selection can omit integration assertions; if a survivor is
 already killed by a broader deterministic test, rerun with that test included and link the report.
 Random jqwik/property exploration, the random model oracle, HOT structural properties and soak
 suites are excluded from the PR mutation baseline; keep exploration in its normal test lane and
@@ -275,14 +281,10 @@ The opt-in [Gradle configuration](../gradle/pr-mutation.gradle) uses the existin
 [Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions. Its absence from
 normal task graphs preserves existing test-lane timing.
 
-It reuses each module's `test` task `opens`/`exports` and system properties for the minion JVMs.
-PIT takes `--jvmArgs` as a **comma-separated** list, so it re-splits any argument holding a comma
-and hands the remainder to the minion JVM as a bare token ahead of its main class: the minion then
-dies before running a test (`Main method not found in class ...`, then `MINION_DIED`), which
-surfaces as a coverage-generation failure for the whole module. Test system properties whose value
-holds a comma are therefore dropped, and their names logged in `pitest.log`. The module's own
-`jvmArgs` are never filtered: some are declared as two tokens (`'--add-opens'`,
-`'a/b=ALL-UNNAMED'`), so dropping one element would orphan the option it belongs to.
+Minions reuse each module's `test` task `opens`/`exports` and system properties, except properties
+whose synthesized `-D` argument contains a comma. Omitted property names are logged in
+`pitest.log`; the [Gradle configuration](../gradle/pr-mutation.gradle) documents the PIT argument
+transport constraint and why paired JVM options must be preserved.
 
 ## Running the layers
 

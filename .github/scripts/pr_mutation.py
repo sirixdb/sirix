@@ -19,9 +19,8 @@ MODULES = {name: name for name in ('sirix-core', 'sirix-query', 'sirix-rest-api'
 MODULES['sirix-examples'] = 'sirix-example'
 DIRECTORIES = {module: directory for directory, module in MODULES.items()}
 
-# PIT's coverage phase must execute every class in targetTests, and Sirix test classes open
-# databases during JUnit 5 discovery, so the scope - not the mutant count - dominates the budget.
-# A module suite (3366 classes for sirix-core) cannot be collected inside the execution budget.
+# PIT collects baseline coverage for every targetTests class. Bound test selection as well as
+# mutant sampling, so coverage collection cannot fall back to the whole module suite.
 TEST_SUFFIXES = ('Test', 'Tests', 'IT')
 PACKAGE_TEST_LIMIT = 25
 MODULE_TEST_LIMIT = 60
@@ -33,7 +32,7 @@ MIN_MODULE_SECONDS = 120
 # A large diff cannot afford every mutant of every changed class. A mutant whose covering test
 # hangs costs a whole minion restart, and those restarts - not the mutant count - exhausted the
 # budget for PR 1351's 57 changed sirix-core classes once the test scope was fixed. Sample per
-# class instead, so the work scales with the diff while a small diff still gets every mutant.
+# class instead, so the work scales with the diff and even a small diff has a per-class cap.
 MUTANT_BUDGET = 300
 MIN_MUTANTS_PER_CLASS = 4
 MAX_MUTANTS_PER_CLASS = 40
@@ -243,7 +242,7 @@ def source_package(module_root, source):
 
 
 def resolve_tests(stem, package, tests):
-    """Resolve one changed source to test classes; never widen beyond its own package."""
+    """Prefer named and module-wide related tests, with a bounded package fallback."""
     prefix = package + '.' if package else ''
     named = [name for name in (f'{prefix}{stem}{suffix}' for suffix in ('Test', 'Tests'))
              if name in tests]
@@ -277,7 +276,7 @@ def test_scope(module_root, sources):
         patterns, kind = resolve_tests(Path(source).stem,
                                        source_package(module_root, source), tests)
         candidates.append({'source': source, 'kind': kind, 'patterns': patterns})
-    # Admit the best-resolved sources first, so the cap never costs an exactly named test.
+    # Admit named matches before related/package matches; any candidate can exceed the cap.
     selected = set()
     for kind in KIND_ORDER:
         for candidate in candidates:
@@ -288,7 +287,7 @@ def test_scope(module_root, sources):
                 candidate['kind'] = 'over-limit'
                 continue
             selected = merged
-    # A trailing glob reaches @Nested classes without matching another package.
+    # A trailing glob reaches @Nested classes and may also match other name-prefixed classes.
     return (sorted(name + '*' for name in selected),
             sorted(candidate['source'] for candidate in candidates
                    if candidate['kind'] in UNRESOLVED_KINDS),
@@ -440,10 +439,8 @@ def run(root, output, seconds, blocking):
     results = []
     pending = len(selected)
     for module, sources in selected.items():
-        # Keep a floor for each module still to come, and let this one use all the rest. A
-        # single shared deadline let the first module starve the others; an equal split would
-        # instead cap the module with the most changed classes, which is usually the first.
-        # The floor degrades to an equal split when the whole budget is smaller than a floor.
+        # Reserve time for later modules while allowing this module to use the rest.
+        # Divide equally if the remaining budget cannot supply every pending module's floor.
         remaining = max(0.0, deadline - time.monotonic())
         reserve = min(MIN_MODULE_SECONDS, remaining / pending)
         share = remaining - reserve * (pending - 1)

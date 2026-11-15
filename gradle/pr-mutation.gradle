@@ -25,15 +25,9 @@ configure(mutationProject) {
         def minionArgs = standardTest.jvmArgs.findAll {
             !it.startsWith('-X') && !it.startsWith('-javaagent:')
         }
-        // PIT takes --jvmArgs as a COMMA-separated list, so it re-splits any argument holding a
-        // comma and hands the remainder to the minion JVM as a bare token ahead of its main class.
-        // sirix-query's -Dsirix.test.nativeImage.downcallArgs.optedIn carries
-        // '--initialize-at-build-time=<class>,<class>'; PIT split it at the comma and the JVM took
-        // the second class for the main class, so the minion died before running a single test
-        // ("Main method not found in class ...", then MINION_DIED) and failed the whole module.
-        // Only these synthesized properties are filtered: jvmArgs above are the module's own
-        // opens/exports, and some are declared as two tokens ('--add-opens', 'a/b=ALL-UNNAMED'),
-        // so dropping an element there would orphan the option it belongs to.
+        // PIT's comma-separated --jvmArgs protocol re-splits commas in -D arguments into bare
+        // tokens, breaking minion startup. Filter synthesized properties only: opens/exports
+        // may be two-token options, so removing a jvmArgs element could orphan its paired token.
         def unusable = []
         standardTest.systemProperties.each { key, value ->
             if (value == null) {
@@ -60,7 +54,7 @@ configure(mutationProject) {
             // no maxMutationsPerClass setting; the limit is the CLASSLIMIT interceptor feature
             // (org.pitest.mutationtest.filter.LimitNumberOfMutationsPerClassFilterFactory), whose
             // createEvenlyDistributedSampling strides across the class rather than taking the
-            // first N, so a changed method late in a class is still reached. Optional on purpose:
+            // first N, without guaranteeing every method is reached. Optional on purpose:
             // a manual focused rerun omits it and then mutates every mutant of its targets.
             if (mutantLimit != null) {
                 features = ["+CLASSLIMIT(limit[${mutantLimit}])".toString()]

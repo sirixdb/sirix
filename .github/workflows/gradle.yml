@@ -186,11 +186,7 @@ jobs:
     name: PIT changed-source mutation testing
     needs: [Build, PythonTooling]
     if: github.event_name == 'pull_request'
-    # Decision: ADVISORY. The job reports, it does not gate. Its scope is the PR's own changed
-    # classes, so a red result is normally a test-quality finding for the author rather than a
-    # broken build, and the test mapping is a heuristic that can legitimately find no test.
-    # Set the repository Actions variable MUTATION_BLOCKING=true and add this job to branch
-    # protection to make it required. See docs/VERIFICATION.md#pr-mutation-testing.
+    # Advisory rollout policy and blocking switch: docs/VERIFICATION.md#pr-mutation-testing.
     continue-on-error: ${{ vars.MUTATION_BLOCKING != 'true' }}
     permissions:
       contents: read
