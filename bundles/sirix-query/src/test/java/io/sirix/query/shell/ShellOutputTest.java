@@ -96,7 +96,7 @@ final class ShellOutputTest {
             : 15_000_000L);
     output.result(new Query("1"), new BrackitQueryContext(), "1");
     final String nl = System.lineSeparator();
-    assertEquals(nl + "\033[2mQuery result\033[0m" + nl + "\033[33m1\033[0m" + nl + "\033[2m  5 ms\033[0m" + nl + nl,
+    assertEquals("\033[2mQuery result\033[0m" + nl + "\033[33m1\033[0m" + nl + "\033[2m  5 ms\033[0m" + nl + nl,
         out.toString());
     assertEquals(2, calls.get());
     calls.set(0);

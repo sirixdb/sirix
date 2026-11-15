@@ -47,3 +47,7 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 - **Preserve a PrintStream's declared encoding when adapting it:** use its `charset()` rather
   than assuming the JVM default. Test the adapter with a non-default Unicode encoding and
   a Windows code page. Evidence: [shell output encoding](postmortems/shell-output-encoding.md).
+
+- **Do not label line accumulation as syntactic continuation:** a blank-line shell protocol
+  cannot infer whether the preceding query is incomplete. Check prompts and spacing together
+  in a real terminal transcript. Evidence: [shell continuation prompt](postmortems/shell-continuation-prompt.md).

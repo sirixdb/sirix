@@ -289,8 +289,7 @@ public final class Main {
     System.exit(-1);
   }
 
-  private static String readStringFromScannerWithEndMark(LineReader lineReader, String prompt,
-      ShellHighlighter highlighter) {
+  static String readStringFromScannerWithEndMark(LineReader lineReader, String prompt, ShellHighlighter highlighter) {
     StringBuilder strbuf = new StringBuilder();
 
     for (int i = 0;; i++) {
@@ -301,7 +300,7 @@ public final class Main {
             : strbuf.toString() + System.lineSeparator());
         line = lineReader.readLine(i == 0
             ? prompt
-            : "  ...> ");
+            : "");
       } catch (EndOfFileException e) {
         // Control-D: run what has been entered so far, or exit the shell if nothing has.
         break;

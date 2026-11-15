@@ -1,6 +1,11 @@
 package io.sirix.query;
 
 import org.junit.jupiter.api.Test;
+import io.sirix.query.shell.ShellHighlighter;
+import io.sirix.query.shell.ShellPalette;
+import org.jline.reader.LineReader;
+import org.jline.reader.EndOfFileException;
+import org.jline.reader.UserInterruptException;
 import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.charset.Charset;
@@ -13,11 +18,45 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class MainTest {
   @TempDir
   Path directory;
+
+  @Test
+  void completeQueriesDoNotShowAMisleadingContinuationPrompt() {
+    final LineReader reader = mock(LineReader.class);
+    when(reader.readLine(anyString())).thenReturn("1+1", "");
+    assertEquals("1+1",
+        Main.readStringFromScannerWithEndMark(reader, "sirix> ", new ShellHighlighter(ShellPalette.NONE)));
+    verify(reader).readLine("sirix> ");
+    verify(reader).readLine("");
+  }
+
+  @Test
+  void multilineBlankLineExecutionAndEndMarksArePreserved() {
+    final LineReader reader = mock(LineReader.class);
+    when(reader.readLine(anyString())).thenReturn("let $x := 1", "return $x", "");
+    assertEquals("let $x := 1" + System.lineSeparator() + "return $x",
+        Main.readStringFromScannerWithEndMark(reader, "sirix> ", new ShellHighlighter(ShellPalette.NONE)));
+    verify(reader, times(2)).readLine("");
+    final LineReader eof = mock(LineReader.class);
+    when(eof.readLine(anyString())).thenReturn("1").thenThrow(new EndOfFileException());
+    assertEquals("1", Main.readStringFromScannerWithEndMark(eof, "sirix> ", new ShellHighlighter(ShellPalette.NONE)));
+    final LineReader empty = mock(LineReader.class);
+    when(empty.readLine(anyString())).thenThrow(new EndOfFileException());
+    assertNull(Main.readStringFromScannerWithEndMark(empty, "sirix> ", new ShellHighlighter(ShellPalette.NONE)));
+    final LineReader interrupted = mock(LineReader.class);
+    when(interrupted.readLine(anyString())).thenThrow(new UserInterruptException(""));
+    assertNull(Main.readStringFromScannerWithEndMark(interrupted, "sirix> ", new ShellHighlighter(ShellPalette.NONE)));
+  }
 
   @Test
   void outputAdapterPreservesExplicitStreamEncodings() {

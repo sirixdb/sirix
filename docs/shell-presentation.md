@@ -31,3 +31,9 @@ Unicode, huge strings/results, differential plain-byte comparisons and scoped PI
 A standalone measurement reports presentation overhead and allocations; no wall-clock
 threshold is added to CI. JLine owns cursor rendering/blinking and terminal portability;
 the shell does not change a user's terminal background or cursor preferences.
+
+Interactive input still runs on a blank line. Subsequent physical lines use an empty
+prompt rather than implying that a complete query is syntactically incomplete. Terminal
+results do not add the plain CLI's leading blank line. `MainTest` checks the input/prompt
+contract and multiline/EOF/interrupt behavior; `ShellOutputTest` checks exact terminal
+spacing while the legacy plain-byte oracle remains unchanged.

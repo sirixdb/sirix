@@ -31,7 +31,8 @@ public final class ShellOutput {
     final long started = palette.enabled()
         ? clock.getAsLong()
         : 0;
-    out.println();
+    if (!palette.enabled())
+      out.println();
     out.println(palette.subtle() + "Query result" + palette.reset());
     if (palette.enabled()) {
       try (final ShellResultWriter writer = new ShellResultWriter(out, palette, isDiff(source))) {
