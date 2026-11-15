@@ -122,9 +122,8 @@ final class ShellHighlighterTest {
 
   @Test
   void singleQuotedBackslashesFollowExecutableParserAndRestoreStyles() {
-    final String[][] cases = {{"'C:\\'", "C:\\"}, {"'商店😀\\''path\\'", "商店😀\\'path\\"},
-        {"'it''s\\'", "it's\\"}, {"'\\'", "\\"}, {"\"C:\\\\\""},
-        {"\"商店😀\\\"path\\\\\""}, {"\"it\"\"s\""}};
+    final String[][] cases = {{"'C:\\'", "C:\\"}, {"'商店😀\\''path\\'", "商店😀\\'path\\"}, {"'it''s\\'", "it's\\"},
+        {"'\\'", "\\"}, {"\"C:\\\\\""}, {"\"商店😀\\\"path\\\\\""}, {"\"it\"\"s\""}};
     for (final String[] sample : cases) {
       final String head = "let $p := " + sample[0];
       if (sample.length == 2) {

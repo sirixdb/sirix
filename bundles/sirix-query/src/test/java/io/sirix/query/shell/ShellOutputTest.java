@@ -185,8 +185,13 @@ final class ShellOutputTest {
         final StringWriter out = new StringWriter();
         new ShellOutput(palette, new PrintWriter(out), new PrintWriter(Writer.nullWriter()), () -> 0L).result(
             new Query(chain, source), ctx, source);
-        final String expected = (palette.enabled() ? "" : nl) + "Query result" + nl + patch + nl
-            + (palette.enabled() ? "  0 ms" + nl : "") + nl;
+        final String expected = (palette.enabled()
+            ? ""
+            : nl) + "Query result" + nl + patch + nl
+            + (palette.enabled()
+                ? "  0 ms" + nl
+                : "")
+            + nl;
         assertEquals(expected, ShellResultWriterTest.strip(out.toString()));
         assertTrue(out.toString().contains(palette.orange() + "replace" + palette.reset()), out.toString());
         assertTrue(out.toString().contains(palette.red() + "delete" + palette.reset()), out.toString());
@@ -280,8 +285,8 @@ final class ShellOutputTest {
           final String call = prefix + ":diff(" + arguments + ",1,2)";
           assertEquals(expected, ShellOutput.diffMode(call), call);
           assertEquals(expected, ShellOutput.diffMode("(: before :)\n" + call + " (: after :)"), call);
-          for (final String source : List.of("(" + call + ")", call + ", 42",
-              "if (false()) then " + call + " else ()", "declare function local:unused() { " + call + " }; ()"))
+          for (final String source : List.of("(" + call + ")", call + ", 42", "if (false()) then " + call + " else ()",
+              "declare function local:unused() { " + call + " }; ()"))
             assertEquals(DiffMode.NONE, ShellOutput.diffMode(source), source);
         }
       }

@@ -150,8 +150,9 @@ final class ShellResultWriterTest {
           "insert nodes ", "insert node attribute a { ", "let $doc := xn:doc(")) {
         final String suffix = prefix.startsWith("let")
             ? ", 'resource\\', 1) return (delete nodes $doc/b)"
-            : (prefix.startsWith("insert node attribute") ? " }" : "")
-                + "; delete nodes $doc/b; insert nodes <a/>; replace node $doc/a with <b/>";
+            : (prefix.startsWith("insert node attribute")
+                ? " }"
+                : "") + "; delete nodes $doc/b; insert nodes <a/>; replace node $doc/a with <b/>";
         final String input = prefix + literal + suffix;
         for (int overload = 0; overload < 3; overload++) {
           for (int split = 0; split <= input.length(); split++) {
@@ -225,8 +226,8 @@ final class ShellResultWriterTest {
     }
   }
 
-  private static void writePart(final ShellResultWriter writer, final String input, final int offset,
-      final int length, final int overload) throws IOException {
+  private static void writePart(final ShellResultWriter writer, final String input, final int offset, final int length,
+      final int overload) throws IOException {
     if (overload == 0)
       writer.write(input, offset, length);
     else if (overload == 1)
@@ -411,7 +412,9 @@ final class ShellResultWriterTest {
   private static String render(final String text, final boolean diff, final ShellPalette palette, final int chunk)
       throws Exception {
     final StringWriter out = new StringWriter();
-    try (final ShellResultWriter writer = new ShellResultWriter(out, palette, diff ? DiffMode.JSON : DiffMode.NONE)) {
+    try (final ShellResultWriter writer = new ShellResultWriter(out, palette, diff
+        ? DiffMode.JSON
+        : DiffMode.NONE)) {
       for (int offset = 0; offset < text.length(); offset += chunk)
         writer.write(text, offset, Math.min(chunk, text.length() - offset));
     }
