@@ -68,9 +68,9 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
   keyword built-ins, the demo's `count(...)`, `last()`, `replace(...)` and incomplete/multiline input.
   Evidence: [shell keyword precedence](postmortems/shell-keyword-precedence.md).
 
-- **Scope XML quoting to attributes in the streaming renderer.** Track element text and
-  complete comment, PI and CDATA terminators across writes. Check payloads and styles
-  after embedded quotes and `>` characters, including finish/reuse and mixed formats.
+- **Distinguish XML document contexts from patch strings.** Follow the quoting rules in
+  the [shell presentation contract](shell-presentation.md). Check payloads and styles
+  across markup terminators, write boundaries, finish/reuse and mixed formats.
   Evidence appears in [XML content quoting](postmortems/shell-xml-content-quotes.md).
 
 - **Cover every serialized diff operation in the palette contract.** Structural JSON
