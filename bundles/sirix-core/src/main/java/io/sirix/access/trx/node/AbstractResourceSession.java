@@ -93,6 +93,12 @@ import java.util.concurrent.locks.ReentrantLock;
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Resource lifecycle ownership. Writer admission acquires its permit without holding the session
+ * monitor, then revalidates and registers under that monitor. Teardown snapshots under the monitor,
+ * performs node cleanup and scheduler fences outside it, then finalizes independent owners under the
+ * monitor. Owner removal and permit release are atomic; no permit wait may retain the monitor.
+ */
 @SuppressWarnings("ConstantValue")
 public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements ResourceSession<R, W>, InternalResourceSession<R, W> {
@@ -1369,51 +1375,53 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized W beginNodeTrx(final int maxNodeCount, final int maxTime, final TimeUnit timeUnit,
+  public W beginNodeTrx(final int maxNodeCount, final int maxTime, final TimeUnit timeUnit,
       final AfterCommitState afterCommitState) {
-    // Authorize before acquiring a writer or touching its intent log.
-    ResourceAccessScope.checkWrite(this);
-    lastCommittedUberPage.get().getFeatures().requireWritable();
-    assertNotClosing();
-    // Checks.
-    assertAccess(getMostRecentRevisionNumber());
-    if (maxNodeCount < 0 || maxTime < 0) {
-      throw new SirixUsageException("maxNodeCount may not be < 0!");
-    }
-    requireNonNull(timeUnit);
-
-    // KEEP_OPEN_ASYNC_FLUSH / KEEP_OPEN_ASYNC_COMMIT runtime guards.
-    //
-    // Both async modes append through FileChannelWriter regardless of backend (the
-    // MEMORY_MAPPED storage constructs the identical writer — see MMStorage.createWriter),
-    // so KEEP_OPEN_ASYNC_FLUSH is supported on FILE_CHANNEL and MEMORY_MAPPED alike. The
-    // memory-mapped read side stays correct by ORDERING, not isolation: an async-flushed
-    // offset becomes reachable (via cleanupSnapshot applying it to the page reference)
-    // only after the background thread has fully appended and flushed the buffered tail
-    // and released the flush permit — so any subsequent read of that offset, whether
-    // through the write transaction's FileChannelReader or through an MMFileReader that a
-    // fragment re-read obtains from resourceSession.createReader() (which remaps to the
-    // grown file size under MMStorage's remapLock), observes fully written bytes via the
-    // POSIX-unified page cache. Read-only sessions additionally never reach unpublished
-    // offsets at all before the final synchronous commit publishes the revision.
-    // KEEP_OPEN_ASYNC_COMMIT additionally publishes durable revisions from the background
-    // thread and stays FILE_CHANNEL-only until that mid-transaction publication is
-    // validated against concurrently remapping memory-mapped readers.
-    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-        || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
-      final StorageType storageType = getResourceConfig().getStorageType();
-      final boolean supportedBackend = storageType == StorageType.FILE_CHANNEL
-          || (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH && storageType == StorageType.MEMORY_MAPPED);
-      if (!supportedBackend) {
-        throw new IllegalArgumentException(afterCommitState + " requires the FILE_CHANNEL"
-            + (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-                ? " or MEMORY_MAPPED"
-                : "")
-            + " storage backend; got " + storageType);
+    synchronized (this) {
+      // Authorize before acquiring a writer or touching its intent log.
+      ResourceAccessScope.checkWrite(this);
+      lastCommittedUberPage.get().getFeatures().requireWritable();
+      assertNotClosing();
+      // Checks.
+      assertAccess(getMostRecentRevisionNumber());
+      if (maxNodeCount < 0 || maxTime < 0) {
+        throw new SirixUsageException("maxNodeCount may not be < 0!");
       }
-      if (maxTime > 0) {
-        throw new IllegalArgumentException(
-            afterCommitState + " does not support timed auto-commit; use count-based only");
+      requireNonNull(timeUnit);
+
+      // KEEP_OPEN_ASYNC_FLUSH / KEEP_OPEN_ASYNC_COMMIT runtime guards.
+      //
+      // Both async modes append through FileChannelWriter regardless of backend (the
+      // MEMORY_MAPPED storage constructs the identical writer — see MMStorage.createWriter),
+      // so KEEP_OPEN_ASYNC_FLUSH is supported on FILE_CHANNEL and MEMORY_MAPPED alike. The
+      // memory-mapped read side stays correct by ORDERING, not isolation: an async-flushed
+      // offset becomes reachable (via cleanupSnapshot applying it to the page reference)
+      // only after the background thread has fully appended and flushed the buffered tail
+      // and released the flush permit — so any subsequent read of that offset, whether
+      // through the write transaction's FileChannelReader or through an MMFileReader that a
+      // fragment re-read obtains from resourceSession.createReader() (which remaps to the
+      // grown file size under MMStorage's remapLock), observes fully written bytes via the
+      // POSIX-unified page cache. Read-only sessions additionally never reach unpublished
+      // offsets at all before the final synchronous commit publishes the revision.
+      // KEEP_OPEN_ASYNC_COMMIT additionally publishes durable revisions from the background
+      // thread and stays FILE_CHANNEL-only until that mid-transaction publication is
+      // validated against concurrently remapping memory-mapped readers.
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+          || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
+        final StorageType storageType = getResourceConfig().getStorageType();
+        final boolean supportedBackend = storageType == StorageType.FILE_CHANNEL
+            || (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH && storageType == StorageType.MEMORY_MAPPED);
+        if (!supportedBackend) {
+          throw new IllegalArgumentException(afterCommitState + " requires the FILE_CHANNEL"
+              + (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+                  ? " or MEMORY_MAPPED"
+                  : "")
+              + " storage backend; got " + storageType);
+        }
+        if (maxTime > 0) {
+          throw new IllegalArgumentException(
+              afterCommitState + " does not support timed auto-commit; use count-based only");
+        }
       }
     }
 
@@ -1434,46 +1442,50 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     boolean success = false;
     try {
-      // Create new storage engine writer (shares the same ID with the node write trx).
-      final int nodeTrxId = trxIDCounter.incrementAndGet();
-      final int lastRev = getMostRecentRevisionNumber();
-      final StorageEngineWriter storageEngineWriter =
-          createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+      synchronized (this) {
+        assertNotClosing();
+        assertAccess(getMostRecentRevisionNumber());
+        // Create new storage engine writer (shares the same ID with the node write trx).
+        final int nodeTrxId = trxIDCounter.incrementAndGet();
+        final int lastRev = getMostRecentRevisionNumber();
+        final StorageEngineWriter storageEngineWriter =
+            createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
-      final W wtx;
-      try {
-        final Node documentNode = getDocumentNode(storageEngineWriter);
-
-        // Create new node write transaction. Listener binding happens inside this construction and
-        // can deliberately fail closed (for example, an inconsistent persisted projection without
-        // its required path summary). Until construction returns, the writer is not registered in
-        // either transaction map, so no ordinary close path can find it.
-        final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
-        wtx = createNodeReadWriteTrx(nodeTrxId, storageEngineWriter, maxNodeCount, autoCommitDelay, documentNode,
-            afterCommitState);
-      } catch (final RuntimeException | Error constructionFailure) {
-        closeUnregisteredWriter(storageEngineWriter, constructionFailure);
-        throw constructionFailure;
-      }
-
-      // Remember node transaction for debugging and safe close.
-      // noinspection unchecked
-      if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null
-          || storageEngineWriterMap.put(nodeTrxId, storageEngineWriter) != null) {
-        // Clean up: remove any entries we just inserted, then close resources.
-        nodeTrxMap.remove(nodeTrxId);
-        storageEngineWriterMap.remove(nodeTrxId);
+        final W wtx;
         try {
-          wtx.close();
-        } finally {
-          storageEngineWriter.close();
-        }
-        throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
-      }
-      TransactionMetrics.onReadWriteTrxOpened();
+          final Node documentNode = getDocumentNode(storageEngineWriter);
 
-      success = true;
-      return wtx;
+          // Create new node write transaction. Listener binding happens inside this construction and
+          // can deliberately fail closed (for example, an inconsistent persisted projection without
+          // its required path summary). Until construction returns, the writer is not registered in
+          // either transaction map, so no ordinary close path can find it.
+          final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
+          wtx = createNodeReadWriteTrx(nodeTrxId, storageEngineWriter, maxNodeCount, autoCommitDelay, documentNode,
+              afterCommitState);
+        } catch (final RuntimeException | Error constructionFailure) {
+          closeUnregisteredWriter(storageEngineWriter, constructionFailure);
+          throw constructionFailure;
+        }
+
+        // Remember node transaction for debugging and safe close.
+        // noinspection unchecked
+        if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null
+            || storageEngineWriterMap.put(nodeTrxId, storageEngineWriter) != null) {
+          // Clean up: remove any entries we just inserted, then close resources.
+          nodeTrxMap.remove(nodeTrxId);
+          storageEngineWriterMap.remove(nodeTrxId);
+          try {
+            wtx.close();
+          } finally {
+            storageEngineWriter.close();
+          }
+          throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+        }
+        TransactionMetrics.onReadWriteTrxOpened();
+
+        success = true;
+        return wtx;
+      }
     } finally {
       if (!success) {
         writeLock.release();
@@ -1905,11 +1917,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized StorageEngineWriter createStorageEngineWriter(final int revision) {
-    ResourceAccessScope.checkWrite(this);
-    lastCommittedUberPage.get().getFeatures().requireWritable();
-    assertNotClosing();
-    assertAccess(revision);
+  public StorageEngineWriter createStorageEngineWriter(final int revision) {
+    synchronized (this) {
+      ResourceAccessScope.checkWrite(this);
+      lastCommittedUberPage.get().getFeatures().requireWritable();
+      assertNotClosing();
+      assertAccess(revision);
+    }
 
     // Make sure not to exceed available number of write transactions.
     try {
@@ -1924,18 +1938,22 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     boolean success = false;
     try {
-      final int currentStorageEngineID = trxIDCounter.incrementAndGet();
-      final int lastRev = getMostRecentRevisionNumber();
-      final StorageEngineWriter storageEngineWriter =
-          createPageTransaction(currentStorageEngineID, lastRev, lastRev, Abort.NO, false);
+      synchronized (this) {
+        assertNotClosing();
+        assertAccess(revision);
+        final int currentStorageEngineID = trxIDCounter.incrementAndGet();
+        final int lastRev = getMostRecentRevisionNumber();
+        final StorageEngineWriter storageEngineWriter =
+            createPageTransaction(currentStorageEngineID, lastRev, lastRev, Abort.NO, false);
 
-      // Remember storage engine writer for debugging and safe close.
-      if (storageEngineReaderMap.put(currentStorageEngineID, storageEngineWriter) != null) {
-        throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+        // Remember storage engine writer for debugging and safe close.
+        if (storageEngineReaderMap.put(currentStorageEngineID, storageEngineWriter) != null) {
+          throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+        }
+
+        success = true;
+        return storageEngineWriter;
       }
-
-      success = true;
-      return storageEngineWriter;
     } finally {
       if (!success) {
         writeLock.release();
