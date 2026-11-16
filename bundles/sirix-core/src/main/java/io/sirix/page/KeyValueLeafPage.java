@@ -1010,8 +1010,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Materializing at adoption lets the writer stage the carriers as immutable side pages instead.
    * </p>
    *
+   * <p>
+   * Pending raw strings are encoded against this page's bound FSST table before placement. If the
+   * page is bound only by table id, the caller must resolve its symbols first; already encoded
+   * strings do not require resolution here. An unbound page materializes its strings raw.
+   * </p>
+   *
    * @param resourceConfiguration the resource's serialization configuration
    * @return how many pending string records were FSST-encoded before their inline-or-carrier decision
+   * @throws NullPointerException if {@code resourceConfiguration} is {@code null}
+   * @throws IllegalStateException if pending raw strings have an unresolved table binding, or a
+   *         pending record cannot be consumed
    */
   public int materializePendingRecords(final ResourceConfiguration resourceConfiguration) {
     if (resourceConfiguration == null) {
@@ -8343,10 +8352,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Run the inline-or-carrier compression step on records about to be materialized outside the commit
-   * path. A page bound to a table only by id has no symbols to encode with; materializing its raw
-   * strings would silently take the carrier route the commit path avoids, so that state is refused —
-   * the writer resolves the table before it materializes.
+   * Apply the encoding and binding preconditions of
+   * {@link #materializePendingRecords(ResourceConfiguration)} before placement.
    *
    * @return how many records were encoded
    */
@@ -8368,8 +8375,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   private static boolean holdsRawStringRecord(final DataRecord[] pending) {
     for (final DataRecord record : pending) {
-      if (record instanceof StringNode stringNode && !stringNode.isCompressed()
-          || record instanceof ObjectNamedStringNode fusedNode && !fusedNode.isCompressed()) {
+      if ((record instanceof StringNode stringNode && !stringNode.isCompressed())
+          || (record instanceof ObjectNamedStringNode fusedNode && !fusedNode.isCompressed())) {
         return true;
       }
     }

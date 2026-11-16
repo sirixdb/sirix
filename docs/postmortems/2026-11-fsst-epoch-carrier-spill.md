@@ -1,7 +1,7 @@
 # Bug: storage epochs left FSST-compressible strings in overflow carriers
 
-- Fix / issue: branch `fm/sirix-fsst-epoch-carrier-spill`. Found when the 1.0 change of the node-hash
-  default to `NONE` turned `StorageEpochStoreIdentityTest` red.
+- Fix / issue: branch `fm/sirix-fsst-epoch-carrier-spill`. Found while testing the planned 1.0
+  node-hash default of `NONE`, which turned `StorageEpochStoreIdentityTest` red.
 - Symptom: `StorageEpochStoreIdentityTest.reusedFsstTableKeepsOversizedEditsInlineLikeThePlainTwin`
   failed under `hashKind(NONE)` only. The plain transaction committed 120 page frames and no
   document overflow carriers; the epoch-rotating twin committed 123 frames with three carriers and a
@@ -55,10 +55,7 @@
   values, carrier sets, table bindings and, for spilling epochs, every persisted page frame.
   `StorageEpochStoreIdentityTest` is unchanged and passes under `-Dsirix.hashType=NONE` and `ROLLING`.
   Evidence that each test fails without its fix is in the PR.
-- Lesson: a replay or rebuild must reproduce what the original read, not only how it combined it.
-  Every route into a size-based placement decision must apply the same encoding as the canonical
-  route. Differential tests must pin the configuration that changes geometry (here the hash kind)
-  instead of inheriting a JVM default. See [Lessons](../LESSONS.md).
+- Lesson: see [Lessons](../LESSONS.md) for the replay and encoding prevention rule.
 
 ## Verification evidence
 

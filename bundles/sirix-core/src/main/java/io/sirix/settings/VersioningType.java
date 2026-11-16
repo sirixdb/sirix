@@ -1053,15 +1053,13 @@ public enum VersioningType {
   }
 
   /**
-   * Propagate an FSST symbol table from a single-fragment source page to the target. <b>Callers must
-   * only invoke this in the single-fragment combine path</b> (i.e. when the target is a
-   * byte-identical copy of the source), so every compressed slot on the target was encoded with the
-   * propagated table.
+   * Propagate an FSST binding when every compressed slot on the target uses the source's table. A
+   * single-fragment copy satisfies this directly; owned replay establishes compatibility in
+   * {@link #ownedFragmentCopier} before adopting the binding.
    *
    * <p>
-   * For multi-fragment combines, do not call this — use the decompress-on- merge path (see
-   * {@link #copySlotPreservingMetadata}) instead, which rewrites each compressed slot to its
-   * uncompressed form so the target correctly carries {@code fsstSymbolTable = null}.
+   * Committed multi-fragment combines instead decode slots through
+   * {@link #copySlotPreservingMetadata} rather than adopting one fragment's table for all sources.
    *
    * <p>
    * In the modification combines, the MODIFIED page needs this binding just as much as the complete
@@ -1071,7 +1069,7 @@ public enum VersioningType {
    * bind to a NEWER table (insert-time or distribution) and serialize those old-table bytes under the
    * wrong claim, or to no table at all, leaving them undecodable.
    *
-   * @param sourcePage the single-fragment source page
+   * @param sourcePage the source page whose binding is compatible with the target
    * @param targetPage the target page to set the symbol table on
    */
   protected static <V extends DataRecord, T extends KeyValuePage<V>> void propagateFsstSymbolTable(final T sourcePage,
@@ -1093,25 +1091,18 @@ public enum VersioningType {
   }
 
   /**
-   * Copy a single slot from {@code src} to {@code dst} during a multi-fragment combine. If
-   * {@code src} holds an FSST symbol table and the slot is a string-kind slot whose compressed-flag
-   * byte is {@code 1}, the payload is decoded through the source's table and the rewritten
-   * uncompressed slot is stored on {@code dst}. All other slots (including uncompressed string slots)
-   * are raw-copied.
-   *
-   * <p>
-   * Using this helper across every fragment of a multi-fragment combine is the invariant that lets
-   * the target page safely carry {@code fsstSymbolTable = null}. At the next commit the writer hands
-   * the page the revision's pooled symbol table and {@code compressStringValues} re-encodes, so the
-   * page lands on disk with a single coherent table — zero growth in disk footprint.
+   * Copy a single slot from {@code src} to {@code dst} during a fragment combine or owned replay. An
+   * active {@link FsstAwareSlotCopier} decodes table-dependent string payloads according to its
+   * contract. A null or inactive copier copies slot bytes verbatim; the caller must preserve any
+   * required source-table binding on the target.
    *
    * @param src source fragment
    * @param dst target page being assembled
    * @param offset slot index (0-1023)
    * @param nodeKindId directory {@code nodeKindId} for the slot on the source
    * @param copier per-fragment copier carrying {@code src}'s parsed FSST table; may be {@code null}
-   *        or inactive when the source has no table — callers commonly pass the same copier across
-   *        the whole fragment loop to amortize the symbol-table parse
+   *        or inactive when the source has no table or the target preserves its binding. Callers
+   *        reuse the copier across the fragment loop to amortize the symbol-table parse
    */
   protected static void copySlotPreservingMetadata(final KeyValueLeafPage src, final KeyValueLeafPage dst,
       final int offset, final int nodeKindId, final @Nullable FsstAwareSlotCopier copier) {
@@ -1266,6 +1257,7 @@ public enum VersioningType {
    *
    * @return the copier for the owned fragment's slots; inactive when the slots are copied verbatim
    */
+  @SuppressWarnings("ReferenceEquality") // Propagate once when both targets are the same page instance.
   private static FsstAwareSlotCopier ownedFragmentCopier(final KeyValueLeafPage owned, final KeyValueLeafPage complete,
       final KeyValueLeafPage modifying) {
     final long ownedTableId = owned.getFsstSymbolTableId();
@@ -1284,7 +1276,7 @@ public enum VersioningType {
   private static boolean acceptsBinding(final KeyValueLeafPage page, final long tableId) {
     final long boundId = page.getFsstSymbolTableId();
     return boundId == tableId
-        || boundId == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID && page.getFsstSymbolTable() == null;
+        || (boundId == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID && page.getFsstSymbolTable() == null);
   }
 
   // ===== HOT Leaf Page Combining Methods =====

@@ -38,8 +38,8 @@ public final class BulkAdoptionDiagnostics {
   }
 
   /**
-   * Pending string records a leaf FSST-encoded against its own table before an epoch materialized
-   * them, so their inline-or-carrier decision saw the encoded size, as the commit path's does.
+   * Cumulative pending string records FSST-encoded against their leaf's table before epoch flushing
+   * or bulk adoption materialized them. This count is not cleared by {@link #reset()}.
    */
   public static long pendingStringsEncodedBeforeMaterialization() {
     return PENDING_STRINGS_ENCODED_BEFORE_MATERIALIZATION.sum();
@@ -116,7 +116,7 @@ public final class BulkAdoptionDiagnostics {
     return KVL_ENCODES_SKIPPED_FOR_UNRESOLVED_CARRIERS.sum();
   }
 
-  /** Reset every counter; tests call this before a measured load. */
+  /** Reset carrier and flush counters; tests call this before a measured load. */
   public static void reset() {
     CARRIERS_STAGED.reset();
     CARRIERS_UNSTAGED.reset();
