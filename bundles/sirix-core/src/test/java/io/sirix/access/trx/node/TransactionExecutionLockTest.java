@@ -106,10 +106,17 @@ final class TransactionExecutionLockTest {
     final AssertionError primary = new AssertionError("first callback");
     final AssertionError later = new AssertionError("later callback");
     final AtomicInteger attempted = new AtomicInteger();
-    execution.enqueue(() -> { throw primary; });
-    execution.enqueue(() -> { throw later; });
+    execution.enqueue(() -> {
+      throw primary;
+    });
+    execution.enqueue(() -> {
+      throw later;
+    });
     execution.enqueue(attempted::incrementAndGet);
-    assertSame(primary, assertThrows(AssertionError.class, () -> { execution.lock(); execution.unlock(); }));
+    assertSame(primary, assertThrows(AssertionError.class, () -> {
+      execution.lock();
+      execution.unlock();
+    }));
     assertSame(later, primary.getSuppressed()[0]);
     assertEquals(1, attempted.get());
     assertTrue(execution.tryLock());
@@ -133,7 +140,8 @@ final class TransactionExecutionLockTest {
     assertEquals(1, delivered.get());
     execution.lock();
     try {
-      execution.drainBeforeRetirement(() -> {});
+      execution.drainBeforeRetirement(() -> {
+      });
     } finally {
       execution.unlock();
     }
@@ -205,10 +213,17 @@ final class TransactionExecutionLockTest {
     final IllegalStateException primary = new IllegalStateException("first callback");
     final IllegalArgumentException later = new IllegalArgumentException("second callback");
     final AtomicInteger attempted = new AtomicInteger();
-    execution.enqueue(() -> { throw primary; });
-    execution.enqueue(() -> { throw later; });
+    execution.enqueue(() -> {
+      throw primary;
+    });
+    execution.enqueue(() -> {
+      throw later;
+    });
     execution.enqueue(attempted::incrementAndGet);
-    assertDoesNotThrow(() -> { execution.lock(); execution.unlock(); });
+    assertDoesNotThrow(() -> {
+      execution.lock();
+      execution.unlock();
+    });
     assertSame(later, primary.getSuppressed()[0]);
     assertEquals(1, attempted.get());
     execution.lock();

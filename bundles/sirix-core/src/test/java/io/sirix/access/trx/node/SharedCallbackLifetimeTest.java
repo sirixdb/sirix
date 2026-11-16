@@ -60,10 +60,13 @@ final class SharedCallbackLifetimeTest {
   Path directory;
 
   static Stream<Arguments> readerCases() {
-    return Stream.of("json", "xml").flatMap(format ->
-        Stream.of("node", "standalone", "queued").flatMap(mode ->
-            Stream.of("direct", "shared", "page").flatMap(kind ->
-                Stream.of(false, true).map(during -> Arguments.of(format, mode, kind, during)))));
+    return Stream.of("json", "xml")
+                 .flatMap(
+                     format -> Stream.of("node", "standalone", "queued")
+                                     .flatMap(mode -> Stream.of("direct", "shared", "page")
+                                                            .flatMap(kind -> Stream.of(false, true)
+                                                                                   .map(during -> Arguments.of(format,
+                                                                                       mode, kind, during)))));
   }
 
   @ParameterizedTest(name = "shared listener {arguments}")
@@ -113,13 +116,19 @@ final class SharedCallbackLifetimeTest {
           throw failure;
         }
       });
-      final NodeTrx writer = mode.equals("node") ? fixture.second.beginNodeTrx(0, 1, TimeUnit.DAYS) : null;
-      final StorageEngineWriter unbound = mode.equals("queued") ? fixture.second.createStorageEngineWriter() : null;
+      final NodeTrx writer = mode.equals("node")
+          ? fixture.second.beginNodeTrx(0, 1, TimeUnit.DAYS)
+          : null;
+      final StorageEngineWriter unbound = mode.equals("queued")
+          ? fixture.second.createStorageEngineWriter()
+          : null;
       final CompletableFuture<Void> published = new CompletableFuture<>();
       final Thread publisher = new Thread(() -> {
         try {
           if (writer != null) {
-            assertTrue(writer.moveTo(format.equals("json") ? 1 : 2));
+            assertTrue(writer.moveTo(format.equals("json")
+                ? 1
+                : 2));
             if (writer instanceof JsonNodeTrx json) {
               json.setNumberValue(1);
             } else {
@@ -179,8 +188,8 @@ final class SharedCallbackLifetimeTest {
         finish.countDown();
         published.get(10, TimeUnit.SECONDS);
         if (failClose) {
-          assertSame(primary, assertThrows(ExecutionException.class,
-              () -> closed.get(10, TimeUnit.SECONDS)).getCause());
+          assertSame(primary,
+              assertThrows(ExecutionException.class, () -> closed.get(10, TimeUnit.SECONDS)).getCause());
           assertTrue(List.of(primary.getSuppressed()).contains(later));
         } else {
           closed.get(10, TimeUnit.SECONDS);
@@ -212,12 +221,14 @@ final class SharedCallbackLifetimeTest {
   @ValueSource(strings = {"json", "xml"})
   void notificationAdmissionCannotCrossReaderRetirement(final String format) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
-      final ReentrantReadWriteLock ownership = (ReentrantReadWriteLock)
-          field(AbstractResourceSession.class, "notificationOwnership").get(fixture.first);
+      final ReentrantReadWriteLock ownership =
+          (ReentrantReadWriteLock) field(AbstractResourceSession.class, "notificationOwnership").get(fixture.first);
       final CompletableFuture<Void> delivered = new CompletableFuture<>();
       fixture.second.addRevisionListener(revision -> {
         try (NodeReadOnlyTrx reader = fixture.second.beginNodeReadOnlyTrx(revision)) {
-          assertTrue(reader.moveTo(format.equals("json") ? 1 : 2));
+          assertTrue(reader.moveTo(format.equals("json")
+              ? 1
+              : 2));
           assertEquals(0, number(reader));
           delivered.complete(null);
         } catch (final Throwable failure) {
@@ -256,7 +267,9 @@ final class SharedCallbackLifetimeTest {
     if (kind.equals("page")) {
       page.set(owner.createStorageEngineReader(1));
     } else {
-      node.set(kind.equals("shared") ? owner.getOrCreateSharedReadOnlyTrx(1) : owner.beginNodeReadOnlyTrx(1));
+      node.set(kind.equals("shared")
+          ? owner.getOrCreateSharedReadOnlyTrx(1)
+          : owner.beginNodeReadOnlyTrx(1));
       page.set(node.get().getStorageEngineReader());
     }
     read(node.get(), page.get());
@@ -265,7 +278,9 @@ final class SharedCallbackLifetimeTest {
   private static void read(final NodeReadOnlyTrx node, final StorageEngineReader page) {
     assertFalse(page.isClosed());
     if (node != null) {
-      assertTrue(node.moveTo(node instanceof JsonNodeReadOnlyTrx ? 1 : 2));
+      assertTrue(node.moveTo(node instanceof JsonNodeReadOnlyTrx
+          ? 1
+          : 2));
       assertEquals(0, number(node));
     } else {
       final DataRecord record = page.getRecord(1, IndexType.DOCUMENT, -1);
@@ -274,8 +289,12 @@ final class SharedCallbackLifetimeTest {
   }
 
   static Stream<Arguments> truncateCases() {
-    return Stream.of("json", "xml").flatMap(format -> Stream.of(false, true).flatMap(interrupt ->
-        Stream.of(false, true).map(error -> Arguments.of(format, interrupt, error))));
+    return Stream.of("json", "xml")
+                 .flatMap(
+                     format -> Stream.of(false, true)
+                                     .flatMap(
+                                         interrupt -> Stream.of(false, true)
+                                                            .map(error -> Arguments.of(format, interrupt, error))));
   }
 
   @ParameterizedTest(name = "truncate view {arguments}")
@@ -385,8 +404,8 @@ final class SharedCallbackLifetimeTest {
         finish.countDown();
         committed.get(10, TimeUnit.SECONDS);
         if (interrupt) {
-          final Throwable failure = assertThrows(ExecutionException.class,
-              () -> truncated.get(10, TimeUnit.SECONDS)).getCause();
+          final Throwable failure =
+              assertThrows(ExecutionException.class, () -> truncated.get(10, TimeUnit.SECONDS)).getCause();
           assertTrue(causedByInterrupt(failure), failure.toString());
         } else {
           truncated.get(10, TimeUnit.SECONDS);
@@ -438,7 +457,8 @@ final class SharedCallbackLifetimeTest {
   }
 
   private static int number(final NodeReadOnlyTrx node) {
-    return node instanceof JsonNodeReadOnlyTrx json ? json.getNumberValue().intValue()
+    return node instanceof JsonNodeReadOnlyTrx json
+        ? json.getNumberValue().intValue()
         : Integer.parseInt(node.getValue());
   }
 
@@ -473,8 +493,11 @@ final class SharedCallbackLifetimeTest {
       firstDatabase = open(format, path, new User("first", UUID.randomUUID()));
       secondDatabase = open(format, path, new User("second", UUID.randomUUID()));
       firstDatabase.createResource(ResourceConfiguration.newBuilder("resource")
-          .storageType(StorageType.FILE_CHANNEL).storeDiffs(false).hashKind(HashType.NONE)
-          .buildPathSummary(false).build());
+                                                        .storageType(StorageType.FILE_CHANNEL)
+                                                        .storeDiffs(false)
+                                                        .hashKind(HashType.NONE)
+                                                        .buildPathSummary(false)
+                                                        .build());
       first = (AbstractResourceSession<?, ?>) firstDatabase.beginResourceSession("resource");
       second = (AbstractResourceSession<?, ?>) secondDatabase.beginResourceSession("resource");
       try (NodeTrx writer = first.beginNodeTrx()) {
@@ -491,7 +514,9 @@ final class SharedCallbackLifetimeTest {
 
     private static Database<? extends ResourceSession<?, ?>> open(final String format, final Path path,
         final User user) {
-      return format.equals("json") ? Databases.openJsonDatabase(path, user) : Databases.openXmlDatabase(path, user);
+      return format.equals("json")
+          ? Databases.openJsonDatabase(path, user)
+          : Databases.openXmlDatabase(path, user);
     }
 
     @Override
