@@ -5404,13 +5404,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);
     }
-    if (lastUberPage != null) {
-      try {
-        storageEngineReader.resourceSession.setLastCommittedUberPage(lastUberPage);
-      } catch (final Throwable t) {
-        teardownFailure = retainFirstFailure(teardownFailure, t);
-      }
-    }
     try {
       closeDurableReadPages();
     } catch (final Throwable t) {
@@ -5502,6 +5495,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       teardownFailure = retainFirstFailure(teardownFailure, t);
     }
 
+    if (lastUberPage != null) {
+      try {
+        storageEngineReader.resourceSession.setLastCommittedUberPage(lastUberPage);
+      } catch (final Throwable t) {
+        teardownFailure = retainFirstFailure(teardownFailure, t);
+      }
+    }
     if (teardownFailure != null || asyncFailure != null) {
       try {
         storageEngineReader.resourceSession.requireCommitRecovery();
@@ -6604,6 +6604,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession;
     session.assertNotInCommitCallback();
     session.beginNotificationRetirement();
+    Throwable failure = null;
     try {
       storageEngineReader.resourceSession.assertAccess(revision);
       final DerivedIndexMaintainer.Resource derived =
@@ -6619,8 +6620,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       } finally {
         derived.unlockHistory();
       }
+    } catch (final RuntimeException | Error next) {
+      failure = next;
+      throw next;
     } finally {
       session.endNotificationRetirement();
+      session.dispatchSessionCallbacks(failure);
     }
   }
 

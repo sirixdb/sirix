@@ -30,10 +30,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Stream;
+import java.util.function.IntConsumer;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -338,6 +340,102 @@ final class SharedCallbackLifetimeTest {
           pending.forEach(completion -> completion.complete(null));
           pending.clear();
         }
+        foreground.join(10000);
+      }
+    }
+  }
+
+  static Stream<Arguments> idlePublicationCases() {
+    return Stream.of("json", "xml").flatMap(format -> Stream.of(false, true).flatMap(timed ->
+        Stream.of(false, true).flatMap(truncate -> Stream.of(false, true)
+            .map(error -> Arguments.of(format, timed, truncate, error)))));
+  }
+
+  @ParameterizedTest(name = "idle publication {arguments}")
+  @MethodSource("idlePublicationCases")
+  void rawPagePublicationDeliversBeforeSequentialSessionCleanup(final String format, final boolean timed,
+      final boolean truncate, final boolean error) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx writer = timed ? fixture.second.beginNodeTrx(0, 1, TimeUnit.DAYS)
+          : fixture.second.beginNodeTrx();
+      setValue(writer, 2);
+      writer.commit();
+      final StorageEngineWriter raw = writer.getStorageEngineWriter();
+      final TransactionExecutionLock execution = (TransactionExecutionLock)
+          field(AbstractNodeTrxImpl.class, "executionLock").get(writer);
+      final ReentrantReadWriteLock ownership = (ReentrantReadWriteLock)
+          field(AbstractResourceSession.class, "notificationOwnership").get(fixture.second);
+      final CompletableFuture<Void> observed = new CompletableFuture<>();
+      final AtomicInteger laterCalls = new AtomicInteger();
+      final AssertionError injected = new AssertionError("idle listener failure");
+      final IntConsumer listener = revision -> {
+        try {
+          assertEquals(truncate ? 1 : 2, revision);
+          assertFalse(execution.isHeldByCurrentThread());
+          assertFalse(execution.isInScheduledTask());
+          assertFalse(Thread.holdsLock(fixture.second));
+          assertFalse(ownership.isWriteLockedByCurrentThread());
+          if (!truncate) {
+            assertTrue(raw.isClosed());
+          }
+          try (NodeReadOnlyTrx view = fixture.second.beginNodeReadOnlyTrx(revision)) {
+            assertTrue(view.moveTo(format.equals("json") ? 1 : 2));
+            assertEquals(truncate ? 0 : 2, number(view));
+          }
+          assertThrows(IllegalStateException.class, fixture.first::close);
+          observed.complete(null);
+        } catch (final Throwable failure) {
+          observed.completeExceptionally(failure);
+          throw failure;
+        }
+        if (error) {
+          throw injected;
+        }
+      };
+      final IntConsumer later = revision -> laterCalls.incrementAndGet();
+      fixture.second.addRevisionListener(listener);
+      fixture.second.addRevisionListener(later);
+      final CompletableFuture<Void> completed = new CompletableFuture<>();
+      final Thread foreground = new Thread(() -> {
+        try {
+          final Runnable operation = truncate ? () -> raw.truncateTo(1) : raw::close;
+          if (error) {
+            assertSame(injected, assertThrows(AssertionError.class, operation::run));
+          } else {
+            operation.run();
+          }
+          assertTrue(observed.isDone(), "the publishing call must deliver its idle notification before return");
+          observed.join();
+          assertEquals(1, laterCalls.get());
+          fixture.second.removeRevisionListener(listener);
+          fixture.second.removeRevisionListener(later);
+          fixture.first.close();
+          try {
+            fixture.second.close();
+          } catch (final IllegalArgumentException cleanup) {
+            assertTrue(truncate);
+            assertEquals("Revision must not be bigger than 1!", cleanup.getMessage());
+          }
+          assertTrue(fixture.first.isClosed());
+          assertTrue(fixture.second.isClosed());
+          assertTrue(writer.isClosed());
+          assertTrue(raw.isClosed());
+          assertEquals(1, fixture.first.writeLock.availablePermits());
+          completed.complete(null);
+        } catch (final Throwable failure) {
+          completed.completeExceptionally(failure);
+        } finally {
+          fixture.second.removeRevisionListener(listener);
+          fixture.second.removeRevisionListener(later);
+          if (!writer.isClosed()) {
+            writer.close();
+          }
+        }
+      });
+      foreground.start();
+      try {
+        completed.get(10, TimeUnit.SECONDS);
+      } finally {
         foreground.join(10000);
       }
     }

@@ -13,6 +13,8 @@ public interface InternalNodeTrx<N extends NodeTrx> extends NodeTrx {
 
   void assertCanClose();
 
+  boolean isInExecution();
+
   void enqueueCallback(Runnable callback);
 
   N setBulkInsertion(boolean bulkInsertion);
