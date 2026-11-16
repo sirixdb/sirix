@@ -1,0 +1,11 @@
+gradle.projectsEvaluated {
+    def core = gradle.rootProject.project(':sirix-core')
+    core.tasks.named('pitest').configure { mustRunAfter core.tasks.named('ciFocused') }
+    core.pitest {
+        threads = 1
+        excludedMethods = gradle.rootProject.file('docs/postmortems/evidence/store-feature-ci/derived-excluded-methods.txt').readLines()
+        jvmArgs.add('-Djava.io.tmpdir=' + gradle.rootProject.file('build/ci-fix/tmp').absolutePath)
+        jvmArgs.add('-Dsirix.pageSectionDiag=false')
+        jvmArgs.add('-Dsirix.hot.mergeDiag=false')
+    }
+}

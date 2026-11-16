@@ -402,9 +402,10 @@ suite, with cold-reopen checks.
 
 # Work budgets (includes TemporalAggregateCatchUpWorkBudgetTest for lag 0, 1, 8, 16, 17 and folded lag 64)
 # Add -Dsirix.workBudget.print=true -i to print every captured counter table
+# The query test task also runs BitemporalLoaderBudgetTest in a clean JVM with blocking
+# compilation, via :sirix-query:bitemporalLoaderAllocationTest; run that task alone to isolate it.
 ./gradlew :sirix-query:test --tests 'io.sirix.query.budget.*' \
-  --tests 'io.sirix.query.json.IndexedArrayPositionTest' \
-  --tests 'io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest'
+  --tests 'io.sirix.query.json.IndexedArrayPositionTest'
 ./gradlew :sirix-core:test --tests 'io.sirix.budget.*' \
                            --tests 'io.sirix.index.projection.*WorkBudgetTest' \
                            --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest'

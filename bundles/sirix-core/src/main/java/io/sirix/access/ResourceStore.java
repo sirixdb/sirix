@@ -1,5 +1,7 @@
 package io.sirix.access;
 
+import org.jspecify.annotations.Nullable;
+import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -20,8 +22,12 @@ public interface ResourceStore<R extends ResourceSession<? extends NodeReadOnlyT
    * @return A resource session.
    * @throws NullPointerException if one if the arguments is {@code null}
    */
-  R beginResourceSession(ResourceConfiguration resourceConfig, BufferManager bufferManager,
-      Path resourcePath);
+  R beginResourceSession(ResourceConfiguration resourceConfig, BufferManager bufferManager, Path resourcePath);
+
+  default R beginResourceSession(final ResourceConfiguration resourceConfig, final BufferManager bufferManager,
+      final Path resourcePath, final @Nullable UberPage openingUberPage) {
+    return beginResourceSession(resourceConfig, bufferManager, resourcePath);
+  }
 
   boolean hasOpenResourceSession(Path resourcePath);
 

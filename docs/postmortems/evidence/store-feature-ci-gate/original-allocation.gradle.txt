@@ -1,0 +1,20 @@
+gradle.projectsEvaluated {
+ def query = gradle.rootProject.project(':sirix-query')
+ query.sourceSets.test.java.srcDir(gradle.rootProject.file('build/ci-round7/before-src'))
+ def baseline = query.tasks.named('test').get()
+ query.tasks.register('ciAllocation', Test) {
+  dependsOn query.tasks.named('testClasses')
+  testClassesDirs = baseline.testClassesDirs
+  classpath = baseline.classpath
+  baseline.copyTo(delegate)
+  jvmArgs = baseline.jvmArgs
+  minHeapSize = '256m'
+  maxHeapSize = '2g'
+  maxParallelForks = 1
+  useJUnitPlatform()
+  filter { includeTestsMatching 'io.sirix.query.bench.bitemporal.BitemporalLoaderBeforeTest' }
+  if (project.hasProperty('batchCompile')) { jvmArgs '-Xbatch' }
+  if (project.hasProperty('slowCompile')) { jvmArgs '-XX:CompileThresholdScaling=10' }
+  testLogging { events 'failed', 'passed', 'standardOut'; exceptionFormat = 'full' }
+ }
+}

@@ -20,6 +20,8 @@
  */
 package io.sirix.io;
 
+import io.sirix.page.UberPage;
+import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
@@ -30,7 +32,6 @@ import io.sirix.io.ram.RAMStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.RandomAccessFile;
 import java.util.Optional;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,11 +59,11 @@ public enum StorageType {
   },
 
   /**
-   * REMOVED legacy {@link java.io.RandomAccessFile} backend. It wrote an INCOMPATIBLE layout
-   * under the same nominal format (big-endian frames, different beacon placement, no uber-size
-   * guard) with nothing on disk detecting the mismatch — exactly the corruption class the
-   * superblock now prevents. The enum constant stays so a configuration naming it gets an
-   * actionable error instead of a deserialization failure.
+   * REMOVED legacy {@link java.io.RandomAccessFile} backend. It wrote an INCOMPATIBLE layout under
+   * the same nominal format (big-endian frames, different beacon placement, no uber-size guard) with
+   * nothing on disk detecting the mismatch — exactly the corruption class the superblock now
+   * prevents. The enum constant stays so a configuration naming it gets an actionable error instead
+   * of a deserialization failure.
    */
   FILE {
     @Override
@@ -79,12 +80,17 @@ public enum StorageType {
   FILE_CHANNEL {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+      return getInstance(resourceConf, null);
+    }
+
+    @Override
+    public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
       final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder);
+      final var storage = new FileChannelStorage(resourceConf, cache, revisionIndexHolder, openingUberPage);
       try {
-        storage.loadRevisionFileDataIntoMemory(cache);
-        storage.loadRevisionIndex(revisionIndexHolder);
+        storage.loadRevisionFileDataIntoMemory(cache, storage.getOpeningUberPage());
+        storage.loadRevisionIndex(revisionIndexHolder, storage.getOpeningUberPage());
       } catch (final RuntimeException e) {
         // The pre-load readers borrow the storage's shared channels — release them before the
         // half-initialized storage is abandoned, or the descriptors leak.
@@ -101,11 +107,21 @@ public enum StorageType {
   MEMORY_MAPPED {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
+      return getInstance(resourceConf, null);
+    }
+
+    @Override
+    public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
       final AsyncCache<Integer, RevisionFileData> cache = getIntegerRevisionFileDataAsyncCache(resourceConf);
       final RevisionIndexHolder revisionIndexHolder = getRevisionIndexHolder(resourceConf);
-      final var storage = new MMStorage(resourceConf, cache, revisionIndexHolder);
-      storage.loadRevisionFileDataIntoMemory(cache);
-      storage.loadRevisionIndex(revisionIndexHolder);
+      final var storage = new MMStorage(resourceConf, cache, revisionIndexHolder, openingUberPage);
+      try {
+        storage.loadRevisionFileDataIntoMemory(cache, storage.getOpeningUberPage());
+        storage.loadRevisionIndex(revisionIndexHolder, storage.getOpeningUberPage());
+      } catch (final RuntimeException failure) {
+        storage.close();
+        throw failure;
+      }
       return storage;
     }
   },
@@ -113,41 +129,41 @@ public enum StorageType {
   /**
    * io_uring storage backend.
    *
-   * <p>External-provider-backed type (like {@link #S3}): the concrete {@link IOStorage} is
-   * created by the {@code FFMIOUringStorageProvider} SPI shipped in the
-   * {@code sirix-enterprise-core} module, resolved by provider name {@code "IO_URING"} in
-   * {@link #getStorage(ResourceConfiguration)} before this fallback runs. The former built-in
-   * jasyncfio-based implementation was REMOVED: it leaked AsyncFile handles per
-   * reader/writer creation, and the silent same-name takeover between the two implementations
-   * (convention-only layout compatibility, no format magic) was itself a corruption hazard.
+   * <p>
+   * External-provider-backed type (like {@link #S3}): the concrete {@link IOStorage} is created by
+   * the {@code FFMIOUringStorageProvider} SPI shipped in the {@code sirix-enterprise-core} module,
+   * resolved by provider name {@code "IO_URING"} in {@link #getStorage(ResourceConfiguration)} before
+   * this fallback runs. The former built-in jasyncfio-based implementation was REMOVED: it leaked
+   * AsyncFile handles per reader/writer creation, and the silent same-name takeover between the two
+   * implementations (convention-only layout compatibility, no format magic) was itself a corruption
+   * hazard.
    */
   IO_URING {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      throw new SirixIOException(
-          "IO_URING storage requires the sirix-enterprise io_uring provider on the classpath "
-              + "(module sirix-enterprise-core). Add the module as a dependency, or use the "
-              + "FILE_CHANNEL default backend.");
+      throw new SirixIOException("IO_URING storage requires the sirix-enterprise io_uring provider on the classpath "
+          + "(module sirix-enterprise-core). Add the module as a dependency, or use the "
+          + "FILE_CHANNEL default backend.");
     }
   },
 
   /**
    * S3 object-storage backend.
    *
-   * <p>This is an external-provider-backed type: the concrete {@link IOStorage} is created by the
+   * <p>
+   * This is an external-provider-backed type: the concrete {@link IOStorage} is created by the
    * {@code S3StorageProvider} SPI shipped in the {@code sirix-enterprise-s3} module, which
    * {@link #getStorage(ResourceConfiguration)} resolves (by provider name {@code "S3"})
    * <em>before</em> falling back to {@link #getInstance(ResourceConfiguration)}. The body below
-   * therefore only runs when that provider is absent from the classpath, in which case it fails
-   * fast with an actionable message instead of silently using the wrong backend.
+   * therefore only runs when that provider is absent from the classpath, in which case it fails fast
+   * with an actionable message instead of silently using the wrong backend.
    */
   S3 {
     @Override
     public IOStorage getInstance(final ResourceConfiguration resourceConf) {
-      throw new SirixIOException(
-          "S3 storage requires the sirix-enterprise-s3 provider on the classpath. "
-              + "Add the module as a dependency and configure the bucket (e.g. via the "
-              + "sirix.s3.bucket system property).");
+      throw new SirixIOException("S3 storage requires the sirix-enterprise-s3 provider on the classpath. "
+          + "Add the module as a dependency and configure the bucket (e.g. via the "
+          + "sirix.s3.bucket system property).");
     }
   };
 
@@ -155,32 +171,30 @@ public enum StorageType {
   public static final String REVISION_FILE_DATA_CACHE_SIZE_PROPERTY = "sirix.revision.file.data.cache.size";
 
   /**
-   * Default cap for the <em>global</em> {@code RevisionFileData} cache. Each entry maps
-   * a {@code (resourcePath, revision)} pair to its on-disk (offset, timestamp) tuple; a
-   * cache miss is a single 16-byte read from the file's revision index, so the cache is
-   * a pure optimization for repeated point-in-time queries — not a correctness
-   * requirement.
+   * Default cap for the <em>global</em> {@code RevisionFileData} cache. Each entry maps a
+   * {@code (resourcePath, revision)} pair to its on-disk (offset, timestamp) tuple; a cache miss is a
+   * single 16-byte read from the file's revision index, so the cache is a pure optimization for
+   * repeated point-in-time queries — not a correctness requirement.
    *
-   * <p>Without any upper bound this cache grew linearly in the number of committed
-   * revisions (one entry per commit, never evicted), retaining ~2 KB of heap per commit.
-   * Confirmed by a 30-minute soak: 77,153 commits → +77k {@link RevisionFileData}
-   * records, +77k {@link java.time.Instant}, +77k {@link java.util.concurrent.CompletableFuture}
-   * (the {@code AsyncCache} wrapper), +154k Caffeine map nodes — exactly one
-   * never-evicted entry per commit.
+   * <p>
+   * Without any upper bound this cache grew linearly in the number of committed revisions (one entry
+   * per commit, never evicted), retaining ~2 KB of heap per commit. Confirmed by a 30-minute soak:
+   * 77,153 commits → +77k {@link RevisionFileData} records, +77k {@link java.time.Instant}, +77k
+   * {@link java.util.concurrent.CompletableFuture} (the {@code AsyncCache} wrapper), +154k Caffeine
+   * map nodes — exactly one never-evicted entry per commit.
    *
-   * <p>The cache is <em>global</em> across all resources in the JVM. This is the
-   * SaaS-friendly pattern PostgreSQL ({@code shared_buffers}) and InnoDB
-   * ({@code innodb_buffer_pool_size}) follow: total memory is bounded by a single
-   * operator dial regardless of how many resources are open. Caffeine's LRU
-   * naturally redistributes the budget toward whichever resource is currently busy.
-   * Each resource accesses the global cache through
-   * {@link PerResourceRevisionFileDataCache}, a thin wrapper that translates the
-   * resource's {@code Integer}-keyed API to and from {@link RevisionFileDataCacheKey}
+   * <p>
+   * The cache is <em>global</em> across all resources in the JVM. This is the SaaS-friendly pattern
+   * PostgreSQL ({@code shared_buffers}) and InnoDB ({@code innodb_buffer_pool_size}) follow: total
+   * memory is bounded by a single operator dial regardless of how many resources are open. Caffeine's
+   * LRU naturally redistributes the budget toward whichever resource is currently busy. Each resource
+   * accesses the global cache through {@link PerResourceRevisionFileDataCache}, a thin wrapper that
+   * translates the resource's {@code Integer}-keyed API to and from {@link RevisionFileDataCacheKey}
    * composites at the boundary.
    *
-   * <p>1,000,000 entries is the default — at ~200 bytes per Caffeine entry the
-   * worst-case ceiling is ~200 MB regardless of resource count, well within typical
-   * heap allocations. Override via
+   * <p>
+   * 1,000,000 entries is the default — at ~200 bytes per Caffeine entry the worst-case ceiling is
+   * ~200 MB regardless of resource count, well within typical heap allocations. Override via
    * {@code -D}{@value #REVISION_FILE_DATA_CACHE_SIZE_PROPERTY}{@code =M}.
    */
   public static final long DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE = 1_000_000L;
@@ -192,21 +206,22 @@ public enum StorageType {
     }
     try {
       final long parsed = Long.parseLong(prop.trim());
-      return parsed > 0L ? parsed : DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE;
+      return parsed > 0L
+          ? parsed
+          : DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE;
     } catch (final NumberFormatException ignored) {
       return DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE;
     }
   }
 
   /**
-   * One global {@link AsyncCache} backs every per-resource {@link RevisionFileData}
-   * lookup in this JVM. Keyed by {@link RevisionFileDataCacheKey} {@code (resourcePath,
-   * revision)} so a single Caffeine instance is responsible for total memory; each
-   * resource's {@link AsyncCache} surface is provided by {@link PerResourceRevisionFileDataCache},
-   * a thin per-resource view that translates Integer keys to the composite at the
-   * boundary. The {@code maximumSize(N)} cap on this cache is the operator's single
-   * memory dial — same shape as PostgreSQL's {@code shared_buffers} or InnoDB's
-   * {@code innodb_buffer_pool_size}.
+   * One global {@link AsyncCache} backs every per-resource {@link RevisionFileData} lookup in this
+   * JVM. Keyed by {@link RevisionFileDataCacheKey} {@code (resourcePath,
+   * revision)} so a single Caffeine instance is responsible for total memory; each resource's
+   * {@link AsyncCache} surface is provided by {@link PerResourceRevisionFileDataCache}, a thin
+   * per-resource view that translates Integer keys to the composite at the boundary. The
+   * {@code maximumSize(N)} cap on this cache is the operator's single memory dial — same shape as
+   * PostgreSQL's {@code shared_buffers} or InnoDB's {@code innodb_buffer_pool_size}.
    */
   static final AsyncCache<RevisionFileDataCacheKey, RevisionFileData> GLOBAL_REVISION_FILE_DATA_CACHE =
       Caffeine.newBuilder().maximumSize(revisionFileDataCacheMaxSize()).buildAsync();
@@ -214,8 +229,8 @@ public enum StorageType {
   /**
    * Per-resource view registry. Each resource path maps to its own
    * {@link PerResourceRevisionFileDataCache}, all of which delegate storage to
-   * {@link #GLOBAL_REVISION_FILE_DATA_CACHE}. Kept as a public field for backwards
-   * compatibility with callers that hold references to the per-resource view.
+   * {@link #GLOBAL_REVISION_FILE_DATA_CACHE}. Kept as a public field for backwards compatibility with
+   * callers that hold references to the per-resource view.
    */
   public static final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY =
       new ConcurrentHashMap<>();
@@ -227,13 +242,12 @@ public enum StorageType {
   public static final ConcurrentMap<Path, RevisionIndexHolder> REVISION_INDEX_REPOSITORY = new ConcurrentHashMap<>();
 
   /**
-   * Drops every per-path revision-metadata entry (the global {@code RevisionFileData} cache,
-   * the per-resource cache views, and the revision-index holders). NOT part of normal
-   * operation — these caches are populated at write time and kept consistent by the writers;
-   * this exists for {@code Databases.clearGlobalCaches()}'s cold-process simulation, where
-   * tests mutate the on-disk files out-of-band and the next open must re-read EVERYTHING from
-   * disk like a freshly started process would (a warm revision index otherwise masks
-   * revisions-file damage entirely).
+   * Drops every per-path revision-metadata entry (the global {@code RevisionFileData} cache, the
+   * per-resource cache views, and the revision-index holders). NOT part of normal operation — these
+   * caches are populated at write time and kept consistent by the writers; this exists for
+   * {@code Databases.clearGlobalCaches()}'s cold-process simulation, where tests mutate the on-disk
+   * files out-of-band and the next open must re-read EVERYTHING from disk like a freshly started
+   * process would (a warm revision index otherwise masks revisions-file damage entirely).
    */
   public static void clearRevisionMetadataCaches() {
     GLOBAL_REVISION_FILE_DATA_CACHE.synchronous().invalidateAll();
@@ -305,6 +319,10 @@ public enum StorageType {
    */
   public abstract IOStorage getInstance(final ResourceConfiguration resourceConf);
 
+  public IOStorage getInstance(final ResourceConfiguration resourceConf, final @Nullable UberPage openingUberPage) {
+    return getInstance(resourceConf);
+  }
+
   /**
    * Factory method to retrieve suitable {@link IOStorage} instances based upon the suitable
    * {@link ResourceConfiguration}.
@@ -320,6 +338,11 @@ public enum StorageType {
    * @throws NullPointerException if {@code resourceConf} is {@code null}
    */
   public static IOStorage getStorage(final ResourceConfiguration resourceConf) {
+    return getStorage(resourceConf, null);
+  }
+
+  public static IOStorage getStorage(final ResourceConfiguration resourceConf,
+      final @Nullable UberPage openingUberPage) {
     final String typeName = resourceConf.storageType.name();
 
     // Check if an external provider wants to handle this storage type
@@ -332,6 +355,10 @@ public enum StorageType {
           LOGGER.info("Using enterprise storage provider for {}: {} (priority={})", typeName,
               p.getClass().getSimpleName(), p.getPriority());
         }
+        if (openingUberPage != null) {
+          openingUberPage.getFeatures().requireReadable();
+          return p.createStorage(resourceConf, openingUberPage);
+        }
         return p.createStorage(resourceConf);
       }
       // A provider that overrides a built-in type name previously served this resource's data —
@@ -339,14 +366,15 @@ public enum StorageType {
       // layout with the wrong backend (the same convention-only-compatibility hazard that got the
       // legacy jasyncfio io_uring backend removed). The built-in superblock check still guards
       // hard format mismatches, but make the swap loud so operators see WHY reads changed engine.
-      LOGGER.warn("Storage provider {} for type {} is registered but unavailable ({}); falling back to the "
+      LOGGER.warn(
+          "Storage provider {} for type {} is registered but unavailable ({}); falling back to the "
               + "built-in implementation. If this resource was written by the provider, verify layout "
-              + "compatibility before continuing.", p.getClass().getSimpleName(), typeName,
-          p.getUnavailabilityReason());
+              + "compatibility before continuing.",
+          p.getClass().getSimpleName(), typeName, p.getUnavailabilityReason());
     }
 
     // Fall back to built-in implementation
-    return resourceConf.storageType.getInstance(resourceConf);
+    return resourceConf.storageType.getInstance(resourceConf, openingUberPage);
   }
 
   private static AsyncCache<Integer, RevisionFileData> getIntegerRevisionFileDataAsyncCache(

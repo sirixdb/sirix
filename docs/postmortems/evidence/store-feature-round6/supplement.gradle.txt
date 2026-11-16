@@ -1,0 +1,15 @@
+gradle.projectsEvaluated {
+    def core = gradle.rootProject.project(':sirix-core')
+    def root = gradle.rootProject.file('build/review-round6')
+    def standard = core.tasks.named('test').get()
+    standard.systemProperty('java.io.tmpdir', new File(root, 'tmp').absolutePath)
+    standard.maxParallelForks = 1
+    core.pitest {
+        threads = 1
+        excludedMethods = new File(root, core.findProperty('reviewPitExclusions') ?: 'supplement-exclusions.txt').readLines()
+        jvmArgs.add('-Djava.io.tmpdir=' + new File(root, 'tmp').absolutePath)
+        jvmArgs.add('-Dsirix.pageSectionDiag=false')
+        jvmArgs.add('-Dsirix.hot.mergeDiag=false')
+    }
+    core.tasks.named('pitest').configure { mustRunAfter core.tasks.named('test') }
+}

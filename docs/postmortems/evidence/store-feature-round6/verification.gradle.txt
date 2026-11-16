@@ -1,0 +1,58 @@
+gradle.projectsEvaluated {
+    def core = gradle.rootProject.project(':sirix-core')
+    def root = gradle.rootProject.file('build/review-round6')
+    def standard = core.tasks.named('test').get()
+    standard.systemProperty('java.io.tmpdir', new File(root, 'tmp').absolutePath)
+    standard.maxParallelForks = 1
+    core.pitest {
+        threads = 1
+        excludedMethods = new File(root, 'excluded-methods.txt').readLines()
+        jvmArgs.add('-Djava.io.tmpdir=' + new File(root, 'tmp').absolutePath)
+        jvmArgs.add('-Dsirix.pageSectionDiag=false')
+        jvmArgs.add('-Dsirix.hot.mergeDiag=false')
+    }
+    core.tasks.named('pitest').configure { mustRunAfter core.tasks.named('test') }
+}
+gradle.projectsEvaluated {
+    def core = gradle.rootProject.project(':sirix-core')
+    def baseline = core.tasks.named('test').get()
+    def compiler = core.tasks.named('compileJava').get()
+    def root = gradle.rootProject.file('build/review-round6/legacy')
+    def compile = core.tasks.register('compileReviewLegacyBeacon', JavaCompile) {
+        dependsOn core.tasks.named('classes')
+        mustRunAfter baseline
+        setSource(new File(root, 'src/io/sirix/page/UberPageFormat.java'))
+        destinationDirectory = new File(root, 'classes')
+        classpath = core.sourceSets.main.output + core.sourceSets.main.compileClasspath
+        javaCompiler = compiler.javaCompiler
+        sourceCompatibility = compiler.sourceCompatibility
+        targetCompatibility = compiler.targetCompatibility
+        options.compilerArgs = compiler.options.compilerArgs + ['-proc:none']
+    }
+    core.tasks.register('reviewLegacyBeacon', Test) {
+        dependsOn compile, core.tasks.named('testClasses')
+        mustRunAfter baseline
+        testClassesDirs = baseline.testClassesDirs
+        classpath = core.files(new File(root, 'classes')) + baseline.classpath
+        javaLauncher = baseline.javaLauncher
+        jvmArgs = baseline.jvmArgs
+        systemProperties = baseline.systemProperties
+        minHeapSize = baseline.minHeapSize
+        maxHeapSize = baseline.maxHeapSize
+        maxParallelForks = 1
+        useJUnitPlatform()
+        filter.includeTestsMatching('io.sirix.access.StoreFeaturesLifecycleTest.unsupportedBeaconNeverFallsBack*')
+        filter.includeTestsMatching('io.sirix.access.StoreFeaturesLifecycleTest.unsupportedDerivedBeaconRemainsUntouched*')
+        ignoreFailures = true
+        reports.junitXml.outputLocation = new File(root, 'results')
+        reports.html.outputLocation = new File(root, 'html')
+        doLast {
+            def failures = 0
+            fileTree(reports.junitXml.outputLocation).matching { include 'TEST-*.xml' }.each { file ->
+                failures += new groovy.xml.XmlSlurper().parse(file).@failures.toInteger()
+            }
+            if (failures != 4) throw new GradleException('Expected four legacy-beacon regression failures, got ' + failures)
+            logger.lifecycle('Legacy codec reproduced all four beacon regression failures')
+        }
+    }
+}

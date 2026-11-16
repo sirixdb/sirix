@@ -4,6 +4,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.CacheablePage;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.MemorySegmentBytesIn;
@@ -14,6 +15,7 @@ import io.sirix.index.hot.page.HOTProjectionRead;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
+import io.sirix.page.StoreFeatures;
 import io.sirix.page.interfaces.Page;
 import io.sirix.node.Bytes;
 import io.sirix.page.PageLayout;
@@ -28,10 +30,17 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.Objects;
 
 import static io.sirix.page.PageUtils.fixupPageReferenceIds;
 
 public abstract class AbstractReader implements Reader {
+
+  private static final LongAdder BEACON_READS = new LongAdder();
+
+  public static long beaconReads() {
+    return BEACON_READS.sum();
+  }
 
   protected final ByteHandler byteHandler;
 
@@ -44,6 +53,8 @@ public abstract class AbstractReader implements Reader {
    * Used to serialize/deserialze pages.
    */
   protected final PagePersister pagePersister;
+
+  private @Nullable StoreFeatures storeFeatures;
 
   /** Only overflow decoders always finish with independently owned payload bytes. */
   private final boolean borrowOverflowInput;
@@ -544,8 +555,35 @@ public abstract class AbstractReader implements Reader {
 
   @Override
   public PageReference readUberPageReference() {
+    final PageReference reference = readCommittedUberPageReference();
+    // A valid but unsupported primary must never fall back to an older compatible secondary.
+    final StoreFeatures features = ((UberPage) reference.getPage()).getFeatures();
+    features.requireReadable();
+    storeFeatures = features;
+    return reference;
+  }
+
+  protected final boolean permitsRevisionRecordHealing() {
+    StoreFeatures features = storeFeatures;
+    if (features == null) {
+      features = ((UberPage) readUberPageReference().getPage()).getFeatures();
+    }
+    return features.readOnlyCompat() == 0;
+  }
+
+  public final UberPage readOpeningUberPage() {
+    return (UberPage) readCommittedUberPageReference().getPage();
+  }
+
+  public final void setStoreFeatures(final StoreFeatures features) {
+    storeFeatures = Objects.requireNonNull(features);
+  }
+
+  private PageReference readCommittedUberPageReference() {
     try {
       return readVerifiedBeacon(IOStorage.PRIMARY_BEACON_OFFSET);
+    } catch (final UnsupportedStoreFeatureException unsupported) {
+      throw unsupported;
     } catch (final Exception primaryException) {
       LOGGER.warn("Primary UberPage beacon at offset {} is corrupt, attempting secondary beacon at offset {}",
           IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET, primaryException);
@@ -555,6 +593,8 @@ public abstract class AbstractReader implements Reader {
         LOGGER.info("Successfully recovered UberPage from secondary beacon at offset {}",
             IOStorage.SECONDARY_BEACON_OFFSET);
         return ref;
+      } catch (final UnsupportedStoreFeatureException unsupported) {
+        throw unsupported;
       } catch (final Exception secondaryException) {
         LOGGER.error("Both UberPage beacons are corrupt — unrecoverable");
         primaryException.addSuppressed(secondaryException);
@@ -574,6 +614,7 @@ public abstract class AbstractReader implements Reader {
    * effective bytes of validation on the root of the whole resource.
    */
   private PageReference readVerifiedBeacon(final long offset) {
+    BEACON_READS.increment();
     final java.nio.ByteBuffer slot = readBeaconSlot(offset);
     // A data file truncated inside the first 4 beacon bytes must fail like every other corrupt
     // slot, not with a raw BufferUnderflowException from getInt().
@@ -627,6 +668,16 @@ public abstract class AbstractReader implements Reader {
       return ((UberPage) readVerifiedBeacon(offset).getPage()).getRevisionNumber();
     } catch (final RuntimeException e) {
       return -1;
+    }
+  }
+
+  /** An empty-bootstrap repair must not discard even an otherwise readable store feature. */
+  public final boolean isEmptyBootstrapBeacon(final long offset) {
+    try {
+      final UberPage page = (UberPage) readVerifiedBeacon(offset).getPage();
+      return page.getRevisionNumber() == 0 && page.getFeatures().isEmpty();
+    } catch (final RuntimeException failure) {
+      return false;
     }
   }
 

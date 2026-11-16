@@ -1,15 +1,18 @@
 package io.sirix.io;
 
+import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.DatabaseConfiguration;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.page.PagePersister;
-import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
+import io.sirix.page.StoreFeatures;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,6 +21,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
@@ -50,7 +54,8 @@ import java.nio.file.StandardOpenOption;
  * <p>
  * <b>The heal:</b> when the open fails, the resource is re-initialized empty if and only if the
  * on-disk state PROVES that at most the empty bootstrap revision was ever committed AND no
- * checksum-valid revision record survives — i.e. nothing recoverable exists (see
+ * checksum-valid revision record survives and no beacon carries active feature words — i.e. nothing
+ * recoverable exists (see
  * {@link #provesAtMostEmptyBootstrapCommitted(ResourceConfiguration, Path, Path)}). Both files are
  * truncated to zero and the open is retried — which then runs the EXACT fresh-resource bootstrap
  * path ({@code exists() == false} → {@code new UberPage()}), not a duplicate of it. When the state
@@ -79,19 +84,30 @@ public final class InterruptedFirstCommitRecovery {
    *
    * <p>
    * Any step of the open can surface the interrupted-first-commit state: storage creation pre-loads
-   * revision metadata (reading the uber page reference AND every revision record), and the uber-page
-   * load re-reads the beacons. On failure the on-disk bytes are probed; a resource provably holding
-   * nothing but (at most) the unreachable empty bootstrap revision is re-initialized empty (with a
-   * WARN log) and the open retried through the fresh-bootstrap path, everything else rethrows the
-   * original failure.
+   * revision metadata. On failure the on-disk bytes are probed; a resource provably holding nothing
+   * but (at most) the unreachable empty bootstrap revision is re-initialized empty (with a WARN log)
+   * and the open retried through the fresh-bootstrap path, everything else rethrows the original
+   * failure.
    *
    * @param resourceConfig the resource configuration
    * @return the storage and the uber page to start from
    */
   public static StorageAndUberPage openStorageAndLoadUberPage(final ResourceConfiguration resourceConfig) {
+    return openStorageAndLoadUberPage(resourceConfig, null);
+  }
+
+  public static StorageAndUberPage openStorageAndLoadUberPage(final ResourceConfiguration resourceConfig,
+      final @Nullable UberPage openingUberPage) {
     try {
-      final IOStorage storage = StorageType.getStorage(resourceConfig);
-      return new StorageAndUberPage(storage, loadUberPage(storage));
+      final IOStorage storage = StorageType.getStorage(resourceConfig, openingUberPage);
+      try {
+        return new StorageAndUberPage(storage, storage.getOpeningUberPage());
+      } catch (final RuntimeException failure) {
+        storage.close();
+        throw failure;
+      }
+    } catch (final UnsupportedStoreFeatureException unsupported) {
+      throw unsupported;
     } catch (final RuntimeException openFailure) {
       final Path dataFile = dataFilePath(resourceConfig);
       final Path revisionsFile = revisionsFilePath(resourceConfig);
@@ -107,27 +123,78 @@ public final class InterruptedFirstCommitRecovery {
       // Retry: with both files truncated to zero, exists() is false and the SAME code path that
       // initializes a brand-new resource runs (bootstrap UberPage, no on-disk reads).
       final IOStorage storage = StorageType.getStorage(resourceConfig);
-      return new StorageAndUberPage(storage, loadUberPage(storage));
+      return new StorageAndUberPage(storage, storage.getOpeningUberPage());
     }
   }
 
   /**
-   * Loads the {@link UberPage} from storage, or bootstraps a new one if the storage does not hold
-   * data yet. This replaces {@code ResourceSessionModule.rootPage()} and was previously duplicated in
-   * the JSON and XML database factories.
+   * Open for verification, compaction or erasure with strict feature compatibility before storage
+   * initialization, without empty-bootstrap repair. Compatible storage initialization may still heal
+   * revision records. The caller owns and must close the returned storage.
    */
-  private static UberPage loadUberPage(final IOStorage storage) {
-    if (storage.exists()) {
-      try (final Reader reader = storage.createReader()) {
-        final PageReference firstRef = reader.readUberPageReference();
-        if (firstRef.getPage() == null) {
-          return (UberPage) reader.read(firstRef, null);
-        } else {
-          return (UberPage) firstRef.getPage();
+  public static StorageAndUberPage openStorageForTool(final ResourceConfiguration resourceConfig) {
+    final UberPage openingUberPage = probeUberPage(resourceConfig);
+    openingUberPage.getFeatures().requireToolCompatible();
+    final IOStorage storage = StorageType.getStorage(resourceConfig, openingUberPage);
+    try {
+      final UberPage page = storage.getOpeningUberPage();
+      page.getFeatures().requireToolCompatible();
+      return new StorageAndUberPage(storage, page);
+    } catch (final RuntimeException failure) {
+      storage.close();
+      throw failure;
+    }
+  }
+
+  public static StoreFeatures probeFeatures(final ResourceConfiguration resourceConfig) {
+    return probeUberPage(resourceConfig).getFeatures();
+  }
+
+  public static UberPage probeUberPage(final ResourceConfiguration resourceConfig) {
+    final Path dataFile = dataFilePath(resourceConfig);
+    try {
+      if (!Files.exists(dataFile) || Files.size(dataFile) == 0) {
+        return new UberPage();
+      }
+      try (final FileChannel channel = FileChannel.open(dataFile, StandardOpenOption.READ);
+          final FileChannelReader reader =
+              new FileChannelReader(channel, channel, new ByteHandlerPipeline(resourceConfig.byteHandlePipeline),
+                  SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build())) {
+        try {
+          return reader.readOpeningUberPage();
+        } catch (final SirixIOException corrupt) {
+          final ByteBuffer slots =
+              ByteBuffer.allocate((int) (IOStorage.DATA_REGION_START - IOStorage.PRIMARY_BEACON_OFFSET));
+          while (slots.hasRemaining()) {
+            if (channel.read(slots, IOStorage.PRIMARY_BEACON_OFFSET + slots.position()) <= 0) {
+              break;
+            }
+          }
+          if (isAllZero(slots.array(), 0, slots.capacity())) {
+            return new UberPage();
+          }
+          throw corrupt;
         }
       }
-    } else {
-      return new UberPage();
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
+  public static void requireDatabaseToolCompatible(final Path database) {
+    final Path resources = database.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    if (!Files.isDirectory(resources)) {
+      return;
+    }
+    try (final DirectoryStream<Path> paths = Files.newDirectoryStream(resources)) {
+      for (final Path path : paths) {
+        if (!Files.isDirectory(path)) {
+          continue;
+        }
+        probeFeatures(ResourceConfiguration.deserialize(path)).requireToolCompatible();
+      }
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
     }
   }
 
@@ -144,9 +211,9 @@ public final class InterruptedFirstCommitRecovery {
    * the beacon writes);</li>
    * <li>EACH beacon slot in {@code [PRIMARY_BEACON_OFFSET, DATA_REGION_START)} is either entirely
    * zero (never written — no commit was ever acknowledged) or a checksum-valid uber beacon
-   * advertising the BOOTSTRAP revision (revision number 0 — only the empty commit that resource
-   * creation itself runs was ever acknowledged). Torn/garbage slot bytes or any slot advertising a
-   * later revision mean data may exist;</li>
+   * advertising the BOOTSTRAP revision with no active feature words (revision number 0 — only the
+   * empty commit that resource creation itself runs was ever acknowledged). Torn/garbage slot bytes,
+   * active feature words or any slot advertising a later revision prevent repair;</li>
    * <li>{@code sirix.revisions} holds no checksum-valid revision record in any slot (the bootstrap
    * commit writes revision 0's record at slot 0 — and the first user commit revision 1's at slot 1 —
    * BEFORE the beacons go out; a valid record means a commit got far enough that data may exist, and
@@ -181,13 +248,14 @@ public final class InterruptedFirstCommitRecovery {
 
   /**
    * Each beacon slot must be entirely zero (a file ending before {@code DATA_REGION_START} reads as
-   * zeros — never written) or a checksum-valid beacon advertising revision number 0, the empty
-   * bootstrap revision committed by resource creation itself. The slot is parsed by the canonical
-   * verifier ({@code AbstractReader#beaconRevisionOrMinusOne}); the beacon-slot format is identical
-   * across the file-based storage backends, so the {@link FileChannelReader} parser is authoritative
-   * for all of them. The reader's revisions-channel parameter is only used for revision-record reads,
-   * which the beacon parse never performs — the data channel is passed in both positions so the probe
-   * cannot require {@code sirix.revisions} to exist (its loss may be exactly what is being probed).
+   * zeros — never written) or a checksum-valid beacon advertising revision number 0 with no active
+   * feature words, the empty bootstrap revision committed by resource creation itself. The slot is
+   * parsed by the canonical verifier ({@code AbstractReader#isEmptyBootstrapBeacon}); the beacon-slot
+   * format is identical across the file-based storage backends, so the {@link FileChannelReader}
+   * parser is authoritative for all of them. The reader's revisions-channel parameter is only used
+   * for revision-record reads, which the beacon parse never performs — the data channel is passed in
+   * both positions so the probe cannot require {@code sirix.revisions} to exist (its loss may be
+   * exactly what is being probed).
    */
   private static boolean beaconSlotsProveAtMostBootstrapRevision(final ResourceConfiguration resourceConfig,
       final byte[] header, final Path dataFile) throws IOException {
@@ -202,10 +270,10 @@ public final class InterruptedFirstCommitRecovery {
       final FileChannelReader reader =
           new FileChannelReader(dataChannel, dataChannel, new ByteHandlerPipeline(resourceConfig.byteHandlePipeline),
               SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build());
-      if (!primaryAllZero && reader.beaconRevisionOrMinusOne(IOStorage.PRIMARY_BEACON_OFFSET) != 0) {
+      if (!primaryAllZero && !reader.isEmptyBootstrapBeacon(IOStorage.PRIMARY_BEACON_OFFSET)) {
         return false;
       }
-      return secondaryAllZero || reader.beaconRevisionOrMinusOne(IOStorage.SECONDARY_BEACON_OFFSET) == 0;
+      return secondaryAllZero || reader.isEmptyBootstrapBeacon(IOStorage.SECONDARY_BEACON_OFFSET);
     }
   }
 

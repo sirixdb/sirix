@@ -63,8 +63,9 @@ See `ResourceSettingsExtensionsTest` for independent settings mutations.
 Page keys (`PageReference.getKey()`) are absolute byte offsets of the record's length prefix.
 The header region stays a sparse hole until the first commit writes it (`IOStorage.exists()`
 checks size > 0 to distinguish fresh resources). Beacon recovery validates
-`[len][payload][XXH3]` — both length bounds and checksum — and falls back primary → secondary;
-storage open validates the superblock (magic/version/endianness/role/checksum) and fails fast with an
+`[len][payload][XXH3]` bounds and checksum before decoding the root. The crash-window contract
+below defines beacon selection. Storage open validates the superblock
+(magic/version/endianness/role/checksum) and fails fast with an
 actionable message on any mismatch. The three spare bytes at offsets 13–15 must be zero;
 nonzero values are refused even when the checksum is valid. Their future use requires a
 `LAYOUT_VERSION` decision, not an optional extension block. `SuperblockSpareBytesTest` pins
@@ -118,9 +119,10 @@ a separate revisions-file force on every steady-state commit. The invariants tha
 - **Salvage on read, not second opinion.** `FileChannelReader.getRevisionFileData` consults the
   ring ONLY when the file record is missing or fails its checksum; an intact record is never
   second-guessed. The [tombstone safeguards below](#sirixrevisions) further restrict salvage and
-  healing. A salvaged record is written back into the revisions file (self-heal), so the
-  next open needs no salvage. A record that is neither intact in the file nor recoverable from an
-  entry that passes its own XXH3 is a hard error naming the exhausted salvage source, never a
+  healing. A salvaged record is written back into the revisions file (self-heal) only when the
+  [store feature policy](#uberpage-store-feature-words) permits writes; read-only opens serve
+  the recovered value without healing. A record that is neither intact in the file nor recoverable
+  from an entry that passes its own XXH3 is a hard error naming the exhausted salvage source, never a
   silently-served garbage offset.
 - **Writer handoff.** Writers are per-transaction, so the ring image and the write frontiers are
   handed writer-to-writer through `RevisionRecordDurability` rather than re-derived from disk on
@@ -130,8 +132,9 @@ a separate revisions-file force on every steady-state commit. The invariants tha
 Covered by `LazyRevisionRecordRecoveryTest` (staging, salvage + heal, out-of-window failure,
 post-eviction durability, torn-entry rejection).
 
-**Crash-window contract:** recovery prefers a valid PRIMARY and otherwise falls back to
-SECONDARY. A commit that did not return may be absent or may be visible if its beacon
+**Crash-window contract:** recovery prefers PRIMARY and falls back to SECONDARY after
+corruption. Compatibility refusal follows the [store feature policy](#uberpage-store-feature-words).
+A commit that did not return may be absent or may be visible if its beacon
 reached stable storage; an acknowledged commit must survive under the durability contract.
 With buffered beacons, issuing SECONDARY first does not guarantee it becomes durable first:
 the final force covers both. With ordered O_DSYNC beacons, SECONDARY is already durable when
@@ -141,8 +144,8 @@ Recovery truncation repairs both slots to the recovered revision, so a stale-for
 secondary cannot later resurrect a discarded revision; see
 [`CrashRecoveryTest.staleForwardSecondaryBeacon_isRepairedOnRecovery`](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java).
 Explicit rollback has a different ordering: `NodeStorageEngineWriter.truncateTo` first
-publishes the reconstructed target uber page through the durable dual-beacon protocol,
-then truncates the discarded tail. A crash leaves either the original or target revision,
+publishes the target uber page, retaining the committed store feature words, through the durable
+dual-beacon protocol, then truncates the discarded tail. A crash leaves either the original or target revision,
 not a beacon pointing past truncated files. See
 [`ExplicitRollbackCrashSimulationTest`](../bundles/sirix-core/src/test/java/io/sirix/crash/ExplicitRollbackCrashSimulationTest.java)
 and [`NodeStorageEngineWriter.truncateTo`](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java).
@@ -157,11 +160,11 @@ and [`NodeStorageEngineWriter.truncateTo`](../bundles/sirix-core/src/main/java/i
                      [u64 recordChecksum][u64 pageHashOrPrunedTag]      (little-endian)
 ```
 
-This file is **load-bearing**: the serialized UberPage holds only `revisionCount`, so every
+This file is **load-bearing**: the UberPage carries no revision-root offsets, so every
 RevisionRootPage lookup goes through a slot here — which is why every record now carries a
 checksum (verified on read; mismatch is a hard error, not a garbage offset, unless a checksum-valid
-copy of the record is still in the beacon tail log, in which case it is salvaged and the slot is
-healed in place). The write-only uber-page copies an earlier draft of the layout kept at offsets
+copy of the record is still in the beacon tail log; see the salvage and healing rules above).
+The write-only uber-page copies an earlier draft of the layout kept at offsets
 0/512 are gone.
 
 The 4th field (formerly `reserved`, zero) now stores the **XXH3-64 of the RevisionRootPage's
@@ -235,8 +238,8 @@ Zero is the initialization marker, so a zero draw is mapped to one. The 64-bit s
 provide no cryptographic commitment; the future eraser must destroy the salt with the erased data.
 
 Every page starts with `[pageKind u8][binaryVersion u8][flags u8]`.
-`PageKind.readVersionAndFlags` and `readVersionAndFlagsAllowing` validate the version for that
-page kind; only V0 (byte 0) is currently supported. Bits 0–6 of `flags` are required, kind-specific
+Page-kind codecs validate the version; only V0 (byte 0) is currently supported.
+Bits 0–6 of `flags` are required, kind-specific
 layout selectors: a bit outside that kind's allowed mask is refused. Bit 7 (`0x80`,
 `PageExtensions.FLAG_EXTENSION_BLOCK`) has the same meaning for **every** kind, including
 indirect pages. When set, it inserts this block immediately after the flags and before the
@@ -250,12 +253,14 @@ unchanged body:
 stop-bit encoding (seven low data bits per byte, high bit means continue). Tags are unsigned,
 strictly ascending and unique. Tag bit 7 (`0x80`) marks a required entry; bit 6 (`0x40`)
 selects kind-local rather than shared meaning. Entries must be independent of other entries
-and pages so skipping is safe. No shared or kind-local tags are assigned yet: readers skip
-all optional entries by length and refuse every required entry. Truncated or overflowing
+and pages so skipping is safe. The only assigned entry is specified in
+[UberPage store feature words](#uberpage-store-feature-words).
+Readers skip unknown optional entries by length and refuse unknown required entries. Truncated or overflowing
 lengths, lengths outside the block/page boundary, duplicate tags and descending tags are
 refused. Readers accept blocks larger than the writer limit when they fit the page.
 
-Writers use `PageExtensions.builder().add(tag, payload).build()` with only tags they understand,
+For page kinds other than UberPage, writers use
+`PageExtensions.builder().add(tag, payload).build()` with only tags they understand,
 then `PageKind.writeVersionAndFlags(sink, bodyFlags, extensions)` after writing the kind byte.
 The API controls bit 7, copies payloads, and limits the total encoded entries to 255 bytes.
 `PageExtensions.EMPTY` emits no block or length prefix. Rewriting a parsed page discards unknown
@@ -289,7 +294,7 @@ VECTOR_INDEX_METADATA pattern); sub-structures with their own magic carry their 
 byte (PIXD/PIXS/PIX1, PIXM). Enum-typed bytes on disk are always explicit stable ids with
 fail-fast lookups, never ordinals.
 
-- **UberPage** body: `[i32 revisionCount]` — 7 bytes total without an extension block, no checksum (§5.3).
+- **UberPage**: [store feature words and revision count](#uberpage-store-feature-words).
 - **RevisionRootPage**: delegate refs + revision, maxNodeKeys, commit timestamp/message, user.
   The delegate's reference count and offsets are defined by
   [`RevisionRootPage`](../bundles/sirix-core/src/main/java/io/sirix/page/RevisionRootPage.java).
@@ -496,6 +501,71 @@ Every revision reads its own base and live deltas in sequence order. Folds repla
 pages and do not alter historical postings. This is the only CAS key encoding and posting layout;
 there are no old-format readers, migrations, or compatibility switches.
 
+### UberPage store feature words
+
+The UberPage is the per-resource entry point. Its codec is
+[`UberPageFormat`](../bundles/sirix-core/src/main/java/io/sirix/page/UberPageFormat.java).
+With all three feature words zero, its complete encoding remains the original seven bytes:
+
+```
+[kind=0x03][version=0][flags=0][i32 revisionCount]
+```
+
+With any active bit, the encoding is:
+
+```
+[kind=0x03][version=0][flags=0x80]
+[blockLength varint=14]
+[tag=0xC1 FEATURES][payloadLength varint=12]
+[u32 incompat][u32 readOnlyCompat][u32 compat]
+[i32 revisionCount]
+```
+
+The words and revision count are little-endian. Lengths use unsigned base-128 varints.
+The block length covers its entries, excluding its own length and the revision count.
+Entries have strictly increasing tags; duplicate/descending tags, truncated/overflowing lengths,
+payloads outside the block and a FEATURES payload other than 12 bytes are rejected.
+Unknown tags with bit `0x80` set are required and refused; other unknown tags are skipped
+within the block bounds. The FEATURES tag belongs to UberPage; the extension-block flag is shared
+by every page kind.
+The beacon checksum covers the entire UberPage payload; it has no separate internal checksum.
+`StoreFeaturesTest` pins both encodings independently, including unchanged zero-feature bytes.
+
+[`StoreFeatures`](../bundles/sirix-core/src/main/java/io/sirix/page/StoreFeatures.java)
+defines the access policy for unknown bits:
+
+| Word | Ordinary read | Any write | Maintenance tool |
+|---|---|---|---|
+| `incompat` | Refuse open | Refuse open | Refuse |
+| `readOnlyCompat` | Permit read-only access | Refuse, including revert, truncate and index creation | Refuse |
+| `compat` | Ignore | Ignore | Refuse |
+
+This build implements the words but assigns no supported feature bits. Feature-word refusal raises
+`UnsupportedStoreFeatureException`, naming the word and hexadecimal mask and requesting an upgrade.
+Unknown UberPage versions, flags and required entries also raise this exception.
+Compatibility refusal from either selected beacon propagates immediately, preserving the
+store's requirements. Recovery must preserve unsupported derived stores.
+An unknown read-only-compatible bit also forbids implicit file creation, record healing and
+orphan-spill cleanup. Reads still require intact or recoverable revision metadata; a missing
+revisions file cannot be created to make such an open succeed.
+
+Healthy physical resource opens retain one committed UberPage snapshot through compatibility
+checks, metadata/index preload and session creation. No per-page feature check is added;
+reusing a resource session adds no beacon probe. Opening a database handle does not scan resources.
+Tool opens check all three words before initialization; backup and restore also preflight every
+persisted resource directory, including hidden derived siblings, before opening parents or
+creating a target. Later explicit revision-index refresh reads the current beacon.
+The open-work and preservation regressions are in `InterruptedFirstCommitRecoveryStoreFeaturesTest`.
+
+For 1.x, bits 0–23 in each word belong to the open-source core and bits 24–31 to extensions.
+Features must be staged on the transaction's private UberPage before first use and published
+in the same commit that first writes them, through the existing atomic beacon protocol (§1).
+Activation only grows: cloning and explicit `truncateTo` retain the committed words even when
+rolling back before first use; recovery copies retain them too. Empty-bootstrap repair requires
+empty words in every nonzero valid beacon. Ordinary commits leave pages beyond an unpublished
+commit frontier unreachable. Future page-level required flags/entries remain local truth:
+using one without its corresponding store `incompat` bit is corruption.
+
 ## 3. Integrity
 
 Generic DATA reference containers (`SerializationType.DATA`) encode the hash discriminator as
@@ -543,7 +613,7 @@ revisions-file slots + truncation; ordered dual-copy beacon writes + write-ahead
 validated at storage open); **beacon slots one filesystem block apart with XXH3 trailers**
 (recovery validates checksums, not "deserialization didn't throw"); **checksummed 32-byte
 revision records** (little-endian) plus their **checksummed 16-entry tail log in both beacon
-slots** (salvage + self-heal, eviction guarded by a per-resource durability watermark);
+slots** (see the [salvage and healing rules](#1-files));
 **legacy FILE backend removed** (`StorageType.FILE` fails
 fast — it wrote an incompatible layout under the same version); u8 fragment-count guards;
 PATH_SUMMARY writes its delegate byte via the shared helper; PageReference hashes use the

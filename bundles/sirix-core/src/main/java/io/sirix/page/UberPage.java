@@ -38,6 +38,8 @@ import io.sirix.settings.Constants;
 
 import java.util.List;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * The Uber page, the main entry into the resource storage.
  */
@@ -47,6 +49,8 @@ public final class UberPage implements Page {
    * Number of revisions.
    */
   private final int revisionCount;
+
+  private StoreFeatures features = StoreFeatures.NONE;
 
   /**
    * {@code true} if this uber page is the uber page of a fresh sirix file, {@code false} otherwise.
@@ -73,6 +77,11 @@ public final class UberPage implements Page {
    * @param revisionCount Number of revisions.
    */
   public UberPage(final int revisionCount) {
+    this(revisionCount, StoreFeatures.NONE);
+  }
+
+  public UberPage(final int revisionCount, final StoreFeatures features) {
+    this.features = requireNonNull(features);
     this.revisionCount = revisionCount;
     this.isBootstrap = false;
     this.rootPage = null;
@@ -84,6 +93,7 @@ public final class UberPage implements Page {
    * @param committedUberPage page to clone
    */
   public UberPage(final UberPage committedUberPage) {
+    features = committedUberPage.features;
     if (committedUberPage.isBootstrap()) {
       revisionCount = committedUberPage.revisionCount;
       isBootstrap = committedUberPage.isBootstrap;
@@ -93,6 +103,23 @@ public final class UberPage implements Page {
       isBootstrap = false;
       rootPage = null;
     }
+  }
+
+  public StoreFeatures getFeatures() {
+    return features;
+  }
+
+  /** Stage requirements on the transaction's private uber page before first use of a feature. */
+  public void addFeatures(final StoreFeatures added) {
+    features = features.union(requireNonNull(added));
+  }
+
+  /** Rollback changes the revision frontier, never the active store requirements. */
+  public UberPage withRevisionCount(final int count) {
+    if (count < 1) {
+      throw new IllegalArgumentException("Revision count must be positive");
+    }
+    return new UberPage(count, features);
   }
 
   /**

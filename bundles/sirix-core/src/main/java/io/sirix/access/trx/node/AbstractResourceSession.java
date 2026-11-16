@@ -1,5 +1,6 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.page.StoreFeatures;
 import io.sirix.access.ResourceAccessScope;
 
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
@@ -156,6 +157,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return resource == null
         ? null
         : resource.openReader(source);
+  }
+
+  public final StoreFeatures getStoreFeatures() {
+    return lastCommittedUberPage.get().getFeatures();
   }
 
   public final DerivedIndexMaintainer.@Nullable Resource getDerivedResource() {
@@ -386,6 +391,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     this.writeLock = requireNonNull(writeLock);
 
+    uberPage.getFeatures().requireReadable();
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     revisionListeners = new CopyOnWriteArrayList<>();
     this.user = user;
@@ -795,6 +801,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
 
+    this.lastCommittedUberPage.get().getFeatures().requireWritable();
+    if (pendingBaseUberPage != null) {
+      pendingBaseUberPage.getFeatures().requireWritable();
+    }
     final RevisionIndex index = storage.getRevisionIndexHolder().get();
     if (representRevision < index.size()) {
       index.requireReadable(representRevision);
@@ -1278,6 +1288,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       final AfterCommitState afterCommitState) {
     // Authorize before acquiring a writer or touching its intent log.
     ResourceAccessScope.checkWrite(this);
+    lastCommittedUberPage.get().getFeatures().requireWritable();
     // Checks.
     assertAccess(getMostRecentRevisionNumber());
     if (maxNodeCount < 0 || maxTime < 0) {
@@ -1729,6 +1740,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public synchronized StorageEngineWriter createStorageEngineWriter(final int revision) {
     ResourceAccessScope.checkWrite(this);
+    lastCommittedUberPage.get().getFeatures().requireWritable();
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.

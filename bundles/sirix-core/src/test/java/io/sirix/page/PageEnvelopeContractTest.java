@@ -1,6 +1,7 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.index.hot.page.HOTIndirectPage;
@@ -134,18 +135,25 @@ public final class PageEnvelopeContractTest {
     final byte[] required = extended.clone();
     required[4] = (byte) 0x81;
     final BytesIn<?> requiredSource = Bytes.wrapForRead(required);
-    assertTrue(assertThrows(IllegalStateException.class, () -> persister.deserializePage(CONFIG, requiredSource,
-        SerializationType.DATA)).getMessage().contains("required page extension 129"));
+    final Class<? extends RuntimeException> unsupportedType = page instanceof UberPage
+        ? UnsupportedStoreFeatureException.class
+        : IllegalStateException.class;
+    final String requiredMessage = page instanceof UberPage
+        ? "required uber extension 0x81"
+        : "required page extension 129";
+    assertTrue(assertThrows(unsupportedType,
+        () -> persister.deserializePage(CONFIG, requiredSource, SerializationType.DATA)).getMessage()
+                                                                                        .contains(requiredMessage));
     final byte[] unknownFlag = oldBytes.clone();
     unknownFlag[2] |= 0x40;
     final BytesIn<?> unknownFlagSource = Bytes.wrapForRead(unknownFlag);
-    assertTrue(assertThrows(IllegalStateException.class,
+    assertTrue(assertThrows(unsupportedType,
         () -> persister.deserializePage(CONFIG, unknownFlagSource, SerializationType.DATA)).getMessage()
                                                                                            .contains("flags"));
     final byte[] unknownVersion = oldBytes.clone();
     unknownVersion[1] = 1;
     final BytesIn<?> unknownVersionSource = Bytes.wrapForRead(unknownVersion);
-    assertThrows(IllegalStateException.class,
+    assertThrows(unsupportedType,
         () -> persister.deserializePage(CONFIG, unknownVersionSource, SerializationType.DATA));
     final Page parsed = persister.deserializePage(CONFIG, Bytes.wrapForRead(extended), SerializationType.DATA);
     if (parsed instanceof RevisionRootPage revisionRoot) {

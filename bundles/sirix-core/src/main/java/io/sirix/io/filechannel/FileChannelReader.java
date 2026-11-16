@@ -1276,6 +1276,9 @@ public final class FileChannelReader extends AbstractReader {
    * have rewritten it, and this reader's salvage source could belong to the replaced timeline.
    */
   private void healRevisionRecord(final int revision, final RevisionFileData ringRecord) {
+    if (!permitsRevisionRecordHealing()) {
+      return;
+    }
     try {
       final ByteBuffer magicProbe = ByteBuffer.allocate(Superblock.MAGIC.length);
       final int probeRead = readAt(revisionsOffsetFileChannel, magicProbe, 0L);

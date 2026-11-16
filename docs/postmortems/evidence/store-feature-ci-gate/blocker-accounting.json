@@ -1,0 +1,198 @@
+[
+  {
+    "class": "io.sirix.io.IOStorage",
+    "method": "getOpeningUberPage",
+    "method_description": "()Lio/sirix/page/UberPage;",
+    "description": "replaced return value with null for io/sirix/io/IOStorage::getOpeningUberPage",
+    "indexes": [
+      "11"
+    ],
+    "before": "NO_COVERAGE",
+    "before_line": 381,
+    "after": "KILLED",
+    "after_line": 381,
+    "killing_test": "io.sirix.io.StorageProviderSpiTest.[engine:junit-vintage]/[runner:io.sirix.io.StorageProviderSpiTest]/[test:openingSnapshotDefaultKeepsLegacyProviderUsable(io.sirix.io.StorageProviderSpiTest)]"
+  },
+  {
+    "class": "io.sirix.io.StorageType$3",
+    "method": "getInstance",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;)Lio/sirix/io/IOStorage;",
+    "description": "replaced return value with null for io/sirix/io/StorageType$3::getInstance",
+    "indexes": [
+      "7"
+    ],
+    "before": "NO_COVERAGE",
+    "before_line": 83,
+    "after": "KILLED",
+    "after_line": 83,
+    "killing_test": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest]/[test-template:coldStorageFactoryPreloadsCommittedRevisionMetadata(io.sirix.io.StorageType)]/[test-template-invocation:#1]"
+  },
+  {
+    "class": "io.sirix.io.StorageType$3",
+    "method": "getInstance",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/page/UberPage;)Lio/sirix/io/IOStorage;",
+    "description": "removed call to io/sirix/io/filechannel/FileChannelStorage::loadRevisionFileDataIntoMemory",
+    "indexes": [
+      "27"
+    ],
+    "before": "SURVIVED",
+    "before_line": 92,
+    "after": "KILLED",
+    "after_line": 92,
+    "killing_test": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest]/[test-template:coldStorageFactoryPreloadsCommittedRevisionMetadata(io.sirix.io.StorageType)]/[test-template-invocation:#1]"
+  },
+  {
+    "class": "io.sirix.io.StorageType$3",
+    "method": "getInstance",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/page/UberPage;)Lio/sirix/io/IOStorage;",
+    "description": "removed call to io/sirix/io/filechannel/FileChannelStorage::loadRevisionIndex",
+    "indexes": [
+      "34"
+    ],
+    "before": "SURVIVED",
+    "before_line": 93,
+    "after": "KILLED",
+    "after_line": 93,
+    "killing_test": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest]/[test-template:coldStorageFactoryPreloadsCommittedRevisionMetadata(io.sirix.io.StorageType)]/[test-template-invocation:#1]"
+  },
+  {
+    "class": "io.sirix.io.StorageType$4",
+    "method": "getInstance",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;)Lio/sirix/io/IOStorage;",
+    "description": "replaced return value with null for io/sirix/io/StorageType$4::getInstance",
+    "indexes": [
+      "7"
+    ],
+    "before": "NO_COVERAGE",
+    "before_line": 110,
+    "after": "KILLED",
+    "after_line": 110,
+    "killing_test": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest]/[test-template:coldStorageFactoryPreloadsCommittedRevisionMetadata(io.sirix.io.StorageType)]/[test-template-invocation:#2]"
+  },
+  {
+    "class": "io.sirix.io.StorageType$4",
+    "method": "getInstance",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/page/UberPage;)Lio/sirix/io/IOStorage;",
+    "description": "removed call to io/sirix/io/memorymapped/MMStorage::loadRevisionFileDataIntoMemory",
+    "indexes": [
+      "27"
+    ],
+    "before": "SURVIVED",
+    "before_line": 119,
+    "after": "KILLED",
+    "after_line": 119,
+    "killing_test": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest]/[test-template:coldStorageFactoryPreloadsCommittedRevisionMetadata(io.sirix.io.StorageType)]/[test-template-invocation:#2]"
+  },
+  {
+    "class": "io.sirix.io.StorageType$4",
+    "method": "getInstance",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/page/UberPage;)Lio/sirix/io/IOStorage;",
+    "description": "removed call to io/sirix/io/memorymapped/MMStorage::close",
+    "indexes": [
+      "45"
+    ],
+    "before": "SURVIVED",
+    "before_line": 122,
+    "after": "KILLED",
+    "after_line": 122,
+    "killing_test": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest]/[method:failedMappedPreloadReleasesItsNativeMapping()]"
+  },
+  {
+    "class": "io.sirix.io.StorageProvider",
+    "method": "createStorage",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/page/UberPage;)Lio/sirix/io/IOStorage;",
+    "description": "replaced return value with null for io/sirix/io/StorageProvider::createStorage",
+    "indexes": [
+      "6"
+    ],
+    "before": "NO_COVERAGE",
+    "before_line": 131,
+    "after": "KILLED",
+    "after_line": 131,
+    "killing_test": "io.sirix.io.StorageProviderSpiTest.[engine:junit-vintage]/[runner:io.sirix.io.StorageProviderSpiTest]/[test:openingSnapshotDefaultKeepsLegacyProviderUsable(io.sirix.io.StorageProviderSpiTest)]"
+  },
+  {
+    "class": "io.sirix.io.memorymapped.MMStorage",
+    "method": "createDirectoriesAndFile",
+    "method_description": "()Ljava/nio/file/Path;",
+    "description": "removed call to io/sirix/page/StoreFeatures::requireWritable",
+    "indexes": [
+      "18"
+    ],
+    "before": "SURVIVED",
+    "before_line": 379,
+    "after": "KILLED",
+    "after_line": 379,
+    "killing_test": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest]/[test-template:readOnlyOpeningSnapshotCannotCreateMissingDataFile(io.sirix.io.StorageType)]/[test-template-invocation:#2]"
+  },
+  {
+    "class": "io.sirix.page.PageKind$3",
+    "method": "deserializePage",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/node/BytesIn;Lio/sirix/page/SerializationType;Lio/sirix/io/bytepipe/ByteHandler$DecompressionResult;)Lio/sirix/page/interfaces/Page;",
+    "description": "removed call to io/sirix/page/PageKind::requireFullyConsumed",
+    "indexes": [
+      "9"
+    ],
+    "before": "SURVIVED",
+    "before_line": 5468,
+    "after": "KILLED",
+    "after_line": 5476,
+    "killing_test": "io.sirix.page.StoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.page.StoreFeaturesTest]/[method:uberPageRejectsTrailingBytesInBothRepresentations()]"
+  },
+  {
+    "class": "io.sirix.access.xml.LocalXmlDatabaseFactory$1",
+    "method": "create",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/cache/BufferManager;Ljava/nio/file/Path;)Lio/sirix/api/xml/XmlResourceSession;",
+    "description": "replaced return value with null for io/sirix/access/xml/LocalXmlDatabaseFactory$1::create",
+    "indexes": [
+      "9"
+    ],
+    "before": "NO_COVERAGE",
+    "before_line": 69,
+    "after": "KILLED",
+    "after_line": 69,
+    "killing_test": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest]/[test-template:resourceOpenReadsOneBeacon(io.sirix.access.DatabaseType, io.sirix.io.StorageType)]/[test-template-invocation:#4]"
+  },
+  {
+    "class": "io.sirix.access.xml.LocalXmlDatabaseFactory$1",
+    "method": "create",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/cache/BufferManager;Ljava/nio/file/Path;Lio/sirix/page/UberPage;)Lio/sirix/api/xml/XmlResourceSession;",
+    "description": "replaced return value with null for io/sirix/access/xml/LocalXmlDatabaseFactory$1::create",
+    "indexes": [
+      "53"
+    ],
+    "before": "NO_COVERAGE",
+    "before_line": 87,
+    "after": "KILLED",
+    "after_line": 87,
+    "killing_test": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.[engine:junit-jupiter]/[class:io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest]/[test-template:resourceOpenReadsOneBeacon(io.sirix.access.DatabaseType, io.sirix.io.StorageType)]/[test-template-invocation:#4]"
+  },
+  {
+    "class": "io.sirix.access.ResourceStore",
+    "method": "beginResourceSession",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/cache/BufferManager;Ljava/nio/file/Path;Lio/sirix/page/UberPage;)Lio/sirix/api/ResourceSession;",
+    "description": "replaced return value with null for io/sirix/access/ResourceStore::beginResourceSession",
+    "indexes": [
+      "8"
+    ],
+    "before": "NO_COVERAGE",
+    "before_line": 29,
+    "after": "KILLED",
+    "after_line": 29,
+    "killing_test": "io.sirix.access.ResourceSessionFactoryTest.[engine:junit-jupiter]/[class:io.sirix.access.ResourceSessionFactoryTest]/[method:openingSnapshotDefaultsPreserveLegacySessionAndStoreContracts()]"
+  },
+  {
+    "class": "io.sirix.access.ResourceSessionFactory",
+    "method": "create",
+    "method_description": "(Lio/sirix/access/ResourceConfiguration;Lio/sirix/cache/BufferManager;Ljava/nio/file/Path;Lio/sirix/page/UberPage;)Lio/sirix/api/ResourceSession;",
+    "description": "replaced return value with null for io/sirix/access/ResourceSessionFactory::create",
+    "indexes": [
+      "8"
+    ],
+    "before": "NO_COVERAGE",
+    "before_line": 22,
+    "after": "KILLED",
+    "after_line": 22,
+    "killing_test": "io.sirix.access.ResourceSessionFactoryTest.[engine:junit-jupiter]/[class:io.sirix.access.ResourceSessionFactoryTest]/[method:openingSnapshotDefaultsPreserveLegacySessionAndStoreContracts()]"
+  }
+]

@@ -5472,28 +5472,15 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
-
-      switch (binaryVersion) {
-        case V0 -> {
-          final int revisionCount = source.readInt();
-
-          requireFullyConsumed(source);
-          return new UberPage(revisionCount);
-        }
-        default -> throw new IllegalStateException();
-      }
+      final UberPage page = UberPageFormat.read(source);
+      requireFullyConsumed(source);
+      return page;
     }
 
     @Override
     public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
-      UberPage uberPage = (UberPage) page;
-
-      sink.writeByte(UBERPAGE.id);
-      writeVersionAndFlags(sink);
-      sink.writeInt(uberPage.getRevisionCount());
-      uberPage.setBootstrap(false);
+      UberPageFormat.write(sink, (UberPage) page);
     }
   },
 

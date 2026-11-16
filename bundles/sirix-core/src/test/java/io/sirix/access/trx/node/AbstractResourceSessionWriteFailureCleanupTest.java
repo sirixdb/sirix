@@ -14,6 +14,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.cache.BufferManager;
 import io.sirix.io.IOStorage;
 import io.sirix.io.RevisionIndexHolder;
+import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
@@ -71,8 +72,8 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
 
   private static StorageEngineWriter writerWithDocumentNode() {
     final StorageEngineWriter writer = mock(StorageEngineWriter.class);
-    when(writer.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), io.sirix.index.IndexType.DOCUMENT,
-        -1)).thenReturn(mock(Node.class));
+    when(writer.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1)).thenReturn(
+        mock(Node.class));
     return writer;
   }
 
@@ -88,7 +89,7 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
     private FailingResourceSession(final RuntimeException firstConstructionFailure, final JsonNodeTrx succeedingTrx,
         final StorageEngineWriter... writers) {
       super((ResourceStore) mock(ResourceStore.class), ResourceConfiguration.newBuilder("resource").build(),
-          mock(BufferManager.class), storageWithEmptyRevisionIndex(), uberPageAtRevisionZero(), new Semaphore(1), null,
+          mock(BufferManager.class), storageWithEmptyRevisionIndex(), new UberPage(1), new Semaphore(1), null,
           mock(StorageEngineWriterFactory.class));
       this.firstConstructionFailure = firstConstructionFailure;
       this.succeedingTrx = succeedingTrx;
@@ -141,10 +142,5 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
     @Override
     protected void invalidateIndexControllers(final int firstRevision) {}
 
-    private static UberPage uberPageAtRevisionZero() {
-      final UberPage uberPage = mock(UberPage.class);
-      when(uberPage.getRevisionNumber()).thenReturn(0);
-      return uberPage;
-    }
   }
 }

@@ -10,6 +10,7 @@ import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.utils.SirixFiles;
 
 import org.jspecify.annotations.Nullable;
@@ -147,6 +148,8 @@ public final class BackupManager {
     // Resolve the type BEFORE creating the target, so a non-deserializable config fails cleanly.
     final DatabaseType databaseType = Databases.getDatabaseType(source);
 
+    InterruptedFirstCommitRecovery.requireDatabaseToolCompatible(source);
+
     final boolean targetExisted = Files.exists(target);
     final List<ResourceSummary> resourceSummaries = new ArrayList<>();
     long totalBytes = 0;
@@ -183,11 +186,16 @@ public final class BackupManager {
           final long bytes;
           final int mostRecentRevision;
           try (final ResourceSession<?, ?> session = database.beginResourceSession(resourceName)) {
+            // Refuse before writer creation can run marker recovery; recheck under the lock below.
+            try (final NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+              reader.getStorageEngineReader().getUberPage().getFeatures().requireToolCompatible();
+            }
             // Acquire the resource's JVM-global writer semaphore (see class javadoc). This also
             // runs leftover-.commit crash recovery before we copy. Fails fast (~5s) if another
             // transaction is writing.
             final NodeTrx lockHolder = session.beginNodeTrx();
             try {
+              lockHolder.getStorageEngineWriter().getUberPage().getFeatures().requireToolCompatible();
               mostRecentRevision = session.getMostRecentRevisionNumber();
               bytes = copyTree(resourcePath, targetResources.resolve(resourceName), rel -> false,
                   BackupManager::isTransientResourceFile);
@@ -249,6 +257,12 @@ public final class BackupManager {
 
     final DatabaseType databaseType = Databases.getDatabaseType(source);
 
+    try {
+      InterruptedFirstCommitRecovery.requireDatabaseToolCompatible(source);
+    } catch (final RuntimeException failure) {
+      throw new SirixIOException("Verification of backup resource features failed: " + failure.getMessage(), failure);
+    }
+
     final boolean targetExisted = Files.exists(target);
     boolean success = false;
     try {
@@ -283,6 +297,12 @@ public final class BackupManager {
    */
   private static List<ResourceSummary> verifyRestoredDatabase(final Path target, final DatabaseType databaseType) {
     final List<ResourceSummary> resourceSummaries = new ArrayList<>();
+    try {
+      InterruptedFirstCommitRecovery.requireDatabaseToolCompatible(target);
+    } catch (final RuntimeException failure) {
+      throw new SirixIOException("Verification of restored resource features failed — "
+          + "the restore has been rolled back: " + failure.getMessage(), failure);
+    }
     try (final Database<?> database = openDatabase(target, databaseType)) {
       for (final Path resourcePath : database.listResources()) {
         if (!Files.isDirectory(resourcePath)) {
@@ -292,6 +312,7 @@ public final class BackupManager {
         try (final ResourceSession<?, ?> session = database.beginResourceSession(resourceName)) {
           final int mostRecentRevision = session.getMostRecentRevisionNumber();
           try (final NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            rtx.getStorageEngineReader().getUberPage().getFeatures().requireToolCompatible();
             if (rtx.getRevisionNumber() != mostRecentRevision) {
               throw new SirixIOException("Restored resource " + resourceName + " opened at revision "
                   + rtx.getRevisionNumber() + " instead of the most recent revision " + mostRecentRevision + ".");
@@ -300,7 +321,7 @@ public final class BackupManager {
           resourceSummaries.add(new ResourceSummary(resourceName, mostRecentRevision, directorySize(resourcePath)));
         } catch (final RuntimeException e) {
           throw new SirixIOException("Verification of restored resource '" + resourceName + "' failed — "
-              + "the restore has been rolled back.", e);
+              + "the restore has been rolled back: " + e.getMessage(), e);
         }
       }
     }

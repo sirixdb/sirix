@@ -6,6 +6,9 @@ the database directory taken while no commit is in flight is a complete, valid b
 its owning process. The `backup`/`restore` CLI verbs use the same API.
 Sirix has no streaming or incremental backup tool.
 
+Backup and restore apply the strict [store feature policy](DISK_FORMAT.md#uberpage-store-feature-words)
+before opening resources or creating a target, including hidden derived resources in the preflight.
+
 ## Backup (CLI)
 
 ```bash

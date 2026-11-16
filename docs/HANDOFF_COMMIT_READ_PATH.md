@@ -49,8 +49,7 @@ checksummed 16-entry ring in the trailing 768 bytes of *both* uber-beacon slots,
 write-ahead barrier that already hardens the data file, so the record is durable exactly when its
 beacon is. Three invariants keep this from weakening recovery: an **eviction guard** forces the
 revisions file before a ring slot is reused, so no committed record ever depends on the ring alone;
-the reader treats the ring as a **salvage source, never a second opinion** (consulted only after
-the file's own record fails its checksum, then healed back in place); and the ring image passes
+the reader uses the [salvage and healing rules](DISK_FORMAT.md#1-files); and the ring image passes
 **writer-to-writer** through `RevisionRecordDurability` rather than being re-derived per commit.
 Spec in `docs/DISK_FORMAT.md`; coverage in `LazyRevisionRecordRecoveryTest`.
 
