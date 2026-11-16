@@ -1613,6 +1613,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       }
       // ClockSweepers and BufferManager caches are global; this session does not own them.
       for (final NodeReadOnlyTrx rtx : transactions) {
+        if (!(rtx instanceof NodeTrx)) {
+          continue;
+        }
         if (!(rtx instanceof InternalNodeTrx<?>)) {
           try {
             if (rtx instanceof XmlNodeTrx xmlNodeTrx) {
@@ -1642,11 +1645,33 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
           ShardedPageCache.rethrowCleanupFailure(failure);
           return;
         }
-        final Set<NodeReadOnlyTrx> lateReaders = Collections.newSetFromMap(new IdentityHashMap<>());
-        lateReaders.addAll(sharedTrxMap.values());
-        lateReaders.addAll(nodeTrxMap.values());
-        for (final NodeReadOnlyTrx reader : lateReaders) {
-          if (!(reader instanceof InternalNodeTrx<?>) && !transactions.contains(reader)) {
+        readers.addAll(storageEngineWriterMap.values());
+        readers.addAll(storageEngineReaderMap.values());
+        List<StorageEngineReader> unfinishedWriters = null;
+        for (final StorageEngineReader reader : readers) {
+          if (!(reader instanceof StorageEngineWriter)) {
+            continue;
+          }
+          try {
+            reader.close();
+          } catch (final RuntimeException | Error e) {
+            failure = ShardedPageCache.retainCleanupFailure(failure, e);
+            if (!reader.isClosed()) {
+              if (unfinishedWriters == null) {
+                unfinishedWriters = new ArrayList<>();
+              }
+              unfinishedWriters.add(reader);
+            }
+          }
+        }
+        if (!unfinishedTransactions.isEmpty()) {
+          ShardedPageCache.rethrowCleanupFailure(failure);
+          return;
+        }
+        transactions.addAll(sharedTrxMap.values());
+        transactions.addAll(nodeTrxMap.values());
+        for (final NodeReadOnlyTrx reader : transactions) {
+          if (!(reader instanceof NodeTrx)) {
             try {
               reader.close();
             } catch (final RuntimeException | Error next) {
@@ -1657,21 +1682,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
             }
           }
         }
-        // Rollback can install a replacement writer before node close fails. Retain both the original
-        // snapshot and anything registered by those callbacks.
-        readers.addAll(storageEngineWriterMap.values());
         readers.addAll(storageEngineReaderMap.values());
-        List<StorageEngineReader> unfinishedWriters = null;
         for (final StorageEngineReader reader : readers) {
-          try {
-            reader.close();
-          } catch (final RuntimeException | Error e) {
-            failure = ShardedPageCache.retainCleanupFailure(failure, e);
-            if (reader instanceof StorageEngineWriter && !reader.isClosed()) {
-              if (unfinishedWriters == null) {
-                unfinishedWriters = new ArrayList<>();
-              }
-              unfinishedWriters.add(reader);
+          if (!(reader instanceof StorageEngineWriter)) {
+            try {
+              reader.close();
+            } catch (final RuntimeException | Error next) {
+              failure = ShardedPageCache.retainCleanupFailure(failure, next);
             }
           }
         }

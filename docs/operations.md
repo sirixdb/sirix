@@ -499,3 +499,5 @@ listener dispatch rethrows after independent listeners. Neither can roll back or
 Revision listeners and callback context share the same resource owner across user sessions.
 
 Async hook/listener delivery belongs to its hardening-completion batch and never waits for durability on foreground unlock. External close drains completed batches before payload retirement. After fencing callbacks, session close refreshes and closes late node/shared readers before deregistration, including their page guards. See [the completion and reader postmortem](postmortems/callback-completion-reader-ownership.md).
+
+Session teardown fences node writers and started callbacks before retiring any ordinary direct/shared reader, including readers present before the initial close snapshot. It refreshes late registrations afterward. If a node owner refuses its fence, reader/pool dependencies remain owned until retry; interruption never permits early reader retirement. See [the reader-order postmortem](postmortems/session-reader-fence-order.md).

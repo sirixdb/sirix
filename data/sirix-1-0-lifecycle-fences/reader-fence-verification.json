@@ -1,0 +1,147 @@
+{
+  "scope": "R16: writer/callback fences precede ordinary initial and late reader teardown",
+  "starting_head": "9683e47b142477085ecdfe44a661aab03c60c666",
+  "head_at_verification": "9683e47b142477085ecdfe44a661aab03c60c666",
+  "binding": "The review fix is an uncommitted worktree change; the production/test hashes and source-diff hash below identify the exact tested content for the outer executor to bind to its resulting commit.",
+  "result": "passed",
+  "selected_tests": 247,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "classes": [
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.AsyncCommitTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.DatabaseOwnershipTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.trx.node.CommitSafetyTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+      "tests": 159,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.trx.node.TransactionExecutionLockTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-core",
+      "name": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "module": "sirix-query",
+      "name": "io.sirix.access.trx.node.XmlPendingUpdatePublicationTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "log": "build/lifecycle-reader-fence-complete.log",
+  "command_script": "build/verify-revision-views.sh",
+  "gradle_arguments": ":sirix-core:compileJava --rerun :sirix-core:compileTestJava --rerun :sirix-core:test --rerun \\\n --tests 'io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest' \\\n --tests 'io.sirix.access.trx.node.TransactionExecutionLockTest' \\\n --tests 'io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest' \\\n --tests 'io.sirix.access.trx.node.CommitSafetyTest' \\\n --tests 'io.sirix.access.trx.node.WriterCatalogueHandoffTest' \\\n --tests 'io.sirix.access.trx.page.AsyncFlushFailurePathTest' \\\n --tests 'io.sirix.access.trx.page.WriterConstructionFailureCleanupTest' \\\n --tests 'io.sirix.access.AsyncCommitTest' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.handlesShareWriterAndLatestViewUntilLastClose' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.closingLastUserSessionAllowsResourceRemovalAndRecreation' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.timedCommitHookCanOpenAnotherDatabaseDuringCleanup' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.timedCommitHookCannotAdmitResourcesOnClosingHandle' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.failedCleanupRetainsWritersAndOwnershipUntilRetry' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.delayedSessionReleaseStaysRegisteredUntilItReleasesItsBackend' \\\n :sirix-query:test --tests 'io.sirix.access.trx.node.XmlPendingUpdatePublicationTest.failedBatchDoesNotDisableScheduledCommitsAfterRollback' \\\n --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g -PtestHeapMin=512m -PtestHeapMax=3g",
+  "fresh_compilation": true,
+  "available_disk_bytes_before_gradle": 96772993024,
+  "operations": "All JVM/Gradle commands used heavy.sh with a >=60 GB check immediately before Gradle. No pipeline control, commit, push/PR update, broad test/lint suite or benchmark was run.",
+  "regressions": {
+    "initial_reader_order": "sessionCloseFencesCallbacksBeforeInitialReaders: 16 XML/JSON x direct/shared x closer interruption x cache/reader cleanup-failure cases. Real backend readers navigate before snapshot and while close is waiting. Delegating node-owner identities are varied and the exact reader-first identity snapshot is asserted before close starts; no writer-first favorable order can satisfy the setup.",
+    "reader_and_failure_oracles": "Node and page readers close, PageGuard is released, registries empty, exactly one write permit remains, interruption is restored, injected cache error stays primary and reader error stays suppressed. Non-interrupted cases require immediate admission with committed value 1.",
+    "refused_fence": "refusingNodeOwnerRetainsOrdinaryReadersUntilRetry: 2 format cases. A refusing node-owner boundary retains real navigable readers/page guards and its permit; the next close finishes actual writer/reader teardown and releases admission.",
+    "retained": "After-snapshot reader matrix, R15 independent pinned hook views/concurrent count-only cursor test, async successor overlap, mixed timer/count callback rejection, Error observation, writer construction/flush failures and database ownership regressions."
+  },
+  "interruption_backend_limitation": {
+    "observation": "After in-flight callback navigation succeeds and its fence finishes, restored interruption can close a persistent FileChannel during later writer cleanup. Immediate next-writer recovery may reuse that closed cached channel.",
+    "required_oracle": "Only SirixIOException rooted in ClosedByInterruptException is accepted for interrupted cleanup. An injected earlier cache error remains primary and the reader close error remains in suppression order. Subsequent admission may reject only with the precise ClosedChannelException cause and must restore the permit; closing/reopening the backend must then read committed value 1.",
+    "status": "The cached-channel reuse behavior is reported, not fixed or represented as successful immediate admission. It is outside the cold reader-order correction; active callback reads are never allowed to fail."
+  },
+  "earlier_attempts": [
+    {
+      "log": "build/lifecycle-reader-fence-focused.log",
+      "result": "Production compiled; test compilation stopped because the common NodeReadOnlyTrx interface lacks moveToDocumentRoot. Replaced by asserted moveTo(0); no tests ran."
+    },
+    {
+      "log": "build/lifecycle-reader-fence-final.log",
+      "result": "239 core cases completed, 231 passed and 8 interrupted variants failed exception expectations after callback navigation had succeeded. Updated the oracle for the existing precise FileChannel cancellation behavior; no production change."
+    },
+    {
+      "log": "build/lifecycle-reader-fence-settled.log",
+      "result": "239 core cases completed, 231 passed and 8 interrupted variants failed immediate re-admission on a cached closed channel. Added precise safe-rejection/permit and backend-reopen durability checks; no production change."
+    },
+    {
+      "log": "build/lifecycle-reader-fence-verified.log",
+      "result": "239 core cases completed, 237 passed and 2 failed only while arranging the adverse snapshot because a fixed writer identity occupied the first identity-table bucket. The fixture now varies delegating identities for both real owners and still explicitly asserts adverse ordering; no safety assertion or production behavior changed."
+    }
+  ],
+  "static_trace": "All initial/shared/direct and late reader retirement now follows the node-writer pass. Independent page writers receive cleanup even after node refusal; unfinished node owners retain ordinary node/page readers and pools for retry. Successful writer fencing precedes refreshed reader union closure and ordinary storage-reader teardown. Normal success, callback/cache/reader failure, interrupted fencing, public close races and retry paths were traced. No new reentrant lifecycle deadlock was observed.",
+  "benchmark": {
+    "rerun": false,
+    "prior_evidence": "data/sirix-1-0-lifecycle-fences/revision-view-verification.json",
+    "lock_sha256_at_starting_head": "232e59e7de91d0207657de720c82dd2c7bfda686944d63b5c0ceccb9b6224a94",
+    "lock_sha256_current": "232e59e7de91d0207657de720c82dd2c7bfda686944d63b5c0ceccb9b6224a94",
+    "interpretation": "TransactionExecutionLock and all timed/count-only row paths are unchanged. Earlier JMH measures that lock implementation; it is not new evidence for this cold teardown ordering correction."
+  },
+  "source_diff_sha256_provenance_only": "668259b79c261ad52e64de9f40e4cdda6bfc95d1d2b50e4cfa75c9ec405a7170",
+  "source_sha256_provenance_only": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": "28c85bc30a9c452b45f746a2b0e8c241fc151841c2c0548ab3b8d2dbeccd8645",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java": "e3b16031414c4bb0a65b205ef8dde0a4c7231928cc494abd2efcb74d84554f11"
+  },
+  "production_or_test_changes_after_passing_run": false,
+  "outer_validation_pending": [
+    "Fresh scoped PIT for AbstractResourceSession.close writer/read partitioning, retained reader dependencies and initial/late union; review each survivor and timeout.",
+    "Final compiled-path/work-budget proof and broader test/lint/CI phases.",
+    "Assess the separately reported cached-channel behavior after interrupted FileChannel cleanup; no I/O policy change was folded into R16."
+  ]
+}
