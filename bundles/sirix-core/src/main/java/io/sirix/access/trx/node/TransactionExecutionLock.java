@@ -21,6 +21,7 @@ public final class TransactionExecutionLock extends ReentrantLock {
   private static final long serialVersionUID = 1L;
   private static final Logger LOGGER = LoggerFactory.getLogger(TransactionExecutionLock.class);
   private final ConcurrentLinkedQueue<Runnable> callbacks = new ConcurrentLinkedQueue<>();
+  private final ConcurrentLinkedQueue<CallbackBatch> deferredCallbacks = new ConcurrentLinkedQueue<>();
   private final Condition ready = newCondition();
   private @Nullable Thread callbackThread;
   private @Nullable Thread scheduledTaskThread;
@@ -115,12 +116,27 @@ public final class TransactionExecutionLock extends ReentrantLock {
     callbacks.add(callback);
   }
 
-  public void dispatch() {
-    if (callbacks.isEmpty()) {
-      return;
+  public static final class CallbackBatch {
+    private final ConcurrentLinkedQueue<Runnable> callbacks = new ConcurrentLinkedQueue<>();
+
+    public void enqueue(final Runnable callback) {
+      callbacks.add(callback);
     }
-    if (!isHeldByCurrentThread()) {
-      lock();
+  }
+
+  public CallbackBatch deferCallbacks() {
+    final CallbackBatch batch = new CallbackBatch();
+    deferredCallbacks.add(batch);
+    return batch;
+  }
+
+  public void dispatch(final CallbackBatch batch) {
+    lock();
+    try {
+      if (deferredCallbacks.remove(batch)) {
+        callbacks.addAll(batch.callbacks);
+      }
+    } finally {
       unlock();
     }
   }
@@ -128,6 +144,10 @@ public final class TransactionExecutionLock extends ReentrantLock {
   public void drainBeforeRetirement() {
     if (getHoldCount() != 1 || scheduledTaskThread != null) {
       throw new IllegalStateException("Payload retirement requires an outer lifecycle execution");
+    }
+    CallbackBatch batch;
+    while ((batch = deferredCallbacks.poll()) != null) {
+      callbacks.addAll(batch.callbacks);
     }
     drainLocked();
   }
@@ -181,6 +201,7 @@ public final class TransactionExecutionLock extends ReentrantLock {
     callbackThread = Thread.currentThread();
     super.unlock();
     Throwable failure = null;
+    boolean error = false;
     try {
       Runnable callback;
       while ((callback = callbacks.poll()) != null) {
@@ -188,12 +209,16 @@ public final class TransactionExecutionLock extends ReentrantLock {
           callback.run();
         } catch (final RuntimeException | Error next) {
           failure = ShardedPageCache.retainCleanupFailure(failure, next);
+          error |= next instanceof Error;
         }
       }
     } finally {
       super.lock();
       callbackThread = null;
       ready.signalAll();
+    }
+    if (error) {
+      ShardedPageCache.rethrowCleanupFailure(failure);
     }
     if (failure != null) {
       LOGGER.error("Commit notification failed after publication", failure);

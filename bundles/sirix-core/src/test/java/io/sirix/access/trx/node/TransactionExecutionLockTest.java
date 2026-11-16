@@ -1,6 +1,7 @@
 package io.sirix.access.trx.node;
 
 import java.util.concurrent.CompletableFuture;
+import io.sirix.access.trx.node.TransactionExecutionLock.CallbackBatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -12,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @Timeout(15)
 final class TransactionExecutionLockTest {
@@ -25,7 +27,8 @@ final class TransactionExecutionLockTest {
       assertFalse(execution.isHeldByCurrentThread());
       assertEquals(0, calls.getAndIncrement());
     });
-    execution.dispatch();
+    execution.lock();
+    execution.unlock();
     execution.unlock();
     assertEquals(0, calls.get());
     execution.unlock();
@@ -88,10 +91,53 @@ final class TransactionExecutionLockTest {
         throw new AssertionError(failure);
       }
     });
-    execution.dispatch();
+    execution.lock();
+    execution.unlock();
     assertFalse(acquired.get(10, TimeUnit.SECONDS));
     assertTrue(execution.tryLock(1, TimeUnit.SECONDS));
     execution.unlock();
+  }
+
+  @Test
+  void callbackErrorIsRethrownAfterIndependentDeliveryAndPhaseRestoration() {
+    final TransactionExecutionLock execution = new TransactionExecutionLock();
+    final AssertionError primary = new AssertionError("first callback");
+    final AssertionError later = new AssertionError("later callback");
+    final AtomicInteger attempted = new AtomicInteger();
+    execution.enqueue(() -> { throw primary; });
+    execution.enqueue(() -> { throw later; });
+    execution.enqueue(attempted::incrementAndGet);
+    assertSame(primary, assertThrows(AssertionError.class, () -> { execution.lock(); execution.unlock(); }));
+    assertSame(later, primary.getSuppressed()[0]);
+    assertEquals(1, attempted.get());
+    assertTrue(execution.tryLock());
+    execution.unlock();
+  }
+
+  @Test
+  void deferredEpochsBelongToTheirCompletionDispatcherOrFinalCloser() {
+    final TransactionExecutionLock execution = new TransactionExecutionLock();
+    final AtomicInteger delivered = new AtomicInteger();
+    final CallbackBatch first = execution.deferCallbacks();
+    final CallbackBatch second = execution.deferCallbacks();
+    first.enqueue(delivered::incrementAndGet);
+    second.enqueue(() -> delivered.addAndGet(10));
+    execution.lock();
+    execution.unlock();
+    assertEquals(0, delivered.get());
+    execution.dispatch(first);
+    assertEquals(1, delivered.get());
+    execution.dispatch(first);
+    assertEquals(1, delivered.get());
+    execution.lock();
+    try {
+      execution.drainBeforeRetirement();
+    } finally {
+      execution.unlock();
+    }
+    assertEquals(11, delivered.get());
+    execution.dispatch(second);
+    assertEquals(11, delivered.get());
   }
 
   @Test
@@ -103,7 +149,7 @@ final class TransactionExecutionLockTest {
     execution.enqueue(() -> { throw primary; });
     execution.enqueue(() -> { throw later; });
     execution.enqueue(attempted::incrementAndGet);
-    assertDoesNotThrow(execution::dispatch);
+    assertDoesNotThrow(() -> { execution.lock(); execution.unlock(); });
     assertSame(later, primary.getSuppressed()[0]);
     assertEquals(1, attempted.get());
     execution.lock();

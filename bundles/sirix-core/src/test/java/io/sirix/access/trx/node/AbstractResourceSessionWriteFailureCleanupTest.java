@@ -138,7 +138,10 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
     final JsonNodeReadOnlyTrx transaction = mock(JsonNodeReadOnlyTrx.class);
     shared.put(new Object(), transaction);
     doThrow(first).when(cache).clear();
-    doThrow(second).when(transaction).close();
+    doAnswer(invocation -> {
+      when(transaction.isClosed()).thenReturn(true);
+      throw second;
+    }).when(transaction).close();
     assertSame(first, assertThrows(RuntimeException.class, session::close));
     assertSame(second, first.getSuppressed()[0]);
     verify(transaction).close();
