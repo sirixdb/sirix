@@ -312,8 +312,8 @@ final class JsonNodeTrxImpl extends
       final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceSession,
       final InternalJsonNodeReadOnlyTrx nodeReadTrx,
       @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, final int maxNodeCount,
-      @Nullable final TransactionExecutionLock transactionLock, final Duration afterCommitDelay, final JsonNodeHashing nodeHashing,
-      final JsonNodeFactory nodeFactory, final AfterCommitState afterCommitState,
+      @Nullable final TransactionExecutionLock transactionLock, final Duration afterCommitDelay,
+      final JsonNodeHashing nodeHashing, final JsonNodeFactory nodeFactory, final AfterCommitState afterCommitState,
       final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting) {
     super(new JsonNodeTrxThreadFactory(), resourceSession.getResourceConfig().hashType, nodeReadTrx, nodeReadTrx,
         resourceSession, afterCommitState, nodeHashing, pathSummaryWriter, nodeFactory, nodeToRevisionsIndex,

@@ -14,7 +14,6 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
 import io.sirix.page.interfaces.Page;
 
-import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;

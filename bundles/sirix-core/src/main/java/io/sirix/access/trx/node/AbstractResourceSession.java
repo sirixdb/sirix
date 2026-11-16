@@ -98,8 +98,8 @@ import static java.util.Objects.requireNonNull;
 /**
  * Resource lifecycle ownership. Writer admission acquires its permit without holding the session
  * monitor, then revalidates and registers under that monitor. Teardown snapshots under the monitor,
- * performs node cleanup and scheduler fences outside it, then finalizes independent owners under the
- * monitor. Owner removal and permit release are atomic; no permit wait may retain the monitor.
+ * performs node cleanup and scheduler fences outside it, then finalizes independent owners under
+ * the monitor. Owner removal and permit release are atomic; no permit wait may retain the monitor.
  */
 @SuppressWarnings("ConstantValue")
 public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>

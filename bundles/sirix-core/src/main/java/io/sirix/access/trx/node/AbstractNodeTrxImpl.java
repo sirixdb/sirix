@@ -60,12 +60,12 @@ import static java.nio.file.Files.deleteIfExists;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Abstract implementation for {@link InternalNodeTrx}. Lifecycle calls from this session's commit
+ * Abstract implementation for {@link InternalNodeTrx}. Lifecycle calls from this resource's commit
  * callbacks reject before locking. Post-publication callbacks run outside outermost execution T and
  * the scheduled task boundary while lifetime admission P stays owned. Post-hooks own separate
- * read-only cursors pinned to the committed revision. Ordinary mutation acquisition never waits
- * for callback completion. Close must enter outside T;
- * cleanup releases T before scheduler termination and atomic session-registration/P release.
+ * read-only cursors pinned to the committed revision. Ordinary mutation acquisition never waits for
+ * callback completion. Close must enter outside T; cleanup releases T before scheduler termination
+ * and atomic session-registration/P release.
  *
  * @author Joao Sousa
  */
@@ -266,7 +266,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // Do not accept negative values.
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     checkArgument(!afterCommitDelay.isNegative(), "After commit delay cannot be negative");
-    this.executionLock = transactionLock == null ? new TransactionExecutionLock() : transactionLock;
+    this.executionLock = transactionLock == null
+        ? new TransactionExecutionLock()
+        : transactionLock;
     this.commitScheduler = executionLock.newScheduler(threadFactory);
     this.hashType = hashType;
     this.nodeReadOnlyTrx = requireNonNull(nodeReadOnlyTrx);
@@ -1487,8 +1489,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Rolls the resource back to {@code revision}: truncates the data + revisions files, rewrites both
    * uber beacons, resets the session's last-committed uber page, and drops the database's cached
    * pages. Previously a no-op — {@code TransactionImpl}'s atomicity undo silently did nothing. The
-   * transaction's cursor state still refers to the truncated revision afterwards; callers must close
-   * (or roll back) the transaction without committing through it.
+   * callback fence and cursor-state contract are documented by {@link NodeTrx#truncateTo(int)}.
    */
   @Override
   public W truncateTo(final int revision) {
