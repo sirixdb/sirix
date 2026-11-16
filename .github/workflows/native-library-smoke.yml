@@ -1,0 +1,60 @@
+name: Native library feasibility
+
+on:
+  pull_request:
+    paths:
+      - 'bundles/sirix-core/**'
+      - 'bundles/sirix-query/**'
+      - 'tests/native/**'
+      - 'gradle/**'
+      - '*.gradle'
+      - '.github/workflows/native-library-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'bundles/sirix-core/**'
+      - 'bundles/sirix-query/**'
+      - 'tests/native/**'
+      - 'gradle/**'
+      - '*.gradle'
+      - '.github/workflows/native-library-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-library-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25.0.3'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install native smoke dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential zlib1g-dev strace binutils
+      - name: Core-only and query shared images, sequentially
+        env:
+          # Hosted runners have less free disk than the developer laptop's floor.
+          SIRIX_SMOKE_DISK_FLOOR_KIB: '10485760'
+        run: tests/native/run-smoke.sh all "$RUNNER_TEMP/native-library"
+      - name: Preserve build logs, thread diagnostics and process traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-library-smoke-linux-x64
+          path: |
+            ${{ runner.temp }}/native-library/**/*.log
+            ${{ runner.temp }}/native-library/**/*.trace
+            ${{ runner.temp }}/native-library/**/elf.txt
+            ${{ runner.temp }}/native-library/*.classpath
+          if-no-files-found: warn

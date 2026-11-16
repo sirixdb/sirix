@@ -296,3 +296,25 @@ Image does not reject a name that matches nothing; with it, a rename that reache
 fails the test instead. Only the argument quoted earlier in this document is unchecked prose — keep
 it in step by hand. The test builds no image, so it **cannot** tell whether an image built with the
 option is fast, or builds at all on a given GraalVM; only a timed run of a real image can.
+
+## Core/query shared-library feasibility (I2)
+
+`tests/native/run-smoke.sh all /absolute/evidence/directory` builds separate
+core-only and query test libraries and drives them from C11 with an emptied
+runtime environment. See [the test specification](../tests/native/SMOKE.md) and
+[execution instructions](../tests/native/README.md#corenativemetadatasmoke--nativenojvmsmoke-i2).
+These are private test entrypoints, not a public C ABI or a replacement for the
+existing CLI/REST executable targets.
+
+Core owns Caffeine node constructors and persisted resource serializer/handler
+reachability in its own `reachability-metadata.json`. Larger query/REST
+classpaths must not be required for database/resource bootstrap. The C smoke
+checks create/write/reopen, integer 42, loader mappings, child exec traces and
+actual isolate teardown; `-R:TearDownWarningSeconds=5` records blocking workers
+before the external watchdog ends a stuck process.
+
+Snapshot append/serialization pools expose an explicit terminal shutdown hook;
+ordinary database close still retains the engine's bounded warm caches. I4 must
+supply the complete terminal runtime owner and prove allocator release,
+outstanding-handle refusal and repeated isolate cycles. Passing this
+small C fixture is not full NATIVE-406 conformance or permission to hot-unload.

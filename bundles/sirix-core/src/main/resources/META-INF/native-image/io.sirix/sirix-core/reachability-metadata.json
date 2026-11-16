@@ -105,41 +105,46 @@
   "reflection": [
     {
       "type": "com.github.benmanes.caffeine.cache.PS",
-      "fields": [
+      "methods": [
         {
-          "name": "FACTORY"
+          "name": "<init>",
+          "parameterTypes": []
         }
       ]
     },
     {
       "type": "com.github.benmanes.caffeine.cache.PSA",
-      "fields": [
+      "methods": [
         {
-          "name": "FACTORY"
+          "name": "<init>",
+          "parameterTypes": []
         }
       ]
     },
     {
       "type": "com.github.benmanes.caffeine.cache.PSAMS",
-      "fields": [
+      "methods": [
         {
-          "name": "FACTORY"
+          "name": "<init>",
+          "parameterTypes": []
         }
       ]
     },
     {
       "type": "com.github.benmanes.caffeine.cache.PSMS",
-      "fields": [
+      "methods": [
         {
-          "name": "FACTORY"
+          "name": "<init>",
+          "parameterTypes": []
         }
       ]
     },
     {
       "type": "com.github.benmanes.caffeine.cache.PSMW",
-      "fields": [
+      "methods": [
         {
-          "name": "FACTORY"
+          "name": "<init>",
+          "parameterTypes": []
         }
       ]
     },
@@ -220,6 +225,55 @@
       "fields": [
         {
           "name": "FACTORY"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.SSSMS",
+      "fields": [
+        {
+          "name": "FACTORY"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.SSSMW",
+      "fields": [
+        {
+          "name": "FACTORY"
+        }
+      ]
+    },
+    {
+      "type": "io.sirix.node.NodeSerializerImpl",
+      "allPublicConstructors": true
+    },
+    {
+      "type": "io.sirix.io.bytepipe.DeflateCompressor",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "io.sirix.io.bytepipe.FFILz4Compressor",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "io.sirix.io.bytepipe.Encryptor",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.nio.file.Path"
+          ]
         }
       ]
     }

@@ -54,7 +54,7 @@ its own managed heap and GC; JVM-free deployment does not mean GC-free execution
 - **Since:** 1.0 / native ABI 1.0
 - **Code:** `include/sirix.h`; future `bundles/sirix-native/`
 - **Verified by:** `NativeNoJvmConformance`
-- **Evidence class:** doc-only (unverified runtime); header evidence in §5
+- **Evidence class:** partial engine smoke and header evidence in §5; public-ABI runtime conformance unverified
 - **Gap/note:** runtime implementation and conformance suites are follow-up work, not delivered by I1.
 
 The supported package MUST load and complete the conformance flow from each of C, C++, Rust and
@@ -69,7 +69,7 @@ programs link the same C ABI; Python loads it directly.
 - **Since:** 1.0 / native ABI 1.0
 - **Code:** `include/sirix.h`; future `bundles/sirix-native/`
 - **Verified by:** `NativeRuntimeLifecycle`
-- **Evidence class:** doc-only (unverified runtime); header evidence in §5
+- **Evidence class:** partial engine smoke and header evidence in §5; public-ABI runtime conformance unverified
 - **Gap/note:** runtime implementation and conformance suites are follow-up work, not delivered by I1.
 
 A process MUST initially have one Sirix runtime backed by one private Graal isolate, shared by
@@ -125,7 +125,7 @@ get specific stable errors. This validation is at call/batch boundaries, never p
 - **Since:** 1.0 / native ABI 1.0
 - **Code:** `include/sirix.h`; future `bundles/sirix-native/`
 - **Verified by:** `NativeDatabaseContract`
-- **Evidence class:** doc-only (unverified runtime); header evidence in §5
+- **Evidence class:** partial engine smoke and header evidence in §5; public-ABI runtime conformance unverified
 - **Gap/note:** runtime implementation and conformance suites are follow-up work, not delivered by I1.
 
 Create MUST fail with ALREADY_EXISTS for an existing database/resource and MUST NOT overwrite it.
@@ -194,7 +194,7 @@ begin pins the latest revision at actual successful admission.
 - **Since:** 1.0 / native ABI 1.0
 - **Code:** `include/sirix.h`; future `bundles/sirix-native/`
 - **Verified by:** `NativeTransactionModel`
-- **Evidence class:** doc-only (unverified runtime); header evidence in §5
+- **Evidence class:** partial engine smoke and header evidence in §5; public-ABI runtime conformance unverified
 - **Gap/note:** runtime implementation and conformance suites are follow-up work, not delivered by I1.
 
 Auto-commit MUST be disabled. Mutations operate on a named node key and explicit action (replace
@@ -259,7 +259,7 @@ a streaming cursor, not a mutable transaction.
 - **Since:** 1.0 / native ABI 1.0
 - **Code:** `include/sirix.h`; future `bundles/sirix-native/`
 - **Verified by:** `NativeQueryDifferential` and `NativeReadOnlyPolicy`
-- **Evidence class:** doc-only (unverified runtime); header evidence in §5
+- **Evidence class:** partial engine smoke and header evidence in §5; public-ABI runtime conformance unverified
 - **Gap/note:** runtime implementation and conformance suites are follow-up work, not delivered by I1.
 
 Prepare MUST compile through Sirix/Brackit, not implement another query dialect. The language is
@@ -443,7 +443,7 @@ reported explicitly, not implemented by invoking REST.
 - **Since:** 1.0 / native ABI 1.0
 - **Code:** `include/sirix.h`; future `bundles/sirix-native/`
 - **Verified by:** `NativeRuntimeLifecycle`
-- **Evidence class:** doc-only (unverified runtime); header evidence in §5
+- **Evidence class:** partial engine smoke and header evidence in §5; public-ABI runtime conformance unverified
 - **Gap/note:** runtime implementation and conformance suites are follow-up work, not delivered by I1.
 
 Destroy MUST stop admission, refuse outstanding user handles/other contexts, drain internal workers,
@@ -814,10 +814,22 @@ copies. See [tests/native/README.md](../tests/native/README.md) for prerequisite
 and the CI command. This is NativeHeaderContract only; no runtime suite is green
 because a header compiles. No existing native executable or Gradle target changes.
 
+I2 adds a separate [core/query C shared-image smoke](../tests/native/SMOKE.md),
+with core-owned reachability metadata and an explicit snapshot-worker shutdown
+hook. Its private test entrypoints are not the public ABI. The smoke checks a
+small JSON persist/reopen/query flow, an empty runtime environment, loader and
+exec traces, and isolate teardown. These are partial regression checks for
+NATIVE-101/102/201/205/301/406, not completion of their full conformance suites.
+C++/Rust/Python, XML parity, clean package installation and repeated runtime
+ownership remain required release work.
+
 Open engineering questions (not optional release scope):
 
-- I2/I4: which service/worker prevents query-enabled isolate teardown, and which
-  drain order safely closes it? Repeated teardown remains a release gate.
+- I4: integrate the snapshot append/serialization terminal hook after writer
+  admission stops, then retire caches and allocator reservations and prove
+  repeated isolate cycles. I2 identified custom snapshot append workers as the
+  teardown laggards ([postmortem](../docs/postmortems/native-snapshot-executor-teardown.md));
+  the complete runtime owner and repeated teardown remain release gates.
 - I6/XML parity: implement the XML valid-time path adapter above and choose the
   index implementation; scan/index equivalence is required before release.
 - I8/XML parity: prove the full XML diff observer and include-data serializer
