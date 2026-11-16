@@ -130,3 +130,38 @@ The non-rotating path changes only by the extracted pending-record loop.
   identifies the new tests as the killing tests. The sample size and changed-line map are unchanged.
 - Lesson: keep fast boundary assertions discoverable by the PR lane alongside isolated end-to-end
   regressions, and verify the lane's own report rather than inferring coverage from another run.
+
+## Constrained append-budget follow-up
+
+- Invariant: epoch materialization must run both commit-time FSST compression passes, in their
+  original order, before placing any pending record. This applies to ordinary and fused strings,
+  live-leaf carrier staging and bulk adoption, including bindings resolved from table IDs.
+- Trigger: a bound page has about 200 bytes of append capacity, a raw inline string whose value
+  encodes to 48 bytes, and a pending 1-KiB string whose value encodes to 128 bytes. Either encoded
+  record fits alone, but their combined append reservations do not.
+- Root cause: the first repair shared only the pending-record encoding loop. Commit then rewrote
+  slotted raw strings before placing pending records; materialization placed pending records first.
+  The two paths therefore consumed the same finite append budget in opposite orders, selecting
+  different carriers. Snapshot refusal can promote the original materialized page, preserving that
+  decision through final commit.
+- Expected behavior: retain the existing commit order and output; compress pending strings, rewrite
+  slotted ordinary and fused strings, then place pending records. Preserve the pending-only diagnostic
+  count and the unresolved-table refusal. Unbound pages and incompressible values retain their
+  existing behavior.
+- Regression: `KeyValueLeafPageFsstMaterializationOrderTest` compares final commit preparation with
+  direct materialization, live-leaf staging and adoption, using a fixed eight-byte FSST symbol and
+  constrained append budgets. The independent oracle is the unchanged commit path: the existing
+  inline string remains inline, while the pending string becomes the carrier. A roomy-budget control
+  requires both records to stay inline.
+- Verification: the original `KeyValueLeafPage` from `d6a8ee9529d633ae3298be1ee756af87ca8d5606`
+  fails the new regression under both `NONE` and `ROLLING`: commit selects pending key 7173 as its
+  carrier, while materialization selects the original inline key 7177. Restoring the fix passes all
+  13 focused invocations (`KeyValueLeafPageFsstMaterializationOrderTest`,
+  `KeyValueLeafPagePendingFsstMaterializationTest`, `FinalCommitEmptyPipelineTest`). The new test
+  exercises 36 combinations of entry point, representation, hash kind and append budget (200, 204
+  and 512 bytes); encoded payloads are 48 and 128 symbol bytes plus their one-byte FSST headers.
+  This original-sequence negative control also kills the semantic mutation that omits the slotted
+  compression pass before placement. The unchanged `StorageEpochStoreIdentityTest` passes 7/7 under
+  each of `-Dsirix.hashType=NONE` and `ROLLING`. All Gradle commands ran through the supplied
+  `heavy.sh`; unrelated isolated dependencies were excluded from the focused standard test task.
+  Logs and the negative-control/identity XML evidence are in `build/review-fsst-order/`.

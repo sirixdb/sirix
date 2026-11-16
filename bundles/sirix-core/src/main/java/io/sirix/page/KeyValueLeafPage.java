@@ -1030,8 +1030,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (pending == null) {
       return 0;
     }
-    // Same inline-or-carrier decision as the commit path: encode first, then judge the encoded size.
-    final int encoded = compressPendingStringRecordsForMaterialization(pending);
+    if ((fsstSymbolTable == null || fsstSymbolTable.length == 0)
+        && fsstSymbolTableId != NO_FSST_SYMBOL_TABLE_ID && holdsRawStringRecord(pending)) {
+      throw new IllegalStateException("record page " + recordPageKey + " is bound to FSST symbol table "
+          + fsstSymbolTableId + " but its symbols are unresolved; resolve the table before materializing its"
+          + " pending string records, or they would be judged by their raw size");
+    }
+    final int encoded = compressStringValuesAndCountPendingRecords();
     processEntries(resourceConfiguration, pending);
     // processEntries consumes every entry by contract (inline, carrier, or the bound-flyweight
     // shortcut all null the slot). The page is about to be marked immutable for an in-place flush,
@@ -8222,8 +8227,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * without one, strings serialize raw.
    */
   public void compressStringValues() {
+    compressStringValuesAndCountPendingRecords();
+  }
+
+  private int compressStringValuesAndCountPendingRecords() {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
-      return;
+      return 0;
     }
 
     final int stringValueId = NodeKind.STRING_VALUE.getId();
@@ -8231,13 +8240,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // the per-value encode used to re-parse the table for every string it compressed.
     final byte[][] parsedSymbols = FSSTCompressor.parsedFor(fsstSymbolTable);
     if (parsedSymbols.length == 0) {
-      return;
+      return 0;
     }
 
     // Compress records[] strings (legacy path)
-    if (records != null) {
-      compressPendingStringRecords(records, parsedSymbols);
-    }
+    final int encoded = records == null ? 0 : compressPendingStringRecords(records, parsedSymbols);
 
     // Compress slotted page strings (zero records[] path)
     if (slottedPage != null) {
@@ -8302,6 +8309,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         }
       }
     }
+    return encoded;
   }
 
   /**
@@ -8349,28 +8357,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
     }
     return encoded;
-  }
-
-  /**
-   * Apply the encoding and binding preconditions of
-   * {@link #materializePendingRecords(ResourceConfiguration)} before placement.
-   *
-   * @return how many records were encoded
-   */
-  private int compressPendingStringRecordsForMaterialization(final DataRecord[] pending) {
-    final byte[] table = fsstSymbolTable;
-    if (table != null && table.length != 0) {
-      final byte[][] parsedSymbols = FSSTCompressor.parsedFor(table);
-      return parsedSymbols.length == 0
-          ? 0
-          : compressPendingStringRecords(pending, parsedSymbols);
-    }
-    if (fsstSymbolTableId != NO_FSST_SYMBOL_TABLE_ID && holdsRawStringRecord(pending)) {
-      throw new IllegalStateException("record page " + recordPageKey + " is bound to FSST symbol table "
-          + fsstSymbolTableId + " but its symbols are unresolved; resolve the table before materializing its"
-          + " pending string records, or they would be judged by their raw size");
-    }
-    return 0;
   }
 
   private static boolean holdsRawStringRecord(final DataRecord[] pending) {
