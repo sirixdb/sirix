@@ -347,7 +347,7 @@ final class StorageEpochFsstInlineDecisionTest {
 
   private Trial runArm(final Path path, final HashType hash, final Rotation rotation, final boolean rotating,
       final long seed, final boolean sameTransaction) throws IOException {
-    createResource(path, hash, StorageType.FILE_CHANNEL);
+    createResource(path, hash, StorageType.FILE_CHANNEL, rotation == Rotation.ASYNC_FLUSH_MODE);
     final boolean bounded = rotating && rotation != Rotation.ASYNC_FLUSH_MODE;
     final boolean importMode = rotating && rotation == Rotation.ASYNC_FLUSH_MODE;
     final boolean explicitFlush = rotating && rotation != Rotation.BOUNDED_LOG;
@@ -509,12 +509,18 @@ final class StorageEpochFsstInlineDecisionTest {
   }
 
   private static void createResource(final Path path, final HashType hash, final StorageType storage) {
+    createResource(path, hash, storage, true);
+  }
+
+  private static void createResource(final Path path, final HashType hash, final StorageType storage,
+      final boolean saltRecordPages) {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
                                                               .storageType(storage)
                                                               .stringCompressionType(StringCompressionType.FSST)
                                                               .hashKind(hash)
+                                                              .saltRecordPages(saltRecordPages)
                                                               .byteHandlerPipeline(new ByteHandlerPipeline())
                                                               .customCommitTimestamps(true)
                                                               .build()));
