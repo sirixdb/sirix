@@ -489,19 +489,19 @@ produce (`docs/HOT_BULK_BUILD.md:36-59`); both must satisfy the invariants of §
 ### 2.8 Structural invariants
 
 The invariant names come from `docs/HOT_INVARIANTS_CATALOG.md`; the checks that enforce them in
-production are `HOTMalformedSubtreeDetector` (`hot/HOTMalformedSubtreeDetector.java:169-290`) and
-the writer's local guard `nodeStructurallyMalformed` (`hot/AbstractHOTIndexWriter.java:3205-3261`).
+production are `HOTMalformedSubtreeDetector.firstViolation` and
+the writer's local guard `AbstractHOTIndexWriter.nodeStructurallyMalformed`.
 
 | Id | Invariant (for every indirect page N) | Enforced by |
 |---|---|---|
 | I10 | 2 ≤ numChildren ≤ 32; one-child indirect pages are illegal | factories; page reader; detector; writer guard |
-| I3 | partial keys of N's children are pairwise distinct | detector `:174-184`; writer guard |
-| I4 | the unsigned-smallest partial key is 0 | detector `:186-198`; writer guard |
-| I7 | partial keys are strictly ascending (unsigned) in child order | detector `:200-208`; writer guard |
-| I8 | children are ordered by ascending first key of their subtrees | detector `:229-263`; writer guard |
-| I11 | every indirect child's MSB index is greater than N's | detector `:210-227`; writer guard |
-| I12 | key ranges of consecutive children are disjoint; hence leaf visit order is lexicographic | detector `:235-269`; writer guard; relied on by `hot/reader/HOTRangeCursor.java:215-219` |
-| I5 | leaf constancy: every key K in child i's subtree satisfies `(p_i & ~dense(K)) == 0` for its partial key `p_i`, tombstones included | detector `:271-293`, `:308-344` (not in the writer's local guard) |
+| I3 | partial keys of N's children are pairwise distinct | detector `firstPartialViolation`; writer guard |
+| I4 | the unsigned-smallest partial key is 0 | detector `firstPartialViolation`; writer guard |
+| I7 | partial keys are strictly ascending (unsigned) in child order | detector `firstPartialViolation`; writer guard |
+| I8 | children are ordered by ascending first key of their subtrees | detector `firstRangeViolation`; writer guard |
+| I11 | every indirect child's MSB index is greater than N's | detector `firstTrieViolation`; writer guard |
+| I12 | key ranges of consecutive children are disjoint; hence leaf visit order is lexicographic | detector `firstRangeViolation`; writer guard; relied on by `hot/reader/HOTRangeCursor.java:215-219` |
+| I5 | leaf constancy: every key K in child i's subtree satisfies `(p_i & ~dense(K)) == 0` for its partial key `p_i`, tombstones included | detector `firstConstancyViolation` and `findI5FailingKey` (not in the writer's local guard) |
 | leaf order | entries of a leaf are sorted by unsigned key order and unique | `hot/page/HOTLeafPage.java:2284-2291`; `put` rejects an existing key (`:1633-1652`) |
 | leaf bounds | ≤ 512 entries; suffix and value ≤ 65535 bytes | `hot/page/HOTLeafPage.java:165`, `:184`, `:2227-2234`, `:2266-2282` |
 | height | ≤ 64 levels | `hot/reader/HOTTrieReader.java:93`, `:1165-1167`; `hot/AbstractHOTIndexWriter.java:93`, `:890-892` |
@@ -1711,7 +1711,7 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
 - `HOTMalformedSubtreeDetector.detect` does a pre-order walk from an indirect root, reports the
   **highest** malformed indirect pages and does not descend below them; `MAX_DEPTH = 64`; a cycle guard
   by page key; closed or unresolvable pages are skipped; it performs no mutation and no I/O of its own
-  (`hot/HOTMalformedSubtreeDetector.java:20-163`, `:390-398`).
+  (`HOTMalformedSubtreeDetector.walk` and `resolve`).
 - The detector's enforced invariants are listed in §2.8; it reports the first failure.
 - **Only production call**: `validatePublishedStructuralScopeBounded` after a structural publication,
   when `VALIDATE_STRUCTURAL_MUTATIONS` (default on) and the scope fits the bounded budget; oversized
@@ -1896,7 +1896,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Workload verification | `index/hot/HOTFormalVerificationTest` (36, `@Tag("heavy")`) | NAME/CAS workloads, adversarial fuzz, 100K height bound, multi-revision isolation, 10K-200K sweeps, each followed by `HOTInvariantValidator.assertOk()` and a `TreeMap` oracle (`:35-45`); the 1M-entry case is `@Disabled` with a manual note "Verified manually: N=1M, observedHeight=3, violations=0" (`:442-444`) |
 | Primitives | `HOTLeafPageSplitFaithfulTest` (3), `HOTIndirectPageSplitFaithfulTest` (15), `HOTDescentAnalysisTest` (4), `HOTIntegrateTest` (4) | MSDB leaf split into complete R(S) halves; `splitIndirect`/`addEntry` on canonical tries; β and d*; `integrate` including cascade to a new root |
 | Full-node branch split | `HOTBranchSplitOverlapTest` | seeds validated sparse paths and retained leaf endpoints, then reaches §4.5.4 case 4 through public writer puts in either split half under every `VersioningType`; checks rejection before publication, ordered exact physical scans, postings and structural invariants after inserts and commits, all historical revisions, and cold reopen |
-| Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6), [`HOTInvariantValidatorWorkTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorWorkTest.java) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I1, I4, I6, I11, leaf-insert precondition and unreadable slots; reuse scope is specified in [Verification](VERIFICATION.md#running-the-layers) |
+| Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTIndirectCardinalityTest`, `HOTInvariantValidatorChecksTest` (6), [`HOTInvariantValidatorWorkTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorWorkTest.java) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; cardinality: factory, decode, detector and writer-preflight enforcement of I10 in both layouts; validator: I1, I4, I6, I11, leaf-insert precondition and unreadable slots; reuse scope is specified in [Verification](VERIFICATION.md#running-the-layers) |
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `index/hot/page/HOTCompleteDumpMergeTest` (5), `index/hot/page/HOTLeafPageCowTest` (15), `index/hot/page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
 | Writer mechanics | `HOTRebuildFootprintTest`, `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `index/hot/page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `index/hot/cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
@@ -2081,8 +2081,6 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 ### 8.2 Code comments that contradict the code
 
 - `hot/DiscriminativeBitComputer.java:55-57` "Branchless" vs early exits.
-- `hot/HOTMalformedSubtreeDetector.java:21`, `:42`, `:234` ("detect-and-rebuild", "detectAndHeal") vs no
-  repair.
 - `hot/reader/HOTTrieReader.java:979-980`, `:1041-1042` mention an io_uring prefetch that has no implementation
   in this repository.
 

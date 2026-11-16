@@ -18,40 +18,23 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Detection half of the HOT detect-and-rebuild structural fix (see {@code
- * docs/HOT_FORMAL_FOUNDATION.md} §8). Walks a HOT secondary-index trie top-down and returns the
+ * Structural validation of HOT secondary-index tries (see {@code
+ * docs/HOT_INDEX_SPECIFICATION.md} §4.8). Walks a trie top-down and returns the
  * <em>highest</em> malformed indirect pages — the roots of the maximal drifted subtrees.
  *
  * <p>
  * <b>What "malformed" means.</b> An indirect is malformed when it violates a structural invariant
- * in its own block. The predicates mirror {@code HOTInvariantValidator} (the executable
- * specification of the foundation document's §2 invariants); a production detector cannot depend on
- * that test-only class, so the per-indirect predicate logic is reproduced here:
- * <ul>
- * <li><b>I3</b> — partial-key uniqueness: no two children share a stored partial.</li>
- * <li><b>I4</b> — first-partial-zero: the smallest stored partial is {@code 0} (Binna's "first mask
- * always zero" rule under sparse-path encoding).</li>
- * <li><b>I5</b> — leaf-constancy: for every child {@code i} with a non-zero stored partial
- * {@code p_i}, every key {@code K} in {@code subtree(child_i)} satisfies
- * {@code (p_i & ~densePK(K, mask)) == 0}. I5 is the routing-soundness linchpin (foundation Theorem
- * 2).</li>
- * <li><b>I7</b> — partial keys strictly ascending (unsigned) across child slots.</li>
- * <li><b>I8</b> — children ordered by ascending first-key of their subtree (range-scan correctness
- * — {@code HOTRangeCursor} advances by child index).</li>
- * <li><b>I12</b> — subtree ranges disjoint: consecutive children's key ranges must not interleave
- * (checked at their shared boundary; sound at detectAndHeal's fixed point).</li>
- * <li><b>I11</b> — trie condition: each indirect child's most-significant discriminative bit is
- * strictly less significant than this node's. I11 is cross-level; a violation on edge
- * {@code (P, C)} is attributed to the <em>parent</em> {@code P}, because rebuilding {@code P}'s
- * subtree (which contains both {@code P} and {@code C}) is what fixes it.</li>
- * </ul>
+ * in its own block. The predicates mirror {@code HOTInvariantValidator}, the test-only invariant
+ * oracle; a production detector cannot depend on
+ * that test-only class. The enforced predicates are specified in
+ * {@code docs/HOT_INDEX_SPECIFICATION.md} §2.8. I11 is cross-level; a violation on edge
+ * {@code (P, C)} is attributed to the <em>parent</em> {@code P}, whose child edge violates the
+ * trie condition.
  *
  * <p>
  * <b>Highest-malformed semantics.</b> The walk is a pre-order DFS. When an indirect is found
- * malformed, its page is recorded and the walk does <em>not</em> descend into it: rebuilding the
- * highest malformed indirect with {@link HOTBulkBuilder} produces a canonical subtree (foundation
- * Theorem 1) and therefore subsumes every malformed descendant (Binna Lemma 3 — a subtree's
- * canonical form depends only on its own keys). The returned subtrees are pairwise non-nested.
+ * malformed, its page is recorded and the walk does <em>not</em> descend into it. The returned
+ * subtrees are pairwise non-nested; the caller decides how to handle the defects.
  *
  * <p>
  * <b>Purity.</b> The detector reads only; it never mutates a page or performs I/O. Pages are
@@ -84,10 +67,9 @@ public final class HOTMalformedSubtreeDetector {
 
   /**
    * A maximal malformed subtree: the indirect page that is the highest violating node of a drifted
-   * region. Rebuilding the subtree rooted here with {@link HOTBulkBuilder} repairs it.
+   * region.
    *
-   * @param reference the in-trie reference whose page is the malformed indirect (the copy-on-write
-   *        splice point for a rebuild)
+   * @param reference the in-trie reference whose page is the malformed indirect
    * @param indirectPageKey the malformed indirect's page key
    * @param invariant the first violated invariant tag (diagnostic)
    * @param detail a human-readable description of the violation (diagnostic)
@@ -144,8 +126,7 @@ public final class HOTMalformedSubtreeDetector {
     }
     final Defect defect = firstViolation(indirect);
     if (defect != null) {
-      // Highest malformed indirect of this region: record it and do not descend — a rebuild of
-      // this subtree subsumes every malformed descendant (foundation §8 / Binna Lemma 3).
+      // Stop here so a malformed descendant cannot produce a second report for this region.
       malformed.add(new MalformedSubtree(reference, pageKey, defect.invariant(), defect.detail()));
       return;
     }

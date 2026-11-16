@@ -111,6 +111,11 @@ import static io.brackit.query.util.path.Path.parse;
  * </p>
  *
  * <p>
+ * An absent-key stage requires its probe geometry to occur in the chosen corpus; setup fails if
+ * that stage has no probes. Stored-key stages can run even when an absent-key class is empty.
+ * </p>
+ *
+ * <p>
  * <b>Reading the numbers.</b> The composite stages are only trustworthy as a cross-run comparison
  * when {@link #serializeKey} — which no leaf-side change can touch — reproduces. It has been
  * observed to compile two different ways across forks (79 ns vs 190 ns for identical bytecode), and

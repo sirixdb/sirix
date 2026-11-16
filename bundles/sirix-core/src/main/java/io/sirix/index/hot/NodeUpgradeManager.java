@@ -38,12 +38,9 @@ import java.util.List;
  * Manages node type transitions in HOT (Height Optimized Trie).
  * 
  * <p>
- * Handles upgrades and downgrades between node types:
+ * Handles upgrades and downgrades between node types. {@link #determineNodeType(int)} selects the
+ * representation by child count; the legal factory fanouts are documented in {@link HOTIndirectPage}.
  * </p>
- * <ul>
- * <li>SpanNode (2-16 children, 1-4 discriminative bits)</li>
- * <li>MultiNode (17-32 children, 5-8 discriminative bits)</li>
- * </ul>
  * 
  * <p>
  * <b>Reference:</b> NodeAllocationInformations.hpp defines max 32 entries per node.
