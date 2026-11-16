@@ -1458,7 +1458,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * A commit file which is used by a {@link XmlNodeTrx} to denote if it's currently commiting or not.
+   * Persistent recovery signal for unfinished commits or cleanup; see
+   * {@link #requireCommitRecovery()}.
    */
   @Override
   public Path getCommitFile() {
