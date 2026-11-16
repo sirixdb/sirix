@@ -90,6 +90,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -107,6 +108,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private volatile @Nullable ValidTimeReadCache validTimeReadCache;
 
   private final ThreadLocal<Boolean> inCommitCallback;
+  private final ReentrantReadWriteLock notificationOwnership;
+  private final ConcurrentLinkedQueue<CompletableFuture<Void>> notificationCompletions;
   private final ThreadLocal<@Nullable InternalNodeTrx<?>> commitExecution = new ThreadLocal<>();
   private final ConcurrentLinkedQueue<Runnable> sessionCallbacks = new ConcurrentLinkedQueue<>();
 
@@ -126,6 +129,46 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public final void exitCommitCallback() {
     inCommitCallback.set(Boolean.FALSE);
+  }
+
+  @Override
+  public final Runnable admitCallback(final Runnable callback) {
+    requireNonNull(callback);
+    notificationOwnership.readLock().lock();
+    final CompletableFuture<Void> completion = new CompletableFuture<>();
+    try {
+      notificationCompletions.add(completion);
+    } finally {
+      notificationOwnership.readLock().unlock();
+    }
+    return () -> {
+      try {
+        callback.run();
+      } finally {
+        completion.complete(null);
+        notificationCompletions.remove(completion);
+      }
+    };
+  }
+
+  @Override
+  public final void beginNotificationRetirement() {
+    assertNotInCommitCallback();
+    for (;;) {
+      for (final CompletableFuture<Void> completion : notificationCompletions) {
+        completion.join();
+      }
+      notificationOwnership.writeLock().lock();
+      if (notificationCompletions.isEmpty()) {
+        return;
+      }
+      notificationOwnership.writeLock().unlock();
+    }
+  }
+
+  @Override
+  public final void endNotificationRetirement() {
+    notificationOwnership.writeLock().unlock();
   }
 
   @Override
@@ -485,6 +528,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     revisionListeners = new CopyOnWriteArrayList<>();
     inCommitCallback = new ThreadLocal<>();
+    notificationOwnership = new ReentrantReadWriteLock();
+    notificationCompletions = new ConcurrentLinkedQueue<>();
     this.user = user;
     sharedSession = null;
     pendingRevisionRoot = new AtomicReference<>();
@@ -527,6 +572,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     lastCommittedUberPage = sharedSession.lastCommittedUberPage;
     revisionListeners = sharedSession.revisionListeners;
     inCommitCallback = sharedSession.inCommitCallback;
+    notificationOwnership = sharedSession.notificationOwnership;
+    notificationCompletions = sharedSession.notificationCompletions;
     pendingRevisionRoot = sharedSession.pendingRevisionRoot;
     knownIndexCatalogueRevisions = sharedSession.knownIndexCatalogueRevisions;
     parsedIndexCatalogues = sharedSession.parsedIndexCatalogues;
@@ -1502,6 +1549,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     boolean success = false;
     Throwable failure = null;
+    notificationOwnership.readLock().lock();
     try {
       synchronized (this) {
         assertNotClosing();
@@ -1555,6 +1603,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         writeLock.release();
         LOGGER.trace("Lock: lock released (beginNodeTrx failed)");
       }
+      notificationOwnership.readLock().unlock();
       dispatchSessionCallbacks(failure);
     }
   }
@@ -1600,7 +1649,6 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       readers.addAll(storageEngineReaderMap.values());
       closeAttempts++;
     }
-    Throwable primaryFailure = null;
     try {
       Throwable failure = null;
       final ValidTimeReadCache cache = validTimeReadCache;
@@ -1640,116 +1688,133 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
           }
         }
       }
-      synchronized (this) {
-        if (isClosed) {
-          ShardedPageCache.rethrowCleanupFailure(failure);
-          return;
-        }
-        readers.addAll(storageEngineWriterMap.values());
-        readers.addAll(storageEngineReaderMap.values());
-        List<StorageEngineReader> unfinishedWriters = null;
-        for (final StorageEngineReader reader : readers) {
-          if (!(reader instanceof StorageEngineWriter)) {
-            continue;
+      List<StorageEngineReader> unfinishedWriters = null;
+      notificationOwnership.readLock().lock();
+      try {
+        synchronized (this) {
+          if (isClosed) {
+            ShardedPageCache.rethrowCleanupFailure(failure);
+            return;
           }
-          try {
-            reader.close();
-          } catch (final RuntimeException | Error e) {
-            failure = ShardedPageCache.retainCleanupFailure(failure, e);
-            if (!reader.isClosed()) {
-              if (unfinishedWriters == null) {
-                unfinishedWriters = new ArrayList<>();
-              }
-              unfinishedWriters.add(reader);
+          readers.addAll(storageEngineWriterMap.values());
+          readers.addAll(storageEngineReaderMap.values());
+          for (final StorageEngineReader reader : readers) {
+            if (!(reader instanceof StorageEngineWriter)) {
+              continue;
             }
-          }
-        }
-        if (!unfinishedTransactions.isEmpty()) {
-          ShardedPageCache.rethrowCleanupFailure(failure);
-          return;
-        }
-        transactions.addAll(sharedTrxMap.values());
-        transactions.addAll(nodeTrxMap.values());
-        for (final NodeReadOnlyTrx reader : transactions) {
-          if (!(reader instanceof NodeTrx)) {
             try {
               reader.close();
-            } catch (final RuntimeException | Error next) {
-              failure = ShardedPageCache.retainCleanupFailure(failure, next);
+            } catch (final RuntimeException | Error e) {
+              failure = ShardedPageCache.retainCleanupFailure(failure, e);
               if (!reader.isClosed()) {
-                unfinishedTransactions.add(reader);
+                if (unfinishedWriters == null) {
+                  unfinishedWriters = new ArrayList<>();
+                }
+                unfinishedWriters.add(reader);
               }
             }
           }
         }
-        readers.addAll(storageEngineReaderMap.values());
-        for (final StorageEngineReader reader : readers) {
-          if (!(reader instanceof StorageEngineWriter)) {
-            try {
-              reader.close();
-            } catch (final RuntimeException | Error next) {
-              failure = ShardedPageCache.retainCleanupFailure(failure, next);
+      } finally {
+        notificationOwnership.readLock().unlock();
+      }
+      try {
+        dispatchSessionCallbacks(failure);
+      } catch (final RuntimeException | Error next) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, next);
+      }
+      if (!unfinishedTransactions.isEmpty()) {
+        ShardedPageCache.rethrowCleanupFailure(failure);
+        return;
+      }
+      beginNotificationRetirement();
+      try {
+        synchronized (this) {
+          if (isClosed) {
+            ShardedPageCache.rethrowCleanupFailure(failure);
+            return;
+          }
+          transactions.addAll(sharedTrxMap.values());
+          transactions.addAll(nodeTrxMap.values());
+          for (final NodeReadOnlyTrx reader : transactions) {
+            if (!(reader instanceof NodeTrx)) {
+              try {
+                reader.close();
+              } catch (final RuntimeException | Error next) {
+                failure = ShardedPageCache.retainCleanupFailure(failure, next);
+                if (!reader.isClosed()) {
+                  unfinishedTransactions.add(reader);
+                }
+              }
             }
           }
-        }
-        for (final Map.Entry<SharedTrxKey, R> entry : sharedTrxMap.entrySet()) {
-          if (!unfinishedTransactions.contains(entry.getValue())) {
-            sharedTrxMap.remove(entry.getKey(), entry.getValue());
+          readers.addAll(storageEngineReaderMap.values());
+          for (final StorageEngineReader reader : readers) {
+            if (!(reader instanceof StorageEngineWriter)) {
+              try {
+                reader.close();
+              } catch (final RuntimeException | Error next) {
+                failure = ShardedPageCache.retainCleanupFailure(failure, next);
+              }
+            }
           }
-        }
-        for (final Map.Entry<Integer, R> entry : nodeTrxMap.entrySet()) {
-          if (!(entry.getValue() instanceof InternalNodeTrx<?>)
-              && !unfinishedTransactions.contains(entry.getValue())) {
-            nodeTrxMap.remove(entry.getKey(), entry.getValue());
+          for (final Map.Entry<SharedTrxKey, R> entry : sharedTrxMap.entrySet()) {
+            if (!unfinishedTransactions.contains(entry.getValue())) {
+              sharedTrxMap.remove(entry.getKey(), entry.getValue());
+            }
           }
-        }
-        storageEngineReaderMap.clear();
-        storageEngineWriterMap.clear();
-        final ObjectPool<StorageEngineReader> currentPool = pool.getAndSet(null);
-        if (currentPool != null) {
+          for (final Map.Entry<Integer, R> entry : nodeTrxMap.entrySet()) {
+            if (!(entry.getValue() instanceof InternalNodeTrx<?>)
+                && !unfinishedTransactions.contains(entry.getValue())) {
+              nodeTrxMap.remove(entry.getKey(), entry.getValue());
+            }
+          }
+          storageEngineReaderMap.clear();
+          storageEngineWriterMap.clear();
+          final ObjectPool<StorageEngineReader> currentPool = pool.getAndSet(null);
+          if (currentPool != null) {
+            try {
+              currentPool.close();
+            } catch (final RuntimeException | Error e) {
+              failure = ShardedPageCache.retainCleanupFailure(failure, e);
+            }
+          }
+          if (unfinishedWriters != null) {
+            // A writer can refuse close while an async worker still owns its pages/channels. Storage
+            // and session registration are dependencies of that worker, not independent close targets.
+            // Keep ownership reachable so a later close can retry after the worker has terminated.
+            for (final StorageEngineReader writer : unfinishedWriters) {
+              storageEngineReaderMap.put(writer.getTrxId(), writer);
+            }
+          }
+          if (unfinishedWriters != null || !nodeTrxMap.isEmpty() || !sharedTrxMap.isEmpty()) {
+            ShardedPageCache.rethrowCleanupFailure(failure);
+            return;
+          }
+          if (sharedSession == null) {
+            try {
+              storage.close();
+            } catch (final RuntimeException | Error e) {
+              failure = ShardedPageCache.retainCleanupFailure(failure, e);
+            }
+          }
           try {
-            currentPool.close();
+            resourceStore.closeResourceSession(resourceConfig.getResource());
           } catch (final RuntimeException | Error e) {
             failure = ShardedPageCache.retainCleanupFailure(failure, e);
+          } finally {
+            // Transaction callbacks require an open session until all close attempts have finished.
+            isClosed = true;
           }
-        }
-        if (unfinishedWriters != null) {
-          // A writer can refuse close while an async worker still owns its pages/channels. Storage
-          // and session registration are dependencies of that worker, not independent close targets.
-          // Keep ownership reachable so a later close can retry after the worker has terminated.
-          for (final StorageEngineReader writer : unfinishedWriters) {
-            storageEngineReaderMap.put(writer.getTrxId(), writer);
-          }
-        }
-        if (unfinishedWriters != null || !nodeTrxMap.isEmpty() || !sharedTrxMap.isEmpty()) {
           ShardedPageCache.rethrowCleanupFailure(failure);
-          return;
         }
-        if (sharedSession == null) {
-          try {
-            storage.close();
-          } catch (final RuntimeException | Error e) {
-            failure = ShardedPageCache.retainCleanupFailure(failure, e);
-          }
-        }
-        try {
-          resourceStore.closeResourceSession(resourceConfig.getResource());
-        } catch (final RuntimeException | Error e) {
-          failure = ShardedPageCache.retainCleanupFailure(failure, e);
-        } finally {
-          // Transaction callbacks require an open session until all close attempts have finished.
-          isClosed = true;
-        }
-        ShardedPageCache.rethrowCleanupFailure(failure);
+      } finally {
+        endNotificationRetirement();
       }
-    } catch (final RuntimeException | Error e) {
-      primaryFailure = e;
-      throw e;
     } finally {
       synchronized (this) {
         closeAttempts--;
       }
-      dispatchSessionCallbacks(primaryFailure);
     }
   }
 
@@ -1975,10 +2040,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         return;
       }
     }
+    final Runnable admitted = admitCallback(notification);
     if (Thread.holdsLock(this)) {
-      sessionCallbacks.add(notification);
+      sessionCallbacks.add(admitted);
     } else {
-      notification.run();
+      admitted.run();
     }
   }
 
@@ -2084,6 +2150,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     boolean success = false;
     Throwable failure = null;
+    notificationOwnership.readLock().lock();
     try {
       synchronized (this) {
         assertNotClosing();
@@ -2109,6 +2176,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         writeLock.release();
         LOGGER.debug("Lock: lock released (createStorageEngineWriter failed)");
       }
+      notificationOwnership.readLock().unlock();
       dispatchSessionCallbacks(failure);
     }
   }

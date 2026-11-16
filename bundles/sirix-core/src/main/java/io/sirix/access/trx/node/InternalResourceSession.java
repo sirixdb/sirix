@@ -71,6 +71,12 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void exitCommitCallback();
 
+  Runnable admitCallback(Runnable callback);
+
+  void beginNotificationRetirement();
+
+  void endNotificationRetirement();
+
   @Nullable InternalNodeTrx<?> enterCommitExecution(InternalNodeTrx<?> owner);
 
   void exitCommitExecution(@Nullable InternalNodeTrx<?> previous);

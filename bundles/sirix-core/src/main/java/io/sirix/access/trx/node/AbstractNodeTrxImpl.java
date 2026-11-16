@@ -1497,6 +1497,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     try {
       nodeReadOnlyTrx.assertNotClosed();
       awaitPendingAsyncCommit();
+      executionLock.drainBeforeRetirement(this::fenceAsyncWorker);
+      nodeReadOnlyTrx.assertNotClosed();
+      awaitPendingAsyncCommit();
       final int currentRevision = getRevisionNumber();
       checkArgument(revision >= 0 && revision < currentRevision, "revision %s must be in [0, current revision %s).",
           revision, currentRevision);
@@ -1550,9 +1553,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public final void enqueueCallback(final Runnable callback) {
+    final Runnable admitted = resourceSession.admitCallback(callback);
     final Runnable guarded = () -> {
       try {
-        callback.run();
+        admitted.run();
       } catch (final Error failure) {
         callbackFailure = ShardedPageCache.retainCleanupFailure(callbackFailure, failure);
       }
@@ -1563,6 +1567,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     } else {
       callbacks.enqueue(guarded);
     }
+  }
+
+  private void fenceAsyncWorker() {
+    asyncCommitPermit.acquireUninterruptibly();
+    asyncCommitPermit.release();
   }
 
   private void completeAsyncCallbacks(final CallbackBatch callbacks) {
@@ -1683,7 +1692,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
     }
     try {
-      executionLock.drainBeforeRetirement();
+      executionLock.drainBeforeRetirement(this::fenceAsyncWorker);
     } catch (final RuntimeException | Error e) {
       cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
     }

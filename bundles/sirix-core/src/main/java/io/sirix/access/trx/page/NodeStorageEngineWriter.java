@@ -6601,19 +6601,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public StorageEngineWriter truncateTo(final int revision) {
-    storageEngineReader.resourceSession.assertAccess(revision);
-    final DerivedIndexMaintainer.Resource derived =
-        ((AbstractResourceSession<?, ?>) getResourceSession()).getDerivedResource();
-    if (derived == null) {
-      return truncateStorageTo(revision);
-    }
-    derived.lockHistory();
+    final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession;
+    session.assertNotInCommitCallback();
+    session.beginNotificationRetirement();
     try {
-      final StorageEngineWriter result = truncateStorageTo(revision);
-      derived.truncate(revision);
-      return result;
+      storageEngineReader.resourceSession.assertAccess(revision);
+      final DerivedIndexMaintainer.Resource derived =
+          ((AbstractResourceSession<?, ?>) getResourceSession()).getDerivedResource();
+      if (derived == null) {
+        return truncateStorageTo(revision);
+      }
+      derived.lockHistory();
+      try {
+        final StorageEngineWriter result = truncateStorageTo(revision);
+        derived.truncate(revision);
+        return result;
+      } finally {
+        derived.unlockHistory();
+      }
     } finally {
-      derived.unlockHistory();
+      session.endNotificationRetirement();
     }
   }
 

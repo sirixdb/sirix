@@ -1,6 +1,8 @@
 package io.sirix.access.trx.node;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 import io.sirix.access.trx.node.TransactionExecutionLock.CallbackBatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -131,13 +133,70 @@ final class TransactionExecutionLockTest {
     assertEquals(1, delivered.get());
     execution.lock();
     try {
-      execution.drainBeforeRetirement();
+      execution.drainBeforeRetirement(() -> {});
     } finally {
       execution.unlock();
     }
     assertEquals(11, delivered.get());
     execution.dispatch(second);
     assertEquals(11, delivered.get());
+  }
+
+  @Test
+  void retirementRechecksWorkersAdmittedWhileCallbackDispatchReleasedExecution() throws Exception {
+    final TransactionExecutionLock execution = new TransactionExecutionLock();
+    final Semaphore worker = new Semaphore(1);
+    final CountDownLatch firstEntered = new CountDownLatch(1);
+    final CompletableFuture<Void> releaseFirst = new CompletableFuture<>();
+    final CompletableFuture<Void> secondDelivered = new CompletableFuture<>();
+    final CompletableFuture<Void> retired = new CompletableFuture<>();
+    final AtomicInteger fences = new AtomicInteger();
+    execution.enqueue(() -> {
+      firstEntered.countDown();
+      releaseFirst.join();
+    });
+    final Thread closer = new Thread(() -> {
+      execution.lock();
+      try {
+        execution.drainBeforeRetirement(() -> {
+          fences.incrementAndGet();
+          worker.acquireUninterruptibly();
+          worker.release();
+        });
+        retired.complete(null);
+      } catch (final Throwable failure) {
+        retired.completeExceptionally(failure);
+      } finally {
+        execution.unlock();
+      }
+    });
+    try {
+      closer.start();
+      assertTrue(firstEntered.await(10, TimeUnit.SECONDS));
+      execution.lock();
+      try {
+        worker.acquireUninterruptibly();
+        execution.deferCallbacks().enqueue(() -> secondDelivered.complete(null));
+      } finally {
+        execution.unlock();
+      }
+      releaseFirst.complete(null);
+      while (!worker.hasQueuedThreads()) {
+        assertFalse(retired.isDone());
+        Thread.onSpinWait();
+      }
+      assertFalse(secondDelivered.isDone());
+      worker.release();
+      retired.get(10, TimeUnit.SECONDS);
+      secondDelivered.get(10, TimeUnit.SECONDS);
+      assertTrue(fences.get() >= 2);
+    } finally {
+      releaseFirst.complete(null);
+      if (worker.availablePermits() == 0) {
+        worker.release();
+      }
+      closer.join(10000);
+    }
   }
 
   @Test
