@@ -62,10 +62,10 @@ fifth is in the new outer query-error dispatch, which still exits the process:
 | `Main.main:123` | Remove `handleQueryException` | Outer process-termination path; interactive recovery is independently covered in process, but a CLI error exits PIT's baseline JVM. |
 
 These are coverage limitations, not equivalent mutants or assertion kills. The
-mutation check remains non-green on that report. No scope exclusion, acceptance
-change or artificial exit interception is introduced to hide them. The outer
-executor owns hosted Windows/Sonar reruns and the disposition of these coverage
-limitations, including the changed outer error-dispatch path.
+mutation check remains non-green on that historical report. Its later coverage
+repair and mutation result are recorded in
+[CLI mutation coverage](shell-cli-mutation-coverage.md). The outer executor owns
+hosted Windows/Sonar reruns.
 
 The rebase onto `650263ffe30173ed39cf0862c6d614ae070c8a8f` conflicts only in
 `docs/LESSONS.md`; preserve the new base's rows and every shell lesson.

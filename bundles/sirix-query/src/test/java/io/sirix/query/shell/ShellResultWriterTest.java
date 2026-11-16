@@ -476,7 +476,8 @@ final class ShellResultWriterTest {
     final String shallow = "{\"warm\":[1,2]}";
     final String deep = nestedJson(4097, true, DiffMode.JSON).input();
     final long thread = Thread.currentThread().threadId();
-    try (final ShellResultWriter writer = new ShellResultWriter(Writer.nullWriter(), ShellPalette.ANSI_16, DiffMode.JSON)) {
+    try (final ShellResultWriter writer =
+        new ShellResultWriter(Writer.nullWriter(), ShellPalette.ANSI_16, DiffMode.JSON)) {
       for (int i = 0; i < 100; i++) {
         writer.write(shallow);
         writer.finish();
@@ -504,7 +505,8 @@ final class ShellResultWriterTest {
     }
   }
 
-  private record DepthFixture(String input, String coloured) {}
+  private record DepthFixture(String input, String coloured) {
+  }
 
   private static DepthFixture nestedJson(final int depth, final boolean mixed, final DiffMode mode) {
     final StringBuilder input = new StringBuilder();
@@ -520,10 +522,10 @@ final class ShellResultWriterTest {
     }
     input.append("{\"a\":1,\"b\":2,\"insert\":{},\"update\":{},\"replace\":{},\"delete\":{},\"value\":\"[,]{}商店😀\"}");
     coloured.append("{\033[36m\"a\"\033[0m:\033[33m1\033[0m,\033[36m\"b\"\033[0m:\033[33m2\033[0m,")
-        .append(mode == DiffMode.JSON
-            ? "\033[32m\"insert\"\033[0m:{},\033[33m\"update\"\033[0m:{},\033[33m\"replace\"\033[0m:{},\033[31m\"delete\"\033[0m:{},"
-            : "\033[36m\"insert\"\033[0m:{},\033[36m\"update\"\033[0m:{},\033[36m\"replace\"\033[0m:{},\033[36m\"delete\"\033[0m:{},")
-        .append("\033[36m\"value\"\033[0m:\033[32m\"[,]{}商店😀\"\033[0m}");
+            .append(mode == DiffMode.JSON
+                ? "\033[32m\"insert\"\033[0m:{},\033[33m\"update\"\033[0m:{},\033[33m\"replace\"\033[0m:{},\033[31m\"delete\"\033[0m:{},"
+                : "\033[36m\"insert\"\033[0m:{},\033[36m\"update\"\033[0m:{},\033[36m\"replace\"\033[0m:{},\033[36m\"delete\"\033[0m:{},")
+            .append("\033[36m\"value\"\033[0m:\033[32m\"[,]{}商店😀\"\033[0m}");
     for (int i = depth - 1; i > 0; i--) {
       final boolean object = mixed && i % 2 == 0;
       input.append(object

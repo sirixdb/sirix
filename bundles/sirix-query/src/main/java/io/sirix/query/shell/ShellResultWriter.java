@@ -9,8 +9,8 @@ import java.util.Objects;
  * Colours serialized JSON/XML without building a document tree, buffering the full result, or
  * evaluating query items. Reusable scratch buffers avoid per-value allocation, including strings
  * larger than memory; the container stack grows only for a new maximum nesting depth. Closing never
- * closes the terminal. Call finish after a result (flush alone must preserve tokens across serializer
- * flushes).
+ * closes the terminal. Call finish after a result (flush alone must preserve tokens across
+ * serializer flushes).
  */
 public final class ShellResultWriter extends Writer {
   public enum DiffMode {

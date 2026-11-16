@@ -178,7 +178,6 @@ is below, with each limitation stated rather than counted as equivalent or kille
   Negating the null-prompt condition in `Main.executeQuery:220` terminates the
   minion through the real CLI error/exit boundary. The unmutated baseline passes.
 
-The full CI mutation check still needs disposition of the documented equivalent
-and legacy uncovered mutants; no allowlist, threshold change, or workflow edit
-silently accepts them. Windows and hosted CodeFactor/Sonar reruns belong to the
-outer executor. This phase neither publishes nor controls the pipeline.
+The later disposition of this historical audit's coverage limitations and equivalent
+boundaries is recorded in [CLI mutation coverage](shell-cli-mutation-coverage.md).
+Windows and hosted CodeFactor/Sonar reruns belong to the outer executor.

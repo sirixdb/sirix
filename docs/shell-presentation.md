@@ -13,7 +13,7 @@ lifetimes and result values are unchanged. No new commands are introduced.
    Tests: `ShellHighlighterTest`, `MainTest`.
 2. Terminal output is pretty JSON/XML, with blue keys/tags, green strings, orange numbers,
    and operation colours in supported diff results (detailed below). Formatting is
-   streamed through reusable buffers after serialization; it never re-evaluates
+   streamed through reusable buffers during serialization; it never re-evaluates
    a query or materializes its result. Tests: `ShellResultWriterTest`, `ShellOutputTest`.
 3. ANSI true colour uses orange #F47B20 and blue #42B6F0; 256-colour and 16-colour
    terminals get nearest palette alternatives. NO_COLOR (even empty), --no-color,

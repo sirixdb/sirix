@@ -20,8 +20,9 @@
   finish/reuse cases. The original lexer leaves subsequent tags green on these inputs.
 - The correction replaces the tag boolean with bounded markup context and element depth.
   Attribute quoting and JSON quoting retain their own escape rules. Comment, PI and
-  CDATA terminators use two preceding characters across writes. All scratch remains
-  fixed, with the existing allocation test extended to repeated mixed JSON/XML output.
+  CDATA terminators use two preceding characters across writes. The existing allocation
+  test was extended to repeated mixed JSON/XML output. Current scratch-space guarantees
+  belong to the [shell presentation contract](../shell-presentation.md).
 - The prevention rule and regression evidence appear in the XML context entry in
   [Lessons](../LESSONS.md).
 

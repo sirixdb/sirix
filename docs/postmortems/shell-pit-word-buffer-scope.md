@@ -10,9 +10,8 @@
 - Invariant / specification: buffered XML words must preserve every character and
   restore the next operation's colour through every writer overload, chunk size,
   flush boundary and finish/reuse transition. The automatically selected writer
-  tests must reject an off-by-one buffer boundary. Operation words and numbers
-  must be coloured only at patch item positions, including after markup and
-  inside value constructors; operand names must remain neutral.
+  tests must reject an off-by-one buffer boundary. Operation and operand styles
+  follow the [shell presentation contract](../shell-presentation.md).
 - Regression test: move the three renderer-only XML tests into
   `ShellResultWriterTest`; leave real database integration in
   `ShellXmlDiffColourTest`. Exercise String, char-array and single-character
