@@ -109,3 +109,22 @@ machine pinned to the performance cores, with 15 warm-up and 40 measured single-
 
 The rotating path saves the decompress-on-merge of the committed chain and the raw carrier pages.
 The non-rotating path changes only by the extracted pending-record loop.
+
+## PR mutation-lane follow-up
+
+- Symptom: PR 1432's changed-source PIT job completed but reported three uncovered changed-line
+  mutants: the encoding counter's addition and getter, and the owned replay's modifying-page binding.
+- Root cause: the storage-epoch integration suite asserted these behaviors in its isolated JVM,
+  while the bounded PR selector chose other tests and preserved the standard task's exclusions.
+  Passing a separate mutation run did not establish coverage in the actual PR lane.
+- Regression checks: `BulkAdoptionDiagnosticsTest` asserts exact cumulative record counts, including
+  zero increments and carrier-counter resets. `VersioningTypeFsstMetadataCopyTest` now replays owned
+  compressed ordinary and fused strings under all four strategies, with and without a committed
+  fragment, and asserts the owned wire images and table binding on both rebuilt pages. These tests
+  use the selector's existing naming rules without broadening its scope or removing JVM isolation.
+- Verification: the two focused JUnit classes pass (11 invocations). Re-running
+  `.github/scripts/pr_mutation.py run --blocking` against the failed CI artifact's selection passes:
+  all three changed-line mutants are now `KILLED` (previously all three were `NO_COVERAGE`). PIT
+  identifies the new tests as the killing tests. The sample size and changed-line map are unchanged.
+- Lesson: keep fast boundary assertions discoverable by the PR lane alongside isolated end-to-end
+  regressions, and verify the lane's own report rather than inferring coverage from another run.

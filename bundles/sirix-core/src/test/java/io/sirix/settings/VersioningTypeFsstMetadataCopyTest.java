@@ -20,6 +20,7 @@ import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageLayout;
+import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import io.sirix.utils.FSSTCompressor;
@@ -62,6 +63,77 @@ final class VersioningTypeFsstMetadataCopyTest {
   private static final byte[] NEWER_DEWEY_ID = new byte[] {1, 7, 4};
   private static final byte[] OLDER_DEWEY_ID = new byte[] {9, 2};
   private static final String DENSE_TOKEN = "versioning-target-only-carrier-";
+
+  /**
+   * Owned replay must preserve the already encoded bytes and their table on both rebuilt pages. The
+   * oracle is the owned fragment's wire image, not a second invocation of the combine. A lost
+   * binding, decompression, or a failure to copy the modifying page must all fail this check.
+   */
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void ownedReplayPreservesEncodedSlotsAndBinding(final VersioningType versioningType) {
+    assertOwnedReplayPreservesBinding(versioningType, false);
+    assertOwnedReplayPreservesBinding(versioningType, true);
+  }
+
+  private static void assertOwnedReplayPreservesBinding(final VersioningType versioningType,
+      final boolean hasCommittedFragment) {
+    final ResourceConfiguration config = new ResourceConfiguration.Builder("owned-fsst-replay").build();
+    final byte[] table = symbolTable(DENSE_TOKEN);
+    final byte[] raw = (DENSE_TOKEN.repeat(4) + "owned").getBytes(StandardCharsets.UTF_8);
+    final byte[] encoded = FSSTCompressor.encode(raw, table);
+    final byte[] ownedString = stringSlot(TARGET_SLOT, encoded, true);
+    final byte[] ownedFused =
+        objectNamedStringSlot(TARGET_SLOT + 1, encoded, true, NEWER_NAME_KEY, NEWER_PATH_NODE_KEY);
+    final KeyValueLeafPage owned =
+        new KeyValueLeafPage(RECORD_PAGE_KEY, IndexType.DOCUMENT, config, 3, null, null, false);
+    final KeyValueLeafPage committed =
+        new KeyValueLeafPage(RECORD_PAGE_KEY, IndexType.DOCUMENT, config, 2, null, null, false);
+    PageContainer container = null;
+    try {
+      owned.setSlotWithNodeKind(MemorySegment.ofArray(ownedString), TARGET_SLOT, NodeKind.STRING_VALUE.getId());
+      owned.setSlotWithNodeKind(MemorySegment.ofArray(ownedFused), TARGET_SLOT + 1,
+          NodeKind.OBJECT_NAMED_STRING.getId());
+      owned.setFsstSymbolTable(table);
+      owned.setFsstSymbolTableId(NEWEST_TABLE_ID);
+      committed.setSlotWithNodeKind(MemorySegment.ofArray(booleanSlot(0, true)), 0, NodeKind.BOOLEAN_VALUE.getId());
+      committed.setFsstSymbolTable(table);
+      committed.setFsstSymbolTableId(NEWEST_TABLE_ID);
+
+      @SuppressWarnings("rawtypes")
+      final ResourceSession resourceSession = mock(ResourceSession.class);
+      when(resourceSession.getResourceConfig()).thenReturn(config);
+      final StorageEngineReader reader = mock(StorageEngineReader.class);
+      when(reader.getResourceSession()).thenReturn(resourceSession);
+      when(reader.getRevisionNumber()).thenReturn(3);
+      when(reader.getUberPage()).thenReturn(new UberPage(3));
+      final PageReference reference = new PageReference().setKey(99L);
+      if (hasCommittedFragment) {
+        reference.setPageFragments(new ArrayList<>(List.of(new PageFragmentKeyImpl(2, 88L, 1L, 2L))));
+      }
+      container = versioningType.combineOwnedRecordPagesForModification(hasCommittedFragment
+          ? List.of(owned, committed)
+          : List.of(owned), 3, reader, reference, mock(TransactionIntentLog.class));
+
+      for (final KeyValueLeafPage target : List.of((KeyValueLeafPage) container.getComplete(),
+          (KeyValueLeafPage) container.getModified())) {
+        assertEquals(NEWEST_TABLE_ID, target.getFsstSymbolTableId());
+        assertArrayEquals(table, target.getFsstSymbolTable());
+        assertArrayEquals(ownedString, target.getSlot(TARGET_SLOT).toArray(ValueLayout.JAVA_BYTE));
+        assertArrayEquals(ownedFused, target.getSlot(TARGET_SLOT + 1).toArray(ValueLayout.JAVA_BYTE));
+        assertArrayEquals(raw, FSSTCompressor.decode(target.readFusedObjectNamedStringStoredBytes(TARGET_SLOT + 1),
+            target.getFsstSymbolTable()));
+      }
+      assertEquals(99L, reference.getKey(), "replay must restore the owned fragment's key");
+    } finally {
+      if (container != null) {
+        container.getModified().close();
+        container.getComplete().close();
+      }
+      committed.close();
+      owned.close();
+    }
+  }
 
   @ParameterizedTest(name = "{0}: merged FSST strings remain raw and inline")
   @EnumSource(value = VersioningType.class, names = {"DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT"})
