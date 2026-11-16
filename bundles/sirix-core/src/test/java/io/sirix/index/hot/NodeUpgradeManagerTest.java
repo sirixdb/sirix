@@ -51,8 +51,7 @@ class NodeUpgradeManagerTest {
   class NodeTypeByBitsTests {
 
     @ParameterizedTest(name = "{0} bits → {1}")
-    @CsvSource({"0, SPAN_NODE", "2, SPAN_NODE", "3, SPAN_NODE", "4, SPAN_NODE", "5, MULTI_NODE",
-        "8, MULTI_NODE"})
+    @CsvSource({"0, SPAN_NODE", "2, SPAN_NODE", "3, SPAN_NODE", "4, SPAN_NODE", "5, MULTI_NODE", "8, MULTI_NODE"})
     void testDetermineNodeTypeByBits(int numBits, NodeType expectedType) {
       assertEquals(expectedType, NodeUpgradeManager.determineNodeTypeByBits(numBits));
     }

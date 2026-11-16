@@ -356,8 +356,8 @@ class ToolHandlersIntegrationTest {
         if (target.equals("revision")) {
           args.put("revision", previousHead);
         } else {
-          final var snapshot = readWriteHandlers.createSnapshot(null,
-              request(Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "name", "head", "revision", previousHead)));
+          final var snapshot = readWriteHandlers.createSnapshot(null, request(
+              Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "name", "head", "revision", previousHead)));
           assertThat(snapshot.isError()).isFalse();
           args.put("snapshot", "head");
         }

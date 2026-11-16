@@ -28,7 +28,9 @@ final class HOTIndirectCardinalityTest {
     for (final int count : new int[] {0, 1, 2, 16, 17, 32, 33}) {
       for (int factory = 0; factory < 5; factory++) {
         final int selectedFactory = factory;
-        final boolean valid = count >= 2 && count <= (factory < 3 ? 16 : 32);
+        final boolean valid = count >= 2 && count <= (factory < 3
+            ? 16
+            : 32);
         if (valid) {
           final HOTIndirectPage page = create(selectedFactory, count);
           assertEquals(count, page.getNumChildren());
@@ -43,7 +45,8 @@ final class HOTIndirectCardinalityTest {
       }
     }
     assertEquals(2, HOTIndirectPage.createBiNode(1, 1, 0, new PageReference(), new PageReference()).getNumChildren());
-    assertEquals(2, HOTIndirectPage.createBiNode(1, 1, 0, new PageReference(), new PageReference(), 1).getNumChildren());
+    assertEquals(2,
+        HOTIndirectPage.createBiNode(1, 1, 0, new PageReference(), new PageReference(), 1).getNumChildren());
     for (final int[] bits : new int[][] {{0}, {0, 72}}) {
       assertThrows(IllegalArgumentException.class, () -> HOTBulkBuilder.assembleIndirect(bits, new int[] {0},
           new PageReference[] {new PageReference()}, 1, 1, IndexType.CAS, () -> 1));
@@ -83,8 +86,8 @@ final class HOTIndirectCardinalityTest {
       PageKind.HOT_INDIRECT_PAGE.serializePage(config, encoded, original, SerializationType.DATA);
       final var source = encoded.bytesForRead();
       source.readByte();
-      final HOTIndirectPage decoded = (HOTIndirectPage) PageKind.HOT_INDIRECT_PAGE.deserializePage(config, source,
-          SerializationType.DATA);
+      final HOTIndirectPage decoded =
+          (HOTIndirectPage) PageKind.HOT_INDIRECT_PAGE.deserializePage(config, source, SerializationType.DATA);
       assertEquals(original.getNodeType(), decoded.getNodeType());
       assertEquals(original.getLayoutType(), decoded.getLayoutType());
       assertEquals(2, decoded.getNumChildren());
@@ -99,7 +102,8 @@ final class HOTIndirectCardinalityTest {
   void structuralDetectionAndWriterPreflightRejectInvalidInMemoryCounts() throws ReflectiveOperationException {
     final Field countField = HOTIndirectPage.class.getDeclaredField("numChildren");
     countField.setAccessible(true);
-    final Method publicationCheck = AbstractHOTIndexWriter.class.getDeclaredMethod("nodeStructurallyMalformed", HOTIndirectPage.class);
+    final Method publicationCheck =
+        AbstractHOTIndexWriter.class.getDeclaredMethod("nodeStructurallyMalformed", HOTIndirectPage.class);
     publicationCheck.setAccessible(true);
     final AbstractHOTIndexWriter<?> writer = mock(AbstractHOTIndexWriter.class);
     for (final int count : new int[] {0, 1, 33}) {
@@ -127,15 +131,19 @@ final class HOTIndirectCardinalityTest {
       children[i].setKey(100 + i);
       partials[i] = i;
     }
-    final long mask = count <= 2 ? Long.MIN_VALUE : 0xF800_0000_0000_0000L;
+    final long mask = count <= 2
+        ? Long.MIN_VALUE
+        : 0xF800_0000_0000_0000L;
     return switch (factory) {
       case 0 -> HOTIndirectPage.createSpanNode(1, 1, 0, mask, partials, children);
       case 1 -> HOTIndirectPage.createSpanNode(1, 1, 0, mask, partials, children, 1);
-      case 2 -> HOTIndirectPage.createSpanNodeMultiMask(1, 1, new byte[] {0}, new long[] {count <= 2 ? 0x80 : 0xF8},
-          1, partials, children, 1, (short) 0);
+      case 2 -> HOTIndirectPage.createSpanNodeMultiMask(1, 1, new byte[] {0}, new long[] {count <= 2
+          ? 0x80
+          : 0xF8}, 1, partials, children, 1, (short) 0);
       case 3 -> HOTIndirectPage.createMultiNode(1, 1, 0, mask, partials, children, 1);
-      case 4 -> HOTIndirectPage.createMultiNodeMultiMask(1, 1, new byte[] {0}, new long[] {count <= 2 ? 0x80 : 0xF8},
-          1, partials, children, 1, (short) 0);
+      case 4 -> HOTIndirectPage.createMultiNodeMultiMask(1, 1, new byte[] {0}, new long[] {count <= 2
+          ? 0x80
+          : 0xF8}, 1, partials, children, 1, (short) 0);
       default -> throw new AssertionError(factory);
     };
   }

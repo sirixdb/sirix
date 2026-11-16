@@ -1057,8 +1057,7 @@ final class HOTRebuildFootprintTest {
 
   private static HOTIndirectPage cyclicPage(final long pageKey) {
     final PageReference self = new PageReference();
-    final HOTIndirectPage cycle =
-        HOTIndirectPage.createBiNode(pageKey, 1, 0, self, self, 1);
+    final HOTIndirectPage cycle = HOTIndirectPage.createBiNode(pageKey, 1, 0, self, self, 1);
     self.setPage(cycle);
     return cycle;
   }
