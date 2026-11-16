@@ -1,7 +1,6 @@
 package io.sirix.access.trx.node;
 
 import io.sirix.utils.CommitTimestamps;
-import io.sirix.access.trx.node.TransactionExecutionLock.CallbackBatch;
 
 import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.utils.WorkerTermination;
@@ -22,6 +21,7 @@ import io.sirix.diff.DiffTuple;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.exception.SirixThreadedException;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexType;
 import io.sirix.io.StorageType;
@@ -61,12 +61,11 @@ import static java.nio.file.Files.deleteIfExists;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Abstract implementation for {@link InternalNodeTrx}. Lifecycle calls from this resource's commit
- * callbacks reject before locking. Post-publication callbacks run outside outermost execution T and
- * the scheduled task boundary while lifetime admission P stays owned. Post-hooks own separate
- * read-only cursors pinned to the committed revision. Ordinary mutation acquisition never waits for
- * callback completion. Close must enter outside T; cleanup releases T before scheduler termination
- * and atomic session-registration/P release.
+ * Abstract implementation for {@link InternalNodeTrx}. Same-database callback lifecycle reentry
+ * rejects before locks. Pre-hooks run synchronously; post notifications use the database dispatcher
+ * and independent committed read views. Mutation acquisition never waits for notification delivery.
+ * Writer close enters outside T and releases T before scheduler termination and atomic permit
+ * release; session/database teardown owns bounded notification retirement.
  *
  * @author Joao Sousa
  */
@@ -520,8 +519,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   /** One background hardening in flight at most; acquired by phase 1, released after phase 2. */
   private final Semaphore asyncCommitPermit = new Semaphore(1);
-  private volatile @Nullable CallbackBatch asyncCallbacks;
-  private volatile @Nullable Throwable callbackFailure;
 
   private volatile @Nullable Throwable asyncCommitFailure;
 
@@ -610,9 +607,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // serialization retires those buffers. Publish the immutable cache only after hardening.
       final Runnable publishUpdateDiffs = prepareAsyncUpdateDiffs(preCommitRevision);
       final List<PostCommitHook> committingHooks = List.copyOf(postCommitHooks);
-      final CallbackBatch callbacks = executionLock.deferCallbacks();
       asyncCommitPermit.acquireUninterruptibly();
-      asyncCallbacks = callbacks;
 
       final StorageEngineWriter committingWriter = storageEngineWriter;
       final Indexes committingCatalogue = indexController.getIndexes();
@@ -620,7 +615,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       try {
         pendingUberPage = committingWriter.commitWritePages(commitMessage, null, true);
       } catch (final RuntimeException | Error e) {
-        completeAsyncCallbacks(callbacks);
+        asyncCommitPermit.release();
         // Nothing is durable yet — keep the transaction usable, mirroring commitInternal.
         state = State.RUNNING;
         throw e;
@@ -639,9 +634,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         state = State.RUNNING;
       } catch (final RuntimeException | Error failure) {
         try {
-          hardenAfterForegroundFailure(committingWriter, pendingUberPage, publishUpdateDiffs, failure);
+          hardenAfterForegroundFailure(committingWriter, pendingUberPage, publishUpdateDiffs, committingHooks, failure);
         } finally {
-          completeAsyncCallbacks(callbacks);
+          asyncCommitPermit.release();
           state = State.COMMITTED;
         }
         throw failure;
@@ -651,25 +646,19 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         notifyAsyncCommitTestHook("before-submit");
         CompletableFuture.runAsync(() -> {
           try {
-            final @Nullable InternalNodeTrx<?> previous = resourceSession.enterCommitExecution(this);
-            try {
-              hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
-              enqueuePostCommitHooks(committingHooks, pendingUberPage.getRevisionNumber());
-            } finally {
-              resourceSession.exitCommitExecution(previous);
-            }
+            hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs, committingHooks);
           } catch (final Throwable failure) {
             asyncCommitFailure = failure;
             state = State.COMMITTED;
           } finally {
-            completeAsyncCallbacks(callbacks);
+            asyncCommitPermit.release();
           }
         });
       } catch (final RuntimeException | Error failure) {
         try {
-          hardenAfterForegroundFailure(committingWriter, pendingUberPage, publishUpdateDiffs, failure);
+          hardenAfterForegroundFailure(committingWriter, pendingUberPage, publishUpdateDiffs, committingHooks, failure);
         } finally {
-          completeAsyncCallbacks(callbacks);
+          asyncCommitPermit.release();
         }
         throw failure;
       }
@@ -679,9 +668,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
   @SuppressWarnings("java:S1181")
   private void hardenAfterForegroundFailure(final StorageEngineWriter writer, final UberPage pending,
-      final @Nullable Runnable publish, final Throwable failure) {
+      final @Nullable Runnable publish, final List<PostCommitHook> hooks, final Throwable failure) {
     try {
-      hardenAndPublish(writer, pending, publish);
+      hardenAndPublish(writer, pending, publish, hooks);
     } catch (final RuntimeException | Error hardeningFailure) {
       ShardedPageCache.retainCleanupFailure(failure, hardeningFailure);
       asyncCommitFailure = failure;
@@ -701,13 +690,14 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   // Keep retirement inside writer ownership and preserve the first failure, including Error.
   @SuppressWarnings("java:S1181")
   private void hardenAndPublish(final StorageEngineWriter committingWriter, final UberPage pendingUberPage,
-      final @Nullable Runnable publishUpdateDiffs) {
+      final @Nullable Runnable publishUpdateDiffs, final List<PostCommitHook> hooks) {
     try (committingWriter) {
       Throwable failure = null;
       try {
         notifyAsyncCommitTestHook("before-harden");
         committingWriter.hardenCommit(pendingUberPage, true);
         resourceSession.setLastCommittedUberPage(pendingUberPage);
+        enqueuePostCommitHooks(hooks, pendingUberPage.getRevisionNumber());
       } catch (final RuntimeException | Error hardeningFailure) {
         failure = hardeningFailure;
       }
@@ -827,6 +817,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       try {
         // Remember successfully committed uber page in resource session.
         resourceSession.setLastCommittedUberPage(uberPage);
+        enqueuePostCommitHooks(postCommitHooks, uberPage.getRevisionNumber());
 
         if (resourceSession.getResourceConfig().storeDiffs()) {
           try {
@@ -864,7 +855,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
         throw e;
       }
-      enqueuePostCommitHooks(postCommitHooks, uberPage.getRevisionNumber());
     });
 
     return self();
@@ -1300,7 +1290,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public W rollback() {
     resourceSession.assertNotInCommitCallback();
-    executionLock.lock();
+    lockForLifecycle();
     try {
       return rollbackInMemory();
     } finally {
@@ -1337,10 +1327,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         revNumber = resourceSession.getMostRecentRevisionNumber();
       } else {
         final int revision = getRevisionNumber();
+        final UberPage uberPage = storageEngineWriter.rollback();
         revNumber = storageEngineWriter.getUberPage().isBootstrap()
             ? 0
-            : revision - 1;
-        final UberPage uberPage = storageEngineWriter.rollback();
+            : Math.min(revision - 1, uberPage.getRevisionNumber());
         resourceSession.setLastCommittedUberPage(uberPage);
       }
 
@@ -1505,27 +1495,22 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public W truncateTo(final int revision) {
     resourceSession.assertCanRetire();
-    executionLock.lock();
+    lockForLifecycle();
     try {
       nodeReadOnlyTrx.assertNotClosed();
       awaitPendingAsyncCommit();
-      executionLock.drainBeforeRetirement(this::fenceAsyncWorker);
-      nodeReadOnlyTrx.assertNotClosed();
-      awaitPendingAsyncCommit();
-      final int currentRevision = getRevisionNumber();
-      checkArgument(revision >= 0 && revision < currentRevision, "revision %s must be in [0, current revision %s).",
-          revision, currentRevision);
-
-      resourceSession.assertAccess(revision);
-      indexController.notifyTransactionAbort();
-      final @Nullable InternalNodeTrx<?> previous = resourceSession.enterCommitExecution(this);
-      try {
+      final @Nullable InternalNodeTrx<?> previous = resourceSession.enterHistoryRetirement(this);
+      try (var retirement = resourceSession.retireNotifications()) {
+        final int currentRevision = getRevisionNumber();
+        checkArgument(revision >= 0 && revision < currentRevision, "revision %s must be in [0, current revision %s).",
+            revision, currentRevision);
+        resourceSession.assertAccess(revision);
+        indexController.notifyTransactionAbort();
         storageEngineWriter.truncateTo(revision);
+        return self();
       } finally {
-        resourceSession.exitCommitExecution(previous);
+        resourceSession.exitHistoryRetirement(previous);
       }
-
-      return self();
     } finally {
       executionLock.unlock();
     }
@@ -1568,49 +1553,22 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     executionLock.assertCanClose();
   }
 
-  @Override
-  public final boolean isInExecution() {
-    return executionLock.isHeldByCurrentThread() || executionLock.isInScheduledTask();
-  }
-
-  @Override
-  public final void enqueueCallback(final Runnable callback) {
-    final Runnable admitted = resourceSession.admitCallback(callback);
-    final Runnable guarded = () -> {
-      try {
-        admitted.run();
-      } catch (final Error failure) {
-        callbackFailure = ShardedPageCache.retainCleanupFailure(callbackFailure, failure);
+  private void lockForLifecycle() {
+    try {
+      if (!executionLock.tryLock(resourceSession.getNotifications().getCloseTimeout().toNanos(),
+          TimeUnit.NANOSECONDS)) {
+        throw resourceSession.getNotifications().timeoutFailure();
       }
-    };
-    final CallbackBatch callbacks = asyncCallbacks;
-    if (callbacks == null) {
-      executionLock.enqueue(guarded);
-    } else {
-      callbacks.enqueue(guarded);
+    } catch (final InterruptedException failure) {
+      Thread.currentThread().interrupt();
+      throw new SirixThreadedException(failure);
     }
-  }
-
-  private void fenceAsyncWorker() {
-    asyncCommitPermit.acquireUninterruptibly();
-    asyncCommitPermit.release();
-  }
-
-  private void completeAsyncCallbacks(final CallbackBatch callbacks) {
-    asyncCallbacks = null;
-    asyncCommitPermit.release();
-    executionLock.dispatch(callbacks);
   }
 
   private void runCommit(final Runnable work) {
     executionLock.lock();
     try {
-      final @Nullable InternalNodeTrx<?> previous = resourceSession.enterCommitExecution(this);
-      try {
-        work.run();
-      } finally {
-        resourceSession.exitCommitExecution(previous);
-      }
+      work.run();
     } finally {
       executionLock.unlock();
     }
@@ -1620,28 +1578,18 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     if (preCommitHooks.isEmpty()) {
       return;
     }
-    resourceSession.admitCallback(() -> {
-      resourceSession.enterCommitCallback();
-      try {
-        for (final PreCommitHook hook : preCommitHooks) {
-          hook.preCommit(this);
-        }
-      } finally {
-        resourceSession.exitCommitCallback();
+    resourceSession.runPreCommitCallback(() -> {
+      for (final PreCommitHook hook : preCommitHooks) {
+        hook.preCommit(this);
       }
-    }).run();
+    });
   }
 
   private void enqueuePostCommitHooks(final List<PostCommitHook> hooks, final int revision) {
     for (final PostCommitHook hook : hooks) {
-      enqueueCallback(() -> {
+      resourceSession.enqueueNotification(() -> {
         try (R view = resourceSession.beginPostCommitReadOnlyTrx(revision)) {
-          resourceSession.enterCommitCallback();
-          try {
-            hook.postCommit(view);
-          } finally {
-            resourceSession.exitCommitCallback();
-          }
+          hook.postCommit(view);
         }
       });
     }
@@ -1663,7 +1611,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     assertCanClose();
     Throwable failure = null;
     try {
-      executionLock.lock();
+      lockForLifecycle();
       try {
         closeInMemory(abort);
       } catch (final RuntimeException | Error e) {
@@ -1690,10 +1638,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         failure = ShardedPageCache.retainCleanupFailure(failure, e);
       }
     }
-    if (isClosed()) {
-      failure = ShardedPageCache.retainCleanupFailure(failure, callbackFailure);
-      callbackFailure = null;
-    }
     ShardedPageCache.rethrowCleanupFailure(failure);
   }
 
@@ -1712,11 +1656,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
     try {
       awaitPendingAsyncCommit();
-    } catch (final RuntimeException | Error e) {
-      cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
-    }
-    try {
-      executionLock.drainBeforeRetirement(this::fenceAsyncWorker);
     } catch (final RuntimeException | Error e) {
       cleanupFailure = ShardedPageCache.retainCleanupFailure(cleanupFailure, e);
     }

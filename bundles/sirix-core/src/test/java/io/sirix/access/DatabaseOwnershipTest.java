@@ -7,6 +7,7 @@ import io.sirix.api.NodeTrx;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.access.trx.node.AbstractNodeTrxImpl;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -42,6 +43,7 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.OpenOption;
 import java.nio.file.attribute.PosixFilePermission;
@@ -1369,6 +1371,7 @@ final class DatabaseOwnershipTest {
           }
         }
         final ResourceSession<?, ?> session = database.beginResourceSession("resource");
+        ((AbstractResourceSession<?, ?>) session).getNotifications().setCloseTimeout(Duration.ofSeconds(20));
         final NodeTrx writer = session.beginNodeTrx(10, TimeUnit.MILLISECONDS);
         writer.addPreCommitHook(_ -> {
           if (firstHook.compareAndSet(true, false)) {
@@ -1398,9 +1401,7 @@ final class DatabaseOwnershipTest {
                     });
                     assertThrows(IllegalStateException.class, () -> Databases.removeDatabase(path));
                   } else {
-                    try (final Database<?> concurrent = openDatabase(path, type)) {
-                      assertTrue(concurrent.isOpen());
-                    }
+                    assertThrows(IllegalStateException.class, database::close);
                   }
                 }
                 default -> throw new IllegalArgumentException(callback);
@@ -1413,9 +1414,10 @@ final class DatabaseOwnershipTest {
           }
         });
         assertTrue(hookEntered.await(30, TimeUnit.SECONDS));
-        final Field lockField = AbstractNodeTrxImpl.class.getDeclaredField("lock");
+        final Field lockField = DatabaseNotifications.class.getDeclaredField("retirement");
         lockField.setAccessible(true);
-        final ReentrantLock transactionLock = (ReentrantLock) Objects.requireNonNull(lockField.get(writer));
+        final ReentrantLock notificationRetirement = (ReentrantLock) Objects.requireNonNull(
+            lockField.get(((AbstractResourceSession<?, ?>) session).getNotifications()));
         final Thread closer = Thread.ofPlatform().daemon().unstarted(() -> {
           try {
             if (forceRemoval) {
@@ -1431,11 +1433,10 @@ final class DatabaseOwnershipTest {
         try {
           closer.start();
           final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-          while (!transactionLock.hasQueuedThread(closer) && !cleanupFinished.isDone()
-              && System.nanoTime() < deadline) {
+          while (!notificationRetirement.isLocked() && !cleanupFinished.isDone() && System.nanoTime() < deadline) {
             Thread.sleep(1);
           }
-          assertTrue(transactionLock.hasQueuedThread(closer));
+          assertTrue(notificationRetirement.isLocked());
           System.out.println("READY");
           System.out.flush();
           System.in.read();

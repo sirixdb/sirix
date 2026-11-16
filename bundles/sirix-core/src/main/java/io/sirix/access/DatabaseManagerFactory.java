@@ -6,6 +6,10 @@ import io.sirix.api.Database;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.cache.ShardedPageCache;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Manual replacement for the Dagger-generated {@code DaggerDatabaseManager}. Creates and holds the
@@ -62,6 +66,26 @@ public final class DatabaseManagerFactory {
       this.jsonDatabaseFactory = jsonDatabaseFactory;
       this.xmlDatabaseFactory = xmlDatabaseFactory;
       this.sessions = sessions;
+    }
+
+    @Override
+    public void close() {
+      DatabaseNotifications.assertOutsideCallback();
+      final List<Database<?>> handles = new ArrayList<>();
+      synchronized (Databases.class) {
+        for (final Set<Database<?>> values : sessions.asMap().values()) {
+          handles.addAll(values);
+        }
+      }
+      Throwable failure = null;
+      for (final Database<?> handle : handles) {
+        try {
+          handle.close();
+        } catch (final RuntimeException | Error next) {
+          failure = ShardedPageCache.retainCleanupFailure(failure, next);
+        }
+      }
+      ShardedPageCache.rethrowCleanupFailure(failure);
     }
 
     @Override

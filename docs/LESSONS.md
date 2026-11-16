@@ -246,3 +246,13 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
 - A resource-wide completion wait needs a resource-wide pre-lock enclosing-execution guard, including sibling user sessions and raw page truncation. Register writer owners only at cold admission/release and keep different resources independent. Admit pre-hooks through the same reader-lifetime boundary as listeners/post-hooks while preserving their synchronous veto; test both publication phases, cross-session readers and retry after failure. See [the resource execution/pre-hook postmortem](postmortems/resource-execution-prehook-lifetime.md).
 
 - Registration proves ownership, not future callback delivery. Route notifications only to explicit/current execution, preserve explicit async-epoch ownership, and let idle page maintenance deliver its own notifications after cleanup and lock release. Test raw bound-page operations followed by sequential sibling-session cleanup and require callback results before the publishing call returns. See [the idle publication postmortem](postmortems/idle-page-publication-dispatch.md).
+
+## Database notification ownership
+
+Reject lifecycle reentry before database-handle admission, not only inside resource/session cleanup.
+Keep synchronous pre-publication veto hooks separate from asynchronous after-durability notifications.
+Bound callback drain, drop only unopened queued work, and retain live reader/backend dependencies on
+close timeout. Recovery after truncation must select an existing durable revision, even if a node cursor still names discarded history. Resolve dispatcher read views from durable roots even while writer pending roots exist.
+Exercise the public wrapper and nested database scopes in deterministic interleavings; never treat
+cancellation or a deadline as proof that a callback released its readers.
+See [postmortem](postmortems/database-notification-dispatch.md) and [contract](hooks.md).

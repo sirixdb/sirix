@@ -102,11 +102,11 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
   Database<T> removeResource(String resourceName);
 
   /**
-   * Close this handle and its resource sessions. Other handles at the same canonical database path
-   * retain their sessions and committed view. The last handle closes the shared database and releases
-   * the operating-system ownership lock; the persistent lock file remains in place.
+   * Stop notification admission and drain callbacks only to the configured deadline. Queued work may
+   * be abandoned at close; a live callback causes a timeout with its dependent readers/storage
+   * retained for retry. Same-database callback reentry rejects before any lock or closing wait.
    *
-   * @throws SirixException if anything happens within sirix.
+   * @throws IllegalStateException if invoked from a callback of this database
    */
   @Override
   void close();

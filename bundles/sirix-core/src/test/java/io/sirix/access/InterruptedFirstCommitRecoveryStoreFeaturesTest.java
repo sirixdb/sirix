@@ -679,6 +679,7 @@ class InterruptedFirstCommitRecoveryStoreFeaturesTest {
   @SuppressWarnings("unchecked")
   private JsonResourceSessionImpl sessionBoundary(final StoreFeatures features, final Semaphore writeLock) {
     final ResourceStore<JsonResourceSession> resourceStore = mock(ResourceStore.class);
+    when(resourceStore.getNotifications()).thenReturn(new DatabaseNotifications());
     return new JsonResourceSessionImpl(resourceStore, config, mock(BufferManager.class), mock(IOStorage.class),
         new UberPage(2, features), writeLock, null, "feature-test", mock(StorageEngineWriterFactory.class));
   }

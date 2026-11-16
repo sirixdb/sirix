@@ -105,48 +105,27 @@ terminal after the permit is released.
 Public transaction close retains its dirty-transaction protection. Resource-session
 close can explicitly abort a dirty successor after fencing the failed predecessor;
 see [`ResourceSession.close()`](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java).
-The API contracts own callback behavior: [PreCommitHook](../bundles/sirix-core/src/main/java/io/sirix/api/PreCommitHook.java)
-for veto timing, [PostCommitHook](../bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java)
-for pinned cursor ownership and error handling, and
-[revision listeners](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java)
-for independent-reader delivery. Their lifecycle restrictions apply across user sessions sharing
-the resource. KEEP_OPEN retains lifetime write admission P during notification delivery.
+The [database hook contract](hooks.md) owns callback timing, error handling and lock order.
+Pre-hooks run synchronously before publication; post-hooks and listeners use a dedicated database
+dispatcher after durable publication. All hardening paths, including inline setup/submission
+fallbacks, schedule notifications at that publication boundary. Dispatcher read-only views resolve
+durable revision roots; only writer readers with intent logs can use unpublished pending roots.
+Neither successor mutation nor writer close waits for post delivery.
 
-Callback completion no longer reserves ordinary execution: timed mutation lock acquisition is
-ordinary ReentrantLock acquisition, and count-only/no-lock row paths remain lock-free. Close
-fences outstanding dispatch before retiring resources; destructive truncation also fences pinned
-views before invalidating history. Async notifications belong to their hardening-completion batch
-and deliver after slot release, keeping foreground successor mutation independent of durability.
+External close rejects enclosing writer execution and callback reentry before admission monitors.
+Database/handle/session retirement and destructive history changes establish bounded notification
+quiescence. On timeout queued work is discarded, while active callback readers and dependent
+storage/file ownership remain reachable for retry. A successful scoped retirement resumes deferred
+notifications from other open sessions; final database close stops the dispatcher. Callback errors
+are logged independently and cannot veto published data or skip later notification attempts.
 
-An external closer must enter outside every enclosing T acquisition. It cleans up at the
-shared execution boundary, releases T, fences scheduler termination, then removes the node
-owner and releases P atomically in the session registry. There is no scheduler-thread close
-exception. Untimed row operations retain their existing no-lock contract; cold commit,
-rollback and close boundaries share callback execution ownership. JSON rollback's bookkeeping
-resets run inside that boundary, without an outer transaction monitor. The registry retains
-node ownership through reader cleanup and scheduler fencing; absent owners make repeated
-release callbacks no-ops, including after session closure. Remaining internal owners prevent
-session finalization. Open checks precede recovery bookkeeping under execution ownership.
-Session close snapshots under its monitor, releases it before node abort/fencing,
-and serializes the reader/independent-owner tail only after every node writer and resource-shared
-callback is fenced. Maintenance notifications run while the session is still open. Reader retirement
-excludes new notification admission; initial and late node/shared/page readers share this final
-close phase, including page-guard release. An unfinished node owner retains those reader dependencies
-for retry while independent page-writer close attempts continue.
-Internal abort owns rollback and cleanup as one atomic node transition, preserving
-rollback failures without a stale public rollback between competing closers.
-A short close-attempt count excludes new writers and user sessions during the
-unlocked phase; existing worker reads remain allowed so maintenance can finish. A live append worker that refuses teardown keeps its owners reachable
-for retry. After fencing, independent cleanup continues despite failures, retaining
-the first error and suppressing later ones. Terminal object state alone does not
-prove recovery; the [admission barrier](operations.md#marker-recovery) protects reuse.
-
-Notification admission and completion ownership are resource-shared, covering cross-session,
-standalone and maintenance publication. Admission is acquired before entering the session monitor;
-completion waits never retain it. Truncation drains local callbacks, rechecks hardening after
-callback waits release T, then excludes shared notification admission while invalidating history.
-The [shared lifetime postmortem](postmortems/shared-callback-history-lifetime.md) owns the root cause,
-lock order and regression mapping.
+Node close acquires execution with a bound, preserves physical worker termination fences, then
+removes its registry ownership and releases P exactly once after scheduler termination. Session
+close snapshots outside node cleanup and retains every unfinished node owner's page writers and
+ordinary reader dependencies. Independent owners still receive close; the first failure is
+preserved and later failures are suppressed. A close-attempt count excludes new writers during
+unlocked cleanup, while admitted reads remain available to active callbacks. Marker-driven recovery
+at the next exclusive admission remains the sole aborted-offset reuse barrier.
 
 `NodeTransactionAbortLifecycleTest` covers paired setup/submission and hardening
 faults, retained causes, dirty successors and paused workers in XML and JSON.
@@ -189,6 +168,6 @@ using `KEEP_OPEN_ASYNC_FLUSH` (see the shredding discussion in
 `ARCHITECTURE.md`); `KEEP_OPEN_ASYNC_COMMIT` is for ingest that needs
 periodic *queryable* checkpoints without paying synchronous barriers.
 
-Resource retirement rejects enclosing execution on any same-resource writer before taking retirement locks; this applies across user sessions and to page truncation. Validated public node truncation identifies its own cold execution after fencing local work. Pre-hook phases also own shared completion through callback return or veto, with context restored before completion. Different resources remain independent; ordinary locking and mutation paths are unchanged. See [the resource execution and pre-hook specification](postmortems/resource-execution-prehook-lifetime.md).
-
-Idle raw page publications deliver before their operation returns: truncation queues through maintenance ownership and drains after history/retirement release, while close publishes after terminal teardown. A registered node writer is used for notification routing only when the current thread actually owns its execution/scheduler boundary. Background hardening explicitly installs its existing cold owner context and restores it before async slot release, preserving epoch dispatch and successor overlap. See [the idle publication specification](postmortems/idle-page-publication-dispatch.md).
+Resource retirement rejects enclosing execution on any same-resource writer before retirement locks.
+The former resource-shared unbounded completion fences and outer-unlock notification queues are
+superseded by [bounded database dispatch](hooks.md); the earlier postmortems record historical designs.

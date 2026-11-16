@@ -1,6 +1,7 @@
 package io.sirix.access.trx.node;
 
 import io.sirix.access.trx.RevisionEpochTracker;
+import io.sirix.access.DatabaseNotifications;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -79,22 +80,18 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void assertCanRetire();
 
-  void enterCommitCallback();
+  DatabaseNotifications getNotifications();
 
-  void exitCommitCallback();
+  void runPreCommitCallback(Runnable callback);
 
-  Runnable admitCallback(Runnable callback);
+  void enqueueNotification(Runnable callback);
 
-  void beginNotificationRetirement();
-
-  void endNotificationRetirement();
-
-  void dispatchSessionCallbacks(@Nullable Throwable priorFailure);
+  DatabaseNotifications.Retirement retireNotifications();
 
   @Nullable
-  InternalNodeTrx<?> enterCommitExecution(InternalNodeTrx<?> owner);
+  InternalNodeTrx<?> enterHistoryRetirement(InternalNodeTrx<?> owner);
 
-  void exitCommitExecution(@Nullable InternalNodeTrx<?> previous);
+  void exitHistoryRetirement(@Nullable InternalNodeTrx<?> previous);
 
   void assertAccess(int revision);
 
@@ -136,16 +133,13 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
   R beginPostCommitReadOnlyTrx(int revision);
 
   /**
-   * Observe durable publication, including pipelined commits. Delivery follows outermost execution
-   * and scheduled task completion with T released; lifetime admission P remains owned. Lifecycle
-   * calls on this resource, including through another user session, reject before locking with
-   * IllegalStateException. A listener receives only the revision number; use an independent reader
-   * for that revision, never a captured mutable writer cursor. Async delivery follows hardening
-   * completion without blocking foreground mutations. Completion ownership is shared across user
-   * sessions and fenced before reader retirement or destructive truncation. RuntimeException failures
-   * are logged; Error is retained by the owning node transaction and rethrown by close after
-   * independent listeners and owner release. Standalone dispatch rethrows after attempting
-   * independent listeners. Neither can veto durable publication.
+   * Observe durable revisions asynchronously on the database notification dispatcher, ordered per
+   * resource. Each invocation has a dispatcher-owned read scope pinned to that revision. Use the
+   * supplied revision with independent readers; never borrow a mutable writer cursor. Commit does not
+   * wait for delivery. Same-database callback lifecycle reentry rejects before locks/waits. Close
+   * drains only to its configured deadline, may abandon queued notifications, and retains active
+   * reader ownership on timeout. Failures are reported by the dispatcher and do not veto publication.
+   * Delivery attempts are at least once while notification admission is open.
    */
   void addRevisionListener(IntConsumer listener);
 

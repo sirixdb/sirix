@@ -4364,6 +4364,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @SuppressWarnings("java:S1181")
   public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isAutoCommitting, final boolean isIntermediateCommit) {
+    storageEngineReader.resourceSession.assertNotInCommitCallback();
     storageEngineReader.assertNotClosed();
     assertTransactionWritable();
 
@@ -4388,6 +4389,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public UberPage commitWritePages(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
+    storageEngineReader.resourceSession.assertNotInCommitCallback();
     storageEngineReader.assertNotClosed();
     assertTransactionWritable();
 
@@ -4474,6 +4476,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void hardenCommit(final UberPage uberPage, final boolean isIntermediateCommit) {
+    storageEngineReader.resourceSession.assertNotInCommitCallback();
     {
       final boolean timing = LOGGER.isDebugEnabled();
 
@@ -5255,6 +5258,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
   @SuppressWarnings("java:S1181")
   public UberPage rollback() {
+    storageEngineReader.resourceSession.assertNotInCommitCallback();
     storageEngineReader.assertNotClosed();
 
     Throwable asyncFailure = null;
@@ -5360,6 +5364,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @SuppressWarnings({"java:S1181", "java:S3776"})
   @Override
   public void close() {
+    storageEngineReader.resourceSession.assertNotInCommitCallback();
     if (isClosed) {
       return;
     }
@@ -6634,9 +6639,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public StorageEngineWriter truncateTo(final int revision) {
     final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession;
     session.assertNotInCommitCallback();
-    session.beginNotificationRetirement();
-    Throwable failure = null;
-    try {
+    try (var retirement = session.retireNotifications()) {
       storageEngineReader.resourceSession.assertAccess(revision);
       final DerivedIndexMaintainer.Resource derived =
           ((AbstractResourceSession<?, ?>) getResourceSession()).getDerivedResource();
@@ -6651,12 +6654,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       } finally {
         derived.unlockHistory();
       }
-    } catch (final RuntimeException | Error next) {
-      failure = next;
-      throw next;
-    } finally {
-      session.endNotificationRetirement();
-      session.dispatchSessionCallbacks(failure);
     }
   }
 

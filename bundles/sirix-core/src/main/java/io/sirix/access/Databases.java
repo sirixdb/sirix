@@ -255,6 +255,23 @@ public final class Databases {
    */
   static final DatabaseManager MANAGER = DatabaseManagerFactory.create();
 
+  static {
+    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+      try {
+        shutdown();
+      } catch (final RuntimeException | Error failure) {
+        logger.warn("Database shutdown retained owners after cleanup failure", failure);
+      }
+    }, "sirix-database-shutdown"));
+  }
+
+  public static void shutdown() {
+    DatabaseNotifications.assertOutsideCallback();
+    MANAGER.close();
+    freeAllocatedMemory();
+  }
+
+
   /**
    * Get the database type
    *
@@ -391,6 +408,7 @@ public final class Databases {
   // Throwable identity, not value equality, determines whether addSuppressed would suppress itself.
   @SuppressWarnings("ReferenceEquality")
   public static void removeDatabase(final Path dbFile) {
+    DatabaseNotifications.assertMayRetireDatabase(dbFile);
     requireNonNull(dbFile);
     ResourceAccessScope.checkDatabase(dbFile, true);
     synchronized (Databases.class) {
