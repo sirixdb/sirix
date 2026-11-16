@@ -173,44 +173,59 @@ public final class HOTMalformedSubtreeDetector {
     }
 
     final int[] partials = indirect.getPartialKeys();
-    final boolean partialsUsable = partials.length >= n;
+    final Defect partialViolation = firstPartialViolation(partials, n);
+    if (partialViolation != null) {
+      return partialViolation;
+    }
+    final Defect trieViolation = firstTrieViolation(indirect, n);
+    if (trieViolation != null) {
+      return trieViolation;
+    }
+    final Defect rangeViolation = firstRangeViolation(indirect, n);
+    if (rangeViolation != null) {
+      return rangeViolation;
+    }
+    return firstConstancyViolation(indirect, partials, n);
+  }
 
+  private static @Nullable Defect firstPartialViolation(final int[] partials, final int n) {
+    if (partials.length < n) {
+      return null;
+    }
     // I3 — partial-key uniqueness. n <= 32, so the O(n^2) scan beats a boxed HashSet.
-    if (partialsUsable) {
-      for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
-          if (partials[i] == partials[j]) {
-            return new Defect("I3-partial-key-uniqueness",
-                "duplicate partial 0x" + Integer.toHexString(partials[i]) + " at children " + i + " and " + j);
-          }
+    for (int i = 0; i < n; i++) {
+      for (int j = i + 1; j < n; j++) {
+        if (partials[i] == partials[j]) {
+          return new Defect("I3-partial-key-uniqueness",
+              "duplicate partial 0x" + Integer.toHexString(partials[i]) + " at children " + i + " and " + j);
         }
       }
     }
 
     // I4 — first-partial-zero: the unsigned-smallest stored partial must be 0.
-    if (partialsUsable && n > 0) {
-      int minPartial = partials[0];
-      for (int i = 1; i < n; i++) {
-        if (Integer.compareUnsigned(partials[i], minPartial) < 0) {
-          minPartial = partials[i];
-        }
+    int minPartial = partials[0];
+    for (int i = 1; i < n; i++) {
+      if (Integer.compareUnsigned(partials[i], minPartial) < 0) {
+        minPartial = partials[i];
       }
-      if (minPartial != 0) {
-        return new Defect("I4-first-partial-zero",
-            "smallest stored partial is 0x" + Integer.toHexString(minPartial) + " (must be 0)");
-      }
+    }
+    if (minPartial != 0) {
+      return new Defect("I4-first-partial-zero",
+          "smallest stored partial is 0x" + Integer.toHexString(minPartial) + " (must be 0)");
     }
 
     // I7 — partial keys strictly ascending (unsigned) across child slots.
-    if (partialsUsable) {
-      for (int i = 1; i < n; i++) {
-        if (Integer.compareUnsigned(partials[i], partials[i - 1]) <= 0) {
-          return new Defect("I7-partial-keys-sorted", "partials not ascending at " + (i - 1) + "->" + i + ": 0x"
-              + Integer.toHexString(partials[i - 1]) + " vs 0x" + Integer.toHexString(partials[i]));
-        }
+    for (int i = 1; i < n; i++) {
+      if (Integer.compareUnsigned(partials[i], partials[i - 1]) <= 0) {
+        return new Defect("I7-partial-keys-sorted", "partials not ascending at " + (i - 1) + "->" + i + ": 0x"
+            + Integer.toHexString(partials[i - 1]) + " vs 0x" + Integer.toHexString(partials[i]));
       }
     }
 
+    return null;
+  }
+
+  private @Nullable Defect firstTrieViolation(final HOTIndirectPage indirect, final int n) {
     // I11 — trie condition. Every indirect child's MSB must be strictly less significant (a
     // larger absolute bit position) than this node's MSB. A violation belongs to this parent.
     final int parentMSB = indirect.getMostSignificantBitIndex();
@@ -230,6 +245,10 @@ public final class HOTMalformedSubtreeDetector {
       }
     }
 
+    return null;
+  }
+
+  private @Nullable Defect firstRangeViolation(final HOTIndirectPage indirect, final int n) {
     // I8 — children ordered by ascending first-key of their subtree — and I12, its strict form:
     // consecutive children's key RANGES must not interleave. I8 alone compares first keys, so a
     // child whose subtree also holds keys sorting after its successor's first key passes it; point
@@ -266,10 +285,14 @@ public final class HOTMalformedSubtreeDetector {
       }
     }
 
+    return null;
+  }
+
+  private @Nullable Defect firstConstancyViolation(final HOTIndirectPage indirect, final int[] partials, final int n) {
     // I5 — leaf-constancy. The expensive check (a subtree-wide key walk) runs last so a cheaper
     // defect short-circuits it. For each child with a non-zero stored partial, every key in the
     // child's subtree must have a dense partial key that supersets the stored partial.
-    if (partialsUsable) {
+    if (partials.length >= n) {
       final int[] failingDensePK = new int[1];
       for (int i = 0; i < n; i++) {
         final int sparsePartial = partials[i];

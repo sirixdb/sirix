@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.MAP;
 
 class ToolHandlersIntegrationTest {
 
@@ -363,10 +364,10 @@ class ToolHandlersIntegrationTest {
         }
         final var result = readWriteHandlers.revert(null, request(args));
         assertThat(result.isError()).isFalse();
-        final var content = (Map<?, ?>) result.structuredContent();
-        assertThat(content.get("revision")).isEqualTo(previousHead + 1);
-        assertThat(content.get("previousHead")).isEqualTo(previousHead);
-        assertThat(content.get("targetRevision")).isEqualTo(previousHead);
+        assertThat(result.structuredContent()).asInstanceOf(MAP)
+                                              .containsEntry("revision", previousHead + 1)
+                                              .containsEntry("previousHead", previousHead)
+                                              .containsEntry("targetRevision", previousHead);
         try (final var db = Databases.openJsonDatabase(tempDir.resolve(DB_NAME));
             final var session = db.beginResourceSession(RESOURCE_NAME)) {
           assertThat(session.getMostRecentRevisionNumber()).isEqualTo(previousHead + 1);

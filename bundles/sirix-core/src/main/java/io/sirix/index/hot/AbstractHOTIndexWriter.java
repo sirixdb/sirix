@@ -573,41 +573,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     footprint.visitedPages[footprint.pages++] = page;
 
     if (page instanceof HOTLeafPage leaf) {
-      if (footprint.leaves >= MAX_BOUNDED_REBUILD_LEAVES) {
-        footprint.reject(RebuildFootprintStatus.LEAF_LIMIT);
-        return;
-      }
-      footprint.leaves++;
-      final int entryCount = leaf.getEntryCount();
-      final int sideReferenceCount = leaf.segmentRefCount();
-      final int usedSlotBytes = leaf.getUsedSlotsSize();
-      final int commonPrefixLength = leaf.getCommonPrefixLen();
-      if (entryCount < 0 || entryCount > HOTLeafPage.MAX_ENTRIES || sideReferenceCount < 0 || usedSlotBytes < 0
-          || commonPrefixLength < 0) {
-        footprint.reject(RebuildFootprintStatus.INVALID_PAGE);
-        return;
-      }
-      if (entryCount > MAX_BOUNDED_REBUILD_ENTRIES - footprint.entries) {
-        footprint.entries += entryCount;
-        footprint.reject(RebuildFootprintStatus.ENTRY_LIMIT);
-        return;
-      }
-      footprint.entries += entryCount;
-      if ((long) sideReferenceCount > (long) MAX_BOUNDED_REBUILD_SIDE_REFS - footprint.sideReferences) {
-        footprint.sideReferences = MAX_BOUNDED_REBUILD_SIDE_REFS + 1;
-        footprint.reject(RebuildFootprintStatus.SIDE_REFERENCE_LIMIT);
-        return;
-      }
-      footprint.sideReferences += sideReferenceCount;
-      // getKey(i) reconstructs the leaf's common prefix for every materialized key; used slots
-      // already cover suffixes and values. This is therefore the relevant transient byte footprint.
-      final long leafMaterializedBytes = usedSlotBytes + (long) entryCount * commonPrefixLength;
-      if (leafMaterializedBytes > MAX_BOUNDED_REBUILD_MATERIALIZED_BYTES - footprint.materializedBytes) {
-        footprint.materializedBytes = MAX_BOUNDED_REBUILD_MATERIALIZED_BYTES + 1;
-        footprint.reject(RebuildFootprintStatus.MATERIALIZED_BYTE_LIMIT);
-        return;
-      }
-      footprint.materializedBytes += leafMaterializedBytes;
+      measureBoundedRebuildLeaf(leaf, footprint);
       return;
     }
 
@@ -615,6 +581,49 @@ public abstract class AbstractHOTIndexWriter<K> {
       footprint.reject(RebuildFootprintStatus.UNSUPPORTED_PAGE);
       return;
     }
+    measureBoundedRebuildChildren(indirect, resolver, footprint, depth);
+  }
+
+  private static void measureBoundedRebuildLeaf(final HOTLeafPage leaf, final RebuildFootprint footprint) {
+    if (footprint.leaves >= MAX_BOUNDED_REBUILD_LEAVES) {
+      footprint.reject(RebuildFootprintStatus.LEAF_LIMIT);
+      return;
+    }
+    footprint.leaves++;
+    final int entryCount = leaf.getEntryCount();
+    final int sideReferenceCount = leaf.segmentRefCount();
+    final int usedSlotBytes = leaf.getUsedSlotsSize();
+    final int commonPrefixLength = leaf.getCommonPrefixLen();
+    if (entryCount < 0 || entryCount > HOTLeafPage.MAX_ENTRIES || sideReferenceCount < 0 || usedSlotBytes < 0
+        || commonPrefixLength < 0) {
+      footprint.reject(RebuildFootprintStatus.INVALID_PAGE);
+      return;
+    }
+    if (entryCount > MAX_BOUNDED_REBUILD_ENTRIES - footprint.entries) {
+      footprint.entries += entryCount;
+      footprint.reject(RebuildFootprintStatus.ENTRY_LIMIT);
+      return;
+    }
+    footprint.entries += entryCount;
+    if ((long) sideReferenceCount > (long) MAX_BOUNDED_REBUILD_SIDE_REFS - footprint.sideReferences) {
+      footprint.sideReferences = MAX_BOUNDED_REBUILD_SIDE_REFS + 1;
+      footprint.reject(RebuildFootprintStatus.SIDE_REFERENCE_LIMIT);
+      return;
+    }
+    footprint.sideReferences += sideReferenceCount;
+    // getKey(i) reconstructs the leaf's common prefix for every materialized key; used slots
+    // already cover suffixes and values. This is therefore the relevant transient byte footprint.
+    final long leafMaterializedBytes = usedSlotBytes + (long) entryCount * commonPrefixLength;
+    if (leafMaterializedBytes > MAX_BOUNDED_REBUILD_MATERIALIZED_BYTES - footprint.materializedBytes) {
+      footprint.materializedBytes = MAX_BOUNDED_REBUILD_MATERIALIZED_BYTES + 1;
+      footprint.reject(RebuildFootprintStatus.MATERIALIZED_BYTE_LIMIT);
+      return;
+    }
+    footprint.materializedBytes += leafMaterializedBytes;
+  }
+
+  private static void measureBoundedRebuildChildren(final HOTIndirectPage indirect,
+      final HOTMalformedSubtreeDetector.PageResolver resolver, final RebuildFootprint footprint, final int depth) {
     final int childCount = indirect.getNumChildren();
     if (childCount < 2 || childCount > HOTIndirectPage.MAX_NODE_ENTRIES) {
       footprint.reject(RebuildFootprintStatus.INVALID_PAGE);
@@ -3548,6 +3557,10 @@ public abstract class AbstractHOTIndexWriter<K> {
       return true;
     }
 
+    return malformedStoredPartials(candidate, n) || malformedChildRanges(candidate, n);
+  }
+
+  private static boolean malformedStoredPartials(final HOTIndirectPage candidate, final int n) {
     final int[] partials = candidate.getPartialKeysRef();
     if (partials != null && partials.length >= n) {
       int minPartial = partials[0];
@@ -3563,33 +3576,25 @@ public abstract class AbstractHOTIndexWriter<K> {
         return true; // I4: smallest stored partial must be 0
       }
     }
+    return false;
+  }
+
+  private boolean malformedChildRanges(final HOTIndirectPage candidate, final int n) {
     byte[] previousFirstKey = null;
     byte[] previousLastKey = null;
     final int parentMostSignificantBit = candidate.getMostSignificantBitIndex();
     for (int i = 0; i < n; i++) {
       final PageReference childRef = candidate.getChildReference(i);
-      if (childRef == null) {
+      if (malformedChildReference(childRef, parentMostSignificantBit)) {
         return true;
-      }
-      final Page childPage = resolveHOTPageForTraversal(childRef);
-      if (childPage == null) {
-        return true;
-      }
-      if (parentMostSignificantBit >= 0 && childPage instanceof HOTIndirectPage childIndirect) {
-        final int childMostSignificantBit = childIndirect.getMostSignificantBitIndex();
-        if (childMostSignificantBit >= 0 && childMostSignificantBit <= parentMostSignificantBit) {
-          return true; // I11: child bits must be strictly less significant than the parent's
-        }
       }
       final byte[] firstKey = firstKeyOfSubtree(childRef);
       if (firstKey == null) {
         continue;
       }
-      if (previousFirstKey != null && Arrays.compareUnsigned(previousFirstKey, firstKey) >= 0) {
-        return true; // I8: children not ordered by first-key
-      }
-      if (previousLastKey != null && Arrays.compareUnsigned(previousLastKey, firstKey) >= 0) {
-        return true; // I12: the preceding sibling's range reaches into this child's
+      if ((previousFirstKey != null && Arrays.compareUnsigned(previousFirstKey, firstKey) >= 0)
+          || (previousLastKey != null && Arrays.compareUnsigned(previousLastKey, firstKey) >= 0)) {
+        return true; // I8/I12: first keys must ascend and sibling ranges must not overlap
       }
       previousFirstKey = firstKey;
       if (i < n - 1) {
@@ -3600,6 +3605,23 @@ public abstract class AbstractHOTIndexWriter<K> {
         if (lastKey != null) {
           previousLastKey = lastKey;
         }
+      }
+    }
+    return false;
+  }
+
+  private boolean malformedChildReference(final PageReference childRef, final int parentMostSignificantBit) {
+    if (childRef == null) {
+      return true;
+    }
+    final Page childPage = resolveHOTPageForTraversal(childRef);
+    if (childPage == null) {
+      return true;
+    }
+    if (parentMostSignificantBit >= 0 && childPage instanceof HOTIndirectPage childIndirect) {
+      final int childMostSignificantBit = childIndirect.getMostSignificantBitIndex();
+      if (childMostSignificantBit >= 0 && childMostSignificantBit <= parentMostSignificantBit) {
+        return true; // I11: child bits must be strictly less significant than the parent's
       }
     }
     return false;

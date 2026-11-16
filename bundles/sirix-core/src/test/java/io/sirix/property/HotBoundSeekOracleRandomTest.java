@@ -40,7 +40,7 @@ final class HotBoundSeekOracleRandomTest {
     final long firstSeed = System.nanoTime();
     System.out.println("[bound-oracle] random bulk-built seeds: " + BULK_SEEDS + " from " + firstSeed);
     for (int i = 0; i < BULK_SEEDS; i++) {
-      HOTTrieReaderBoundOracle.runBulkBuiltTries(firstSeed + i);
+      HOTTrieReaderBoundOracle.assertBulkBuiltTriesMatchSortedReference(firstSeed + i);
     }
   }
 
@@ -50,7 +50,8 @@ final class HotBoundSeekOracleRandomTest {
     System.out.println("[bound-oracle] random writer-built seeds: " + WRITER_SEEDS + " from " + firstSeed);
     for (int i = 0; i < WRITER_SEEDS; i++) {
       final long seed = firstSeed + i;
-      HOTTrieReaderBoundOracle.runWriterBuiltTrie(seed, temporaryDirectory.resolve("writer-" + seed));
+      HOTTrieReaderBoundOracle.assertWriterBuiltTrieMatchesSortedReference(seed,
+          temporaryDirectory.resolve("writer-" + seed));
     }
   }
 }

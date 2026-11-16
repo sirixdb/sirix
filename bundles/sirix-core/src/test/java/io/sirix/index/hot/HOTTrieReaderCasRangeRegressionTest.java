@@ -176,7 +176,7 @@ final class HOTTrieReaderCasRangeRegressionTest {
         titles.add(rtx.getValue());
       });
     }
-    Collections.sort(titles);
+    titles.sort(null);
     return titles;
   }
 

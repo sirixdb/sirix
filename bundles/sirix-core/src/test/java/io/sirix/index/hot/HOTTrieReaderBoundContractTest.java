@@ -482,8 +482,9 @@ final class HOTTrieReaderBoundContractTest {
             assertKey(key(0x18), lower.leaf.getKey(lower.indexInLeaf), "lowerBound(12) after a reclaimed leaf");
             assertEquals(1, lower.leaf.getGuardCount(), "after a torn read the reader guards the leaf it returns");
           } else {
+            final byte[] searchKey = key(0x12);
             assertSame(readFailure,
-                assertThrows(IllegalStateException.class, () -> reader.lowerBound(root, key(0x12))));
+                assertThrows(IllegalStateException.class, () -> reader.lowerBound(root, searchKey)));
           }
           assertFalse(armed[0], "the disturbance must have fired");
         }

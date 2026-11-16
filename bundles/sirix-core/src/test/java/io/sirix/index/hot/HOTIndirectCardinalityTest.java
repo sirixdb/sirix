@@ -6,6 +6,7 @@ import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTIndirectPage.LayoutType;
 import io.sirix.index.hot.page.HOTIndirectPage.NodeType;
 import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageReference;
@@ -48,8 +49,9 @@ final class HOTIndirectCardinalityTest {
     assertEquals(2,
         HOTIndirectPage.createBiNode(1, 1, 0, new PageReference(), new PageReference(), 1).getNumChildren());
     for (final int[] bits : new int[][] {{0}, {0, 72}}) {
-      assertThrows(IllegalArgumentException.class, () -> HOTBulkBuilder.assembleIndirect(bits, new int[] {0},
-          new PageReference[] {new PageReference()}, 1, 1, IndexType.CAS, () -> 1));
+      final PageReference[] children = {new PageReference()};
+      assertThrows(IllegalArgumentException.class,
+          () -> HOTBulkBuilder.assembleIndirect(bits, new int[] {0}, children, 1, 1, IndexType.CAS, () -> 1));
     }
   }
 
@@ -68,8 +70,9 @@ final class HOTIndirectCardinalityTest {
           body.writeByte(nodeType.getID());
           body.writeByte(layout.getID());
           body.writeInt(count);
+          final BytesIn<?> source = body.bytesForRead();
           final IllegalStateException error = assertThrows(IllegalStateException.class,
-              () -> PageKind.HOT_INDIRECT_PAGE.deserializePage(config, body.bytesForRead(), SerializationType.DATA));
+              () -> PageKind.HOT_INDIRECT_PAGE.deserializePage(config, source, SerializationType.DATA));
           assertTrue(error.getMessage().contains("child count"));
           assertTrue(error.getMessage().contains(Integer.toString(count)));
         }

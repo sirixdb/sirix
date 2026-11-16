@@ -137,7 +137,7 @@ public final class HOTTrieReaderBoundOracle {
    * Build one trie per {@link Shape} with {@link HOTBulkBuilder} and compare every probe with the
    * oracle. Value sizes vary per key so that leaves hold anything from one entry to several hundred.
    */
-  public static Coverage runBulkBuiltTries(final long seed) {
+  public static Coverage assertBulkBuiltTriesMatchSortedReference(final long seed) {
     final Coverage total = new Coverage();
     for (final Shape shape : Shape.values()) {
       final Random random = new Random(seed * 31 + shape.ordinal());
@@ -229,7 +229,7 @@ public final class HOTTrieReaderBoundOracle {
    * below or above a whole run of leaves.
    * </p>
    */
-  public static Coverage runWriterBuiltTrie(final long seed, final Path databasePath) {
+  public static Coverage assertWriterBuiltTrieMatchesSortedReference(final long seed, final Path databasePath) {
     final Random random = new Random(seed);
     final List<byte[]> logicalKeys = clusteredKeys(random, 1 + (int) Math.floorMod(seed, 4L), 2_400);
     final List<byte[]> insertionOrder = new ArrayList<>(logicalKeys);

@@ -619,12 +619,16 @@ public final class HOTTrieReader implements AutoCloseable {
       return new LowerBoundResult(candidateLeaf, insertionPoint);
     }
 
+    return boundOutsideCandidateLeaf(candidateLeaf, searchKey, searchKeyLen, insertionPoint == 0);
+  }
+
+  private LowerBoundResult boundOutsideCandidateLeaf(final HOTLeafPage candidateLeaf, final byte[] searchKey,
+      final int searchKeyLen, final boolean belowLeaf) {
     // Phase 2c: searchKey sorts below every entry of the candidate (insertionPoint == 0) or above
     // every entry. Neither end is decided by this leaf: PEXT routes on the discriminative bits of
     // the path only, so an absent key that differs from the stored keys in a more significant,
     // non-discriminative bit is routed by its lower bits into the middle of a subtree it sorts
     // entirely below (or above), while earlier (later) leaves hold keys on its other side.
-    final boolean belowLeaf = insertionPoint == 0;
     if (pathDepth == 0) {
       // The root is a leaf, hence the only one: the insertion point decides alone.
       return belowLeaf
@@ -654,6 +658,10 @@ public final class HOTTrieReader implements AutoCloseable {
           : firstEntryOfNextLeaf();
     }
 
+    return boundAtBranchingSubtree(discBit, belowLeaf);
+  }
+
+  private LowerBoundResult boundAtBranchingSubtree(final int discBit, final boolean belowLeaf) {
     // Phase 3: walk stack up while discBit is BELOW the level's most-significant disc bit.
     // (Smaller absoluteBitIndex = "more significant" = earlier in key.) The C++ reference
     // condition is `significantBitIdx < mostSignificantBitIndexes[depth]`; we mirror it.

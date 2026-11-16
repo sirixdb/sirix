@@ -39,7 +39,7 @@ final class HOTTrieReaderBoundPropertyTest {
   void bulkBuiltTriesAgreeWithTheSortedReferenceOnEveryProbe() {
     final HOTTrieReaderBoundOracle.Coverage coverage = new HOTTrieReaderBoundOracle.Coverage();
     for (final long seed : BULK_SEEDS) {
-      coverage.add(HOTTrieReaderBoundOracle.runBulkBuiltTries(seed));
+      coverage.add(HOTTrieReaderBoundOracle.assertBulkBuiltTriesMatchSortedReference(seed));
     }
     System.out.println("[bound-oracle] bulk-built: " + coverage);
     assertEveryGeometryWasReached(coverage);
@@ -53,7 +53,8 @@ final class HOTTrieReaderBoundPropertyTest {
   void writerBuiltTriesAgreeWithTheSortedReferenceOnEveryProbe() {
     final HOTTrieReaderBoundOracle.Coverage coverage = new HOTTrieReaderBoundOracle.Coverage();
     for (final long seed : WRITER_SEEDS) {
-      coverage.add(HOTTrieReaderBoundOracle.runWriterBuiltTrie(seed, temporaryDirectory.resolve("writer-" + seed)));
+      coverage.add(HOTTrieReaderBoundOracle.assertWriterBuiltTrieMatchesSortedReference(seed,
+          temporaryDirectory.resolve("writer-" + seed)));
     }
     System.out.println("[bound-oracle] writer-built: " + coverage);
     assertEveryGeometryWasReached(coverage);
