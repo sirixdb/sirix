@@ -159,8 +159,8 @@ public final class NodeUpgradeManager {
    * @return true if the node should be downgraded
    */
   public static boolean shouldDowngrade(HOTIndirectPage node, int newChildCount) {
-    if (newChildCount < 1) {
-      return true; // Node should be removed entirely
+    if (newChildCount < 2) {
+      return true; // Remove an empty node or collapse a unary node to its remaining child.
     }
     NodeType currentType = node.getNodeType();
     NodeType optimalType = determineNodeType(newChildCount);

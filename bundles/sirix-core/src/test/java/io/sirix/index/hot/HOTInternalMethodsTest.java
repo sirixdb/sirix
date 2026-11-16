@@ -23,6 +23,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -145,10 +146,10 @@ class HOTInternalMethodsTest {
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFFL, partialKeys, children);
 
-      // Test downgrade conditions
-      for (int newCount = 1; newCount <= 8; newCount++) {
-        boolean shouldDown = NodeUpgradeManager.shouldDowngrade(spanNode, newCount);
-        assertNotNull(Boolean.valueOf(shouldDown));
+      assertTrue(NodeUpgradeManager.shouldDowngrade(spanNode, 0));
+      assertTrue(NodeUpgradeManager.shouldDowngrade(spanNode, 1));
+      for (int newCount = 2; newCount <= 8; newCount++) {
+        assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, newCount));
       }
     }
 
@@ -191,7 +192,8 @@ class HOTInternalMethodsTest {
     @Test
     @DisplayName("determineNodeType for all child counts")
     void testDetermineNodeType() {
-      for (int count = 1; count <= 32; count++) {
+      assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.determineNodeType(1));
+      for (int count = 2; count <= 32; count++) {
         HOTIndirectPage.NodeType type = NodeUpgradeManager.determineNodeType(count);
         assertNotNull(type);
       }

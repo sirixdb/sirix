@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -98,6 +99,26 @@ class NodeUpgradeManagerTest {
   @Nested
   @DisplayName("Downgrade Detection")
   class DowngradeDetectionTests {
+
+    @ParameterizedTest
+    @EnumSource(NodeType.class)
+    void deletionTransitionsRespectMinimumFanout(final NodeType nodeType) {
+      final PageReference[] children = {new PageReference(), new PageReference()};
+      final int[] partialKeys = {0, 1};
+      final HOTIndirectPage node = nodeType == NodeType.SPAN_NODE
+          ? HOTIndirectPage.createSpanNode(1, 1, 0, Long.MIN_VALUE, partialKeys, children)
+          : HOTIndirectPage.createMultiNode(1, 1, 0, Long.MIN_VALUE, partialKeys, children, 1);
+
+      // I10 forbids unary indirects: deletion must remove or collapse them, never select a type.
+      assertTrue(NodeUpgradeManager.shouldDowngrade(node, 0));
+      assertTrue(NodeUpgradeManager.shouldDowngrade(node, 1));
+      assertEquals(nodeType == NodeType.MULTI_NODE, NodeUpgradeManager.shouldDowngrade(node, 2));
+      assertEquals(nodeType == NodeType.MULTI_NODE, NodeUpgradeManager.shouldDowngrade(node, 16));
+      assertFalse(NodeUpgradeManager.shouldDowngrade(node, 17));
+      assertFalse(NodeUpgradeManager.shouldDowngrade(node, 32));
+      assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.shouldDowngrade(node, 33));
+      assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.needsUpgrade(node, 1));
+    }
 
     @Test
     @DisplayName("SpanNode does not downgrade when children drop to 2 (still SPAN_NODE)")

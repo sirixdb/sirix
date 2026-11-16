@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -119,7 +120,7 @@ class HOTAdditionalCoverageTest {
     @Test
     @DisplayName("Node type for all boundary values")
     void testNodeTypeBoundaries() {
-      assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(1));
+      assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.determineNodeType(1));
       assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(2));
       assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(3));
       assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(16));

@@ -273,7 +273,7 @@ class HOTComprehensiveCoverageTest {
     @DisplayName("Test all node type determinations")
     void testAllNodeTypeDeterminations() {
       // Test children-based determination
-      for (int i = 1; i <= 32; i++) {
+      for (int i = 2; i <= 32; i++) {
         HOTIndirectPage.NodeType type = NodeUpgradeManager.determineNodeType(i);
         assertNotNull(type);
         if (i <= 16) {
