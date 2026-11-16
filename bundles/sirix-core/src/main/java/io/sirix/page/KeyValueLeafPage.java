@@ -1011,9 +1011,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * </p>
    *
    * <p>
-   * Pending raw strings are encoded against this page's bound FSST table before placement. If the
-   * page is bound only by table id, the caller must resolve its symbols first; already encoded
-   * strings do not require resolution here. An unbound page materializes its strings raw.
+   * Before placing pending records, runs the full compression sequence documented by
+   * {@link #compressStringValues()}. If the page is bound only by table id, the caller must resolve
+   * its symbols first; already encoded strings do not require resolution here. An unbound page
+   * materializes its strings raw.
    * </p>
    *
    * @param resourceConfiguration the resource's serialization configuration
@@ -1030,8 +1031,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (pending == null) {
       return 0;
     }
-    if ((fsstSymbolTable == null || fsstSymbolTable.length == 0)
-        && fsstSymbolTableId != NO_FSST_SYMBOL_TABLE_ID && holdsRawStringRecord(pending)) {
+    if ((fsstSymbolTable == null || fsstSymbolTable.length == 0) && fsstSymbolTableId != NO_FSST_SYMBOL_TABLE_ID
+        && holdsRawStringRecord(pending)) {
       throw new IllegalStateException("record page " + recordPageKey + " is bound to FSST symbol table "
           + fsstSymbolTableId + " but its symbols are unresolved; resolve the table before materializing its"
           + " pending string records, or they would be judged by their raw size");
@@ -8221,10 +8222,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Compress all string values in the page using the revision's FSST symbol table. This modifies the
-   * string nodes in place to use compressed values. A no-op until
-   * {@code NodeStorageEngineWriter#buildRevisionFsstSymbolTable} has handed the page a table —
-   * without one, strings serialize raw.
+   * Compress eligible raw string values using this page's bound FSST symbol table, which may be
+   * reused from an earlier revision. Without resolved table bytes, this is a no-op.
+   *
+   * <p>
+   * Encode pending ordinary and fused strings first, then rewrite existing raw string slots, before
+   * placing any pending records. Slot rewrites consume append capacity; placing pending records first
+   * can change which records spill even when each encoded record fits individually. Commit
+   * preparation and {@link #materializePendingRecords(ResourceConfiguration)} share this sequence.
+   * </p>
    */
   public void compressStringValues() {
     compressStringValuesAndCountPendingRecords();
@@ -8244,7 +8250,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
 
     // Compress records[] strings (legacy path)
-    final int encoded = records == null ? 0 : compressPendingStringRecords(records, parsedSymbols);
+    final int encoded = records == null
+        ? 0
+        : compressPendingStringRecords(records, parsedSymbols);
 
     // Compress slotted page strings (zero records[] path)
     if (slottedPage != null) {
@@ -8317,11 +8325,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * only when, the encoded record fits inline.
    *
    * <p>
-   * This is the step that decides whether a string value is stored inline or in an overflow carrier,
-   * so every route that materializes pending records into page form must run it first: commit-time
-   * serialization ({@link #compressStringValues()}) and the storage-epoch rotation
-   * ({@link #materializePendingRecords(ResourceConfiguration)}). A route that skipped it would judge
-   * the value's RAW size against the inline ceiling and spill a value its twin keeps inline.
+   * This is the pending-record pass of {@link #compressStringValues()}; it does not place records or
+   * reserve append capacity.
+   * </p>
    *
    * @param pending the page's pending records; {@code null} entries are skipped
    * @param parsedSymbols this page's parsed symbol table, non-empty

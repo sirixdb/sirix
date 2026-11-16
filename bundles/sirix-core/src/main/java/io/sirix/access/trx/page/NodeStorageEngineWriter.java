@@ -6382,15 +6382,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Materialize a leaf's pending records outside the commit path with the commit path's inline rule.
+   * Resolve an id-only table binding before
+   * {@link KeyValueLeafPage#materializePendingRecords(ResourceConfiguration)} applies the page's
+   * compression and placement contract outside the commit path.
    *
    * <p>
-   * Whether a string value is stored inline or in an overflow carrier depends only on its encoded
-   * size and the page budget. The page encodes its pending strings against the table it is bound to
-   * before it judges their size, so a page bound only by id gets its symbols here first. Judged raw,
-   * an FSST-compressible value would become a carrier the plain transaction keeps inline; staged into
-   * the data file with a durable key, such a carrier is never restored by the commit, which
-   * re-encodes only the spilled carriers of a page already bound to its table.
+   * Judged raw, an FSST-compressible value could become a carrier the plain transaction keeps inline;
+   * staged into the data file with a durable key, such a carrier is never restored by the commit,
+   * which re-encodes only the spilled carriers of a page already bound to its table.
    */
   private void materializePendingRecordsAgainstBoundTable(final KeyValueLeafPage page,
       final ResourceConfiguration resourceConfiguration) {
