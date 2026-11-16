@@ -73,7 +73,7 @@ final class TransactionExecutionLockTest {
   }
 
   @Test
-  void competingTryLockCannotBypassTheCallbackBorrow() throws Exception {
+  void callbackCompletionDoesNotReserveTheMutationLock() throws Exception {
     final TransactionExecutionLock execution = new TransactionExecutionLock();
     final CompletableFuture<Boolean> acquired = new CompletableFuture<>();
     execution.enqueue(() -> {
@@ -93,7 +93,7 @@ final class TransactionExecutionLockTest {
     });
     execution.lock();
     execution.unlock();
-    assertFalse(acquired.get(10, TimeUnit.SECONDS));
+    assertTrue(acquired.get(10, TimeUnit.SECONDS));
     assertTrue(execution.tryLock(1, TimeUnit.SECONDS));
     execution.unlock();
   }

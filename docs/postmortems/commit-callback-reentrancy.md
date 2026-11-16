@@ -1,5 +1,7 @@
 # Bug: commit callbacks inherited enclosing execution ownership
 
+Historical ownership model: R15 replaces live-writer callback borrowing with independently pinned revision views; see [the revision-view postmortem](post-commit-revision-views.md). Earlier results below do not validate that change.
+
 Historical R11 implementation notes: R12–R14 refine async dispatch and Error observation; see [the completion/reader postmortem](callback-completion-reader-ownership.md). Earlier diagnostic/blocked evidence below is not final validation.
 
 - Fix / issue: lifecycle audit V05/V06, R11 and review-1; clarified captain option A supersedes the earlier R6 reentrant-close behavior.

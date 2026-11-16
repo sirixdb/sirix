@@ -2,6 +2,8 @@ package io.sirix.access.trx.node;
 
 import io.sirix.cache.ShardedPageCache;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
@@ -14,8 +16,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Transaction execution T and its callback ownership boundary. Outermost unlock delivers queued
- * callbacks with T released; other executions wait for that callback phase. Scheduled work defers
- * delivery until after its Runnable returns. Admission P is independent and remains owned.
+ * callbacks with T released and independent read views. Mutations never wait for callback completion;
+ * teardown alone fences outstanding dispatch. Scheduled work defers delivery until its Runnable
+ * returns. Admission P remains owned. No scheduler termination wait may retain T.
  */
 public final class TransactionExecutionLock extends ReentrantLock {
   private static final long serialVersionUID = 1L;
@@ -23,88 +26,13 @@ public final class TransactionExecutionLock extends ReentrantLock {
   private final ConcurrentLinkedQueue<Runnable> callbacks = new ConcurrentLinkedQueue<>();
   private final ConcurrentLinkedQueue<CallbackBatch> deferredCallbacks = new ConcurrentLinkedQueue<>();
   private final Condition ready = newCondition();
-  private @Nullable Thread callbackThread;
-  private @Nullable Thread scheduledTaskThread;
-
-  @Override
-  public void lock() {
-    super.lock();
-    boolean success = false;
-    try {
-      while (!phaseAvailable()) {
-        ready.awaitUninterruptibly();
-      }
-      success = true;
-    } finally {
-      if (!success) {
-        super.unlock();
-      }
-    }
-  }
-
-  private boolean phaseAvailable() {
-    final Thread current = Thread.currentThread();
-    return (callbackThread == null || callbackThread == current)
-        && (scheduledTaskThread == null || scheduledTaskThread == current);
-  }
-
-  @Override
-  public void lockInterruptibly() throws InterruptedException {
-    super.lockInterruptibly();
-    boolean success = false;
-    try {
-      while (!phaseAvailable()) {
-        ready.await();
-      }
-      success = true;
-    } finally {
-      if (!success) {
-        super.unlock();
-      }
-    }
-  }
-
-  @Override
-  public boolean tryLock() {
-    if (!super.tryLock()) {
-      return false;
-    }
-    if (!phaseAvailable()) {
-      super.unlock();
-      return false;
-    }
-    return true;
-  }
-
-  @Override
-  public boolean tryLock(final long time, final TimeUnit unit) throws InterruptedException {
-    long remaining = unit.toNanos(time);
-    final long start = System.nanoTime();
-    if (!super.tryLock(remaining, TimeUnit.NANOSECONDS)) {
-      return false;
-    }
-    boolean success = false;
-    try {
-      remaining -= System.nanoTime() - start;
-      while (!phaseAvailable()) {
-        if (remaining <= 0) {
-          return false;
-        }
-        remaining = ready.awaitNanos(remaining);
-      }
-      success = true;
-      return true;
-    } finally {
-      if (!success) {
-        super.unlock();
-      }
-    }
-  }
+  private boolean dispatching;
+  private volatile @Nullable Thread scheduledTaskThread;
 
   @Override
   public void unlock() {
     try {
-      if (getHoldCount() == 1 && callbackThread == null && scheduledTaskThread == null) {
+      if (getHoldCount() == 1 && !dispatching && scheduledTaskThread == null) {
         drainLocked();
       }
     } finally {
@@ -133,6 +61,9 @@ public final class TransactionExecutionLock extends ReentrantLock {
   public void dispatch(final CallbackBatch batch) {
     lock();
     try {
+      while (dispatching || scheduledTaskThread != null && !isInScheduledTask()) {
+        ready.awaitUninterruptibly();
+      }
       if (deferredCallbacks.remove(batch)) {
         callbacks.addAll(batch.callbacks);
       }
@@ -142,8 +73,11 @@ public final class TransactionExecutionLock extends ReentrantLock {
   }
 
   public void drainBeforeRetirement() {
-    if (getHoldCount() != 1 || scheduledTaskThread != null) {
+    if (getHoldCount() != 1 || isInScheduledTask()) {
       throw new IllegalStateException("Payload retirement requires an outer lifecycle execution");
+    }
+    while (dispatching || scheduledTaskThread != null) {
+      ready.awaitUninterruptibly();
     }
     CallbackBatch batch;
     while ((batch = deferredCallbacks.poll()) != null) {
@@ -195,27 +129,30 @@ public final class TransactionExecutionLock extends ReentrantLock {
 
   @SuppressWarnings("java:S1181")
   private void drainLocked() {
-    if (callbacks.isEmpty()) {
-      return;
-    }
-    callbackThread = Thread.currentThread();
-    super.unlock();
     Throwable failure = null;
     boolean error = false;
-    try {
+    while (!dispatching && scheduledTaskThread == null && !callbacks.isEmpty()) {
+      final List<Runnable> pending = new ArrayList<>();
       Runnable callback;
       while ((callback = callbacks.poll()) != null) {
-        try {
-          callback.run();
-        } catch (final RuntimeException | Error next) {
-          failure = ShardedPageCache.retainCleanupFailure(failure, next);
-          error |= next instanceof Error;
-        }
+        pending.add(callback);
       }
-    } finally {
-      super.lock();
-      callbackThread = null;
-      ready.signalAll();
+      dispatching = true;
+      super.unlock();
+      try {
+        for (final Runnable work : pending) {
+          try {
+            work.run();
+          } catch (final RuntimeException | Error next) {
+            failure = ShardedPageCache.retainCleanupFailure(failure, next);
+            error |= next instanceof Error;
+          }
+        }
+      } finally {
+        super.lock();
+        dispatching = false;
+        ready.signalAll();
+      }
     }
     if (error) {
       ShardedPageCache.rethrowCleanupFailure(failure);

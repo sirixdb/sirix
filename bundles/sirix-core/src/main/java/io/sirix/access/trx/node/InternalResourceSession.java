@@ -112,11 +112,15 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void setLastCommittedUberPage(UberPage lastUberPage);
 
+  R beginPostCommitReadOnlyTrx(int revision);
+
   /**
    * Observe durable publication, including pipelined commits. Delivery follows outermost execution
    * and scheduled task completion with T released; lifetime admission P remains owned. Lifecycle
    * calls on the same transaction/session reject before locking with IllegalStateException.
-   * Async delivery follows hardening completion without blocking foreground mutations.
+   * A listener receives only the revision number; use an independent reader for that revision,
+   * never a captured mutable writer cursor. Async delivery follows hardening completion without
+   * blocking foreground mutations.
    * RuntimeException failures are logged; Error is retained by the owning node transaction and rethrown by close after
    * independent listeners and owner release. Neither can veto durable publication.
    */

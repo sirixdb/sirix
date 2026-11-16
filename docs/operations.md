@@ -485,14 +485,15 @@ For deeper context, see:
 Pre-commit hooks keep their before-publication timing and may veto a commit. Post-commit hooks
 and revision listeners run after the outermost transaction execution and scheduled task boundary,
 with execution locks released. KEEP_OPEN keeps its lifetime writer admission permit. A callback
-borrows the current transaction view; an enclosing mutation may already have continued into the
-next epoch, so it is not an immutable committed-revision snapshot.
+receives its own read-only cursor pinned to exactly the committed revision, starting at the
+document root. The dispatcher closes it after that invocation; never retain it or navigate a
+captured mutable writer. Revision listeners receive a revision number and must use independent readers.
 
 Commit, rollback/abort, node-transaction close and resource-session close from a hook/listener of
 the same transaction/session reject immediately with IllegalStateException before locking.
 Perform lifecycle work after callback return, and call close outside any enclosing runLocked
 scope. Ordinary read-only/non-lifecycle callback work is allowed. External teardown fences the
-callback phase before retiring payloads. RuntimeException-only failures are logged. Node callback
+outstanding callbacks before retiring their readers and session resources. RuntimeException-only failures are logged. Node callback
 Errors are retained and rethrown by close after independent delivery and owner release; unbound
 listener dispatch rethrows after independent listeners. Neither can roll back or veto a durable revision.
 Revision listeners and callback context share the same resource owner across user sessions.

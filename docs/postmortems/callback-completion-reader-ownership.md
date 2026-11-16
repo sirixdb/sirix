@@ -1,5 +1,7 @@
 # Bug: callback completion lost async overlap and late reader ownership
 
+Historical ownership model: R15 replaces live-writer callback borrowing with independently pinned revision views; see [the revision-view postmortem](post-commit-revision-views.md). Earlier results below do not validate that change.
+
 - Fix / issue: V05/V06 R12–R14; R11/review-1 checked against 74385a1f.
 - Symptom: a registered no-op hook made async commits wait for durability on the foreground mutator; session close discarded callback-created node readers while retaining their guards; swallowed assertion Errors made ordering checks ineffective.
 - Trigger: hold the depth-one hardening barrier with post-hooks registered; or block a callback, start session close, then open/navigate shared and direct readers before returning. Reversed hook order or rejected lifecycle assertions could be logged without failing the former counter-only oracle.

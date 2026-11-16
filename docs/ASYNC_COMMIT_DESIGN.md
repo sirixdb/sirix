@@ -109,11 +109,17 @@ Lifecycle calls on a transaction/session from its pre-commit hooks, post-commit 
 revision listeners reject with IllegalStateException before acquiring any lock. Pre-hooks keep
 their before-publication/veto timing. Post-hooks/listeners run after outermost transaction T
 and the scheduled Runnable boundary; KEEP_OPEN retains lifetime write admission P. They
-borrow the current transaction view while a callback execution phase prevents competing
-execution from retiring it. It is not an immutable revision snapshot. RuntimeException notification failures are
-accumulated/logged after phase release; Error is retained and rethrown by node close after independent delivery and
-owner release. Neither can veto a durable revision; pre-hook errors
+receive separate dispatcher-owned read-only cursors pinned to exactly the published revision,
+starting at the document root and closed after each invocation. The writer cursor is never
+passed to post-hooks. Revision listeners receive only a revision number and must open independent
+readers rather than navigate captured writers. RuntimeException failures are logged; node Error
+is retained and rethrown by close after independent delivery and owner release. Pre-hook errors
 still propagate before publication.
+
+Callback completion no longer reserves ordinary execution: timed mutation lock acquisition is
+ordinary ReentrantLock acquisition, and count-only/no-lock row paths remain lock-free. Close
+alone fences outstanding dispatch before retiring resources. Async batches still deliver after
+hardening and slot release, keeping foreground successor mutation independent of durability.
 
 An external closer must enter outside every enclosing T acquisition. It cleans up at the
 shared execution boundary, releases T, fences scheduler termination, then removes the node
