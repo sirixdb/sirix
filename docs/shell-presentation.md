@@ -13,7 +13,7 @@ lifetimes and result values are unchanged. No new commands are introduced.
    Tests: `ShellHighlighterTest`, `MainTest`.
 2. Terminal output is pretty JSON/XML, with blue keys/tags, green strings, orange numbers,
    and operation colours in supported diff results (detailed below). Formatting is
-   streamed through bounded reusable buffers after serialization; it never re-evaluates
+   streamed through reusable buffers after serialization; it never re-evaluates
    a query or materializes its result. Tests: `ShellResultWriterTest`, `ShellOutputTest`.
 3. ANSI true colour uses orange #F47B20 and blue #42B6F0; 256-colour and 16-colour
    terminals get nearest palette alternatives. NO_COLOR (even empty), --no-color,
@@ -58,7 +58,7 @@ XML attribute values use green quote styling within element tags. Quotes, braces
 and operation words in XML text remain text. Comments, processing instructions and CDATA
 retain their markup context through their complete terminator, including embedded `>`
 characters. Subsequent tags and attributes recover their specified styles. Streaming writes,
-flushes and finish/reuse preserve these rules and every payload character with fixed scratch
+flushes and finish/reuse preserve these rules and every payload character with reusable scratch
 storage. `ShellResultWriterTest` checks styled output for each split position, every writer
 overload, mixed JSON/XML/diff output and XML allocation behavior.
 
@@ -118,3 +118,19 @@ inference. Prompt names containing backslashes remain unsupported and neutral.
 tokens/styles across every prefix split, Unicode and unterminated input. Classifier-only
 cases in `ShellOutputTest` cover both diff modes and both literal arguments without creating
 filesystem names that are invalid on Windows; existing real-diff tests cover rendering.
+
+JSON container context is retained at every nesting depth that fits available memory:
+commas in objects introduce blue keys (or the specified JSON diff operation colour),
+while commas in arrays introduce values. Closing a nested value restores its parent's
+container context. Strings containing structural punctuation do not change that context.
+The primitive container stack grows geometrically only when a new maximum depth needs
+more capacity; finish clears logical depth but retains that capacity for reuse. Scratch
+space is O(maximum nesting depth), independent of the number or length of values.
+Flushes and String, char-array and single-character writes have identical style and
+payload contracts. EOF inside a container or key remains lossless, and finish allows a
+subsequent independent result. Plain output bypasses presentation unchanged.
+Tests: `ShellResultWriterTest` checks independent ANSI goldens at depths 255, 256, 257,
+513 and 4097, mixed parent containers, diff colours, incomplete keys and finish/reuse.
+Allocation checks bound first-time geometric growth and require allocation-free reuse
+within the existing 512-byte measurement allowance. Malformed or resource-exhausting
+input has no new recovery contract; existing payload-preserving behavior is retained.

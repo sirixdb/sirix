@@ -1,6 +1,7 @@
 package io.sirix.query.shell;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestReporter;
 import io.sirix.query.shell.ShellResultWriter.DiffMode;
 import java.io.StringWriter;
 import java.util.Random;
@@ -408,6 +409,131 @@ final class ShellResultWriterTest {
       assertEquals(1, out.flushes);
       assertTrue(out.writes <= 3, "Output must remain batched");
     }
+  }
+
+  @Test
+  void deepJsonRetainsExactStylesAcrossContainersChunksAndWriterOverloads() throws Exception {
+    for (final int depth : new int[] {255, 256, 257, 513, 4097}) {
+      for (final boolean mixed : new boolean[] {false, true}) {
+        for (final DiffMode mode : List.of(DiffMode.NONE, DiffMode.JSON)) {
+          final DepthFixture fixture = nestedJson(depth, mixed, mode);
+          final String padded = "!" + fixture.input() + "!";
+          final char[] chars = padded.toCharArray();
+          for (final ShellPalette palette : List.of(ShellPalette.ANSI_16, ShellPalette.NONE)) {
+            for (int overload = 0; overload < 3; overload++) {
+              for (final int chunk : new int[] {1, 7, 8191}) {
+                final StringWriter out = new StringWriter();
+                try (final ShellResultWriter writer = new ShellResultWriter(out, palette, mode)) {
+                  for (int offset = 1; offset < padded.length() - 1; offset += chunk) {
+                    final int length = Math.min(chunk, padded.length() - 1 - offset);
+                    if (overload == 0)
+                      writer.write(padded, offset, length);
+                    else if (overload == 1)
+                      writer.write(chars, offset, length);
+                    else
+                      for (int i = offset; i < offset + length; i++)
+                        writer.write(chars[i]);
+                    writer.flush();
+                  }
+                }
+                assertEquals(fixture.input(), strip(out.toString()));
+                assertEquals(palette.enabled()
+                    ? fixture.coloured()
+                    : fixture.input(), out.toString());
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void deepJsonEofAndFinishRetainCapacityWithoutLeakingContext() throws Exception {
+    final String prefix = "[".repeat(513) + "{\"dangling";
+    final String expectedPrefix = "[".repeat(513) + "{\033[36m\"dangling\033[0m";
+    final DepthFixture deep = nestedJson(4097, true, DiffMode.NONE);
+    final DepthFixture shallow = nestedJson(257, false, DiffMode.NONE);
+    final StringWriter out = new StringWriter();
+    try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.NONE)) {
+      writer.write(prefix);
+      writer.flush();
+      writer.finish();
+      assertEquals(expectedPrefix, out.toString());
+      writer.write(deep.input());
+      writer.finish();
+      writer.write(shallow.input());
+      writer.finish();
+      writer.write(deep.input());
+    }
+    assertEquals(prefix + deep.input() + shallow.input() + deep.input(), strip(out.toString()));
+    assertEquals(expectedPrefix + deep.coloured() + shallow.coloured() + deep.coloured(), out.toString());
+  }
+
+  @Test
+  void deepJsonStackGrowthIsBoundedAndRetainedForAllocationFreeReuse(final TestReporter reporter) throws Exception {
+    final ThreadMXBean bean = (ThreadMXBean) ManagementFactory.getThreadMXBean();
+    final String shallow = "{\"warm\":[1,2]}";
+    final String deep = nestedJson(4097, true, DiffMode.JSON).input();
+    final long thread = Thread.currentThread().threadId();
+    try (final ShellResultWriter writer = new ShellResultWriter(Writer.nullWriter(), ShellPalette.ANSI_16, DiffMode.JSON)) {
+      for (int i = 0; i < 100; i++) {
+        writer.write(shallow);
+        writer.finish();
+      }
+      final long beforeGrowth = bean.getThreadAllocatedBytes(thread);
+      writer.write(deep);
+      writer.finish();
+      final long growth = bean.getThreadAllocatedBytes(thread) - beforeGrowth;
+      assertTrue(growth > 0 && growth <= 32768, "Unexpected stack growth allocation: " + growth);
+      reporter.publishEntry("stackGrowthBytes", Long.toString(growth));
+      for (int i = 0; i < 50; i++) {
+        writer.write(deep);
+        writer.finish();
+      }
+      final long beforeReuse = bean.getThreadAllocatedBytes(thread);
+      for (int i = 0; i < 10; i++) {
+        writer.write(shallow);
+        writer.finish();
+        writer.write(deep);
+        writer.finish();
+      }
+      final long reused = bean.getThreadAllocatedBytes(thread) - beforeReuse;
+      assertTrue(reused <= 512, "Unexpected retained-stack allocation: " + reused);
+      reporter.publishEntry("stackReuseBytes", Long.toString(reused));
+    }
+  }
+
+  private record DepthFixture(String input, String coloured) {}
+
+  private static DepthFixture nestedJson(final int depth, final boolean mixed, final DiffMode mode) {
+    final StringBuilder input = new StringBuilder();
+    final StringBuilder coloured = new StringBuilder();
+    for (int i = 1; i < depth; i++) {
+      final boolean object = mixed && i % 2 == 0;
+      input.append(object
+          ? "{\"outer\":"
+          : "[");
+      coloured.append(object
+          ? "{\033[36m\"outer\"\033[0m:"
+          : "[");
+    }
+    input.append("{\"a\":1,\"b\":2,\"insert\":{},\"update\":{},\"replace\":{},\"delete\":{},\"value\":\"[,]{}商店😀\"}");
+    coloured.append("{\033[36m\"a\"\033[0m:\033[33m1\033[0m,\033[36m\"b\"\033[0m:\033[33m2\033[0m,")
+        .append(mode == DiffMode.JSON
+            ? "\033[32m\"insert\"\033[0m:{},\033[33m\"update\"\033[0m:{},\033[33m\"replace\"\033[0m:{},\033[31m\"delete\"\033[0m:{},"
+            : "\033[36m\"insert\"\033[0m:{},\033[36m\"update\"\033[0m:{},\033[36m\"replace\"\033[0m:{},\033[36m\"delete\"\033[0m:{},")
+        .append("\033[36m\"value\"\033[0m:\033[32m\"[,]{}商店😀\"\033[0m}");
+    for (int i = depth - 1; i > 0; i--) {
+      final boolean object = mixed && i % 2 == 0;
+      input.append(object
+          ? ",\"after\":\"tail\"}"
+          : ",\"tail\"]");
+      coloured.append(object
+          ? ",\033[36m\"after\"\033[0m:\033[32m\"tail\"\033[0m}"
+          : ",\033[32m\"tail\"\033[0m]");
+    }
+    return new DepthFixture(input.toString(), coloured.toString());
   }
 
   @Test

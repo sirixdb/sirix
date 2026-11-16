@@ -112,3 +112,9 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   test match takes precedence over package fallback. Keep renderer unit regressions
   in its matching test class; a broader focused run can otherwise hide surviving
   mutants in the default lane. Evidence: [word-buffer mutation scope](postmortems/shell-pit-word-buffer-scope.md).
+
+- **Check semantic state beyond scratch-capacity boundaries.** A lossless streaming
+  renderer can still lose container context and style keys as values. Exercise
+  both sides of each growth boundary, mixed parent containers and retained-buffer
+  reuse; bound exceptional growth separately from steady-state allocation.
+  Evidence: [JSON container depth](postmortems/shell-json-container-depth.md).

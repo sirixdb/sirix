@@ -2,13 +2,15 @@ package io.sirix.query.shell;
 
 import java.io.IOException;
 import java.io.Writer;
+import java.util.Arrays;
 import java.util.Objects;
 
 /**
  * Colours serialized JSON/XML without building a document tree, buffering the full result, or
- * evaluating query items. Fixed scratch buffers avoid per-value allocation, including strings
- * larger than memory. Closing never closes the terminal. Call finish after a result (flush alone
- * must preserve tokens across serializer flushes).
+ * evaluating query items. Reusable scratch buffers avoid per-value allocation, including strings
+ * larger than memory; the container stack grows only for a new maximum nesting depth. Closing never
+ * closes the terminal. Call finish after a result (flush alone must preserve tokens across serializer
+ * flushes).
  */
 public final class ShellResultWriter extends Writer {
   public enum DiffMode {
@@ -24,7 +26,7 @@ public final class ShellResultWriter extends Writer {
   private final DiffMode diff;
   private final char[] buffer = new char[16384];
   private final char[] key = new char[16];
-  private final char[] containers = new char[256];
+  private char[] containers = new char[256];
   private int used;
   private int keyLength;
   private int depth;
@@ -170,16 +172,16 @@ public final class ShellResultWriter extends Writer {
 
   private void updateJsonState(final char c) {
     if (c == '{' || c == '[') {
-      if (depth < containers.length)
-        containers[depth] = c;
-      depth++;
+      if (depth == containers.length)
+        containers = Arrays.copyOf(containers, Math.multiplyExact(containers.length, 2));
+      containers[depth++] = c;
       expectKey = c == '{';
     } else if (c == '}' || c == ']') {
       if (depth > 0)
         depth--;
       expectKey = false;
     } else if (c == ',')
-      expectKey = depth > 0 && depth <= containers.length && containers[depth - 1] == '{';
+      expectKey = depth > 0 && containers[depth - 1] == '{';
   }
 
   private void acceptXml(final char c) throws IOException {
