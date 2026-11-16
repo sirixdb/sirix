@@ -12,13 +12,11 @@ import io.brackit.query.jdm.Stream;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.LazySequence;
-import io.sirix.query.json.TemporalJsonDBItem;
 
 /**
  * <p>
- * Function for selecting a node in the future or the future-or-self. The first parameter is the
- * context node. Second parameter is if ithe current node should be included or not. Supported
- * signature is:
+ * Temporal semantics are specified in {@code docs/TEMPORAL_FUNCTIONS_SPEC.md}. Supported signature
+ * is:
  * </p>
  * <ul>
  * <li><code>jn:all-times($doc as json-item()) as json-item()*</code></li>
@@ -44,20 +42,20 @@ public final class AllTimes extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final TemporalJsonDBItem<? extends TemporalJsonDBItem<?>> item = ((TemporalJsonDBItem<?>) args[0]);
+    final Sequence item = TemporalNavigation.requireStored(ALL_TIMES, args[0]);
 
     return new LazySequence() {
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          Stream<?> stream;
+          Stream<? extends Item> stream;
 
           @Override
           public Item next() {
             if (stream == null) {
-              stream = item.getAllTimes();
+              stream = TemporalNavigation.range(TemporalNavigation.Range.ALL_TIMES, item, false);
             }
-            return (Item) stream.next();
+            return stream.next();
           }
 
           @Override

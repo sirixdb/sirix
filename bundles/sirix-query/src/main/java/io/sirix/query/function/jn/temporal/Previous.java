@@ -7,7 +7,6 @@ import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
-import io.sirix.query.json.TemporalJsonDBItem;
 
 /**
  * <p>
@@ -38,8 +37,6 @@ public final class Previous extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final TemporalJsonDBItem<? extends TemporalJsonDBItem<?>> item = ((TemporalJsonDBItem<?>) args[0]);
-
-    return item.getPrevious();
+    return TemporalNavigation.step(PREVIOUS, TemporalNavigation.Step.PREVIOUS, args[0]);
   }
 }

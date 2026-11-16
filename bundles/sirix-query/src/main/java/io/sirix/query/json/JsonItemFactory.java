@@ -36,9 +36,28 @@ public final class JsonItemFactory {
   public JsonItem getNameSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
     final NodeKind kind = rtx.getKind();
     if (kind.playsObjectKeyRole()) {
-      return new AtomicStrJsonDBItem(rtx, collection, rtx.getName().getLocalName());
+      return new FieldNameJsonDBItem(rtx, collection, rtx.getName().getLocalName());
     }
     throw new IllegalStateException("getNameSequence called on a non-object-key node: " + kind);
+  }
+
+  /**
+   * Build the item for the cursor's node when a stored item is re-read in another revision (temporal
+   * navigation). The node key alone is ambiguous for a fused OBJECT_NAMED_* record, which holds both
+   * a field name and its value, so the caller says which of the two the original item stood for.
+   *
+   * @param rtx cursor positioned on the node in the target revision
+   * @param collection the collection the node belongs to
+   * @param fieldName {@code true} when the original item was an object field NAME
+   * @return the item for the node, never {@code null}
+   */
+  public JsonItem getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
+      final boolean fieldName) {
+    final NodeKind kind = rtx.getKind();
+    if (fieldName && kind.playsObjectKeyRole()) {
+      return getNameSequence(rtx, collection);
+    }
+    return getSequence(rtx, collection);
   }
 
   public JsonItem getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {

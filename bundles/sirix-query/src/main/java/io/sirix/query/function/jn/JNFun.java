@@ -78,6 +78,13 @@ public final class JNFun {
 
   public static final QNm ERR_INVALID_INDEX_TYPE = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "SIRIXDBF004");
 
+  /**
+   * A temporal navigation function ({@code jn:first}, {@code jn:last}, {@code jn:previous},
+   * {@code jn:next}, {@code jn:past}, {@code jn:future}, {@code jn:all-times}) was applied to a JSON
+   * item that was not read from a Sirix store and therefore has no node history.
+   */
+  public static final QNm ERR_NOT_A_STORED_ITEM = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "SIRIXDBF0005");
+
   public static void register() {
     // dummy function to cause static block
     // to be executed exactly once

@@ -12,7 +12,19 @@ import java.nio.charset.StandardCharsets;
 
 import static java.util.Objects.requireNonNull;
 
-public final class AtomicStrJsonDBItem extends Str implements JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx> {
+/**
+ * A string read from a Sirix document, keeping its node identity.
+ *
+ * <p>
+ * Sealed with one marker subclass, {@link FieldNameJsonDBItem}, for an object field NAME: under
+ * record fusion one node holds a field's name and its value, so the node key alone cannot tell
+ * which of the two an item stands for when temporal navigation re-reads it in another revision. A
+ * type rather than a flag keeps every string value at its existing instance size (the fields are
+ * densely packed, so one more boolean would add 8 bytes per materialized string); all methods are
+ * {@code final}, so call sites stay monomorphic for values.
+ */
+public sealed class AtomicStrJsonDBItem extends Str implements JsonDBItem, StructuredDBItem<JsonNodeReadOnlyTrx>
+    permits FieldNameJsonDBItem {
 
   /** Sirix {@link JsonNodeReadOnlyTrx}. */
   private final JsonNodeReadOnlyTrx rtx;
@@ -43,7 +55,7 @@ public final class AtomicStrJsonDBItem extends Str implements JsonDBItem, Struct
         StoredDateTimeParser.epochMillis(utf8, 0, utf8.length));
   }
 
-  private AtomicStrJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection, final String string,
+  AtomicStrJsonDBItem(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection, final String string,
       final long epochMillis) {
     super(string);
     this.epochMillis = epochMillis;
@@ -53,12 +65,12 @@ public final class AtomicStrJsonDBItem extends Str implements JsonDBItem, Struct
   }
 
   /** Epoch millis for fixed UTC input, or {@link StoredDateTimeParser#NOT_FIXED_UTC}. */
-  public long epochMillis() {
+  public final long epochMillis() {
     return epochMillis;
   }
 
   /** Parse once for this immutable string snapshot; never memoize an error. */
-  public DateTime dateTime() {
+  public final DateTime dateTime() {
     DateTime parsed = dateTime;
     if (parsed == null) {
       final String text = stringValue();
@@ -84,24 +96,24 @@ public final class AtomicStrJsonDBItem extends Str implements JsonDBItem, Struct
   }
 
   @Override
-  public JsonResourceSession getResourceSession() {
+  public final JsonResourceSession getResourceSession() {
     return rtx.getResourceSession();
   }
 
   @Override
-  public JsonNodeReadOnlyTrx getTrx() {
+  public final JsonNodeReadOnlyTrx getTrx() {
     moveRtx();
 
     return rtx;
   }
 
   @Override
-  public JsonDBCollection getCollection() {
+  public final JsonDBCollection getCollection() {
     return collection;
   }
 
   @Override
-  public long getNodeKey() {
+  public final long getNodeKey() {
     return nodeKey;
   }
 }

@@ -400,7 +400,10 @@ derive from that same snapshot, which remains stable for the context's lifetime.
 ### Temporal Axis Functions
 
 Navigate a node's history across revisions — `jn:previous`, `jn:next`, `jn:first`, `jn:last`,
-`jn:first-existing`, `jn:last-existing`, `jn:past`, `jn:future`, `jn:all-times`:
+`jn:first-existing`, `jn:last-existing`, `jn:past`, `jn:future`, `jn:all-times`. They work on every
+stored item, including numbers, strings, booleans and `null` (for example
+`jn:previous(jn:doc('mydb','myresource').users[0].age)`); see the
+[specification](docs/TEMPORAL_FUNCTIONS_SPEC.md):
 
 ```xquery
 (: iterate through all versions of a node :)

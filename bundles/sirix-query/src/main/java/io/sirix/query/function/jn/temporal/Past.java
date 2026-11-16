@@ -13,7 +13,6 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.LazySequence;
 import io.sirix.query.function.FunUtil;
-import io.sirix.query.json.TemporalJsonDBItem;
 
 /**
  * <p>
@@ -44,21 +43,21 @@ public final class Past extends AbstractFunction {
 
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
-    final TemporalJsonDBItem<? extends TemporalJsonDBItem<?>> item = ((TemporalJsonDBItem<?>) args[0]);
+    final Sequence item = TemporalNavigation.requireStored(PAST, args[0]);
     final boolean includeSelf = FunUtil.getBoolean(args, 1, "includeSelf", false, false);
 
     return new LazySequence() {
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          Stream<?> stream;
+          Stream<? extends Item> stream;
 
           @Override
           public Item next() {
             if (stream == null) {
-              stream = item.getEarlier(includeSelf);
+              stream = TemporalNavigation.range(TemporalNavigation.Range.PAST, item, includeSelf);
             }
-            return (Item) stream.next();
+            return stream.next();
           }
 
           @Override
