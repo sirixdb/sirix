@@ -15,11 +15,11 @@
   Caffeine failure prevented the earlier core probe from reaching this path.
 - Regression test: `tests/native/run-smoke.sh core OUTPUT` creates and reopens a
   real resource using core-only metadata. The metadata-only intermediate build
-  reproduced this failure after the Caffeine correction; no retained artifact
-  location for that intermediate build is recorded.
+  reproduced this failure after the Caffeine correction. This change's local
+  evidence summary (commands, results and tool versions) is in the PR description.
 - Lesson: [round-trip persisted configuration in the minimal native image](../LESSONS.md).
 
 See the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16)
 for the core-only create/resource/write/close/reopen/read results after the
-registration fix and the CI artifact location and coverage. The test does not
+registration fix, CI artifact coverage and the I3 publication follow-up. The test does not
 claim arbitrary user-provided serializers are reachable.

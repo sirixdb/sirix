@@ -47,7 +47,8 @@ and test repeated isolate cycles. The hook is terminal for the current engine;
 opening more writers in that JVM/isolate afterward is unsupported. Hot unloading
 remains unsupported. Do not infer full NATIVE-406 conformance from process exit.
 
-See the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16)
+This change's local evidence summary (commands, results and tool versions) is
+in the PR description. See the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16)
 for the final core/query C results, same-library shutdown-omission controls,
-PIT drain-order results and the CI artifact location and coverage. The omission
+PIT drain-order results, CI artifact coverage and the I3 publication follow-up. The omission
 controls reproduce the non-return both with and without query evaluation.

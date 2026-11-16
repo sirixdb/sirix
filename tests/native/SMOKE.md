@@ -65,14 +65,19 @@ Oracle GraalVM 25.0.3+9.1, gcc 13.3.0, Linux x64. Builds use two threads and
 a maximum 4 GiB native-builder heap. These are local regression results, not
 a claim that the hosted CI job or full public-ABI conformance has run.
 
-The durable CI evidence location is the native-smoke job artifacts of the CI
-run: `native-library-smoke-linux-x64`, uploaded by the `smoke` job in
-[the native-library workflow](../../.github/workflows/native-library-smoke.yml).
-The workflow currently archives normal build/loader logs, thread censuses,
-ELF dependencies and process traces. It does not yet run the PSMS/PSMW
-constructor omissions or the omitted-shutdown controls, so their mutation
-reports and teardown-laggard diagnostics are not yet archived there. The local
-results below do not establish that those CI artifacts have been produced.
+This change's local evidence summary (commands, results and tool versions) is
+in the PR description. The table below records the local regression outcomes;
+raw evidence is not committed.
+
+[The native-library workflow](../../.github/workflows/native-library-smoke.yml)
+is configured to upload normal-run build/loader logs, thread censuses, ELF
+dependencies and process traces as `native-library-smoke-linux-x64` from its
+`smoke` job. It does not yet run the PSMS/PSMW constructor omissions or the
+omitted-shutdown controls. Complete build/loader/teardown/omission-mutation
+evidence publication is tracked in [I3 (#1438)](https://github.com/sirixdb/sirix/issues/1438),
+the shared-library build/package CI work: once it lands, the native smoke job
+will publish that evidence as workflow artifacts of the CI run. The local
+results below do not establish that CI artifacts have been produced.
 
 | Check | Observed result |
 | --- | --- |
