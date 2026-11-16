@@ -72,18 +72,21 @@ public final class TransactionExecutionLock extends ReentrantLock {
     }
   }
 
-  public void drainBeforeRetirement() {
+  public void drainBeforeRetirement(final Runnable fenceWorker) {
     if (getHoldCount() != 1 || isInScheduledTask()) {
       throw new IllegalStateException("Payload retirement requires an outer lifecycle execution");
     }
-    while (dispatching || scheduledTaskThread != null) {
-      ready.awaitUninterruptibly();
-    }
-    CallbackBatch batch;
-    while ((batch = deferredCallbacks.poll()) != null) {
-      callbacks.addAll(batch.callbacks);
-    }
-    drainLocked();
+    do {
+      while (dispatching || scheduledTaskThread != null) {
+        ready.awaitUninterruptibly();
+      }
+      fenceWorker.run();
+      CallbackBatch batch;
+      while ((batch = deferredCallbacks.poll()) != null) {
+        callbacks.addAll(batch.callbacks);
+      }
+      drainLocked();
+    } while (dispatching || scheduledTaskThread != null || !deferredCallbacks.isEmpty() || !callbacks.isEmpty());
   }
 
   public void assertCanClose() {

@@ -991,7 +991,13 @@ final class NodeTransactionAbortLifecycleTest {
       final CompletableFuture<Void> notified = new CompletableFuture<>();
       ((InternalResourceSession<?, ?>) fixture.first).addRevisionListener(revision -> {
         try {
-          assertTrue(fixture.first.isClosed());
+          if (!notified.isDone()) {
+            assertFalse(fixture.first.isClosed());
+            try (NodeReadOnlyTrx reader = fixture.first.beginNodeReadOnlyTrx(revision)) {
+              setCursor(reader);
+              assertEquals(0, value(reader));
+            }
+          }
           assertLifecycleRejected(fixture, retired);
           notified.complete(null);
         } catch (final Throwable failure) {
