@@ -1,0 +1,875 @@
+{
+  "abi": "1.0",
+  "data_model": "64-bit little-endian LP64 or LLP64",
+  "structs": {
+    "sirix_instant_t": {
+      "size": 24,
+      "alignment": 8,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "seconds": {
+          "offset": 8,
+          "type": "int64_t"
+        },
+        "nanos": {
+          "offset": 16,
+          "type": "uint32_t"
+        },
+        "reserved": {
+          "offset": 20,
+          "type": "uint32_t"
+        }
+      }
+    },
+    "sirix_error_t": {
+      "size": 552,
+      "alignment": 8,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "code": {
+          "offset": 8,
+          "type": "int32_t"
+        },
+        "detail_code": {
+          "offset": 12,
+          "type": "int32_t"
+        },
+        "revision": {
+          "offset": 16,
+          "type": "uint64_t"
+        },
+        "commit_outcome": {
+          "offset": 24,
+          "type": "uint32_t"
+        },
+        "suppressed_count": {
+          "offset": 28,
+          "type": "uint32_t"
+        },
+        "message_len": {
+          "offset": 32,
+          "type": "uint32_t"
+        },
+        "flags": {
+          "offset": 36,
+          "type": "uint32_t"
+        },
+        "message": {
+          "offset": 40,
+          "type": "char[512]"
+        }
+      }
+    },
+    "sirix_runtime_options_t": {
+      "size": 64,
+      "alignment": 8,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "heap_bytes": {
+          "offset": 8,
+          "type": "uint64_t"
+        },
+        "allocator_bytes": {
+          "offset": 16,
+          "type": "uint64_t"
+        },
+        "query_workspace_bytes": {
+          "offset": 24,
+          "type": "uint64_t"
+        },
+        "max_input_bytes": {
+          "offset": 32,
+          "type": "uint64_t"
+        },
+        "chunk_bytes": {
+          "offset": 40,
+          "type": "uint64_t"
+        },
+        "worker_count": {
+          "offset": 48,
+          "type": "uint32_t"
+        },
+        "max_depth": {
+          "offset": 52,
+          "type": "uint32_t"
+        },
+        "flags": {
+          "offset": 56,
+          "type": "uint32_t"
+        },
+        "reserved": {
+          "offset": 60,
+          "type": "uint32_t"
+        }
+      }
+    },
+    "sirix_db_options_t": {
+      "size": 24,
+      "alignment": 4,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "model": {
+          "offset": 8,
+          "type": "uint32_t"
+        },
+        "access": {
+          "offset": 12,
+          "type": "uint32_t"
+        },
+        "flags": {
+          "offset": 16,
+          "type": "uint32_t"
+        },
+        "reserved": {
+          "offset": 20,
+          "type": "uint32_t"
+        }
+      }
+    },
+    "sirix_resource_options_t": {
+      "size": 64,
+      "alignment": 8,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "backend": {
+          "offset": 8,
+          "type": "uint32_t"
+        },
+        "versioning": {
+          "offset": 12,
+          "type": "uint32_t"
+        },
+        "path_summary": {
+          "offset": 16,
+          "type": "uint32_t"
+        },
+        "node_history": {
+          "offset": 20,
+          "type": "uint32_t"
+        },
+        "flags": {
+          "offset": 24,
+          "type": "uint32_t"
+        },
+        "reserved": {
+          "offset": 28,
+          "type": "uint32_t"
+        },
+        "valid_from": {
+          "offset": 32,
+          "type": "const uint8_t *"
+        },
+        "valid_from_len": {
+          "offset": 40,
+          "type": "uint64_t"
+        },
+        "valid_to": {
+          "offset": 48,
+          "type": "const uint8_t *"
+        },
+        "valid_to_len": {
+          "offset": 56,
+          "type": "uint64_t"
+        }
+      }
+    },
+    "sirix_query_options_t": {
+      "size": 40,
+      "alignment": 8,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "language": {
+          "offset": 8,
+          "type": "uint32_t"
+        },
+        "flags": {
+          "offset": 12,
+          "type": "uint32_t"
+        },
+        "workspace_bytes": {
+          "offset": 16,
+          "type": "uint64_t"
+        },
+        "chunk_bytes": {
+          "offset": 24,
+          "type": "uint64_t"
+        },
+        "max_depth": {
+          "offset": 32,
+          "type": "uint32_t"
+        },
+        "reserved": {
+          "offset": 36,
+          "type": "uint32_t"
+        }
+      }
+    },
+    "sirix_selector_t": {
+      "size": 48,
+      "alignment": 8,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "kind": {
+          "offset": 8,
+          "type": "uint32_t"
+        },
+        "flags": {
+          "offset": 12,
+          "type": "uint32_t"
+        },
+        "revision": {
+          "offset": 16,
+          "type": "uint64_t"
+        },
+        "instant": {
+          "offset": 24,
+          "type": "sirix_instant_t"
+        }
+      }
+    },
+    "sirix_chunk_t": {
+      "size": 32,
+      "alignment": 8,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "item_kind": {
+          "offset": 8,
+          "type": "uint32_t"
+        },
+        "flags": {
+          "offset": 12,
+          "type": "uint32_t"
+        },
+        "bytes_written": {
+          "offset": 16,
+          "type": "uint64_t"
+        },
+        "item_index": {
+          "offset": 24,
+          "type": "uint64_t"
+        }
+      }
+    },
+    "sirix_xml_value_t": {
+      "size": 80,
+      "alignment": 8,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "node_kind": {
+          "offset": 8,
+          "type": "uint32_t"
+        },
+        "flags": {
+          "offset": 12,
+          "type": "uint32_t"
+        },
+        "namespace_uri": {
+          "offset": 16,
+          "type": "const uint8_t *"
+        },
+        "namespace_uri_len": {
+          "offset": 24,
+          "type": "uint64_t"
+        },
+        "local": {
+          "offset": 32,
+          "type": "const uint8_t *"
+        },
+        "local_len": {
+          "offset": 40,
+          "type": "uint64_t"
+        },
+        "prefix": {
+          "offset": 48,
+          "type": "const uint8_t *"
+        },
+        "prefix_len": {
+          "offset": 56,
+          "type": "uint64_t"
+        },
+        "value": {
+          "offset": 64,
+          "type": "const uint8_t *"
+        },
+        "value_len": {
+          "offset": 72,
+          "type": "uint64_t"
+        }
+      }
+    },
+    "sirix_value_t": {
+      "size": 80,
+      "alignment": 8,
+      "fields": {
+        "struct_size": {
+          "offset": 0,
+          "type": "uint32_t"
+        },
+        "abi_major": {
+          "offset": 4,
+          "type": "uint32_t"
+        },
+        "kind": {
+          "offset": 8,
+          "type": "uint32_t"
+        },
+        "boolean_value": {
+          "offset": 12,
+          "type": "uint32_t"
+        },
+        "integer_value": {
+          "offset": 16,
+          "type": "int64_t"
+        },
+        "instant": {
+          "offset": 24,
+          "type": "sirix_instant_t"
+        },
+        "data": {
+          "offset": 48,
+          "type": "const uint8_t *"
+        },
+        "len": {
+          "offset": 56,
+          "type": "uint64_t"
+        },
+        "xml": {
+          "offset": 64,
+          "type": "const sirix_xml_value_t *"
+        },
+        "reserved": {
+          "offset": 72,
+          "type": "uint64_t"
+        }
+      }
+    }
+  },
+  "constants": {
+    "SIRIX_ABI_MAJOR": 1,
+    "SIRIX_ABI_MINOR": 0,
+    "SIRIX_ABI_VERSION": 65536,
+    "SIRIX_OK": 0,
+    "SIRIX_EOF": 1,
+    "SIRIX_INVALID_ARGUMENT": 100,
+    "SIRIX_RANGE": 101,
+    "SIRIX_INVALID_HANDLE": 102,
+    "SIRIX_HANDLE_TYPE": 103,
+    "SIRIX_WRONG_THREAD": 104,
+    "SIRIX_WRONG_RUNTIME": 105,
+    "SIRIX_NOT_FOUND": 106,
+    "SIRIX_ALREADY_EXISTS": 107,
+    "SIRIX_TYPE_MISMATCH": 108,
+    "SIRIX_BUSY": 109,
+    "SIRIX_LOCKED": 110,
+    "SIRIX_READ_ONLY": 111,
+    "SIRIX_REVISION_PRUNED": 112,
+    "SIRIX_NOT_CONFIGURED": 113,
+    "SIRIX_UNSUPPORTED": 114,
+    "SIRIX_SYNTAX": 115,
+    "SIRIX_QUERY": 116,
+    "SIRIX_BUFFER_TOO_SMALL": 117,
+    "SIRIX_LIMIT": 118,
+    "SIRIX_CANCELLED": 119,
+    "SIRIX_IO": 120,
+    "SIRIX_CORRUPTION": 121,
+    "SIRIX_OOM": 122,
+    "SIRIX_TX_FAILED": 123,
+    "SIRIX_COMMIT_OUTCOME_UNKNOWN": 124,
+    "SIRIX_INTERNAL": 125,
+    "SIRIX_ABI_MISMATCH": 126,
+    "SIRIX_COMMITTED_WITH_ERROR": 127,
+    "SIRIX_CLOSE_FAILED": 128,
+    "SIRIX_RUNTIME_POISONED": 129,
+    "SIRIX_CAP_JSON": 1,
+    "SIRIX_CAP_XML": 2,
+    "SIRIX_CAP_JSONIQ": 4,
+    "SIRIX_CAP_XQUERY": 8,
+    "SIRIX_CAP_TEMPORAL": 16,
+    "SIRIX_CAP_DIFF": 32,
+    "SIRIX_CAP_HISTORY": 64,
+    "SIRIX_CAP_BOUNDED_PULL": 128,
+    "SIRIX_ERROR_TRUNCATED": 1,
+    "SIRIX_ERROR_TX_CLEANUP_ONLY": 2,
+    "SIRIX_ERROR_RUNTIME_POISONED": 4,
+    "SIRIX_ERROR_HANDLE_CONSUMED": 8,
+    "SIRIX_CAP_REQUIRED_1_0": 255,
+    "SIRIX_MODEL_JSON": 1,
+    "SIRIX_MODEL_XML": 2,
+    "SIRIX_ACCESS_READ_WRITE": 1,
+    "SIRIX_ACCESS_READ_ONLY": 2,
+    "SIRIX_SELECT_LATEST": 1,
+    "SIRIX_SELECT_REVISION": 2,
+    "SIRIX_SELECT_TIMESTAMP": 3,
+    "SIRIX_LANGUAGE_JSONIQ": 1,
+    "SIRIX_LANGUAGE_XQUERY": 2,
+    "SIRIX_ACTION_REPLACE_DOCUMENT": 1,
+    "SIRIX_ACTION_REPLACE_SUBTREE": 2,
+    "SIRIX_ACTION_FIRST_CHILD": 3,
+    "SIRIX_ACTION_LAST_CHILD": 4,
+    "SIRIX_ACTION_LEFT_SIBLING": 5,
+    "SIRIX_ACTION_RIGHT_SIBLING": 6,
+    "SIRIX_ACTION_REMOVE": 7,
+    "SIRIX_ITEM_JSON": 1,
+    "SIRIX_ITEM_XML": 2,
+    "SIRIX_ITEM_ATOMIC": 3,
+    "SIRIX_ITEM_JSON_DIFF": 4,
+    "SIRIX_ITEM_XML_DIFF": 5,
+    "SIRIX_ITEM_HISTORY": 6,
+    "SIRIX_VALUE_JSON": 1,
+    "SIRIX_VALUE_STRING": 2,
+    "SIRIX_VALUE_BOOLEAN": 3,
+    "SIRIX_VALUE_INT64": 4,
+    "SIRIX_VALUE_DECIMAL": 5,
+    "SIRIX_VALUE_INSTANT": 6,
+    "SIRIX_VALUE_XML": 7,
+    "SIRIX_XML_DOCUMENT": 1,
+    "SIRIX_XML_ELEMENT": 2,
+    "SIRIX_XML_ATTRIBUTE": 3,
+    "SIRIX_XML_NAMESPACE": 4,
+    "SIRIX_XML_TEXT": 5,
+    "SIRIX_XML_COMMENT": 6,
+    "SIRIX_XML_PROCESSING_INSTRUCTION": 7,
+    "SIRIX_COMMIT_NONE": 0,
+    "SIRIX_NOT_COMMITTED": 1,
+    "SIRIX_COMMITTED": 2,
+    "SIRIX_COMMIT_UNKNOWN": 3,
+    "SIRIX_CHUNK_BEGIN": 1,
+    "SIRIX_CHUNK_END": 2,
+    "SIRIX_DIFF_INCLUDE_DATA": 1,
+    "SIRIX_BACKEND_FILE_CHANNEL": 1,
+    "SIRIX_VERSIONING_SLIDING_SNAPSHOT": 1,
+    "SIRIX_DEFAULT_HEAP_BYTES": 268435456,
+    "SIRIX_DEFAULT_ALLOCATOR_BYTES": 268435456,
+    "SIRIX_DEFAULT_WORKSPACE_BYTES": 67108864,
+    "SIRIX_DEFAULT_INPUT_BYTES": 16777216,
+    "SIRIX_DEFAULT_CHUNK_BYTES": 65536,
+    "SIRIX_DEFAULT_WORKERS": 2,
+    "SIRIX_DEFAULT_MAX_DEPTH": 1024
+  },
+  "functions": {
+    "sirix_abi_version": [
+      "uint32_t",
+      []
+    ],
+    "sirix_capabilities": [
+      "uint64_t",
+      []
+    ],
+    "sirix_runtime_create": [
+      "sirix_status_t",
+      [
+        "const sirix_runtime_options_t *",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_thread_attach": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_thread_detach": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_runtime_destroy": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_runtime_info": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "uint8_t *",
+        "uint64_t",
+        "uint64_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_database_create": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "const uint8_t *",
+        "uint64_t",
+        "const sirix_db_options_t *",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_database_open": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "const uint8_t *",
+        "uint64_t",
+        "const sirix_db_options_t *",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_resource_create": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "const uint8_t *",
+        "uint64_t",
+        "const sirix_resource_options_t *",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_resource_open": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "const uint8_t *",
+        "uint64_t",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_resource_info": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "uint8_t *",
+        "uint64_t",
+        "uint64_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_read_begin": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "const sirix_selector_t *",
+        "sirix_handle_t *",
+        "uint64_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_write_begin": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "sirix_handle_t *",
+        "uint64_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_write_json": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "uint64_t",
+        "uint32_t",
+        "const uint8_t *",
+        "uint64_t",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_write_xml": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "uint64_t",
+        "uint32_t",
+        "const sirix_xml_value_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_commit": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "const uint8_t *",
+        "uint64_t",
+        "uint64_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_rollback": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_read_json": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "uint64_t",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_read_xml": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "uint64_t",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_bitemporal_open": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "const sirix_instant_t *",
+        "const sirix_instant_t *",
+        "sirix_handle_t *",
+        "uint64_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_query_prepare": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "const uint8_t *",
+        "uint64_t",
+        "const sirix_query_options_t *",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_query_bind": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "const uint8_t *",
+        "uint64_t",
+        "const uint8_t *",
+        "uint64_t",
+        "const sirix_value_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_query_execute": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_diff_open": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "uint64_t",
+        "uint64_t",
+        "uint32_t",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_history_open": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "uint64_t",
+        "uint64_t",
+        "sirix_handle_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_cursor_read": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "uint8_t *",
+        "uint64_t",
+        "sirix_chunk_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_cursor_item_info": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "uint8_t *",
+        "uint64_t",
+        "uint64_t *",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_cursor_cancel": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "sirix_error_t *"
+      ]
+    ],
+    "sirix_handle_close": [
+      "sirix_status_t",
+      [
+        "sirix_handle_t",
+        "sirix_handle_t",
+        "sirix_error_t *"
+      ]
+    ]
+  },
+  "defaults": {
+    "sirix_instant_t": [
+      "SIRIX_INSTANT_INIT",
+      {}
+    ],
+    "sirix_error_t": [
+      "SIRIX_ERROR_INIT",
+      {}
+    ],
+    "sirix_runtime_options_t": [
+      "SIRIX_RUNTIME_OPTIONS_INIT",
+      {
+        "heap_bytes": 268435456,
+        "allocator_bytes": 268435456,
+        "query_workspace_bytes": 67108864,
+        "max_input_bytes": 16777216,
+        "chunk_bytes": 65536,
+        "worker_count": 2,
+        "max_depth": 1024
+      }
+    ],
+    "sirix_db_options_t": [
+      "SIRIX_DB_OPTIONS_INIT",
+      {
+        "model": 1,
+        "access": 1
+      }
+    ],
+    "sirix_resource_options_t": [
+      "SIRIX_RESOURCE_OPTIONS_INIT",
+      {
+        "backend": 1,
+        "versioning": 1,
+        "path_summary": 1,
+        "node_history": 1
+      }
+    ],
+    "sirix_query_options_t": [
+      "SIRIX_QUERY_OPTIONS_INIT",
+      {
+        "language": 1
+      }
+    ],
+    "sirix_selector_t": [
+      "SIRIX_SELECTOR_INIT",
+      {
+        "kind": 1
+      }
+    ],
+    "sirix_chunk_t": [
+      "SIRIX_CHUNK_INIT",
+      {}
+    ],
+    "sirix_xml_value_t": [
+      "SIRIX_XML_VALUE_INIT",
+      {
+        "node_kind": 2
+      }
+    ],
+    "sirix_value_t": [
+      "SIRIX_VALUE_INIT",
+      {
+        "kind": 2
+      }
+    ]
+  }
+}
