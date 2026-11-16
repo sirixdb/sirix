@@ -341,6 +341,8 @@ final class StorageEpochFsstInlineDecisionTest {
     ASYNC_FLUSH_MODE
   }
 
+  // Trial is a result carrier; table equality is asserted explicitly with assertArrayEquals.
+  @SuppressWarnings("ArrayRecordComponent")
   private record Trial(byte[] table, int rotations, int encodedOnlyFits, int neverFits, Decisions decisions,
       List<byte[]> frames) {
   }
