@@ -2080,9 +2080,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executePredicateCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate)
       throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new Int64(0L);
     }
@@ -5688,9 +5686,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executePredicateAggregate(QueryContext ctx, String[] sourcePath, PredicateNode predicate, String func,
       String field) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return statsToSequence(func, EMPTY_SOURCE_STATS);
     }
@@ -12300,9 +12296,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   @Override
   public Sequence executeCountDistinct(QueryContext ctx, String[] sourcePath, String field) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new Int64(0L);
     }
@@ -13671,9 +13665,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executeAggregate(QueryContext ctx, String[] sourcePath, String func, String field)
       throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return statsToSequence(func, EMPTY_SOURCE_STATS);
     }
@@ -13689,10 +13681,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         return tryServeDoubleAggregate(sourcePath, field, null, func);
       }
-      // A maintained projection wins over the summary — the same order the wtx branch above
-      // already uses. Both answer in microseconds, but a projection is an index the user asked
-      // for and keeps maintained, and it covers shapes the summary declines; letting the summary
-      // short-circuit ahead of it silently retired it the moment path statistics were switched on.
+      // Prefer an explicitly maintained projection; a summary shortcut must not shadow its serving route.
       final long[] projectedFirst = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
       if (projectedFirst != null) {
         return statsToSequence(func, projectedFirst);
