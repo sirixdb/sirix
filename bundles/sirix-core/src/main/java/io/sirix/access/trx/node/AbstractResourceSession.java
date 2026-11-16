@@ -122,6 +122,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   private final ThreadLocal<Boolean> inCommitCallback;
+  private final ConcurrentMap<Integer, InternalNodeTrx<?>> resourceWriters;
   private final ReentrantReadWriteLock notificationOwnership;
   private final ConcurrentLinkedQueue<CompletableFuture<Void>> notificationCompletions;
   private final ThreadLocal<@Nullable InternalNodeTrx<?>> commitExecution = new ThreadLocal<>();
@@ -131,6 +132,20 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public final void assertNotInCommitCallback() {
     if (Boolean.TRUE.equals(inCommitCallback.get())) {
       throw new IllegalStateException("Lifecycle calls are forbidden from a commit callback of this session");
+    }
+  }
+
+  @Override
+  public final void assertCanRetire() {
+    assertCanRetire(null);
+  }
+
+  private void assertCanRetire(final @Nullable InternalNodeTrx<?> executionOwner) {
+    assertNotInCommitCallback();
+    for (final InternalNodeTrx<?> writer : resourceWriters.values()) {
+      if (writer != executionOwner) {
+        writer.assertCanClose();
+      }
     }
   }
 
@@ -167,7 +182,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public final void beginNotificationRetirement() {
-    assertNotInCommitCallback();
+    assertCanRetire(commitExecution.get());
     for (;;) {
       for (final CompletableFuture<Void> completion : notificationCompletions) {
         completion.join();
@@ -542,6 +557,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     revisionListeners = new CopyOnWriteArrayList<>();
     inCommitCallback = new ThreadLocal<>();
+    resourceWriters = new ConcurrentHashMap<>();
     notificationOwnership = new ReentrantReadWriteLock();
     notificationCompletions = new ConcurrentLinkedQueue<>();
     this.user = user;
@@ -586,6 +602,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     lastCommittedUberPage = sharedSession.lastCommittedUberPage;
     revisionListeners = sharedSession.revisionListeners;
     inCommitCallback = sharedSession.inCommitCallback;
+    resourceWriters = sharedSession.resourceWriters;
     notificationOwnership = sharedSession.notificationOwnership;
     notificationCompletions = sharedSession.notificationCompletions;
     pendingRevisionRoot = sharedSession.pendingRevisionRoot;
@@ -1616,6 +1633,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
           }
           throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
         }
+        if (wtx instanceof InternalNodeTrx<?> nodeTrx) {
+          resourceWriters.put(nodeTrxId, nodeTrx);
+        }
         TransactionMetrics.onReadWriteTrxOpened();
 
         success = true;
@@ -1656,12 +1676,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   // Keep staged ownership and first-failure handling explicit; cleanup must also run after Error.
   @SuppressWarnings("java:S1181")
   public void close() {
-    assertNotInCommitCallback();
-    for (final R transaction : nodeTrxMap.values()) {
-      if (transaction instanceof InternalNodeTrx<?> nodeTrx) {
-        nodeTrx.assertCanClose();
-      }
-    }
+    assertCanRetire();
     final Set<NodeReadOnlyTrx> transactions = Collections.newSetFromMap(new IdentityHashMap<>());
     final Set<NodeReadOnlyTrx> unfinishedTransactions = Collections.newSetFromMap(new IdentityHashMap<>());
     final Set<StorageEngineReader> readers = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -1939,6 +1954,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     try {
       removeFromPageMapping(transactionID);
     } finally {
+      resourceWriters.remove(transactionID);
       writeLock.release();
     }
   }

@@ -262,6 +262,259 @@ final class SharedCallbackLifetimeTest {
     }
   }
 
+  static Stream<Arguments> reentrantCases() {
+    return Stream.of("json", "xml").flatMap(format ->
+        Stream.of(false, true).map(hook -> Arguments.of(format, hook)));
+  }
+
+  @ParameterizedTest(name = "resource execution {arguments}")
+  @MethodSource("reentrantCases")
+  void enclosingExecutionRejectsRetirementAcrossUserSessions(final String format, final boolean hook)
+      throws Exception {
+    try (Fixture fixture = new Fixture(format, directory.resolve("same"));
+         Fixture other = new Fixture(format, directory.resolve("different"))) {
+      final NodeTrx writer = fixture.second.beginNodeTrx(0, 1, TimeUnit.DAYS);
+      final NodeReadOnlyTrx reader = fixture.first.beginNodeReadOnlyTrx(1);
+      final StorageEngineReader page = reader.getStorageEngineReader();
+      final CompletableFuture<Void> notified = new CompletableFuture<>();
+      if (hook) {
+        writer.addPostCommitHook(view -> {
+          try {
+            assertEquals(2, view.getRevisionNumber());
+            assertTrue(view.moveTo(format.equals("json") ? 1 : 2));
+            assertEquals(1, number(view));
+            notified.complete(null);
+          } catch (final Throwable failure) {
+            notified.completeExceptionally(failure);
+            throw failure;
+          }
+        });
+      }
+      final CompletableFuture<Void> completed = new CompletableFuture<>();
+      final Thread foreground = new Thread(() -> {
+        try {
+          writer.runLocked(() -> {
+            setValue(writer, 1);
+            writer.commit();
+            final int revision = fixture.first.getMostRecentRevisionNumber();
+            assertThrows(IllegalStateException.class, fixture.first::close);
+            assertFalse(fixture.first.isClosed());
+            assertFalse(page.isClosed());
+            assertTrue(reader.moveTo(format.equals("json") ? 1 : 2));
+            assertEquals(0, number(reader));
+            assertThrows(IllegalStateException.class, () -> writer.getStorageEngineWriter().truncateTo(1));
+            assertThrows(IllegalStateException.class, () -> writer.truncateTo(1));
+            assertEquals(revision, fixture.first.getMostRecentRevisionNumber());
+            try (StorageEngineWriter independent = other.second.createStorageEngineWriter()) {
+              independent.truncateTo(1);
+            }
+            other.first.close();
+            assertTrue(other.first.isClosed());
+            if (hook) {
+              assertFalse(notified.isDone());
+            }
+          });
+          completed.complete(null);
+        } catch (final Throwable failure) {
+          completed.completeExceptionally(failure);
+        }
+      });
+      try {
+        foreground.start();
+        completed.get(10, TimeUnit.SECONDS);
+        if (hook) {
+          notified.get(10, TimeUnit.SECONDS);
+        }
+        fixture.first.close();
+        assertTrue(reader.isClosed());
+        assertTrue(page.isClosed());
+        writer.close();
+        assertEquals(1, fixture.first.writeLock.availablePermits());
+      } finally {
+        if (!completed.isDone()) {
+          @SuppressWarnings("unchecked")
+          final Queue<CompletableFuture<Void>> pending = (Queue<CompletableFuture<Void>>)
+              field(AbstractResourceSession.class, "notificationCompletions").get(fixture.first);
+          pending.forEach(completion -> completion.complete(null));
+          pending.clear();
+        }
+        foreground.join(10000);
+      }
+    }
+  }
+
+  static Stream<Arguments> preHookCases() {
+    return Stream.of("json", "xml").flatMap(format -> Stream.of(false, true).flatMap(async ->
+        Stream.of("direct", "shared", "page").flatMap(kind -> Stream.of(false, true).flatMap(during ->
+            Stream.of("success", "exception", "error")
+                .map(outcome -> Arguments.of(format, async, kind, during, outcome))))));
+  }
+
+  @ParameterizedTest(name = "pre-hook ownership {arguments}")
+  @MethodSource("preHookCases")
+  void preHooksRetainCrossSessionReadersUntilReturnOrVeto(final String format, final boolean async,
+      final String kind, final boolean during, final String outcome) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final AbstractResourceSession<?, ?> owner = fixture.first;
+      final NodeTrx writer = async ? fixture.second.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT)
+          : fixture.second.beginNodeTrx(1, 1, TimeUnit.DAYS);
+      final boolean interrupt = kind.equals("page") || outcome.equals("error");
+      final boolean failClose = kind.equals("shared") || outcome.equals("error");
+      final IllegalStateException primary = new IllegalStateException("pre-hook reader cache close failure");
+      final IllegalArgumentException secondary = new IllegalArgumentException("pre-hook independent page close failure");
+      final RuntimeException veto = new IllegalStateException("pre-publication veto");
+      final AssertionError hookError = new AssertionError("pre-publication error veto");
+      if (failClose) {
+        final ValidTimeReadCache cache = mock(ValidTimeReadCache.class);
+        doThrow(primary).when(cache).clear();
+        field(AbstractResourceSession.class, "validTimeReadCache").set(owner, cache);
+      }
+      final AtomicBoolean first = new AtomicBoolean(true);
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch navigate = new CountDownLatch(1);
+      final CountDownLatch finish = new CountDownLatch(1);
+      final CompletableFuture<Void> navigated = new CompletableFuture<>();
+      final AtomicReference<NodeReadOnlyTrx> node = new AtomicReference<>();
+      final AtomicReference<StorageEngineReader> page = new AtomicReference<>();
+      writer.addPreCommitHook(unused -> {
+        if (!first.compareAndSet(true, false)) {
+          return;
+        }
+        try {
+          assertEquals(1, fixture.second.getMostRecentRevisionNumber());
+          if (!during) {
+            openAndRead(owner, kind, node, page);
+          }
+          entered.countDown();
+          await(navigate);
+          if (during) {
+            openAndRead(owner, kind, node, page);
+          } else {
+            read(node.get(), page.get());
+          }
+          assertThrows(IllegalStateException.class, owner::close);
+          assertThrows(IllegalStateException.class, fixture.second::close);
+          navigated.complete(null);
+          await(finish);
+          if (outcome.equals("exception")) {
+            throw veto;
+          }
+          if (outcome.equals("error")) {
+            throw hookError;
+          }
+        } catch (final Throwable failure) {
+          navigated.completeExceptionally(failure);
+          throw failure;
+        }
+      });
+      setValue(writer, 1);
+      final CompletableFuture<Void> mutated = new CompletableFuture<>();
+      final Thread foreground = new Thread(() -> {
+        try {
+          setValue(writer, 2);
+          mutated.complete(null);
+        } catch (final Throwable failure) {
+          mutated.completeExceptionally(failure);
+        }
+      });
+      final CompletableFuture<Void> closed = new CompletableFuture<>();
+      final AtomicBoolean restored = new AtomicBoolean();
+      final Thread closer = new Thread(() -> {
+        try {
+          owner.close();
+          closed.complete(null);
+        } catch (final Throwable failure) {
+          closed.completeExceptionally(failure);
+        } finally {
+          restored.set(Thread.currentThread().isInterrupted());
+        }
+      });
+      try {
+        foreground.start();
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        closer.start();
+        @SuppressWarnings("unchecked")
+        final Queue<CompletableFuture<Void>> completions = (Queue<CompletableFuture<Void>>)
+            field(AbstractResourceSession.class, "notificationCompletions").get(owner);
+        final CompletableFuture<Void> completion = completions.peek();
+        assertTrue(completion != null, "pre-hook execution must own resource completion");
+        while (completion.getNumberOfDependents() == 0) {
+          assertFalse(closed.isDone(), "reader owner retired during a pre-hook");
+          Thread.onSpinWait();
+        }
+        if (interrupt) {
+          closer.interrupt();
+        }
+        navigate.countDown();
+        navigated.get(10, TimeUnit.SECONDS);
+        assertEquals(1, fixture.second.getMostRecentRevisionNumber());
+        if (failClose) {
+          final StorageEngineReader independent = owner.createStorageEngineReader(1);
+          final StorageEngineReader failing = mock(StorageEngineReader.class, delegatesTo(independent));
+          doAnswer(invocation -> {
+            independent.close();
+            throw secondary;
+          }).when(failing).close();
+          owner.storageEngineReaderMap.put(independent.getTrxId(), failing);
+        }
+        finish.countDown();
+        if (outcome.equals("success")) {
+          mutated.get(10, TimeUnit.SECONDS);
+          writer.awaitPendingAsyncCommit();
+          assertEquals(2, fixture.second.getMostRecentRevisionNumber());
+          try (NodeReadOnlyTrx committed = fixture.second.beginNodeReadOnlyTrx(2)) {
+            assertTrue(committed.moveTo(format.equals("json") ? 1 : 2));
+            assertEquals(1, number(committed));
+          }
+        } else {
+          final Throwable expected = outcome.equals("error") ? hookError : veto;
+          assertSame(expected, assertThrows(ExecutionException.class,
+              () -> mutated.get(10, TimeUnit.SECONDS)).getCause());
+          assertEquals(1, fixture.second.getMostRecentRevisionNumber());
+          assertTrue(completion.isDone());
+        }
+        if (failClose) {
+          assertSame(primary, assertThrows(ExecutionException.class,
+              () -> closed.get(10, TimeUnit.SECONDS)).getCause());
+          assertTrue(List.of(primary.getSuppressed()).contains(secondary));
+        } else {
+          closed.get(10, TimeUnit.SECONDS);
+        }
+        closer.join(10000);
+        assertEquals(interrupt, restored.get());
+        assertTrue(page.get().isClosed());
+        if (node.get() != null) {
+          assertTrue(node.get().isClosed());
+          assertNull(field(AbstractNodeReadOnlyTrx.class, "currentPageGuard").get(node.get()));
+        }
+        assertTrue(owner.nodeTrxMap.isEmpty());
+        assertTrue(owner.storageEngineReaderMap.isEmpty());
+        setValue(writer, 3);
+        writer.commit();
+        try (NodeReadOnlyTrx committed = fixture.second.beginNodeReadOnlyTrx()) {
+          assertTrue(committed.moveTo(format.equals("json") ? 1 : 2));
+          assertEquals(3, number(committed));
+        }
+        writer.close();
+        assertEquals(1, owner.writeLock.availablePermits());
+      } finally {
+        navigate.countDown();
+        finish.countDown();
+        foreground.join(10000);
+        closer.join(10000);
+      }
+    }
+  }
+
+  private static void setValue(final NodeTrx writer, final int value) {
+    assertTrue(writer.moveTo(writer instanceof JsonNodeTrx ? 1 : 2));
+    if (writer instanceof JsonNodeTrx json) {
+      json.setNumberValue(value);
+    } else {
+      ((XmlNodeTrx) writer).setValue(Integer.toString(value));
+    }
+  }
+
   private static void openAndRead(final AbstractResourceSession<?, ?> owner, final String kind,
       final AtomicReference<NodeReadOnlyTrx> node, final AtomicReference<StorageEngineReader> page) {
     if (kind.equals("page")) {

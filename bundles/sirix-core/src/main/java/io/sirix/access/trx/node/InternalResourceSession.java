@@ -77,6 +77,8 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void assertNotInCommitCallback();
 
+  void assertCanRetire();
+
   void enterCommitCallback();
 
   void exitCommitCallback();
