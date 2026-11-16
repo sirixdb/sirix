@@ -77,7 +77,9 @@ Mutation testing: a focused PIT 1.25.5 run limited to the changed methods of `Ke
 `StorageEpochFsstInlineDecisionTest`, `KeyValueLeafPagePendingFsstMaterializationTest`,
 `StorageEpochStoreIdentityTest`, `AsyncFlushOwnedFragmentChainTest` and
 `AdoptedOverflowCarrierStagingTest`, run with the identity task's deterministic codec setting.
-The PR lane cannot select them, because it inherits the standard test task's excludes.
+The PR lane inherits the standard test task's exclusions, so it cannot run the isolated
+`StorageEpochFsstInlineDecisionTest` or `StorageEpochStoreIdentityTest` suites; the fast boundary
+tests added for that lane are described in the follow-up below.
 On changed lines: 53 killed, 0 without coverage, 6 survived. The first pass left 11 survivors and
 18 uncovered mutants; the tests that killed them are the page-level unit test, the id-only
 resolution test, the rebuilt-container assertions and the page created inside the transaction.

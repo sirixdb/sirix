@@ -1379,18 +1379,19 @@ public enum VersioningType {
   private static final LongAdder OWNED_REPLAYS_KEEPING_FSST_BINDING = new LongAdder();
 
   /**
-   * Owned-fragment re-reads whose rebuilt page kept the FSST symbol-table binding the page had before
-   * a storage epoch flushed it, taking the owned slots verbatim instead of decompressing them.
+   * Cumulative owned-fragment re-reads whose rebuilt page kept its pre-epoch FSST binding, taking
+   * owned slots verbatim instead of decompressing them. Always collected, independently of
+   * {@link #hotMergeDiagEnabled()}, and not cleared by {@link #resetFragmentMergeCounters()}.
    */
   public static long ownedReplaysKeepingFsstBinding() {
     return OWNED_REPLAYS_KEEPING_FSST_BINDING.sum();
   }
 
   /**
-   * Whether merge diagnostics are collecting. A test that asserts on these counters MUST check this
-   * first: with the gate off every counter reads zero, and "zero walked past a complete dump" from a
-   * disabled instrument is indistinguishable from the same reading from a healthy one. Assert the
-   * instrument is live, then assert on it.
+   * Whether gated HOT merge diagnostics are collecting. A test that asserts on the gated counters
+   * MUST check this first: with the gate off those counters read zero, and "zero walked past a
+   * complete dump" from a disabled instrument is indistinguishable from the same reading from a
+   * healthy one. Assert the instrument is live, then assert on it.
    */
   public static boolean hotMergeDiagEnabled() {
     return HOT_MERGE_DIAG;
@@ -1458,7 +1459,7 @@ public enum VersioningType {
     return COMPLETE_DUMPS_WALKED_PAST.sum();
   }
 
-  /** Zero every merge counter; a counter that cannot be reset cannot witness a specific operation. */
+  /** Reset the gated HOT merge counters before measuring an operation. */
   public static void resetFragmentMergeCounters() {
     SINGLE_FRAGMENT_READS.reset();
     MULTI_FRAGMENT_MERGES.reset();

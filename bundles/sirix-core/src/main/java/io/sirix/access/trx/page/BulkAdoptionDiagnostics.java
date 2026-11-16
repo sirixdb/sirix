@@ -6,10 +6,10 @@ package io.sirix.access.trx.page;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
- * Process-wide counters for the bulk-adoption lane of the storage engine writer: how the overflow
- * carriers of adopted leaves were dispositioned, and whether the async flush lane ever fell back to
- * pinning a leaf with carriers still pending. Diagnostics only — read by loaders' reports and by
- * tests; never consulted by the engine.
+ * Process-wide counters for leaf materialization and bulk adoption in the storage engine writer:
+ * pending-string encoding, overflow-carrier staging, and async flushes that pin leaves with
+ * carriers still pending. Diagnostics only — read by loaders' reports and by tests; never consulted
+ * by the engine.
  *
  * <p>
  * The writer class itself is package-private; this holder is what a loader outside the package can

@@ -295,8 +295,9 @@ not keep.
 
 ### 5.1 The change (three files)
 1. `KeyValueLeafPage`
-   - `materializePendingRecords(config)`: runs `processEntries` now; every entry is consumed by
-     contract (inline, carrier, or bound-flyweight shortcut) and a survivor THROWS; `records = null`.
+   - `materializePendingRecords(config)`: see its Javadoc in
+     [`KeyValueLeafPage`](../bundles/sirix-core/src/main/java/io/sirix/page/KeyValueLeafPage.java)
+     for encoding, binding and record-consumption requirements.
    - `overflowReferenceState()`: RESOLVED / PENDING_SIDE_WRITES / UNRESOLVED (one map pass).
    - `flushDeferrals` (byte) + `noteFlushDeferral()`.
    - `deepCopy()` SHARES a pending carrier reference instead of cloning it (the copy constructor
