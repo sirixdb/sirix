@@ -26,9 +26,8 @@ import java.util.Arrays;
  * <p>
  * Fields track only the state needed to merge into a {@link PathNode}'s stats in one pass: count /
  * sum / min / max / null-count for numeric; bytes min/max for strings; HLL batched into a local
- * sketch that is unioned on flush; leaf-page witnesses for the page-skip bitmap. {@code kind} keeps
- * the last numeric/byte observation kind for flush dispatch, not proof of type purity: the shared
- * count can include observations from both lanes.
+ * sketch that is unioned on flush; leaf-page witnesses for the page-skip bitmap. {@code kind} is
+ * recorded so mixed-type updates (rare but defensible) keep the right lane.
  *
  * <p>
  * Not thread-safe: an instance belongs to one writer (the transaction's summary writer or one
@@ -41,12 +40,12 @@ import java.util.Arrays;
  * from byte identity (nothing serves it).
  *
  * <p>
- * For integer-only input, that guarantee does not stop at the batch.
+ * That guarantee does not stop at the batch.
  * {@link PathNode#mergeLongStats(long, long, long, long, long)} takes both halves of the integral
- * sum and {@link PathStats#sumHi} carries them across a commit, so the persisted integral total is
- * a function of the observed values alone — not of how many flushes the load took, nor of how a
- * bulk load chunked its input. Pinned end to end by
- * {@code PathStatsPersistedSumOrderIndependenceTest} and by the differential's three-commit arm.
+ * sum and {@link PathStats#sumHi} carries them across a commit, so the persisted statistics are a
+ * function of the observed values alone — not of how many flushes the load took, nor of how a bulk
+ * load chunked its input. Pinned end to end by {@code PathStatsPersistedSumOrderIndependenceTest}
+ * and by the differential's three-commit arm.
  */
 public final class PathStatsAccumulator {
 
@@ -276,8 +275,9 @@ public final class PathStatsAccumulator {
 
   /**
    * Record a numeric observation with the SAME integral-vs-floating dispatch the cursor path uses
-   * ({@link #isExactLong}): integer-typed, long-representable values keep the exact long accumulator,
-   * everything else routes through {@link #addDouble} and records floating-point provenance.
+   * ({@link #isExactLong}): integral-and-long-representable numbers keep the exact long accumulator,
+   * everything else routes through {@link #addDouble}, whose {@code doubleTyped} flag makes value
+   * aggregates decline to the scan.
    */
   public void addNumber(final Number number) {
     if (isExactLong(number)) {
@@ -291,7 +291,7 @@ public final class PathStatsAccumulator {
    * Whether {@code number} is integral AND representable as a {@code long} without loss — the single
    * classifier shared by the cursor record/remove hooks and the bulk loaders. A {@link BigInteger}
    * that does not fit a long must NOT take the long lane: {@code longValue()} wraps modulo 2^64 and
-   * would leave an apparently trustworthy but incorrect integral total.
+   * the wrapped value would be SERVED, because nothing would mark the column untrustworthy.
    */
   public static boolean isExactLong(final Number number) {
     if (number instanceof Long || number instanceof Integer || number instanceof Short || number instanceof Byte) {
@@ -301,8 +301,9 @@ public final class PathStatsAccumulator {
       return bigInteger.bitLength() < Long.SIZE;
     }
     // Everything else — Double, Float, BigDecimal — takes the double lane even when the value
-    // happens to be integral (2.0): retain floating-point provenance rather than allowing an exact
-    // integral total to hide the original arithmetic type.
+    // happens to be integral (2.0): the type says the column is floating-point, and the
+    // doubleTyped flag must decline value aggregates for it. VERBATIM from the cursor's
+    // classifier; a wider rule here would serve sums the scan computes differently.
     return false;
   }
 

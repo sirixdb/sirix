@@ -128,8 +128,9 @@ public final class ScaleBenchMain {
     // shred and are not needed for analytical queries. Override via
     // -DbuildPathSummary=true / -DhashType=ROLLING if needed.
     boolean pathSummary = Boolean.parseBoolean(System.getProperty("buildPathSummary", "false"));
-    // Optional write-time value statistics; query-serving restrictions: docs/KNOWN_LIMITATIONS.md.
-    // Default off; opt-in via -DbuildPathStatistics=true. Requires pathSummary=true.
+    // PathStatistics enables the aggregate short-circuit. Requires pathSummary=true.
+    // Default off; opt-in via -DbuildPathStatistics=true. Target win:
+    // sumAge/avgAge/minMaxAge drop from seconds to microseconds on large datasets.
     boolean pathStatistics = Boolean.parseBoolean(System.getProperty("buildPathStatistics", "false"));
     if (pathStatistics && !pathSummary) {
       // Force pathSummary on if stats requested, otherwise the store builder throws.

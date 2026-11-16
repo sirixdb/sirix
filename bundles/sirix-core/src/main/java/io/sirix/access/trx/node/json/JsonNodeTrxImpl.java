@@ -1518,10 +1518,12 @@ final class JsonNodeTrxImpl extends
    * had) subtracts and re-adds the same numbers, which is the correct no-op.
    *
    * <p>
-   * This recovers the value observation count. The previous behaviour marked both path subtrees
-   * permanently stale because nothing cleared {@code countDirty}. What it cannot recover is what a
-   * delete cannot either: the source's min/max go dirty when the value that left WAS the bound, and
-   * its HLL keeps counting distinct values that are gone. Both follow the policy
+   * What this recovers is {@code count}, and with it every aggregate: the previous behaviour marked
+   * both path subtrees stale, nothing ever cleared {@code countDirty}, and the reader disqualifies
+   * EVERYTHING on a stale count — so one move anywhere permanently switched summary-served aggregates
+   * off for two whole path subtrees. What it cannot recover is what a delete cannot either: the
+   * source's min/max go dirty when the value that left WAS the bound, and its HLL keeps counting
+   * distinct values that are gone. Both follow the policy
    * {@link io.sirix.index.path.summary.PathNode#removeLongValue} already sets for deletions. The
    * destination stays exact, because adding is monotone in every aggregate.
    */
