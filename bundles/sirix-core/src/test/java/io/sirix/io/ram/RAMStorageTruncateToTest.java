@@ -24,12 +24,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@code RAMStorage.truncateTo} must not report a rollback it cannot perform.
  *
- * <p>Its callers — crash recovery in {@code AbstractResourceSession} and explicit rollback via
- * {@code NodeStorageEngineWriter.truncateTo} — treat a normal return as "the resource is now at that
- * revision", and go on to commit on top of that assumption. This storage keeps pages in a flat
+ * <p>
+ * Its callers — crash recovery in {@code AbstractResourceSession} and explicit rollback via
+ * {@code NodeStorageEngineWriter.truncateTo} — treat a normal return as "the resource is now at
+ * that revision", and go on to commit on top of that assumption. This storage keeps pages in a flat
  * {@code pageKey -> Page} map with no record of which revision wrote them, and retains only the
  * current uber-page pointer, so it can identify neither the pages to discard nor the uber page to
- * restore. The method was an empty {@code // TODO} that returned successfully.</p>
+ * restore. The method was an empty {@code // TODO} that returned successfully.
+ * </p>
  */
 public final class RAMStorageTruncateToTest {
 
@@ -88,9 +90,8 @@ public final class RAMStorageTruncateToTest {
     assertFalse(writer.supportsTruncateTo(),
         "a storage that cannot truncate must SAY so, not just throw once a rollback is under way");
 
-    final UnsupportedOperationException failure =
-        assertThrows(UnsupportedOperationException.class, () -> writer.truncateTo(1),
-            "a rollback this storage cannot honour must fail, not return as if it succeeded");
+    final UnsupportedOperationException failure = assertThrows(UnsupportedOperationException.class,
+        () -> writer.truncateTo(1), "a rollback this storage cannot honour must fail, not return as if it succeeded");
     assertTrue(failure.getMessage().contains("cannot truncate"),
         "the message should state what is unsupported; got: " + failure.getMessage());
 
