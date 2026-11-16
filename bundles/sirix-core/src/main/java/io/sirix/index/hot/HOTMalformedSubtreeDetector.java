@@ -168,6 +168,10 @@ public final class HOTMalformedSubtreeDetector {
 
   private @Nullable Defect firstViolation(final HOTIndirectPage indirect) {
     final int n = indirect.getNumChildren();
+    if (n < 2 || n > HOTIndirectPage.MAX_NODE_ENTRIES) {
+      return new Defect("I10-child-count", "indirect must have 2-32 children, got: " + n);
+    }
+
     final int[] partials = indirect.getPartialKeys();
     final boolean partialsUsable = partials.length >= n;
 

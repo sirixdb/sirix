@@ -58,6 +58,7 @@ import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
 import org.openjdk.jmh.infra.Blackhole;
 
 import java.nio.file.Files;
@@ -210,7 +211,7 @@ public class HotInMemoryReadBenchmark {
   private int hotCursor;
 
   @Setup(Level.Trial)
-  public void setUp() throws Exception {
+  public void setUp(final BenchmarkParams params) throws Exception {
     final Path corpus =
         Paths.get(System.getProperty("sirix.bench.corpus", "bundles/sirix-core/src/test/resources/json/movies.json"));
     dbPath = Files.createTempDirectory("hot-inmem-read");
@@ -265,6 +266,12 @@ public class HotInMemoryReadBenchmark {
     }
 
     collectAbsentProbes();
+    final String benchmark = params.getBenchmark();
+    if ((benchmark.endsWith(".lowerBoundSeekInsideLeaf") && absentInsideLeaf.length == 0)
+        || (benchmark.endsWith(".lowerBoundSeekAboveLeaf") && absentAboveLeaf.length == 0)
+        || (benchmark.endsWith(".lowerBoundSeekBelowLeaf") && absentBelowLeaf.length == 0)) {
+      throw new IllegalStateException("corpus yields no absent probes for " + benchmark);
+    }
 
     // Sample the leaf the median probe routes to, and take its probe keys from the leaf's own
     // entries: every one is guaranteed resident and a guaranteed hit, so findEntryInLeaf measures
@@ -321,10 +328,6 @@ public class HotInMemoryReadBenchmark {
           target.add(probe);
         }
       }
-    }
-    if (inside.isEmpty() || above.isEmpty() || below.isEmpty()) {
-      throw new IllegalStateException("corpus yields no absent probe for a class: inside=" + inside.size() + " above="
-          + above.size() + " below=" + below.size());
     }
     // Same fixed seed as the stored probes: a stable order that is not grouped by source key.
     Collections.shuffle(inside, new Random(0x5EED));

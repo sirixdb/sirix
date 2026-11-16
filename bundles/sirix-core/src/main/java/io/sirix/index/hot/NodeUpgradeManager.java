@@ -93,8 +93,8 @@ public final class NodeUpgradeManager {
    * @throws IllegalArgumentException if numChildren is invalid
    */
   public static NodeType determineNodeType(int numChildren) {
-    if (numChildren < 1) {
-      throw new IllegalArgumentException("Node must have at least 1 child: " + numChildren);
+    if (numChildren < 2) {
+      throw new IllegalArgumentException("Node must have at least 2 children: " + numChildren);
     }
     if (numChildren <= SPAN_NODE_MAX_CHILDREN) {
       return NodeType.SPAN_NODE;

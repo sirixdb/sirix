@@ -616,7 +616,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       return;
     }
     final int childCount = indirect.getNumChildren();
-    if (childCount < 1 || childCount > HOTIndirectPage.MAX_NODE_ENTRIES) {
+    if (childCount < 2 || childCount > HOTIndirectPage.MAX_NODE_ENTRIES) {
       footprint.reject(RebuildFootprintStatus.INVALID_PAGE);
       return;
     }
@@ -3517,7 +3517,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   private static boolean hasStrictlyAscendingPartials(final HOTIndirectPage node) {
     final int childCount = node.getNumChildren();
     final int[] partials = node.getPartialKeysRef();
-    if (childCount < 1 || partials == null || partials.length < childCount) {
+    if (childCount < 2 || partials == null || partials.length < childCount) {
       return false;
     }
     for (int i = 1; i < childCount; i++) {
@@ -3544,8 +3544,12 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private boolean nodeStructurallyMalformed(HOTIndirectPage candidate) {
     final int n = candidate.getNumChildren();
+    if (n < 2 || n > HOTIndirectPage.MAX_NODE_ENTRIES) {
+      return true;
+    }
+
     final int[] partials = candidate.getPartialKeysRef();
-    if (partials != null && partials.length >= n && n > 0) {
+    if (partials != null && partials.length >= n) {
       int minPartial = partials[0];
       for (int i = 1; i < n; i++) {
         if (Integer.compareUnsigned(partials[i], partials[i - 1]) <= 0) {
@@ -6616,7 +6620,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   private StructuralFrontier structuralFrontierForKey(final HOTIndirectPage node, final byte[] keySlice) {
     final int childCount = node.getNumChildren();
     final int routedSlot = node.findChildIndex(keySlice);
-    if (childCount < 1 || routedSlot < 0 || routedSlot >= childCount) {
+    if (childCount < 2 || routedSlot < 0 || routedSlot >= childCount) {
       throw new IllegalStateException("HOT incremental frontier cannot resolve the key's sparse-routing slot");
     }
     final int lexicographicSlot = lexicographicBoundaryChild(node, keySlice);

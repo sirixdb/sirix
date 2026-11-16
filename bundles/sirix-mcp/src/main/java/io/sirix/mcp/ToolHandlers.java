@@ -604,11 +604,6 @@ public final class ToolHandlers {
               "message", "Resource head changed; inspect it before retrying"), true);
         }
         validateRevision(session, targetRevision);
-        if (targetRevision == latest) {
-          return structuredResult(Map.of("revision", latest, "previousHead", latest, "message",
-              "Already at revision " + latest + ", nothing to revert"), false);
-        }
-
         wtx.revertTo(targetRevision);
 
         if (message != null) {

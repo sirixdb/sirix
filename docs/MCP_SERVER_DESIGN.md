@@ -227,8 +227,9 @@ change, inspects a diff, and optionally reverts. `sirix_revert` acquires the wri
 before checking `expected_head`. A mismatch returns an MCP error with structured
 `code: "stale_head"`, `expectedHead`, and `previousHead`, without committing. A
 successful revert creates a forward revision and returns `revision`,
-`previousHead`, and `targetRevision`. Reverting to the current head is a no-op
-returning that head as both `revision` and `previousHead`.
+`previousHead`, and `targetRevision`. Reverting to the current head also appends a revision, matching REST and the core API: head 7
+and target 7 return `revision: 8`, `previousHead: 7`, and `targetRevision: 7`.
+This rule applies to both numeric revisions and snapshot labels.
 
 These guards prevent an outdated revert decision from silently overwriting an
 intervening commit. They do not implement branching, conflict resolution, or a

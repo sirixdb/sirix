@@ -32,7 +32,7 @@ class NodeUpgradeManagerTest {
   class NodeTypeDeterminationTests {
 
     @ParameterizedTest(name = "{0} children → {1}")
-    @CsvSource({"1, SPAN_NODE", "2, SPAN_NODE", "3, SPAN_NODE", "16, SPAN_NODE", "17, MULTI_NODE", "32, MULTI_NODE"})
+    @CsvSource({"2, SPAN_NODE", "3, SPAN_NODE", "16, SPAN_NODE", "17, MULTI_NODE", "32, MULTI_NODE"})
     void testDetermineNodeType(int numChildren, NodeType expectedType) {
       assertEquals(expectedType, NodeUpgradeManager.determineNodeType(numChildren));
     }
@@ -41,6 +41,7 @@ class NodeUpgradeManagerTest {
     @DisplayName("Invalid child count throws exception")
     void testInvalidChildCount() {
       assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.determineNodeType(0));
+      assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.determineNodeType(1));
       assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.determineNodeType(33));
     }
   }
@@ -50,7 +51,7 @@ class NodeUpgradeManagerTest {
   class NodeTypeByBitsTests {
 
     @ParameterizedTest(name = "{0} bits → {1}")
-    @CsvSource({"0, SPAN_NODE", "1, SPAN_NODE", "2, SPAN_NODE", "3, SPAN_NODE", "4, SPAN_NODE", "5, MULTI_NODE",
+    @CsvSource({"0, SPAN_NODE", "2, SPAN_NODE", "3, SPAN_NODE", "4, SPAN_NODE", "5, MULTI_NODE",
         "8, MULTI_NODE"})
     void testDetermineNodeTypeByBits(int numBits, NodeType expectedType) {
       assertEquals(expectedType, NodeUpgradeManager.determineNodeTypeByBits(numBits));

@@ -446,13 +446,12 @@ code now explains (`hot/page/HOTIndirectPage.java:566-572`).
   (`hot/page/HOTIndirectPage.java:296-304`). No guard against more than 32 bits was found in the page
   class; `extractPartialKey` casts the compressed value to `int` (`hot/DiscriminativeBitComputer.java:440-449`),
   so the implied invariant is `|D| ≤ 32`.
-- `MAX_NODE_ENTRIES = 32` (`hot/page/HOTIndirectPage.java:111`) is the only fanout limit on the
-  production write path (`hot/AbstractHOTIndexWriter.java:568`, `:3816`, `:4098`;
-  `hot/HOTIncrementalInsert.java:1158`, `:1289`).
-- Node types: `SPAN_NODE` (id 0, factories require 2..16 children) and `MULTI_NODE` (id 1, factories
-  accept **1..32** children) (`hot/page/HOTIndirectPage.java:123-125`, `:1338-1340`, `:1366-1368`). The
-  class Javadoc's "17-32 children" is wrong (`:72-73`, `:124`). Span and multi nodes "deliberately
-  share this canonical PEXT route; their distinction is fanout, not lookup format" (`:542-543`).
+- Every indirect page has at least two children, and `MAX_NODE_ENTRIES = 32` is the global fanout
+  ceiling. Construction, persisted-page decoding and the production structural guards enforce this
+  domain (§2.8).
+- Node types: `SPAN_NODE` (id 0, 2..16 children) and `MULTI_NODE` (id 1, 2..32 children), in both
+  `SINGLE_MASK` and `MULTI_MASK` layouts. Span and multi nodes share the canonical PEXT route;
+  their distinction is fanout, not lookup format.
 - There is no BiNode page type. `createBiNode` builds a 2-child `SINGLE_MASK` `SPAN_NODE` with partial
   keys {0, 1} and mask bit `1L << (63 − bitInWindow)` (`hot/page/HOTIndirectPage.java:378-399`).
 - `height` is the distance from the leaves (a node whose children are leaves has height 1); u8 on
@@ -498,6 +497,7 @@ the writer's local guard `nodeStructurallyMalformed` (`hot/AbstractHOTIndexWrite
 
 | Id | Invariant (for every indirect page N) | Enforced by |
 |---|---|---|
+| I10 | 2 ≤ numChildren ≤ 32; one-child indirect pages are illegal | factories; page reader; detector; writer guard |
 | I3 | partial keys of N's children are pairwise distinct | detector `:174-184`; writer guard |
 | I4 | the unsigned-smallest partial key is 0 | detector `:186-198`; writer guard |
 | I7 | partial keys are strictly ascending (unsigned) in child order | detector `:200-208`; writer guard |
@@ -509,9 +509,11 @@ the writer's local guard `nodeStructurallyMalformed` (`hot/AbstractHOTIndexWrite
 | leaf bounds | ≤ 512 entries; suffix and value ≤ 65535 bytes | `hot/page/HOTLeafPage.java:165`, `:184`, `:2227-2234`, `:2266-2282` |
 | height | ≤ 64 levels | `hot/reader/HOTTrieReader.java:93`, `:1165-1167`; `hot/AbstractHOTIndexWriter.java:93`, `:890-892` |
 
-I10 of the catalog ("2 ≤ numChildren") is not enforced: `createMultiNode` accepts one child
-(`hot/page/HOTIndirectPage.java:1366-1368`) and the writer checks `childCount < 1 || > MAX_NODE_ENTRIES`
-(`hot/AbstractHOTIndexWriter.java:568`). Whether a one-child node is reachable was not established.
+One-child indirect pages are illegal in every layout and representation. SpanNodes have 2–16
+children and MultiNodes have 2–32 children; BiNodes have exactly two. A single subtree is represented
+by its child directly, without a unary indirect wrapper. Factories reject invalid counts, persisted
+pages with invalid counts are rejected before layout or child decoding, and structural detection
+and writer publication/preflight guards enforce the same I10 rule as `HOTInvariantValidator`.
 
 ---
 
@@ -2084,7 +2086,6 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 ### 8.2 Code comments that contradict the code
 
 - `hot/DiscriminativeBitComputer.java:55-57` "Branchless" vs early exits.
-- `hot/page/HOTIndirectPage.java:72-73`, `:124` ("17-32 children") vs factory 1..32.
 - `hot/HOTMalformedSubtreeDetector.java:21`, `:42`, `:234` ("detect-and-rebuild", "detectAndHeal") vs no
   repair.
 - `hot/reader/HOTTrieReader.java:979-980`, `:1041-1042` mention an io_uring prefetch that has no implementation
