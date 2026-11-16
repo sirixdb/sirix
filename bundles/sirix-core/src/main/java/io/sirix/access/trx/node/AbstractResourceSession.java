@@ -120,7 +120,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return hotCommitScratch;
   }
 
-  private final ThreadLocal<Boolean> inCommitCallback = new ThreadLocal<>();
+  private final ThreadLocal<Boolean> inCommitCallback;
   private final ThreadLocal<@Nullable InternalNodeTrx<?>> commitExecution = new ThreadLocal<>();
   private final ConcurrentLinkedQueue<Runnable> sessionCallbacks = new ConcurrentLinkedQueue<>();
 
@@ -498,6 +498,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     uberPage.getFeatures().requireReadable();
     lastCommittedUberPage = new AtomicReference<>(uberPage);
     revisionListeners = new CopyOnWriteArrayList<>();
+    inCommitCallback = new ThreadLocal<>();
     this.user = user;
     sharedSession = null;
     pendingRevisionRoot = new AtomicReference<>();
@@ -539,6 +540,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     commitLock = sharedSession.commitLock;
     lastCommittedUberPage = sharedSession.lastCommittedUberPage;
     revisionListeners = sharedSession.revisionListeners;
+    inCommitCallback = sharedSession.inCommitCallback;
     pendingRevisionRoot = sharedSession.pendingRevisionRoot;
     knownIndexCatalogueRevisions = sharedSession.knownIndexCatalogueRevisions;
     parsedIndexCatalogues = sharedSession.parsedIndexCatalogues;
@@ -1353,15 +1355,6 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public R beginNodeReadOnlyTrx(final int revision) {
-    // Read-only opens have no shared-state concurrency concerns:
-    // * assertAccess() reads a volatile and a volatile-published epoch — thread-safe.
-    // * createStorageEngineReader() uses AtomicInteger for IDs and ConcurrentMap for the
-    // bookkeeping — already not synchronized.
-    // * getDocumentNode() operates on the just-constructed reader (per-thread ownership).
-    // * trxIDCounter is an AtomicInteger; nodeTrxMap is a ConcurrentMap.
-    // Removing the per-session monitor allows N concurrent reader-opens to run in parallel,
-    // unblocking the depth-N pipeline in the prefetched temporal axes (and any other caller
-    // that opens multiple rtxs back-to-back from concurrent threads).
     assertAccess(revision);
 
     final StorageEngineReader storageEngineReader = createStorageEngineReader(revision);
@@ -1369,25 +1362,29 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Every failure after the reader exists must close it: it holds an epoch ticket, a page
     // reader and an entry in storageEngineReaderMap, none of which anything else would reclaim
     // (getDocumentNode already closes on its own failure path — closing twice is idempotent).
-    boolean success = false;
+    R reader = null;
     try {
       final Node documentNode = getDocumentNode(storageEngineReader);
-
-      // Create new reader.
-      final R reader = createNodeReadOnlyTrx(trxIDCounter.incrementAndGet(), storageEngineReader, documentNode);
-
-      // Remember reader for debugging and safe close.
-      if (nodeTrxMap.put(reader.getId(), reader) != null) {
-        throw new SirixUsageException(ID_GENERATION_EXCEPTION);
+      reader = createNodeReadOnlyTrx(trxIDCounter.incrementAndGet(), storageEngineReader, documentNode);
+      synchronized (this) {
+        assertNotClosed();
+        if (nodeTrxMap.put(reader.getId(), reader) != null) {
+          throw new SirixUsageException(ID_GENERATION_EXCEPTION);
+        }
       }
       TransactionMetrics.onReadOnlyTrxOpened();
-
-      success = true;
       return reader;
-    } finally {
-      if (!success) {
-        storageEngineReader.close();
+    } catch (final RuntimeException | Error failure) {
+      try {
+        if (reader == null) {
+          storageEngineReader.close();
+        } else {
+          reader.close();
+        }
+      } catch (final RuntimeException | Error cleanupFailure) {
+        ShardedPageCache.retainCleanupFailure(failure, cleanupFailure);
       }
+      throw failure;
     }
   }
 
@@ -1650,7 +1647,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
           }
         } catch (final RuntimeException | Error e) {
           failure = ShardedPageCache.retainCleanupFailure(failure, e);
-          if (rtx instanceof NodeTrx && !rtx.isClosed()) {
+          if (!rtx.isClosed()) {
             unfinishedTransactions.add(rtx);
           }
         }
@@ -1659,6 +1656,21 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         if (isClosed) {
           ShardedPageCache.rethrowCleanupFailure(failure);
           return;
+        }
+        final Set<NodeReadOnlyTrx> lateReaders = Collections.newSetFromMap(new IdentityHashMap<>());
+        lateReaders.addAll(sharedTrxMap.values());
+        lateReaders.addAll(nodeTrxMap.values());
+        for (final NodeReadOnlyTrx reader : lateReaders) {
+          if (!(reader instanceof InternalNodeTrx<?>) && !transactions.contains(reader)) {
+            try {
+              reader.close();
+            } catch (final RuntimeException | Error next) {
+              failure = ShardedPageCache.retainCleanupFailure(failure, next);
+              if (!reader.isClosed()) {
+                unfinishedTransactions.add(reader);
+              }
+            }
+          }
         }
         // Rollback can install a replacement writer before node close fails. Retain both the original
         // snapshot and anything registered by those callbacks.
@@ -1678,7 +1690,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
             }
           }
         }
-        sharedTrxMap.clear();
+        for (final Map.Entry<SharedTrxKey, R> entry : sharedTrxMap.entrySet()) {
+          if (!unfinishedTransactions.contains(entry.getValue())) {
+            sharedTrxMap.remove(entry.getKey(), entry.getValue());
+          }
+        }
         for (final Map.Entry<Integer, R> entry : nodeTrxMap.entrySet()) {
           if (!(entry.getValue() instanceof InternalNodeTrx<?>)
               && !unfinishedTransactions.contains(entry.getValue())) {
@@ -1703,7 +1719,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
             storageEngineReaderMap.put(writer.getTrxId(), writer);
           }
         }
-        if (unfinishedWriters != null || !nodeTrxMap.isEmpty()) {
+        if (unfinishedWriters != null || !nodeTrxMap.isEmpty() || !sharedTrxMap.isEmpty()) {
           ShardedPageCache.rethrowCleanupFailure(failure);
           return;
         }
@@ -1931,17 +1947,21 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
     final Runnable notification = () -> {
       enterCommitCallback();
+      Throwable failure = null;
       try {
         for (final IntConsumer listener : revisionListeners) {
           try {
             listener.accept(page.getRevisionNumber());
-          } catch (final RuntimeException | Error failure) {
-            LOGGER.error("Revision listener failed after durable publication", failure);
+          } catch (final RuntimeException next) {
+            LOGGER.error("Revision listener failed after durable publication", next);
+          } catch (final Error next) {
+            failure = ShardedPageCache.retainCleanupFailure(failure, next);
           }
         }
       } finally {
         exitCommitCallback();
       }
+      ShardedPageCache.rethrowCleanupFailure(failure);
     };
     final @Nullable InternalNodeTrx<?> executionOwner = commitExecution.get();
     if (executionOwner != null) {
@@ -2258,7 +2278,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public R getOrCreateSharedReadOnlyTrx(final int revision) {
+  public synchronized R getOrCreateSharedReadOnlyTrx(final int revision) {
+    assertNotClosed();
     final var key = new SharedTrxKey(Thread.currentThread().threadId(), revision);
     return sharedTrxMap.computeIfAbsent(key, k -> beginNodeReadOnlyTrx(revision));
   }

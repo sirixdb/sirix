@@ -1,5 +1,7 @@
 # Bug: commit callbacks inherited enclosing execution ownership
 
+Historical R11 implementation notes: R12–R14 refine async dispatch and Error observation; see [the completion/reader postmortem](callback-completion-reader-ownership.md). Earlier diagnostic/blocked evidence below is not final validation.
+
 - Fix / issue: lifecycle audit V05/V06, R11 and review-1; clarified captain option A supersedes the earlier R6 reentrant-close behavior.
 - Symptom: a count-triggered post-hook could close its node/session while a scheduler task waited for the setter's outer lock, then join that scheduler forever. Writer admission remained held. Moving only an inner runLocked block did not release the setter's acquisition.
 - Trigger: KEEP_OPEN with count 1 and a timer; pause the count commit while a scheduler task queues, then invoke commit/rollback/abort/close from a hook. Foreground, scheduler and async publication had separate dispatch sites. JSON additionally retained a monitor/outer runLocked wrapper around rollback.

@@ -492,5 +492,9 @@ Commit, rollback/abort, node-transaction close and resource-session close from a
 the same transaction/session reject immediately with IllegalStateException before locking.
 Perform lifecycle work after callback return, and call close outside any enclosing runLocked
 scope. Ordinary read-only/non-lifecycle callback work is allowed. External teardown fences the
-callback phase before retiring payloads. Deferred notification errors are logged after restoring
-execution ownership; they cannot roll back or veto a durably published revision.
+callback phase before retiring payloads. RuntimeException-only failures are logged. Node callback
+Errors are retained and rethrown by close after independent delivery and owner release; unbound
+listener dispatch rethrows after independent listeners. Neither can roll back or veto a durable revision.
+Revision listeners and callback context share the same resource owner across user sessions.
+
+Async hook/listener delivery belongs to its hardening-completion batch and never waits for durability on foreground unlock. External close drains completed batches before payload retirement. After fencing callbacks, session close refreshes and closes late node/shared readers before deregistration, including their page guards. See [the completion and reader postmortem](postmortems/callback-completion-reader-ownership.md).

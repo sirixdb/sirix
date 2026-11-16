@@ -10,6 +10,7 @@ import io.sirix.api.NodeTrx;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.cache.PageGuard;
@@ -23,6 +24,8 @@ import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.UUID;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -686,11 +689,16 @@ final class NodeTransactionAbortLifecycleTest {
         }
       });
       ((InternalResourceSession<?, ?>) fixture.first).addRevisionListener(revision -> {
-        assertFalse(execution.isHeldByCurrentThread());
-        assertFalse(((TransactionExecutionLock) execution).isInScheduledTask());
-        assertLifecycleRejected(fixture, transaction);
-        notifications.incrementAndGet();
-        published.complete(null);
+        try {
+          assertFalse(execution.isHeldByCurrentThread());
+          assertFalse(((TransactionExecutionLock) execution).isInScheduledTask());
+          assertLifecycleRejected(fixture, transaction);
+          notifications.incrementAndGet();
+          published.complete(null);
+        } catch (final Throwable failure) {
+          published.completeExceptionally(failure);
+          throw failure;
+        }
       });
       transaction.addPostCommitHook(unused -> {
         try {
@@ -891,13 +899,17 @@ final class NodeTransactionAbortLifecycleTest {
       final Map<Integer, NodeReadOnlyTrx> owners =
           (Map<Integer, NodeReadOnlyTrx>) (Map<?, ?>) session.nodeTrxMap;
       final AtomicInteger called = new AtomicInteger();
-      final AtomicInteger underLock = new AtomicInteger();
+      final CompletableFuture<Void> observed = new CompletableFuture<>();
       session.addRevisionListener(revision -> {
-        called.incrementAndGet();
-        if (execution.isHeldByCurrentThread()) {
-          underLock.incrementAndGet();
+        try {
+          assertFalse(execution.isHeldByCurrentThread());
+          assertLifecycleRejected(fixture, transaction);
+          called.incrementAndGet();
+          observed.complete(null);
+        } catch (final Throwable failure) {
+          observed.completeExceptionally(failure);
+          throw failure;
         }
-        assertLifecycleRejected(fixture, transaction);
       });
       setValue(transaction, 1);
       final int id = transaction.getId();
@@ -905,7 +917,7 @@ final class NodeTransactionAbortLifecycleTest {
       try {
         transaction.commit();
         assertTrue(called.get() > 0);
-        assertEquals(0, underLock.get());
+        observed.get(10, TimeUnit.SECONDS);
       } finally {
         owners.put(id, transaction);
       }
@@ -1325,13 +1337,15 @@ final class NodeTransactionAbortLifecycleTest {
     try (Fixture fixture = new Fixture(format, directory)) {
       final NodeTrx transaction = fixture.first.beginNodeTrx();
       final AtomicInteger later = new AtomicInteger();
-      transaction.addPostCommitHook(unused -> { throw new AssertionError("notification failed"); });
+      final AssertionError error = new AssertionError("notification failed");
+      transaction.addPostCommitHook(unused -> { throw error; });
       transaction.addPostCommitHook(unused -> later.incrementAndGet());
       setValue(transaction, 3);
       assertDoesNotThrow(() -> { transaction.commit(); });
       assertEquals(1, later.get());
       assertFalse(Files.exists(((InternalResourceSession<?, ?>) fixture.first).getCommitFile()));
-      transaction.close();
+      assertSame(error, assertThrows(AssertionError.class, transaction::close));
+      assertTrue(transaction.isClosed());
       assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
       try (NodeTrx next = fixture.second.beginNodeTrx()) {
         setCursor(next);
@@ -1345,13 +1359,224 @@ final class NodeTransactionAbortLifecycleTest {
   void ordinaryPostCommitHooksContinueInOrder(final String format) throws Exception {
     try (Fixture fixture = new Fixture(format, directory);
         NodeTrx transaction = fixture.first.beginNodeTrx()) {
-      final AtomicInteger calls = new AtomicInteger();
-      transaction.addPostCommitHook(committed -> assertEquals(0, calls.getAndIncrement()));
-      transaction.addPostCommitHook(committed -> assertEquals(1, calls.getAndIncrement()));
+      final List<String> calls = new ArrayList<>();
+      transaction.addPostCommitHook(committed -> calls.add("first"));
+      transaction.addPostCommitHook(committed -> calls.add("second"));
       setValue(transaction, 1);
       transaction.commit();
-      assertEquals(2, calls.get());
+      assertEquals(List.of("first", "second"), calls);
       assertFalse(transaction.isClosed());
+    }
+  }
+
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void asyncHooksPreserveSuccessorOverlapAndCompletionOrder(final String format) throws Exception {
+    final CountDownLatch hardening = new CountDownLatch(1);
+    final CountDownLatch release = new CountDownLatch(1);
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(2, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      final TransactionExecutionLock execution =
+          (TransactionExecutionLock) field(AbstractNodeTrxImpl.class, "executionLock").get(transaction);
+      final AtomicReference<Thread> dispatcher = new AtomicReference<>();
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals("before-harden")) {
+          dispatcher.set(Thread.currentThread());
+          hardening.countDown();
+          await(release);
+        }
+      };
+      final List<String> calls = new ArrayList<>();
+      final CompletableFuture<Void> notified = new CompletableFuture<>();
+      transaction.addPostCommitHook(unused -> {
+        assertSame(dispatcher.get(), Thread.currentThread());
+        assertFalse(execution.isHeldByCurrentThread());
+        assertFalse(execution.isInScheduledTask());
+        assertLifecycleRejected(fixture, transaction);
+        calls.add("first");
+      });
+      transaction.addPostCommitHook(unused -> {
+        calls.add("second");
+        notified.complete(null);
+      });
+      final CompletableFuture<Void> mutated = new CompletableFuture<>();
+      final Thread foreground = new Thread(() -> {
+        try {
+          setValue(transaction, 1);
+          setValue(transaction, 2);
+          setValue(transaction, 3);
+          setValue(transaction, 4);
+          mutated.complete(null);
+        } catch (final Throwable failure) {
+          mutated.completeExceptionally(failure);
+        }
+      });
+      try {
+        foreground.start();
+        assertTrue(hardening.await(10, TimeUnit.SECONDS));
+        mutated.get(10, TimeUnit.SECONDS);
+        assertEquals(1, release.getCount());
+        assertFalse(notified.isDone());
+        assertTrue(calls.isEmpty());
+        release.countDown();
+        notified.get(10, TimeUnit.SECONDS);
+        assertEquals(List.of("first", "second"), calls);
+        fixture.first.close();
+        assertTrue(transaction.isClosed());
+        assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
+        try (NodeTrx next = fixture.second.beginNodeTrx()) {
+          setCursor(next);
+          assertEquals(2, value(next));
+        }
+      } finally {
+        release.countDown();
+        foreground.join(10000);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"json,false", "json,true", "xml,false", "xml,true"})
+  void sessionCloseClosesSharedReadersCreatedByFencedCallbacks(final String format, final boolean failClose)
+      throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(0, 1, TimeUnit.DAYS);
+      final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.first;
+      final TransactionExecutionLock execution =
+          (TransactionExecutionLock) field(AbstractNodeTrxImpl.class, "executionLock").get(transaction);
+      final Condition ready = (Condition) field(TransactionExecutionLock.class, "ready").get(execution);
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch openReader = new CountDownLatch(1);
+      final CountDownLatch observeCloser = new CountDownLatch(1);
+      final CompletableFuture<Void> closeWaiting = new CompletableFuture<>();
+      final CountDownLatch returnCallback = new CountDownLatch(1);
+      final CompletableFuture<NodeReadOnlyTrx> opened = new CompletableFuture<>();
+      final AtomicReference<NodeReadOnlyTrx> independent = new AtomicReference<>();
+      final IllegalStateException injected = new IllegalStateException("late reader close failed");
+      final CompletableFuture<Void> committed = new CompletableFuture<>();
+      final CompletableFuture<Void> closed = new CompletableFuture<>();
+      transaction.addPostCommitHook(unused -> {
+        try {
+          entered.countDown();
+          await(observeCloser);
+          boolean waiting = false;
+          while (!waiting) {
+            execution.lock();
+            try {
+              waiting = execution.getWaitQueueLength(ready) > 0;
+            } finally {
+              execution.unlock();
+            }
+            if (Thread.interrupted()) {
+              throw new AssertionError("callback interrupted before close queued");
+            }
+            Thread.onSpinWait();
+          }
+          closeWaiting.complete(null);
+          await(openReader);
+          final NodeReadOnlyTrx reader = session.getOrCreateSharedReadOnlyTrx(2);
+          assertTrue(reader.moveTo(format.equals("json") ? 1 : 2));
+          final NodeReadOnlyTrx other = session.beginNodeReadOnlyTrx(1);
+          assertTrue(other.moveTo(format.equals("json") ? 1 : 2));
+          independent.set(other);
+          opened.complete(reader);
+          await(returnCallback);
+        } catch (final Throwable failure) {
+          closeWaiting.completeExceptionally(failure);
+          opened.completeExceptionally(failure);
+          throw failure;
+        }
+      });
+      final Thread commit = new Thread(() -> {
+        try {
+          setValue(transaction, 1);
+          transaction.commit();
+          committed.complete(null);
+        } catch (final Throwable failure) {
+          committed.completeExceptionally(failure);
+        }
+      });
+      final Thread close = new Thread(() -> {
+        try {
+          session.close();
+          closed.complete(null);
+        } catch (final Throwable failure) {
+          closed.completeExceptionally(failure);
+        }
+      });
+      try {
+        commit.start();
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        close.start();
+        observeCloser.countDown();
+        closeWaiting.get(10, TimeUnit.SECONDS);
+        openReader.countDown();
+        final NodeReadOnlyTrx reader = opened.get(10, TimeUnit.SECONDS);
+        final StorageEngineReader pageReader = reader.getStorageEngineReader();
+        if (failClose) {
+          final StorageEngineReader failing = mock(StorageEngineReader.class, delegatesTo(pageReader));
+          doAnswer(invocation -> {
+            pageReader.close();
+            throw injected;
+          }).when(failing).close();
+          field(AbstractNodeReadOnlyTrx.class, "storageEngineReader").set(reader, failing);
+        }
+        final Field guard = field(AbstractNodeReadOnlyTrx.class, "currentPageGuard");
+        assertTrue(guard.get(reader) instanceof PageGuard);
+        assertFalse(reader.isClosed());
+        returnCallback.countDown();
+        committed.get(10, TimeUnit.SECONDS);
+        if (failClose) {
+          assertSame(injected, assertThrows(ExecutionException.class,
+              () -> closed.get(10, TimeUnit.SECONDS)).getCause());
+        } else {
+          closed.get(10, TimeUnit.SECONDS);
+        }
+        assertTrue(independent.get().isClosed());
+        assertNull(guard.get(independent.get()));
+        assertTrue(reader.isClosed());
+        assertNull(guard.get(reader));
+        assertTrue(pageReader.isClosed());
+        assertTrue(session.nodeTrxMap.isEmpty());
+        assertEquals(1, session.writeLock.availablePermits());
+      } finally {
+        observeCloser.countDown();
+        openReader.countDown();
+        returnCallback.countDown();
+        commit.join(10000);
+        close.join(10000);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void asyncCallbackErrorsRemainObservableAfterIndependentDeliveryAndClose(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      final AssertionError primary = new AssertionError("async listener failed");
+      final AssertionError later = new AssertionError("async hook failed");
+      final CompletableFuture<Void> delivered = new CompletableFuture<>();
+      final InternalResourceSession<?, ?> session = (InternalResourceSession<?, ?>) fixture.first;
+      final IntConsumer listener = revision -> { throw primary; };
+      session.addRevisionListener(listener);
+      transaction.addPostCommitHook(unused -> { throw later; });
+      transaction.addPostCommitHook(unused -> delivered.complete(null));
+      setValue(transaction, 1);
+      setValue(transaction, 2);
+      delivered.get(10, TimeUnit.SECONDS);
+      session.removeRevisionListener(listener);
+      assertSame(primary, assertThrows(AssertionError.class, fixture.first::close));
+      assertTrue(transaction.isClosed());
+      assertTrue(scheduler(transaction).isTerminated());
+      assertTrue(List.of(primary.getSuppressed()).contains(later));
+      assertFalse(Files.exists(session.getCommitFile()));
+      assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
+      try (NodeTrx next = fixture.second.beginNodeTrx()) {
+        setCursor(next);
+        assertEquals(1, value(next));
+      }
     }
   }
 

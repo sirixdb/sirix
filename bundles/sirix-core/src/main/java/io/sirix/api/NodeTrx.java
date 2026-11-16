@@ -92,8 +92,10 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * write permit. The argument is a borrowed current transaction view, not an immutable revision
    * snapshot; do not retain it beyond the callback. Ordinary non-lifecycle work is allowed.
    * Lifecycle operations on this transaction/session from a hook/listener throw
-   * IllegalStateException before locking. Notification failures are logged after delivery and
-   * cannot veto or roll back the committed revision.
+   * IllegalStateException before locking. Async delivery follows hardening completion on its
+   * dispatcher, without blocking successor mutations. RuntimeException failures are logged;
+   * Error is retained and rethrown by transaction close after independent delivery and owner release. Neither
+   * can veto or roll back the committed revision.
    *
    * @param hook post commit hook
    * @return NodeTrx return current instance

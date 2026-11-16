@@ -110,8 +110,9 @@ revision listeners reject with IllegalStateException before acquiring any lock. 
 their before-publication/veto timing. Post-hooks/listeners run after outermost transaction T
 and the scheduled Runnable boundary; KEEP_OPEN retains lifetime write admission P. They
 borrow the current transaction view while a callback execution phase prevents competing
-execution from retiring it. It is not an immutable revision snapshot. Notification errors are
-accumulated/logged after phase release and cannot veto a durable revision; pre-hook errors
+execution from retiring it. It is not an immutable revision snapshot. RuntimeException notification failures are
+accumulated/logged after phase release; Error is retained and rethrown by node close after independent delivery and
+owner release. Neither can veto a durable revision; pre-hook errors
 still propagate before publication.
 
 An external closer must enter outside every enclosing T acquisition. It cleans up at the
@@ -173,3 +174,5 @@ Bulk imports that want one semantically meaningful revision should keep
 using `KEEP_OPEN_ASYNC_FLUSH` (see the shredding discussion in
 `ARCHITECTURE.md`); `KEEP_OPEN_ASYNC_COMMIT` is for ingest that needs
 periodic *queryable* checkpoints without paying synchronous barriers.
+
+Async hook/listener delivery belongs to its hardening-completion batch and never waits for durability on foreground unlock. External close drains completed batches before payload retirement. After fencing callbacks, session close refreshes and closes late node/shared readers before deregistration, including their page guards. See [the completion and reader postmortem](postmortems/callback-completion-reader-ownership.md).
