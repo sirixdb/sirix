@@ -18,5 +18,6 @@
   metadata and performs create/write/reopen/read plus all size/weight,
   sync/async, statistics/listener cache combinations. `SMOKE.md` records the
   specification and independently expected integer 42. Baseline and mutation
-  results are recorded in the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16).
+  results and the CI artifact location and coverage are recorded in the
+  [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16).
 - Lesson: [own native reachability in the smallest supported module](../LESSONS.md).

@@ -48,6 +48,6 @@ opening more writers in that JVM/isolate afterward is unsupported. Hot unloading
 remains unsupported. Do not infer full NATIVE-406 conformance from process exit.
 
 See the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16)
-for the final core/query C results, same-library shutdown-omission controls and
-PIT drain-order results. The omission controls reproduce the non-return both
-with and without query evaluation.
+for the final core/query C results, same-library shutdown-omission controls,
+PIT drain-order results and the CI artifact location and coverage. The omission
+controls reproduce the non-return both with and without query evaluation.
