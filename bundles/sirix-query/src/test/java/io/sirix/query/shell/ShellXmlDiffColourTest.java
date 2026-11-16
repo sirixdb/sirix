@@ -50,10 +50,11 @@ final class ShellXmlDiffColourTest {
           writer.commit();
         }
         final String nl = System.lineSeparator();
-        final List<String> operations = List.of("  insert node attribute " + name + " { \"v\" } into sdb:select-item($doc,"
-            + root + ")", "  rename node sdb:select-item($doc, " + attribute + ") as \"renamed\"," + nl
-                + "  replace value of node sdb:select-item($doc, " + attribute + ") with \"changed\"",
-            "  delete nodes sdb:select-item($doc, " + attribute + ")");
+        final List<String> operations =
+            List.of("  insert node attribute " + name + " { \"v\" } into sdb:select-item($doc," + root + ")",
+                "  rename node sdb:select-item($doc, " + attribute + ") as \"renamed\"," + nl
+                    + "  replace value of node sdb:select-item($doc, " + attribute + ") with \"changed\"",
+                "  delete nodes sdb:select-item($doc, " + attribute + ")");
         for (int revision = 1; revision <= 3; revision++) {
           final String source = "xn:diff('shop','resource1'," + revision + "," + (revision + 1) + ")";
           final String expected = "let $doc := xn:doc('shop','resource1', " + revision + ")" + nl + "return (" + nl
@@ -99,11 +100,12 @@ final class ShellXmlDiffColourTest {
         + "insert node attribute delete:insert { \"v\" } into sdb:select-item($doc,1),\n"
         + "replace value of node $doc/delete with \"insert\", rename node $doc/insert as 'delete',\n"
         + "delete nodes $doc/replace); append nodes <delete insert='replace'>rename</delete>";
-    final String expected = "let $doc := xn:doc(\033[32m'delete'\033[0m,\033[32m'insert'\033[0m,\033[33m1\033[0m) return (\n"
-        + "\033[32minsert\033[0m node attribute delete-insert { \033[32m\"v\"\033[0m } into sdb:select-item($doc,\033[33m1\033[0m),\n"
-        + "\033[32minsert\033[0m node attribute delete:insert { \033[32m\"v\"\033[0m } into sdb:select-item($doc,\033[33m1\033[0m),\n"
-        + "\033[33mreplace\033[0m value of node $doc/delete with \033[32m\"insert\"\033[0m, \033[33mrename\033[0m node $doc/insert as \033[32m'delete'\033[0m,\n"
-        + "\033[31mdelete\033[0m nodes $doc/replace); \033[32mappend\033[0m nodes \033[36m<delete insert=\033[32m'replace'\033[0m\033[36m>\033[0mrename\033[36m</delete>\033[0m";
+    final String expected =
+        "let $doc := xn:doc(\033[32m'delete'\033[0m,\033[32m'insert'\033[0m,\033[33m1\033[0m) return (\n"
+            + "\033[32minsert\033[0m node attribute delete-insert { \033[32m\"v\"\033[0m } into sdb:select-item($doc,\033[33m1\033[0m),\n"
+            + "\033[32minsert\033[0m node attribute delete:insert { \033[32m\"v\"\033[0m } into sdb:select-item($doc,\033[33m1\033[0m),\n"
+            + "\033[33mreplace\033[0m value of node $doc/delete with \033[32m\"insert\"\033[0m, \033[33mrename\033[0m node $doc/insert as \033[32m'delete'\033[0m,\n"
+            + "\033[31mdelete\033[0m nodes $doc/replace); \033[32mappend\033[0m nodes \033[36m<delete insert=\033[32m'replace'\033[0m\033[36m>\033[0mrename\033[36m</delete>\033[0m";
     final char[] chars = input.toCharArray();
     for (int overload = 0; overload < 3; overload++) {
       for (int split = 0; split <= input.length(); split++) {
@@ -143,7 +145,8 @@ final class ShellXmlDiffColourTest {
     try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.XML)) {
       writer.write(input);
     }
-    assertEquals("\033[36m<a/>\033[0mdelete; \033[32minsert\033[0m node attribute a { (delete), rename }; \033[31mdelete\033[0m",
+    assertEquals(
+        "\033[36m<a/>\033[0mdelete; \033[32minsert\033[0m node attribute a { (delete), rename }; \033[31mdelete\033[0m",
         out.toString());
     final StringWriter start = new StringWriter();
     try (final ShellResultWriter writer = new ShellResultWriter(start, ShellPalette.ANSI_16, DiffMode.XML)) {
