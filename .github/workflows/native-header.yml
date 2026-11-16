@@ -1,0 +1,50 @@
+name: Native header contract
+
+on:
+  pull_request:
+    paths:
+      - 'include/sirix.h'
+      - 'spec/**'
+      - 'tests/native/**'
+      - '.github/workflows/native-header.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'include/sirix.h'
+      - 'spec/**'
+      - 'tests/native/**'
+      - '.github/workflows/native-header.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  header:
+    name: C11, C++17, bindgen and cffi
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install header consumers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libclang-18-dev
+          rustup toolchain install 1.94.0 --profile minimal
+          rustup override set 1.94.0
+          cargo install bindgen-cli --version 0.72.1 --locked
+          python -m pip install -r tests/native/requirements.txt
+      - name: Verify declarations and reject contract mutations
+        env:
+          LIBCLANG_PATH: /usr/lib/llvm-18/lib
+        run: python tests/native/check_header.py --output-dir "$RUNNER_TEMP/native-header" --mutations
+      - name: Preserve consumer and mutation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-header-contract
+          path: ${{ runner.temp }}/native-header
+          if-no-files-found: warn
