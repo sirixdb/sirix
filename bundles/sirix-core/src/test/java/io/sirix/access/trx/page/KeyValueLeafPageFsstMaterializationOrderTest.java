@@ -61,10 +61,10 @@ final class KeyValueLeafPageFsstMaterializationOrderTest {
           assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(path)));
           try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
             assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
-                .storageType(StorageType.FILE_CHANNEL)
-                .hashKind(hash)
-                .byteHandlerPipeline(new ByteHandlerPipeline())
-                .build()));
+                                                                    .storageType(StorageType.FILE_CHANNEL)
+                                                                    .hashKind(hash)
+                                                                    .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                                    .build()));
             try (final JsonResourceSession session = database.beginResourceSession("resource");
                 final JsonNodeTrx writer = session.beginNodeTrx()) {
               final ResourceConfiguration config = session.getResourceConfig();
@@ -73,7 +73,9 @@ final class KeyValueLeafPageFsstMaterializationOrderTest {
               boolean adopted = false;
               try {
                 NodeStorageEngineWriter.prepareFinalCommitKeyValuePage(config, plain);
-                final Set<Long> expected = budget < 512 ? Set.of(nodeKey(PENDING_SLOT)) : Set.of();
+                final Set<Long> expected = budget < 512
+                    ? Set.of(nodeKey(PENDING_SLOT))
+                    : Set.of();
                 assertEquals(expected, plain.getReferencesMap().keySet(), "unchanged commit is the layout oracle");
                 final NodeStorageEngineWriter engine = (NodeStorageEngineWriter) writer.getStorageEngineWriter();
                 if (route == 0) {
@@ -117,10 +119,10 @@ final class KeyValueLeafPageFsstMaterializationOrderTest {
     page.setFsstSymbolTable(TABLE);
     page.setFsstSymbolTableId(3L);
     final MemorySegment scratch = MemorySegment.ofArray(new byte[1024]);
-    while (page.getSlottedPage().byteSize() < KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY
-        || remaining(page) > budget) {
+    while (page.getSlottedPage().byteSize() < KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY || remaining(page) > budget) {
       final int desired = page.getSlottedPage().byteSize() < KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY
-          ? 512 : Math.min(512, remaining(page) - budget);
+          ? 512
+          : Math.min(512, remaining(page) - budget);
       int length = Math.max(0, desired - 55);
       int bytes;
       do {
@@ -138,16 +140,17 @@ final class KeyValueLeafPageFsstMaterializationOrderTest {
   }
 
   private static int remaining(final KeyValueLeafPage page) {
-    return (int) page.getSlottedPage().byteSize() - PageLayout.HEAP_START - PageLayout.getHeapEnd(page.getSlottedPage());
+    return (int) page.getSlottedPage().byteSize() - PageLayout.HEAP_START
+        - PageLayout.getHeapEnd(page.getSlottedPage());
   }
 
   private static FlyweightNode string(final ResourceConfiguration config, final boolean fused, final int slot,
       final byte[] value) {
     return fused
-        ? new ObjectNamedStringNode(nodeKey(slot), 0L, 0L, 0L, 1, 1L, 0, 0, 0L, value,
-            config.nodeHashFunction, (byte[]) null, false, null)
-        : new StringNode(nodeKey(slot), 0L, 0, 0, 0L, 0L, 0L, value, config.nodeHashFunction, (byte[]) null,
-            false, null);
+        ? new ObjectNamedStringNode(nodeKey(slot), 0L, 0L, 0L, 1, 1L, 0, 0, 0L, value, config.nodeHashFunction,
+            (byte[]) null, false, null)
+        : new StringNode(nodeKey(slot), 0L, 0, 0, 0L, 0L, 0L, value, config.nodeHashFunction, (byte[]) null, false,
+            null);
   }
 
   private static long nodeKey(final int slot) {
