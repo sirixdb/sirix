@@ -6,10 +6,10 @@ package io.sirix.access.trx.page;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
- * Process-wide counters for the bulk-adoption lane of the storage engine writer: how the overflow
- * carriers of adopted leaves were dispositioned, and whether the async flush lane ever fell back to
- * pinning a leaf with carriers still pending. Diagnostics only — read by loaders' reports and by
- * tests; never consulted by the engine.
+ * Process-wide counters for leaf materialization and bulk adoption in the storage engine writer:
+ * pending-string encoding, overflow-carrier staging, and async flushes that pin leaves with
+ * carriers still pending. Diagnostics only — read by loaders' reports and by tests; never consulted
+ * by the engine.
  *
  * <p>
  * The writer class itself is package-private; this holder is what a loader outside the package can
@@ -27,9 +27,22 @@ public final class BulkAdoptionDiagnostics {
   private static final LongAdder KVL_PAGES_PINNED_AFTER_DEFERRAL_CAP = new LongAdder();
   private static final LongAdder KVL_ENCODES_DISCARDED_FOR_UNRESOLVED_CARRIERS = new LongAdder();
   private static final LongAdder KVL_ENCODES_SKIPPED_FOR_UNRESOLVED_CARRIERS = new LongAdder();
+  private static final LongAdder PENDING_STRINGS_ENCODED_BEFORE_MATERIALIZATION = new LongAdder();
 
   private BulkAdoptionDiagnostics() {
     throw new AssertionError("no instances");
+  }
+
+  static void pendingStringsEncodedBeforeMaterialization(final int count) {
+    PENDING_STRINGS_ENCODED_BEFORE_MATERIALIZATION.add(count);
+  }
+
+  /**
+   * Cumulative pending string records FSST-encoded against their leaf's table before epoch flushing
+   * or bulk adoption materialized them. This count is not cleared by {@link #reset()}.
+   */
+  public static long pendingStringsEncodedBeforeMaterialization() {
+    return PENDING_STRINGS_ENCODED_BEFORE_MATERIALIZATION.sum();
   }
 
   static void carrierStaged() {
@@ -103,7 +116,7 @@ public final class BulkAdoptionDiagnostics {
     return KVL_ENCODES_SKIPPED_FOR_UNRESOLVED_CARRIERS.sum();
   }
 
-  /** Reset every counter; tests call this before a measured load. */
+  /** Reset carrier and flush counters; tests call this before a measured load. */
   public static void reset() {
     CARRIERS_STAGED.reset();
     CARRIERS_UNSTAGED.reset();

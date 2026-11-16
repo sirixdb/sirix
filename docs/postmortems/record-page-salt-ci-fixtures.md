@@ -14,6 +14,18 @@ The golden composite record page and both section fixtures must explicitly disab
 
 The independent oracles are the pre-change golden bytes/digest, tuple-versus-derived reconstructed frames, the published NIST vector and existing settings round trips. Random fixture salts must fail the byte assertions; changing bytes outside the salt, treating salt as a reader discriminator, reusing a removed salt, or accepting malformed seed/settings material must still fail their respective tests. No assertion is relaxed and no source-text assertion is introduced.
 
+## FSST epoch byte-oracle follow-up
+
+- Symptom: `StorageEpochFsstInlineDecisionTest` compares independently created stores' complete frames, so default-on random salts make the non-import property trials fail even when values, carriers and table bindings agree.
+- Trigger: either fixed seed under `NONE` or `ROLLING`, with bounded-log rotation alone or explicit spilling flushes, in the same transaction or a reopened transaction.
+- Root cause: the new fixture inherited production randomness rather than the deterministic configuration already used by `StorageEpochStoreIdentityTest`; the frame reader correctly retains every salt byte.
+- Why tests missed it: the reported pre-rebase results did not establish that the property still passed with default-on salting.
+- Behaviour and invariant: both arms must disable salts whenever complete frames are compared; import-mode trials and the separate value/decision/binding regressions must retain salting. The shared resource factory must apply the chosen policy before any page is created.
+- Regression oracle: retain `plainAndRotatingTransactionsMakeIdenticalInlineDecisions` unchanged, including exact frame equality. This independent plain-versus-rotating oracle rejects salt differences and any other frame changes; the remaining tests exercise default-salted resources. Focused command: `./gradlew --no-daemon :sirix-core:storageEpochStoreIdentityTest --tests 'io.sirix.access.trx.page.StorageEpochFsstInlineDecisionTest'`.
+- Mutation scope: no production logic changes; restoring salted configuration for either compared arm makes the existing exact-byte assertion reject its independent salts.
+- Focused result: all 19 tests passed with no failures, errors or skips through the isolated identity task, using the supplied heavy-JVM wrapper and 1–4 GiB test heap. Report: `bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochFsstInlineDecisionTest.xml`. The pre-fix failure was established by configuration and frame-path inspection in this review; no pre-fix execution or PIT run was performed.
+- Lesson: the deterministic policy belongs at each byte-oracle fixture boundary, including fixtures introduced after the production default changes. See [Lessons](../LESSONS.md).
+
 Before verification, trace each fixture's configuration through page construction and serialization, and each moved test through its unchanged executable interface. Confirm the real mutation selector finds every changed source's suite and that PIT produces XML within its existing budget. Record before/after and mutation evidence below.
 
 ## Results

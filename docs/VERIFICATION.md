@@ -344,13 +344,17 @@ The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest` in a 
 inline Mockito mocks in other suites cannot affect its allocation measurements. Run that suite alone
 with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
 
-The normal core task also runs `StorageEpochStoreIdentityTest` and
-`StorageEpochDifferentialTest` in a separate JVM with deterministic codec selection
-(`sirix.codecBakeoff.probeInterval=1`). Run them alone with
+The normal core task also runs `StorageEpochStoreIdentityTest`,
+`StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM
+with deterministic codec selection (`sirix.codecBakeoff.probeInterval=1`). Run them alone with
 `./gradlew :sirix-core:storageEpochStoreIdentityTest`. They compare rotating and
 never-rotating transactions, including persisted page bytes in the identity suite
 and seeded edits across storage, compression and dictionary lanes in the differential
-suite, with cold-reopen checks.
+suite, with cold-reopen checks. The inline-decision suite pins the hash kind and checks that
+FSST-encodable values make the same inline-or-carrier decision and keep the same table binding
+across spilling epochs and the async-flush import mode; `-Dsirix.test.inlineDecision.seed=<n>`
+adds one exploratory seed. The identity suite inherits the JVM hash default, so also run it with
+`-Dsirix.hashType=NONE` when touching epoch or FSST code.
 
 ```bash
 # Generative + oracle + regression tests (fast, part of the normal test task)

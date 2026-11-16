@@ -19,19 +19,15 @@ import java.lang.foreign.ValueLayout;
 /**
  * Per-source-fragment slot copier that transparently decodes FSST-compressed string values using
  * the <em>source</em> fragment's symbol table. Used by multi-fragment {@code combineRecordPages}
- * implementations so that the resulting target page contains no compressed string bytes and no FSST
- * symbol table of its own. At the next commit the writer hands the page the revision's pooled
- * symbol table and {@code compressStringValues} re-encodes, producing a single coherent table
- * before writing to disk, so the decompress-on-merge step is write/disk neutral — it only shifts
- * work from read-time (where it would otherwise be repeated for each read) to combine-time (once).
+ * implementations when the target does not retain the source's table binding. An inactive copier
+ * leaves slots unchanged; its caller must preserve the binding of any compressed slots it copies.
  *
  * <p>
  * <b>Correctness invariant.</b> A compressed string slot's bytes are the output of
  * {@code FSSTCompressor.encode(value, srcTable)}; decoding with any other table corrupts the value.
- * This copier guarantees that every slot handed off to the target is either (a) not a string slot —
- * raw-copied; or (b) a string slot whose compressed-flag byte is {@code 0} after rewrite. There is
- * no scenario in which a compressed-flag byte survives to the target page — so the target may
- * safely carry {@code fsstSymbolTable = null}.
+ * When active, this copier guarantees that every slot handed off to the target is either (a) not a
+ * string slot — raw-copied; or (b) a string slot whose compressed-flag byte is {@code 0} after
+ * rewrite, so those slots do not require a source-table binding on the target.
  *
  * <p>
  * <b>Wire formats handled.</b>

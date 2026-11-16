@@ -1053,15 +1053,13 @@ public enum VersioningType {
   }
 
   /**
-   * Propagate an FSST symbol table from a single-fragment source page to the target. <b>Callers must
-   * only invoke this in the single-fragment combine path</b> (i.e. when the target is a
-   * byte-identical copy of the source), so every compressed slot on the target was encoded with the
-   * propagated table.
+   * Propagate an FSST binding when every compressed slot on the target uses the source's table. A
+   * single-fragment copy satisfies this directly; owned replay establishes compatibility in
+   * {@link #ownedFragmentCopier} before adopting the binding.
    *
    * <p>
-   * For multi-fragment combines, do not call this — use the decompress-on- merge path (see
-   * {@link #copySlotPreservingMetadata}) instead, which rewrites each compressed slot to its
-   * uncompressed form so the target correctly carries {@code fsstSymbolTable = null}.
+   * Committed multi-fragment combines instead decode slots through
+   * {@link #copySlotPreservingMetadata} rather than adopting one fragment's table for all sources.
    *
    * <p>
    * In the modification combines, the MODIFIED page needs this binding just as much as the complete
@@ -1071,7 +1069,7 @@ public enum VersioningType {
    * bind to a NEWER table (insert-time or distribution) and serialize those old-table bytes under the
    * wrong claim, or to no table at all, leaving them undecodable.
    *
-   * @param sourcePage the single-fragment source page
+   * @param sourcePage the source page whose binding is compatible with the target
    * @param targetPage the target page to set the symbol table on
    */
   protected static <V extends DataRecord, T extends KeyValuePage<V>> void propagateFsstSymbolTable(final T sourcePage,
@@ -1093,25 +1091,18 @@ public enum VersioningType {
   }
 
   /**
-   * Copy a single slot from {@code src} to {@code dst} during a multi-fragment combine. If
-   * {@code src} holds an FSST symbol table and the slot is a string-kind slot whose compressed-flag
-   * byte is {@code 1}, the payload is decoded through the source's table and the rewritten
-   * uncompressed slot is stored on {@code dst}. All other slots (including uncompressed string slots)
-   * are raw-copied.
-   *
-   * <p>
-   * Using this helper across every fragment of a multi-fragment combine is the invariant that lets
-   * the target page safely carry {@code fsstSymbolTable = null}. At the next commit the writer hands
-   * the page the revision's pooled symbol table and {@code compressStringValues} re-encodes, so the
-   * page lands on disk with a single coherent table — zero growth in disk footprint.
+   * Copy a single slot from {@code src} to {@code dst} during a fragment combine or owned replay. An
+   * active {@link FsstAwareSlotCopier} decodes table-dependent string payloads according to its
+   * contract. A null or inactive copier copies slot bytes verbatim; the caller must preserve any
+   * required source-table binding on the target.
    *
    * @param src source fragment
    * @param dst target page being assembled
    * @param offset slot index (0-1023)
    * @param nodeKindId directory {@code nodeKindId} for the slot on the source
    * @param copier per-fragment copier carrying {@code src}'s parsed FSST table; may be {@code null}
-   *        or inactive when the source has no table — callers commonly pass the same copier across
-   *        the whole fragment loop to amortize the symbol-table parse
+   *        or inactive when the source has no table or the target preserves its binding. Callers
+   *        reuse the copier across the fragment loop to amortize the symbol-table parse
    */
   protected static void copySlotPreservingMetadata(final KeyValueLeafPage src, final KeyValueLeafPage dst,
       final int offset, final int nodeKindId, final @Nullable FsstAwareSlotCopier copier) {
@@ -1206,7 +1197,8 @@ public enum VersioningType {
       reference.setKey(chainKeys.getFirst().key());
       reference.setPageFragments(new ArrayList<>(chainKeys.subList(1, chainKeys.size())));
       try {
-        container = combineRecordPagesForModification(chain, revToRestore, storageEngineReader, reference, log);
+        container = combineRecordPagesForModification(committedFragmentsTheFirstCopyOnWriteRead(chain), revToRestore,
+            storageEngineReader, reference, log);
       } finally {
         reference.setKey(ownedKey);
       }
@@ -1214,10 +1206,7 @@ public enum VersioningType {
     final KeyValueLeafPage ownedKvp = (KeyValueLeafPage) owned;
     final KeyValueLeafPage completeKvp = (KeyValueLeafPage) container.getComplete();
     final KeyValueLeafPage modifyingKvp = (KeyValueLeafPage) container.getModified();
-    // Neither target carries the owned fragment's symbol table: compressed strings are decompressed on
-    // the way over, as in every multi-fragment combine; the modifying page rebuilds its own table at
-    // commit.
-    final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(ownedKvp.getFsstSymbolTable());
+    final FsstAwareSlotCopier copier = ownedFragmentCopier(ownedKvp, completeKvp, modifyingKvp);
     for (final int offset : ownedKvp.populatedSlots()) {
       final int nodeKindId = ownedKvp.getSlotNodeKindId(offset);
       copySlotPreservingMetadata(ownedKvp, completeKvp, offset, nodeKindId, copier);
@@ -1232,6 +1221,62 @@ public enum VersioningType {
       }
     }
     return container;
+  }
+
+  /**
+   * The committed fragments the first copy-on-write of this page combined.
+   *
+   * <p>
+   * That read stops at a newest committed fragment which already holds every slot
+   * ({@code NodeStorageEngineReader#getPageFragments}); the owned read cannot tell, so it hands over
+   * the whole chain. Replaying the combine on more fragments than the first copy-on-write saw is not
+   * the same page: a multi-fragment combine decompresses every string and leaves the page unbound to
+   * its FSST symbol table, where the first copy-on-write had propagated the binding — so a storage
+   * epoch would turn a bound page into an unbound one, and its later edits would be judged by their
+   * raw size.
+   * </p>
+   */
+  private static <V extends DataRecord, T extends KeyValuePage<V>> List<T> committedFragmentsTheFirstCopyOnWriteRead(
+      final List<T> chain) {
+    return chain.size() > 1 && chain.getFirst().size() == Constants.NDP_NODE_COUNT
+        ? chain.subList(0, 1)
+        : chain;
+  }
+
+  /**
+   * How the owned fragment's slots move onto the rebuilt pages, so the page keeps the FSST binding it
+   * had before the epoch flushed it.
+   *
+   * <p>
+   * The owned fragment is the modifying page itself, serialized: its compressed strings were encoded
+   * against the table that page was bound to. When the rebuilt pages are unbound (a multi-fragment
+   * combine leaves every string raw) or bound to that same table, they adopt the binding and take the
+   * owned slots verbatim, exactly as they were before the flush. Only a rebuilt page bound to a
+   * DIFFERENT table — a binding the live page could never have had — falls back to decompressing.
+   * </p>
+   *
+   * @return the copier for the owned fragment's slots; inactive when the slots are copied verbatim
+   */
+  @SuppressWarnings("ReferenceEquality") // Propagate once when both targets are the same page instance.
+  private static FsstAwareSlotCopier ownedFragmentCopier(final KeyValueLeafPage owned, final KeyValueLeafPage complete,
+      final KeyValueLeafPage modifying) {
+    final long ownedTableId = owned.getFsstSymbolTableId();
+    if (ownedTableId == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID || !acceptsBinding(complete, ownedTableId)
+        || !acceptsBinding(modifying, ownedTableId)) {
+      return new FsstAwareSlotCopier(owned.getFsstSymbolTable());
+    }
+    propagateFsstSymbolTable(owned, complete);
+    if (modifying != complete) {
+      propagateFsstSymbolTable(owned, modifying);
+    }
+    OWNED_REPLAYS_KEEPING_FSST_BINDING.increment();
+    return new FsstAwareSlotCopier(null);
+  }
+
+  private static boolean acceptsBinding(final KeyValueLeafPage page, final long tableId) {
+    final long boundId = page.getFsstSymbolTableId();
+    return boundId == tableId
+        || (boundId == KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID && page.getFsstSymbolTable() == null);
   }
 
   // ===== HOT Leaf Page Combining Methods =====
@@ -1331,11 +1376,22 @@ public enum VersioningType {
 
   private static final LongAdder CARRY_FORWARD_ENTRIES_REEMITTED = new LongAdder();
 
+  private static final LongAdder OWNED_REPLAYS_KEEPING_FSST_BINDING = new LongAdder();
+
   /**
-   * Whether merge diagnostics are collecting. A test that asserts on these counters MUST check this
-   * first: with the gate off every counter reads zero, and "zero walked past a complete dump" from a
-   * disabled instrument is indistinguishable from the same reading from a healthy one. Assert the
-   * instrument is live, then assert on it.
+   * Cumulative owned-fragment re-reads whose rebuilt page kept its pre-epoch FSST binding, taking
+   * owned slots verbatim instead of decompressing them. Always collected, independently of
+   * {@link #hotMergeDiagEnabled()}, and not cleared by {@link #resetFragmentMergeCounters()}.
+   */
+  public static long ownedReplaysKeepingFsstBinding() {
+    return OWNED_REPLAYS_KEEPING_FSST_BINDING.sum();
+  }
+
+  /**
+   * Whether gated HOT merge diagnostics are collecting. A test that asserts on the gated counters
+   * MUST check this first: with the gate off those counters read zero, and "zero walked past a
+   * complete dump" from a disabled instrument is indistinguishable from the same reading from a
+   * healthy one. Assert the instrument is live, then assert on it.
    */
   public static boolean hotMergeDiagEnabled() {
     return HOT_MERGE_DIAG;
@@ -1403,7 +1459,7 @@ public enum VersioningType {
     return COMPLETE_DUMPS_WALKED_PAST.sum();
   }
 
-  /** Zero every merge counter; a counter that cannot be reset cannot witness a specific operation. */
+  /** Reset the gated HOT merge counters before measuring an operation. */
   public static void resetFragmentMergeCounters() {
     SINGLE_FRAGMENT_READS.reset();
     MULTI_FRAGMENT_MERGES.reset();

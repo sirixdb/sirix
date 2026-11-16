@@ -2173,7 +2173,8 @@ Spill keys address that file only within the open transaction. A later mutation
 can read an owned page back without treating it as another committed revision
 in a fragment chain. At commit, only reachable spilled pages are materialized
 into the data file, references receive final data-file offsets, and pages that
-need final FSST encoding are re-encoded with the revision's table. Superseded
+need final FSST encoding are re-encoded against their bound table, preserving
+any binding reused from an earlier revision. Superseded
 spill frames never enter the committed store, and spill keys must never appear
 in committed pages. The spill file is discarded on commit or abort and deleted
 on writer close. Storage rotation preserves the committed layout of a transaction
