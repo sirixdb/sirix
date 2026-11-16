@@ -23,7 +23,7 @@ Callback behavior is defined by [PreCommitHook](../../bundles/sirix-core/src/mai
 
 The [historical specifications](async-commit-failure-design.md#txn-callback-contract-r11--review-1-clarified), [callback postmortem](../../docs/postmortems/commit-callback-reentrancy.md), [lifecycle review](../../docs/lifecycle-fence-review.md) and [lessons](../../docs/LESSONS.md) contain the root causes and adversarial exploration. The former reentrant-close contract is superseded; historical validation counts and blocked attempts do not validate this revision.
 
-Current focused verification and limitations are recorded in [resource-callback-verification.json](resource-callback-verification.json). Earlier round results below are historical. Scoped PIT, compiled-path/work-budget evidence and broader gates remain with the outer executor; no historical unchanged-shape claim or widened budget is used.
+The latest focused run and its limitations are recorded in [idle-publication-verification.json](idle-publication-verification.json); its source hashes identify the tested snapshot. Earlier round results below are historical. Scoped PIT, compiled-path/work-budget evidence and broader gates remain with the outer executor; no historical unchanged-shape claim or widened budget is used.
 
 ## R12–R14: completion and late ownership
 

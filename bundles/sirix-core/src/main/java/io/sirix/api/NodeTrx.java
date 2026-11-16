@@ -158,6 +158,9 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * Close the write transaction after draining pending asynchronous work. Uncommitted modifications
    * must first be committed or rolled back.
    *
+   * @throws IllegalStateException if invoked from a resource commit callback (see
+   *         {@link PostCommitHook#postCommit(NodeReadOnlyTrx)}) or an enclosing execution scope (see
+   *         {@link #runLocked(Runnable)})
    * @throws SirixIOException if write transaction couldn't be closed
    */
   @Override

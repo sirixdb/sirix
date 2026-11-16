@@ -78,7 +78,7 @@ import java.time.Instant;
  * 		TimeUnit.MINUTES, 1)) {
  *   wtx.insertElementAsFirstChild(new QName(&quot;foo&quot;));
  *   ...
- *   // Then rollback (transaction is also rolled back if this method wouldn't be called during the auto close.
+ *   // Explicitly discard any modifications still pending before close.
  *   wtx.rollback();
  * }
  *
@@ -87,7 +87,7 @@ import java.time.Instant;
  * 		TimeUnit.SECONDS, 1)) {
  *   wtx.insertElementAsFirstChild(new QNm(&quot;foo&quot;));
  *   ...
- *   // Implicit rollback during implicit wtx.close()-call.
+ *   wtx.rollback();
  * }
  * </pre>
  *
@@ -607,9 +607,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   XmlNodeTrx revertTo(int revision);
 
   /**
-   * Closing current WriteTransaction.
-   *
-   * @throws SirixIOException if write transaction couldn't be closed
+   * See {@link NodeTrx#close()} for the write-transaction close contract.
    */
   @Override
   void close();
