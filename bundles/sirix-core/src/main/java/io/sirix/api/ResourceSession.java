@@ -443,22 +443,11 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   int getRevisionNumber(Instant pointInTime, int revisionCeiling);
 
   /**
-   * Close this session's transactions and independent resources, retaining the first failure and
-   * suppressing subsequent cleanup failures. Uncommitted writers are rolled back before closing; if
-   * rollback fails, session teardown explicitly aborts the transaction after fencing its workers.
-   * This abort does not relax {@link NodeTrx#close()}'s dirty-transaction protection.
-   * <p>
-   * A writer that refuses teardown while an append worker is still active retains session ownership;
-   * retry close after that worker terminates. Otherwise teardown publishes closed state even when
-   * reporting a cleanup failure. An already closed session requires no further cleanup. Calls from
-   * this resource's commit hooks or revision listeners, including those dispatched by another user
-   * session, reject with IllegalStateException before locking. Close must also be called outside an
-   * enclosing transaction runLocked scope; external teardown fences resource-shared callback
-   * completion before retiring any ordinary node/shared/page reader or pool. Maintenance
-   * notifications run while independent reads are still available; readers registered by those
-   * callbacks are included in final cleanup.
+   * Stop notification admission and drain callbacks only to the configured deadline. Queued work may
+   * be abandoned at close; a live callback causes a timeout with its dependent readers/storage
+   * retained for retry. Same-database callback reentry rejects before any lock or closing wait.
    *
-   * @throws SirixException if can't close
+   * @throws IllegalStateException if invoked from a callback of this database
    */
   @Override
   void close();

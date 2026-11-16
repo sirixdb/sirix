@@ -19,6 +19,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import io.sirix.access.ResourceStore;
+import io.sirix.access.DatabaseNotifications;
 import io.sirix.access.trx.node.InternalResourceSession.Abort;
 import io.sirix.access.trx.page.StorageEngineWriterFactory;
 import io.sirix.api.StorageEngineReader;
@@ -106,9 +107,12 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
         assertFalse(transaction.isClosed());
         assertTrue(second.hasRunningNodeWriteTrx());
         assertFalse(scheduler.isShutdown());
-        assertEquals(refusals == 1, writer.isClosed());
-
-        first.close();
+        assertFalse(writer.isClosed());
+        if (refusals == 2) {
+          assertSame(refusal, assertThrows(RuntimeException.class, first::close));
+        } else {
+          first.close();
+        }
         assertTrue(first.isClosed());
         assertTrue(transaction.isClosed());
         assertTrue(scheduler.isTerminated());
@@ -311,14 +315,21 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private FailingResourceSession(final RuntimeException firstConstructionFailure, final JsonNodeTrx succeedingTrx,
         final StorageEngineWriter... writers) {
-      super((ResourceStore) mock(ResourceStore.class), ResourceConfiguration.newBuilder("resource").build(),
-          mock(BufferManager.class), storageWithEmptyRevisionIndex(), new UberPage(1), new Semaphore(1), null,
+      super(testResourceStore(), ResourceConfiguration.newBuilder("resource").build(), mock(BufferManager.class),
+          storageWithEmptyRevisionIndex(), new UberPage(1), new Semaphore(1), null,
           mock(StorageEngineWriterFactory.class));
       this.firstConstructionFailure = firstConstructionFailure;
       this.succeedingTrx = succeedingTrx;
       for (final StorageEngineWriter writer : writers) {
         this.writers.addLast(writer);
       }
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static ResourceStore testResourceStore() {
+      final ResourceStore store = mock(ResourceStore.class);
+      when(store.getNotifications()).thenReturn(new DatabaseNotifications());
+      return store;
     }
 
     private static IOStorage storageWithEmptyRevisionIndex() {

@@ -10,15 +10,16 @@ package io.sirix.api;
 public interface PostCommitHook {
 
   /**
-   * Called with a dispatcher-owned read-only cursor pinned to exactly the revision just committed.
-   * Every hook gets a fresh cursor at the document root, closed on return; do not retain it. The view
-   * is never the mutable writer. Delivery follows outermost execution and scheduled task completion.
-   * Async delivery follows hardening without blocking successor mutations. Do not navigate a captured
-   * mutable writer. KEEP_OPEN retains its lifetime write permit. Commit, rollback/abort, revert,
-   * truncate and writer/session close on this resource reject with IllegalStateException before
-   * locking, including calls through another user session. RuntimeException failures are logged;
-   * Error is retained and rethrown by writer close after independent delivery and owner release.
-   * Neither can veto durable publication.
+   * Delivered asynchronously after durable publication by the database notification dispatcher,
+   * ordered per resource. Every invocation owns a fresh read-only cursor pinned to exactly the
+   * committed revision at the document root. The dispatcher closes it on return; do not retain it or
+   * use a captured mutable writer. Commit and successor mutations never wait for delivery.
+   * Same-database lifecycle calls, including through another handle or session, reject before locks
+   * with IllegalStateException. Independent read-only reader open/close remains allowed. Delivery
+   * attempts are at least once while notification admission is open; handlers should be idempotent.
+   * Close drains only up to its configured deadline and may drop queued notifications. A
+   * still-running callback retains its readers/storage and causes an explicit close timeout for
+   * retry. Callback failures are reported by the dispatcher and cannot veto durable publication.
    *
    * @param committedRevision read-only committed revision; valid only during this invocation
    */

@@ -94,6 +94,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * The resource store to open/close resource sessions.
    */
   private final ResourceStore<T> resourceStore;
+  private final DatabaseNotifications notifications;
 
   private final PathBasedPool<ResourceSession<?, ?>> resourceSessions;
 
@@ -122,6 +123,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     this.transactionManager = transactionManager;
     this.dbConfig = requireNonNull(dbConfig);
     this.resourceStore = resourceStore;
+    this.notifications = requireNonNull(resourceStore.getNotifications());
+    this.notifications.bindDatabase(dbConfig.getDatabaseFile());
     this.resourceSessions = resourceSessions;
     this.writeLocks = writeLocks;
     this.resourceIDsToResourceNames = new HashMap<>();
@@ -297,7 +300,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       @SuppressWarnings({"unchecked", "NullAway"})
       final S session = (S) ((AbstractResourceSession<?, ?>) shared).openUserSession(storeReference.get(), user);
       return session;
-    }, session -> ((AbstractResourceSession<?, ?>) session).releaseUserSession(), this);
+    }, session -> ((AbstractResourceSession<?, ?>) session).releaseUserSession(), this, notifications);
     storeReference.set(store);
     return store;
   }
@@ -321,7 +324,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   @Override
-  public synchronized boolean createResource(final ResourceConfiguration resourceConfig) {
+  public boolean createResource(final ResourceConfiguration resourceConfig) {
+    notifications.assertNotInCallback();
     if (DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(requireNonNull(resourceConfig).getName()))) {
       throw new SirixUsageException("Derived resource names are reserved");
     }
@@ -449,6 +453,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public Database<T> removeResource(final String name) {
+    notifications.assertNotInCallback();
     final String canonicalName = canonicalResourceName(name);
     try (var gate = MutationGate.acquireResource(dbConfig.getDatabaseFile(), canonicalName)) {
       return removeResourceInternal(canonicalName);
@@ -620,12 +625,29 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   @Override
-  public synchronized void close() {
+  public void close() {
+    assertCanClose();
+    try (DatabaseNotifications.Retirement ignored = notifications.retire()) {
+      closeQuiescent();
+    }
+  }
+
+  void assertCanClose() {
+    notifications.assertNotInCallback();
+    resourceStore.assertCanClose();
+  }
+
+  DatabaseNotifications getNotifications() {
+    return notifications;
+  }
+
+  private synchronized void closeQuiescent() {
     if (isClosed) {
       return;
     }
 
     logger.trace("Close local database instance.");
+    notifications.close();
 
     if (derivedMaintainer != null) {
       derivedMaintainer.close();

@@ -100,10 +100,10 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * mutators and commits against a delay-scheduled auto-commit. Read-side coordination that touches
    * transaction-owned state (e.g. wtx-visible index serving, which flushes pending index maintenance
    * and navigates the transaction) must run under it, or it races the auto-commit thread.
-   * Post-publication notifications from nested commits wait for the outermost execution scope to
-   * finish. Close must be called after this scope returns, so it cannot join the scheduler under an
-   * enclosing lock. Transactions configured without a lock are single-threaded by contract; the
-   * default simply runs {@code work}.
+   * Post-publication notifications run asynchronously with independent committed read views and do
+   * not borrow this execution scope. Close must be called after this scope returns, so it cannot join
+   * the scheduler under an enclosing lock. Transactions configured without a lock are single-threaded
+   * by contract; the default simply runs {@code work}.
    *
    * @param work the work to run under the transaction's lock
    */
@@ -133,12 +133,12 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   }
 
   /**
-   * Truncate to a revision after fencing pending hardening and outstanding callbacks, including
-   * revision-pinned post-hook views. Notification admission for this resource is excluded while
-   * history is invalidated. Calls from this resource's commit hooks/listeners are rejected before
-   * locking, including callbacks dispatched by another user session. Invoke outside an enclosing
-   * {@link #runLocked(Runnable)} scope. The cursor still refers to the truncated revision afterwards;
-   * close or roll back the transaction without committing through it.
+   * Truncate to a revision after fencing pending hardening and establishing bounded quiescence of
+   * revision-pinned notification views. A callback timeout retains history and reports failure.
+   * Notification delivery pauses while history is invalidated. Calls from commit hooks/listeners of
+   * the same database are rejected before locking, including through another user session. Invoke
+   * outside an enclosing {@link #runLocked(Runnable)} scope. The cursor still refers to the truncated
+   * revision afterwards; close or roll back the transaction without committing through it.
    *
    * @param revision the revision to truncate to
    * @return NodeTrx return current instance
@@ -155,10 +155,12 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   PathSummaryReader getPathSummary();
 
   /**
-   * Close the write transaction after draining pending asynchronous work. Uncommitted modifications
-   * must first be committed or rolled back.
+   * Close the write transaction after fencing asynchronous storage work. Post notifications use
+   * independent session-owned views and are not awaited here. Writer-lock acquisition is bounded;
+   * timeout retains ownership for retry. Uncommitted modifications must first be committed or rolled
+   * back.
    *
-   * @throws IllegalStateException if invoked from a resource commit callback (see
+   * @throws IllegalStateException if invoked from a same-database commit callback (see
    *         {@link PostCommitHook#postCommit(NodeReadOnlyTrx)}) or an enclosing execution scope (see
    *         {@link #runLocked(Runnable)})
    * @throws SirixIOException if write transaction couldn't be closed

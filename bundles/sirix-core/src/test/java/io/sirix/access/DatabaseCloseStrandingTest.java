@@ -50,6 +50,17 @@ final class DatabaseCloseStrandingTest {
   /** A store whose {@code close()} fails, standing in for any cleanup that can throw. */
   private static final class ThrowingResourceStore implements ResourceStore<JsonResourceSession> {
     private boolean fail = true;
+    private final DatabaseNotifications notifications = new DatabaseNotifications();
+
+    @Override
+    public DatabaseNotifications getNotifications() {
+      return notifications;
+    }
+
+    @Override
+    public void assertCanClose() {
+      notifications.assertNotInCallback();
+    }
 
     @Override
     public JsonResourceSession beginResourceSession(final ResourceConfiguration resourceConfig,
