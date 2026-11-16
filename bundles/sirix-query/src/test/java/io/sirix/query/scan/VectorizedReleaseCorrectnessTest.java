@@ -83,6 +83,33 @@ final class VectorizedReleaseCorrectnessTest {
   @ParameterizedTest
   @CsvSource({"SEQUENTIAL,false", "SEQUENTIAL,true", "PARALLEL,false", "PARALLEL,true", "ORDERED,false", "ORDERED,true",
       "UNORDERED,false", "UNORDERED,true", "MORSEL,false", "MORSEL,true"})
+  void countWrappedNestedGroupingSurvivesReopen(final Compilation compilation, final boolean composite) {
+    final String document = composite
+        ? "{\"rows\":[{\"dept\":\"Eng\",\"city\":\"A\"},{\"city\":\"B\"},{\"dept\":\"Eng\",\"city\":\"B\"}]}"
+        : "{\"rows\":[{\"dept\":\"Eng\"},{\"dept\":\"Eng\"},{}]}";
+    final String query = "count(for $r in " + DOC + ".rows[] let $d := $r.dept" + (composite
+        ? ", $c := $r.city group by $d, $c return {\"department\":$d,\"city\":$c,\"total\":count($r)})"
+        : " group by $d return {\"dept\":$d,\"count\":count($r)})");
+    checkAcrossReopen(document, query, false, composite
+        ? "3"
+        : "2", 4, -1, true, compilation);
+  }
+
+  @ParameterizedTest
+  @CsvSource({"SEQUENTIAL,false", "SEQUENTIAL,true", "PARALLEL,false", "PARALLEL,true", "ORDERED,false", "ORDERED,true",
+      "UNORDERED,false", "UNORDERED,true", "MORSEL,false", "MORSEL,true"})
+  void countWrappedTopLevelGroupingRemainsAdmitted(final Compilation compilation, final boolean composite) {
+    final String document = "[{\"dept\":\"Eng\",\"city\":\"A\"},{\"dept\":\"Eng\",\"city\":\"A\"},"
+        + "{\"dept\":\"Sales\",\"city\":\"B\"}]";
+    final String query = "count(for $r in " + DOC + "[] let $d := $r.dept" + (composite
+        ? ", $c := $r.city group by $d, $c return {\"department\":$d,\"city\":$c,\"total\":count($r)})"
+        : " group by $d return {\"dept\":$d,\"count\":count($r)})");
+    checkAcrossReopen(document, query, false, "2", 4, -1, false, compilation);
+  }
+
+  @ParameterizedTest
+  @CsvSource({"SEQUENTIAL,false", "SEQUENTIAL,true", "PARALLEL,false", "PARALLEL,true", "ORDERED,false", "ORDERED,true",
+      "UNORDERED,false", "UNORDERED,true", "MORSEL,false", "MORSEL,true"})
   void topLevelGroupingRemainsAdmitted(final Compilation compilation, final boolean composite) {
     final String document = "[{\"dept\":\"Eng\",\"city\":\"A\"},{\"dept\":\"Eng\",\"city\":\"B\"}]";
     final String query = "for $r in " + DOC + "[] let $d := $r.dept" + (composite
@@ -323,7 +350,7 @@ final class VectorizedReleaseCorrectnessTest {
       final long summariesBefore = SirixVectorizedExecutor.pathSummaryStatsServed();
       final Outcome actual = evaluate(chain, context, query);
       // Field-count controls need not route; the regressions are the grouping/value aggregates.
-      if (!query.startsWith("count(")) {
+      if (!query.startsWith("count(") || query.contains(" group by ")) {
         assertTrue(executions.get() > 0, "fast path was never admitted: " + phase + ": " + query);
       }
       assertAll(() -> assertEquals(generic, actual, phase + ": " + query),

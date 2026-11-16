@@ -328,6 +328,12 @@ public class SirixTranslator extends TopDownTranslator {
 
   private Expr computedAggregateOrFunction(final AST node) {
     if (node.getChildCount() == 1 && node.getValue() instanceof QNm function && builtinAggregate(function)
+        && "count".equals(function.getLocalName()) && node.getChild(0).getType() == XQ.PipeExpr
+        && SirixPipelineStrategy.needsGroupingFallback(node.getChild(0))) {
+      return new FunctionExpr(node.getStaticContext(), ctx.getFunctions().resolve(function, 1),
+          new Expr[] {expr(node.getChild(0), true)});
+    }
+    if (node.getChildCount() == 1 && node.getValue() instanceof QNm function && builtinAggregate(function)
         && Set.of("sum", "avg", "min", "max").contains(function.getLocalName())
         && node.getChild(0).getType() == XQ.PipeExpr
         && Boolean.TRUE.equals(node.getChild(0).getProperty("VECTORIZED_AGGREGATE"))
