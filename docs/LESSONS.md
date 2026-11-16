@@ -92,6 +92,10 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 
 ### Lexical language boundaries
 
+Recognize diff operation positions before matching operation spellings. Check neutral
+attribute names and paths as well as coloured verbs, including qualified and hyphenated
+names from actual serialized diffs. Evidence: [XML operation positions](postmortems/shell-xml-operation-positions.md).
+
 Preserve JSON versus XQuery patch context through the output adapter. A backslash is
 literal in XQuery strings, and either quote may delimit them. Check styles after strings
 as well as payload preservation: the real diff must restore the next operation's colour.

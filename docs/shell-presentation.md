@@ -67,6 +67,15 @@ JSON diff keys use green for `insert`, orange for `update` and `replace`, and re
 for `insert` and `append`, orange for `replace` and `rename`, and red for `delete`.
 `ShellResultWriterTest` checks the exact styles and `ShellOutputTest` executes a structural
 replacement followed by `jn:diff` through the terminal output entry point.
+XML operation words receive these colours only at the start of a patch operation: the
+beginning of output or after an opening parenthesis, comma or semicolon outside strings,
+markup and value constructors. Attribute names (including qualified and hyphenated names),
+paths and other operand words remain uncoloured. JSON operation colours apply to keys only.
+XML patch numbers are coloured at item boundaries, including revision/node-key arguments;
+digits and hyphens inside names remain uncoloured.
+Whitespace, split writes and flushes preserve operation positions; finish resets them.
+`ShellXmlDiffColourTest` checks actual serialized attribute insertion, value/name updates
+and deletion against worked patch goldens, plus every split and writer overload.
 
 Diff operation colours apply when the complete significant source is a direct literal
 `jn:diff` or `xn:diff` call. Both support four arguments. JSON's registered five- and

@@ -39,6 +39,7 @@ public final class ShellResultWriter extends Writer {
   private char xmlBeforePrevious;
   private boolean number;
   private boolean pendingWord;
+  private boolean patchItemStart = true;
 
   public ShellResultWriter(final Writer out, final ShellPalette palette, final DiffMode diff) {
     this.out = Objects.requireNonNull(out);
@@ -97,6 +98,7 @@ public final class ShellResultWriter extends Writer {
       return;
     }
     if (c == '<') {
+      patchItemStart = false;
       xmlMarkup = XmlMarkup.START;
       xmlClosing = false;
       xmlPrevious = '<';
@@ -136,6 +138,9 @@ public final class ShellResultWriter extends Writer {
   }
 
   private void acceptValue(final char c) throws IOException {
+    final boolean itemStart = patchItemStart;
+    if (!Character.isWhitespace(c))
+      patchItemStart = c == '(' || c == ',' || c == ';';
     if (c == '"' || (diff == DiffMode.XML && c == '\'')) {
       quote = c;
       if (expectKey && diff != DiffMode.XML) {
@@ -150,7 +155,11 @@ public final class ShellResultWriter extends Writer {
       return;
     }
     updateJsonState(c);
-    if (diff != DiffMode.NONE && depth == 0 && Character.isUnicodeIdentifierStart(c)) {
+    if (!number && (diff != DiffMode.XML || itemStart) && (Character.isDigit(c) || c == '-')) {
+      number = true;
+      emit(palette.orange());
+    }
+    if (diff == DiffMode.XML && itemStart && depth == 0 && Character.isUnicodeIdentifierStart(c)) {
       pendingWord = true;
       keyLength = 1;
       key[0] = c;
@@ -159,7 +168,7 @@ public final class ShellResultWriter extends Writer {
     put(c);
   }
 
-  private void updateJsonState(final char c) throws IOException {
+  private void updateJsonState(final char c) {
     if (c == '{' || c == '[') {
       if (depth < containers.length)
         containers[depth] = c;
@@ -171,10 +180,6 @@ public final class ShellResultWriter extends Writer {
       expectKey = false;
     } else if (c == ',')
       expectKey = depth > 0 && depth <= containers.length && containers[depth - 1] == '{';
-    else if (!number && (Character.isDigit(c) || c == '-')) {
-      number = true;
-      emit(palette.orange());
-    }
   }
 
   private void acceptXml(final char c) throws IOException {
@@ -295,6 +300,7 @@ public final class ShellResultWriter extends Writer {
     xmlDepth = 0;
     expectKey = false;
     depth = 0;
+    patchItemStart = true;
     flush();
   }
 

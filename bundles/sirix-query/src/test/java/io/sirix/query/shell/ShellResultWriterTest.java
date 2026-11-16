@@ -84,8 +84,8 @@ final class ShellResultWriterTest {
       assertStyle(styled, input.indexOf("<child/>"), "36");
       assertStyle(styled, input.indexOf("{\"insert"), "0");
       assertStyle(styled, input.indexOf("\"json\""), "32");
-      assertStyle(styled, input.indexOf("insert node"), "32");
-      assertStyle(styled, input.indexOf("replace node"), "33");
+      assertStyle(styled, input.indexOf("insert node"), "0");
+      assertStyle(styled, input.indexOf("replace node"), "0");
       assertStyle(styled, expected.lastIndexOf("\"replace\""), "33");
     }
     for (final String unfinished : List.of("<a x='", "<a>\"", "<!-- \"", "<?pi '", "<![CDATA[\"")) {
@@ -135,7 +135,12 @@ final class ShellResultWriterTest {
   @Test
   void xmlDiffPatchKeywordsHaveDistinctColours() throws Exception {
     final String patch = "insert node <a/> into $doc; replace value of node $doc/a with 'x'; delete node $doc/b";
-    final String rendered = render(patch, true, ShellPalette.ANSI_16, 1);
+    final StringWriter out = new StringWriter();
+    try (final ShellResultWriter writer = new ShellResultWriter(out, ShellPalette.ANSI_16, DiffMode.XML)) {
+      for (int i = 0; i < patch.length(); i++)
+        writer.write(patch.charAt(i));
+    }
+    final String rendered = out.toString();
     assertEquals(patch, strip(rendered));
     assertTrue(rendered.contains("\033[32minsert\033[0m"));
     assertTrue(rendered.contains("\033[33mreplace\033[0m"));
