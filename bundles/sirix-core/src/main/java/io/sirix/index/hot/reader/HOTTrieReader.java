@@ -453,7 +453,8 @@ public final class HOTTrieReader implements AutoCloseable {
    * place: compute the first absolute bit position where {@code searchKey} differs from the leaf's
    * first key (every entry of the leaf shares the partial-key prefix above the disc bit, hence the
    * mismatch info). A first key that merely extends {@code searchKey}, and a {@code searchKey} that
-   * is the first key followed only by zero bytes, have no such bit and are answered directly.</li>
+   * is the first key followed only by zero bytes, are answered directly without requiring such a
+   * bit.</li>
    * <li><b>Walk stack up to branching depth.</b> Pop levels while the disc bit lies below the level's
    * most-significant disc bit — bits above the disc bit already matched perfectly, so those levels
    * routed correctly; bits at or above the disc bit determine where {@code searchKey} actually

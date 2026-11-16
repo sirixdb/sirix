@@ -446,12 +446,9 @@ code now explains (`hot/page/HOTIndirectPage.java:566-572`).
   (`hot/page/HOTIndirectPage.java:296-304`). No guard against more than 32 bits was found in the page
   class; `extractPartialKey` casts the compressed value to `int` (`hot/DiscriminativeBitComputer.java:440-449`),
   so the implied invariant is `|D| ≤ 32`.
-- Every indirect page has at least two children, and `MAX_NODE_ENTRIES = 32` is the global fanout
-  ceiling. Construction, persisted-page decoding and the production structural guards enforce this
-  domain (§2.8).
-- Node types: `SPAN_NODE` (id 0, 2..16 children) and `MULTI_NODE` (id 1, 2..32 children), in both
-  `SINGLE_MASK` and `MULTI_MASK` layouts. Span and multi nodes share the canonical PEXT route;
-  their distinction is fanout, not lookup format.
+- Node types: `SPAN_NODE` (id 0) and `MULTI_NODE` (id 1), in both `SINGLE_MASK` and `MULTI_MASK`
+  layouts. Span and multi nodes share the canonical PEXT route; their distinction is fanout, not
+  lookup format. The legal fanout domain and its enforcement are specified in §2.8.
 - There is no BiNode page type. `createBiNode` builds a 2-child `SINGLE_MASK` `SPAN_NODE` with partial
   keys {0, 1} and mask bit `1L << (63 − bitInWindow)` (`hot/page/HOTIndirectPage.java:378-399`).
 - `height` is the distance from the leaves (a node whose children are leaves has height 1); u8 on
@@ -511,9 +508,10 @@ the writer's local guard `nodeStructurallyMalformed` (`hot/AbstractHOTIndexWrite
 
 One-child indirect pages are illegal in every layout and representation. SpanNodes have 2–16
 children and MultiNodes have 2–32 children; BiNodes have exactly two. A single subtree is represented
-by its child directly, without a unary indirect wrapper. Factories reject invalid counts, persisted
-pages with invalid counts are rejected before layout or child decoding, and structural detection
-and writer publication/preflight guards enforce the same I10 rule as `HOTInvariantValidator`.
+by its child directly, without a unary indirect wrapper. Factories enforce the type-specific ranges
+with `IllegalArgumentException`; persisted counts outside I10's global range raise
+`IllegalStateException` before layout or child decoding. Structural detection and writer
+publication/preflight guards enforce the same I10 rule as `HOTInvariantValidator`.
 
 ---
 
@@ -680,8 +678,7 @@ Body fields below follow the shared envelope and any extension block.
 - The field order of a child reference (`key, count, fragments`) differs from the generic
   reference encoding (`count, fragments, key, hash`) (`page/SerializationType.java:65-80`, `:209-222`).
 - **Child references carry no hash** (§3.6).
-- The factories validate child counts, so a corrupt count throws `IllegalArgumentException`
-  (`hot/page/HOTIndirectPage.java:1336-1456`).
+- Child-count validation and its error cases follow §2.8.
 
 #### 3.3.3 Copy-on-write helpers
 
@@ -951,7 +948,7 @@ or absent, of any length including zero, shorter or longer than every stored key
 | LB1 | `lowerBound(root, S)` positions at `min { k ∈ K : k ≥ S }` in key order (§0.2), and reports exhaustion when no stored key is `≥ S` |
 | LB2 | `upperBound(root, S)` positions at `min { k ∈ K : k > S }`, and reports exhaustion when no stored key is `> S` |
 | LB3 | The result depends on `S` alone: buffer bytes at or past `searchKeyLen` never take part in routing, comparison or the branch decision |
-| LB4 | A search key that no bit separates from a stored key (one of the two is the other followed only by `0x00` bytes) is still ordered by length (§0.2), and the seek returns a position instead of failing |
+| LB4 | A search key that no bit separates from a stored key (one of the two is the other followed only by `0x00` bytes) is still ordered by length (§0.2), and the seek reports a bound or exhaustion instead of failing |
 | LB5 | The returned leaf is positioned on the reader's path stack, so `advanceToNextLeaf()` continues in key order and `range(root, from, to)` returns exactly the stored keys in `[from, to]`, ascending, each once |
 | LB6 | A seek allocates nothing per leaf entry it inspects. Sibling first keys (memoized on a read-only snapshot, materialized by a leftmost descent otherwise) are resolved only on the side of the affected subtree that decides the result, and not at all for an exact hit or a position strictly inside the leaf |
 
@@ -1903,7 +1900,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `index/hot/page/HOTCompleteDumpMergeTest` (5), `index/hot/page/HOTLeafPageCowTest` (15), `index/hot/page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
 | Writer mechanics | `HOTRebuildFootprintTest`, `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `index/hot/page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `index/hot/cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
-| Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2), `HOTTrieReaderBoundContractTest` (10), `HOTTrieReaderBoundPropertyTest` (2), `HOTTrieReaderCasRangeRegressionTest` (1) | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending; the lower- and upper-bound contract of §4.3.1: on hand-built tries for every probe of their key universe, including search keys routed below or above their leaf and keys no bit separates from a stored key; on bulk-built and writer-built tries against a sorted reference for fixed seeds (fresh seeds in `test/property/HotBoundSeekOracleRandomTest`); and end to end through CAS range filters with absent lower bounds. Each suite asserts that its probes reach the geometry it claims |
+| Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2), `HOTTrieReaderBoundContractTest`, `HOTTrieReaderBoundPropertyTest`, `HOTTrieReaderCasRangeRegressionTest` | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending; the lower- and upper-bound contract of §4.3.1: on hand-built tries for every probe of their key universe, including search keys routed below or above their leaf and keys no bit separates from a stored key; on bulk-built and writer-built tries against a sorted reference for fixed seeds (fresh seeds in `test/property/HotBoundSeekOracleRandomTest`); and end to end through CAS range filters with absent lower bounds. Each suite asserts that its probes reach the geometry it claims |
 | Index builds | `index/JsonCASIndexBuildTest`, `JsonPathAndNameIndexBuildTest`, `JsonIndexDropRecreateVersioningTest` | `STRUCTURAL_VALIDATION_FAILURE` stays zero during real index builds (`JsonCASIndexBuildTest.java:170-176`) |
 | Query level (sirix-query) | `HOTIndexJsoniqDifferentialTest` (20), `HOTIndexMemoizationJsoniqTest` (21), `HOTIndexStressTest` (4, `@Tag("stress")`) | JSONiq results with and without indexes; memoization |
 
@@ -2040,18 +2037,16 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
    after intent-log copies exist, but the insert arm of `doMutation` has no catch that marks the
    transaction rollback-only (`hot/AbstractHOTIndexWriter.java:1939-2012`, `:5401-5402`). Whether a
    higher layer does was not traced.
-3. **One-child indirect pages**: allowed by `createMultiNode` and the writer's range check (§2.8); whether
-   reachable, and whether readers and the detector handle them, is untested.
-4. **Thread-safety of one index reader** across threads: the walk-state pool suggests yes, the storage
+3. **Thread-safety of one index reader** across threads: the walk-state pool suggests yes, the storage
    reader contract says no (§4.9.5).
-5. **Stale heights on descending inserts** (`docs/HOT_BULK_BUILD.md:63-66`): `integrate` consumes heights
+4. **Stale heights on descending inserts** (`docs/HOT_BULK_BUILD.md:63-66`): `integrate` consumes heights
    and `heightOf` now fails closed on unresolved children (`hot/HOTIncrementalInsert.java:2175-2178`);
    whether the reported issue still occurs was not established.
-6. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
-7. **`short` MSB index** for keys longer than 4 095 bytes (NAME keys are not bounded) (§2.6.1).
-8. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
+5. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
+6. **`short` MSB index** for keys longer than 4 095 bytes (NAME keys are not bounded) (§2.6.1).
+7. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
    misdirected write below the newest leaf image is detected only structurally, if at all.
-9. **Height optimality** under multi-entry leaves is not established; the paper states the structure is
+8. **Height optimality** under multi-entry leaves is not established; the paper states the structure is
    not minimum-height (§5.3 item 3).
 
 ---

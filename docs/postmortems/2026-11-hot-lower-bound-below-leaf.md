@@ -63,18 +63,8 @@ Run the regressions with `./gradlew :sirix-core:test --tests 'io.sirix.index.hot
 
 ## What the fix does
 
-The fast path now requires `0 < insertionPoint < entryCount`. A search key that sorts below or above
-every entry of the routed leaf takes the walk of specification §4.3.2: the mismatch bit against the
-leaf's first key selects the branching node, and the run of siblings that share the matched child's
-bits through the mismatch bit is the affected subtree; the bound is its first key (below) or the key
-after it (above). Two cases have no mismatch bit and are answered before the walk: a first key that
-merely extends the search key is the bound, and a search key that is the first key followed only by
-zero bytes has its bound at the next leaf. A root leaf answers from its insertion point alone.
-
-The walk resolves sibling first keys only on the side that decides the result. It used to resolve
-both sides for every seek that reached it, so a seek above its leaf now does less work than before,
-and a seek below its leaf, which used to return without looking, takes the walk the mirrored case
-always took.
+The seek contract, corrected walk and sibling-resolution work are specified in the
+[HOT specification §4.3](../HOT_INDEX_SPECIFICATION.md#43-lower-and-upper-bound).
 
 ## Not changed
 
