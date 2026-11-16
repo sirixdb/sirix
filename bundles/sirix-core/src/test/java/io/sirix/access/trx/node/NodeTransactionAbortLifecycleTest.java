@@ -671,8 +671,8 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   @ParameterizedTest(name = "callback {index}: {arguments}")
-  @CsvSource({"json,explicit", "xml,explicit", "json,count", "xml,count", "json,timed", "xml,timed",
-      "json,async", "xml,async"})
+  @CsvSource({"json,explicit", "xml,explicit", "json,count", "xml,count", "json,timed", "xml,timed", "json,async",
+      "xml,async"})
   void callbacksRejectLifecycleBeforeLockingAndRunAfterExecution(final String format, final String mode)
       throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
@@ -682,7 +682,8 @@ final class NodeTransactionAbortLifecycleTest {
         case "async" -> fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
         default -> fixture.first.beginNodeTrx(0, 1, TimeUnit.DAYS);
       };
-      final ReentrantLock execution = (ReentrantLock) field(AbstractNodeTrxImpl.class, "executionLock").get(transaction);
+      final ReentrantLock execution =
+          (ReentrantLock) field(AbstractNodeTrxImpl.class, "executionLock").get(transaction);
       final CountDownLatch beforeEntered = new CountDownLatch(1);
       final CountDownLatch releaseBefore = new CountDownLatch(1);
       final AtomicInteger before = new AtomicInteger();
@@ -742,7 +743,8 @@ final class NodeTransactionAbortLifecycleTest {
         try {
           setter.start();
           assertTrue(beforeEntered.await(10, TimeUnit.SECONDS));
-          scheduler(transaction).execute(() -> transaction.runLocked(() -> {}));
+          scheduler(transaction).execute(() -> transaction.runLocked(() -> {
+          }));
           while (!execution.hasQueuedThreads()) {
             if (mutated.isDone()) {
               fail("setter exited before the scheduler queued on execution");
@@ -781,8 +783,8 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   @ParameterizedTest(name = "reader lifetime {index}: {arguments}")
-  @CsvSource({"json,explicit", "xml,explicit", "json,count", "xml,count", "json,timed", "xml,timed",
-      "json,async", "xml,async"})
+  @CsvSource({"json,explicit", "xml,explicit", "json,count", "xml,count", "json,timed", "xml,timed", "json,async",
+      "xml,async"})
   void externalCloseFencesIndependentRevisionReaders(final String format, final String mode) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
       final NodeTrx transaction = switch (mode) {
@@ -904,8 +906,7 @@ final class NodeTransactionAbortLifecycleTest {
       final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.first;
       final TransactionExecutionLock execution =
           (TransactionExecutionLock) field(AbstractNodeTrxImpl.class, "executionLock").get(transaction);
-      final Map<Integer, NodeReadOnlyTrx> owners =
-          (Map<Integer, NodeReadOnlyTrx>) (Map<?, ?>) session.nodeTrxMap;
+      final Map<Integer, NodeReadOnlyTrx> owners = (Map<Integer, NodeReadOnlyTrx>) (Map<?, ?>) session.nodeTrxMap;
       final AtomicInteger called = new AtomicInteger();
       final CompletableFuture<Void> observed = new CompletableFuture<>();
       session.addRevisionListener(revision -> {
@@ -956,7 +957,9 @@ final class NodeTransactionAbortLifecycleTest {
           try (NodeReadOnlyTrx view = fixture.first.beginNodeReadOnlyTrx(revision)) {
             assertEquals(revision, view.getRevisionNumber());
             setCursor(view);
-            assertEquals(revision == 1 ? 0 : 1, value(view));
+            assertEquals(revision == 1
+                ? 0
+                : 1, value(view));
           }
           called.incrementAndGet();
           observed.complete(null);
@@ -1014,8 +1017,8 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   @ParameterizedTest(name = "lineage {index}: {arguments}")
-  @CsvSource({"json,false,false", "json,false,true", "json,true,false", "json,true,true",
-      "xml,false,false", "xml,false,true", "xml,true,false", "xml,true,true"})
+  @CsvSource({"json,false,false", "json,false,true", "json,true,false", "json,true,true", "xml,false,false",
+      "xml,false,true", "xml,true,false", "xml,true,true"})
   void lineageChangesFenceHardeningBeforeWriterRecovery(final String format, final boolean truncate,
       final boolean failHardening) throws Exception {
     final CountDownLatch entered = new CountDownLatch(1);
@@ -1092,7 +1095,9 @@ final class NodeTransactionAbortLifecycleTest {
         assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
         try (NodeTrx next = fixture.second.beginNodeTrx()) {
           setCursor(next);
-          assertEquals(failHardening || truncate ? 0 : 1, value(next));
+          assertEquals(failHardening || truncate
+              ? 0
+              : 1, value(next));
           setValue(next, 3);
           next.commit();
         }
@@ -1112,24 +1117,29 @@ final class NodeTransactionAbortLifecycleTest {
     assertTrue(assertThrows(IllegalStateException.class, transaction::commit).getMessage().contains("callback"));
     assertTrue(assertThrows(IllegalStateException.class, transaction::rollback).getMessage().contains("callback"));
     assertTrue(assertThrows(IllegalStateException.class, transaction::close).getMessage().contains("callback"));
-    assertTrue(assertThrows(IllegalStateException.class,
-        () -> ((InternalNodeTrx<?>) transaction).abort()).getMessage().contains("callback"));
+    assertTrue(
+        assertThrows(IllegalStateException.class, () -> ((InternalNodeTrx<?>) transaction).abort()).getMessage()
+                                                                                                   .contains(
+                                                                                                       "callback"));
     assertTrue(assertThrows(IllegalStateException.class, fixture.first::close).getMessage().contains("callback"));
-    assertTrue(assertThrows(IllegalStateException.class, fixture.first::beginNodeTrx)
-        .getMessage().contains("callback"));
-    assertTrue(assertThrows(IllegalStateException.class, fixture.first::createStorageEngineWriter)
-        .getMessage().contains("callback"));
-    assertTrue(assertThrows(IllegalStateException.class, () -> fixture.first.createStorageEngineWriter(1))
-        .getMessage().contains("callback"));
-    assertTrue(assertThrows(IllegalStateException.class, () -> transaction.revertTo(1))
-        .getMessage().contains("callback"));
-    assertTrue(assertThrows(IllegalStateException.class, () -> transaction.truncateTo(0))
-        .getMessage().contains("callback"));
-    assertTrue(assertThrows(IllegalStateException.class, transaction::awaitPendingAsyncCommit)
-        .getMessage().contains("callback"));
+    assertTrue(
+        assertThrows(IllegalStateException.class, fixture.first::beginNodeTrx).getMessage().contains("callback"));
+    assertTrue(
+        assertThrows(IllegalStateException.class, fixture.first::createStorageEngineWriter).getMessage()
+                                                                                           .contains("callback"));
+    assertTrue(
+        assertThrows(IllegalStateException.class, () -> fixture.first.createStorageEngineWriter(1)).getMessage()
+                                                                                                   .contains(
+                                                                                                       "callback"));
+    assertTrue(
+        assertThrows(IllegalStateException.class, () -> transaction.revertTo(1)).getMessage().contains("callback"));
+    assertTrue(
+        assertThrows(IllegalStateException.class, () -> transaction.truncateTo(0)).getMessage().contains("callback"));
+    assertTrue(assertThrows(IllegalStateException.class, transaction::awaitPendingAsyncCommit).getMessage()
+                                                                                              .contains("callback"));
     assertTrue(assertThrows(IllegalStateException.class,
-        () -> transaction.markRollbackOnly(new IllegalStateException("from callback")))
-        .getMessage().contains("callback"));
+        () -> transaction.markRollbackOnly(new IllegalStateException("from callback"))).getMessage()
+                                                                                       .contains("callback"));
   }
 
   @ParameterizedTest
@@ -1150,24 +1160,12 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"json,false,false,false",
-      "json,false,false,true",
-      "json,false,true,false",
-      "json,false,true,true",
-      "json,true,false,false",
-      "json,true,false,true",
-      "json,true,true,false",
-      "json,true,true,true",
-      "xml,false,false,false",
-      "xml,false,false,true",
-      "xml,false,true,false",
-      "xml,false,true,true",
-      "xml,true,false,false",
-      "xml,true,false,true",
-      "xml,true,true,false",
-      "xml,true,true,true"})
-  void lateConcurrentCloseRetainsOwnerUntilPermitRelease(final String format, final boolean abort,
-      final boolean timed, final boolean failWriter) throws Exception {
+  @CsvSource({"json,false,false,false", "json,false,false,true", "json,false,true,false", "json,false,true,true",
+      "json,true,false,false", "json,true,false,true", "json,true,true,false", "json,true,true,true",
+      "xml,false,false,false", "xml,false,false,true", "xml,false,true,false", "xml,false,true,true",
+      "xml,true,false,false", "xml,true,false,true", "xml,true,true,false", "xml,true,true,true"})
+  void lateConcurrentCloseRetainsOwnerUntilPermitRelease(final String format, final boolean abort, final boolean timed,
+      final boolean failWriter) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
       final NodeTrx transaction = timed
           ? fixture.first.beginNodeTrx(1, TimeUnit.DAYS)
@@ -1243,7 +1241,9 @@ final class NodeTransactionAbortLifecycleTest {
           setCursor(next);
           assertEquals(0, value(next));
           allowRelease.countDown();
-          assertSame(failWriter ? primary : null, firstFinished.get(10, TimeUnit.SECONDS));
+          assertSame(failWriter
+              ? primary
+              : null, firstFinished.get(10, TimeUnit.SECONDS));
           transaction.close();
           fixture.first.close();
           assertEquals(0, session.writeLock.availablePermits());
@@ -1313,8 +1313,8 @@ final class NodeTransactionAbortLifecycleTest {
         closer.start();
         closed.get(5, TimeUnit.SECONDS);
         if (closeSession) {
-          final ExecutionException rejected = assertThrows(ExecutionException.class,
-              () -> admitted.get(5, TimeUnit.SECONDS));
+          final ExecutionException rejected =
+              assertThrows(ExecutionException.class, () -> admitted.get(5, TimeUnit.SECONDS));
           assertTrue(rejected.getCause() instanceof IllegalStateException);
           assertTrue(session.isClosed());
           assertTrue(session.nodeTrxMap.isEmpty());
@@ -1335,7 +1335,9 @@ final class NodeTransactionAbortLifecycleTest {
         }
         try (NodeTrx next = fixture.second.beginNodeTrx()) {
           setCursor(next);
-          assertEquals(!closeSession && !pageAdmission ? 3 : 0, value(next));
+          assertEquals(!closeSession && !pageAdmission
+              ? 3
+              : 0, value(next));
         }
       } finally {
         admission.join(25000);
@@ -1356,10 +1358,15 @@ final class NodeTransactionAbortLifecycleTest {
       final AtomicInteger later = new AtomicInteger();
       final AssertionError error = new AssertionError("notification failed");
       final AtomicReference<NodeReadOnlyTrx> failedView = new AtomicReference<>();
-      transaction.addPostCommitHook(view -> { failedView.set(view); throw error; });
+      transaction.addPostCommitHook(view -> {
+        failedView.set(view);
+        throw error;
+      });
       transaction.addPostCommitHook(unused -> later.incrementAndGet());
       setValue(transaction, 3);
-      assertDoesNotThrow(() -> { transaction.commit(); });
+      assertDoesNotThrow(() -> {
+        transaction.commit();
+      });
       assertEquals(1, later.get());
       assertTrue(failedView.get().isClosed());
       assertFalse(Files.exists(((InternalResourceSession<?, ?>) fixture.first).getCommitFile()));
@@ -1376,8 +1383,7 @@ final class NodeTransactionAbortLifecycleTest {
   @ParameterizedTest
   @ValueSource(strings = {"json", "xml"})
   void ordinaryPostCommitHooksContinueInOrder(final String format) throws Exception {
-    try (Fixture fixture = new Fixture(format, directory);
-        NodeTrx transaction = fixture.first.beginNodeTrx()) {
+    try (Fixture fixture = new Fixture(format, directory); NodeTrx transaction = fixture.first.beginNodeTrx()) {
       final List<String> calls = new ArrayList<>();
       final AtomicReference<NodeReadOnlyTrx> first = new AtomicReference<>();
       final AtomicReference<NodeReadOnlyTrx> second = new AtomicReference<>();
@@ -1513,9 +1519,13 @@ final class NodeTransactionAbortLifecycleTest {
           closeWaiting.complete(null);
           await(openReader);
           final NodeReadOnlyTrx reader = session.getOrCreateSharedReadOnlyTrx(2);
-          assertTrue(reader.moveTo(format.equals("json") ? 1 : 2));
+          assertTrue(reader.moveTo(format.equals("json")
+              ? 1
+              : 2));
           final NodeReadOnlyTrx other = session.beginNodeReadOnlyTrx(1);
-          assertTrue(other.moveTo(format.equals("json") ? 1 : 2));
+          assertTrue(other.moveTo(format.equals("json")
+              ? 1
+              : 2));
           independent.set(other);
           opened.complete(reader);
           await(returnCallback);
@@ -1565,8 +1575,8 @@ final class NodeTransactionAbortLifecycleTest {
         returnCallback.countDown();
         committed.get(10, TimeUnit.SECONDS);
         if (failClose) {
-          assertSame(injected, assertThrows(ExecutionException.class,
-              () -> closed.get(10, TimeUnit.SECONDS)).getCause());
+          assertSame(injected,
+              assertThrows(ExecutionException.class, () -> closed.get(10, TimeUnit.SECONDS)).getCause());
         } else {
           closed.get(10, TimeUnit.SECONDS);
         }
@@ -1596,9 +1606,13 @@ final class NodeTransactionAbortLifecycleTest {
       final AssertionError later = new AssertionError("async hook failed");
       final CompletableFuture<Void> delivered = new CompletableFuture<>();
       final InternalResourceSession<?, ?> session = (InternalResourceSession<?, ?>) fixture.first;
-      final IntConsumer listener = revision -> { throw primary; };
+      final IntConsumer listener = revision -> {
+        throw primary;
+      };
       session.addRevisionListener(listener);
-      transaction.addPostCommitHook(unused -> { throw later; });
+      transaction.addPostCommitHook(unused -> {
+        throw later;
+      });
       transaction.addPostCommitHook(unused -> delivered.complete(null));
       setValue(transaction, 1);
       setValue(transaction, 2);
@@ -1852,8 +1866,9 @@ final class NodeTransactionAbortLifecycleTest {
           assertEquals(1, session.writeLock.availablePermits());
           fixture.firstDatabase.close();
           fixture.secondDatabase.close();
-          try (Database<? extends ResourceSession<?, ?>> reopened =
-              Fixture.open(format, directory.resolve("database"), new User("reopened", UUID.randomUUID()));
+          try (
+              Database<? extends ResourceSession<?, ?>> reopened =
+                  Fixture.open(format, directory.resolve("database"), new User("reopened", UUID.randomUUID()));
               ResourceSession<?, ?> resource = reopened.beginResourceSession("resource");
               NodeTrx next = resource.beginNodeTrx()) {
             setCursor(next);
@@ -1957,7 +1972,9 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   private static void setCursor(final NodeReadOnlyTrx transaction) {
-    assertTrue(transaction.moveTo(transaction instanceof JsonNodeReadOnlyTrx ? 1 : 2));
+    assertTrue(transaction.moveTo(transaction instanceof JsonNodeReadOnlyTrx
+        ? 1
+        : 2));
   }
 
   private static void setValue(final NodeTrx transaction, final int value) {

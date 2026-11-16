@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import org.jspecify.annotations.Nullable;
@@ -16,9 +15,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Transaction execution T and its callback ownership boundary. Outermost unlock delivers queued
- * callbacks with T released and independent read views. Mutations never wait for callback completion;
- * teardown alone fences outstanding dispatch. Scheduled work defers delivery until its Runnable
- * returns. Admission P remains owned. No scheduler termination wait may retain T.
+ * callbacks with T released and independent read views. Mutations never wait for callback
+ * completion; teardown and destructive truncation fence outstanding dispatch. Scheduled work defers
+ * delivery until its Runnable returns. Admission P remains owned. No scheduler termination wait may
+ * retain T.
  */
 public final class TransactionExecutionLock extends ReentrantLock {
   private static final long serialVersionUID = 1L;

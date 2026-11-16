@@ -1,5 +1,10 @@
 # Lifecycle review fix handoff
 
+These are historical review-round notes. Current contracts are owned by the
+[async ownership design](ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership) and its API links;
+[current focused evidence](../data/sirix-1-0-lifecycle-fences/resource-callback-verification.json)
+supersedes the earlier verification snapshots below.
+
 R1: result closure must reach every owned producer before session teardown can close readers. The missing abstraction was close propagation across the axis composition tree and both descendant-expression iterator representations. Axis has a default close contract; composites forward it to every operand, and concurrent helpers close descendants on all exits. The JSON lazy iterator, cached descendant plans, JSON stream and XML stream forward closure. Cancellation preserves its primary failure and interruption.
 
 R2: a live append worker's refusal must leave node cleanup retryable. Closing the node reader before the writer refusal had marked the transaction closed prematurely. The current session ownership contract is in [ResourceSession.close()](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java); the async boundary is in [the design](ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership). Real paused append workers cover both continued refusal and worker exit between the node and page close attempts, in XML and JSON.
@@ -104,7 +109,7 @@ R10 verification is **blocked**, not passed: the focused command remained in hea
 
 ## R11 / review-1: clarified callback ownership
 
-The captain resolved the R10 clarification: KEEP_OPEN retains P and pre-hooks retain veto timing. This supersedes the historical reentrant-close behavior above. One session-scoped context rejects commit, rollback/abort and node/session close from any pre/post hook or revision listener before locking. Both publication paths queue post-hooks before leaving commit ownership; outermost unlock and scheduled-task completion deliver them with T released. The callback phase reserves payload lifetime while competing execution waits. Async notifications wait for slot release outside T. External close rejects an enclosing T acquisition, fences callbacks/cleanup, then waits for scheduler termination outside T and releases P through the unchanged registry boundary. The scheduler-thread exception is removed. JSON rollback no longer wraps the shared boundary in a monitor or outer runLocked alias.
+R11 resolved the R10 clarification and superseded hook-initiated close. Its execution-reservation proposal was subsequently replaced by R15's independent views. See the [current ownership contract](ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership) instead of treating this round as the final callback protocol.
 
 Executable mapping and error policy are in the [postmortem](postmortems/commit-callback-reentrancy.md) and [TXN design](../data/sirix-1-0-lifecycle-fences/async-commit-failure-design.md#txn-callback-contract-r11--review-1-clarified). New checks cover all pre/post/listener lifecycle calls, nested explicit commit, a mixed count+timer setter with queued scheduler, scheduled task completion, async delivery, external callback fencing and ordinary hook work. Late-close and admission matrices remain. Deferred notification errors are logged after first-error accumulation/phase restoration; pre-hook vetoes and teardown first-error handling remain intact. Historical mutation/compiled reports do not validate this protocol. Fresh scoped PIT, compiled-path evidence and broader gates remain with the outer executor.
 

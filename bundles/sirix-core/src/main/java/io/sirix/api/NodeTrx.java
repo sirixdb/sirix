@@ -37,8 +37,9 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   }
 
   /**
-   * Commit modifications. Lifecycle reentrancy from this session's pre/post hooks or revision
-   * listeners is rejected with IllegalStateException before acquiring execution locks.
+   * Commit modifications. Lifecycle reentrancy from pre/post hooks or revision listeners for this
+   * resource, including another user session, is rejected with IllegalStateException before acquiring
+   * execution locks.
    *
    * @param commitMessage optional message
    * @param commitTimeStamp optional configured custom timestamp
@@ -49,7 +50,7 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   /**
    * Rollback all modifications of the exclusive write transaction. A failed rollback keeps mutations
    * and commits blocked until rollback successfully reconstructs the transaction. Calling rollback on
-   * a closed transaction is rejected before recovery handling. Lifecycle calls from this session's
+   * a closed transaction is rejected before recovery handling. Lifecycle calls from this resource's
    * commit hooks/listeners are rejected with IllegalStateException before locking.
    *
    * @return NodeTrx return current instance
@@ -77,9 +78,8 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   NodeTrx revertTo(int revision);
 
   /**
-   * Add a before-publication hook. It may veto publication by throwing. Lifecycle operations
-   * (commit, rollback/abort, transaction close or session close) on the same transaction/session
-   * from any commit hook or revision listener throw IllegalStateException before locking.
+   * Add a before-publication hook; see {@link PreCommitHook#preCommit(NodeReadOnlyTrx)} for veto
+   * timing and lifecycle restrictions.
    *
    * @param hook pre commit hook
    * @return NodeTrx return current instance
@@ -87,16 +87,8 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   NodeTrx addPreCommitHook(PreCommitHook hook);
 
   /**
-   * Add an after-publication notification. Delivery follows the outermost transaction execution
-   * and scheduled task boundary, with execution locks released. KEEP_OPEN still owns its lifetime
-   * write permit. Each invocation owns a fresh read-only cursor pinned to the committed revision,
-   * starting at the document root and closed by the dispatcher on return. The live writer cursor
-   * is never passed to a post-hook. Do not retain the view or navigate a captured writer.
-   * Lifecycle operations on this transaction/session from a hook/listener throw
-   * IllegalStateException before locking. Async delivery follows hardening completion on its
-   * dispatcher, without blocking successor mutations. RuntimeException failures are logged;
-   * Error is retained and rethrown by transaction close after independent delivery and owner release. Neither
-   * can veto or roll back the committed revision.
+   * Add an after-publication notification; see {@link PostCommitHook#postCommit(NodeReadOnlyTrx)} for
+   * cursor ownership, delivery timing, lifecycle restrictions and failure handling.
    *
    * @param hook post commit hook
    * @return NodeTrx return current instance
@@ -109,9 +101,9 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * transaction-owned state (e.g. wtx-visible index serving, which flushes pending index maintenance
    * and navigates the transaction) must run under it, or it races the auto-commit thread.
    * Post-publication notifications from nested commits wait for the outermost execution scope to
-   * finish. Close must be called after this scope returns, so it cannot join the scheduler under
-   * an enclosing lock. Transactions configured without a lock are single-threaded by contract;
-   * the default simply runs {@code work}.
+   * finish. Close must be called after this scope returns, so it cannot join the scheduler under an
+   * enclosing lock. Transactions configured without a lock are single-threaded by contract; the
+   * default simply runs {@code work}.
    *
    * @param work the work to run under the transaction's lock
    */
@@ -141,7 +133,12 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   }
 
   /**
-   * Truncate to a revision.
+   * Truncate to a revision after fencing pending hardening and outstanding callbacks, including
+   * revision-pinned post-hook views. Notification admission for this resource is excluded while
+   * history is invalidated. Calls from this resource's commit hooks/listeners are rejected before
+   * locking, including callbacks dispatched by another user session. Invoke outside an enclosing
+   * {@link #runLocked(Runnable)} scope. The cursor still refers to the truncated revision afterwards;
+   * close or roll back the transaction without committing through it.
    *
    * @param revision the revision to truncate to
    * @return NodeTrx return current instance

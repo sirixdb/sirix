@@ -451,10 +451,13 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * <p>
    * A writer that refuses teardown while an append worker is still active retains session ownership;
    * retry close after that worker terminates. Otherwise teardown publishes closed state even when
-   * reporting a cleanup failure. An already closed session requires no further cleanup.
-   * Calls from this session's commit hooks or revision listeners reject with IllegalStateException
-   * before locking. Close must also be called outside an enclosing transaction runLocked scope;
-   * external teardown fences callback execution before retiring transaction payloads.
+   * reporting a cleanup failure. An already closed session requires no further cleanup. Calls from
+   * this resource's commit hooks or revision listeners, including those dispatched by another user
+   * session, reject with IllegalStateException before locking. Close must also be called outside an
+   * enclosing transaction runLocked scope; external teardown fences resource-shared callback
+   * completion before retiring any ordinary node/shared/page reader or pool. Maintenance
+   * notifications run while independent reads are still available; readers registered by those
+   * callbacks are included in final cleanup.
    *
    * @throws SirixException if can't close
    */

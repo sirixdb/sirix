@@ -1,6 +1,6 @@
 # Async commit failure and recovery
 
-Current callback authority: [TXN callback contract](#txn-callback-contract-r11--review-1-clarified). It resolves the R10 question and supersedes R6's accepted hook-initiated close. Earlier round notes below remain historical evidence.
+Current contracts: [async ownership design](../../docs/ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership) and the API references linked there. The round specifications below are historical, including superseded callback-close and execution-reservation proposals.
 
 Decision: “A, but with a clear design of course. Why does the cleanup for instance fail? It should simply be a truncation once a \".commit\" file is in the resource”.
 
@@ -10,7 +10,7 @@ R5 is an ownership/recovery abstraction defect: closed means unusable, not recov
 
 Truncation repairs persisted state. Successor construction, task submission, catalogue serialization, data/beacon writes, cache invalidation, listener/reader/log/backend close and marker I/O can independently fail; none warrants a second disk-repair algorithm. The admission contract and marker-creation failure handling are owned by [marker recovery](../../docs/operations.md#marker-recovery).
 
-For the final teardown boundary, see [ResourceSession.close()](../../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java) and the [async ownership design](../../docs/ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership). These supersede the initial proposed cleanup order: scheduler shutdown follows node cleanup; external transaction close fences termination before write-permit release outside the node lock. Scheduler-initiated close instead returns through the safe callback epilogue, as specified in R6 below.
+For the final teardown boundary, see [ResourceSession.close()](../../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java). Earlier proposed cleanup ordering and scheduler-initiated close below are superseded.
 
 Successful hardening work and record/page loops retain their ordering. Recovery adds I/O only when the marker/guard is present. Failure-only marker retention and slot completion share boundaries; no retries or second disk recovery subsystem is added.
 

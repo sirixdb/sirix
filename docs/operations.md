@@ -482,22 +482,15 @@ For deeper context, see:
 
 ## Commit callbacks and lifecycle calls
 
-Pre-commit hooks keep their before-publication timing and may veto a commit. Post-commit hooks
-and revision listeners run after the outermost transaction execution and scheduled task boundary,
-with execution locks released. KEEP_OPEN keeps its lifetime writer admission permit. A callback
-receives its own read-only cursor pinned to exactly the committed revision, starting at the
-document root. The dispatcher closes it after that invocation; never retain it or navigate a
-captured mutable writer. Revision listeners receive a revision number and must use independent readers.
+Register hooks according to [PreCommitHook](../bundles/sirix-core/src/main/java/io/sirix/api/PreCommitHook.java)
+and [PostCommitHook](../bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java). Those
+contracts own veto timing, dispatcher-owned revision views, lifecycle restrictions and error handling.
+[Revision listeners](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java)
+receive revision numbers and use independent readers.
 
-Commit, rollback/abort, node-transaction close and resource-session close from a hook/listener of
-the same transaction/session reject immediately with IllegalStateException before locking.
-Perform lifecycle work after callback return, and call close outside any enclosing runLocked
-scope. Ordinary read-only/non-lifecycle callback work is allowed. External teardown fences the
-outstanding callbacks before retiring their readers and session resources. RuntimeException-only failures are logged. Node callback
-Errors are retained and rethrown by close after independent delivery and owner release; unbound
-listener dispatch rethrows after independent listeners. Neither can roll back or veto a durable revision.
-Revision listeners and callback context share the same resource owner across user sessions.
-
-Async hook/listener delivery belongs to its hardening-completion batch and never waits for durability on foreground unlock. External close drains completed batches before payload retirement. After fencing callbacks, session close refreshes and closes late node/shared readers before deregistration, including their page guards. See [the completion and reader postmortem](postmortems/callback-completion-reader-ownership.md).
-
-Session teardown fences node writers and started callbacks before retiring any ordinary direct/shared reader, including readers present before the initial close snapshot. It refreshes late registrations afterward. If a node owner refuses its fence, reader/pool dependencies remain owned until retry; interruption never permits early reader retirement. See [the reader-order postmortem](postmortems/session-reader-fence-order.md).
+Perform lifecycle work after callback return, outside any enclosing `runLocked` scope. The
+restriction applies across user sessions sharing the resource. Follow
+[ResourceSession.close()](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java)
+for teardown and retry, and [NodeTrx.truncateTo()](../bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java)
+for destructive history changes. The [async ownership design](ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership)
+explains hardening overlap and shared notification/reader fencing.
