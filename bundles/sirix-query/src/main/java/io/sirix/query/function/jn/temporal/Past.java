@@ -50,14 +50,14 @@ public final class Past extends AbstractFunction {
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          Stream<?> stream;
+          Stream<? extends Item> stream;
 
           @Override
           public Item next() {
             if (stream == null) {
               stream = TemporalNavigation.range(TemporalNavigation.Range.PAST, item, includeSelf);
             }
-            return (Item) stream.next();
+            return stream.next();
           }
 
           @Override

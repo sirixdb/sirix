@@ -476,7 +476,7 @@ final class TemporalNavigationTest {
         try {
           query("sdb:select-item(" + doc(s) + ", " + k + ")");
           exists[s] = true;
-        } catch (final QueryException absent) {
+        } catch (final QueryException _) {
           exists[s] = false;
         }
       }
@@ -498,8 +498,9 @@ final class TemporalNavigationTest {
     return query("[ for $v in " + fn.call(source) + " return " + describe("$v") + " ]");
   }
 
-  private static String describe(final String var) {
-    return "{\"rev\": sdb:revision(" + var + "), \"key\": sdb:nodekey(" + var + "), \"value\": " + var + "}";
+  private static String describe(final String variable) {
+    return "{\"rev\": sdb:revision(" + variable + "), \"key\": sdb:nodekey(" + variable + "), \"value\": " + variable
+        + "}";
   }
 
   private static String doc(final int revision) {

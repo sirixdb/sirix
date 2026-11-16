@@ -8,6 +8,8 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
  * that the item stands for the field name of its node rather than the node's value, so that
  * temporal navigation re-reads the name in other revisions (see {@link AtomicStrJsonDBItem}).
  */
+// Stateless marker: avoids adding a representation flag to every materialized string value.
+@SuppressWarnings("java:S110")
 public final class FieldNameJsonDBItem extends AtomicStrJsonDBItem {
 
   /**

@@ -43,8 +43,9 @@ final class TemporalSirixJsonItemStreamTest {
   @Test
   void nullArgumentsAreRejected() {
     final JsonDBCollection collection = mock(JsonDBCollection.class);
+    final EmptyAxis axis = new EmptyAxis();
     assertThrows(NullPointerException.class, () -> new TemporalSirixJsonItemStream(null, collection, false));
-    assertThrows(NullPointerException.class, () -> new TemporalSirixJsonItemStream(new EmptyAxis(), null, false));
+    assertThrows(NullPointerException.class, () -> new TemporalSirixJsonItemStream(axis, null, false));
   }
 
   /** An axis over no revisions that counts {@link #close()} calls. */

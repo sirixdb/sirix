@@ -113,7 +113,9 @@ final class TemporalNavigation {
    *        revision; ignored for {@link Range#ALL_TIMES}
    * @return a stream of the node's items, one per revision
    */
-  static Stream<?> range(final Range range, final Sequence argument, final boolean includeSelf) {
+  // Producer covariance preserves each structural view without an adapter or unchecked cast.
+  @SuppressWarnings("java:S1452")
+  static Stream<? extends Item> range(final Range range, final Sequence argument, final boolean includeSelf) {
     if (argument instanceof TemporalJsonDBItem<?> temporal) {
       return switch (range) {
         case PAST -> temporal.getEarlier(includeSelf);

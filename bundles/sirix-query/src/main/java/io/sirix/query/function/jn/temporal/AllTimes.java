@@ -48,14 +48,14 @@ public final class AllTimes extends AbstractFunction {
       @Override
       public Iter iterate() {
         return new BaseIter() {
-          Stream<?> stream;
+          Stream<? extends Item> stream;
 
           @Override
           public Item next() {
             if (stream == null) {
               stream = TemporalNavigation.range(TemporalNavigation.Range.ALL_TIMES, item, false);
             }
-            return (Item) stream.next();
+            return stream.next();
           }
 
           @Override
