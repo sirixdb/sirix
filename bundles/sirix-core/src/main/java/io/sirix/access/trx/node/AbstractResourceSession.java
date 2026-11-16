@@ -212,8 +212,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     commitExecution.set(previous);
   }
 
+  @Override
   @SuppressWarnings("java:S1181")
-  private void dispatchSessionCallbacks(final @Nullable Throwable priorFailure) {
+  public final void dispatchSessionCallbacks(final @Nullable Throwable priorFailure) {
+    if (Thread.holdsLock(this) || notificationOwnership.isWriteLockedByCurrentThread()) {
+      return;
+    }
     Throwable failure = priorFailure;
     Runnable callback;
     while ((callback = sessionCallbacks.poll()) != null) {
@@ -2077,14 +2081,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       executionOwner.enqueueCallback(notification);
       return;
     }
-    for (final R transaction : nodeTrxMap.values()) {
-      if (transaction instanceof InternalNodeTrx<?> nodeTrx) {
+    for (final InternalNodeTrx<?> nodeTrx : resourceWriters.values()) {
+      if (nodeTrx.isInExecution()) {
         nodeTrx.enqueueCallback(notification);
         return;
       }
     }
     final Runnable admitted = admitCallback(notification);
-    if (Thread.holdsLock(this)) {
+    if (Thread.holdsLock(this) || notificationOwnership.isWriteLockedByCurrentThread()) {
       sessionCallbacks.add(admitted);
     } else {
       admitted.run();

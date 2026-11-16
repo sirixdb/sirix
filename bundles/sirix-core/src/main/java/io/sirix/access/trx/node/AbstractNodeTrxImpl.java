@@ -651,8 +651,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         notifyAsyncCommitTestHook("before-submit");
         CompletableFuture.runAsync(() -> {
           try {
-            hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
-            enqueuePostCommitHooks(committingHooks, pendingUberPage.getRevisionNumber());
+            final @Nullable InternalNodeTrx<?> previous = resourceSession.enterCommitExecution(this);
+            try {
+              hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
+              enqueuePostCommitHooks(committingHooks, pendingUberPage.getRevisionNumber());
+            } finally {
+              resourceSession.exitCommitExecution(previous);
+            }
           } catch (final Throwable failure) {
             asyncCommitFailure = failure;
             state = State.COMMITTED;
@@ -1561,6 +1566,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   public final void assertCanClose() {
     resourceSession.assertNotInCommitCallback();
     executionLock.assertCanClose();
+  }
+
+  @Override
+  public final boolean isInExecution() {
+    return executionLock.isHeldByCurrentThread() || executionLock.isInScheduledTask();
   }
 
   @Override
