@@ -13,10 +13,15 @@ change requiring specification review, not a way to silence a failed test.
 Prerequisites on a 64-bit little-endian host:
 
 - C11 and C++17 compilers (`CC`/`CXX`, default `cc`/`c++`).
-- Python 3.12 and `python3 -m pip install -r tests/native/requirements.txt`.
+- Python 3.12 and `python3 -m pip install --only-binary :all: --require-hashes -r tests/native/requirements.txt`.
 - Rust 1.94.0 (`RUSTC`, default `rustc`), libclang 18 and
   `cargo install bindgen-cli --version 0.72.1 --locked` (`BINDGEN`, default `bindgen`).
 - Set `LIBCLANG_PATH` if libclang is outside the loader's search path.
+
+The dependency lock includes the published SHA-256 hashes of Python 3.12 cffi
+wheels and the platform-independent pycparser wheel. Keep both versions and
+hashes pinned when updating it; installation rejects source distributions and
+unrecognized artifact bytes.
 
 Run from the repository root, or pass the absolute script path from anywhere:
 

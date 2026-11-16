@@ -36,7 +36,7 @@ jobs:
           rustup toolchain install 1.94.0 --profile minimal
           rustup override set 1.94.0
           cargo install bindgen-cli --version 0.72.1 --locked
-          python -m pip install -r tests/native/requirements.txt
+          python -m pip install --only-binary :all: --require-hashes -r tests/native/requirements.txt
       - name: Verify declarations and reject contract mutations
         env:
           LIBCLANG_PATH: /usr/lib/llvm-18/lib
