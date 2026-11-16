@@ -252,9 +252,8 @@ extern "C" {
 SIRIX_API uint32_t SIRIX_CALL sirix_abi_version(void);
 SIRIX_API uint64_t SIRIX_CALL sirix_capabilities(void);
 
-/* Every err is optional. Other outputs are required and initialized on failure.
+/* See NATIVE §3.1–3.2 for pointer preconditions, failure outputs and close states.
  * Null options select published defaults. Caller bytes are never retained.
- * Parent close is BUSY while children live; see §3.2 for consuming error statuses.
  */
 SIRIX_API sirix_status_t SIRIX_CALL sirix_runtime_create(
     const sirix_runtime_options_t *options, sirix_handle_t *runtime, sirix_error_t *err);

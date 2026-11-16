@@ -229,8 +229,8 @@ must not be reported as proof that nothing committed; automatic write retry is f
 UNKNOWN. Failed close invalidates the native token once terminal cleanup is committed, attempts all
 independent cleanup actions, and reports the first underlying error in the error record plus a
 suppressed-error count; the returned status preserves the consuming-state contract in §3.
-Recovery/durability follow TXN; native code may not discard recovery markers to manufacture a
-successful close.
+Recovery/durability follow the [commit protocol and recovery contract](../docs/DISK_FORMAT.md#1-files);
+native code may not discard recovery markers to manufacture a successful close.
 
 #### NATIVE-207 — bitemporal open
 

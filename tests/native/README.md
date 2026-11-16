@@ -24,9 +24,8 @@ Run from the repository root, or pass the absolute script path from anywhere:
 python3 tests/native/check_header.py --output-dir /tmp/sirix-header-check --mutations
 ```
 
-The checker never invokes Gradle, Java or native-image. Installation/build resource
-limits remain those of the host; use the required shared heavy-build wrapper in
-managed laptop lanes. The GitHub workflow runs in its own hosted runner.
+The checker never invokes Gradle, Java or native-image. The GitHub workflow runs
+in its own hosted runner.
 
 The checker executes these acceptance tests:
 
