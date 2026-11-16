@@ -39,7 +39,8 @@ import java.util.List;
  * 
  * <p>
  * Handles upgrades and downgrades between node types. {@link #determineNodeType(int)} selects the
- * representation by child count; the legal factory fanouts are documented in {@link HOTIndirectPage}.
+ * representation by child count; the legal factory fanouts are documented in
+ * {@link HOTIndirectPage}.
  * </p>
  * 
  * <p>

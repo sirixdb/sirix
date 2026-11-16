@@ -19,16 +19,15 @@ import java.util.Set;
 
 /**
  * Structural validation of HOT secondary-index tries (see {@code
- * docs/HOT_INDEX_SPECIFICATION.md} §4.8). Walks a trie top-down and returns the
- * <em>highest</em> malformed indirect pages — the roots of the maximal drifted subtrees.
+ * docs/HOT_INDEX_SPECIFICATION.md} §4.8). Walks a trie top-down and returns the <em>highest</em>
+ * malformed indirect pages — the roots of the maximal drifted subtrees.
  *
  * <p>
  * <b>What "malformed" means.</b> An indirect is malformed when it violates a structural invariant
  * in its own block. The predicates mirror {@code HOTInvariantValidator}, the test-only invariant
- * oracle; a production detector cannot depend on
- * that test-only class. The enforced predicates are specified in
- * {@code docs/HOT_INDEX_SPECIFICATION.md} §2.8. I11 is cross-level; a violation on edge
- * {@code (P, C)} is attributed to the <em>parent</em> {@code P}, whose child edge violates the
+ * oracle; a production detector cannot depend on that test-only class. The enforced predicates are
+ * specified in {@code docs/HOT_INDEX_SPECIFICATION.md} §2.8. I11 is cross-level; a violation on
+ * edge {@code (P, C)} is attributed to the <em>parent</em> {@code P}, whose child edge violates the
  * trie condition.
  *
  * <p>

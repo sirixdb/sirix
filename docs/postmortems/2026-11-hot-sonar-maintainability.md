@@ -22,9 +22,24 @@
   metadata. Run the same Sonar Java analyzer (8.46.0.59609) against the before/after
   methods to reproduce and verify the complexity failure. Local evidence lives in
   `build/ci-analysis/` (untracked).
-- Lesson: separate existing validation stages without changing their order, work
+- Lesson: separate cold validation stages without changing their order, work
   ceilings or allocation profile, and name assertion helpers for the contract they
-  actually verify. See [Lessons](../LESSONS.md).
+  actually verify. Never split a hot kernel (per seek or per insert) to satisfy the
+  analyzer: keep its measured shape and suppress S3776 on that method alone with a
+  reason. See [Lessons](../LESSONS.md).
+
+## Resolution: hot kernels kept, cold detector split
+
+The first CI repair split all four methods. Three of them run on every seek or insert:
+`HOTTrieReader.lowerOrUpperBound` (the range-seek path whose shape this PR measured
+with JMH), and the writer's `measureBoundedRebuildPage` and `nodeStructurallyMalformed`.
+Splitting them changes what C2 inlines, which no measurement covered, and Sirix puts
+latency ahead of a maintainability grade. Those three methods are therefore restored
+byte for byte to their `e7d661cb5` source and carry a method-level
+`@SuppressWarnings("java:S3776")` with a one-line reason, the convention used for the
+other hot loops in `sirix-core`. Only `HOTMalformedSubtreeDetector.firstViolation`, a
+cold validation path, stays split. The sections below describe the first repair; the
+statements about the writer and the seek apply to that intermediate state only.
 
 ## Behavior and caller trace
 
@@ -51,12 +66,17 @@ per-element objects, state, fallback or retry mechanism is introduced.
   entry points and every caller use assertion names. Sorting remains natural order;
   MCP assertions retain all three returned metadata checks.
 
-The four original complexities were 31, 39, 66 and 32. Their entry methods now
-measure 9, 3, 5 and 10 respectively; every extracted helper measures at most 15.
+The four original complexities were 31, 39, 66 and 32. After the first repair their
+entry methods measured 9, 3, 5 and 10; every extracted helper measured at most 15.
+After the resolution above only the detector (66 -> 5) remains split; the other three
+keep 31, 39 and 32 under a narrow suppression.
 CodeFactor's separate detail page returned HTTP 403, so its single issue could not
 be inspected or independently confirmed fixed.
 
 ## Focused mutation evidence
+
+This run predates the resolution: the `AbstractHOTIndexWriter` rows name helpers that
+no longer exist, and only the detector row applies to the shipped code.
 
 PIT 1.25.5 targeted the four refactored methods and all extracted helpers, using
 `VOID_METHOD_CALLS`, `TRUE_RETURNS`, `FALSE_RETURNS` and `NULL_RETURNS` to test
