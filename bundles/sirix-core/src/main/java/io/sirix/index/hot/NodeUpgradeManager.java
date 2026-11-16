@@ -60,7 +60,7 @@ import java.util.List;
  * <b>Downgrade Triggers:</b>
  * </p>
  * <ul>
- * <li>MultiNode → SpanNode: After delete, children drop to ≤16</li>
+ * <li>MultiNode → SpanNode: After delete, children drop to 2-16</li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
@@ -152,11 +152,13 @@ public final class NodeUpgradeManager {
   }
 
   /**
-   * Check if a node should be downgraded after a deletion.
+   * Check if a node needs removal, collapse or a smaller representation after a deletion. A true
+   * result for zero or one remaining child requires the caller to remove the node or replace it with
+   * its remaining child, respectively, rather than selecting another node type.
    * 
    * @param node the current node
    * @param newChildCount the child count after deletion
-   * @return true if the node should be downgraded
+   * @return true if the node needs removal, collapse or a smaller representation
    */
   public static boolean shouldDowngrade(HOTIndirectPage node, int newChildCount) {
     if (newChildCount < 2) {

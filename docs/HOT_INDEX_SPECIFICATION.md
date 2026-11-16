@@ -1712,7 +1712,7 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
   **highest** malformed indirect pages and does not descend below them; `MAX_DEPTH = 64`; a cycle guard
   by page key; closed or unresolvable pages are skipped; it performs no mutation and no I/O of its own
   (`hot/HOTMalformedSubtreeDetector.java:20-163`, `:390-398`).
-- Checks, first failure wins: I3, I4, I7, I11, I8 + I12, I5 (§2.8).
+- The detector's enforced invariants are listed in §2.8; it reports the first failure.
 - **Only production call**: `validatePublishedStructuralScopeBounded` after a structural publication,
   when `VALIDATE_STRUCTURAL_MUTATIONS` (default on) and the scope fits the bounded budget; oversized
   scopes are counted in `STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED` and not checked
