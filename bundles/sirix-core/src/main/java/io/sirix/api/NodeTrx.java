@@ -89,8 +89,9 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   /**
    * Add an after-publication notification. Delivery follows the outermost transaction execution
    * and scheduled task boundary, with execution locks released. KEEP_OPEN still owns its lifetime
-   * write permit. The argument is a borrowed current transaction view, not an immutable revision
-   * snapshot; do not retain it beyond the callback. Ordinary non-lifecycle work is allowed.
+   * write permit. Each invocation owns a fresh read-only cursor pinned to the committed revision,
+   * starting at the document root and closed by the dispatcher on return. The live writer cursor
+   * is never passed to a post-hook. Do not retain the view or navigate a captured writer.
    * Lifecycle operations on this transaction/session from a hook/listener throw
    * IllegalStateException before locking. Async delivery follows hardening completion on its
    * dispatcher, without blocking successor mutations. RuntimeException failures are logged;

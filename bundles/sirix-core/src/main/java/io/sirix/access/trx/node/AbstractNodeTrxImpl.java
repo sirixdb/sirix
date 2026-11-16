@@ -63,7 +63,9 @@ import static java.util.Objects.requireNonNull;
 /**
  * Abstract implementation for {@link InternalNodeTrx}. Lifecycle calls from this session's commit
  * callbacks reject before locking. Post-publication callbacks run outside outermost execution T and
- * the scheduled task boundary while lifetime admission P stays owned. Close must enter outside T;
+ * the scheduled task boundary while lifetime admission P stays owned. Post-hooks own separate
+ * read-only cursors pinned to the committed revision. Ordinary mutation acquisition never waits
+ * for callback completion. Close must enter outside T;
  * cleanup releases T before scheduler termination and atomic session-registration/P release.
  *
  * @author Joao Sousa
@@ -648,7 +650,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         CompletableFuture.runAsync(() -> {
           try {
             hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs);
-            enqueuePostCommitHooks(committingHooks);
+            enqueuePostCommitHooks(committingHooks, pendingUberPage.getRevisionNumber());
           } catch (final Throwable failure) {
             asyncCommitFailure = failure;
             state = State.COMMITTED;
@@ -855,7 +857,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
         throw e;
       }
-      enqueuePostCommitHooks();
+      enqueuePostCommitHooks(postCommitHooks, uberPage.getRevisionNumber());
     });
 
     return self();
@@ -1603,18 +1605,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
-  private void enqueuePostCommitHooks() {
-    enqueuePostCommitHooks(postCommitHooks);
-  }
-
-  private void enqueuePostCommitHooks(final List<PostCommitHook> hooks) {
+  private void enqueuePostCommitHooks(final List<PostCommitHook> hooks, final int revision) {
     for (final PostCommitHook hook : hooks) {
       enqueueCallback(() -> {
-        resourceSession.enterCommitCallback();
-        try {
-          hook.postCommit(this);
-        } finally {
-          resourceSession.exitCommitCallback();
+        try (R view = resourceSession.beginPostCommitReadOnlyTrx(revision)) {
+          resourceSession.enterCommitCallback();
+          try {
+            hook.postCommit(view);
+          } finally {
+            resourceSession.exitCommitCallback();
+          }
         }
       });
     }

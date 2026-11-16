@@ -1355,6 +1355,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public R beginNodeReadOnlyTrx(final int revision) {
+    return beginNodeReadOnlyTrx(revision, true);
+  }
+
+  @Override
+  public R beginPostCommitReadOnlyTrx(final int revision) {
+    return beginNodeReadOnlyTrx(revision, false);
+  }
+
+  private R beginNodeReadOnlyTrx(final int revision, final boolean sessionOwned) {
     assertAccess(revision);
 
     final StorageEngineReader storageEngineReader = createStorageEngineReader(revision);
@@ -1368,11 +1377,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       reader = createNodeReadOnlyTrx(trxIDCounter.incrementAndGet(), storageEngineReader, documentNode);
       synchronized (this) {
         assertNotClosed();
-        if (nodeTrxMap.put(reader.getId(), reader) != null) {
+        if (sessionOwned && nodeTrxMap.put(reader.getId(), reader) != null) {
           throw new SirixUsageException(ID_GENERATION_EXCEPTION);
         }
       }
-      TransactionMetrics.onReadOnlyTrxOpened();
+      if (sessionOwned) {
+        TransactionMetrics.onReadOnlyTrxOpened();
+      }
       return reader;
     } catch (final RuntimeException | Error failure) {
       try {

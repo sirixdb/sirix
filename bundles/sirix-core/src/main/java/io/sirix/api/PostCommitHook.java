@@ -10,16 +10,15 @@ package io.sirix.api;
 public interface PostCommitHook {
 
   /**
-   * Called after durable publication and the outermost transaction execution/scheduled task
-   * boundary, with execution locks released. KEEP_OPEN retains its lifetime write permit.
-   * Lifecycle calls on the same transaction/session reject with IllegalStateException before
-   * locking. Async notifications run on hardening completion without blocking successor mutations.
-   * RuntimeException failures are logged; Error is retained and rethrown by transaction close after independent
-   * notifications and owner release. Neither can veto durable publication. The borrowed current
-   * transaction view may include a subsequent mutation completed by the enclosing operation.
+   * Called with a dispatcher-owned read-only cursor pinned to exactly the revision just committed.
+   * Every hook gets a fresh cursor at the document root, closed on return; do not retain it.
+   * The view is never the mutable writer. Delivery follows outermost execution and scheduled task
+   * completion. Async delivery follows hardening without blocking successor mutations.
+   * Lifecycle calls on the committing transaction/session reject before locking. RuntimeException
+   * failures are logged; Error is retained and rethrown by writer close after independent delivery
+   * and owner release. Neither can veto durable publication.
    *
-   * @param rtx borrowed Sirix transaction view; do not retain after return
-   * @throws NullPointerException if {@code rtx} is {@code null}
+   * @param committedRevision read-only committed revision; valid only during this invocation
    */
-  void postCommit(NodeReadOnlyTrx rtx);
+  void postCommit(NodeReadOnlyTrx committedRevision);
 }

@@ -383,7 +383,8 @@ final class XmlPendingUpdatePublicationTest {
           }
           writer.moveTo(saved);
         });
-        writer.addPostCommitHook(unused -> {
+        writer.addPostCommitHook(view -> {
+          assertFalse(view instanceof XmlNodeTrx);
           if (recoveredValue.get()) {
             recovered.countDown();
           }
