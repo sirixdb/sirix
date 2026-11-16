@@ -362,8 +362,7 @@ final class StorageEpochFsstInlineDecisionTest {
     final Random schedule = new Random(~seed);
     byte[] table;
     int rotations;
-    int encodedOnlyFits = 0;
-    int neverFits = 0;
+    EditCounts counts;
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(path, USER);
         final JsonResourceSession session = database.beginResourceSession("resource")) {
       final List<Long> keys = new ArrayList<>(PROPERTY_RECORDS);
@@ -377,33 +376,9 @@ final class StorageEpochFsstInlineDecisionTest {
         }
         table = latestTable(session);
         final byte[][] symbols = FSSTCompressor.parsedFor(table);
-        final int[] edited = new int[48];
-        for (int i = 0; i < edited.length; i++) {
-          edited[i] = random.nextInt(PROPERTY_RECORDS);
-        }
-        int untilFlush = 3 + schedule.nextInt(10);
-        for (int pass = 0; pass < 3; pass++) {
-          for (final int record : edited) {
-            final byte[] value = boundaryValue(random, symbols);
-            final int encoded = encodedLength(value, symbols);
-            if (value.length > PageConstants.MAX_RECORD_SIZE && encoded < PageConstants.MAX_RECORD_SIZE - 96) {
-              encodedOnlyFits++;
-            } else if (encoded > PageConstants.MAX_RECORD_SIZE) {
-              neverFits++;
-            }
-            assertTrue(writer.moveTo(keys.get(record)) && writer.moveToFirstChild());
-            writer.setStringValue(new String(value, StandardCharsets.US_ASCII));
-            if (explicitFlush && --untilFlush == 0) {
-              untilFlush = 3 + schedule.nextInt(10);
-              if (importMode) {
-                writer.getStorageEngineWriter().asyncFlush();
-              } else {
-                writer.getStorageEngineWriter().asyncFlushStorageEpoch();
-              }
-              writer.getStorageEngineWriter().awaitPendingAsyncFlush();
-            }
-          }
-        }
+        counts = applyBoundaryEdits(writer, keys, random, explicitFlush
+            ? schedule
+            : null, importMode, symbols);
         rotations = StorageEpochTestSupport.rotatedEpochs(writer);
         writer.commit(null, Instant.parse("2020-01-01T00:00:00Z"));
       } finally {
@@ -412,7 +387,59 @@ final class StorageEpochFsstInlineDecisionTest {
     }
     Databases.clearGlobalCaches();
     final Decisions decisions = decisions(path);
-    return new Trial(table, rotations, encodedOnlyFits, neverFits, decisions, frames(path));
+    return new Trial(table, rotations, counts.encodedOnlyFits(), counts.neverFits(), decisions, frames(path));
+  }
+
+  /** How many edits fit inline only once encoded, and how many need a carrier even encoded. */
+  private record EditCounts(int encodedOnlyFits, int neverFits) {
+  }
+
+  /**
+   * Three passes of boundary-sized edits over 48 random records. With a {@code schedule}, the arm
+   * also flushes after every few edits; that stream is separate so both arms write identical values.
+   */
+  private static EditCounts applyBoundaryEdits(final JsonNodeTrx writer, final List<Long> keys, final Random random,
+      final Random schedule, final boolean importMode, final byte[][] symbols) {
+    final int[] edited = new int[48];
+    for (int i = 0; i < edited.length; i++) {
+      edited[i] = random.nextInt(PROPERTY_RECORDS);
+    }
+    int encodedOnlyFits = 0;
+    int neverFits = 0;
+    int untilFlush = nextFlushDistance(schedule);
+    for (int pass = 0; pass < 3; pass++) {
+      for (final int record : edited) {
+        final byte[] value = boundaryValue(random, symbols);
+        final int encoded = encodedLength(value, symbols);
+        if (value.length > PageConstants.MAX_RECORD_SIZE && encoded < PageConstants.MAX_RECORD_SIZE - 96) {
+          encodedOnlyFits++;
+        } else if (encoded > PageConstants.MAX_RECORD_SIZE) {
+          neverFits++;
+        }
+        assertTrue(writer.moveTo(keys.get(record)) && writer.moveToFirstChild());
+        writer.setStringValue(new String(value, StandardCharsets.US_ASCII));
+        if (schedule != null && --untilFlush == 0) {
+          untilFlush = nextFlushDistance(schedule);
+          flush(writer, importMode);
+        }
+      }
+    }
+    return new EditCounts(encodedOnlyFits, neverFits);
+  }
+
+  private static int nextFlushDistance(final Random schedule) {
+    return schedule == null
+        ? 0
+        : 3 + schedule.nextInt(10);
+  }
+
+  private static void flush(final JsonNodeTrx writer, final boolean importMode) {
+    if (importMode) {
+      writer.getStorageEngineWriter().asyncFlush();
+    } else {
+      writer.getStorageEngineWriter().asyncFlushStorageEpoch();
+    }
+    writer.getStorageEngineWriter().awaitPendingAsyncFlush();
   }
 
   private static JsonNodeTrx beginWriter(final JsonResourceSession session, final boolean importMode) {
