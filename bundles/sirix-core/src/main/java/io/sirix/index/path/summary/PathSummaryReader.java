@@ -464,14 +464,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   /**
    * Find every PathNode whose local name equals {@code localName}, regardless of namespace URI or
-   * path depth. Used by the query-time PathStatistics short-circuit in
-   * {@code SirixVectorizedExecutor} — for a query like {@code sum($doc[].age)} the caller passes
-   * {@code "age"} and unions the stats across all matching paths.
-   *
-   * <p>
-   * Scan is O(#distinct-paths) — PathSummary is small (typically &lt; 100 paths), so a linear walk
-   * over {@link #qnmMapping} is faster than maintaining a second index. Returns an empty list if no
-   * path matches.
+   * path depth. Callers must verify the ancestor chain before attributing a candidate's references or
+   * statistics to a query source. Returns an empty list if no path matches.
    */
   public List<PathNode> findPathsByLocalName(final String localName) {
     assertNotClosed();

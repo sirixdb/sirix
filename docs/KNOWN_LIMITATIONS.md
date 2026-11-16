@@ -267,7 +267,8 @@ else falls back to the generic (always correct) pipeline.
 These generic retries apply to queries compiled through `SirixCompileChain`.
 Grouping retains the selected strategy's generic evaluator for sequential chains,
 both `createParallel` overloads (ordered or unordered), and
-`createParallelWithMorsel`. Direct SPI calls signal
+`createParallelWithMorsel`. An outer `count(...)` counts the resulting groups
+on both admitted and refused routes, for single and composite keys. Direct SPI calls signal
 `VectorizedRouteRefusedException` instead.
 
 `VectorizedReleaseCorrectnessTest` pins these three contracts against forced
@@ -275,7 +276,8 @@ generic evaluation before and after closing/reopening the store. Its execution
 probe verifies actual SPI admission and grouping refusal/admission through the
 sequential and parallel factories listed above; adversarial cases include missing
 nested group keys, mixed-value type errors, excluded invalid values, cancellation
-across worker partitions and mixed numeric promotion with one worker.
+across worker partitions, mixed numeric promotion with one worker, and outer counts
+over sparse and dense grouping.
 `VectorizedFallbackExprTest` verifies that unrelated query/storage errors are
 propagated rather than retried and that an empty sequence is a valid result.
 

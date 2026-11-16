@@ -85,8 +85,7 @@ public final class PathNode implements StructNode, NameNode {
   /**
    * Per-path value statistics — populated only when the owning resource has
    * {@code ResourceConfiguration.withPathStatistics == true}. Maintained at commit time via
-   * recordValue / removeValue hooks in {@link PathSummaryWriter}; read at query time for the
-   * aggregate-short-circuit path in the vectorized executor.
+   * recordValue / removeValue hooks in {@link PathSummaryWriter}.
    *
    * <p>
    * Lazily allocated — a PathNode that has never seen a value carries a single {@code null} reference

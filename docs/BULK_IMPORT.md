@@ -56,10 +56,11 @@ assembler, so such input still cannot be loaded with node history.
 the very class the cursor path defers through (`PathStatsAccumulator`), so the classifier, the
 NaN/infinity policy, the 128-bit integral sum, the fraction carry and the HLL hashing cannot drift
 between the arms; the parallel importer collects one partial per (chunk, path) and the coordinator
-merges them in document order. Every lane but `sumFraction` is order-free — end to end, not just
-within a batch: the integral sum accumulates in 128 bits all the way into the persisted
-`PathStats.sumHi`, so the same values persist the same statistics however many flushes or commits
-the load takes (`PathStatsPersistedSumOrderIndependenceTest`). `sumFraction` is never served —
+merges them in document order. The integral sum is order-free end to end, not just within a batch:
+it accumulates in 128 bits all the way into the persisted `PathStats.sumHi`.
+`PathStatsPersistedSumOrderIndependenceTest` pins this for integral inputs across flushes and
+commits. Query-serving restrictions are specified in
+[Known limitations](KNOWN_LIMITATIONS.md#remaining-limitations).
 `BulkPathStatsDifferentialTest` compares four arms field by field after commit, close and cold
 reopen, including exact HLL bytes.
 

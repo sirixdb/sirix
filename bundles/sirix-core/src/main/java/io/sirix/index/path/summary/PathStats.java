@@ -24,8 +24,8 @@ import java.io.UncheckedIOException;
  * an analytical query pay only that one reference.
  *
  * <p>
- * Read/written by {@link PathSummaryWriter} at commit time; read by the vectorized executor's
- * aggregate-short-circuit fast paths at query time.
+ * Read/written by {@link PathSummaryWriter} at commit time. Query-serving restrictions are
+ * documented in {@code docs/KNOWN_LIMITATIONS.md}, under "Remaining limitations".
  */
 public final class PathStats {
 

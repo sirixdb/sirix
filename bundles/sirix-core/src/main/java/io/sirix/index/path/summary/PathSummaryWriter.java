@@ -1649,8 +1649,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * it back under the new one, which keeps {@code count} exact on both ends — see
    * {@code JsonNodeTrxImpl#transferPathStatsForMovedSubtree}. Reach for this only when the set of
    * affected records is genuinely unknowable, and note what it costs: nothing clears
-   * {@code countDirty}, and the reader disqualifies every aggregate on a stale count, so one call
-   * switches summary-served aggregates off for a whole path subtree for the life of the resource.
+   * {@code countDirty}, so one call permanently marks the value-observation count stale for a whole
+   * path subtree. Structural reference counts are independent of this flag.
    *
    * <p>
    * Descendants are included because a move re-parents a whole subtree, not one node.
