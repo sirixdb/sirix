@@ -32,6 +32,10 @@ import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.node.BasicXmlDBStore;
+import io.sirix.query.shell.ShellHighlighter;
+import io.sirix.query.shell.ShellOutput;
+import io.sirix.query.shell.ShellPalette;
+import io.sirix.query.shell.ShellPrompt;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Query;
@@ -44,8 +48,13 @@ import io.brackit.query.util.io.URIHandler;
 import io.sirix.service.json.shredder.JsonShredder;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Console;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.PrintStream;
+import java.util.Objects;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -63,8 +72,10 @@ import org.jline.reader.LineReaderBuilder;
 import org.jline.reader.UserInterruptException;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
+import org.jline.utils.InfoCmp.Capability;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.jspecify.annotations.Nullable;
 
 /**
  * @author Sebastian Baechle
@@ -83,18 +94,50 @@ public final class Main {
   }
 
   public static void main(final String[] args) {
+    final int status = run(args, System.console());
+    if (status != 0)
+      System.exit(status);
+  }
+
+  static int run(final String[] args, final @Nullable Console console) {
+    Config config = new Config();
     try {
-      Config config = parseParams(args);
-      try (BasicXmlDBStore nodeStore = BasicXmlDBStore.newBuilder().build();
+      config = parseParams(args);
+      final boolean tty = console != null && console.isTerminal();
+      try (Terminal terminal = tty
+          ? TerminalBuilder.builder().system(true).build()
+          : null;
+          BasicXmlDBStore nodeStore = BasicXmlDBStore.newBuilder().build();
           BasicJsonDBStore jsonStore = BasicJsonDBStore.newBuilder().build()) {
+        config.terminal = terminal;
+        final Integer colours = terminal == null
+            ? null
+            : terminal.getNumericCapability(Capability.max_colors);
+        config.palette = ShellPalette.detect(tty, config.isSet("--no-color"), System.getenv(), colours == null
+            ? 0
+            : colours);
+        config.output = new ShellOutput(config.palette, terminal == null
+            ? outputWriter(System.out)
+            : terminal.writer(), outputWriter(System.err));
         QueryContext ctx = createQueryContext(nodeStore, jsonStore, config);
 
         CompileChain compileChain = SirixCompileChain.createWithNodeAndJsonStore(nodeStore, jsonStore);
         executeUserQueries(config, compileChain, ctx);
       }
     } catch (Exception e) {
-      handleException(e);
+      if (e instanceof QueryException queryException) {
+        handleQueryException(config, queryException);
+      } else
+        handleException(e);
+      return -1;
     }
+    return 0;
+  }
+
+  static PrintWriter outputWriter(final PrintStream stream) {
+    Objects.requireNonNull(stream);
+    // Preserve the original PrintStream encoding, including Windows console code pages.
+    return new PrintWriter(stream, true, stream.charset());
   }
 
   private static QueryContext createQueryContext(BasicXmlDBStore nodeStore, BasicJsonDBStore jsonStore, Config config)
@@ -150,7 +193,7 @@ public final class Main {
       executeInteractiveQuery(config, compileChain, ctx);
     } else if (config.isSet("-iqf")) {
       executeFileInteractiveQuery(config, compileChain, ctx);
-    } else if (System.console() != null && System.console().isTerminal()) {
+    } else if (config.terminal != null) {
       // No query given and stdin is a terminal: start the interactive shell.
       // Piped input (e.g. `echo '1+1' | sirix-shell`) is still read as a single query below.
       executeInteractiveQuery(config, compileChain, ctx);
@@ -176,36 +219,46 @@ public final class Main {
       xq.prettyPrint();
     }
 
-    System.out.println();
-    System.out.println("Query result");
-    final SirixStringSerializer serializer = new SirixStringSerializer(System.out);
-    serializer.setFormat(xq.isPrettyPrint());
-    xq.serialize(ctx, serializer);
-    System.out.println();
-    System.out.println();
+    try {
+      config.output.result(xq, ctx, query);
+    } catch (final IOException exception) {
+      throw new UncheckedIOException(exception);
+    }
+    if (config.prompt != null)
+      config.prompt.observe(query, ctx);
   }
 
   private static void executeInteractiveQuery(Config config, CompileChain compileChain, QueryContext ctx)
       throws IOException {
-    Terminal terminal = TerminalBuilder.builder().system(true).build();
-    LineReader lineReader = LineReaderBuilder.builder()
-                                             .terminal(terminal)
-                                             .variable(LineReader.SECONDARY_PROMPT_PATTERN, "%M%P > ")
-                                             .variable(LineReader.INDENTATION, 2)
-                                             .variable(LineReader.LIST_MAX, 100)
-                                             .variable(LineReader.HISTORY_FILE, LOCATION.resolve("history"))
-                                             .build();
+    final boolean ownTerminal = config.terminal == null;
+    try (Terminal terminal = ownTerminal
+        ? TerminalBuilder.builder().system(true).build()
+        : null) {
+      config.prompt = new ShellPrompt();
+      final ShellHighlighter highlighter = new ShellHighlighter(config.palette);
+      LineReader lineReader = LineReaderBuilder.builder()
+                                               .terminal(ownTerminal
+                                                   ? terminal
+                                                   : config.terminal)
+                                               .highlighter(highlighter)
+                                               .variable(LineReader.SECONDARY_PROMPT_PATTERN, "%M%P > ")
+                                               .variable(LineReader.INDENTATION, 2)
+                                               .variable(LineReader.LIST_MAX, 100)
+                                               .variable(LineReader.HISTORY_FILE, LOCATION.resolve("history"))
+                                               .build();
 
-    while (true) {
-      System.out.println("Enter query string (terminate with Control-D):");
-      String query = readStringFromScannerWithEndMark(lineReader);
-      if (query == null)
-        break;
+      while (true) {
+        System.out.println("Enter query string (terminate with Control-D):");
+        String query = readStringFromScannerWithEndMark(lineReader,
+            config.palette.orange() + config.prompt.text() + config.palette.reset(), highlighter);
+        if (query == null)
+          break;
 
-      try {
-        executeQuery(config, compileChain, ctx, query);
-      } catch (QueryException e) {
-        handleQueryException(config, e);
+        try {
+          executeQuery(config, compileChain, ctx, query);
+        } catch (QueryException e) {
+          handleQueryException(config, e);
+        }
       }
     }
   }
@@ -227,31 +280,32 @@ public final class Main {
   }
 
   private static void handleQueryException(Config config, QueryException e) {
-    System.err.println("Error: " + e.getMessage());
+    config.output.error(e);
     if (config.isSet("-d")) {
       logger.error("Query execution failed", e);
     }
   }
 
   private static void handleException(Exception e) {
-    if (e instanceof QueryException) {
-      System.err.println("Error: " + e.getMessage());
-    } else if (e instanceof IOException) {
+    if (e instanceof IOException) {
       System.err.println("I/O Error: " + e.getMessage());
     } else {
       System.err.println("Error: " + e.getMessage());
     }
-
-    System.exit(-1);
   }
 
-  private static String readStringFromScannerWithEndMark(LineReader lineReader) {
+  static String readStringFromScannerWithEndMark(LineReader lineReader, String prompt, ShellHighlighter highlighter) {
     StringBuilder strbuf = new StringBuilder();
 
-    for (int i = 0;; i++) {
+    while (true) {
       final String line;
       try {
-        line = lineReader.readLine("sirix > ");
+        highlighter.prefix(strbuf.isEmpty()
+            ? ""
+            : strbuf.toString() + System.lineSeparator());
+        line = lineReader.readLine(strbuf.isEmpty()
+            ? prompt
+            : "");
       } catch (EndOfFileException e) {
         // Control-D: run what has been entered so far, or exit the shell if nothing has.
         break;
@@ -261,7 +315,7 @@ public final class Main {
       }
       if (line == null || line.isEmpty())
         break;
-      if (i != 0)
+      if (!strbuf.isEmpty())
         strbuf.append(System.lineSeparator());
       strbuf.append(line);
     }
@@ -270,26 +324,6 @@ public final class Main {
         ? null
         : strbuf.toString();
   }
-
-
-  // private static String readStringFromScannerWithEndMark() {
-  // final Scanner scanner = new Scanner(System.in);
-  // final StringBuilder strbuf = new StringBuilder();
-  //
-  // for (int i = 0; scanner.hasNextLine(); i++) {
-  // final String line = scanner.nextLine();
-  //
-  // if (line.isEmpty())
-  // break;
-  //
-  // if (i != 0) {
-  // strbuf.append(System.lineSeparator());
-  // }
-  // strbuf.append(line);
-  // }
-  //
-  // return strbuf.isEmpty() ? null : strbuf.toString();
-  // }
 
 
   private static String readString() throws IOException {
@@ -359,6 +393,7 @@ public final class Main {
     opts.add(new Option("-iq", "query strings", false));
     opts.add(new Option("-fType", "default document type", true));
     opts.add(new Option("-f", "default document", true));
+    opts.add(new Option("--no-color", "disable terminal colours and presentation", false));
     opts.add(new Option("-p", "pretty print", false));
     opts.add(new Option("-d", "debug", false));
     return opts;
@@ -366,6 +401,10 @@ public final class Main {
 
   private static class Config {
     final Map<String, String> options = new HashMap<>();
+    Terminal terminal;
+    ShellPalette palette = ShellPalette.NONE;
+    ShellPrompt prompt;
+    ShellOutput output = new ShellOutput(ShellPalette.NONE, outputWriter(System.out), outputWriter(System.err));
 
     boolean isSet(String option) {
       return options.containsKey(option);

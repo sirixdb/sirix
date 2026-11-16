@@ -36,3 +36,85 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 | Temporal functions assumed their `json-item()` argument was an object or array; stored numbers, strings, booleans, `null` and field names failed with a `ClassCastException`. The initial spec also generalized same-kind field replacement to type changes. | Test every admitted item class and constructed items; dispatch on node identity. Assert keys and literal histories separately for same-kind field updates, type changes and array replacements before promising history continuity. | [Write-up](postmortems/temporal-functions-value-items.md), [spec](TEMPORAL_FUNCTIONS_SPEC.md), `TemporalNavigationTest` |
 | Passing runtime tests and high coverage did not satisfy Sonar's maintainability gate for temporal items. | Inspect the failing gate metric and individual rules; isolate exception assertions and justify necessary covariance or marker inheritance at the narrow analyzer boundary without changing hot-path representation. | [CI follow-up](postmortems/temporal-functions-value-items.md#ci-follow-up-sonar-maintainability-gate), `TemporalNavigationTest`, `TemporalSirixJsonItemStreamTest` |
 | Storage-epoch replay lost a page's FSST binding, and epoch materialization judged raw string sizes, changing inline placement despite equal values. | A replay must reproduce the original read, not only its combine. Every route into a size-based placement decision must apply all canonical encoding passes in the same order before consuming append capacity. Pin geometry-changing settings (hash kind) in differential tests, and compare decisions and bindings, not only values. Pair isolated regressions with fast boundary tests selected by the actual PR mutation lane. | [FSST epoch carrier write-up](postmortems/2026-11-fsst-epoch-carrier-spill.md), `StorageEpochFsstInlineDecisionTest`, `StorageEpochStoreIdentityTest` under both hash kinds, `VersioningTypeFsstMetadataCopyTest`, `BulkAdoptionDiagnosticsTest` |
+
+- **Drain lexical state at EOF:** streaming presentation adapters must preserve the last token
+  without requiring a trailing delimiter. Test one-character chunks and EOF in every deferred
+  state, then compare the complete ANSI-stripped payload with the input.
+  Evidence: [shell final-token regression](postmortems/shell-stream-final-token.md).
+  Keep escape rules specific to the serialized language: XML attribute quotes are not
+  escaped by backslashes. ANSI golden tests must check style transitions as well as payloads.
+
+- **Preserve a PrintStream's declared encoding when adapting it:** use its `charset()` rather
+  than assuming the JVM default. Test the adapter with a non-default Unicode encoding and
+  a Windows code page. Evidence: [shell output encoding](postmortems/shell-output-encoding.md).
+
+- **Do not label line accumulation as syntactic continuation:** a blank-line shell protocol
+  cannot infer whether the preceding query is incomplete. Check prompts and spacing together
+  in a real terminal transcript. Evidence: [shell continuation prompt](postmortems/shell-continuation-prompt.md).
+
+- **Infer shell context only from supported executed forms:** a literal call in arbitrary source
+  may be skipped or nested in a mutation that is not an updating expression. Keep uncertain
+  expressions neutral and test both stores with actual commits and skipped/deferred accesses.
+  Literal-name inference must also respect parser decoding. Decline entity/character
+  references before metadata lookup when exact decoding is unsupported.
+  Diff colouring needs the same rule at the output boundary. Check skipped/deferred calls,
+  mixed results and direct controls for both stores and both operation representations.
+  Evidence: [shell revision inference](postmortems/shell-revision-inference.md) and
+  [shell diff inference](postmortems/shell-diff-inference.md) and
+  [encoded prompt names](postmortems/shell-encoded-names.md).
+
+- **Test lexical precedence at overlapping forms:** an opening parenthesis can follow both an
+  expression keyword and a function name. Assert rendered styles for both, including callable
+  keyword built-ins, the demo's `count(...)`, `last()`, `replace(...)` and incomplete/multiline input.
+  Evidence: [shell keyword precedence](postmortems/shell-keyword-precedence.md).
+
+- **Distinguish XML document contexts from patch strings.** Follow the quoting rules in
+  the [shell presentation contract](shell-presentation.md). Check payloads and styles
+  across markup terminators, write boundaries, finish/reuse and mixed formats.
+  Evidence appears in [XML content quoting](postmortems/shell-xml-content-quotes.md).
+
+- **Cover every serialized diff operation in the palette contract.** Structural JSON
+  replace and scalar update both represent modifications. Pair the operation golden
+  with an actual structural replacement rendered through the terminal entry point.
+  Evidence appears in [JSON replacement colour](postmortems/shell-json-replace-colour.md).
+
+- **Exercise process and streaming boundaries explicitly.** Keep subprocess argv
+  portable and set the encoding of any byte golden. Pair process smoke tests with
+  in-process CLI assertions for mutation coverage. Assert exact buffer boundaries
+  across overloads and reuse; make shared cursor-reset postconditions explicit.
+  Keep Unicode output goldens independent of native argv conversion, and keep
+  empty-buffer decisions at callers that admit empty buffers.
+  Evidence: [shell CI boundaries](postmortems/shell-ci-boundaries.md) and
+  [CI follow-up](postmortems/shell-ci-follow-up.md).
+  Keep process termination at the entry point and expose command status separately
+  so mutation tests can assert batch failures without terminating their JVM.
+  Evidence: [CLI mutation coverage](postmortems/shell-cli-mutation-coverage.md).
+
+### Lexical language boundaries
+
+Recognize diff operation positions before matching operation spellings. Check neutral
+attribute names and paths as well as coloured verbs, including qualified and hyphenated
+names from actual serialized diffs. Evidence: [XML operation positions](postmortems/shell-xml-operation-positions.md).
+
+Preserve JSON versus XQuery patch context through the output adapter. A backslash is
+literal in XQuery strings, and either quote may delimit them. Check styles after strings
+as well as payload preservation: the real diff must restore the next operation's colour.
+Exercise both quote forms, doubled delimiters, split writes and JSON controls.
+Evidence: [XML patch quoting](postmortems/shell-xml-patch-quotes.md).
+
+The input scanner needs the same language distinction: JSONiq single-quoted strings
+use literal backslashes, while double-quoted strings retain escapes. Validate the value
+with the executable parser and the subsequent token styles independently, across every
+multiline prefix boundary. Check both diff selectors and keep unsupported prompt names
+neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
+
+- **Verify mutation coverage with CI's automatic test selection.** An exact-name
+  test match takes precedence over package fallback. Keep renderer unit regressions
+  in its matching test class; a broader focused run can otherwise hide surviving
+  mutants in the default lane. Evidence: [word-buffer mutation scope](postmortems/shell-pit-word-buffer-scope.md).
+
+- **Check semantic state beyond scratch-capacity boundaries.** A lossless streaming
+  renderer can still lose container context and style keys as values. Exercise
+  both sides of each growth boundary, mixed parent containers and retained-buffer
+  reuse; bound exceptional growth separately from steady-state allocation.
+  Evidence: [JSON container depth](postmortems/shell-json-container-depth.md).

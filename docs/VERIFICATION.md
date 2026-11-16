@@ -89,8 +89,9 @@ manual runs against refs outside main CI's branch filters. Deep verification gat
 core and MCP compile with `-PerrorProne`. Each of these four workflows runs one gated compile;
 other jobs, including Sonar, avoid repeating static analysis. Error Prone errors fail compilation;
 NullAway also runs at `ERROR`, with `NullAway:OnlyNullMarked=true`. Every MCP main/test package
-has a JSpecify `@NullMarked` package default. Legacy unmarked code, including core and query,
-is outside NullAway checking, even where individual nullable contracts are annotated.
+and the query shell's main/test packages have a JSpecify `@NullMarked` package default.
+Legacy unmarked core and query packages are outside NullAway checking, even where individual
+nullable contracts are annotated.
 Test compilation models AssertJ/JUnit assertion checks without adding runtime guards.
 
 `verifyNullMarkedPackages` checks package defaults for every Gradle Java compilation, including
