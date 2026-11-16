@@ -131,7 +131,10 @@ node ownership through reader cleanup and scheduler fencing; absent owners make 
 release callbacks no-ops, including after session closure. Remaining internal owners prevent
 session finalization. Open checks precede recovery bookkeeping under execution ownership.
 Session close snapshots under its monitor, releases it before node abort/fencing,
-and serializes the independent-owner tail only after node owners are processed.
+and serializes the reader/independent-owner tail only after every node writer and its
+callbacks are fenced. Initial and late ordinary readers share this final close phase; an
+unfinished node owner retains those reader dependencies for retry while independent page-writer
+close attempts continue.
 Internal abort owns rollback and cleanup as one atomic node transition, preserving
 rollback failures without a stale public rollback between competing closers.
 A short close-attempt count excludes new writers and user sessions during the

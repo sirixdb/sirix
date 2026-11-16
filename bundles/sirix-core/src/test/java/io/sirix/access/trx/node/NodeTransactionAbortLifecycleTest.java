@@ -15,12 +15,15 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.cache.PageGuard;
+import io.sirix.index.interval.ValidTimeReadCache;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
 import io.sirix.io.IOStorage;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.channels.ClosedChannelException;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -28,6 +31,9 @@ import java.util.UUID;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.Set;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.CompletableFuture;
@@ -37,6 +43,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.IntConsumer;
@@ -1684,6 +1691,248 @@ final class NodeTransactionAbortLifecycleTest {
         changed.countDown();
         releaseHardening.countDown();
       }
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"json,false,false,false", "json,false,false,true", "json,false,true,false", "json,false,true,true",
+      "json,true,false,false", "json,true,false,true", "json,true,true,false", "json,true,true,true",
+      "xml,false,false,false", "xml,false,false,true", "xml,false,true,false", "xml,false,true,true",
+      "xml,true,false,false", "xml,true,false,true", "xml,true,true,false", "xml,true,true,true"})
+  void sessionCloseFencesCallbacksBeforeInitialReaders(final String format, final boolean shared,
+      final boolean interruptCloser, final boolean failCleanup) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx writer = fixture.first.beginNodeTrx(0, 1, TimeUnit.DAYS);
+      final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.first;
+      final TransactionExecutionLock execution =
+          (TransactionExecutionLock) field(AbstractNodeTrxImpl.class, "executionLock").get(writer);
+      final Condition ready = (Condition) field(TransactionExecutionLock.class, "ready").get(execution);
+      final CountDownLatch inspectClose = new CountDownLatch(1);
+      final CountDownLatch navigate = new CountDownLatch(1);
+      final CountDownLatch returnCallback = new CountDownLatch(1);
+      final CompletableFuture<NodeReadOnlyTrx> opened = new CompletableFuture<>();
+      final CompletableFuture<Void> waiting = new CompletableFuture<>();
+      final CompletableFuture<Void> navigated = new CompletableFuture<>();
+      final CompletableFuture<Void> committed = new CompletableFuture<>();
+      final CompletableFuture<Throwable> closed = new CompletableFuture<>();
+      final AtomicBoolean interruptedAtReturn = new AtomicBoolean();
+      final AtomicInteger notifications = new AtomicInteger();
+      final IllegalStateException primary = new IllegalStateException("cache close failed");
+      final IllegalArgumentException secondary = new IllegalArgumentException("reader close failed");
+      if (failCleanup) {
+        final ValidTimeReadCache cache = mock(ValidTimeReadCache.class);
+        doThrow(primary).when(cache).clear();
+        field(AbstractResourceSession.class, "validTimeReadCache").set(session, cache);
+      }
+      ((InternalResourceSession<?, ?>) session).addRevisionListener(revision -> {
+        if (notifications.getAndIncrement() != 0) {
+          return;
+        }
+        try {
+          final NodeReadOnlyTrx reader = shared
+              ? session.getOrCreateSharedReadOnlyTrx(revision)
+              : session.beginNodeReadOnlyTrx(revision);
+          setCursor(reader);
+          assertEquals(1, value(reader));
+          opened.complete(reader);
+          await(inspectClose);
+          boolean queued = false;
+          while (!queued && returnCallback.getCount() != 0) {
+            execution.lock();
+            try {
+              queued = execution.getWaitQueueLength(ready) > 0;
+            } finally {
+              execution.unlock();
+            }
+            Thread.onSpinWait();
+          }
+          waiting.complete(null);
+          await(navigate);
+          assertFalse(reader.isClosed());
+          assertTrue(reader.moveTo(0));
+          setCursor(reader);
+          assertEquals(1, value(reader));
+          navigated.complete(null);
+          await(returnCallback);
+        } catch (final Throwable failure) {
+          opened.completeExceptionally(failure);
+          waiting.completeExceptionally(failure);
+          navigated.completeExceptionally(failure);
+          throw failure;
+        }
+      });
+      final Thread commit = new Thread(() -> {
+        try {
+          setValue(writer, 1);
+          writer.commit();
+          committed.complete(null);
+        } catch (final Throwable failure) {
+          committed.completeExceptionally(failure);
+        }
+      });
+      final Thread close = new Thread(() -> {
+        Throwable failure = null;
+        try {
+          session.close();
+        } catch (final Throwable next) {
+          failure = next;
+        } finally {
+          interruptedAtReturn.set(Thread.currentThread().isInterrupted());
+          closed.complete(failure);
+        }
+      });
+      try {
+        commit.start();
+        final NodeReadOnlyTrx reader = opened.get(10, TimeUnit.SECONDS);
+        final StorageEngineReader page = reader.getStorageEngineReader();
+        final NodeReadOnlyTrx adverse = arrangeReaderBeforeWriter(session, reader, writer);
+        doAnswer(invocation -> {
+          reader.close();
+          if (failCleanup) {
+            throw secondary;
+          }
+          return null;
+        }).when(adverse).close();
+        final Field guard = field(AbstractNodeReadOnlyTrx.class, "currentPageGuard");
+        assertTrue(guard.get(reader) instanceof PageGuard);
+        close.start();
+        inspectClose.countDown();
+        waiting.get(10, TimeUnit.SECONDS);
+        if (interruptCloser) {
+          close.interrupt();
+        }
+        navigate.countDown();
+        navigated.get(10, TimeUnit.SECONDS);
+        assertFalse(closed.isDone());
+        assertFalse(page.isClosed());
+        assertTrue(guard.get(reader) instanceof PageGuard);
+        returnCallback.countDown();
+        committed.get(10, TimeUnit.SECONDS);
+        final Throwable failure = closed.get(10, TimeUnit.SECONDS);
+        if (failCleanup) {
+          assertSame(primary, failure);
+          final Throwable[] suppressed = failure.getSuppressed();
+          if (interruptCloser && suppressed.length == 2) {
+            assertInterruptedFileCleanup(suppressed[0]);
+            assertSame(secondary, suppressed[1]);
+          } else {
+            assertEquals(1, suppressed.length);
+            assertSame(secondary, suppressed[0]);
+          }
+        } else if (interruptCloser && failure != null) {
+          assertInterruptedFileCleanup(failure);
+        } else {
+          assertNull(failure);
+        }
+        assertEquals(interruptCloser, interruptedAtReturn.get());
+        assertTrue(reader.isClosed());
+        assertTrue(page.isClosed());
+        assertNull(guard.get(reader));
+        assertTrue(session.nodeTrxMap.isEmpty());
+        assertTrue(session.storageEngineReaderMap.isEmpty());
+        assertTrue(session.storageEngineWriterMap.isEmpty());
+        assertEquals(1, session.writeLock.availablePermits());
+        verify(adverse).close();
+        try (NodeTrx next = fixture.second.beginNodeTrx()) {
+          setCursor(next);
+          assertEquals(1, value(next));
+        } catch (final SirixIOException cancellation) {
+          assertTrue(interruptCloser);
+          Throwable cause = cancellation;
+          while (cause.getCause() != null) {
+            cause = cause.getCause();
+          }
+          assertTrue(cause instanceof ClosedChannelException);
+          assertEquals(1, session.writeLock.availablePermits());
+          fixture.firstDatabase.close();
+          fixture.secondDatabase.close();
+          try (Database<? extends ResourceSession<?, ?>> reopened =
+              Fixture.open(format, directory.resolve("database"), new User("reopened", UUID.randomUUID()));
+              ResourceSession<?, ?> resource = reopened.beginResourceSession("resource");
+              NodeTrx next = resource.beginNodeTrx()) {
+            setCursor(next);
+            assertEquals(1, value(next));
+          }
+        }
+      } finally {
+        inspectClose.countDown();
+        navigate.countDown();
+        returnCallback.countDown();
+        commit.join(10000);
+        close.join(10000);
+      }
+    }
+  }
+
+  private static void assertInterruptedFileCleanup(final Throwable failure) {
+    assertTrue(failure instanceof SirixIOException);
+    Throwable cause = failure;
+    while (cause.getCause() != null) {
+      cause = cause.getCause();
+    }
+    assertTrue(cause instanceof ClosedByInterruptException);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static NodeReadOnlyTrx arrangeReaderBeforeWriter(final AbstractResourceSession<?, ?> session,
+      final NodeReadOnlyTrx reader, final NodeTrx writer) throws ReflectiveOperationException {
+    final Map<Integer, NodeReadOnlyTrx> nodes = (Map<Integer, NodeReadOnlyTrx>) (Map<?, ?>) session.nodeTrxMap;
+    final Map<Object, NodeReadOnlyTrx> shared =
+        (Map<Object, NodeReadOnlyTrx>) field(AbstractResourceSession.class, "sharedTrxMap").get(session);
+    for (int attempt = 0; attempt < 128; attempt++) {
+      final NodeReadOnlyTrx candidate = mock(NodeReadOnlyTrx.class, delegatesTo(reader));
+      final InternalNodeTrx<?> writerOwner = mock(InternalNodeTrx.class, delegatesTo(writer));
+      nodes.put(reader.getId(), candidate);
+      nodes.put(writer.getId(), writerOwner);
+      for (final Map.Entry<Object, NodeReadOnlyTrx> entry : shared.entrySet()) {
+        if (entry.getValue().getId() == reader.getId()) {
+          shared.put(entry.getKey(), candidate);
+        }
+      }
+      final Set<NodeReadOnlyTrx> snapshot = Collections.newSetFromMap(new IdentityHashMap<>());
+      snapshot.addAll(shared.values());
+      snapshot.addAll(nodes.values());
+      assertEquals(2, snapshot.size());
+      assertTrue(snapshot.contains(writerOwner));
+      if (snapshot.iterator().next() == candidate) {
+        assertSame(candidate, snapshot.iterator().next());
+        return candidate;
+      }
+    }
+    throw new AssertionError("Could not arrange the adverse identity snapshot order");
+  }
+
+  @SuppressWarnings("unchecked")
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void refusingNodeOwnerRetainsOrdinaryReadersUntilRetry(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx writer = fixture.first.beginNodeTrx(0, 1, TimeUnit.DAYS);
+      final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.first;
+      final NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(1);
+      setCursor(reader);
+      final StorageEngineReader page = reader.getStorageEngineReader();
+      final InternalNodeTrx<?> owner = mock(InternalNodeTrx.class, delegatesTo(writer));
+      ((Map<Integer, NodeReadOnlyTrx>) (Map<?, ?>) session.nodeTrxMap).put(writer.getId(), owner);
+      final IllegalStateException primary = new IllegalStateException("owner refused before its callback fence");
+      doThrow(primary).doAnswer(invocation -> {
+        ((InternalNodeTrx<?>) writer).abort();
+        return null;
+      }).when(owner).abort();
+      assertSame(primary, assertThrows(IllegalStateException.class, session::close));
+      assertFalse(reader.isClosed());
+      assertFalse(page.isClosed());
+      assertTrue(reader.moveTo(0));
+      setCursor(reader);
+      assertEquals(0, value(reader));
+      assertTrue(session.nodeTrxMap.containsKey(reader.getId()));
+      assertFalse(session.isClosed());
+      assertEquals(0, session.writeLock.availablePermits());
+      session.close();
+      assertTrue(reader.isClosed());
+      assertTrue(page.isClosed());
+      assertTrue(session.isClosed());
+      assertEquals(1, session.writeLock.availablePermits());
     }
   }
 
