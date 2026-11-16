@@ -47,10 +47,7 @@ and test repeated isolate cycles. The hook is terminal for the current engine;
 opening more writers in that JVM/isolate afterward is unsupported. Hot unloading
 remains unsupported. Do not infer full NATIVE-406 conformance from process exit.
 
-The final GraalVM 25.0.3 C runs passed twice per profile: core and query both
-returned 42, `snapshot_shutdown=0` and `teardown_result=0`. Against each same
-library, the caller compiled with `OMIT_SHUTDOWN` completed data work with 42
-(including JSONiq for query), then reached watchdog exit 124 with the snapshot
-append workers reported as laggards. Thus the non-return is independent of
-query evaluation. `SnapshotExecutorShutdownTest` also killed both PIT
-call-removal mutants in the drain-order helper (2/2).
+See the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16)
+for the final core/query C results, same-library shutdown-omission controls and
+PIT drain-order results. The omission controls reproduce the non-return both
+with and without query evaluation.

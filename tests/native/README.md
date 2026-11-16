@@ -106,10 +106,10 @@ SIRIX_SMOKE_OMIT_CONSTRUCTOR=PSMS tests/native/run-smoke.sh core /tmp/sirix-miss
 SIRIX_SMOKE_OMIT_CONSTRUCTOR=PSMW tests/native/run-smoke.sh core /tmp/sirix-missing-psmw
 ```
 
-These runs copy core resources outside the checkout and remove just the named
-constructor. They succeed only when native C execution rejects that constructor
-with `MissingReflectionRegistrationError` and the failure exit code; an unrelated
-build failure, crash or teardown timeout does not count as a killed mutation.
+These runs copy core resources into the supplied output directory and remove just
+the named constructor. They succeed only when native C execution rejects that
+constructor with `MissingReflectionRegistrationError` and the failure exit code;
+an unrelated build failure, crash or teardown timeout does not count as a killed mutation.
 
 Set `SIRIX_SMOKE_TEST_TEARDOWN_MUTATION=1` to additionally compile a C caller
 that omits the snapshot-pool shutdown hook against the same library. It must

@@ -19,8 +19,7 @@
   build log are retained with the I2 evidence.
 - Lesson: [round-trip persisted configuration in the minimal native image](../LESSONS.md).
 
-After core-owned registrations, the final core-only C image completed two fresh
-create/resource/write/close/reopen/read cycles, each returning integer 42. Its
-19-entry runtime classpath contained no query or REST artifacts. This is the
-failing-before/passing-after regression for the persisted serializer lookup;
-the test does not claim arbitrary user-provided serializers are reachable.
+See the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16)
+for the core-only create/resource/write/close/reopen/read results after the
+registration fix. The test does not claim arbitrary user-provided serializers
+are reachable.

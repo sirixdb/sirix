@@ -18,11 +18,5 @@
   metadata and performs create/write/reopen/read plus all size/weight,
   sync/async, statistics/listener cache combinations. `SMOKE.md` records the
   specification and independently expected integer 42. Baseline and mutation
-  results are recorded with the final validation evidence.
+  results are recorded in the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16).
 - Lesson: [own native reachability in the smallest supported module](../LESSONS.md).
-
-The final core-only C image passed twice, including all 16 cache configurations.
-Separate scratch-classpath omissions of PSMS and PSMW constructors each caused
-`MissingReflectionRegistrationError` naming that exact class, with native exit
-92 and successful isolate teardown. Both metadata mutations were killed by the
-real native consumer, not a textual metadata comparison.

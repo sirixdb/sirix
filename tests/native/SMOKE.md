@@ -22,7 +22,7 @@ MissingReflectionRegistrationError. Metadata
 mutations are tested with Graal's real consumer, not source-text assertions.
 Repeat successful create/write/reopen/shutdown in fresh processes. No forced
 process exit inside an entrypoint can count as teardown success. Diagnostic
-thread dumps and exec traces are preserved outside the checkout.
+thread dumps and exec traces are preserved in the supplied output directory.
 
 A fresh checkout must build every project artifact named in the exported runtime
 classpath; the export cannot depend on a JAR left by an earlier test run.
