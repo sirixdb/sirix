@@ -44,6 +44,7 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 | Long allocation-test loops warmed OSR but left normal helper entry cold; late VM string materialization contaminated zero-byte windows. | Warm the helper with repeated short calls before measurement; retain strict N/2N checks and an escaping-allocation control, and diagnose transient bursts with allocation stacks. | `BitemporalLoaderBudgetTest`; [warmup write-up](postmortems/bitemporal-allocation-warmup.md) |
 | A deferred accumulator's last type marker was mistaken for proof that every counted value was numeric; a later number erased an earlier string marker. | Test invalid values before, between and after valid ones, including cold reopen; refuse summary serving when persisted metadata cannot certify the required type invariant. | `VectorizedReleaseCorrectnessTest.mixedStringPlacementPreservesGenericError`; [purity write-up](postmortems/path-summary-numeric-purity.md) |
 
+- Inspect the final changed-source mutation inventory after documentation edits: Java comment cleanup can add unrelated whole-class baselines to a bounded gate. Defer that cleanup instead of weakening mutation scope or deadlines. [Evidence](postmortems/pr-fastpath-comment-scope.md).
 - **Drain lexical state at EOF:** streaming presentation adapters must preserve the last token
   without requiring a trailing delimiter. Test one-character chunks and EOF in every deferred
   state, then compare the complete ANSI-stripped payload with the input.
