@@ -9,7 +9,7 @@ backgrounded serialization) is future work.
 |---|---|---|---|
 | `KEEP_OPEN` (sync auto-commit) | one per eligible threshold, durable+queryable | full commit protocol per epoch | ≤ 1 epoch |
 | `KEEP_OPEN_ASYNC_FLUSH` | none until final `commit()` | ~nothing (leaf I/O backgrounded) | everything since last real commit |
-| **`KEEP_OPEN_ASYNC_COMMIT`** | **one per eligible threshold, durable+queryable** | **serialization only — never the flush barriers** | ≤ 1 in-flight epoch + working set |
+| **`KEEP_OPEN_ASYNC_COMMIT`** | **one per eligible threshold, durable+queryable** | **serialization; prior hardening when the depth-1 pipeline is full** | ≤ 1 in-flight epoch + working set |
 
 XML publication scopes defer revision-producing thresholds; their contract is owned by
 [`XmlNodeTrx.beginAtomicOperation()`](../bundles/sirix-core/src/main/java/io/sirix/api/xml/XmlNodeTrx.java).

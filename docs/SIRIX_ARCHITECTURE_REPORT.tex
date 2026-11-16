@@ -5530,8 +5530,11 @@ node layer (commitInternal):
   4  publish the new RevisionRootPage as the resource's latest revision
   5  apply JSON update-diff publication policy (docs/JSON_UPDATE_DIFFS.md)
   6  re-instantiate for the next revision, or mark COMMITTED   (per AfterCommitState)
-  7  post-commit hooks
+  7  enqueue post-commit notifications (delivery: PostCommitHook API)
 \end{diagram}
+
+Hook delivery, cursor ownership and lifecycle restrictions are defined by the
+\code{PreCommitHook} and \code{PostCommitHook} API contracts in \pp{io/sirix/api/}.
 
 Two details are easy to miss. Secondary indexes are not rebuilt at commit. Node mutations notify
 the index controller synchronously during the write, and the path, CAS and name change-listeners

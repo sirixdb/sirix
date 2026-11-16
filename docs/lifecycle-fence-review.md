@@ -2,8 +2,8 @@
 
 These are historical review-round notes. Current contracts are owned by the
 [async ownership design](ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership) and its API links;
-[current focused evidence](../data/sirix-1-0-lifecycle-fences/resource-callback-verification.json)
-supersedes the earlier verification snapshots below.
+the [focused evidence index](../data/sirix-1-0-lifecycle-fences/pr-description.md#specification-and-executable-evidence)
+identifies the latest run and supersedes the earlier verification snapshots below.
 
 R1: result closure must reach every owned producer before session teardown can close readers. The missing abstraction was close propagation across the axis composition tree and both descendant-expression iterator representations. Axis has a default close contract; composites forward it to every operand, and concurrent helpers close descendants on all exits. The JSON lazy iterator, cached descendant plans, JSON stream and XML stream forward closure. Cancellation preserves its primary failure and interruption.
 

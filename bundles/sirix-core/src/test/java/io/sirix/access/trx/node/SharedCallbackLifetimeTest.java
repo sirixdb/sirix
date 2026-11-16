@@ -265,16 +265,14 @@ final class SharedCallbackLifetimeTest {
   }
 
   static Stream<Arguments> reentrantCases() {
-    return Stream.of("json", "xml").flatMap(format ->
-        Stream.of(false, true).map(hook -> Arguments.of(format, hook)));
+    return Stream.of("json", "xml").flatMap(format -> Stream.of(false, true).map(hook -> Arguments.of(format, hook)));
   }
 
   @ParameterizedTest(name = "resource execution {arguments}")
   @MethodSource("reentrantCases")
-  void enclosingExecutionRejectsRetirementAcrossUserSessions(final String format, final boolean hook)
-      throws Exception {
+  void enclosingExecutionRejectsRetirementAcrossUserSessions(final String format, final boolean hook) throws Exception {
     try (Fixture fixture = new Fixture(format, directory.resolve("same"));
-         Fixture other = new Fixture(format, directory.resolve("different"))) {
+        Fixture other = new Fixture(format, directory.resolve("different"))) {
       final NodeTrx writer = fixture.second.beginNodeTrx(0, 1, TimeUnit.DAYS);
       final NodeReadOnlyTrx reader = fixture.first.beginNodeReadOnlyTrx(1);
       final StorageEngineReader page = reader.getStorageEngineReader();
@@ -283,7 +281,9 @@ final class SharedCallbackLifetimeTest {
         writer.addPostCommitHook(view -> {
           try {
             assertEquals(2, view.getRevisionNumber());
-            assertTrue(view.moveTo(format.equals("json") ? 1 : 2));
+            assertTrue(view.moveTo(format.equals("json")
+                ? 1
+                : 2));
             assertEquals(1, number(view));
             notified.complete(null);
           } catch (final Throwable failure) {
@@ -302,7 +302,9 @@ final class SharedCallbackLifetimeTest {
             assertThrows(IllegalStateException.class, fixture.first::close);
             assertFalse(fixture.first.isClosed());
             assertFalse(page.isClosed());
-            assertTrue(reader.moveTo(format.equals("json") ? 1 : 2));
+            assertTrue(reader.moveTo(format.equals("json")
+                ? 1
+                : 2));
             assertEquals(0, number(reader));
             assertThrows(IllegalStateException.class, () -> writer.getStorageEngineWriter().truncateTo(1));
             assertThrows(IllegalStateException.class, () -> writer.truncateTo(1));
@@ -335,8 +337,9 @@ final class SharedCallbackLifetimeTest {
       } finally {
         if (!completed.isDone()) {
           @SuppressWarnings("unchecked")
-          final Queue<CompletableFuture<Void>> pending = (Queue<CompletableFuture<Void>>)
-              field(AbstractResourceSession.class, "notificationCompletions").get(fixture.first);
+          final Queue<CompletableFuture<Void>> pending =
+              (Queue<CompletableFuture<Void>>) field(AbstractResourceSession.class, "notificationCompletions").get(
+                  fixture.first);
           pending.forEach(completion -> completion.complete(null));
           pending.clear();
         }
@@ -346,9 +349,13 @@ final class SharedCallbackLifetimeTest {
   }
 
   static Stream<Arguments> idlePublicationCases() {
-    return Stream.of("json", "xml").flatMap(format -> Stream.of(false, true).flatMap(timed ->
-        Stream.of(false, true).flatMap(truncate -> Stream.of(false, true)
-            .map(error -> Arguments.of(format, timed, truncate, error)))));
+    return Stream.of("json", "xml")
+                 .flatMap(format -> Stream.of(false, true)
+                                          .flatMap(timed -> Stream.of(false, true)
+                                                                  .flatMap(truncate -> Stream.of(false, true)
+                                                                                             .map(error -> Arguments.of(
+                                                                                                 format, timed,
+                                                                                                 truncate, error)))));
   }
 
   @ParameterizedTest(name = "idle publication {arguments}")
@@ -356,21 +363,24 @@ final class SharedCallbackLifetimeTest {
   void rawPagePublicationDeliversBeforeSequentialSessionCleanup(final String format, final boolean timed,
       final boolean truncate, final boolean error) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
-      final NodeTrx writer = timed ? fixture.second.beginNodeTrx(0, 1, TimeUnit.DAYS)
+      final NodeTrx writer = timed
+          ? fixture.second.beginNodeTrx(0, 1, TimeUnit.DAYS)
           : fixture.second.beginNodeTrx();
       setValue(writer, 2);
       writer.commit();
       final StorageEngineWriter raw = writer.getStorageEngineWriter();
-      final TransactionExecutionLock execution = (TransactionExecutionLock)
-          field(AbstractNodeTrxImpl.class, "executionLock").get(writer);
-      final ReentrantReadWriteLock ownership = (ReentrantReadWriteLock)
-          field(AbstractResourceSession.class, "notificationOwnership").get(fixture.second);
+      final TransactionExecutionLock execution =
+          (TransactionExecutionLock) field(AbstractNodeTrxImpl.class, "executionLock").get(writer);
+      final ReentrantReadWriteLock ownership =
+          (ReentrantReadWriteLock) field(AbstractResourceSession.class, "notificationOwnership").get(fixture.second);
       final CompletableFuture<Void> observed = new CompletableFuture<>();
       final AtomicInteger laterCalls = new AtomicInteger();
       final AssertionError injected = new AssertionError("idle listener failure");
       final IntConsumer listener = revision -> {
         try {
-          assertEquals(truncate ? 1 : 2, revision);
+          assertEquals(truncate
+              ? 1
+              : 2, revision);
           assertFalse(execution.isHeldByCurrentThread());
           assertFalse(execution.isInScheduledTask());
           assertFalse(Thread.holdsLock(fixture.second));
@@ -379,8 +389,12 @@ final class SharedCallbackLifetimeTest {
             assertTrue(raw.isClosed());
           }
           try (NodeReadOnlyTrx view = fixture.second.beginNodeReadOnlyTrx(revision)) {
-            assertTrue(view.moveTo(format.equals("json") ? 1 : 2));
-            assertEquals(truncate ? 0 : 2, number(view));
+            assertTrue(view.moveTo(format.equals("json")
+                ? 1
+                : 2));
+            assertEquals(truncate
+                ? 0
+                : 2, number(view));
           }
           assertThrows(IllegalStateException.class, fixture.first::close);
           observed.complete(null);
@@ -398,7 +412,9 @@ final class SharedCallbackLifetimeTest {
       final CompletableFuture<Void> completed = new CompletableFuture<>();
       final Thread foreground = new Thread(() -> {
         try {
-          final Runnable operation = truncate ? () -> raw.truncateTo(1) : raw::close;
+          final Runnable operation = truncate
+              ? () -> raw.truncateTo(1)
+              : raw::close;
           if (error) {
             assertSame(injected, assertThrows(AssertionError.class, operation::run));
           } else {
@@ -442,24 +458,37 @@ final class SharedCallbackLifetimeTest {
   }
 
   static Stream<Arguments> preHookCases() {
-    return Stream.of("json", "xml").flatMap(format -> Stream.of(false, true).flatMap(async ->
-        Stream.of("direct", "shared", "page").flatMap(kind -> Stream.of(false, true).flatMap(during ->
-            Stream.of("success", "exception", "error")
-                .map(outcome -> Arguments.of(format, async, kind, during, outcome))))));
+    return Stream.of("json", "xml")
+                 .flatMap(
+                     format -> Stream.of(false, true)
+                                     .flatMap(
+                                         async -> Stream.of("direct", "shared", "page")
+                                                        .flatMap(
+                                                            kind -> Stream.of(false, true)
+                                                                          .flatMap(
+                                                                              during -> Stream.of("success",
+                                                                                  "exception", "error")
+                                                                                              .map(
+                                                                                                  outcome -> Arguments.of(
+                                                                                                      format, async,
+                                                                                                      kind, during,
+                                                                                                      outcome))))));
   }
 
   @ParameterizedTest(name = "pre-hook ownership {arguments}")
   @MethodSource("preHookCases")
-  void preHooksRetainCrossSessionReadersUntilReturnOrVeto(final String format, final boolean async,
-      final String kind, final boolean during, final String outcome) throws Exception {
+  void preHooksRetainCrossSessionReadersUntilReturnOrVeto(final String format, final boolean async, final String kind,
+      final boolean during, final String outcome) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
       final AbstractResourceSession<?, ?> owner = fixture.first;
-      final NodeTrx writer = async ? fixture.second.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT)
+      final NodeTrx writer = async
+          ? fixture.second.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT)
           : fixture.second.beginNodeTrx(1, 1, TimeUnit.DAYS);
       final boolean interrupt = kind.equals("page") || outcome.equals("error");
       final boolean failClose = kind.equals("shared") || outcome.equals("error");
       final IllegalStateException primary = new IllegalStateException("pre-hook reader cache close failure");
-      final IllegalArgumentException secondary = new IllegalArgumentException("pre-hook independent page close failure");
+      final IllegalArgumentException secondary =
+          new IllegalArgumentException("pre-hook independent page close failure");
       final RuntimeException veto = new IllegalStateException("pre-publication veto");
       final AssertionError hookError = new AssertionError("pre-publication error veto");
       if (failClose) {
@@ -532,8 +561,8 @@ final class SharedCallbackLifetimeTest {
         assertTrue(entered.await(10, TimeUnit.SECONDS));
         closer.start();
         @SuppressWarnings("unchecked")
-        final Queue<CompletableFuture<Void>> completions = (Queue<CompletableFuture<Void>>)
-            field(AbstractResourceSession.class, "notificationCompletions").get(owner);
+        final Queue<CompletableFuture<Void>> completions =
+            (Queue<CompletableFuture<Void>>) field(AbstractResourceSession.class, "notificationCompletions").get(owner);
         final CompletableFuture<Void> completion = completions.peek();
         assertTrue(completion != null, "pre-hook execution must own resource completion");
         while (completion.getNumberOfDependents() == 0) {
@@ -561,19 +590,23 @@ final class SharedCallbackLifetimeTest {
           writer.awaitPendingAsyncCommit();
           assertEquals(2, fixture.second.getMostRecentRevisionNumber());
           try (NodeReadOnlyTrx committed = fixture.second.beginNodeReadOnlyTrx(2)) {
-            assertTrue(committed.moveTo(format.equals("json") ? 1 : 2));
+            assertTrue(committed.moveTo(format.equals("json")
+                ? 1
+                : 2));
             assertEquals(1, number(committed));
           }
         } else {
-          final Throwable expected = outcome.equals("error") ? hookError : veto;
-          assertSame(expected, assertThrows(ExecutionException.class,
-              () -> mutated.get(10, TimeUnit.SECONDS)).getCause());
+          final Throwable expected = outcome.equals("error")
+              ? hookError
+              : veto;
+          assertSame(expected,
+              assertThrows(ExecutionException.class, () -> mutated.get(10, TimeUnit.SECONDS)).getCause());
           assertEquals(1, fixture.second.getMostRecentRevisionNumber());
           assertTrue(completion.isDone());
         }
         if (failClose) {
-          assertSame(primary, assertThrows(ExecutionException.class,
-              () -> closed.get(10, TimeUnit.SECONDS)).getCause());
+          assertSame(primary,
+              assertThrows(ExecutionException.class, () -> closed.get(10, TimeUnit.SECONDS)).getCause());
           assertTrue(List.of(primary.getSuppressed()).contains(secondary));
         } else {
           closed.get(10, TimeUnit.SECONDS);
@@ -590,7 +623,9 @@ final class SharedCallbackLifetimeTest {
         setValue(writer, 3);
         writer.commit();
         try (NodeReadOnlyTrx committed = fixture.second.beginNodeReadOnlyTrx()) {
-          assertTrue(committed.moveTo(format.equals("json") ? 1 : 2));
+          assertTrue(committed.moveTo(format.equals("json")
+              ? 1
+              : 2));
           assertEquals(3, number(committed));
         }
         writer.close();
@@ -605,7 +640,9 @@ final class SharedCallbackLifetimeTest {
   }
 
   private static void setValue(final NodeTrx writer, final int value) {
-    assertTrue(writer.moveTo(writer instanceof JsonNodeTrx ? 1 : 2));
+    assertTrue(writer.moveTo(writer instanceof JsonNodeTrx
+        ? 1
+        : 2));
     if (writer instanceof JsonNodeTrx json) {
       json.setNumberValue(value);
     } else {
