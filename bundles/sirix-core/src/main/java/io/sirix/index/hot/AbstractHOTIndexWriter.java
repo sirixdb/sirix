@@ -547,8 +547,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     return measureBoundedRebuildFootprint(root, traversalPageResolver, rebuildFootprintScratch);
   }
 
-  // Sonar S3776: a per-insert rebuild preflight kept as one compiled unit. Splitting it changes what the
-  // compiler inlines on the write path.
+  // Sonar S3776: a per-insert rebuild preflight kept as one compiled unit.
+  // Splitting it changes what the compiler inlines on the write path.
   @SuppressWarnings("java:S3776")
   private static void measureBoundedRebuildPage(final Page page,
       final HOTMalformedSubtreeDetector.PageResolver resolver, final RebuildFootprint footprint, final int depth) {
@@ -3545,8 +3545,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * {@link #branchAddStrandsExisting}) and by the fail-closed post-publication validator. It is
    * sufficient as a single-node scan because a fold leaves every existing child subtree untouched.
    */
-  // Sonar S3776: a per-insert publication guard kept as one compiled unit. Splitting it changes what the
-  // compiler inlines on the write path.
+  // Sonar S3776: a per-insert publication guard kept as one compiled unit.
+  // Splitting it changes what the compiler inlines on the write path.
   @SuppressWarnings("java:S3776")
   private boolean nodeStructurallyMalformed(HOTIndirectPage candidate) {
     final int n = candidate.getNumChildren();

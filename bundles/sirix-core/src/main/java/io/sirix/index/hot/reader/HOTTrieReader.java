@@ -573,8 +573,8 @@ public final class HOTTrieReader implements AutoCloseable {
     return new IllegalStateException("HOT structural corruption: " + detail);
   }
 
-  // Sonar S3776: the range-seek hot path kept as one compiled unit (JMH-measured in PR 1449). Splitting it
-  // changes what the compiler inlines on every lower/upper-bound seek.
+  // Sonar S3776: the range-seek hot path kept as one compiled unit (JMH-measured).
+  // Splitting it changes what the compiler inlines on every lower/upper-bound seek.
   @SuppressWarnings("java:S3776")
   private LowerBoundResult lowerOrUpperBound(final PageReference rootRef, final byte[] searchKey,
       final int searchKeyLen, final boolean isLowerBound) {
