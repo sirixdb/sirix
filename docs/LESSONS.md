@@ -107,3 +107,8 @@ use literal backslashes, while double-quoted strings retain escapes. Validate th
 with the executable parser and the subsequent token styles independently, across every
 multiline prefix boundary. Check both diff selectors and keep unsupported prompt names
 neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
+
+- **Verify mutation coverage with CI's automatic test selection.** An exact-name
+  test match takes precedence over package fallback. Keep renderer unit regressions
+  in its matching test class; a broader focused run can otherwise hide surviving
+  mutants in the default lane. Evidence: [word-buffer mutation scope](postmortems/shell-pit-word-buffer-scope.md).
