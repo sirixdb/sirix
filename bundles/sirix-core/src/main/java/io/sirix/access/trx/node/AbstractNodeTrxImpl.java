@@ -1493,7 +1493,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   @Override
   public W truncateTo(final int revision) {
-    resourceSession.assertNotInCommitCallback();
+    resourceSession.assertCanRetire();
     executionLock.lock();
     try {
       nodeReadOnlyTrx.assertNotClosed();
@@ -1507,7 +1507,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       resourceSession.assertAccess(revision);
       indexController.notifyTransactionAbort();
-      storageEngineWriter.truncateTo(revision);
+      final @Nullable InternalNodeTrx<?> previous = resourceSession.enterCommitExecution(this);
+      try {
+        storageEngineWriter.truncateTo(revision);
+      } finally {
+        resourceSession.exitCommitExecution(previous);
+      }
 
       return self();
     } finally {
@@ -1599,14 +1604,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     if (preCommitHooks.isEmpty()) {
       return;
     }
-    resourceSession.enterCommitCallback();
-    try {
-      for (final PreCommitHook hook : preCommitHooks) {
-        hook.preCommit(this);
+    resourceSession.admitCallback(() -> {
+      resourceSession.enterCommitCallback();
+      try {
+        for (final PreCommitHook hook : preCommitHooks) {
+          hook.preCommit(this);
+        }
+      } finally {
+        resourceSession.exitCommitCallback();
       }
-    } finally {
-      resourceSession.exitCommitCallback();
-    }
+    }).run();
   }
 
   private void enqueuePostCommitHooks(final List<PostCommitHook> hooks, final int revision) {

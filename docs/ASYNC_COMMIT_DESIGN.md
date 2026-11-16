@@ -188,3 +188,5 @@ Bulk imports that want one semantically meaningful revision should keep
 using `KEEP_OPEN_ASYNC_FLUSH` (see the shredding discussion in
 `ARCHITECTURE.md`); `KEEP_OPEN_ASYNC_COMMIT` is for ingest that needs
 periodic *queryable* checkpoints without paying synchronous barriers.
+
+Resource retirement rejects enclosing execution on any same-resource writer before taking retirement locks; this applies across user sessions and to page truncation. Validated public node truncation identifies its own cold execution after fencing local work. Pre-hook phases also own shared completion through callback return or veto, with context restored before completion. Different resources remain independent; ordinary locking and mutation paths are unchanged. See [the resource execution and pre-hook specification](postmortems/resource-execution-prehook-lifetime.md).
