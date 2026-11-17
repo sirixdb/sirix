@@ -18,31 +18,24 @@ import java.util.Set;
 /**
  * Collects value samples from a JSON resource and builds a {@link Histogram}.
  *
- * <p>
- * Analogous to SQL's ANALYZE command: walks nodes matching a given path, reads their numeric
- * values, and produces an equi-width histogram for data-driven selectivity estimation.
- * </p>
+ * <p>Analogous to SQL's ANALYZE command: walks nodes matching a given path,
+ * reads their numeric values, and produces an equi-width histogram for
+ * data-driven selectivity estimation.</p>
  *
- * <p>
- * Sampling strategy: reads up to {@code sampleSize} values from nodes matching the path. For
- * resources smaller than the sample size, all values are included (census). For larger resources,
- * values are sampled uniformly by stepping through matching nodes with a stride.
- * </p>
+ * <p>Sampling strategy: reads up to {@code sampleSize} values from nodes
+ * matching the path. For resources smaller than the sample size, all values
+ * are included (census). For larger resources, values are sampled uniformly
+ * by stepping through matching nodes with a stride.</p>
  *
- * <p>
- * The collector builds histograms for numeric values only. String fields do not produce histograms
- * (string selectivity relies on NDV estimates).
- * </p>
+ * <p>The collector builds histograms for numeric values only. String fields
+ * do not produce histograms (string selectivity relies on NDV estimates).</p>
  *
- * <p>
- * Usage:
- *
+ * <p>Usage:
  * <pre>
- * var collector = new HistogramCollector(jsonStore);
- * Histogram hist = collector.collect("mydb", "resource1", "price", 10000);
- * StatisticsCatalog.getInstance().put("mydb", "resource1", "price", hist);
- * </pre>
- * </p>
+ *   var collector = new HistogramCollector(jsonStore);
+ *   Histogram hist = collector.collect("mydb", "resource1", "price", 10000);
+ *   StatisticsCatalog.getInstance().put("mydb", "resource1", "price", hist);
+ * </pre></p>
  */
 public final class HistogramCollector {
 
@@ -65,11 +58,12 @@ public final class HistogramCollector {
    *
    * @param databaseName the database name
    * @param resourceName the resource name
-   * @param fieldPath the JSON field name (leaf field, e.g., "price")
-   * @param sampleSize maximum number of values to sample
+   * @param fieldPath    the JSON field name (leaf field, e.g., "price")
+   * @param sampleSize   maximum number of values to sample
    * @return the built histogram, or {@code null} if no numeric values found
    */
-  public Histogram collect(String databaseName, String resourceName, String fieldPath, int sampleSize) {
+  public Histogram collect(String databaseName, String resourceName,
+                           String fieldPath, int sampleSize) {
     return collect(databaseName, resourceName, fieldPath, sampleSize, DEFAULT_BUCKET_COUNT, -1);
   }
 
@@ -78,14 +72,14 @@ public final class HistogramCollector {
    *
    * @param databaseName the database name
    * @param resourceName the resource name
-   * @param fieldPath the JSON field name (leaf field, e.g., "price")
-   * @param sampleSize maximum number of values to sample
-   * @param bucketCount number of histogram buckets
-   * @param revision the revision to sample from (-1 for most recent)
+   * @param fieldPath    the JSON field name (leaf field, e.g., "price")
+   * @param sampleSize   maximum number of values to sample
+   * @param bucketCount  number of histogram buckets
+   * @param revision     the revision to sample from (-1 for most recent)
    * @return the built histogram, or {@code null} if no numeric values found
    */
-  public Histogram collect(String databaseName, String resourceName, String fieldPath, int sampleSize, int bucketCount,
-      int revision) {
+  public Histogram collect(String databaseName, String resourceName,
+                           String fieldPath, int sampleSize, int bucketCount, int revision) {
     Objects.requireNonNull(databaseName, "databaseName");
     Objects.requireNonNull(resourceName, "resourceName");
     Objects.requireNonNull(fieldPath, "fieldPath");
@@ -101,21 +95,23 @@ public final class HistogramCollector {
       final var database = jsonCollection.getDatabase();
 
       try (final ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> session =
-          database.beginResourceSession(resourceName)) {
+               database.beginResourceSession(resourceName)) {
         return collectFromSession(session, fieldPath, sampleSize, bucketCount, revision);
       }
     } catch (Exception e) {
-      LOG.warn("Failed to collect histogram for {}/{}/{}: {}", databaseName, resourceName, fieldPath, e.getMessage());
+      LOG.warn("Failed to collect histogram for {}/{}/{}: {}",
+          databaseName, resourceName, fieldPath, e.getMessage());
       return null;
     }
   }
 
   /**
-   * Collect a histogram by walking PathSummary to find matching nodes, then sampling their values via
-   * a read-only transaction.
+   * Collect a histogram by walking PathSummary to find matching nodes,
+   * then sampling their values via a read-only transaction.
    */
-  private Histogram collectFromSession(ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> session, String fieldPath,
-      int sampleSize, int bucketCount, int revision) {
+  private Histogram collectFromSession(
+      ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> session,
+      String fieldPath, int sampleSize, int bucketCount, int revision) {
 
     // Build a path for the field
     final Path<QNm> path = new Path<>();
@@ -163,20 +159,20 @@ public final class HistogramCollector {
   }
 
   /**
-   * Sample numeric values by traversing the document and collecting values from nodes whose name
-   * matches the field path.
+   * Sample numeric values by traversing the document and collecting values
+   * from nodes whose name matches the field path.
    *
-   * <p>
-   * Uses a simple document-order scan with stride-based sampling: visits all nodes sequentially,
-   * collects numeric values from matching field nodes, and stops after reaching the sample size.
-   * </p>
+   * <p>Uses a simple document-order scan with stride-based sampling:
+   * visits all nodes sequentially, collects numeric values from matching
+   * field nodes, and stops after reaching the sample size.</p>
    */
-  private Histogram sampleValues(JsonNodeReadOnlyTrx rtx, String fieldPath, int sampleSize, int bucketCount) {
+  private Histogram sampleValues(JsonNodeReadOnlyTrx rtx, String fieldPath,
+                                  int sampleSize, int bucketCount) {
     final var builder = new Histogram.Builder(bucketCount);
     final Set<Double> distinctValues = new HashSet<>();
 
     rtx.moveToDocumentRoot();
-    final long totalNodes = DocumentNodeCount.estimate(rtx);
+    final long totalNodes = rtx.getDescendantCount();
 
     // Compute stride: if total nodes >> sample size, skip nodes to sample uniformly
     final long stride = Math.max(1, totalNodes / (sampleSize * 2L));
@@ -217,9 +213,8 @@ public final class HistogramCollector {
   /**
    * Try to extract a numeric value from the current node if it matches the field.
    *
-   * <p>
-   * Checks if the current node is a number value node whose parent's name matches the field path.
-   * </p>
+   * <p>Checks if the current node is a number value node whose parent's name
+   * matches the field path.</p>
    */
   private static Double tryExtractNumericValue(JsonNodeReadOnlyTrx rtx, String fieldPath) {
     final NodeKind kind = rtx.getKind();
@@ -233,9 +228,7 @@ public final class HistogramCollector {
     final long currentKey = rtx.getNodeKey();
     try {
       if (rtx.moveToParent()) {
-        final String name = rtx.getName() != null
-            ? rtx.getName().getLocalName()
-            : null;
+        final String name = rtx.getName() != null ? rtx.getName().getLocalName() : null;
         if (fieldPath.equals(name)) {
           rtx.moveTo(currentKey);
           return rtx.getNumberValue().doubleValue();
@@ -272,31 +265,32 @@ public final class HistogramCollector {
   }
 
   /**
-   * Convenience: collect with default sample size and register in the catalog for the latest
-   * revision.
+   * Convenience: collect with default sample size and register in the catalog
+   * for the latest revision.
    */
   public boolean collectAndRegister(String databaseName, String resourceName, String fieldPath) {
-    return collectAndRegister(databaseName, resourceName, fieldPath, StatisticsCatalog.LATEST_REVISION);
+    return collectAndRegister(databaseName, resourceName, fieldPath,
+        StatisticsCatalog.LATEST_REVISION);
   }
 
   /**
    * Collect and register a histogram for a specific revision.
    *
-   * <p>
-   * For historical revisions (revision > 0), the histogram is cached permanently (no TTL) since the
-   * data is immutable. For the latest revision ({@link StatisticsCatalog#LATEST_REVISION}), the
-   * histogram is subject to TTL and write-triggered invalidation.
-   * </p>
+   * <p>For historical revisions (revision > 0), the histogram is cached
+   * permanently (no TTL) since the data is immutable. For the latest
+   * revision ({@link StatisticsCatalog#LATEST_REVISION}), the histogram
+   * is subject to TTL and write-triggered invalidation.</p>
    *
    * @param databaseName the database name
    * @param resourceName the resource name
-   * @param fieldPath the JSON field name
-   * @param revision the revision to collect from, or -1 for latest
+   * @param fieldPath    the JSON field name
+   * @param revision     the revision to collect from, or -1 for latest
    * @return true if histogram was collected and registered
    */
-  public boolean collectAndRegister(String databaseName, String resourceName, String fieldPath, int revision) {
-    final Histogram hist =
-        collect(databaseName, resourceName, fieldPath, DEFAULT_SAMPLE_SIZE, DEFAULT_BUCKET_COUNT, revision);
+  public boolean collectAndRegister(String databaseName, String resourceName,
+                                     String fieldPath, int revision) {
+    final Histogram hist = collect(databaseName, resourceName, fieldPath,
+        DEFAULT_SAMPLE_SIZE, DEFAULT_BUCKET_COUNT, revision);
     if (hist != null) {
       StatisticsCatalog.getInstance().put(databaseName, resourceName, fieldPath, revision, hist);
       return true;

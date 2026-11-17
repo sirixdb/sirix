@@ -15,9 +15,10 @@ import io.sirix.api.NodeReadOnlyTrx;
  *
  * <p>
  * The node-key frontier is maintained unconditionally and is an upper bound on the live node count
- * (it also counts keys of removed nodes). It provides a constant-work fallback for size heuristics
- * and sampling strides, avoiding a collapse of every estimate to the smallest case. Unlike the
- * stored count, it may overestimate after deletions or for a non-root cursor.
+ * (it also counts keys of removed nodes). It provides a constant-work fallback for size heuristics,
+ * avoiding a collapse of every estimate to the smallest case. Unlike the stored count, it may
+ * overestimate after deletions or for a non-root cursor. It cannot serve as a live sampling
+ * population: without a stored live count, sampling must retain stride 1.
  *
  * <p>
  * Size-gating decisions use this constant-work estimate without traversing descendants.
