@@ -356,7 +356,7 @@ reuses its decoded slots and cursor; only the same owned value/reference result
 as a raw page may escape. A shorter frame following a longer frame must never
 read stale scratch bytes. Allocation tests compare raw and encoded owned results per key and per page;
 the standing GC-profiled gate compares encoded owned results with unchanged main.
-See `bundles/sirix-benchmarks/scripts/HOT_LEAF_CODEC_GATE.md` for the reproducible
+See the [allocation gate](../bundles/sirix-benchmarks/scripts/HOT_LEAF_CODEC_GATE.md) for the reproducible
 comparison and the diagnostic discard-only allocator case.
 
 LZ4 range decoding must not construct per-call segment views. A native adapter
@@ -368,13 +368,14 @@ no allocation. Without the adapter, the existing bounds-safe Java decoder handle
 the same ranges. Negative/out-of-bounds ranges, closed segments and read-only
 destinations are rejected before native writes. Nonzero offsets and sentinel bytes
 on both sides of the destination are pinned by tests. Escape-analysis-off allocation
-profiles must show no codec-only allocation sites, and each of five EA-on encoded
-forks must remain within 1 B/page of the unchanged-main maximum for the same fixture.
+profiles must show no codec-only allocation sites; the linked allocation gate owns
+the fork counts and profiler-noise allowance.
 
-Golden payload pins (hex; directory and page header omitted): eight zero slot
-bytes encode as `03 00 00 00 00 ff 08 86`; the corresponding raw payload is eight
+Reader payload fixtures (hex; directory and page header omitted): eight zero slot
+bytes can be represented as `03 00 00 00 00 ff 08 86`; the corresponding raw payload is eight
 `00` bytes. An LZ4 literal-only frame for bytes `01 02 03 04` is
-`05 00 00 00 01 40 01 02 03 04` (readable although a writer keeps this raw).
+`05 00 00 00 01 40 01 02 03 04`. Both are readable, but writers keep these payloads raw
+because the encoded frames do not meet the savings margin.
 Tests must independently pin these bytes, codec selection including ties/raw
 fallback, both byte-array and native input, mixed raw/encoded streams, sparse
 and packed full images, side references, compact fragments, cached and uncached

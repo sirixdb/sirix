@@ -49,7 +49,9 @@ public class HOTLeafCodecAllocationBenchmark {
   public String content;
   private Fixture fixture;
   private boolean encoded;
+  @SuppressWarnings("UnusedVariable") // Volatile publication makes measured results escape.
   private static volatile Object result;
+  @SuppressWarnings("UnusedVariable") // Volatile writes keep primitive work observable to the JIT.
   private static volatile long checksum;
 
   @Setup

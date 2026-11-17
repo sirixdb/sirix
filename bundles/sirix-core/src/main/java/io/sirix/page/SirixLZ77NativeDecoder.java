@@ -26,10 +26,9 @@ import java.lang.invoke.MethodHandle;
  * heaps vs ~2.2 GB/s for {@code LZ4_decompress_safe} on the same data (LZ4 is our reference
  * baseline).
  *
- * <h2>Loading</h2> The native library ({@code libsirix_lz77.so} on Linux x86_64) is embedded as a
- * classpath resource under {@code /native/linux-x86_64/}. On first use we extract it to a
- * platform-user-scoped temp directory and {@code dlopen} it via {@link SymbolLookup#libraryLookup}.
- * If extraction or {@code dlopen} fails we fall back to the pure-Java decoder transparently.
+ * <h2>Loading</h2> {@link NativeCodecLibrary} shares the process-lifetime library with the LZ4
+ * range adapter. If loading fails we fall back to the pure-Java decoder transparently. Staging and
+ * platform requirements are documented in {@code docs/operations.md}.
  *
  * <h2>HFT constraints</h2>
  * <ul>

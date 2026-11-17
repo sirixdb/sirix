@@ -122,9 +122,9 @@ public final class HOTProjectionImage {
   }
 
   /**
-   * Copy and verify an uncompressed frame once, including its kind byte. Hashing the owned bytes
-   * avoids checked native-memory accesses before making this same copy. Neither the supplied buffer's
-   * position nor any alias of its storage is retained.
+   * Copy and verify a frame without outer byte-handler compression, including its kind byte. Hash the
+   * wire bytes before expanding any encoded slot payload into the retained image. Neither the
+   * supplied buffer's position nor any alias of its storage is retained.
    */
   public static HOTProjectionImage copyVerifiedFrame(final ByteBuffer source, final PageReference reference,
       final ResourceConfiguration configuration) {

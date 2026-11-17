@@ -551,7 +551,7 @@ container pages and the leaf payload codec. This section specifies the HOT body 
 #### 3.2.2 In-memory layout
 
 ```
-ordinary leaf slotMemory (64 KiB off-heap frame, or an exact-size slice of a decompression buffer)
+ordinary leaf slotMemory (native storage; decoded-read ownership is specified below)
 +--------------------------------------------------------------------------------+
 | entry | entry | dead bytes | entry | ... | entry |            free              |
 +--------------------------------------------------------------------------------+
@@ -627,7 +627,7 @@ Body fields below follow the shared envelope and any extension block.
 | 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`:5941-5944`, `:5962-5964`) |
 | 10 | i32 LE | usedSlotMemorySize | full image: sum of live slot sizes, excluding retired bytes; sparse image: size of the packed dirty entries |
 | 11 | count × i32 LE | slotOffsets | full: original offsets when already dense, otherwise offsets into live entries packed in key order; sparse: offsets into the packed dirty entries |
-| 12 | raw bytes or codec frame | heap | flag `0x02` clear: usedSlotMemorySize bytes; set: `[i32 storedLength][u8 codec][stored bytes]`, as defined by the [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0). Full images contain live entries only; sparse images contain packed dirty entries. |
+| 12 | raw bytes or codec frame | heap | representation defined by the [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0). Full images contain live entries only; sparse images contain packed dirty entries. |
 | 13 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`:6725-6763`, `:5910-5917`) |
 
 - Full-image packing changes only the serialized offsets and payload; the source leaf's offsets,
@@ -639,11 +639,9 @@ Body fields below follow the shared envelope and any extension block.
 - `PageKind.deserializeHOTLeaf` rejects entry counts above 512 and packed byte counts outside
   `[0, 65536]`. Ordinary decoding reserves the full writable offset directory; compact raw decoding
   follows the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
-- **Zero-copy ordinary decoding**: if flag `0x02` is clear and the input is a
-  `MemorySegmentBytesIn` with a `DecompressionResult`, `slotMemory` becomes a slice of the decompressed buffer and ownership of
-  that buffer transfers to the page;
-  otherwise a 64 KiB frame is allocated and the payload is copied or decoded directly into it. The first mutation of a
-  zero-copy leaf promotes it into a fresh frame (`hot/page/HOTLeafPage.java:2379-2441`).
+- **Decoded-read ownership and mutation promotion** follow the
+  [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0),
+  including raw zero-copy adoption and compact allocations for encoded ordinary reads.
 - There is no checksum in the body; see §3.6 for what is and is not hashed.
 
 ### 3.3 HOTIndirectPage
