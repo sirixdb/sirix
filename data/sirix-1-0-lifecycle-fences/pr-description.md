@@ -4,7 +4,7 @@ Failed/interrupted parallel work could return while workers still used owner sta
 
 Worker fences now cover partial starts, interruption, reset and fallback. Iterator/stream/composite-axis closure reaches nested concurrent producers. Session/cache teardown preserves the first failure while attempting independent cleanup. Failed writers leave marker-driven truncation and resource-cache invalidation to the next exclusive admission; public dirty close remains protected. Node/page admission waits outside the session monitor and revalidates before construction.
 
-Callback behavior is defined by [PreCommitHook](../../bundles/sirix-core/src/main/java/io/sirix/api/PreCommitHook.java), [PostCommitHook](../../bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java) and [revision listeners](../../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java). The [ownership design](../../docs/ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership) owns the notification, reader-retirement and truncation boundaries; the current specification and evidence follow.
+The [database hook contract](../../docs/hooks.md) owns callback behavior, notification retirement and truncation boundaries. The [async ownership design](../../docs/ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership) covers storage-worker teardown; the requirement mapping and evidence follow.
 
 ## Callback and resource lifecycle contract
 
