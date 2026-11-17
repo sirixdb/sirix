@@ -47,7 +47,8 @@ delete the commit marker, **then** publish
 `session.setLastCommittedUberPage(...)` and close the superseded page
 transaction (releasing its writer channels).
 
-The public synchronous `commit()` is unchanged: phase 1 + phase 2 inline.
+The public synchronous `commit()` runs both storage phases inline; callback delivery
+follows the [database hook contract](hooks.md).
 
 `asyncCommit()` = acquire the single commit permit (depth-1 pipeline), run
 phase 1 inline, submit phase 2 to a background thread, return. The node
@@ -105,19 +106,10 @@ terminal after the permit is released.
 Public transaction close retains its dirty-transaction protection. Resource-session
 close can explicitly abort a dirty successor after fencing the failed predecessor;
 see [`ResourceSession.close()`](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java).
-The [database hook contract](hooks.md) owns callback timing, error handling and lock order.
-Pre-hooks run synchronously before publication; post-hooks and listeners use a dedicated database
-dispatcher after durable publication. All hardening paths, including inline setup/submission
-fallbacks, schedule notifications at that publication boundary. Dispatcher read-only views resolve
+The [database hook contract](hooks.md) owns callback timing, error handling, retirement,
+capacity and lock order. All hardening paths, including inline setup/submission
+fallbacks, schedule notifications after durable publication. Dispatcher read-only views resolve
 durable revision roots; only writer readers with intent logs can use unpublished pending roots.
-Neither successor mutation nor writer close waits for post delivery.
-
-External close rejects enclosing writer execution and callback reentry before admission monitors.
-Database/handle/session retirement and destructive history changes establish bounded notification
-quiescence. On timeout queued work is discarded, while active callback readers and dependent
-storage/file ownership remain reachable for retry. The final overlapping retirement scope resumes deferred
-notifications from other open sessions; final database close stops the dispatcher. Callback errors
-are logged independently and cannot veto published data or skip later notification attempts.
 
 Node close acquires execution with a bound, preserves physical worker termination fences, then
 removes its registry ownership and releases P exactly once after scheduler termination. Session
@@ -167,19 +159,3 @@ Bulk imports that want one semantically meaningful revision should keep
 using `KEEP_OPEN_ASYNC_FLUSH` (see the shredding discussion in
 `ARCHITECTURE.md`); `KEEP_OPEN_ASYNC_COMMIT` is for ingest that needs
 periodic *queryable* checkpoints without paying synchronous barriers.
-
-Resource retirement rejects enclosing execution on any same-resource writer before notification quiescence. Retirement pauses callback admission without exclusively locking other lifecycle owners.
-The former resource-shared unbounded completion fences and outer-unlock notification queues are
-superseded by [bounded database dispatch](hooks.md); the earlier postmortems record historical designs.
-
-Raw page truncation acquires its bound node execution owner and fences hardening before revalidating
-the captured writer; all page truncations fence submitted async append work before changing history.
-Closed predecessors and interrupted maintenance reject before destructive storage work. Temporary
-pre-hook admission refusal leaves scheduled commits enabled; user-hook failures retain veto semantics.
-
-The dispatcher retains at most its configured capacity across active, executor-queued and deferred
-jobs. Each job carries its resource and published revision. Destructive page admission refuses
-before mutation when deferred work would lose that original history; overlapping non-destructive
-retirement stays shared. Overflow drops new work without waiting for delivery or vetoing durability.
-Delivery is best effort; hooks/listeners expose their revision, but resume/replay remains a follow-up.
-See [the hook contract](hooks.md) for capacity, ordering and abandonment semantics.
