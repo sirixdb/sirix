@@ -170,7 +170,7 @@ room for setup and report upload. Each module may use all the time still left ex
 `MIN_MODULE_SECONDS` floor for every module after it. Modules run in name order; a module that
 finishes early donates its remainder to those that follow. If the remaining budget cannot
 provide that floor for every pending module, it is divided equally among them. A deadline kills
-the process group, preserves partial reports and explicitly reports incomplete analysis. A large diff may need
+the process group and its detached descendants (including Gradle's single-use daemon), preserves partial reports and explicitly reports incomplete analysis. A large diff may need
 follow-up focused runs; timeouts and missing evidence are never a clean score.
 
 Scope comes from `git diff --diff-filter=ACMRT <base>...<head>`: added, modified and renamed
@@ -204,7 +204,15 @@ these individually in the PR. New Gradle modules need an entry in `MODULES` in
 Test selection is resolved **per changed source** and is never widened to the module suite.
 PIT's coverage phase has to execute every class in `targetTests`, and Sirix test classes open
 databases during JUnit 5 discovery, so whole-module coverage collection can exhaust the budget
-before mutation analysis starts. Test identities come from declared top-level Java/Kotlin type
+before mutation analysis starts. Explicit `LIFECYCLE_TESTS` associations select dedicated ownership,
+worker-fence and callback regressions instead of unrelated package histories. Large modules are
+partitioned at `PARTITION_SOURCE_LIMIT` sources or before exceeding the selected-test cap. Every
+source appears in exactly one partition; each partition receives a share of the module's remaining
+budget and writes separate evidence under `module/part-N`. Sampling remains based on the whole
+module's class count. A timed-out partition stays incomplete while later partitions still execute;
+no partial report becomes an assertion kill or a complete result.
+
+Test identities come from declared top-level Java/Kotlin type
 names and packages, not source
 filenames or directories. Discovery does not require compiled test classes. For a source `Foo`
 in package `p` the first matching step wins:

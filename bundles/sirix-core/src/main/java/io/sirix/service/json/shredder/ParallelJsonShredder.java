@@ -431,34 +431,40 @@ public final class ParallelJsonShredder {
       throws Exception {
     JsonReader reader = null;
     try (final JsonResourceSession session = database.beginResourceSession(resourceName)) {
-      reader = partition.call();
-      if (reader == null) {
-        throw new SirixException("partition produced a null JsonReader for resource '" + resourceName + "'");
-      }
-      // On what to pass for afterCommitState, measured on a 2.1 GB input across four shards on four
-      // cores, auto-committing every 100k nodes, best of three warm rounds, repeated three times:
-      //
-      // KEEP_OPEN 58.5 68.9 70.2 MB/s
-      // KEEP_OPEN_ASYNC_FLUSH 60.1 62.1 63.9 MB/s
-      // KEEP_OPEN_ASYNC_COMMIT 73.0 74.9 77.9 MB/s
-      //
-      // Async commit's worst run beats every other mode's best, and it keeps KEEP_OPEN's revision
-      // semantics — a revision per threshold — while moving the durability barriers off the writer.
-      // It is not the default only because a hardening failure poisons the transaction terminally,
-      // which is a choice for the caller rather than for this method.
-      //
-      // Async flush wins at small inputs (1.22x over KEEP_OPEN on 176 MB) and loses at this scale;
-      // it also creates no intermediate revisions, so it is not semantically interchangeable.
-      //
-      // An earlier comment here claimed async modes regress in the parallel path. That was measured
-      // for async commit with auto-commit disabled on a 25 MB input, where the whole shard sits in
-      // one transaction; it does not hold once auto-commit bounds the epoch.
-      try (final JsonNodeTrx wtx = autoCommitNodeCount > 0
-          ? session.beginNodeTrx(autoCommitNodeCount, afterCommitState)
-          : session.beginNodeTrx(afterCommitState)) {
-        // Commit.NO: the explicit commit below is the single durable commit point for this shard.
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        wtx.commit();
+      try {
+        reader = partition.call();
+        if (reader == null) {
+          throw new SirixException("partition produced a null JsonReader for resource '" + resourceName + "'");
+        }
+        // On what to pass for afterCommitState, measured on a 2.1 GB input across four shards on four
+        // cores, auto-committing every 100k nodes, best of three warm rounds, repeated three times:
+        //
+        // KEEP_OPEN 58.5 68.9 70.2 MB/s
+        // KEEP_OPEN_ASYNC_FLUSH 60.1 62.1 63.9 MB/s
+        // KEEP_OPEN_ASYNC_COMMIT 73.0 74.9 77.9 MB/s
+        //
+        // Async commit's worst run beats every other mode's best, and it keeps KEEP_OPEN's revision
+        // semantics — a revision per threshold — while moving the durability barriers off the writer.
+        // It is not the default only because a hardening failure poisons the transaction terminally,
+        // which is a choice for the caller rather than for this method.
+        //
+        // Async flush wins at small inputs (1.22x over KEEP_OPEN on 176 MB) and loses at this scale;
+        // it also creates no intermediate revisions, so it is not semantically interchangeable.
+        //
+        // An earlier comment here claimed async modes regress in the parallel path. That was measured
+        // for async commit with auto-commit disabled on a 25 MB input, where the whole shard sits in
+        // one transaction; it does not hold once auto-commit bounds the epoch.
+        try (final JsonNodeTrx wtx = autoCommitNodeCount > 0
+            ? session.beginNodeTrx(autoCommitNodeCount, afterCommitState)
+            : session.beginNodeTrx(afterCommitState)) {
+          // Commit.NO: the explicit commit below is the single durable commit point for this shard.
+          wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+          wtx.commit();
+        }
+      } finally {
+        // Retirement rejects an interrupted caller; this executor task has finished its work.
+        // Acquisition can fail before a writer exists. The public caller restores its own flag.
+        Thread.interrupted();
       }
     } finally {
       if (reader != null) {

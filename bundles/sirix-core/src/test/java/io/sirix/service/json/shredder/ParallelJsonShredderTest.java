@@ -5,6 +5,7 @@
 package io.sirix.service.json.shredder;
 
 import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.lang.reflect.InvocationTargetException;
@@ -36,6 +38,7 @@ import java.util.function.Function;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -287,6 +290,55 @@ final class ParallelJsonShredderTest {
     });
     ParallelJsonShredder.shredPartitioned(database, List.of(tracked), BASE, CONFIG, 0, 1);
     assertTrue(closed.get(), "the partition's JsonReader must be closed by the shredder");
+  }
+
+  @Test
+  void configuredAutoCommitThresholdPublishesIntermediateRevisions() {
+    ParallelJsonShredder.shredPartitioned(database, List.of(readerOf("[1,2,3,4]")), BASE, CONFIG, 1, 1);
+    assertEquals("[1,2,3,4]", serialize("records-0"));
+    try (final JsonResourceSession session = database.beginResourceSession("records-0")) {
+      assertTrue(session.getMostRecentRevisionNumber() > 1,
+          "a positive node threshold must publish intermediate revisions before the final commit");
+    }
+  }
+
+  @Test
+  void interruptedWorkerReleasesItsSessionAfterFactoryOrReaderFailure() {
+    for (final boolean factoryFailure : new boolean[] {true, false}) {
+      final IOException injected = new IOException("cancelled input");
+      final AtomicBoolean readerClosed = new AtomicBoolean();
+      final Callable<JsonReader> partition = () -> {
+        if (factoryFailure) {
+          Thread.currentThread().interrupt();
+          throw injected;
+        }
+        return new JsonReader(new StringReader("[1]")) {
+          @Override
+          public JsonToken peek() throws IOException {
+            Thread.currentThread().interrupt();
+            throw injected;
+          }
+
+          @Override
+          public void close() throws IOException {
+            readerClosed.set(true);
+            super.close();
+          }
+        };
+      };
+      final RuntimeException failure = assertThrows(RuntimeException.class,
+          () -> ParallelJsonShredder.shredPartitioned(database, List.of(partition), BASE, CONFIG, 0, 1));
+      if (factoryFailure) {
+        assertInstanceOf(SirixException.class, failure);
+      } else {
+        assertInstanceOf(UncheckedIOException.class, failure);
+      }
+      assertSame(injected, failure.getCause(), "cancellation must preserve the input failure");
+      assertEquals(0, injected.getSuppressed().length, "interruption must not prevent session retirement");
+      assertFalse(database.existsResource("records-0"), "terminated workers must permit resource removal");
+      assertEquals(!factoryFailure, readerClosed.get());
+      assertFalse(Thread.currentThread().isInterrupted(), "worker cancellation must not interrupt the caller");
+    }
   }
 
   @Test
