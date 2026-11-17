@@ -36,6 +36,9 @@ import static io.sirix.page.PageUtils.fixupPageReferenceIds;
 
 public abstract class AbstractReader implements Reader {
 
+  // One long[1] lives until thread termination; it retains no reader, resource or user data.
+  // Keep cumulative attempts across reader lifetimes without per-read removal/allocation.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<long[]> BEACON_READS = ThreadLocal.withInitial(() -> new long[1]);
 
   /** Attempted beacon reads on this thread, excluding independent background maintenance. */

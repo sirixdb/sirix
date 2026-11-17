@@ -119,3 +119,57 @@ tests; the supplied CI verdict identifies a counter assertion failure. There is
 no observed format/conflict-resolution interaction: base and head have identical
 core trees and runtime-test configuration. The repair addresses the demonstrated
 measurement defect rather than hypothesizing a data-format change.
+
+## Sonar follow-up: intentional thread-lifetime counter
+
+The analysis of `edfd6c4072c0cfeb6374bc3e22280043aa1772e1` failed only
+`new_reliability_rating`: C (3), with A (1) required. Coverage was 95.8%,
+duplication 0%, and security and maintainability passed. The only reported BUG
+was `java:S5164` on `BEACON_READS`; the three older code smells do not fail this
+gate. CI job 133754503560 reports `QUALITY GATE STATUS: FAILED` after analysis.
+
+The invariant remains a cumulative count of attempted beacons on the calling
+thread, with one bounded primitive holder per participating thread and no retained
+application resources. It applies to primary and secondary attempts (including
+failures), repeated probes, physical and logical opens, tool opens, derived-store
+opens, bootstrap, refresh, rewind and teardown, for both channel and mapped
+readers. All counted attempts meet at `readVerifiedBeacon`; direct raw slot reads
+remain outside this diagnostic contract.
+
+S5164 assumes a shorter ownership scope than this diagnostic has. The static key
+holds a `long[1]` per participating thread: it cannot retain a reader, page,
+session, resource, class-loader object or user payload. The array lives until
+thread termination; closing one reader must not reset the thread's cumulative
+counter. Removing it after each read would lose counts and allocate another
+holder. Document that ownership and suppress only S5164 on the field, following
+`RecordPageSaltSource.SOURCES`; no runtime logic or analyzer policy changes.
+
+Acceptance checks are the existing four-case `AbstractReaderBeaconWorkTest`, the
+unchanged feature/opening/corruption suites and exact core work budgets. Their
+oracle is the disk-format primary-then-secondary contract: healthy probes add
+one, corrupt-primary probes add two, and a joined worker leaves the caller's
+count unchanged. These reject resets, success-only counting and shared state.
+The failing-before regression consumer for this follow-up is Sonar itself;
+source-text assertions about a suppression would not prove runtime behavior.
+Compare compiled instructions before and after to verify unchanged allocation
+and lifetime behavior; there is no changed executable logic requiring new PIT
+mutants.
+
+After the correction, `readOpeningUberPage` and `readUberPageReference` still call
+`readCommittedUberPageReference`, which increments before I/O and decoding at
+`readVerifiedBeacon`. Corruption still tries secondary; unsupported features
+still propagate without fallback. All callers retain their previous results,
+exceptions and count deltas. The field-only annotation changes no branch,
+parameter, helper or caller assumption and leaves no unreachable code.
+
+Verification: the same 454 selected core tests above passed with no failures,
+errors or skips, including all four beacon isolation/failure cases and unchanged
+core work budgets. `:sirix-core:spotlessJavaCheck` and `git diff --check` passed.
+`javap -c -p` output for the compiled `AbstractReader` is byte-for-byte identical
+before and after; the prior three killed counter mutants therefore still cover
+the same executable logic. Evidence: `build/ci-sonar-counter/verification.log`,
+`test-totals.json`, `before.bytecode.txt` and `after.bytecode.txt`. All JVM commands
+used `heavy.sh`; free disk stayed above 60 GB. The public Sonar gate and PR API
+responses in that directory tie the failing gate to the exact head above.
+Replacement hosted Sonar analysis remains the outer executor's responsibility;
+this phase did not publish or upload an analysis.
