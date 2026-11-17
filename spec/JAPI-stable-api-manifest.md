@@ -1752,4 +1752,4 @@ and callback signatures belong to the labelled expert extension tier.
 Acceptance mappings: JAPI-101 → JavaApiCompatibilityConformance, JAPI-109 →
 JavaApiTierConformance, JAPI-110 → JavaApiSignatureGateConformance (all planned).
 No compatibility-check plugin, module export change or runtime test is delivered by
-this Markdown-only task. Source extraction is not binary compatibility verification.
+this documentation-only task. Source extraction is not binary compatibility verification.

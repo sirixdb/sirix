@@ -1,17 +1,18 @@
 # REST API Compatibility
 
-This page states what you can rely on when building against the SirixDB REST
-API, starting with the upcoming release (the first one to ship
-`openapi.yaml`). The machine-readable contract is
+This guide describes the current SirixDB REST surface and its caveats. The
+[REST specification](../spec/REST-api.md#rest-101--one-rest-schema-baseline)
+owns the 1.0 release baseline and records unresolved schema contradictions;
+the current schema is not a frozen 1.0 conformance claim. The machine-readable contract is
 [`bundles/sirix-rest-api/src/main/resources/openapi.yaml`](../bundles/sirix-rest-api/src/main/resources/openapi.yaml),
 served by every server at `GET /openapi.yaml` (unauthenticated, like
 `/health` and `/metrics`).
 
-## Stable
+## Schema surface
 
-Everything in `openapi.yaml` **not** marked `EXPERIMENTAL` is stable: paths,
-methods, parameter names and semantics, status codes, and response shapes.
-Concretely that covers:
+For the compatibility boundary, see
+[REST-102](../spec/REST-api.md#rest-102--compatible-rest-evolution).
+The schema covers:
 
 * Database/resource CRUD (`PUT`/`GET`/`DELETE`/`HEAD` on `/{database}` and
   `/{database}/{resource}`, multipart bulk upload on `POST /{database}`),
@@ -39,10 +40,11 @@ Concretely that covers:
 * HTTP metric names on `/metrics` (`http_requests_total`,
   `http_request_duration_seconds*`, `http_active_requests`).
 
-## Experimental
+## Current caveats and experimental features
 
-May change or disappear in any release (announced in release notes, no grace
-window). Found/flagged while writing the spec:
+The schema identifies experimental capabilities; REST-102 owns their compatibility
+treatment. Other caveats below record implementation/schema conflicts rather than
+additional compatibility exemptions.
 
 * `GET /{database}/{resource}/pathSummary` — the whole endpoint.
 * `plan` / `planStage` on queries, and especially the **plan JSON shape**,
@@ -57,12 +59,10 @@ window). Found/flagged while writing the spec:
   database listing — don't rely on it.
 * Empty and updating query response shapes: see the `executeQuery` responses
   in the [OpenAPI contract](../bundles/sirix-rest-api/src/main/resources/openapi.yaml).
-* Failed `If-Match` preconditions return **400** (message: "Someone might
-  have changed the resource in the meantime."), not 412, and the legacy
-  request-`ETag` header is still accepted as an `If-Match` synonym. A future
-  API revision will move to 412/proper RFC 7232 semantics.
-* `GET /{database}/{resource}/diff` on an **XML** resource returns the
-  literal string `null` (diffs are implemented for JSON only).
+* Node-hash precondition behavior and its implementation gaps are recorded in
+  [REST-204](../spec/REST-api.md#rest-204--node-hash-optimistic-preconditions).
+* XML diff rejection and the conflicting schema description are recorded in
+  [REST-208](../spec/REST-api.md#rest-208--json-only-diff).
 * The `sirix_*` and `jvm_*` gauge set on `/metrics` — names follow Prometheus
   conventions but track internals and may evolve.
 * `auth.mode=none` (local development) — an operational switch, not part of
@@ -73,8 +73,9 @@ window). Found/flagged while writing the spec:
 * Deprecations are announced in the release notes of the release that
   introduces them.
 * A deprecated path/parameter/field keeps working for **at least one further
-  minor release** after the announcement, then may be removed (removal again
-  noted in release notes).
+  minor release** after the announcement. Removal also follows
+  [CONV-105](../spec/CONV-conventions.md#conv-105--compatibility-and-versioning),
+  as required by REST-102, and is noted in release notes.
 * Experimental items are exempt; they only get a release-notes mention.
 
 ## Recent wire-format changes (already in effect)

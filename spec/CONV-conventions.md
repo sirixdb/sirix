@@ -55,7 +55,7 @@ A feature or behavioral fix MUST state behavior, invariants and errors and deriv
 - **Code:** [CONTRIBUTING.md](../CONTRIBUTING.md); [VERIFICATION.md](../docs/VERIFICATION.md)
 - **Verified by:** No existing test mapped. **Planned:** SpecTraceContractTest plus fixtures for each failure, annotation discovery, default-lane versus opt-in evidence and PIT selection by requirement.
 - **Evidence class:** doc-only (unverified automation); decided target has unverified implementation gaps
-- **Gap/note:** spec_trace.py, @Verifies, CI wiring and test annotations are intentionally planned: this task changes Markdown only.
+- **Gap/note:** spec_trace.py, @Verifies, CI wiring and test annotations are intentionally planned: this task changes documentation only.
 
 The traceability tool MUST report unmapped MUSTs, unknown or retired test IDs, stale generated mappings, skipped-only evidence, duplicate IDs and dangling citations. `@Verifies` MUST name the requirement and evidence kind. Initial rollout MUST be report-only; making checks blocking requires the staged adoption described below, without silently waiving old gaps.
 

@@ -1,14 +1,16 @@
 # SirixDB On-Disk Format (V0)
 
 Status: **V0 record contract.** We are at
-`BinaryEncodingVersion.V0` (pages) and superblock `LAYOUT_VERSION = 0` (files). Every
-pre-freeze checklist item has been resolved (implemented or explicitly decided — see §5's
-decisions log), and the byte-level contract is pinned by golden tests
+`BinaryEncodingVersion.V0` (pages) and superblock `LAYOUT_VERSION = 0` (files). The
+V0 checklist decisions are recorded in §5's decisions log, and the byte-level contract
+is pinned by golden tests
 (`io.sirix.format.GoldenFormatTest`, `io.sirix.format.GoldenCompositePageTest`): an accidental
 change to any pinned structure fails CI. Intentional layout changes update the golden constants
 and this contract. SirixDB has no released consumers: unreleased layouts evolve in place using
-the original V0 value, without a migration reader. A released compatibility contract would need
-an explicit versioning decision using `BinaryEncodingVersion` (page bodies/records), the page-envelope
+the original V0 value, without a migration reader. The 1.0 compatibility baseline and migration
+policy are owned by [FMT-401–402](../spec/FMT-disk-format.md#fmt-401--10-compatibility-baseline-and-beta-refusal);
+that chapter records the remaining release implementation gaps. This guide describes current V0
+bytes. Format-version mechanisms include `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
 byte (PIXM/PIXD/PIXS/PIX1, per-record versions). The golden pins make changes to pinned structures
 deliberate (see §2, "PathStats trailer").

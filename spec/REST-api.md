@@ -157,36 +157,11 @@ PUT resource creation MUST follow the schema’s replace behavior: replacing an 
 
 ## Machine contract and route coverage (REST-101)
 
-Schema: [openapi.yaml](../bundles/sirix-rest-api/src/main/resources/openapi.yaml).
-The route inventory below is a baseline index, not an additional independent schema.
-Every operation needs a successful response and each documented failure status in the planned
-RestOpenApiConformance suite, including response content type and security declaration.
-
-| Method | Path | operationId |
-|---|---|---|
-| GET | `/` | `listDatabasesOrQuery` |
-| POST | `/` | `executeQuery` |
-| DELETE | `/` | `deleteAllDatabases` |
-| POST | `/token` | `token` |
-| POST | `/logout` | `logout` |
-| GET | `/user/authorize` | `authorize` |
-| GET | `/health` | `health` |
-| GET | `/metrics` | `metrics` |
-| GET | `/openapi.yaml` | `openapi` |
-| GET | `/{database}` | `listResources` |
-| PUT | `/{database}` | `createDatabase` |
-| POST | `/{database}` | `createMultipleResources` |
-| DELETE | `/{database}` | `deleteDatabase` |
-| HEAD | `/{database}/{resource}` | `headResource` |
-| GET | `/{database}/{resource}` | `getResource` |
-| PUT | `/{database}/{resource}` | `createResource` |
-| POST | `/{database}/{resource}` | `updateOrQueryResource` |
-| DELETE | `/{database}/{resource}` | `deleteResource` |
-| POST | `/{database}/{resource}/revert` | `revertResource` |
-| GET | `/{database}/{resource}/history` | `getHistory` |
-| GET | `/{database}/{resource}/diff` | `getDiff` |
-| GET | `/{database}/{resource}/pathSummary` | `getPathSummary` |
-
+The `paths` and `operationId` entries in
+[openapi.yaml](../bundles/sirix-rest-api/src/main/resources/openapi.yaml) own the
+route inventory. The planned RestOpenApiConformance suite derives its operation
+coverage from that schema, including a successful response and each documented
+failure status, response content type and security declaration.
 
 ## Deferred endpoint conformance work
 
