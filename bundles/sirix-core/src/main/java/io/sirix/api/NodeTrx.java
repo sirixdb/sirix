@@ -38,7 +38,7 @@ public interface NodeTrx extends NodeReadOnlyTrx {
 
   /**
    * Commit modifications. Lifecycle reentrancy from pre/post hooks or revision listeners for this
-   * resource, including another user session, is rejected with IllegalStateException before acquiring
+   * database, including another user session, is rejected with IllegalStateException before acquiring
    * execution locks.
    *
    * @param commitMessage optional message
@@ -50,7 +50,7 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   /**
    * Rollback all modifications of the exclusive write transaction. A failed rollback keeps mutations
    * and commits blocked until rollback successfully reconstructs the transaction. Calling rollback on
-   * a closed transaction is rejected before recovery handling. Lifecycle calls from this resource's
+   * a closed transaction is rejected before recovery handling. Lifecycle calls from this database's
    * commit hooks/listeners are rejected with IllegalStateException before locking.
    *
    * @return NodeTrx return current instance

@@ -1723,7 +1723,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public RevisionRootPage loadRevRoot(final int revisionKey) {
     // Pipelined async commit: revision N's root exists canonically in memory after phase 1 but
     // is neither published (lastCommittedUberPage) nor recorded in the revisions file until the
-    // background hardening completes. Serve it from the session's pending slot.
+    // background hardening completes. Only writer readers with intent logs may use the pending
+    // slot; ordinary readers, including callback views, must resolve a durable root.
     final RevisionRootPage pendingRevisionRoot = trxIntentLog == null
         ? null
         : resourceSession.getPendingRevisionRoot(revisionKey);

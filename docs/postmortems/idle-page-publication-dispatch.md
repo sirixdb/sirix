@@ -1,5 +1,9 @@
 # Bug: idle page publications had no delivery boundary
 
+Historical review-round design: synchronous delivery and caller-visible listener failures below
+were superseded by the [database notification contract](../hooks.md). Recorded results apply
+only to that earlier implementation.
+
 - Fix / issue: review-idle-publication-dispatch; retained review-shared-retirement-reentrancy.
 - Symptom: a raw page truncate or bound page close admitted a listener completion onto an idle registered node writer. Sequential sibling-session cleanup waited for that completion before it could reach the publishing writer's next lifecycle operation.
 - Trigger: JSON/XML user sessions A/B, B's untimed writer commits revisions 1/2, then a raw page truncateTo(1) outside runLocked publishes to a listener. A.close waits before B.close can drain the notification. A bound raw page close has the same delivery gap.

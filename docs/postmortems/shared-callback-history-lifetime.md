@@ -1,5 +1,9 @@
 # Bug: shared callbacks outlived readers and history
 
+Historical review-round design: the resource completion fence and lock order below were
+superseded by the [database notification contract](../hooks.md). Recorded results apply only
+to that earlier implementation.
+
 - Fix / issue: review-callback-scope and review-truncate-view, following R16.
 - Symptom: closing reader-owner session A could retire cursors still used by a notification dispatched by B; truncation could remove pages still visible to a revision-pinned post-hook. Final-session standalone notifications ran after closure and could not open permitted independent readers.
 - Trigger: two user sessions share revision listeners; pause a listener borrowing A's direct/shared/page reader while B publishes and A closes. Separately pause a timed writer's revision-2 hook before distant-page navigation and call truncateTo(1).
