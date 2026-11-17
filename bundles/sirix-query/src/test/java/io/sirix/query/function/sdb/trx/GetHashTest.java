@@ -22,19 +22,19 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
-public final class GetHashTest {
+final class GetHashTest {
   @BeforeEach
-  public void setUp() {
+  void setUp() {
     JsonTestHelper.deleteEverything();
   }
 
   @AfterEach
-  public void tearDown() {
+  void tearDown() {
     JsonTestHelper.deleteEverything();
   }
 
   @Test
-  public void testHashNotNull() throws IOException {
+  void testHashNotNull() throws IOException {
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").hashKind(HashType.ROLLING).build());
 
@@ -68,7 +68,7 @@ public final class GetHashTest {
    * hashless resource reports {@code 0} rather than failing.
    */
   @Test
-  public void testHashIsZeroWithoutHashes() throws IOException {
+  void testHashIsZeroWithoutHashes() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
 
@@ -96,7 +96,7 @@ public final class GetHashTest {
   }
 
   @Test
-  public void testHashOfChildNode() throws IOException {
+  void testHashOfChildNode() throws IOException {
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").hashKind(HashType.ROLLING).build());
 

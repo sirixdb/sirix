@@ -141,3 +141,8 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   frontier for size gating. Test deletion-heavy histories after cold reopen with
   known surviving values and a hashed control through collection and registration.
   Evidence: [histogram deletion regression](postmortems/hash-default-consumers.md#follow-up-deleted-keys-are-not-a-sampling-population).
+
+- **Assert positive selection for every supported index kind.** CAS coverage and
+  no-index cases cannot detect a broken NAME lookup. Use persisted definitions as
+  the oracle for NAME/PATH/CAS priority, unmatched and empty paths, revisions and
+  cached lookups. Evidence: [statistics mutation coverage](postmortems/hash-default-consumers.md#ci-follow-up-name-index-selection-lacked-assertions).

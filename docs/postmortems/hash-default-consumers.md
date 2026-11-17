@@ -51,3 +51,59 @@ The follow-up excludes those unchanged methods and retains the changed construct
     -x :sirix-query:translatorThresholdLegacyTest
   ```
 - Lesson: a historical key frontier cannot substitute for a current sampling population; keep approximate size signals out of filters that can drop all valid observations. See [Lessons](../LESSONS.md).
+
+## CI follow-up: NAME index selection lacked assertions
+
+- Fix / issue: PR 1455, CI run 44152463888, changed-source PIT analysis.
+- Symptom: negating the nonempty-path check in `lookupIndexInfo` or the NAME-index
+  predicate in `matchIndexDef` still passed the selected statistics tests. Both mutants
+  were on lines included by formatting of the statistics provider.
+- Trigger: create a selective NAME index, then ask `getIndexInfo` for an included
+  field. Losing the leaf name or rejecting NAME definitions must lose that index.
+- Root cause: the tests asserted CAS selection and the absence of indexes, but had
+  no positive NAME-index assertion. The invariant is that index lookup must report
+  the highest-priority matching persisted definition (CAS, then PATH, then NAME),
+  without accepting unrelated names. It applies to latest and explicit revisions,
+  empty and nonempty paths, and cached and uncached lookups.
+- Why tests missed it: CAS lookup returns before NAME matching, while the no-index
+  case cannot distinguish correct NAME handling from rejecting every NAME index.
+- Regression tests: `SirixStatisticsProviderTest.indexInfoMatchesNamesAndPreservesIndexPriority`
+  creates known NAME, PATH and CAS definitions and asserts their independently known
+  matches, priority and unrelated-name rejection at latest and revision 2, including
+  a repeated cached lookup. `nameIndexDoesNotMatchAnEmptyPath` checks the empty-path
+  boundary with a NAME-only catalog at both revisions. The oracle is the persisted
+  definitions explicitly created by the fixture, not the provider's matching rule.
+- Lesson: cover every index kind with a positive selection assertion, not just
+  queries that return the right rows regardless of the selected access path. See
+  [Lessons](../LESSONS.md).
+
+Focused verification: 11 statistics tests, three `GetHashTest` cases and four
+core diff tests pass. An unsampled PIT run of `SirixStatisticsProvider` kills both
+CI-reported negations (`lookupIndexInfo:178`, bytecode index 48; `matchIndexDef:216`,
+bytecode index 36), with the new positive NAME assertions as the killing tests.
+Eight of ten mutants on the PR's formatted/changed lines are killed. The two
+additional boundary survivors are justified separately:
+
+| Method / line | Mutation | Justification |
+|---|---|---|
+| `lookupIndexInfo:178` | `path.getLength() > 0` to `>= 0` | Only an empty path differs. Neither version has a NAME leaf to match; a failing empty-tail access is caught by the existing lookup boundary and yields the same `NO_INDEX` result as the NAME-only empty-path regression. Nonempty paths execute the same tail access. |
+| `matchIndexDef:216` | `currentBestPriority > 2` to `>= 2` | Equality means a NAME index was already selected. The mutant can choose another matching NAME definition of the same priority. Both are valid access paths; the public contract specifies priority among index kinds, not a stable ID among equally ranked NAME indexes. CAS and PATH priorities still exclude NAME replacement. |
+
+The remaining undetected mutants in this unsampled whole-class run are on
+unchanged lines (cache lifecycle, failure fallbacks and prefix matching), advisory
+under the PR lane's documented criterion. Run-local reports and logs are under
+`build/ci-investigation/`; the unsampled invocation uses
+`:sirix-query:pitest -PprMutationModule=sirix-query`, an exact targets file containing
+`io.sirix.query.compiler.optimizer.stats.SirixStatisticsProvider`, and
+`-PprMutationTests=io.sirix.query.compiler.optimizer.stats.SirixStatisticsProviderTest*`.
+
+The Sonar maintainability report also includes three existing complex methods:
+`AbstractJsonPathWalker.replaceAstIfIndexApplicableImpl` (22),
+`DerefDescendantExpr.getLazySequence` (139), and
+`SirixTranslator.DescOrSelf.performStep` (77). Against base `ce56286b8`, each method's
+only change is replacing a stored-count read with `DocumentNodeCount.estimate`;
+their control flow and complexity are unchanged. They remain inherited findings,
+without suppressions or a traversal refactor in this CI repair. The reported
+unused import, redundant Jupiter visibility and ineffective builder `transient`
+modifiers are removed. CodeFactor's report returns HTTP 403 through both HTTP and
+the connected browser, so its specific findings could not be retrieved.

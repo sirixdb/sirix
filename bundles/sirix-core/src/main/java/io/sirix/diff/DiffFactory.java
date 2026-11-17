@@ -168,10 +168,10 @@ public final class DiffFactory {
     final ResourceSession<R, W> session;
 
     /** Start key of new revision. */
-    transient long newStartKey;
+    long newStartKey;
 
     /** Start key of old revision. */
-    transient long oldStartKey;
+    long oldStartKey;
 
     /** New revision. */
     final int newRev;
@@ -180,10 +180,10 @@ public final class DiffFactory {
     final int oldRev;
 
     /** Depth of "root" node in new revision. */
-    transient int newDepth;
+    int newDepth;
 
     /** Depth of "root" node in old revision. */
-    transient int oldDepth;
+    int oldDepth;
 
     /** Diff kind. */
     final DiffOptimized kind;
@@ -192,21 +192,21 @@ public final class DiffFactory {
     final Set<DiffObserver> observers;
 
     /** Kind of diff to invoke. */
-    transient DiffAlgorithm mDiffKind;
+    DiffAlgorithm mDiffKind;
 
     /**
      * Requested hash kind; see {@link #hashKind(HashType)} for the resource-level safety gate.
      */
-    transient HashType hashKind;
+    HashType hashKind;
 
     /** Set if the GUI is used. */
-    transient boolean isGUI = true;
+    boolean isGUI = true;
 
     /** Determines if subtrees are skipped after detecting an insert/delete... */
-    transient boolean skipSubtrees = false;
+    boolean skipSubtrees = false;
 
     /** The maximum depth. */
-    transient long oldMaxDepth;
+    long oldMaxDepth;
 
     /**
      * Constructor.
