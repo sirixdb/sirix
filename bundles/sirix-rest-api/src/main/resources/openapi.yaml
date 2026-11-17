@@ -1036,11 +1036,9 @@ components:
       description: |
         Node-hash kind for the new resource(s). `ROLLING` enables the
         `ETag`/`If-Match` optimistic-concurrency mechanism and `sdb:hash`
-        change detection; `NONE` (default) disables both. Enabling hashes also
-        leaves a trace of deleted values: an ancestor's stored hash depends on
-        its descendants' raw values, so a value removed later stays confirmable
-        from the revisions in which it existed. Prefer `NONE` for data that may
-        have to be erased.
+        subtree change detection; `NONE` (default) disables both. For the
+        privacy implications and remaining erasure limitations, see
+        [erasure preparation](https://github.com/sirixdb/sirix/blob/main/docs/ERASURE_PREPARATION.md).
       schema:
         type: string
         enum: [NONE, ROLLING, POSTORDER]

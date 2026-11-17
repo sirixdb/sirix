@@ -46,7 +46,7 @@ The design follows HFT-style high-performance principles: primitive types, minim
 - **Statistics Available**:
   - `PathNode.getReferences()` — count of actual nodes per path pattern
   - `PathSummaryReader.match()` / `getPCRsForPath()` — BitSet of matching path nodes
-  - `NodeReadOnlyTrx.getDescendantCount()`, `getChildCount()` — per-node statistics
+  - Per-node statistics follow the availability contracts in [NodeReadOnlyTrx](../bundles/sirix-core/src/main/java/io/sirix/api/NodeReadOnlyTrx.java); document-size estimates use [DocumentNodeCount](../bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/stats/DocumentNodeCount.java)
   - `IndexController` — index availability checks (`containsIndex`, `hasCASIndex`, `hasPathIndex`, `hasNameIndex`)
   - `IndexDef` — index definitions with commented-out `IndexStatistics` code (lines 158-161)
 
@@ -447,8 +447,7 @@ public interface StatisticsProvider {
                             String resourceName, int revision);
 
     /**
-     * Get total document size (number of nodes).
-     * Uses NodeReadOnlyTrx.getDescendantCount() from document root.
+     * Get a document-size estimate; see DocumentNodeCount for its availability contract.
      */
     long getTotalNodeCount(String databaseName, String resourceName, int revision);
 
@@ -586,22 +585,8 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
         }
     }
 
-    @Override
-    public long getTotalNodeCount(String databaseName, String resourceName, int revision) {
-        try {
-            final var resMgr = getSession(databaseName, resourceName);
-            if (resMgr == null) return -1L;
-
-            try (final var rtx = revision == -1
-                     ? resMgr.beginNodeReadOnlyTrx()
-                     : resMgr.beginNodeReadOnlyTrx(revision)) {
-                rtx.moveToDocumentRoot();
-                return rtx.getDescendantCount();
-            }
-        } catch (Exception e) {
-            return -1L;
-        }
-    }
+    // getTotalNodeCount: see SirixStatisticsProvider and DocumentNodeCount,
+    // the authoritative implementation of configuration-independent size estimates.
 
     @Override
     public double estimateValueSelectivity(Path<QNm> path, Atomic value, String comparator,

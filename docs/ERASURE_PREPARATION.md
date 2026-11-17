@@ -22,7 +22,9 @@ states what is and is not settled.
 
 Hashing stays available as an explicit, per-resource choice: `hashKind(HashType.ROLLING)` or
 `POSTORDER`, the `hashType` store option, `?hashType=ROLLING` on REST resource creation, or
-`-Dsirix.hashType=ROLLING` to restore the old default for a whole JVM.
+`-Dsirix.hashType=ROLLING` to restore the old Java default for a whole JVM. The query stores
+also accept the legacy `-DhashType` override, which takes precedence over `sirix.hashType` there.
+REST still defaults to `NONE` unless its creation request explicitly supplies `hashType`.
 
 An **existing** resource is not affected and needs no migration. The hash kind is persisted in the
 resource settings and read back on open, so a store created with rolling hashes keeps them and keeps
@@ -48,9 +50,9 @@ maintenance work on every commit.
 **Stored versus derived.** What `HashType.NONE` removes is the *stored* hash. A container
 (`ObjectNode`, `ArrayNode`) then reads back `0`. A primitive leaf, and an XML element, instead
 *derive* a hash from the record's own content when none is stored (`StringNode#getHash`,
-`ElementNode#getHash`), so `getHash()` and `sdb:hash` still answer non-zero there. That derivation
-is no residue: it is computed on demand from the value the caller already holds, it is written
-nowhere, and it aggregates nothing. The oracle in the section above needs the *container's* stored
+`ElementNode#getHash`), so `getHash()` and `sdb:hash` can still answer non-zero there. That derivation
+is no residue: it is computed on demand from the value the caller already holds, it is not
+persisted with `HashType.NONE`, and it aggregates nothing. The oracle in the section above needs the *container's* stored
 aggregate, which is exactly what is gone.
 
 ## What you give up by turning them on — and what you do not

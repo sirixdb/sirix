@@ -152,7 +152,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final boolean useDeweyIDs;
 
   /**
-   * Determines the hash type to use (default: rolling).
+   * Determines the hash type to use; see {@link ResourceConfiguration#DEFAULT_HASH_TYPE} for the
+   * default.
    */
   private final HashType hashType;
 
@@ -354,7 +355,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
 
     /**
-     * Determines the hash type to use (default: rolling).
+     * Determines the hash type to use; see {@link ResourceConfiguration#DEFAULT_HASH_TYPE} for the
+     * default.
      *
      * @param hashType the hash type
      * @return this builder instance

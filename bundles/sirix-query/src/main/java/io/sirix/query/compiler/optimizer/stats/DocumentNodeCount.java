@@ -34,7 +34,8 @@ public final class DocumentNodeCount {
    * keeps one, otherwise the resource's node-key frontier.
    *
    * @param rtx positioned read-only transaction
-   * @return a positive estimate, or {@code 0} for an empty resource
+   * @return the stored descendant count or historical node-key frontier; the frontier can remain
+   *         positive after all live nodes have been deleted
    */
   public static long estimate(final NodeReadOnlyTrx rtx) {
     final long descendants = rtx.getDescendantCount();

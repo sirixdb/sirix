@@ -195,10 +195,7 @@ public final class DiffFactory {
     transient DiffAlgorithm mDiffKind;
 
     /**
-     * Kind of hash. Defaults to the hash kind the diffed resource was created with, so a resource that
-     * stores no hashes never selects the hash-based shortcut. Setting it to {@link HashType#NONE}
-     * forces the full comparison on a hashed resource; the reverse is ignored (see
-     * {@code AbstractDiff}).
+     * Requested hash kind; see {@link #hashKind(HashType)} for the resource-level safety gate.
      */
     transient HashType hashKind;
 
@@ -316,7 +313,9 @@ public final class DiffFactory {
     }
 
     /**
-     * Set kind of hash. <strong>Must be the same as used for the database creation</strong>.
+     * Set the requested hash kind. Defaults to the diffed resource's hash kind. Setting
+     * {@link HashType#NONE} forces a full comparison even on a hashed resource; requesting hashes
+     * cannot enable the hash shortcut on a resource configured without them.
      *
      * @param kind {@link HashType} instance
      * @return this builder

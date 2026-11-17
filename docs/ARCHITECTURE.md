@@ -220,11 +220,10 @@ return {
 }
 ```
 
-The node key is stable across all revisions. `sdb:hash` requires a resource created with
-`hashKind(HashType.ROLLING)` or `POSTORDER` — node hashing is off by default
-([erasure preparation](ERASURE_PREPARATION.md)); on such a resource the incremental hash tree
-detects a changed subtree without walking it. Without hashes, use `jn:diff` or the stored
-revision-diff sidecars, which report the same changes by comparing the nodes.
+The node key is stable across all revisions. The `sdb:hash` comparison in this example
+requires node hashing to be enabled; see the [configuration and trade-offs](ERASURE_PREPARATION.md).
+For hashless resources, use `jn:diff`; stored change tracking and fallback behavior follow the
+[JSON revision-diff sidecar contract](DISK_FORMAT.md#json-revision-diff-sidecars).
 
 ---
 
@@ -2345,7 +2344,7 @@ per-resource backend selector.
 |--------|--------|---------|-------------|
 | `versioningApproach` | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | SLIDING_SNAPSHOT | Page versioning strategy |
 | `revisionsToRestore` | 1-N | 3 | Max page fragments to combine for reconstruction |
-| `hashKind` | NONE, ROLLING, POSTORDER | **NONE** | Per-node subtree hashing. Opt in for `sdb:hash` change detection, stored descendant counts, the hash-optimized diff route and the REST `ETag`/`If-Match` mechanism; it costs hash maintenance on every commit and leaves a confirmable trace of deleted values ([erasure preparation](ERASURE_PREPARATION.md)). `-Dsirix.hashType` overrides the default for a whole JVM. |
+| `hashKind` | NONE, ROLLING, POSTORDER | **NONE** | Per-node subtree hashing; see [configuration and trade-offs](ERASURE_PREPARATION.md). |
 | `buildPathSummary` | true/false | true | Enable path summary |
 
 ---
