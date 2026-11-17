@@ -1,5 +1,10 @@
 # Bug: async hooks shared the lock-free writer cursor
 
+Historical review-round design: revision-pinned views remain, but the outer-unlock delivery
+and node completion accounting below were superseded by the
+[database notification contract](../hooks.md). Recorded verification and benchmarks apply
+to the earlier implementation.
+
 - Fix / issue: lifecycle audit R15; retained R11/review-1 and R13 contracts.
 - Symptom: a post-hook navigating from numeric A to B could redirect a count-only JSON setter to B, silently changing the wrong node.
 - Trigger: KEEP_OPEN_ASYNC_COMMIT with no timer has no mutation lock. Hardening completion dispatches a hook while foreground successor mutations continue; the old callback reservation was not consulted by these operations or their no-op runLocked wrapper.

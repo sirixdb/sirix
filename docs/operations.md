@@ -482,15 +482,8 @@ For deeper context, see:
 
 ## Commit callbacks and lifecycle calls
 
-[Database hooks](hooks.md) defines the callback contract and lock order. Pre-hooks run synchronously
-inside the transaction and may veto publication. Post-hooks and revision listeners run on a dedicated
-per-database dispatcher after durability, with independent committed-revision read scopes. Commit and
-writer close do not wait for delivery; same-database callback lifecycle calls reject before locks.
-
-Handle/session/database close and destructive truncation stop admission and wait up to
-`sirix.notifications.closeTimeoutMillis` (default 5000). Queued notifications may be dropped with a
-warning. A live callback at the deadline causes an explicit timeout with its readers and backend
-ownership retained for retry. Configure notification handlers to terminate, and retry close after
-callback completion. Independent databases remain usable from callbacks. See
-[ResourceSession.close()](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java)
-and the [async ownership design](ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership).
+See [Database hooks](hooks.md) for callback timing, lifecycle restrictions, notification timeout
+configuration and retained-owner retry. Session cleanup is defined by
+[ResourceSession.close()](../bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java);
+storage worker ownership is covered by the
+[async ownership design](ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership).

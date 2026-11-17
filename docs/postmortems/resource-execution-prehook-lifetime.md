@@ -1,5 +1,9 @@
 # Bug: retirement missed sibling execution and pre-hooks
 
+Historical review-round design: the shared completion mechanism below was superseded by
+the [database notification contract](../hooks.md). Recorded results describe that earlier
+implementation, including its resource-scoped callback ownership.
+
 - Fix / issue: review-shared-retirement-reentrancy and review-prehook-lifetime.
 - Symptom: A.close could wait for a post-hook queued by B while the caller still held B's outer execution lock; alternatively A.close could retire an independent reader still used by B's pre-hook.
 - Trigger: same-resource user sessions A/B; timed B writer commits inside runLocked and then closes A or directly truncates its page writer. Separately pause B's pre-hook before publication while it uses A's direct/shared/page reader, and start A.close.

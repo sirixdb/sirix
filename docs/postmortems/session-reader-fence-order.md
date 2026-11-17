@@ -1,5 +1,9 @@
 # Bug: initial reader cleanup preceded callback completion
 
+Historical review-round design: the node callback-completion fence below was superseded
+by bounded database retirement before owner cleanup; see the
+[database notification contract](../hooks.md). Recorded results apply to that earlier implementation.
+
 - Fix / issue: lifecycle audit V05/V06, R16; starting head 9683e47b.
 - Symptom: session close could release an ordinary reader's page guard while a started revision listener still navigated that reader.
 - Trigger: a listener opens/navigates a direct or shared reader before close snapshots ownership. The identity-backed snapshot visits that reader before its node writer, so reader close runs before writer abort reaches the callback completion fence.

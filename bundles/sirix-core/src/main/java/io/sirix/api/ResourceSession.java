@@ -444,9 +444,11 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   int getRevisionNumber(Instant pointInTime, int revisionCeiling);
 
   /**
-   * Stop notification admission and drain callbacks only to the configured deadline. Queued work may
-   * be abandoned at close; a live callback causes a timeout with its dependent readers/storage
-   * retained for retry. Same-database callback reentry rejects before any lock or closing wait.
+   * Close this session's transactions, aborting uncommitted writes after fencing their storage
+   * workers. Independent cleanup continues after a failure; the first failure is preserved and later
+   * failures are suppressed. Unfinished owners and their dependencies remain reachable for retry.
+   * Successful close is idempotent. See {@link PostCommitHook#postCommit(NodeReadOnlyTrx)} for
+   * notification drain, timeout and callback reentry rules.
    *
    * @throws IllegalStateException if invoked from a callback of this database
    */

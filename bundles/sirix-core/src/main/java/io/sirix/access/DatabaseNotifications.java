@@ -67,6 +67,8 @@ public final class DatabaseNotifications implements AutoCloseable {
     }
   }
 
+  // Conversion validates representability before publishing the timeout to lifecycle callers.
+  @SuppressWarnings("ReturnValueIgnored")
   public void setCloseTimeout(final Duration timeout) {
     Objects.requireNonNull(timeout);
     if (timeout.isZero() || timeout.isNegative()) {
