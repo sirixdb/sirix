@@ -4,6 +4,7 @@
 package io.sirix.index.hot.page;
 
 import io.sirix.page.PagePersister;
+import io.sirix.page.HOTLeafPayloadCodec;
 import io.sirix.page.PageReference;
 import io.sirix.page.PageUtils;
 import io.sirix.page.SerializationType;
@@ -182,7 +183,7 @@ final class HOTProjectionImageTest {
   void fixedWordDirectoryOwnsAndAccountsEverySignedKeyAndRelocatedValueRange() throws IOException {
     final long[] keys =
         {Long.MIN_VALUE, Long.MIN_VALUE + 1, -129, -128, -1, 0, 1, 127, 128, 65_535, 1L << 46, Long.MAX_VALUE};
-    final byte[] dense = wordWire(keys);
+    final byte[] dense = HOTLeafPayloadCodec.expandImage(wordWire(keys), 1);
     final ByteArrayBytesIn input = new ByteArrayBytesIn(dense);
     input.position(3);
     Utils.getVarLong(input);

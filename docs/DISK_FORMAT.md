@@ -286,6 +286,84 @@ not a blanket rule for opaque overflow payloads or bounded record/HOT-leaf reads
 `PageEnvelopeContractTest` pins the skip/refuse, boundary and rewrite rules;
 `LegacyEnvelopeImagesTest` uses immutable base-writer images for every active page kind.
 
+### HOT leaf payload codecs (kind 12, V0)
+
+Kind 12 assigns required envelope bit `0x02` to a compressed slot payload. Bit
+`0x01` still selects the complete side-reference trailer; both bits may coexist
+with the shared extension block. The page key, revision, index type, common
+prefix, signed entry-count/complete-dump word, decoded slot-byte count and slot
+offset directory retain their raw V0 layout. With `0x02` clear, the slot bytes
+are unchanged. With it set, replace only those bytes with:
+
+```
+[storedLength i32 LE][codec u8][encoded bytes: storedLength]
+```
+
+Codec 0 is the existing ZeroRunByteCodec frame (including its `ff` marker and
+unsigned decoded-size varint). Codec 1 is the existing LZ4 block format, without
+an additional size header. The optional side-reference trailer follows the
+encoded bytes and is never part of the codec frame. Offsets refer to decoded
+slots. Full, packed and sparse fragments have identical codec semantics.
+
+Writers compare both available codecs for each page, including the five-byte
+framing cost, and keep raw bytes unless compression is strictly smaller. Equal
+compressed sizes prefer zero-run. Native LZ4 availability affects writing only;
+the existing Java LZ4 decoder keeps codec-1 pages portable. Empty payloads remain
+raw. `-Dsirix.page.hotLeaf.compress=false` selects the raw writer for diagnostic
+A/B runs; it never disables reading encoded pages. No mutable source-page state
+changes during serialization. The same store may contain raw, zero-run and LZ4
+leaves across revisions. Older readers refuse
+the newly assigned required flag rather than interpreting compressed bytes as
+slots; new readers retain compatibility with old raw pages.
+
+Readers bound decoded slots to 65,536 bytes and entries to 512 before allocation.
+An encoded frame must have a positive stored length within the remaining input,
+a stored length no larger than the maximum zero-run frame for 65,536 bytes,
+a known codec, consume exactly its declared bytes and produce exactly the
+header's decoded length. Truncated headers/frames, invalid runs or match offsets,
+trailing codec bytes and decoded-length mismatches are errors; an unpublished
+leaf's native allocation is released on failure. The following side trailer or
+page must not be consumed by a malformed codec frame. Checksums retain their
+existing responsibility for detecting otherwise valid payload modifications.
+
+Decoded leaf memory and cached projection images retain their existing raw
+layout: warm lookup performs no codec work. Projection images are expanded once
+before cache publication and charged by their actual retained bytes, bounded by
+the existing stored-image limit plus the maximum decoded slot payload.
+After per-thread scratch initialization, codec selection and decoding into an existing
+destination must allocate no additional heap objects per page. LZ4 selection uses
+separately borrowed native input/output scratch and passes primitive lengths with
+their base segments; no per-page segment slices are required. Cold projection
+expansion may allocate the retained raw image required by either encoding, but
+must reuse the compressed input buffer and parsing cursor. Uncached selection
+reuses its decoded slots and cursor; only the same owned value/reference result
+as a raw page may escape. A shorter frame following a longer frame must never
+read stale scratch bytes. Allocation tests compare raw and encoded owned results per key and per page;
+the standing GC-profiled gate compares encoded owned results with unchanged main.
+See `bundles/sirix-benchmarks/scripts/HOT_LEAF_CODEC_GATE.md` for the reproducible
+comparison and the diagnostic discard-only allocator case.
+
+LZ4 range decoding must not construct per-call segment views. A native adapter
+passes the existing LZ4 decoder's function pointer, the original source/destination
+segments and primitive offsets/lengths; pointer adjustment happens inside that
+adapter. The original segments remain FFM address arguments, retaining scope and
+thread-access checks throughout the downcall. The adapter adds no codec and makes
+no allocation. Without the adapter, the existing bounds-safe Java decoder handles
+the same ranges. Negative/out-of-bounds ranges, closed segments and read-only
+destinations are rejected before native writes. Nonzero offsets and sentinel bytes
+on both sides of the destination are pinned by tests. Escape-analysis-off allocation
+profiles must show no codec-only allocation sites, and each of five EA-on encoded
+forks must remain within 1 B/page of the unchanged-main maximum for the same fixture.
+
+Golden payload pins (hex; directory and page header omitted): eight zero slot
+bytes encode as `03 00 00 00 00 ff 08 86`; the corresponding raw payload is eight
+`00` bytes. An LZ4 literal-only frame for bytes `01 02 03 04` is
+`05 00 00 00 01 40 01 02 03 04` (readable although a writer keeps this raw).
+Tests must independently pin these bytes, codec selection including ties/raw
+fallback, both byte-array and native input, mixed raw/encoded streams, sparse
+and packed full images, side references, compact fragments, cached and uncached
+projection lookup, scratch reuse, and corrupt/truncated boundaries.
+
 **Format evolution mechanism:** unreleased node-record/page-body layouts currently evolve in
 place under V0. The hook for a future released-format version decision is `BinaryEncodingVersion`:
 every node/page (de)serializer receives the

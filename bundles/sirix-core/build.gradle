@@ -329,6 +329,7 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
     filter {
         includeTestsMatching 'io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest'
         includeTestsMatching 'io.sirix.budget.InlineSlotCopyAllocationBudgetTest'
+        includeTestsMatching 'io.sirix.page.HOTLeafCodecAllocationTest'
     }
 }
 
@@ -497,6 +498,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
     exclude 'io/sirix/budget/InlineSlotCopyAllocationBudgetTest*.class'
+    exclude 'io/sirix/page/HOTLeafCodecAllocationTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'

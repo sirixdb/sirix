@@ -4,6 +4,7 @@
 package io.sirix.index.hot.page;
 
 import io.sirix.page.PageKind;
+import io.sirix.page.HOTLeafPayloadCodec;
 import io.sirix.page.PageReference;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixCorruptionException;
@@ -41,6 +42,8 @@ public final class HOTProjectionImage {
   private final int used;
   private final int references;
   private final int referencesStart;
+  // Encoded input is borrowed only during a synchronous copy; only the expanded owned image escapes.
+  private static final ThreadLocal<byte[]> ENCODED_INPUT = ThreadLocal.withInitial(() -> new byte[MAX_BYTES]);
   private static final long[] NO_WORD_SLOTS = new long[0];
   private static final VarHandle WORD_SLOTS = wordSlotsHandle();
   private volatile long @Nullable [] wordSlots;
@@ -102,9 +105,20 @@ public final class HOTProjectionImage {
     if (length > MAX_BYTES) {
       return null;
     }
-    final byte[] bytes = new byte[(int) length];
-    source.read(bytes);
-    return new HOTProjectionImage(bytes, 0);
+    final long start = source.position();
+    boolean encoded = false;
+    if (length > 1) {
+      source.position(start + 1);
+      encoded = (source.readByte() & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0;
+      source.position(start);
+    }
+    final byte[] bytes = encoded
+        ? ENCODED_INPUT.get()
+        : new byte[(int) length];
+    source.read(bytes, 0, (int) length);
+    return new HOTProjectionImage(encoded
+        ? HOTLeafPayloadCodec.expandImage(bytes, 0, (int) length)
+        : bytes, 0);
   }
 
   /**
@@ -120,10 +134,15 @@ public final class HOTProjectionImage {
     if (source.remaining() < 1 || source.remaining() > MAX_BYTES) {
       throw new IllegalArgumentException("Complete projection image exceeds its bounded frame size");
     }
-    final byte[] bytes = new byte[source.remaining()];
-    source.get(source.position(), bytes);
+    final int length = source.remaining();
+    final boolean encoded =
+        length > 2 && (source.get(source.position() + 2) & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0;
+    final byte[] bytes = encoded
+        ? ENCODED_INPUT.get()
+        : new byte[length];
+    source.get(source.position(), bytes, 0, length);
     if (configuration.verifyChecksumsOnRead && reference.hasHash()) {
-      final long actual = PageHasher.computeLong(bytes, configuration.hashAlgorithm);
+      final long actual = PageHasher.computeLong(bytes, 0, length, configuration.hashAlgorithm);
       final long expected = reference.getHashAsLong();
       if (actual != expected) {
         throw new SirixCorruptionException(reference.getKey(), "compressed", HashAlgorithm.longToBytes(expected),
@@ -133,7 +152,9 @@ public final class HOTProjectionImage {
     if (PageKind.getKind(bytes[0]) != PageKind.HOT_LEAF_PAGE) {
       throw new IllegalStateException("Complete projection image is not a HOT leaf");
     }
-    return new HOTProjectionImage(bytes, 1);
+    return new HOTProjectionImage(encoded
+        ? HOTLeafPayloadCodec.expandImage(bytes, 1, length)
+        : bytes, 1);
   }
 
   public @Nullable HOTLeafEntry select(final byte[] key, final long sideReferenceKey) {

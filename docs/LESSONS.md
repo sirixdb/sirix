@@ -146,3 +146,37 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   no-index cases cannot detect a broken NAME lookup. Use persisted definitions as
   the oracle for NAME/PATH/CAS priority, unmatched and empty paths, revisions and
   cached lookups. Evidence: [statistics mutation coverage](postmortems/hash-default-consumers.md#ci-follow-up-name-index-selection-lacked-assertions).
+### Logical codec bounds
+
+When codec input uses reusable scratch, test every truncated frame length while
+leaving the complete valid frame in the backing array. Run the same adversarial
+contract against every output overload: bounds against array capacity alone can
+silently consume stale bytes. Require exact input consumption and bound decoded
+output before any writes. See the [native zero-run postmortem](postmortems/2026-11-17-zero-run-native-frame-bounds.md).
+
+### Cold paths can change warm compilation
+
+When adding a cold codec, include its setup work in fresh-process warm lookup
+benchmarks. Heap-backed foreign-memory scalar accesses can alter process-wide
+receiver profiles and slow unchanged native lookup methods. Keep heap parsing
+on array accessors and native FFM paths native-only; verify compiled shape as
+well as allocations. See the [leaf-codec postmortem](postmortems/2026-11-17-leaf-codec-receiver-profiles.md).
+
+### Measure allocation at each cold entry point
+
+A zero-allocation warm lookup does not establish an allocation-free codec.
+Compare raw and encoded arms for encoder selection, decode into existing storage,
+full/compact materialization, image creation and uncached selection. Reuse input
+arrays **and** parsing cursors. A native view eliminated in a standalone
+helper may still allocate in a larger caller; use JFR stacks to verify whole
+entry points and remove avoidable view construction instead of assuming escape
+analysis will remove it. When instrumentation changes the result, disable escape analysis for the allocation-site comparison. Gate every fresh fork, rather than only the mean. Pass owning base segments and primitive offsets through an adapter instead of replacing checked FFM arguments with raw addresses. Compare unchanged main with owned-result fixtures. When substituting scratch for an exact array, test every logical
+truncation after a valid longer frame and verify previously published images
+remain independent. See the [codec allocation postmortem](postmortems/2026-11-17-leaf-codec-allocation.md).
+
+### Move conditional native resources with their loader
+
+A loader refactor must update native-image `typeReached` resource conditions as
+well as Java calls. JVM tests do not apply those conditions. Pin the resource's
+actual loading type in a packaging regression, and keep downcall descriptors in
+sync with adapter signatures. See the [resource reachability postmortem](postmortems/2026-11-17-native-codec-resource-reachability.md).

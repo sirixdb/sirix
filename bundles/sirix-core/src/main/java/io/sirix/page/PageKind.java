@@ -87,7 +87,9 @@ import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import io.sirix.node.BytesOut;
 import io.sirix.node.BytesIn;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.MemorySegmentBytesIn;
+import io.sirix.node.MemorySegmentBytesOut;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -5863,105 +5865,19 @@ public enum PageKind {
     @Override
     public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink, Page page,
         SerializationType type) {
-      final HOTLeafPage hotLeaf = (HOTLeafPage) page;
-      final VersioningType versioningType = resourceConfig.versioningType;
-      final boolean sparseEmit =
-          versioningType != VersioningType.FULL && hotLeaf.getCompletePageRef() != null && hotLeaf.hasDirty();
-
-      // Segment-reference side map (projection segment pages, see
-      // docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3/§2.4). EVERY fragment —
-      // sparse or full — serializes the COMPLETE map: the writer-side page
-      // always holds the authoritative current map (copy() carries it across
-      // CoW; puts/removes mutate it), so the newest fragment is authoritative
-      // and the fragment merge never unions older fragments' refs (which
-      // would resurrect removed segments).
-      final boolean hasSegmentRefs = hotLeaf.segmentRefCount() > 0;
-
-      sink.writeByte(HOT_LEAF_PAGE.id);
-      writeVersionAndFlags(sink, hasSegmentRefs
-          ? HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS
-          : 0);
-
-      // Write header
-      Utils.putVarLong(sink, hotLeaf.getPageKey());
-      sink.writeInt(hotLeaf.getRevision());
-      sink.writeByte(hotLeaf.getIndexType().getID());
-
-      // Write common prefix
-      final byte[] prefix = hotLeaf.getCommonPrefix();
-      final int prefixLen = hotLeaf.getCommonPrefixLen();
-      sink.writeShort((short) prefixLen);
-      if (prefixLen > 0) {
-        sink.write(prefix, 0, prefixLen);
-      }
-
-      if (sparseEmit) {
-        final int dirtyCount = hotLeaf.getDirtyEntryCount();
-        final int dirtyUsed = hotLeaf.getDirtyEntriesUsedSize();
-        final int encodedDirtyCount = hotLeaf.isCompleteDump()
-            ? dirtyCount | 0x80000000
-            : dirtyCount;
-        sink.writeInt(encodedDirtyCount);
-        sink.writeInt(dirtyUsed);
-
-        if (dirtyCount == 0) {
-          if (hasSegmentRefs) {
-            serializeSegmentRefs(sink, hotLeaf);
-          }
-          return;
-        }
-
-        serializeSparseHOTLeafEntries(sink, hotLeaf, dirtyCount, dirtyUsed);
-        if (hasSegmentRefs) {
-          serializeSegmentRefs(sink, hotLeaf);
-        }
+      if (!HOT_LEAF_COMPRESSION_ENABLED) {
+        serializeRawHOTLeaf(resourceConfig, sink, (HOTLeafPage) page);
         return;
       }
-
-      final int entryCount = hotLeaf.getEntryCount();
-      final int usedSize = hotLeaf.getUsedSlotsSize();
-      final MemorySegment slots = hotLeaf.slots();
-      int liveSize = 0;
-      for (int i = 0; i < entryCount; i++) {
-        final int offset = hotLeaf.getSlotOffset(i);
-        final int size = hotLeaf.getSlotSize(i);
-        if (offset < 0 || size <= 0 || offset > usedSize - size) {
-          throw new IllegalStateException("Invalid full HOT-leaf slot " + i + ": offset=" + offset + ", size=" + size
-              + ", usedSlotBytes=" + usedSize);
-        }
-        liveSize = Math.addExact(liveSize, size);
-      }
-      if (liveSize > usedSize || usedSize > slots.byteSize()) {
-        throw new IllegalStateException("Invalid full HOT-leaf payload: live=" + liveSize + ", used=" + usedSize
-            + ", capacity=" + slots.byteSize());
-      }
-      final int encodedFullCount = hotLeaf.isCompleteDump()
-          ? entryCount | 0x80000000
-          : entryCount;
-      sink.writeInt(encodedFullCount);
-      sink.writeInt(liveSize);
-
-      if (liveSize == usedSize) {
-        // Already dense: preserve the physical order and copy in one bulk write.
-        for (int i = 0; i < entryCount; i++) {
-          sink.writeInt(hotLeaf.getSlotOffset(i));
-        }
-        sink.writeSegment(slots, 0L, usedSize);
-      } else {
-        // Growing/shrinking replacements and deletes leave retired records below the high-water
-        // mark. Pack only the serialized image; the source's offsets, dirty bits and native ownership
-        // must remain unchanged. Direct segment ranges need neither scratch nor per-slot arrays.
-        int packedOffset = 0;
-        for (int i = 0; i < entryCount; i++) {
-          sink.writeInt(packedOffset);
-          packedOffset += hotLeaf.getSlotSize(i);
-        }
-        for (int i = 0; i < entryCount; i++) {
-          sink.writeSegment(slots, hotLeaf.getSlotOffset(i), hotLeaf.getSlotSize(i));
-        }
-      }
-      if (hasSegmentRefs) {
-        serializeSegmentRefs(sink, hotLeaf);
+      final MemorySegmentBytesOut raw = HOT_LEAF_WRITE_SCRATCH.get();
+      raw.clear();
+      final HOTLeafPage leaf = (HOTLeafPage) page;
+      PageKind.serializeRawHOTLeaf(resourceConfig, raw, leaf, false);
+      // Keep heap scratch off the shared native scalar accessors (see PageLayout's header contract).
+      HOTLeafPayloadCodec.writePage(sink, (byte[]) raw.baseSegment().heapBase().orElseThrow(),
+          Math.toIntExact(raw.position()));
+      if (leaf.segmentRefCount() > 0) {
+        serializeSegmentRefs(sink, leaf);
       }
     }
   },
@@ -6577,6 +6493,122 @@ public enum PageKind {
   /** Tiny introsort partitions are faster as a branch-light in-place insertion pass. */
   private static final int HOT_LEAF_SIDE_REFERENCE_INSERTION_SORT_THRESHOLD = 24;
 
+  /** Diagnostic A/B switch; readers always accept both raw and encoded leaves. */
+  private static final boolean HOT_LEAF_COMPRESSION_ENABLED =
+      Boolean.parseBoolean(System.getProperty("sirix.page.hotLeaf.compress", "true"));
+
+  private static final ThreadLocal<MemorySegmentBytesOut> HOT_LEAF_WRITE_SCRATCH =
+      ThreadLocal.withInitial(() -> MemorySegmentBytesOut.synchronousScratch(HOTLeafPage.DEFAULT_SIZE + 4096));
+
+  /** Raw V0 encoder shared by compression and legacy-format differential tests. */
+  static void serializeRawHOTLeaf(final ResourceConfiguration resourceConfig, final BytesOut<?> sink,
+      final HOTLeafPage hotLeaf) {
+    serializeRawHOTLeaf(resourceConfig, sink, hotLeaf, true);
+  }
+
+  private static void serializeRawHOTLeaf(final ResourceConfiguration resourceConfig, final BytesOut<?> sink,
+      final HOTLeafPage hotLeaf, final boolean includeSideRefs) {
+    final VersioningType versioningType = resourceConfig.versioningType;
+    final boolean sparseEmit =
+        versioningType != VersioningType.FULL && hotLeaf.getCompletePageRef() != null && hotLeaf.hasDirty();
+
+    // Segment-reference side map (projection segment pages, see
+    // docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3/§2.4). EVERY fragment —
+    // sparse or full — serializes the COMPLETE map: the writer-side page
+    // always holds the authoritative current map (copy() carries it across
+    // CoW; puts/removes mutate it), so the newest fragment is authoritative
+    // and the fragment merge never unions older fragments' refs (which
+    // would resurrect removed segments).
+    final boolean hasSegmentRefs = hotLeaf.segmentRefCount() > 0;
+
+    sink.writeByte(HOT_LEAF_PAGE.id);
+    writeVersionAndFlags(sink, hasSegmentRefs
+        ? HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS
+        : 0);
+
+    // Write header
+    Utils.putVarLong(sink, hotLeaf.getPageKey());
+    sink.writeInt(hotLeaf.getRevision());
+    sink.writeByte(hotLeaf.getIndexType().getID());
+
+    // Write common prefix
+    final byte[] prefix = hotLeaf.getCommonPrefix();
+    final int prefixLen = hotLeaf.getCommonPrefixLen();
+    sink.writeShort((short) prefixLen);
+    if (prefixLen > 0) {
+      sink.write(prefix, 0, prefixLen);
+    }
+
+    if (sparseEmit) {
+      final int dirtyCount = hotLeaf.getDirtyEntryCount();
+      final int dirtyUsed = hotLeaf.getDirtyEntriesUsedSize();
+      final int encodedDirtyCount = hotLeaf.isCompleteDump()
+          ? dirtyCount | 0x80000000
+          : dirtyCount;
+      sink.writeInt(encodedDirtyCount);
+      sink.writeInt(dirtyUsed);
+
+      if (dirtyCount == 0) {
+        if (hasSegmentRefs && includeSideRefs) {
+          serializeSegmentRefs(sink, hotLeaf);
+        }
+        return;
+      }
+
+      serializeSparseHOTLeafEntries(sink, hotLeaf, dirtyCount, dirtyUsed);
+      if (hasSegmentRefs && includeSideRefs) {
+        serializeSegmentRefs(sink, hotLeaf);
+      }
+      return;
+    }
+
+    final int entryCount = hotLeaf.getEntryCount();
+    final int usedSize = hotLeaf.getUsedSlotsSize();
+    final MemorySegment slots = hotLeaf.slots();
+    int liveSize = 0;
+    for (int i = 0; i < entryCount; i++) {
+      final int offset = hotLeaf.getSlotOffset(i);
+      final int size = hotLeaf.getSlotSize(i);
+      if (offset < 0 || size <= 0 || offset > usedSize - size) {
+        throw new IllegalStateException("Invalid full HOT-leaf slot " + i + ": offset=" + offset + ", size=" + size
+            + ", usedSlotBytes=" + usedSize);
+      }
+      liveSize = Math.addExact(liveSize, size);
+    }
+    if (liveSize > usedSize || usedSize > slots.byteSize()) {
+      throw new IllegalStateException(
+          "Invalid full HOT-leaf payload: live=" + liveSize + ", used=" + usedSize + ", capacity=" + slots.byteSize());
+    }
+    final int encodedFullCount = hotLeaf.isCompleteDump()
+        ? entryCount | 0x80000000
+        : entryCount;
+    sink.writeInt(encodedFullCount);
+    sink.writeInt(liveSize);
+
+    if (liveSize == usedSize) {
+      // Already dense: preserve the physical order and copy in one bulk write.
+      for (int i = 0; i < entryCount; i++) {
+        sink.writeInt(hotLeaf.getSlotOffset(i));
+      }
+      sink.writeSegment(slots, 0L, usedSize);
+    } else {
+      // Growing/shrinking replacements and deletes leave retired records below the high-water
+      // mark. Pack only the serialized image; the source's offsets, dirty bits and native ownership
+      // must remain unchanged. Direct segment ranges need neither scratch nor per-slot arrays.
+      int packedOffset = 0;
+      for (int i = 0; i < entryCount; i++) {
+        sink.writeInt(packedOffset);
+        packedOffset += hotLeaf.getSlotSize(i);
+      }
+      for (int i = 0; i < entryCount; i++) {
+        sink.writeSegment(slots, hotLeaf.getSlotOffset(i), hotLeaf.getSlotSize(i));
+      }
+    }
+    if (hasSegmentRefs && includeSideRefs) {
+      serializeSegmentRefs(sink, hotLeaf);
+    }
+  }
+
   /**
    * Emit sparse slot offsets and payload in two bitmap passes. The old path first copied both into a
    * per-spill {@code int[]} and {@code byte[]}; writing offsets in pass one and exact slot segment
@@ -6900,6 +6932,14 @@ public enum PageKind {
     return flags;
   }
 
+  private static final class HOTProjectionDecodeScratch {
+    private final byte[] bytes = new byte[HOTLeafPage.DEFAULT_SIZE];
+    private final ByteArrayBytesIn source = new ByteArrayBytesIn(bytes);
+  }
+
+  private static final ThreadLocal<HOTProjectionDecodeScratch> HOT_PROJECTION_DECODE_SCRATCH =
+      ThreadLocal.withInitial(HOTProjectionDecodeScratch::new);
+
   /**
    * Inspect the existing self-contained wire image while its verified input is borrowed. Binary
    * search reads only bounded slot headers; the side trailer is streamed without creating a map. Only
@@ -6908,7 +6948,7 @@ public enum PageKind {
   static @Nullable HOTLeafEntry deserializeHOTProjectionEntry(final BytesIn<?> source, final byte[] key,
       final long sideReferenceKey) {
     Objects.requireNonNull(key);
-    final byte flags = readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
+    final byte flags = readVersionAndFlagsAllowing(source, HOTLeafPayloadCodec.ALLOWED_FLAGS);
     final long pageKey = Utils.getVarLong(source);
     final int revision = source.readInt();
     if (pageKey < 0 || revision < 0 || IndexType.getType(source.readByte()) != IndexType.PROJECTION) {
@@ -6922,12 +6962,30 @@ public enum PageKind {
     }
     final int count = source.readInt() & Integer.MAX_VALUE;
     final int used = source.readInt();
+    final boolean encoded = (flags & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0;
     if (count > HOTLeafPage.MAX_ENTRIES || used < 0 || used > HOTLeafPage.DEFAULT_SIZE
-        || (long) count * Integer.BYTES + used > source.remaining()) {
+        || (long) count * Integer.BYTES + (encoded
+            ? 5
+            : used) > source.remaining()) {
       throw new IllegalStateException("Invalid projection leaf dimensions");
     }
     final long offsets = source.position();
-    final long slots = offsets + (long) count * Integer.BYTES;
+    final long payload = offsets + (long) count * Integer.BYTES;
+    final BytesIn<?> slotSource;
+    final long slots;
+    final long trailer;
+    if (encoded) {
+      source.position(payload);
+      final HOTProjectionDecodeScratch decoded = HOT_PROJECTION_DECODE_SCRATCH.get();
+      HOTLeafPayloadCodec.decodeHeap(source, decoded.bytes, 0, used);
+      slotSource = decoded.source;
+      slots = 0;
+      trailer = source.position();
+    } else {
+      slotSource = source;
+      slots = payload;
+      trailer = slots + used;
+    }
     byte[] value = null;
     if (prefixMatches) {
       int low = 0;
@@ -6939,16 +6997,16 @@ public enum PageKind {
         if (offset < 0 || offset > used - 2 * Short.BYTES) {
           throw new IllegalStateException("Invalid projection slot offset");
         }
-        source.position(slots + offset);
-        final int suffixLength = Short.toUnsignedInt(source.readShort());
+        slotSource.position(slots + offset);
+        final int suffixLength = Short.toUnsignedInt(slotSource.readShort());
         if (suffixLength > used - offset - 2 * Short.BYTES) {
           throw new IllegalStateException("Invalid projection slot key length");
         }
-        final long suffix = source.position();
+        final long suffix = slotSource.position();
         final int wanted = key.length - prefixLength;
         int comparison = 0;
         for (int i = 0, length = Math.min(suffixLength, wanted); i < length; i++) {
-          comparison = (source.readByte() & 255) - (key[prefixLength + i] & 255);
+          comparison = (slotSource.readByte() & 255) - (key[prefixLength + i] & 255);
           if (comparison != 0) {
             break;
           }
@@ -6961,18 +7019,18 @@ public enum PageKind {
         } else if (comparison > 0) {
           high = middle - 1;
         } else {
-          source.position(suffix + suffixLength);
-          final int length = Short.toUnsignedInt(source.readShort());
-          if (length > slots + used - source.position()) {
+          slotSource.position(suffix + suffixLength);
+          final int length = Short.toUnsignedInt(slotSource.readShort());
+          if (length > slots + used - slotSource.position()) {
             throw new IllegalStateException("Invalid projection slot value length");
           }
           value = new byte[length];
-          source.read(value);
+          slotSource.read(value);
           break;
         }
       }
     }
-    source.position(slots + used);
+    source.position(trailer);
     PageReference side = null;
     if ((flags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) != 0) {
       final long references = Utils.getVarLong(source);
@@ -7006,7 +7064,8 @@ public enum PageKind {
 
   private static HOTLeafPage deserializeHOTLeaf(final BytesIn<?> source,
       final ByteHandler.DecompressionResult decompressionResult, final boolean compactFragment) {
-    final byte envelopeFlags = readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
+    final byte envelopeFlags = readVersionAndFlagsAllowing(source, HOTLeafPayloadCodec.ALLOWED_FLAGS);
+    final boolean encodedPayload = (envelopeFlags & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0;
 
     // Read header
     final long recordPageKey = Utils.getVarLong(source);
@@ -7047,7 +7106,7 @@ public enum PageKind {
     // instead of stranding either its transferred decompression frame or its copying-path frame.
     final MemorySegmentAllocator allocator = Allocators.getInstance();
     final boolean canZeroCopy =
-        !compactFragment && decompressionResult != null && source instanceof MemorySegmentBytesIn;
+        !encodedPayload && !compactFragment && decompressionResult != null && source instanceof MemorySegmentBytesIn;
     Runnable acquiredFrameOwner = null;
     HOTLeafPage page = null;
     try {
@@ -7066,7 +7125,9 @@ public enum PageKind {
         // referenced, including by unguarded readers. Native storage keeps the shared leaf accessors
         // on the native-only path; see PageLayout#getBitmapWord(byte[], int).
         final MemorySegment owned = GcOwnedNativeMemory.allocate(usedSlotMemorySize);
-        if (source instanceof MemorySegmentBytesIn segmentSource) {
+        if (encodedPayload) {
+          HOTLeafPayloadCodec.decode(source, owned, usedSlotMemorySize);
+        } else if (source instanceof MemorySegmentBytesIn segmentSource) {
           MemorySegment.copy(segmentSource.getSource(), source.position(), owned, 0L, usedSlotMemorySize);
           source.skip(usedSlotMemorySize);
         } else {
@@ -7091,7 +7152,9 @@ public enum PageKind {
         acquiredFrameOwner = allocatedFrameOwner;
         slotMemory = Objects.requireNonNull(allocator.allocate(HOTLeafPage.DEFAULT_SIZE));
         allocatedFrameOwner.bind(slotMemory);
-        if (source instanceof MemorySegmentBytesIn msSource) {
+        if (encodedPayload) {
+          HOTLeafPayloadCodec.decode(source, slotMemory, usedSlotMemorySize);
+        } else if (source instanceof MemorySegmentBytesIn msSource) {
           MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, usedSlotMemorySize);
           source.skip(usedSlotMemorySize);
         } else {

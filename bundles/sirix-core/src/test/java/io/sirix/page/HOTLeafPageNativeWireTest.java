@@ -198,12 +198,12 @@ final class HOTLeafPageNativeWireTest {
     HOTLeafPage coldPage = null;
 
     try {
-      PageKind.HOT_LEAF_PAGE.serializePage(config, sink, page, SerializationType.DATA);
+      PageKind.serializeRawHOTLeaf(config, sink, page);
       final byte[] firstWire = sink.toByteArray();
 
       // The second pass reuses the already-sized sink: this is the recurring pinned-spill shape.
       sink.clear();
-      PageKind.HOT_LEAF_PAGE.serializePage(config, sink, page, SerializationType.DATA);
+      PageKind.serializeRawHOTLeaf(config, sink, page);
       assertEquals(firstWire.length, sink.position());
 
       // writeSegment is a synchronous copy, not an ownership hand-off. Reusing both source and sink
@@ -332,7 +332,7 @@ final class HOTLeafPageNativeWireTest {
   private static byte[] serialize(final ResourceConfiguration config, final MemorySegmentBytesOut sink,
       final HOTLeafPage page) {
     sink.clear();
-    PageKind.HOT_LEAF_PAGE.serializePage(config, sink, page, SerializationType.DATA);
+    PageKind.serializeRawHOTLeaf(config, sink, page);
     return sink.toByteArray();
   }
 
