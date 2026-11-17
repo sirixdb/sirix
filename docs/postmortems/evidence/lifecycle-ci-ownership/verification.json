@@ -1,0 +1,236 @@
+{
+  "head_under_review": "f39bc1cbd8bf33c534c2b09411fbdf80753fd2e1",
+  "platform": "Linux; macOS and Windows CI not rerun by this phase",
+  "source_sha256": {
+    ".github/scripts/pr_mutation.py": "3f449ee13fb227a642b9c024c8e79ead07bda783f1517e584c424e215f907e84",
+    ".github/scripts/tests/test_pr_mutation.py": "4b016a94fb68cf57ccb12383c056b31bfc85962ae0df554724ba6ca8645391f7",
+    "bundles/sirix-core/src/main/java/io/sirix/service/json/shredder/ParallelJsonShredder.java": "6989b024a2491e8c8bb39092a0899f13e809ba9299765e8de1f45adf4b8a2c70",
+    "bundles/sirix-core/src/test/java/io/sirix/service/json/shredder/ParallelJsonShredderTest.java": "c3fc83df4bae293a4803191e9e9295892e0af230ce6c31a90ff6ed4e19df84d7",
+    "bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java": "b46f47d5c1907397d4447c32eab587a6841fd03cfd1f50d85def550928a50474",
+    "bundles/sirix-core/src/test/java/io/sirix/index/projection/ProjectionSortedBuildIntegrationTest.java": "bacc5ffb2c8e052b0f7977795344350aeb527671330174c828a4f391911dcc9b",
+    "bundles/sirix-query/src/test/java/io/sirix/query/compiler/translator/TraversalCloseOwnershipTest.java": "74d873e6b68b5d35f180009d54c416f10878799ce241d65b5de49f75c93ddd02"
+  },
+  "runtime_regressions": {
+    "before": [
+      "HTTP load retains sessions after inputs released",
+      "projection maintenance reaches awaitPendingAsyncCommit from a guarded callback",
+      "interrupted input factory leaves suppressed retirement failures",
+      "detached executable child remains active after runner timeout",
+      "PIT timeout detection incorrectly accepted as a changed-line assertion kill"
+    ],
+    "after": [
+      "final LoadReaderOwnershipTest passes with original ownership/gate assertions",
+      "TraversalCloseOwnershipTest: 6 passed",
+      "ParallelJsonShredderTest: 15 passed",
+      "notification and projection suites passed in focused.log except the new input-wrapper assertion, subsequently corrected and passed in final shredder suite",
+      "symbolic-link regression passes without changing notification ownership"
+    ],
+    "logs": [
+      "build/ci-repair/baseline.log",
+      "build/ci-repair/trace.log",
+      "build/ci-repair/focused.log",
+      "build/ci-repair/final-query-regressions.log",
+      "build/ci-repair/shredder-final-tests.log"
+    ]
+  },
+  "work_budgets_and_kotlin": {
+    "log": "build/ci-repair/work-budgets-kotlin.log",
+    "state": "passed",
+    "sirix-core": {
+      "tests": 325,
+      "failed": 0,
+      "skipped": 0
+    },
+    "sirix-query": {
+      "tests": 327,
+      "failed": 0,
+      "skipped": 5
+    },
+    "sirix-kotlin-api": {
+      "tests": 12,
+      "failed": 0,
+      "skipped": 3
+    },
+    "sirix-kotlin-cli": {
+      "tests": 24,
+      "failed": 0,
+      "skipped": 1
+    }
+  },
+  "python": {
+    "tests": 66,
+    "state": "passed",
+    "branch_enabled_coverage_percent": 99,
+    "deliberate_mutants": {
+      "retain-detached-workers": {
+        "exit_code": 1,
+        "assertion_failure": true
+      },
+      "accept-timeouts": {
+        "exit_code": 1,
+        "assertion_failure": true
+      },
+      "omit-final-partition": {
+        "exit_code": 1,
+        "assertion_failure": true
+      },
+      "omit-overflow-source": {
+        "exit_code": 1,
+        "assertion_failure": true
+      },
+      "merge-partition-reports": {
+        "exit_code": 1,
+        "assertion_failure": true
+      },
+      "remove-explicit-contracts": {
+        "exit_code": 1,
+        "assertion_failure": true
+      }
+    }
+  },
+  "query_mutation": {
+    "scope": [
+      "src/main/java/io/sirix/query/compiler/translator/DerefDescendantExpr.java",
+      "src/main/java/io/sirix/query/compiler/translator/OrderedUnionAxis.java",
+      "src/main/java/io/sirix/query/compiler/translator/SirixLazySequence.java",
+      "src/main/java/io/sirix/query/scan/DirectPageScanner.java",
+      "src/main/java/io/sirix/query/stream/json/SirixJsonStream.java",
+      "src/main/java/io/sirix/query/stream/node/SirixNodeStream.java"
+    ],
+    "state": "complete",
+    "changed": {
+      "total": 8,
+      "killed": 8,
+      "survived": 0,
+      "no_coverage": 0,
+      "detected": 8,
+      "survivors": []
+    },
+    "all_statuses": {
+      "KILLED": 36,
+      "NO_COVERAGE": 57,
+      "SURVIVED": 5,
+      "TIMED_OUT": 1
+    },
+    "note": "One timeout on an unchanged line is advisory; never an assertion kill."
+  },
+  "shredder_worker_mutation": {
+    "scope": "ParallelJsonShredder.shredOne only; synthetic helpers and other methods excluded",
+    "sampling": "none; exhaustive DEFAULTS plus NON_VOID_METHOD_CALLS",
+    "statuses": {
+      "SURVIVED": 1,
+      "KILLED": 11
+    },
+    "equivalent_survivor": {
+      "class": "io.sirix.service.json.shredder.ParallelJsonShredder",
+      "method": "shredOne",
+      "line": 457,
+      "mutator": "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator",
+      "change": "autoCommitNodeCount > 0 becomes >= 0",
+      "reason": "Only zero changes overload selection. AbstractResourceSession.beginNodeTrx(AfterCommitState) and beginNodeTrx(0, AfterCommitState) both delegate to beginNodeTrx(0, 0, MILLISECONDS, afterCommitState); zero disables auto-commit in both JSON/XML concrete sessions. The positive-threshold regression rejects dropping configured auto-commit entirely."
+    }
+  },
+  "full_core_mutation": {
+    "state": "incomplete; no complete core evidence claimed",
+    "reason": "Exploratory interrupted run invalidated; complete release-scoped core mutation and compiled evidence remain the driver-authorized follow-up after custody returns.",
+    "diagnostic": "build/ci-repair/mutation-interrupted/INVALIDATED.txt",
+    "planned_partitions": [
+      {
+        "partition": 1,
+        "sources": [
+          "src/main/java/io/sirix/access/DatabaseHandle.java",
+          "src/main/java/io/sirix/access/DatabaseManager.java",
+          "src/main/java/io/sirix/access/DatabaseManagerFactory.java",
+          "src/main/java/io/sirix/access/DatabaseNotifications.java",
+          "src/main/java/io/sirix/access/Databases.java",
+          "src/main/java/io/sirix/access/LocalDatabase.java",
+          "src/main/java/io/sirix/access/MutationGate.java",
+          "src/main/java/io/sirix/access/ResourceStore.java",
+          "src/main/java/io/sirix/access/ResourceStoreImpl.java",
+          "src/main/java/io/sirix/access/trx/TransactionImpl.java",
+          "src/main/java/io/sirix/access/trx/node/AbstractNodeReadOnlyTrx.java",
+          "src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java"
+        ],
+        "target_classes": 23,
+        "test_patterns": 8,
+        "unmapped": [],
+        "missing_compiled_sources": []
+      },
+      {
+        "partition": 2,
+        "sources": [
+          "src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java",
+          "src/main/java/io/sirix/access/trx/node/InternalNodeTrx.java",
+          "src/main/java/io/sirix/access/trx/node/InternalResourceSession.java",
+          "src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java",
+          "src/main/java/io/sirix/access/trx/node/json/JsonNodeTrxImpl.java",
+          "src/main/java/io/sirix/access/trx/node/json/JsonResourceSessionImpl.java",
+          "src/main/java/io/sirix/access/trx/node/xml/XmlNodeTrxImpl.java",
+          "src/main/java/io/sirix/access/trx/node/xml/XmlResourceSessionImpl.java",
+          "src/main/java/io/sirix/access/trx/page/NodeStorageEngineReader.java",
+          "src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java",
+          "src/main/java/io/sirix/api/Axis.java",
+          "src/main/java/io/sirix/api/Database.java"
+        ],
+        "target_classes": 44,
+        "test_patterns": 12,
+        "unmapped": [],
+        "missing_compiled_sources": []
+      },
+      {
+        "partition": 3,
+        "sources": [
+          "src/main/java/io/sirix/api/NodeTrx.java",
+          "src/main/java/io/sirix/api/PostCommitHook.java",
+          "src/main/java/io/sirix/api/PreCommitHook.java",
+          "src/main/java/io/sirix/api/ResourceSession.java",
+          "src/main/java/io/sirix/api/xml/XmlNodeTrx.java",
+          "src/main/java/io/sirix/axis/ForAxis.java",
+          "src/main/java/io/sirix/axis/NestedAxis.java",
+          "src/main/java/io/sirix/axis/NonStructuralWrapperAxis.java",
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentAxis.java",
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentAxisHelper.java",
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentExceptAxis.java",
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentIntersectAxis.java"
+        ],
+        "target_classes": 13,
+        "test_patterns": 9,
+        "unmapped": [],
+        "missing_compiled_sources": []
+      },
+      {
+        "partition": 4,
+        "sources": [
+          "src/main/java/io/sirix/axis/concurrent/ConcurrentUnionAxis.java",
+          "src/main/java/io/sirix/axis/filter/FilterAxis.java",
+          "src/main/java/io/sirix/axis/filter/PredicateFilterAxis.java",
+          "src/main/java/io/sirix/cache/BufferManagerImpl.java",
+          "src/main/java/io/sirix/index/projection/ProjectionIndexHOTStorage.java",
+          "src/main/java/io/sirix/io/ram/RAMStorage.java",
+          "src/main/java/io/sirix/service/json/shredder/ParallelJsonShredder.java",
+          "src/main/java/io/sirix/utils/WorkerTermination.java"
+        ],
+        "target_classes": 28,
+        "test_patterns": 7,
+        "unmapped": [],
+        "missing_compiled_sources": []
+      }
+    ]
+  },
+  "preserved_scope": [
+    "callback guards and notification ownership unchanged",
+    "no IN_MEMORY recovery-marker or before-submit-hook changes",
+    "no per-record or per-page implementation changes",
+    "no pipeline control, push, PR edits or CI reruns"
+  ],
+  "formatting": {
+    "state": "passed",
+    "log": "build/ci-repair/format-check-final.log"
+  },
+  "final_regression_suites": {
+    "ParallelJsonShredderTest": 15,
+    "LoadReaderOwnershipTest": 1,
+    "TraversalCloseOwnershipTest": 6,
+    "failures": 0
+  }
+}

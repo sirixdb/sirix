@@ -194,3 +194,14 @@ is not the same publication. Bound the combined active, queued and deferred rete
 check saturation with a latched consumer while proving durable commits finish. Never turn overflow
 into caller-thread delivery or claim replay that is not implemented.
 See [the deferred-publication postmortem](postmortems/deferred-notification-history.md).
+
+## Cancellation must allow its own cleanup
+
+A worker's interrupt status can make an otherwise correct retirement guard reject its cleanup.
+Consume cancellation before session retirement admission, including failures before writer
+construction; writer fences retain their own interrupt handling. Restore the public caller's status
+at its own boundary; terminal executor tasks need no extra interrupt bookkeeping. Keep user callback guards intact: inject failures at a
+valid lifecycle boundary. Registry assertions must use canonical path identity, including temporary
+path aliases. Mutation coverage must explicitly map dedicated ownership suites and retain every
+selected source across bounded partitions; partial reports and timeouts never prove assertion kills.
+See [the CI ownership postmortem](postmortems/lifecycle-ci-ownership-contracts.md).

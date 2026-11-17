@@ -34,6 +34,57 @@ CONTRACT_TESTS = {name: ('io.sirix.query.scan.VectorizedReleaseCorrectnessTest',
     'io.sirix.query.compiler.translator.SirixBlockPipelineStrategy',
     'io.sirix.query.compiler.translator.SirixPipelineStrategy',
     'io.sirix.query.scan.VectorizedRouteRefusedException')}
+# Explicit ownership contracts replace broad package fallbacks for these lifecycle owners.
+# A package fallback pulled generated identity histories into the lifecycle lane while omitting
+# the dedicated cancellation/retirement suites entirely.
+LIFECYCLE_TESTS = {}
+_DATABASE_TESTS = ('io.sirix.access.DatabaseOwnershipTest',
+                   'io.sirix.access.DatabaseCloseStrandingTest',
+                   'io.sirix.access.DatabaseNotificationLifecycleTest')
+_SESSION_TESTS = ('io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest',
+                  'io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest',
+                  'io.sirix.access.trx.node.SharedCallbackLifetimeTest')
+_WRITER_TESTS = _SESSION_TESTS + ('io.sirix.access.trx.page.AsyncFlushFailurePathTest',
+                                 'io.sirix.access.trx.page.WriterConstructionFailureCleanupTest')
+for _name in ('DatabaseHandle', 'DatabaseManager', 'DatabaseManagerFactory', 'DatabaseNotifications',
+              'Databases', 'LocalDatabase', 'MutationGate', 'ResourceStore', 'ResourceStoreImpl'):
+    LIFECYCLE_TESTS[f'io.sirix.access.{_name}'] = _DATABASE_TESTS
+for _package, _names, _contracts in (
+        ('io.sirix.access.trx', ('TransactionImpl',), _SESSION_TESTS),
+        ('io.sirix.access.trx.node', ('AbstractResourceSession', 'InternalResourceSession',
+                                     'AbstractNodeReadOnlyTrx'), _SESSION_TESTS),
+        ('io.sirix.access.trx.node', ('AbstractNodeTrxImpl', 'InternalNodeTrx'), _WRITER_TESTS),
+        ('io.sirix.access.trx.node.json', ('JsonNodeTrxImpl', 'JsonResourceSessionImpl'), _WRITER_TESTS),
+        ('io.sirix.access.trx.node.xml', ('XmlNodeTrxImpl', 'XmlResourceSessionImpl'), _WRITER_TESTS),
+        ('io.sirix.access.trx.page', ('NodeStorageEngineWriter',), _WRITER_TESTS +
+         ('io.sirix.access.trx.page.NodeStorageEngineWriterTruncateToRevisionIntegrationTest',)),
+        ('io.sirix.api', ('Database', 'ResourceSession', 'NodeTrx', 'PostCommitHook', 'PreCommitHook'),
+         _DATABASE_TESTS + _SESSION_TESTS),
+        ('io.sirix.api.xml', ('XmlNodeTrx',), _WRITER_TESTS)):
+    for _name in _names:
+        LIFECYCLE_TESTS[f'{_package}.{_name}'] = _contracts
+for _name in ('ConcurrentAxis', 'ConcurrentAxisHelper', 'ConcurrentExceptAxis',
+              'ConcurrentIntersectAxis', 'ConcurrentUnionAxis'):
+    LIFECYCLE_TESTS[f'io.sirix.axis.concurrent.{_name}'] = (
+        'io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest',)
+LIFECYCLE_TESTS['io.sirix.api.Axis'] = ('io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest',)
+for _package, _names in (('io.sirix.axis', ('ForAxis', 'NestedAxis', 'NonStructuralWrapperAxis')),
+                         ('io.sirix.axis.filter', ('FilterAxis', 'PredicateFilterAxis'))):
+    for _name in _names:
+        LIFECYCLE_TESTS[f'{_package}.{_name}'] = (
+            'io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest',)
+LIFECYCLE_TESTS['io.sirix.index.projection.ProjectionIndexHOTStorage'] = (
+    'io.sirix.index.projection.ProjectionParallelDirectoryWalkTest',)
+for _name in ('DerefDescendantExpr', 'SirixLazySequence'):
+    LIFECYCLE_TESTS[f'io.sirix.query.compiler.translator.{_name}'] = (
+        'io.sirix.query.compiler.translator.TraversalCloseOwnershipTest',)
+for _package, _name in (('json', 'SirixJsonStream'), ('node', 'SirixNodeStream')):
+    LIFECYCLE_TESTS[f'io.sirix.query.stream.{_package}.{_name}'] = (
+        'io.sirix.query.compiler.translator.TraversalCloseOwnershipTest',)
+# Bound coverage and restart units independently. Every source is assigned exactly once; a
+# timed-out partition remains incomplete and cannot consume a later partition's reserved share.
+PARTITION_SOURCE_LIMIT = 12
+
 # Execution time reserved for each module still waiting, so none is starved by an earlier one.
 MIN_MODULE_SECONDS = 120
 # A large diff cannot afford every mutant of every changed class. A mutant whose covering test
@@ -345,13 +396,19 @@ def mutants_per_class(targets):
                min(MAX_MUTANTS_PER_CLASS, MUTANT_BUDGET // max(1, len(targets))))
 
 
-def test_scope(module_root, sources):
+def test_scope(module_root, sources, tests=None):
     """Bounded per-source test selection. No input may widen the scope to the module suite."""
     candidates = []
-    tests = module_test_classes(module_root)
+    if tests is None:
+        tests = module_test_classes(module_root)
     for source in sources:
         stem, package = Path(source).stem, source_package(module_root, source)
-        patterns, kind = resolve_tests(stem, package, tests)
+        explicit = LIFECYCLE_TESTS.get(f'{package}.{stem}')
+        if explicit is None:
+            patterns, kind = resolve_tests(stem, package, tests)
+        else:
+            patterns = sorted(set(explicit) & tests.keys())
+            kind = 'related' if patterns else 'unmapped'
         contracts = set(CONTRACT_TESTS.get(f'{package}.{stem}', ())) & tests.keys()
         if contracts:
             patterns = sorted(set(patterns) | contracts)
@@ -374,6 +431,25 @@ def test_scope(module_root, sources):
             sorted(candidate['source'] for candidate in candidates
                    if candidate['kind'] in UNRESOLVED_KINDS),
             {candidate['source']: candidate['kind'] for candidate in candidates})
+
+
+def partition_sources(module_root, sources):
+    """Keep every source, splitting before either the source or selected-test cap is exceeded."""
+    if len(sources) <= 1:
+        return [sources] if sources else []
+    partitions, current = [], []
+    tests = module_test_classes(module_root)
+    for source in sources:
+        candidate = current + [source]
+        _, _, mapping = test_scope(module_root, candidate, tests)
+        if current and (len(candidate) > PARTITION_SOURCE_LIMIT
+                        or 'over-limit' in mapping.values()):
+            partitions.append(current)
+            current = []
+        current.append(source)
+    if current:
+        partitions.append(current)
+    return partitions
 
 
 def mutant_line(element):
@@ -422,7 +498,8 @@ def read_report(path, index):
         groups[kind].append(element)
         unattributed += not attributed
     changed = tally(groups['changed'])
-    changed['survivors'] = [describe_mutant(element) for element in undetected(groups['changed'])]
+    changed['survivors'] = [describe_mutant(element) for element in groups['changed']
+                            if element.get('status') != 'KILLED']
     advisory = tally(groups['unchanged'])
     debt = Counter(element.findtext('mutatedClass', '?')
                    for element in undetected(groups['unchanged']))
@@ -436,7 +513,7 @@ def read_report(path, index):
 
 
 def is_clean(results):
-    """Only undetected mutants on the PR's changed lines, and incomplete analysis, fail a run."""
+    """Only assertion-killed changed-line mutants prove the complete selected scope."""
     for result in results:
         if result['state'] != 'complete' or result.get('total', 0) <= 0:
             return False
@@ -445,7 +522,8 @@ def is_clean(results):
             return False
         changed = result.get('changed')
         # A complete report without a changed-line verdict is incomplete, never clean.
-        if not changed or changed['detected'] != changed['total']:
+        if (not changed or changed['detected'] != changed['total']
+                or changed['killed'] != changed['total']):
             return False
     return True
 
@@ -509,14 +587,17 @@ def format_advisory(result):
 
 def format_summary(results):
     lines = ['# Changed-source mutation testing', '',
-             'Blocking criterion: undetected mutants on the lines this pull request changed. '
+             'Blocking criterion: mutants without assertion kills on the lines this pull request changed. '
              'Mutants on unchanged lines of the same classes are advisory pre-existing debt. '
              'Informational unless `MUTATION_BLOCKING` is enabled. Full reports, targets and logs '
              'are in the `pr-mutation` artifact.', '']
     if not results:
         return '\n'.join(lines + ['No changed main Java/Kotlin sources; PIT skipped.', ''])
     for result in results:
-        lines.extend([f"## {escape(result['module'])}: {escape(result['state'])}", ''])
+        label = result['module']
+        if 'partition' in result:
+            label += f" / part {result['partition']}"
+        lines.extend([f"## {escape(label)}: {escape(result['state'])}", ''])
         if 'error' in result:
             lines.extend([escape(result['error']), ''])
         if result['state'] == 'unmapped':
@@ -542,7 +623,27 @@ def execute(command, root, log, timeout):
         try:
             return process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            # Gradle's single-use daemon detaches from the launcher's session. Snapshot its
+            # descendants before killing any parent, including detached workers in timeout
+            # cleanup. This runner already requires POSIX process-group semantics.
+            parents = {int(pid): int(parent) for pid, parent in
+                       (line.split() for line in subprocess.check_output(
+                           ['ps', '-e', '-o', 'pid=,ppid='], text=True).splitlines())}
+            descendants = {process.pid}
+            while True:
+                children = {pid for pid, parent in parents.items() if parent in descendants}
+                if children <= descendants:
+                    break
+                descendants.update(children)
+            for pid in descendants - {process.pid}:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             process.wait()
             raise
 
@@ -555,7 +656,7 @@ def prepare_analysis(root, directory, module, sources, result):
     if not targets:
         raise ValueError('Empty target selection; refusing whole-module mutation')
     tests, unmapped, mapping = test_scope(module_root, sources)
-    mutants = mutants_per_class(targets)
+    mutants = result.get("mutants_per_class", mutants_per_class(targets))
     result.update(targets=targets, tests=tests, unmapped=unmapped, resolution=mapping,
                   mutants_per_class=mutants)
     if not tests:
@@ -577,11 +678,17 @@ def attach_report(result, report, index):
             result.update(state='error', error=str(error))
 
 
-def analyze_module(root, output, module, sources, lines, deadline, seconds):
+def analyze_module(root, output, module, sources, lines, deadline, seconds,
+                   partition=None, mutant_limit=None):
     result = {'module': module, 'sources': sources, 'state': 'error'}
     if module not in DIRECTORIES:
         return {**result, 'error': 'Unknown module; refusing to execute PIT'}
     directory = output / module
+    if partition is not None:
+        result['partition'] = partition
+        directory /= f'part-{partition}'
+    if mutant_limit is not None:
+        result['mutants_per_class'] = mutant_limit
     directory.mkdir(parents=True, exist_ok=True)
     report = directory / 'report/mutations.xml'
     index = {}
@@ -643,10 +750,22 @@ def run(root, output, seconds, blocking):
         remaining = max(0.0, deadline - time.monotonic())
         reserve = min(MIN_MODULE_SECONDS, remaining / pending)
         share = remaining - reserve * (pending - 1)
-        results.append(analyze_module(root, output, module, sources, changed[module],
-                                      time.monotonic() + share, round(share)))
+        module_deadline = time.monotonic() + share
+        parts = partition_sources(root / 'bundles' / DIRECTORIES[module], sources)
+        limit = None
+        if len(parts) > 1:
+            targets, _ = resolve_targets(root / 'bundles' / DIRECTORIES[module], sources)
+            limit = mutants_per_class(targets)
+        for number, part in enumerate(parts, 1):
+            part_share = max(0.0, module_deadline - time.monotonic()) / (len(parts) - number + 1)
+            result = analyze_module(root, output, module, part,
+                                    {source: changed[module][source] for source in part},
+                                    time.monotonic() + part_share, round(part_share),
+                                    partition=number if len(parts) > 1 else None,
+                                    mutant_limit=limit)
+            results.append(result)
+            write_results(output, results)
         pending -= 1
-        write_results(output, results)
     if not results:
         write_results(output, results)
     return int(blocking and not is_clean(results))

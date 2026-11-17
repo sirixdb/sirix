@@ -19,6 +19,9 @@ import io.sirix.io.StorageType;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.nio.file.Files;
+import java.io.IOException;
+import org.junit.jupiter.api.Assumptions;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -798,6 +801,19 @@ final class DatabaseNotificationLifecycleTest {
                                                                   .map(entry -> Arguments.of(format, phase, entry))));
   }
 
+  @Test
+  void unreturnedDeliveryRetainsReadersThroughATemporaryDirectoryAlias() throws Exception {
+    final Path target = Files.createDirectory(directory.resolve("target"));
+    final Path alias = directory.resolve("alias");
+    try {
+      Files.createSymbolicLink(alias, target);
+    } catch (final IOException | UnsupportedOperationException unavailable) {
+      Assumptions.abort("Symbolic links unavailable: " + unavailable);
+    }
+    directory = alias;
+    unreturnedDeliveryRetainsReadersDropsQueueAndAllowsRetry("json", "post", "handle");
+  }
+
   @ParameterizedTest(name = "bounded close {arguments}")
   @MethodSource("boundedCases")
   void unreturnedDeliveryRetainsReadersDropsQueueAndAllowsRetry(final String format, final String phase,
@@ -846,7 +862,8 @@ final class DatabaseNotificationLifecycleTest {
         assertEquals(1, deliveries.get());
         assertFalse(borrowed.get().isClosed());
         assertFalse(fixture.first.isClosed());
-        assertTrue(DatabasesInternals.getOpenDatabases().get(fixture.path).contains(fixture.firstDatabase));
+        assertTrue(
+            DatabasesInternals.getOpenDatabases().get(fixture.path.toRealPath()).contains(fixture.firstDatabase));
         assertEquals(2, fixture.second.getMostRecentRevisionNumber());
         resume.countDown();
         readAfterTimeout.get(10, TimeUnit.SECONDS);
