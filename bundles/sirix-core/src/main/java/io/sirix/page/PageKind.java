@@ -5982,6 +5982,10 @@ public enum PageKind {
       final byte nodeTypeId = source.readByte();
       final byte layoutTypeId = source.readByte();
       final int numChildren = source.readInt();
+      if (numChildren < 2 || numChildren > HOTIndirectPage.MAX_NODE_ENTRIES) {
+        throw new IllegalStateException("Corrupt HOT indirect child count: " + numChildren + " (expected 2-32)");
+      }
+
 
       final HOTIndirectPage.NodeType nodeType = HOTIndirectPage.NodeType.fromID(nodeTypeId);
       final HOTIndirectPage.LayoutType layoutType = HOTIndirectPage.LayoutType.fromID(layoutTypeId);

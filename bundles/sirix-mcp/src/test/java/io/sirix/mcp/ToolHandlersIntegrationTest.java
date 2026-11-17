@@ -17,10 +17,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.MAP;
 
 class ToolHandlersIntegrationTest {
 
@@ -340,11 +342,44 @@ class ToolHandlersIntegrationTest {
     }
 
     @Test
-    void revertToCurrentRevisionIsNoop() {
-      final var result = readWriteHandlers.revert(null,
-          request(Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "revision", 1)));
-      assertThat(result.isError()).isFalse();
-      assertThat(resultText(result)).contains("Already at revision");
+    void revertToCurrentRevisionAppendsForNumericAndSnapshotTargets() {
+      for (final String target : List.of("revision", "snapshot")) {
+        final int previousHead;
+        try (final var db = Databases.openJsonDatabase(tempDir.resolve(DB_NAME));
+            final var session = db.beginResourceSession(RESOURCE_NAME)) {
+          previousHead = session.getMostRecentRevisionNumber();
+        }
+        final var args = new HashMap<String, Object>();
+        args.put("database", DB_NAME);
+        args.put("resource", RESOURCE_NAME);
+        args.put("expected_head", previousHead);
+        args.put("message", "head revert");
+        if (target.equals("revision")) {
+          args.put("revision", previousHead);
+        } else {
+          final var snapshot = readWriteHandlers.createSnapshot(null, request(
+              Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "name", "head", "revision", previousHead)));
+          assertThat(snapshot.isError()).isFalse();
+          args.put("snapshot", "head");
+        }
+        final var result = readWriteHandlers.revert(null, request(args));
+        assertThat(result.isError()).isFalse();
+        assertThat(result.structuredContent()).asInstanceOf(MAP)
+                                              .containsEntry("revision", previousHead + 1)
+                                              .containsEntry("previousHead", previousHead)
+                                              .containsEntry("targetRevision", previousHead);
+        try (final var db = Databases.openJsonDatabase(tempDir.resolve(DB_NAME));
+            final var session = db.beginResourceSession(RESOURCE_NAME)) {
+          assertThat(session.getMostRecentRevisionNumber()).isEqualTo(previousHead + 1);
+          assertThat(session.getHistory(1).getFirst().getCommitMessage()).contains("head revert");
+          for (final int revision : new int[] {previousHead, previousHead + 1}) {
+            try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+              assertThat(rtx.moveTo(2)).isTrue();
+              assertThat(rtx.getValue()).isEqualTo("Alice");
+            }
+          }
+        }
+      }
     }
 
     @Test

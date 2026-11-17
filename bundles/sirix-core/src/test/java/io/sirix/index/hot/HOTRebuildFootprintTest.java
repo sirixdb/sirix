@@ -69,7 +69,7 @@ final class HOTRebuildFootprintTest {
   @Test
   @DisplayName("an oversized source stops before resolving page 64")
   void oversizedSourceHasBoundedResolutionWork() {
-    final Page root = unaryPageChain(64, 10_000);
+    final Page root = binaryPageChain(64, 10_000);
     final AtomicInteger resolvedReferences = new AtomicInteger();
     try {
       final AbstractHOTIndexWriter.RebuildFootprint footprint =
@@ -829,7 +829,7 @@ final class HOTRebuildFootprintTest {
   @DisplayName("cyclic and over-depth extrema fail open to the bounded refusal")
   void wholeNodeEndpointProofRejectsCyclicAndOverDepthSources() {
     assertMalformedEndpointSourceRefused(cyclicPage(99_000), 99_100);
-    final Page overDepth = unaryPageChain(65, 99_200, twoByteKey(0x00, 0));
+    final Page overDepth = binaryPageChain(65, 99_200, twoByteKey(0x00, 0));
     try {
       // The bounded walker stops at page 63 before it can see the depth defect, so the optional fold
       // sees an oversized source: it declines, and the exact predicate refuses as before.
@@ -1042,24 +1042,22 @@ final class HOTRebuildFootprintTest {
         new PageReference[] {left, right}, 5 - depth);
   }
 
-  /** A corrupt/unary shape proving the independent physical cap, even when the leaf bound is idle. */
-  private static Page unaryPageChain(final int pageCount, final long firstPageKey) {
-    return unaryPageChain(pageCount, firstPageKey, longKey(1));
+  private static Page binaryPageChain(final int pageCount, final long firstPageKey) {
+    return binaryPageChain(pageCount, firstPageKey, longKey(1));
   }
 
-  private static Page unaryPageChain(final int pageCount, final long firstPageKey, final byte[] key) {
+  private static Page binaryPageChain(final int pageCount, final long firstPageKey, final byte[] key) {
     Page page = leaf(firstPageKey, key);
     for (int i = 1; i < pageCount; i++) {
-      page = HOTIndirectPage.createMultiNode(firstPageKey + i, 1, 0, 1L << 56, new int[] {0},
-          new PageReference[] {reference(page)}, i);
+      page = HOTIndirectPage.createBiNode(firstPageKey + i, 1, 0, reference(page),
+          reference(leaf(firstPageKey + pageCount + i, key)), i);
     }
     return page;
   }
 
   private static HOTIndirectPage cyclicPage(final long pageKey) {
     final PageReference self = new PageReference();
-    final HOTIndirectPage cycle =
-        HOTIndirectPage.createMultiNode(pageKey, 1, 0, 1L << 56, new int[] {0}, new PageReference[] {self}, 1);
+    final HOTIndirectPage cycle = HOTIndirectPage.createBiNode(pageKey, 1, 0, self, self, 1);
     self.setPage(cycle);
     return cycle;
   }

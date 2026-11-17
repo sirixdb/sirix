@@ -12,6 +12,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.cache.Allocators;
+import io.sirix.index.hot.page.HOTIndirectPage.NodeType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
@@ -28,6 +29,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -148,33 +150,26 @@ class HOTHeightOptimalTest {
     @Test
     @DisplayName("Correct node type selection by child count")
     void testNodeTypeSelection() {
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(1));
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(2));
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(3));
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.SPAN_NODE,
-          NodeUpgradeManager.determineNodeType(16));
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.MULTI_NODE,
-          NodeUpgradeManager.determineNodeType(17));
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.MULTI_NODE,
-          NodeUpgradeManager.determineNodeType(32));
+      assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.determineNodeType(1));
+      assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(2));
+      assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(3));
+      assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(16));
+      assertEquals(NodeType.MULTI_NODE, NodeUpgradeManager.determineNodeType(17));
+      assertEquals(NodeType.MULTI_NODE, NodeUpgradeManager.determineNodeType(32));
     }
 
     @Test
     @DisplayName("Correct node type selection by discriminative bit count")
     void testNodeTypeByBits() {
       // 1-4 bits → SpanNode (2^1 to 2^4 = 2-16 children)
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.SPAN_NODE,
-          NodeUpgradeManager.determineNodeTypeByBits(1));
+      assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeTypeByBits(1));
 
       // 2-4 bits → SpanNode (2^2 to 2^4 = 4-16 children)
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.SPAN_NODE,
-          NodeUpgradeManager.determineNodeTypeByBits(2));
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.SPAN_NODE,
-          NodeUpgradeManager.determineNodeTypeByBits(4));
+      assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeTypeByBits(2));
+      assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeTypeByBits(4));
 
       // 5+ bits → MultiNode
-      assertEquals(io.sirix.index.hot.page.HOTIndirectPage.NodeType.MULTI_NODE,
-          NodeUpgradeManager.determineNodeTypeByBits(5));
+      assertEquals(NodeType.MULTI_NODE, NodeUpgradeManager.determineNodeTypeByBits(5));
     }
   }
 

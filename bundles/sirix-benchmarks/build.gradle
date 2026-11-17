@@ -306,3 +306,12 @@ tasks.register('verifyJoinKernelMerges', JavaExec) {
     mainClass = 'io.sirix.query.compiler.translator.JoinKernelBenchmark'
     jvmArgs = ['--enable-preview', '--add-modules=jdk.incubator.vector', '--enable-native-access=ALL-UNNAMED']
 }
+
+tasks.register('verifyHotSmallCorpus', JavaExec) {
+    group = 'verification'
+    description = 'Run the stored-key HOT benchmark stages on a one-title corpus without timing assertions.'
+    dependsOn 'jmhClasses'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'io.sirix.benchmark.HotInMemoryReadBenchmarkSmoke'
+    jvmArgs = ['--enable-preview', '--add-modules=jdk.incubator.vector', '--enable-native-access=ALL-UNNAMED']
+}

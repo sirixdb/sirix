@@ -58,6 +58,7 @@ import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
 import org.openjdk.jmh.infra.Blackhole;
 
 import java.nio.file.Files;
@@ -92,8 +93,12 @@ import static io.brackit.query.util.path.Path.parse;
  * <li>{@link #serializeKey} — CAS key encoding alone.</li>
  * <li>{@link #descendToLeaf} — the PEXT-routed descent, the part directly comparable to a
  * main-memory trie lookup.</li>
- * <li>{@link #lowerBoundSeek} — PEXT descent plus the Binna search-stack walk to the affected
- * subtree for an absent key.</li>
+ * <li>{@link #lowerBoundSeek} — a lower-bound seek for the chunk-zero composite of a stored key,
+ * which is an exact hit whenever that chunk exists.</li>
+ * <li>{@link #lowerBoundSeekInsideLeaf}, {@link #lowerBoundSeekAboveLeaf},
+ * {@link #lowerBoundSeekBelowLeaf} — lower-bound seeks for absent keys, split by where the key
+ * falls in the leaf PEXT routes it to. Only the last two take the Binna search-stack walk to the
+ * affected subtree, and they resolve sibling first keys on opposite sides of the routed child.</li>
  * <li>{@link #pointGet} — the whole public lookup, including chunk reassembly into
  * {@code NodeReferences}, which a single-value trie lookup does not have to do.</li>
  * <li>{@link #findEntryInLeaf} — the in-leaf binary search alone, on one fixed leaf, with no
@@ -103,6 +108,11 @@ import static io.brackit.query.util.path.Path.parse;
  * <p>
  * Everything is resident: the index is built in {@code @Setup} and every stage is driven over the
  * same shuffled key set, so no stage pays I/O.
+ * </p>
+ *
+ * <p>
+ * An absent-key stage requires its probe geometry to occur in the chosen corpus; setup fails if
+ * that stage has no probes. Stored-key stages can run even when an absent-key class is empty.
  * </p>
  *
  * <p>
@@ -173,6 +183,21 @@ public class HotInMemoryReadBenchmark {
   private final byte[] scratch = new byte[512];
   private int cursor;
 
+  /**
+   * Absent composite keys — stored keys with one bit of the encoded value flipped — by their
+   * insertion point in the routed leaf: strictly inside it, past its last entry, before its first
+   * entry.
+   */
+  private byte[][] absentInsideLeaf;
+  private byte[][] absentAboveLeaf;
+  private byte[][] absentBelowLeaf;
+  private int insideCursor;
+  private int aboveCursor;
+  private int belowCursor;
+
+  /** Cap per absent-key class: enough to defeat the caches, small enough to keep setup short. */
+  private static final int ABSENT_PROBES_PER_CLASS = 4_096;
+
   /** One resident leaf, and composite keys that all land in it — see {@link #findEntryInLeaf}. */
   private HOTLeafPage leaf;
   private byte[][] leafKeys;
@@ -191,7 +216,7 @@ public class HotInMemoryReadBenchmark {
   private int hotCursor;
 
   @Setup(Level.Trial)
-  public void setUp() throws Exception {
+  public void setUp(final BenchmarkParams params) throws Exception {
     final Path corpus =
         Paths.get(System.getProperty("sirix.bench.corpus", "bundles/sirix-core/src/test/resources/json/movies.json"));
     dbPath = Files.createTempDirectory("hot-inmem-read");
@@ -203,12 +228,14 @@ public class HotInMemoryReadBenchmark {
     final IndexDef casDef;
     try (final JsonResourceSession manager = database.beginResourceSession("r");
         final JsonNodeTrx trx = manager.beginNodeTrx()) {
-      final var ic = manager.getWtxIndexController(trx.getRevisionNumber());
       casDef = IndexDefs.createCASIdxDef(false, Type.STR,
           Collections.singleton(parse("/[]/title", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
       new JsonShredder.Builder(trx, JsonShredder.createFileReader(corpus),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
-      ic.createIndexes(Set.of(casDef), trx);
+      // The shredder committed, so the transaction now writes the next revision. The index builder
+      // looks the definition up through that revision's controller; one resolved before the commit
+      // registers it where the builder never looks.
+      manager.getWtxIndexController(trx.getRevisionNumber()).createIndexes(Set.of(casDef), trx);
       trx.commit();
     }
 
@@ -243,6 +270,14 @@ public class HotInMemoryReadBenchmark {
       }
     }
 
+    collectAbsentProbes();
+    final String benchmark = params.getBenchmark();
+    if ((benchmark.endsWith(".lowerBoundSeekInsideLeaf") && absentInsideLeaf.length == 0)
+        || (benchmark.endsWith(".lowerBoundSeekAboveLeaf") && absentAboveLeaf.length == 0)
+        || (benchmark.endsWith(".lowerBoundSeekBelowLeaf") && absentBelowLeaf.length == 0)) {
+      throw new IllegalStateException("corpus yields no absent probes for " + benchmark);
+    }
+
     // Sample the leaf the median probe routes to, and take its probe keys from the leaf's own
     // entries: every one is guaranteed resident and a guaranteed hit, so findEntryInLeaf measures
     // the full search depth rather than a mix of hits and early-outs.
@@ -266,6 +301,48 @@ public class HotInMemoryReadBenchmark {
     Collections.shuffle(resident, new Random(0x5EED));
     leafKeys = resident.toArray(new byte[0][]);
     System.out.println("[setup] sampled leaf: entryCount=" + leafEntries + " probes=" + leafKeys.length);
+  }
+
+  /**
+   * Flip one bit of the encoded value of every stored key in turn and sort the absent results by
+   * their insertion point in the leaf PEXT routes them to. The path prefix and the chunk trailer are
+   * left alone, so every probe stays inside the key range of the indexed path.
+   */
+  private void collectAbsentProbes() {
+    final List<byte[]> inside = new ArrayList<>(ABSENT_PROBES_PER_CLASS);
+    final List<byte[]> above = new ArrayList<>(ABSENT_PROBES_PER_CLASS);
+    final List<byte[]> below = new ArrayList<>(ABSENT_PROBES_PER_CLASS);
+    for (int k = 0; k < seekKeys.length && (inside.size() < ABSENT_PROBES_PER_CLASS
+        || above.size() < ABSENT_PROBES_PER_CLASS || below.size() < ABSENT_PROBES_PER_CLASS); k++) {
+      final byte[] stored = seekKeys[k];
+      for (int bit = Long.SIZE; bit < (stored.length - Integer.BYTES) * Byte.SIZE; bit++) {
+        final byte[] probe = stored.clone();
+        probe[bit >>> 3] ^= (byte) (0x80 >>> (bit & 7));
+        final HOTLeafPage routed = trieReader.navigateToLeaf(rootRef, probe);
+        final int found = routed.findEntry(probe);
+        if (found >= 0) {
+          continue;
+        }
+        final int insertionPoint = -(found + 1);
+        final List<byte[]> target = insertionPoint == 0
+            ? below
+            : insertionPoint == routed.getEntryCount()
+                ? above
+                : inside;
+        if (target.size() < ABSENT_PROBES_PER_CLASS) {
+          target.add(probe);
+        }
+      }
+    }
+    // Same fixed seed as the stored probes: a stable order that is not grouped by source key.
+    Collections.shuffle(inside, new Random(0x5EED));
+    Collections.shuffle(above, new Random(0x5EED));
+    Collections.shuffle(below, new Random(0x5EED));
+    absentInsideLeaf = inside.toArray(new byte[0][]);
+    absentAboveLeaf = above.toArray(new byte[0][]);
+    absentBelowLeaf = below.toArray(new byte[0][]);
+    System.out.println(
+        "[setup] absent probes: inside=" + inside.size() + " above=" + above.size() + " below=" + below.size());
   }
 
   @SuppressWarnings("unchecked")
@@ -310,6 +387,38 @@ public class HotInMemoryReadBenchmark {
   @Benchmark
   public void lowerBoundSeek(final Blackhole bh) {
     bh.consume(trieReader.lowerBound(rootRef, seekKeys[next()]));
+  }
+
+  /** An absent key between two entries of its routed leaf: answered from that leaf alone. */
+  @Benchmark
+  public void lowerBoundSeekInsideLeaf(final Blackhole bh) {
+    final int i = insideCursor;
+    insideCursor = i + 1 == absentInsideLeaf.length
+        ? 0
+        : i + 1;
+    bh.consume(trieReader.lowerBound(rootRef, absentInsideLeaf[i]));
+  }
+
+  /**
+   * An absent key above every entry of its routed leaf: the walk resolves first keys to the right.
+   */
+  @Benchmark
+  public void lowerBoundSeekAboveLeaf(final Blackhole bh) {
+    final int i = aboveCursor;
+    aboveCursor = i + 1 == absentAboveLeaf.length
+        ? 0
+        : i + 1;
+    bh.consume(trieReader.lowerBound(rootRef, absentAboveLeaf[i]));
+  }
+
+  /** An absent key below every entry of its routed leaf: the walk resolves first keys to the left. */
+  @Benchmark
+  public void lowerBoundSeekBelowLeaf(final Blackhole bh) {
+    final int i = belowCursor;
+    belowCursor = i + 1 == absentBelowLeaf.length
+        ? 0
+        : i + 1;
+    bh.consume(trieReader.lowerBound(rootRef, absentBelowLeaf[i]));
   }
 
   @Benchmark

@@ -446,13 +446,9 @@ code now explains (`hot/page/HOTIndirectPage.java:566-572`).
   (`hot/page/HOTIndirectPage.java:296-304`). No guard against more than 32 bits was found in the page
   class; `extractPartialKey` casts the compressed value to `int` (`hot/DiscriminativeBitComputer.java:440-449`),
   so the implied invariant is `|D| ≤ 32`.
-- `MAX_NODE_ENTRIES = 32` (`hot/page/HOTIndirectPage.java:111`) is the only fanout limit on the
-  production write path (`hot/AbstractHOTIndexWriter.java:568`, `:3816`, `:4098`;
-  `hot/HOTIncrementalInsert.java:1158`, `:1289`).
-- Node types: `SPAN_NODE` (id 0, factories require 2..16 children) and `MULTI_NODE` (id 1, factories
-  accept **1..32** children) (`hot/page/HOTIndirectPage.java:123-125`, `:1338-1340`, `:1366-1368`). The
-  class Javadoc's "17-32 children" is wrong (`:72-73`, `:124`). Span and multi nodes "deliberately
-  share this canonical PEXT route; their distinction is fanout, not lookup format" (`:542-543`).
+- Node types: `SPAN_NODE` (id 0) and `MULTI_NODE` (id 1), in both `SINGLE_MASK` and `MULTI_MASK`
+  layouts. Span and multi nodes share the canonical PEXT route; their distinction is fanout, not
+  lookup format. The legal fanout domain and its enforcement are specified in §2.8.
 - There is no BiNode page type. `createBiNode` builds a 2-child `SINGLE_MASK` `SPAN_NODE` with partial
   keys {0, 1} and mask bit `1L << (63 − bitInWindow)` (`hot/page/HOTIndirectPage.java:378-399`).
 - `height` is the distance from the leaves (a node whose children are leaves has height 1); u8 on
@@ -493,25 +489,29 @@ produce (`docs/HOT_BULK_BUILD.md:36-59`); both must satisfy the invariants of §
 ### 2.8 Structural invariants
 
 The invariant names come from `docs/HOT_INVARIANTS_CATALOG.md`; the checks that enforce them in
-production are `HOTMalformedSubtreeDetector` (`hot/HOTMalformedSubtreeDetector.java:169-290`) and
-the writer's local guard `nodeStructurallyMalformed` (`hot/AbstractHOTIndexWriter.java:3205-3261`).
+production are `HOTMalformedSubtreeDetector.firstViolation` and
+the writer's local guard `AbstractHOTIndexWriter.nodeStructurallyMalformed`.
 
 | Id | Invariant (for every indirect page N) | Enforced by |
 |---|---|---|
-| I3 | partial keys of N's children are pairwise distinct | detector `:174-184`; writer guard |
-| I4 | the unsigned-smallest partial key is 0 | detector `:186-198`; writer guard |
-| I7 | partial keys are strictly ascending (unsigned) in child order | detector `:200-208`; writer guard |
-| I8 | children are ordered by ascending first key of their subtrees | detector `:229-263`; writer guard |
-| I11 | every indirect child's MSB index is greater than N's | detector `:210-227`; writer guard |
-| I12 | key ranges of consecutive children are disjoint; hence leaf visit order is lexicographic | detector `:235-269`; writer guard; relied on by `hot/reader/HOTRangeCursor.java:215-219` |
-| I5 | leaf constancy: every key K in child i's subtree satisfies `(p_i & ~dense(K)) == 0` for its partial key `p_i`, tombstones included | detector `:271-293`, `:308-344` (not in the writer's local guard) |
+| I10 | 2 ≤ numChildren ≤ 32; one-child indirect pages are illegal | factories; page reader; detector; writer guard |
+| I3 | partial keys of N's children are pairwise distinct | detector `firstPartialViolation`; writer guard |
+| I4 | the unsigned-smallest partial key is 0 | detector `firstPartialViolation`; writer guard |
+| I7 | partial keys are strictly ascending (unsigned) in child order | detector `firstPartialViolation`; writer guard |
+| I8 | children are ordered by ascending first key of their subtrees | detector `firstRangeViolation`; writer guard |
+| I11 | every indirect child's MSB index is greater than N's | detector `firstTrieViolation`; writer guard |
+| I12 | key ranges of consecutive children are disjoint; hence leaf visit order is lexicographic | detector `firstRangeViolation`; writer guard; relied on by `hot/reader/HOTRangeCursor.java:215-219` |
+| I5 | leaf constancy: every key K in child i's subtree satisfies `(p_i & ~dense(K)) == 0` for its partial key `p_i`, tombstones included | detector `firstConstancyViolation` and `findI5FailingKey` (not in the writer's local guard) |
 | leaf order | entries of a leaf are sorted by unsigned key order and unique | `hot/page/HOTLeafPage.java:2284-2291`; `put` rejects an existing key (`:1633-1652`) |
 | leaf bounds | ≤ 512 entries; suffix and value ≤ 65535 bytes | `hot/page/HOTLeafPage.java:165`, `:184`, `:2227-2234`, `:2266-2282` |
 | height | ≤ 64 levels | `hot/reader/HOTTrieReader.java:93`, `:1165-1167`; `hot/AbstractHOTIndexWriter.java:93`, `:890-892` |
 
-I10 of the catalog ("2 ≤ numChildren") is not enforced: `createMultiNode` accepts one child
-(`hot/page/HOTIndirectPage.java:1366-1368`) and the writer checks `childCount < 1 || > MAX_NODE_ENTRIES`
-(`hot/AbstractHOTIndexWriter.java:568`). Whether a one-child node is reachable was not established.
+One-child indirect pages are illegal in every layout and representation. SpanNodes have 2–16
+children and MultiNodes have 2–32 children; BiNodes have exactly two. A single subtree is represented
+by its child directly, without a unary indirect wrapper. Factories enforce the type-specific ranges
+with `IllegalArgumentException`; persisted counts outside I10's global range raise
+`IllegalStateException` before layout or child decoding. Structural detection and writer
+publication/preflight guards enforce the same I10 rule as `HOTInvariantValidator`.
 
 ---
 
@@ -678,8 +678,7 @@ Body fields below follow the shared envelope and any extension block.
 - The field order of a child reference (`key, count, fragments`) differs from the generic
   reference encoding (`count, fragments, key, hash`) (`page/SerializationType.java:65-80`, `:209-222`).
 - **Child references carry no hash** (§3.6).
-- The factories validate child counts, so a corrupt count throws `IllegalArgumentException`
-  (`hot/page/HOTIndirectPage.java:1336-1456`).
+- Child-count validation and its error cases follow §2.8.
 
 #### 3.3.3 Copy-on-write helpers
 
@@ -939,23 +938,63 @@ uncached vs. 1207 ns with Caffeine, hit 121 ns; `hot/cache/HOTLookupCache.java:3
 
 ### 4.3 Lower and upper bound
 
-`lowerOrUpperBound` is a port of Binna §4.2 / `HOTSingleThreaded.hpp:347-415` of the paper's
-reference implementation (that file is not in this repository)
-(`hot/reader/HOTTrieReader.java:409-449` documentation, `:548-721` code):
+#### 4.3.1 Contract
+
+Let `K` be the keys stored below `root` and `S = searchKey[0..searchKeyLen)` any byte string: present
+or absent, of any length including zero, shorter or longer than every stored key.
+
+| Id | Requirement |
+|---|---|
+| LB1 | `lowerBound(root, S)` positions at `min { k ∈ K : k ≥ S }` in key order (§0.2), and reports exhaustion when no stored key is `≥ S` |
+| LB2 | `upperBound(root, S)` positions at `min { k ∈ K : k > S }`, and reports exhaustion when no stored key is `> S` |
+| LB3 | The result depends on `S` alone: buffer bytes at or past `searchKeyLen` never take part in routing, comparison or the branch decision |
+| LB4 | A search key that no bit separates from a stored key (one of the two is the other followed only by `0x00` bytes) is still ordered by length (§0.2), and the seek reports a bound or exhaustion instead of failing |
+| LB5 | The returned leaf is positioned on the reader's path stack, so `advanceToNextLeaf()` continues in key order and `range(root, from, to)` returns exactly the stored keys in `[from, to]`, ascending, each once |
+| LB6 | A seek allocates nothing per leaf entry it inspects. Sibling first keys (memoized on a read-only snapshot, materialized by a leftmost descent otherwise) are resolved only on the side of the affected subtree that decides the result, and not at all for an exact hit or a position strictly inside the leaf |
+
+Preconditions: the tree satisfies §2.8, every BiNode discriminates on the MSDB of the keys below it
+(§2.7), and a stored key that extends another stored key continues with a 1 bit, which is what the
+CAS/VALIDTIME delta suffix guarantees (§2.5). The NAME case of §7.2 item 1 is outside the contract.
+Error case: a route or a sibling first-key resolution that reaches no page or no child is structural
+corruption and throws; it is never reported as exhaustion or answered from the routed leaf. An empty
+root leaf is the empty tree, on which every seek reports exhaustion.
+
+`HOTTrieReaderBoundContractTest`, `HOTTrieReaderBoundPropertyTest` and
+`HOTTrieReaderCasRangeRegressionTest` derive from these requirements (§5.2).
+
+#### 4.3.2 Algorithm
+
+`lowerOrUpperBound` adapts Binna §4.2 / `HOTSingleThreaded.hpp:347-415` of the paper's reference
+implementation (that file is not in this repository) to multi-entry leaves
+(`hot/reader/HOTTrieReader.java`, `lowerOrUpperBound`):
 
 | Phase | Action |
 |---|---|
 | 1 | PEXT descent recording path, MSB and child index per level |
 | 2 | `findEntry` in the leaf, validate. Exact hit: lower bound returns it; upper bound advances by one |
-| 2b | insertion point strictly inside the leaf → return (leaf, insertionPoint); does not exist in Binna's single-entry leaves |
-| mismatch | `discBit` = DB between the search key and the leaf's first key, computed without allocation, validated |
+| 2b | insertion point strictly inside the leaf (`0 < insertionPoint < entryCount`) → return (leaf, insertionPoint); does not exist in Binna's single-entry leaves |
+| 2c | otherwise `S` sorts below every entry of the routed leaf (`insertionPoint == 0`) or above every entry (`insertionPoint == entryCount`). A root leaf answers (leaf, 0) or exhaustion. Below a root node the leaf alone decides neither end |
+| mismatch | below: a first key that starts with `S` is the bound, (leaf, 0). Above: `S` equal to the first key followed only by `0x00` bytes has its bound at the first entry of the next leaf. Otherwise `discBit` = DB between `S` and the leaf's first key, computed without allocation, validated |
 | 3 | pop levels while `discBit < pathMsbAtDepth[depth]` |
-| 4 | widen `[firstIdx, lastIdx]` around the matched child with `DB(matchedFirstKey, siblingFirstKey) > discBit` (strict); first keys come from the memo or a leftmost descent |
-| 5 | `next = searchKeyBit ? lastIdx + 1 : firstIdx`; past the end → set the stack at that depth and `advanceToNextLeaf()`; otherwise descend leftmost and return (leaf, 0) |
+| 4 | the affected subtree is the run of children around the matched child whose first key satisfies `DB(matchedFirstKey, siblingFirstKey) > discBit` (strict). Below: extend the run to the left and take its first child. Above: extend it to the right and take the child after it. First keys come from the memo or a leftmost descent, and only that one side is resolved |
+| 5 | past the last child → pop that level and `advanceToNextLeaf()`; otherwise set the stack to the chosen child, descend leftmost and return (leaf, 0) |
 
-`retryingBound` repeats up to 64 times while the internal `RETRY` sentinel is returned
-(`:401-406`, `:502-513`). Phase 4 costs at most 32 first-key resolutions, each at most one leftmost
-descent (`:757-761`).
+**Why an end position needs the walk.** PEXT routing reads only the discriminative bits of the nodes
+on the path (§2.6), so an absent key is routed by bits that need not decide its position. Take
+one-byte keys, a BiNode on bit 6 over the leaves `{18, 19}` and `{1a, 1b}`: the search key `12`
+has bit 6 set and is routed to `{1a, 1b}`, where its insertion point is 0, yet `18` and `19` are
+`≥ 12` too. `12` differs from `1a` at bit 4, above the node's bit 6, so both leaves form the
+affected subtree and the bound is its first key `18`. Returning (leaf, 0) from the routed leaf, as
+phase 2b did for every `insertionPoint < entryCount` until
+[#1427](https://github.com/sirixdb/sirix/issues/1427), drops `18` and `19` from every scan that
+starts at `12` ([postmortem](postmortems/2026-11-hot-lower-bound-below-leaf.md)). The mirrored case, a
+key routed into a leaf it sorts entirely above, is the `insertionPoint == entryCount` arm.
+
+**Direction.** `S` has a 0 at `discBit` exactly when it sorts below the leaf's first key, so the
+insertion point already carries the reference implementation's `searchKeyBit`.
+
+`retryingBound` repeats up to 64 times while the internal `RETRY` sentinel is returned. Phase 4
+costs at most 32 first-key resolutions, each at most one leftmost descent.
 
 ### 4.4 Range scan
 
@@ -1672,8 +1711,8 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
 - `HOTMalformedSubtreeDetector.detect` does a pre-order walk from an indirect root, reports the
   **highest** malformed indirect pages and does not descend below them; `MAX_DEPTH = 64`; a cycle guard
   by page key; closed or unresolvable pages are skipped; it performs no mutation and no I/O of its own
-  (`hot/HOTMalformedSubtreeDetector.java:20-163`, `:390-398`).
-- Checks, first failure wins: I3, I4, I7, I11, I8 + I12, I5 (§2.8).
+  (`HOTMalformedSubtreeDetector.walk` and `resolve`).
+- The detector's enforced invariants are listed in §2.8; it reports the first failure.
 - **Only production call**: `validatePublishedStructuralScopeBounded` after a structural publication,
   when `VALIDATE_STRUCTURAL_MUTATIONS` (default on) and the scope fits the bounded budget; oversized
   scopes are counted in `STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED` and not checked
@@ -1857,11 +1896,11 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Workload verification | `index/hot/HOTFormalVerificationTest` (36, `@Tag("heavy")`) | NAME/CAS workloads, adversarial fuzz, 100K height bound, multi-revision isolation, 10K-200K sweeps, each followed by `HOTInvariantValidator.assertOk()` and a `TreeMap` oracle (`:35-45`); the 1M-entry case is `@Disabled` with a manual note "Verified manually: N=1M, observedHeight=3, violations=0" (`:442-444`) |
 | Primitives | `HOTLeafPageSplitFaithfulTest` (3), `HOTIndirectPageSplitFaithfulTest` (15), `HOTDescentAnalysisTest` (4), `HOTIntegrateTest` (4) | MSDB leaf split into complete R(S) halves; `splitIndirect`/`addEntry` on canonical tries; β and d*; `integrate` including cascade to a new root |
 | Full-node branch split | `HOTBranchSplitOverlapTest` | seeds validated sparse paths and retained leaf endpoints, then reaches §4.5.4 case 4 through public writer puts in either split half under every `VersioningType`; checks rejection before publication, ordered exact physical scans, postings and structural invariants after inserts and commits, all historical revisions, and cold reopen |
-| Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTInvariantValidatorChecksTest` (6), [`HOTInvariantValidatorWorkTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorWorkTest.java) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; validator: I1, I4, I6, I11, leaf-insert precondition and unreadable slots; reuse scope is specified in [Verification](VERIFICATION.md#running-the-layers) |
+| Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTIndirectCardinalityTest`, `HOTInvariantValidatorChecksTest` (6), [`HOTInvariantValidatorWorkTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorWorkTest.java) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; cardinality: factory, decode, detector and writer-preflight enforcement of I10 in both layouts; validator: I1, I4, I6, I11, leaf-insert precondition and unreadable slots; reuse scope is specified in [Verification](VERIFICATION.md#running-the-layers) |
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `index/hot/page/HOTCompleteDumpMergeTest` (5), `index/hot/page/HOTLeafPageCowTest` (15), `index/hot/page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
 | Writer mechanics | `HOTRebuildFootprintTest`, `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `index/hot/page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `index/hot/cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
-| Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2) | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending |
+| Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2), `HOTTrieReaderBoundContractTest`, `HOTTrieReaderBoundPropertyTest`, `HOTTrieReaderCasRangeRegressionTest` | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending; the lower- and upper-bound contract of §4.3.1: on hand-built tries for every probe of their key universe, including search keys routed below or above their leaf and keys no bit separates from a stored key; on bulk-built and writer-built tries against a sorted reference for fixed seeds (fresh seeds in `test/property/HotBoundSeekOracleRandomTest`); and end to end through CAS range filters with absent lower bounds. Each suite asserts that its probes reach the geometry it claims |
 | Index builds | `index/JsonCASIndexBuildTest`, `JsonPathAndNameIndexBuildTest`, `JsonIndexDropRecreateVersioningTest` | `STRUCTURAL_VALIDATION_FAILURE` stays zero during real index builds (`JsonCASIndexBuildTest.java:170-176`) |
 | Query level (sirix-query) | `HOTIndexJsoniqDifferentialTest` (20), `HOTIndexMemoizationJsoniqTest` (21), `HOTIndexStressTest` (4, `@Tag("stress")`) | JSONiq results with and without indexes; memoization |
 
@@ -1998,18 +2037,16 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
    after intent-log copies exist, but the insert arm of `doMutation` has no catch that marks the
    transaction rollback-only (`hot/AbstractHOTIndexWriter.java:1939-2012`, `:5401-5402`). Whether a
    higher layer does was not traced.
-3. **One-child indirect pages**: allowed by `createMultiNode` and the writer's range check (§2.8); whether
-   reachable, and whether readers and the detector handle them, is untested.
-4. **Thread-safety of one index reader** across threads: the walk-state pool suggests yes, the storage
+3. **Thread-safety of one index reader** across threads: the walk-state pool suggests yes, the storage
    reader contract says no (§4.9.5).
-5. **Stale heights on descending inserts** (`docs/HOT_BULK_BUILD.md:63-66`): `integrate` consumes heights
+4. **Stale heights on descending inserts** (`docs/HOT_BULK_BUILD.md:63-66`): `integrate` consumes heights
    and `heightOf` now fails closed on unresolved children (`hot/HOTIncrementalInsert.java:2175-2178`);
    whether the reported issue still occurs was not established.
-6. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
-7. **`short` MSB index** for keys longer than 4 095 bytes (NAME keys are not bounded) (§2.6.1).
-8. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
+5. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
+6. **`short` MSB index** for keys longer than 4 095 bytes (NAME keys are not bounded) (§2.6.1).
+7. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
    misdirected write below the newest leaf image is detected only structurally, if at all.
-9. **Height optimality** under multi-entry leaves is not established; the paper states the structure is
+8. **Height optimality** under multi-entry leaves is not established; the paper states the structure is
    not minimum-height (§5.3 item 3).
 
 ---
@@ -2044,9 +2081,6 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 ### 8.2 Code comments that contradict the code
 
 - `hot/DiscriminativeBitComputer.java:55-57` "Branchless" vs early exits.
-- `hot/page/HOTIndirectPage.java:72-73`, `:124` ("17-32 children") vs factory 1..32.
-- `hot/HOTMalformedSubtreeDetector.java:21`, `:42`, `:234` ("detect-and-rebuild", "detectAndHeal") vs no
-  repair.
 - `hot/reader/HOTTrieReader.java:979-980`, `:1041-1042` mention an io_uring prefetch that has no implementation
   in this repository.
 

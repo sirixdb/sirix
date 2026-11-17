@@ -956,15 +956,6 @@ The HOT index is a cache-friendly alternative to B-trees:
 │  ...      ...                 Multiple levels collapsed                   │
 │                               into single cache-friendly node             │
 │                                                                           │
-│  Node Types:                                                              │
-│  ┌──────────┬──────────────────────────────────────────────────────────┐  │
-│  │ BiNode   │ 2 children, 1 discriminative bit                         │  │
-│  ├──────────┼──────────────────────────────────────────────────────────┤  │
-│  │ SpanNode │ 2-16 children, SIMD-optimized partial key search         │  │
-│  ├──────────┼──────────────────────────────────────────────────────────┤  │
-│  │ MultiNode│ 17-32 children, SIMD-optimized partial key search        │  │
-│  └──────────┴──────────────────────────────────────────────────────────┘  │
-│                                                                           │
 │  HOTLeafPage:                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐  │
 │  │ [key₁|value₁][key₂|value₂][key₃|value₃]...                          │  │
@@ -973,6 +964,9 @@ The HOT index is a cache-friendly alternative to B-trees:
 │                                                                           │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
+
+For node representations and legal fanouts, see the
+[HOT specification](HOT_INDEX_SPECIFICATION.md#28-structural-invariants).
 
 #### Multi-revision read isolation
 

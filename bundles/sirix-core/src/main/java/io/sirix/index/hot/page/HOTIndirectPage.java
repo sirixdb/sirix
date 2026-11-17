@@ -70,7 +70,7 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * </p>
  * <ul>
  * <li>SpanNode: 2-16 children, SIMD-searchable partial keys (includes 2-child nodes)</li>
- * <li>MultiNode: 17-32 children, SIMD-searchable partial keys</li>
+ * <li>MultiNode: 2-32 children, SIMD-searchable partial keys</li>
  * </ul>
  * 
  * <p>
@@ -122,7 +122,7 @@ public final class HOTIndirectPage implements Page {
   public enum NodeType {
     /** 2-16 children, SIMD-searchable partial keys. */
     SPAN_NODE((byte) 0),
-    /** 17-32 children, SIMD-searchable partial keys (same as SpanNode but higher fanout). */
+    /** 2-32 children, SIMD-searchable partial keys (same as SpanNode but higher fanout). */
     MULTI_NODE((byte) 1);
 
     private final byte id;
@@ -1370,8 +1370,8 @@ public final class HOTIndirectPage implements Page {
    */
   public static HOTIndirectPage createMultiNode(long pageKey, int revision, int initialBytePos, long bitMask,
       int[] partialKeys, PageReference[] children, int height) {
-    if (children.length < 1 || children.length > 32) {
-      throw new IllegalArgumentException("MultiNode must have 1-32 children, got: " + children.length);
+    if (children.length < 2 || children.length > 32) {
+      throw new IllegalArgumentException("MultiNode must have 2-32 children, got: " + children.length);
     }
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.MULTI_NODE, children.length);
     page.layoutType = LayoutType.SINGLE_MASK;
@@ -1439,8 +1439,8 @@ public final class HOTIndirectPage implements Page {
   public static HOTIndirectPage createMultiNodeMultiMask(long pageKey, int revision, byte[] extractionPositions,
       long[] extractionMasks, int numExtractionBytes, int[] partialKeys, PageReference[] children, int height,
       short mostSignificantBitIndex) {
-    if (children.length < 1 || children.length > 32) {
-      throw new IllegalArgumentException("MultiNode must have 1-32 children, got: " + children.length);
+    if (children.length < 2 || children.length > 32) {
+      throw new IllegalArgumentException("MultiNode must have 2-32 children, got: " + children.length);
     }
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.MULTI_NODE, children.length,
         extractionPositions.clone(), numExtractionBytes);

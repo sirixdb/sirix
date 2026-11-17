@@ -439,7 +439,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * </p>
    *
    * <p>
-   * Algorithm (5 phases, ports the C++ reference 1:1):
+   * Algorithm (5 phases, adapted for multi-entry leaves):
    * </p>
    * <ol>
    * <li><b>PEXT-routed descent with stack.</b> Use the existing
@@ -447,11 +447,14 @@ public final class HOTTrieReader implements AutoCloseable {
    * {@code (parentNode, childIdx, mostSignificantBitIndex)} at every level. Lands at a candidate leaf
    * chosen by partial-key match, which may not be the lex-correct leaf when {@code searchKey} doesn't
    * exist.</li>
-   * <li><b>Mismatch-bit detection.</b> Compute the first absolute bit position where any entry in the
-   * candidate leaf differs from {@code searchKey} (via
-   * {@link DiscriminativeBitComputer#computeDifferingBit(byte[], byte[])} on the leaf's first key —
-   * same partial-key prefix above the disc bit means same mismatch info). If keys are identical the
-   * candidate IS the lower bound.</li>
+   * <li><b>Position in the candidate leaf, then mismatch-bit detection.</b> An absent
+   * {@code searchKey} whose insertion point lies strictly inside the candidate leaf has its bound at
+   * that position. Otherwise it sorts below or above the whole leaf, which the leaf alone cannot
+   * place: compute the first absolute bit position where {@code searchKey} differs from the leaf's
+   * first key (every entry of the leaf shares the partial-key prefix above the disc bit, hence the
+   * mismatch info). A first key that merely extends {@code searchKey}, and a {@code searchKey} that
+   * is the first key followed only by zero bytes, are answered directly without requiring such a
+   * bit.</li>
    * <li><b>Walk stack up to branching depth.</b> Pop levels while the disc bit lies below the level's
    * most-significant disc bit — bits above the disc bit already matched perfectly, so those levels
    * routed correctly; bits at or above the disc bit determine where {@code searchKey} actually
@@ -459,11 +462,12 @@ public final class HOTTrieReader implements AutoCloseable {
    * <li><b>Compute affected subtree at branching depth.</b> Find the contiguous run of siblings
    * sharing the matched entry's bit-prefix above the disc bit. HOT children are stored lex-sorted by
    * first-key, so disc-bit-prefix groups are contiguous in child-index order. Walk outward from the
-   * matched index using {@link DiscriminativeBitComputer#computeDifferingBit} on first-keys.</li>
-   * <li><b>Position at next entry.</b> If the searchKey's bit at the disc position is 1, lower-bound
-   * is one past the affected subtree; if 0, it is the first index of the affected subtree. Descend
-   * leftmost from there. If the next index falls past the branching node's last child, bubble up via
-   * {@link #advanceToNextLeaf()}.</li>
+   * matched index using {@link DiscriminativeBitComputer#computeDifferingBit} on first-keys, on the
+   * one side that decides the bound.</li>
+   * <li><b>Position at next entry.</b> If the searchKey's bit at the disc position is 1 (it sorts
+   * above the candidate leaf), lower-bound is one past the affected subtree; if 0 (it sorts below),
+   * it is the first index of the affected subtree. Descend leftmost from there. If the next index
+   * falls past the branching node's last child, bubble up via {@link #advanceToNextLeaf()}.</li>
    * </ol>
    *
    * @param rootRef root of the HOT subtree
@@ -569,6 +573,9 @@ public final class HOTTrieReader implements AutoCloseable {
     return new IllegalStateException("HOT structural corruption: " + detail);
   }
 
+  // Sonar S3776: the range-seek hot path kept as one compiled unit (JMH-measured).
+  // Splitting it changes what the compiler inlines on every lower/upper-bound seek.
+  @SuppressWarnings("java:S3776")
   private LowerBoundResult lowerOrUpperBound(final PageReference rootRef, final byte[] searchKey,
       final int searchKeyLen, final boolean isLowerBound) {
     // Phase 1: PEXT-routed descent with stack tracking.
@@ -600,39 +607,39 @@ public final class HOTTrieReader implements AutoCloseable {
       return advanceOneFrom(candidateLeaf, exact);
     }
 
-    // Phase 2b: insertion-point-within-candidate fast path. Sirix's HOT leaves are
-    // multi-entry — a candidate leaf can hold up to 512 keys. {@link HOTLeafPage#findEntry}
-    // returns {@code -(insertionPoint+1)} when no exact match exists, where
-    // {@code insertionPoint} is the lex-position where {@code searchKey} would land in the
-    // sorted leaf. If {@code insertionPoint < entryCount}, the smallest leaf key strictly
-    // greater than {@code searchKey} is {@code candidateLeaf[insertionPoint]} — that IS the
-    // lower_bound result; no walk-up needed.
-    //
-    // Binna's reference (single-TID leaves) doesn't hit this case because every leaf has
-    // exactly one entry; non-exact matches always live in a different leaf. With multi-entry
-    // leaves the walk-up phase below becomes incorrect for queries whose insertion point is
-    // strictly inside the candidate (e.g., chunked-bitmap range scans for prefixes whose
-    // chunkIdx_be4 trailer differs from any stored composite).
+    // Phase 2b: insertion point strictly inside the candidate. Sirix's HOT leaves are multi-entry
+    // (up to 512 keys); {@link HOTLeafPage#findEntry} returns {@code -(insertionPoint+1)} for an
+    // absent key. A leaf holds a contiguous run of the sorted key set, so when both neighbours of
+    // {@code searchKey} are entries of this leaf, {@code candidateLeaf[insertionPoint]} is the
+    // bound for lower_bound and, with no entry equal to {@code searchKey}, for upper_bound too.
+    // Binna's reference (single-TID leaves) has no such case.
     if (candidateEntryCount == 0) {
       // Shouldn't happen — empty leaves aren't part of a populated trie.
       return LowerBoundResult.EXHAUSTED;
     }
     final int insertionPoint = -(exact + 1);
-    if (insertionPoint < candidateEntryCount) {
-      // For lower_bound the answer is candidateLeaf[insertionPoint]; for upper_bound on a
-      // non-exact match the answer is the same (no leaf entry equals searchKey).
+    if (insertionPoint > 0 && insertionPoint < candidateEntryCount) {
       return new LowerBoundResult(candidateLeaf, insertionPoint);
+    }
+
+    // Phase 2c: searchKey sorts below every entry of the candidate (insertionPoint == 0) or above
+    // every entry. Neither end is decided by this leaf: PEXT routes on the discriminative bits of
+    // the path only, so an absent key that differs from the stored keys in a more significant,
+    // non-discriminative bit is routed by its lower bits into the middle of a subtree it sorts
+    // entirely below (or above), while earlier (later) leaves hold keys on its other side.
+    final boolean belowLeaf = insertionPoint == 0;
+    if (pathDepth == 0) {
+      // The root is a leaf, hence the only one: the insertion point decides alone.
+      return belowLeaf
+          ? new LowerBoundResult(candidateLeaf, 0)
+          : LowerBoundResult.EXHAUSTED;
     }
 
     final int discBit;
     try {
-      // Keep the absent-key walk allocation-free: compare/msdbWith read the first slot's
-      // common-prefix + off-heap suffix in place and honor searchKeyLen, including zero padding
-      // beyond the logical end. The equality check preserves the defensive outcome below if
-      // findEntry ever reports a miss for the first key.
-      discBit = candidateLeaf.compareKeyWithBound(0, searchKey, searchKeyLen) == 0
-          ? -1
-          : candidateLeaf.msdbWith(0, searchKey, searchKeyLen);
+      // Allocation-free: the leaf compares its first slot's common-prefix + off-heap suffix in
+      // place and honors searchKeyLen, including zero padding beyond the logical end.
+      discBit = mismatchBitWithFirstKey(candidateLeaf, searchKey, searchKeyLen, belowLeaf);
     } catch (RuntimeException e) {
       if (validateCurrentLeaf()) {
         throw e;
@@ -642,99 +649,63 @@ public final class HOTTrieReader implements AutoCloseable {
     if (!validateCurrentLeaf()) {
       return LowerBoundResult.RETRY;
     }
-    if (discBit < 0) {
-      // Candidate first-key equals searchKey but findEntry didn't match: defensive path.
-      // Treat as exact match at index 0.
-      if (isLowerBound) {
-        return new LowerBoundResult(candidateLeaf, 0);
-      }
-      return advanceOneFrom(candidateLeaf, 0);
+    if (discBit == NO_MISMATCH_BIT) {
+      // Nothing is stored between searchKey and the candidate's first key, so the bound is that key
+      // (searchKey sorts before it) or the entry after this leaf (searchKey sorts after it).
+      return belowLeaf
+          ? new LowerBoundResult(candidateLeaf, 0)
+          : firstEntryOfNextLeaf();
     }
-    final boolean searchKeyBit = DiscriminativeBitComputer.isBitSet(searchKey, searchKeyLen, discBit);
 
     // Phase 3: walk stack up while discBit is BELOW the level's most-significant disc bit.
     // (Smaller absoluteBitIndex = "more significant" = earlier in key.) The C++ reference
     // condition is `significantBitIdx < mostSignificantBitIndexes[depth]`; we mirror it.
+    final TraversalPath path = traversalPath();
     int branchingDepth = pathDepth - 1; // start at parent of the leaf
-    while (branchingDepth > 0 && discBit < traversalPath().mostSignificantBits[branchingDepth]) {
+    while (branchingDepth > 0 && discBit < path.mostSignificantBits[branchingDepth]) {
       branchingDepth--;
     }
-    if (branchingDepth < 0) {
-      // Path was empty (root is a leaf). Candidate leaf is the only leaf; insertion-point
-      // wholly determines the result.
-      if (insertionPoint < candidateEntryCount) {
-        return new LowerBoundResult(candidateLeaf, insertionPoint);
-      }
-      return LowerBoundResult.EXHAUSTED;
-    }
 
-    // Phase 4: at the branching depth, compute the affected subtree's [firstIdx, lastIdx].
-    // HOT writers sort children by first-key (lex), so the affected subtree (children that
-    // share matched's bit value at {@code discBit} AND all higher-significance disc bits) is
-    // a contiguous run in child-index order.
-    //
-    // <p>Critical invariant (Binna §4.2): a sibling is in the affected subtree IFF it shares
-    // matched's bit value AT {@code discBit} as well as all bits ABOVE. Equivalently:
-    // {@code computeDifferingBit(matched, sibling) > discBit}. The {@code >} (not {@code >=})
-    // matters: a sibling whose first-key differs from matched at exactly {@code discBit} is
-    // on the OPPOSITE side of the disc-bit split — Binna's "new entry's side" — so it is NOT
-    // part of the affected subtree. Including it would over-expand the subtree across the
-    // disc-bit boundary and corrupt the {@code nextChildIdx = lastIdx + 1} step (it would
-    // skip the very subtree where searchKey lives when {@code searchKeyBit=1}).
-    final HOTIndirectPage branchingNode = traversalPath().nodes[branchingDepth];
-    final int matchedIdx = traversalPath().childIndices[branchingDepth];
-    final byte[] matchedFirstKey = getFirstKeyOfChild(branchingNode, matchedIdx);
-
-    int firstIdx = matchedIdx;
-    for (int i = matchedIdx - 1; i >= 0; i--) {
-      final byte[] iFirst = getFirstKeyOfChild(branchingNode, i);
-      final int diff = DiscriminativeBitComputer.computeDifferingBit(matchedFirstKey, iFirst);
-      // diff < 0 ⇒ identical first-keys (extremely rare — same-prefix duplicates); in-subtree.
-      // diff > discBit ⇒ keys agree at bit positions 0..discBit, so sibling is on matched's
-      // side of the disc-bit split ⇒ in-subtree.
-      // diff <= discBit ⇒ sibling differs at-or-above discBit ⇒ NOT in-subtree.
-      if (diff < 0 || diff > discBit) {
-        firstIdx = i;
-      } else {
-        break;
-      }
-    }
-    int lastIdx = matchedIdx;
+    // Phase 4: at the branching depth, find the end of the affected subtree that decides the bound.
+    // HOT writers sort children by first-key (lex), so the affected subtree (children that share
+    // matched's bit value at {@code discBit} AND all higher-significance disc bits) is a contiguous
+    // run in child-index order around the matched child. searchKey has a 0 at discBit exactly when
+    // it sorts below the candidate's first key, so belowLeaf carries the reference's searchKeyBit:
+    // below → the bound is the FIRST entry of the run, above → the entry AFTER the run. Only that
+    // side is resolved: every first-key probe can cost a leftmost descent, and the other side's
+    // extent changes nothing.
+    final HOTIndirectPage branchingNode = path.nodes[branchingDepth];
+    final int matchedIdx = path.childIndices[branchingDepth];
     final int numChildren = branchingNode.getNumChildren();
-    for (int i = matchedIdx + 1; i < numChildren; i++) {
-      final byte[] iFirst = getFirstKeyOfChild(branchingNode, i);
-      final int diff = DiscriminativeBitComputer.computeDifferingBit(matchedFirstKey, iFirst);
-      if (diff < 0 || diff > discBit) {
-        lastIdx = i;
-      } else {
-        break;
+    final byte[] matchedFirstKey = getFirstKeyOfChild(branchingNode, matchedIdx);
+    int nextChildIdx;
+    if (belowLeaf) {
+      nextChildIdx = matchedIdx;
+      while (nextChildIdx > 0
+          && inAffectedSubtree(matchedFirstKey, getFirstKeyOfChild(branchingNode, nextChildIdx - 1), discBit)) {
+        nextChildIdx--;
+      }
+    } else {
+      nextChildIdx = matchedIdx + 1;
+      while (nextChildIdx < numChildren
+          && inAffectedSubtree(matchedFirstKey, getFirstKeyOfChild(branchingNode, nextChildIdx), discBit)) {
+        nextChildIdx++;
       }
     }
 
-    // Phase 5: position at the lower-bound child.
-    // searchKeyBit == 1 → searchKey would land AFTER the affected subtree
-    // searchKeyBit == 0 → searchKey would land at the FIRST entry of the subtree
-    // For upper_bound on a non-exact-match, the answer is the same as lower_bound (the
-    // first key strictly greater than searchKey), because no leaf entry equals searchKey.
-    final int nextChildIdx = searchKeyBit
-        ? (lastIdx + 1)
-        : firstIdx;
+    // Phase 5: position at the lower-bound child. For upper_bound on a non-exact match the answer
+    // is the same as lower_bound (the first key strictly greater than searchKey), because no leaf
+    // entry equals searchKey.
     if (nextChildIdx >= numChildren) {
-      // Past the last child of the branching node — bubble up. Reuse the existing
-      // advanceToNextLeaf() machinery: position the path stack so the branching-level
-      // child is the "current" (last) child, then ask for the next leaf.
-      pathDepth = branchingDepth + 1;
-      traversalPath().childIndices[branchingDepth] = numChildren - 1;
-      final HOTLeafPage next = advanceToNextLeaf();
-      if (next == null) {
-        return LowerBoundResult.EXHAUSTED;
-      }
-      return new LowerBoundResult(next, 0);
+      // Past the last child of the branching node — bubble up. That level is exhausted, so pop it
+      // and let the advanceToNextLeaf() machinery continue with the next sibling further up.
+      pathDepth = branchingDepth;
+      return firstEntryOfNextLeaf();
     }
 
     // Update path so subsequent advanceToNextLeaf() walks correctly: replace the branching
     // child with nextChildIdx, then descend leftmost into it.
-    traversalPath().childIndices[branchingDepth] = nextChildIdx;
+    path.childIndices[branchingDepth] = nextChildIdx;
     pathDepth = branchingDepth + 1;
     final PageReference nextRef = branchingNode.getChildReference(nextChildIdx);
     if (nextRef == null) {
@@ -742,6 +713,75 @@ public final class HOTTrieReader implements AutoCloseable {
     }
     final HOTLeafPage targetLeaf = descendToLeftmostLeaf(nextRef);
     return new LowerBoundResult(targetLeaf, 0);
+  }
+
+  /**
+   * {@link #mismatchBitWithFirstKey} result when no bit separates the search key from the first key.
+   */
+  private static final int NO_MISMATCH_BIT = -1;
+
+  /**
+   * The absolute bit at which {@code searchKey} first differs from {@code leaf}'s first key, or
+   * {@link #NO_MISMATCH_BIT} when the leaf decides the bound without the walk. Keys are compared as
+   * zero-padded bit strings, so a key and the same key followed by {@code 0x00} bytes have no
+   * differing bit although they are ordered by length; {@link HOTLeafPage#msdbWith} requires one.
+   *
+   * <ul>
+   * <li>Below the leaf: a first key that merely extends {@code searchKey} is the smallest stored key
+   * with that prefix. A smaller one would be separated from it at a bit past {@code searchKey}'s end,
+   * where {@code searchKey} reads 0 and would have been routed to the smaller key's side.</li>
+   * <li>Above the leaf: {@code searchKey} equal to the first key followed only by zero bytes routes
+   * exactly as that key does, and every key between the two is such a zero continuation as well and
+   * shares their leaf. The bound is therefore the entry after this leaf.</li>
+   * </ul>
+   *
+   * @param belowLeaf whether {@code searchKey} sorts below every entry of {@code leaf}; otherwise it
+   *        sorts above every entry
+   */
+  private static int mismatchBitWithFirstKey(final HOTLeafPage leaf, final byte[] searchKey, final int searchKeyLen,
+      final boolean belowLeaf) {
+    if (belowLeaf) {
+      if (leaf.compareKeyPrefix(0, searchKey, searchKeyLen) == 0) {
+        return NO_MISMATCH_BIT;
+      }
+    } else {
+      final int firstKeyLen = leaf.getKeyLength(0);
+      if (leaf.compareKeyWithBound(0, searchKey, Math.min(firstKeyLen, searchKeyLen)) == 0) {
+        // searchKey starts with the first key; scan the rest of its valid bytes for a set bit.
+        int tail = firstKeyLen;
+        while (tail < searchKeyLen && searchKey[tail] == 0) {
+          tail++;
+        }
+        if (tail == searchKeyLen) {
+          return NO_MISMATCH_BIT;
+        }
+      }
+    }
+    return leaf.msdbWith(0, searchKey, searchKeyLen);
+  }
+
+  /**
+   * Whether a sibling belongs to the affected subtree of the matched child for the mismatch bit
+   * {@code discBit} (Binna §4.2): its first key agrees with the matched child's first key on every
+   * bit up to and including {@code discBit}. A sibling that differs at or above {@code discBit} lies
+   * on the other side of a BiNode the search key's position is decided at or above.
+   */
+  private static boolean inAffectedSubtree(final byte[] matchedFirstKey, final byte[] siblingFirstKey,
+      final int discBit) {
+    final int diff = DiscriminativeBitComputer.computeDifferingBit(matchedFirstKey, siblingFirstKey);
+    // diff < 0 ⇒ identical first keys (never on a well-formed trie); treated as in-subtree.
+    return diff < 0 || diff > discBit;
+  }
+
+  /**
+   * Entry 0 of the leaf after the path stack's current position, or exhaustion past the last leaf.
+   */
+  private LowerBoundResult firstEntryOfNextLeaf() {
+    final HOTLeafPage next = advanceToNextLeaf();
+    if (next == null) {
+      return LowerBoundResult.EXHAUSTED;
+    }
+    return new LowerBoundResult(next, 0);
   }
 
   /**

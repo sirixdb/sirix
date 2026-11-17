@@ -29,6 +29,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.ByteBuffer
@@ -36,6 +37,7 @@ import java.nio.channels.FileChannel
 import java.nio.file.StandardOpenOption
 import java.nio.file.Path
 
+@Tag("offline")
 class RevertHandlerTest {
     @TempDir
     lateinit var location: Path
@@ -125,14 +127,29 @@ class RevertHandlerTest {
 
     @Test
     fun optionalHeadAndMessageAndRevertToHeadAppendARevision() = runBlocking {
-        createHistory(false)
-        serve { client, port ->
-            val response = client.post(port, "localhost", "/db/res/revert")
-                .sendJsonObject(JsonObject().put("targetRevision", 2)).coAwait()
-            assertEquals(201, response.statusCode(), response.bodyAsString())
-            assertEquals(3, requireNotNull(response.bodyAsJsonObject()).getInteger("revision"))
+        for (xml in listOf(false, true)) {
+            createHistory(xml)
+            serve { client, port ->
+                val response = client.post(port, "localhost", "/db/res/revert")
+                    .sendJsonObject(JsonObject().put("targetRevision", 2)).coAwait()
+                assertEquals(201, response.statusCode(), response.bodyAsString())
+                assertEquals(JsonObject().put("revision", 3).put("previousHead", 2), response.bodyAsJsonObject())
+            }
+            openDatabase(xml).use { db ->
+                db.beginResourceSession("res").use { session ->
+                    assertEquals(3, session.mostRecentRevisionNumber)
+                    for (revision in 1..3) {
+                        session.beginNodeReadOnlyTrx(revision).use { rtx ->
+                            (rtx as NodeCursor).moveToFirstChild()
+                            val value = if (xml) (rtx as XmlNodeReadOnlyTrx).name.localName
+                                        else (rtx as JsonNodeReadOnlyTrx).value
+                            assertEquals(if (revision == 1) "old" else "new", value)
+                        }
+                    }
+                }
+            }
+            Databases.removeDatabase(location.resolve("db"))
         }
-        assertHead(3)
     }
 
     @Test

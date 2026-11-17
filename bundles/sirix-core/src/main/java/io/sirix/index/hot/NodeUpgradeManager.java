@@ -38,12 +38,10 @@ import java.util.List;
  * Manages node type transitions in HOT (Height Optimized Trie).
  * 
  * <p>
- * Handles upgrades and downgrades between node types:
+ * Handles upgrades and downgrades between node types. {@link #determineNodeType(int)} selects the
+ * representation by child count; the legal factory fanouts are documented in
+ * {@link HOTIndirectPage}.
  * </p>
- * <ul>
- * <li>SpanNode (2-16 children, 1-4 discriminative bits)</li>
- * <li>MultiNode (17-32 children, 5-8 discriminative bits)</li>
- * </ul>
  * 
  * <p>
  * <b>Reference:</b> NodeAllocationInformations.hpp defines max 32 entries per node.
@@ -60,7 +58,7 @@ import java.util.List;
  * <b>Downgrade Triggers:</b>
  * </p>
  * <ul>
- * <li>MultiNode → SpanNode: After delete, children drop to ≤16</li>
+ * <li>MultiNode → SpanNode: After delete, children drop to 2-16</li>
  * </ul>
  * 
  * @author Johannes Lichtenberger
@@ -93,8 +91,8 @@ public final class NodeUpgradeManager {
    * @throws IllegalArgumentException if numChildren is invalid
    */
   public static NodeType determineNodeType(int numChildren) {
-    if (numChildren < 1) {
-      throw new IllegalArgumentException("Node must have at least 1 child: " + numChildren);
+    if (numChildren < 2) {
+      throw new IllegalArgumentException("Node must have at least 2 children: " + numChildren);
     }
     if (numChildren <= SPAN_NODE_MAX_CHILDREN) {
       return NodeType.SPAN_NODE;
@@ -152,15 +150,17 @@ public final class NodeUpgradeManager {
   }
 
   /**
-   * Check if a node should be downgraded after a deletion.
+   * Check if a node needs removal, collapse or a smaller representation after a deletion. A true
+   * result for zero or one remaining child requires the caller to remove the node or replace it with
+   * its remaining child, respectively, rather than selecting another node type.
    * 
    * @param node the current node
    * @param newChildCount the child count after deletion
-   * @return true if the node should be downgraded
+   * @return true if the node needs removal, collapse or a smaller representation
    */
   public static boolean shouldDowngrade(HOTIndirectPage node, int newChildCount) {
-    if (newChildCount < 1) {
-      return true; // Node should be removed entirely
+    if (newChildCount < 2) {
+      return true; // Remove an empty node or collapse a unary node to its remaining child.
     }
     NodeType currentType = node.getNodeType();
     NodeType optimalType = determineNodeType(newChildCount);

@@ -127,8 +127,8 @@ public class HotIndirectPageLookupBenchmark {
       children[i] = new PageReference();
     }
 
-    // createMultiNode supports 1..32 children and installs SparsePartialKeys. SpanNode and
-    // MultiNode both use the canonical equality-preferred partial-key route benchmarked here.
+    // Use a MultiNode to exercise the same canonical equality-preferred partial-key route at
+    // every benchmark fanout, including those that could use a SpanNode.
     page = HOTIndirectPage.createMultiNode(/* pageKey */ 1L, /* revision */ 1, /* initialBytePos */ 0, bitMask,
         partials, children, /* height */ 0);
 
