@@ -115,7 +115,7 @@ Neither successor mutation nor writer close waits for post delivery.
 External close rejects enclosing writer execution and callback reentry before admission monitors.
 Database/handle/session retirement and destructive history changes establish bounded notification
 quiescence. On timeout queued work is discarded, while active callback readers and dependent
-storage/file ownership remain reachable for retry. A successful scoped retirement resumes deferred
+storage/file ownership remain reachable for retry. The final overlapping retirement scope resumes deferred
 notifications from other open sessions; final database close stops the dispatcher. Callback errors
 are logged independently and cannot veto published data or skip later notification attempts.
 
@@ -168,6 +168,11 @@ using `KEEP_OPEN_ASYNC_FLUSH` (see the shredding discussion in
 `ARCHITECTURE.md`); `KEEP_OPEN_ASYNC_COMMIT` is for ingest that needs
 periodic *queryable* checkpoints without paying synchronous barriers.
 
-Resource retirement rejects enclosing execution on any same-resource writer before retirement locks.
+Resource retirement rejects enclosing execution on any same-resource writer before notification quiescence. Retirement pauses callback admission without exclusively locking other lifecycle owners.
 The former resource-shared unbounded completion fences and outer-unlock notification queues are
 superseded by [bounded database dispatch](hooks.md); the earlier postmortems record historical designs.
+
+Raw page truncation acquires its bound node execution owner and fences hardening before revalidating
+the captured writer; all page truncations fence submitted async append work before changing history.
+Closed predecessors and interrupted maintenance reject before destructive storage work. Temporary
+pre-hook admission refusal leaves scheduled commits enabled; user-hook failures retain veto semantics.

@@ -19,7 +19,18 @@ explicit timeout and can be closed on retry. Resource creation and retained remo
 mutation-gate ownership, then quiescence before admission monitors. Session registration stays serialized;
 newly opened derived setup/rebuild finishes after those monitors are released. Warm session opens
 skip eager setup. Removal rejects registered owners before waiting and revalidates under the monitor.
-Callbacks retain their permitted independent metadata reads and existing-session opens.
+Callbacks retain their permitted independent metadata reads and existing-session opens while quiescence is pending.
+
+Notification retirement now shares an admission pause across overlapping lifecycle owners instead
+of exclusively locking them. Execution and history ownership remain with their existing owners;
+callback waits stay outside admission monitors. Direct local close stops resource admission after
+quiescence, drains derived workers and registered user sessions outside its monitor, and releases
+shared storage only afterward. Failed owner cleanup retains admission closure and storage for retry.
+
+Raw and node page truncation share node execution/hardening ownership, revalidate captured writers,
+and fence submitted async append work before changing files or snapshots. Closed predecessors and
+interrupted maintenance reject before destructive work. A temporary pre-hook admission refusal
+skips only that scheduled tick; user-hook exceptions and Errors retain their veto behavior.
 
 ## Specification and executable evidence
 
@@ -35,29 +46,35 @@ Callbacks retain their permitted independent metadata reads and existing-session
 | Refusal before resource mutation | resourceLifecycleRefusalPreservesFilesAndOwnersForRetry; timeout/interruption leaves files and retained owner usable, then retry succeeds |
 | Implicit derived lifecycle and ordinary opens | eagerDerivedRebuildQuiescesOutsideSessionAdmission, warmSessionOpenDoesNotEnterNotificationRetirement, DerivedIndexMaintainerTest; genuine hidden rebuild, usable snapshots and no warm-open callback wait |
 | Registration lifetime | delayedSessionReleaseStaysRegisteredUntilItReleasesItsBackend; early rejection while the backend still belongs to the previous generation, then recreation and writer reuse |
+| Physical storage maintenance fence | rawPageTruncationFencesBoundHardening, truncationFencesAsyncAppend, nodeTruncationCanTargetTheRevisionBeingHardened; JSON/XML raw/node/unbound entry, success/failure/interruption, closed predecessors and readable durable revisions |
+| Scheduled publication after temporary refusal | timedCommitResumesAfterTemporaryAdmissionRefusal; a real other-handle close owns retirement while blocked on a different resource writer, then a later periodic tick publishes the known value |
+| Ordinary ownership overlap | executionOwnerCanQuiesceWhileCloseWaitsForExecution, overlappingRetirementsKeepAdmissionPausedUntilBothOwnersLeave, historyOwnerCanTruncateWhileDerivedCleanupWaits; no active callback needed to exercise execution/history/cleanup ordering |
+| Local retained owners and safe retry | refusedNodeExecutionRetainsItsPageWriterUntilRetry; reader/page ownership survives failed local/session close, new resource admission stays closed, metadata reads and retry remain safe |
 
-Fresh result: **1,415 selected cases, 0 failures/errors, 5 configured skips**, plus **69 auxiliary
-cases, 0 failures/errors, 2 skips**. All 278 database-notification cases, 69 derived-maintainer cases,
-49 query gate/store cases and documented core/query/MCP budgets passed without wider bounds.
-Independently compiled starting-HEAD classes failed all 22 held-outer-gate cases with retirement
-timeouts; the same 22 pass on the fix. Earlier bootstrap evidence separately reproduces the original
-metadata cycle in 24 cases. Expected baseline failures are separate from passing checks.
+Fresh focused result: **1,461 selected cases, 0 failures/errors, 5 configured skips**, plus
+**69 auxiliary cases, 0 failures/errors, 2 skips**. This includes 290 notification cases, 143 node-abort
+cases, 84 shared-reader cases, 71 derived-maintenance cases, the preserved 24 metadata and 22 held-gate
+cases, 49 query gate/store cases, and documented core/query/MCP budgets without wider bounds.
+After that full run, the timer fixture was strengthened to drive another handle's actual retirement
+and start its real periodic task deterministically; its **two JSON/XML cases pass separately**.
+Production sources did not change between those runs.
 
-The five hot class files remain byte-identical to the snapshot used for the earlier six compiled
-caller comparisons against `fc8b9071`. That baseline is not original main, and bytecode identity is
-not runtime equivalence. The operator's separate fifteen-region proof against actual base `ba000071`
-at `ffba256a` remains external evidence, not a fresh benchmark claim. No benchmark was run. Exact
-suites, skips, hashes and limits are in [current verification](mutation-retirement-order-verification.json).
+Seven independently compiled starting-HEAD lifecycle classes fail all 42 new negative-control cases.
+The strengthened real-handle timer cases also fail twice on that baseline and pass on the fix.
+Expected baseline failures are separate from passing checks. Earlier 24-case bootstrap and 22-case
+mutation-gate counterfactuals remain historical evidence for their recorded revisions.
 
-Root cause and learning: [mutation-gate postmortem](../../docs/postmortems/mutation-retirement-lock-order.md),
+Six selected hot methods have identical compiled instructions and exception tables against
+independently compiled starting HEAD `e5847add`, with constant-pool indices normalized. Cold scheduler,
+maintenance, admission and teardown code intentionally differs. This comparison is not against
+original main and does not establish runtime or native-code equivalence. The operator's earlier
+fifteen-region proof against actual base `ba000071` at `ffba256a` remains external historical evidence.
+No benchmark was run. Exact suites, skips, hashes and limits are in
+[current verification](storage-maintenance-retirement-verification.json).
+
+Root cause and learning: [storage/retirement ownership postmortem](../../docs/postmortems/storage-maintenance-retirement-ownership.md),
+[mutation-gate postmortem](../../docs/postmortems/mutation-retirement-lock-order.md),
 [monitor-order postmortem](../../docs/postmortems/bootstrap-notification-monitor-order.md),
 [dispatcher postmortem](../../docs/postmortems/database-notification-dispatch.md) and
-[Lessons](../../docs/LESSONS.md). Older artifacts are historical snapshots. Scoped PIT, full lint,
-broader test/CI and delivery phases remain with the outer executor; no historical mutation count is
-claimed as current evidence.
-
-Mutation-gate ordering also covers existing JSON/XML collection/store callers: gates precede
-notification retirement, and callback mutation rejects at the shared gate entry before any wait.
-Held-outer-gate regressions cover creation, removal and guarded cleanup; the metadata-read matrix
-remains mandatory. See [lock-order postmortem](../../docs/postmortems/mutation-retirement-lock-order.md).
-The 1,320-case bootstrap snapshot remains historical evidence for its recorded source hashes.
+[Lessons](../../docs/LESSONS.md). Scoped PIT, repository-wide lint/test/CI and delivery phases remain
+with the outer executor; historical mutation counts do not validate the current fix.

@@ -187,6 +187,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  public final boolean isHistoryRetirementOwner(final InternalNodeTrx<?> owner) {
+    return historyExecution.get() == owner;
+  }
+
+  @Override
   public final ValidTimeReadCache getValidTimeReadCache() {
     assertNotClosed();
     ValidTimeReadCache cache = validTimeReadCache;

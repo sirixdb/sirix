@@ -64,7 +64,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -1414,10 +1413,12 @@ final class DatabaseOwnershipTest {
           }
         });
         assertTrue(hookEntered.await(30, TimeUnit.SECONDS));
-        final Field lockField = DatabaseNotifications.class.getDeclaredField("retirement");
-        lockField.setAccessible(true);
-        final ReentrantLock notificationRetirement = (ReentrantLock) Objects.requireNonNull(
-            lockField.get(((AbstractResourceSession<?, ?>) session).getNotifications()));
+        final DatabaseNotifications notifications = ((AbstractResourceSession<?, ?>) session).getNotifications();
+        final Field progressField = DatabaseNotifications.class.getDeclaredField("progress");
+        progressField.setAccessible(true);
+        final Object progress = Objects.requireNonNull(progressField.get(notifications));
+        final Field acceptingField = DatabaseNotifications.class.getDeclaredField("accepting");
+        acceptingField.setAccessible(true);
         final Thread closer = Thread.ofPlatform().daemon().unstarted(() -> {
           try {
             if (forceRemoval) {
@@ -1433,10 +1434,17 @@ final class DatabaseOwnershipTest {
         try {
           closer.start();
           final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-          while (!notificationRetirement.isLocked() && !cleanupFinished.isDone() && System.nanoTime() < deadline) {
+          boolean paused = false;
+          while (!cleanupFinished.isDone() && System.nanoTime() < deadline) {
+            synchronized (progress) {
+              paused = !acceptingField.getBoolean(notifications);
+            }
+            if (paused) {
+              break;
+            }
             Thread.sleep(1);
           }
-          assertTrue(notificationRetirement.isLocked());
+          assertTrue(paused);
           System.out.println("READY");
           System.out.flush();
           System.in.read();

@@ -1,6 +1,8 @@
 package io.sirix.index.aggregate;
 
 import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.DatabaseNotifications;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
@@ -11,6 +13,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.changelog.TemporalAggregateSummaryFolds;
 import io.sirix.io.StorageType;
 import io.sirix.utils.CommitTimestamps;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -19,12 +22,16 @@ import org.mockito.MockedStatic;
 
 import java.io.File;
 import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 
 import static io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.assertSum;
 import static io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.declareSimple;
 import static io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.setNumber;
 import static io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.state;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -36,6 +43,54 @@ import static org.mockito.Mockito.mockStatic;
 final class DerivedIndexMaintainerTest {
   @TempDir
   File directory;
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  @Timeout(30)
+  void historyOwnerCanTruncateWhileDerivedCleanupWaits(final boolean databaseClose) throws Exception {
+    final var path = directory.toPath().resolve("database");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        writer.commit();
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        final DatabaseNotifications notifications = ((AbstractResourceSession<?, ?>) session).getNotifications();
+        final CountDownLatch quiescent = new CountDownLatch(1);
+        final FutureTask<Void> cleanup = new FutureTask<>(() -> {
+          try (var pause = notifications.retire()) {
+            quiescent.countDown();
+            if (databaseClose) {
+              database.close();
+            } else {
+              resource.close();
+            }
+          }
+          return null;
+        });
+        final Thread cleaner = new Thread(cleanup);
+        resource.lockHistory();
+        try {
+          cleaner.start();
+          assertTrue(quiescent.await(10, TimeUnit.SECONDS));
+          writer.truncateTo(1);
+          assertEquals(1, session.getMostRecentRevisionNumber());
+        } finally {
+          resource.unlockHistory();
+        }
+        cleanup.get(10, TimeUnit.SECONDS);
+        cleaner.join(10000);
+        assertFalse(cleaner.isAlive());
+      }
+    }
+  }
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})

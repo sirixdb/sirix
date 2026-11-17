@@ -272,3 +272,12 @@ both a mutation gate and notification retirement must acquire the gate first, th
 admission monitors. Reject callback mutation at gate entry itself; keep independent metadata reads
 ungated. Include held-outer-gate regressions alongside callback-drain tests.
 See [postmortem](postmortems/mutation-retirement-lock-order.md).
+
+## Separate quiescence from exclusive ownership
+
+Notification retirement pauses callback admission and drains existing readers; it must not serve as
+an exclusive lock between lifecycle owners. Trace execution/history ownership and worker joins in
+both directions. Destructive maintenance must fence hardening and append workers at the shared
+page boundary, including raw entry and captured predecessors. Test scheduled admission refusal
+separately from a user-hook veto so temporary maintenance cannot disable later ticks.
+See [the ownership postmortem](postmortems/storage-maintenance-retirement-ownership.md).

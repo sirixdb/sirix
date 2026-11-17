@@ -30,7 +30,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantLock;
 import io.sirix.access.DatabaseNotifications;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Timeout;
@@ -233,9 +232,7 @@ final class SharedCallbackLifetimeTest {
         foreground.start();
         assertTrue(entered.await(10, TimeUnit.SECONDS));
         closer.start();
-        final ReentrantLock retirement =
-            (ReentrantLock) field(DatabaseNotifications.class, "retirement").get(owner.getNotifications());
-        while (!retirement.isLocked()) {
+        while (!notificationsPaused(owner.getNotifications())) {
           assertFalse(closed.isDone(), "reader owner retired during a pre-hook");
           Thread.onSpinWait();
         }
@@ -398,8 +395,7 @@ final class SharedCallbackLifetimeTest {
         }
         distant = xml.getNodeKey();
       }
-      final ReentrantLock retirement =
-          (ReentrantLock) field(DatabaseNotifications.class, "retirement").get(fixture.first.getNotifications());
+      final DatabaseNotifications notifications = fixture.first.getNotifications();
       final CountDownLatch entered = new CountDownLatch(1);
       final CountDownLatch inspect = new CountDownLatch(1);
       final CountDownLatch finish = new CountDownLatch(1);
@@ -416,7 +412,7 @@ final class SharedCallbackLifetimeTest {
           assertThrows(IllegalStateException.class, () -> writer.truncateTo(1));
           entered.countDown();
           await(inspect);
-          while (!retirement.isLocked()) {
+          while (!notificationsPaused(notifications)) {
             assertFalse(truncated.isDone(), "truncation returned before the pinned view completed");
             Thread.onSpinWait();
           }
@@ -513,6 +509,16 @@ final class SharedCallbackLifetimeTest {
     return node instanceof JsonNodeReadOnlyTrx json
         ? json.getNumberValue().intValue()
         : Integer.parseInt(node.getValue());
+  }
+
+  private static boolean notificationsPaused(final DatabaseNotifications notifications) {
+    try {
+      synchronized (field(DatabaseNotifications.class, "progress").get(notifications)) {
+        return !field(DatabaseNotifications.class, "accepting").getBoolean(notifications);
+      }
+    } catch (final ReflectiveOperationException failure) {
+      throw new AssertionError(failure);
+    }
   }
 
   private static Field field(final Class<?> type, final String name) throws ReflectiveOperationException {
