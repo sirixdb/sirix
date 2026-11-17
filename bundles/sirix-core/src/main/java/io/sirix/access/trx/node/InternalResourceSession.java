@@ -83,6 +83,8 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void exitHistoryRetirement(@Nullable InternalNodeTrx<?> previous);
 
+  boolean isHistoryRetirementOwner(InternalNodeTrx<?> owner);
+
   void assertAccess(int revision);
 
   StorageEngineWriter createPageTransaction(int trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx);

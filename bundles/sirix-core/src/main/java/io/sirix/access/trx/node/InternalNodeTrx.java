@@ -13,6 +13,8 @@ public interface InternalNodeTrx<N extends NodeTrx> extends NodeTrx {
 
   void assertCanClose();
 
+  void runStorageMaintenance(Runnable maintenance);
+
   N setBulkInsertion(boolean bulkInsertion);
 
   void adaptHashesInPostorderTraversal();

@@ -19,6 +19,8 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
 import io.sirix.io.IOStorage;
+import io.sirix.index.IndexType;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.DirectoryNotEmptyException;
@@ -804,6 +806,230 @@ final class NodeTransactionAbortLifecycleTest {
     }
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void nodeTruncationCanTargetTheRevisionBeingHardened(final String format) throws Exception {
+    final CountDownLatch entered = new CountDownLatch(1);
+    final CountDownLatch release = new CountDownLatch(1);
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals("before-harden")) {
+          entered.countDown();
+          await(release);
+        }
+      };
+      setValue(transaction, 1);
+      setValue(transaction, 2);
+      assertTrue(entered.await(10, TimeUnit.SECONDS));
+      final CompletableFuture<Throwable> result = new CompletableFuture<>();
+      final Thread command = new Thread(() -> {
+        try {
+          transaction.truncateTo(2);
+          result.complete(null);
+        } catch (final Throwable failure) {
+          result.complete(failure);
+        }
+      });
+      try {
+        command.start();
+        final Semaphore permit = (Semaphore) field(AbstractNodeTrxImpl.class, "asyncCommitPermit").get(transaction);
+        while (!permit.hasQueuedThreads()) {
+          assertFalse(result.isDone(), "target validation must follow pending hardening");
+          Thread.onSpinWait();
+        }
+        release.countDown();
+        assertNull(result.get(10, TimeUnit.SECONDS));
+        assertEquals(2, fixture.first.getMostRecentRevisionNumber());
+        try (NodeReadOnlyTrx reader = fixture.first.beginNodeReadOnlyTrx(2)) {
+          setCursor(reader);
+          assertEquals(1, value(reader));
+        }
+        transaction.rollback();
+        transaction.close();
+      } finally {
+        release.countDown();
+        command.join(10000);
+      }
+    }
+  }
+
+  @ParameterizedTest(name = "page hardening fence {arguments}")
+  @CsvSource({"json,false,false,false", "json,false,true,false", "json,true,false,false", "json,true,true,false",
+      "xml,false,false,false", "xml,false,true,false", "xml,true,false,false", "xml,true,true,false",
+      "json,false,false,true", "json,true,false,true", "xml,false,false,true", "xml,true,false,true"})
+  void rawPageTruncationFencesBoundHardening(final String format, final boolean predecessorEntry,
+      final boolean failHardening, final boolean interrupt) throws Exception {
+    final CountDownLatch entered = new CountDownLatch(1);
+    final CountDownLatch release = new CountDownLatch(1);
+    final IllegalStateException primary = new IllegalStateException("hardening failed");
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      final StorageEngineWriter predecessor = transaction.getStorageEngineWriter();
+      AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
+        if (stage.equals("before-harden")) {
+          entered.countDown();
+          await(release);
+          if (failHardening) {
+            throw primary;
+          }
+        }
+      };
+      setValue(transaction, 1);
+      setValue(transaction, 2);
+      assertTrue(entered.await(10, TimeUnit.SECONDS));
+      final StorageEngineWriter page = predecessorEntry
+          ? predecessor
+          : transaction.getStorageEngineWriter();
+      final CompletableFuture<Throwable> result = new CompletableFuture<>();
+      final AtomicBoolean interrupted = new AtomicBoolean();
+      final Thread command = new Thread(() -> {
+        try {
+          page.truncateTo(1);
+          result.complete(null);
+        } catch (final Throwable failure) {
+          result.complete(failure);
+        } finally {
+          interrupted.set(Thread.currentThread().isInterrupted());
+        }
+      });
+      try {
+        command.start();
+        final Semaphore slot = (Semaphore) field(AbstractNodeTrxImpl.class, "asyncCommitPermit").get(transaction);
+        while (!slot.hasQueuedThreads()) {
+          assertFalse(result.isDone(), "raw page maintenance returned before hardening exited");
+          Thread.onSpinWait();
+        }
+        assertFalse(predecessor.isClosed());
+        assertEquals(1, fixture.first.getMostRecentRevisionNumber());
+        if (interrupt) {
+          command.interrupt();
+        }
+        release.countDown();
+        final Throwable failure = result.get(10, TimeUnit.SECONDS);
+        command.join(10000);
+        assertEquals(interrupt, interrupted.get());
+        if (failHardening) {
+          assertTrue(failure instanceof SirixIOException);
+          assertSame(primary, failure.getCause());
+        } else if (interrupt) {
+          assertTrue(failure instanceof RuntimeException);
+          assertEquals(2, fixture.first.getMostRecentRevisionNumber());
+        } else if (predecessorEntry) {
+          assertTrue(predecessor.isClosed());
+          assertTrue(failure instanceof IllegalStateException);
+          assertEquals(2, fixture.first.getMostRecentRevisionNumber());
+          try (NodeReadOnlyTrx view = fixture.first.beginNodeReadOnlyTrx(2)) {
+            setCursor(view);
+            assertEquals(1, value(view));
+          }
+        } else {
+          assertNull(failure);
+          assertEquals(1, fixture.first.getMostRecentRevisionNumber());
+        }
+        try {
+          fixture.first.close();
+        } catch (final RuntimeException cleanup) {
+          assertTrue(failHardening || !predecessorEntry);
+        }
+      } finally {
+        release.countDown();
+        command.join(10000);
+      }
+    }
+  }
+
+  @ParameterizedTest(name = "page append fence {arguments}")
+  @CsvSource({"json,page,false,false", "json,page,true,false", "json,node,false,false", "json,node,true,false",
+      "xml,page,false,false", "xml,page,true,false", "xml,node,false,false", "xml,node,true,false",
+      "json,page,false,true", "json,node,false,true", "xml,page,false,true", "xml,node,false,true",
+      "json,unbound,false,false", "json,unbound,true,false", "xml,unbound,false,false", "xml,unbound,true,false",
+      "json,unbound,false,true", "xml,unbound,false,true"})
+  void truncationFencesAsyncAppend(final String format, final String entry, final boolean failAppend,
+      final boolean interrupt) throws Exception {
+    final CountDownLatch entered = new CountDownLatch(1);
+    final CountDownLatch release = new CountDownLatch(1);
+    final IllegalStateException primary = new IllegalStateException("append failed");
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final boolean unbound = entry.equals("unbound");
+      final NodeTrx transaction = unbound
+          ? null
+          : fixture.first.beginNodeTrx(0, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
+      final StorageEngineWriter page = unbound
+          ? fixture.first.createStorageEngineWriter()
+          : transaction.getStorageEngineWriter();
+      flushHook = field(page.getClass(), "asyncFlushFaultHook");
+      flushHook.set(null, (BiConsumer<StorageEngineWriter, String>) (owner, stage) -> {
+        if (owner == page && stage.equals("write")) {
+          entered.countDown();
+          await(release);
+          if (failAppend) {
+            throw primary;
+          }
+        }
+      });
+      if (unbound) {
+        page.prepareRecordForModification(format.equals("json")
+            ? 1
+            : 2, IndexType.DOCUMENT, -1);
+      } else {
+        setValue(transaction, 1);
+      }
+      page.asyncFlush();
+      assertTrue(entered.await(10, TimeUnit.SECONDS));
+      final CompletableFuture<Throwable> result = new CompletableFuture<>();
+      final AtomicBoolean interrupted = new AtomicBoolean();
+      final Thread command = new Thread(() -> {
+        try {
+          if (entry.equals("node")) {
+            transaction.truncateTo(0);
+          } else {
+            page.truncateTo(0);
+          }
+          result.complete(null);
+        } catch (final Throwable failure) {
+          result.complete(failure);
+        } finally {
+          interrupted.set(Thread.currentThread().isInterrupted());
+        }
+      });
+      try {
+        command.start();
+        final Semaphore permit = (Semaphore) field(page.getClass(), "flushPermit").get(page);
+        while (!permit.hasQueuedThreads()) {
+          assertFalse(result.isDone(), "maintenance returned while append owned the pages");
+          Thread.onSpinWait();
+        }
+        assertEquals(1, fixture.first.getMostRecentRevisionNumber());
+        if (interrupt) {
+          command.interrupt();
+        }
+        release.countDown();
+        final Throwable failure = result.get(10, TimeUnit.SECONDS);
+        command.join(10000);
+        assertEquals(interrupt, interrupted.get());
+        if (failAppend) {
+          assertSame(primary, failure.getCause());
+          assertEquals(1, fixture.first.getMostRecentRevisionNumber());
+        } else if (interrupt) {
+          assertTrue(failure instanceof RuntimeException);
+          assertEquals(1, fixture.first.getMostRecentRevisionNumber());
+        } else {
+          assertNull(failure);
+          assertEquals(0, fixture.first.getMostRecentRevisionNumber());
+        }
+        try {
+          fixture.first.close();
+        } catch (final RuntimeException cleanup) {
+          assertTrue(failAppend || Files.exists(((InternalResourceSession<?, ?>) fixture.second).getCommitFile()));
+        }
+      } finally {
+        release.countDown();
+        command.join(10000);
+      }
+    }
+  }
+
   private static void assertLifecycleRejected(final Fixture fixture, final NodeTrx transaction) {
     assertTrue(assertThrows(IllegalStateException.class, transaction::commit).getMessage().contains("callback"));
     assertTrue(assertThrows(IllegalStateException.class, transaction::rollback).getMessage().contains("callback"));
@@ -922,21 +1148,8 @@ final class NodeTransactionAbortLifecycleTest {
         assertFalse(session.isClosed());
         assertEquals(0, session.writeLock.availablePermits());
         second.start();
-        if (abort) {
-          final Throwable refusal =
-              assertThrows(ExecutionException.class, () -> secondFinished.get(10, TimeUnit.SECONDS)).getCause();
-          assertTrue(refusal.getCause().getCause() instanceof TimeoutException);
-          assertFalse(session.isClosed());
-          assertEquals(0, session.writeLock.availablePermits());
-          allowRelease.countDown();
-          assertSame(failWriter
-              ? primary
-              : null, firstFinished.get(10, TimeUnit.SECONDS));
-          session.close();
-        } else {
-          secondFinished.get(10, TimeUnit.SECONDS);
-          assertFalse(firstFinished.isDone());
-        }
+        secondFinished.get(10, TimeUnit.SECONDS);
+        assertFalse(firstFinished.isDone());
         assertTrue(session.isClosed());
         assertTrue(session.nodeTrxMap.isEmpty());
         assertTrue(session.storageEngineWriterMap.isEmpty());

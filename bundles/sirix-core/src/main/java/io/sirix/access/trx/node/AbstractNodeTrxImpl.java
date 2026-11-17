@@ -6,6 +6,7 @@ import io.sirix.utils.WorkerTermination;
 import io.sirix.cache.ShardedPageCache;
 import io.sirix.diff.DiagnosticDiffMap;
 import io.sirix.utils.ToStringHelper;
+import io.sirix.access.DatabaseNotifications.RetirementInProgressException;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
 import io.sirix.api.NodeCursor;
@@ -303,11 +304,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.state = State.RUNNING;
 
     if (!afterCommitDelay.isZero()) {
-      commitScheduler.scheduleWithFixedDelay(() -> runLocked(() -> {
-        if (!isClosed() && rollbackOnlyCause == null) {
-          commit("autoCommit", null);
+      commitScheduler.scheduleWithFixedDelay(() -> {
+        try {
+          runLocked(() -> {
+            if (!isClosed() && rollbackOnlyCause == null) {
+              commit("autoCommit", null);
+            }
+          });
+        } catch (final RetirementInProgressException refused) {
+          LOGGER.debug("Timed commit deferred while database notifications retire");
         }
-      }), afterCommitDelay.toMillis(), afterCommitDelay.toMillis(), TimeUnit.MILLISECONDS);
+      }, afterCommitDelay.toMillis(), afterCommitDelay.toMillis(), TimeUnit.MILLISECONDS);
     }
   }
 
@@ -1488,20 +1495,26 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   @Override
   public W truncateTo(final int revision) {
+    runStorageMaintenance(() -> {
+      final int currentRevision = getRevisionNumber();
+      checkArgument(revision >= 0 && revision < currentRevision, "revision %s must be in [0, current revision %s).",
+          revision, currentRevision);
+      storageEngineWriter.truncateTo(revision);
+    });
+    return self();
+  }
+
+  @Override
+  public final void runStorageMaintenance(final Runnable maintenance) {
+    requireNonNull(maintenance);
     resourceSession.assertCanRetire();
     lockForLifecycle();
     try {
       nodeReadOnlyTrx.assertNotClosed();
       awaitPendingAsyncCommit();
       final @Nullable InternalNodeTrx<?> previous = resourceSession.enterHistoryRetirement(this);
-      try (var retirement = resourceSession.retireNotifications()) {
-        final int currentRevision = getRevisionNumber();
-        checkArgument(revision >= 0 && revision < currentRevision, "revision %s must be in [0, current revision %s).",
-            revision, currentRevision);
-        resourceSession.assertAccess(revision);
-        indexController.notifyTransactionAbort();
-        storageEngineWriter.truncateTo(revision);
-        return self();
+      try {
+        maintenance.run();
       } finally {
         resourceSession.exitHistoryRetirement(previous);
       }

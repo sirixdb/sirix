@@ -15,7 +15,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.locks.ReentrantLock;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +27,7 @@ public final class DatabaseNotifications implements AutoCloseable {
   }
 
   private final Object progress = new Object();
-  private final ReentrantLock retirement = new ReentrantLock();
+  private int retirements;
   private final ThreadPoolExecutor executor;
   private volatile Duration closeTimeout = Duration.ofSeconds(5);
   private @Nullable Path databasePath;
@@ -141,7 +140,10 @@ public final class DatabaseNotifications implements AutoCloseable {
     assertNotInCallback();
     synchronized (progress) {
       if (!accepting) {
-        throw new IllegalStateException("Database notification admission is stopped for retirement");
+        if (!stopped) {
+          throw new RetirementInProgressException();
+        }
+        throw new IllegalStateException("Database notification admission is stopped after close");
       }
       preHooks++;
     }
@@ -158,36 +160,31 @@ public final class DatabaseNotifications implements AutoCloseable {
     }
   }
 
+  public static final class RetirementInProgressException extends IllegalStateException {
+    private RetirementInProgressException() {
+      super("Database notification admission is temporarily stopped for retirement");
+    }
+  }
+
   public Retirement retire() {
     assertNotInCallback();
-    final long timeout = closeTimeout.toNanos();
-    final long started = System.nanoTime();
-    boolean locked = false;
-    try {
-      locked = retirement.tryLock(timeout, TimeUnit.NANOSECONDS);
-      if (!locked) {
-        throw timeoutFailure();
-      }
-      if (retirement.getHoldCount() == 1) {
-        synchronized (progress) {
-          accepting = false;
-          awaitProgress(timeout, started, true);
-        }
-      }
-      return new Retirement();
-    } catch (final InterruptedException failure) {
-      Thread.currentThread().interrupt();
-      if (locked) {
+    if (Thread.currentThread().isInterrupted()) {
+      throw new SirixThreadedException(new InterruptedException("Interrupted before notification retirement"));
+    }
+    synchronized (progress) {
+      retirements++;
+      accepting = false;
+      try {
+        awaitProgress(closeTimeout.toNanos(), System.nanoTime(), true);
+        return new Retirement();
+      } catch (final InterruptedException failure) {
+        Thread.currentThread().interrupt();
         abandonAfterFailure();
-        retirement.unlock();
-      }
-      throw new SirixThreadedException(failure);
-    } catch (final RuntimeException | Error failure) {
-      if (locked) {
+        throw new SirixThreadedException(failure);
+      } catch (final RuntimeException | Error failure) {
         abandonAfterFailure();
-        retirement.unlock();
+        throw failure;
       }
-      throw failure;
     }
   }
 
@@ -230,19 +227,17 @@ public final class DatabaseNotifications implements AutoCloseable {
   }
 
   private void abandonAfterFailure() {
-    if (retirement.getHoldCount() == 1) {
-      synchronized (progress) {
-        failedRetirement = true;
-        final List<Runnable> dropped = new ArrayList<>();
-        executor.getQueue().drainTo(dropped);
-        pending -= dropped.size();
-        final int count = dropped.size() + deferred.size();
-        deferred.clear();
-        LOGGER.warn(
-            "Database notification retirement failed; abandoned {} queued notifications and retained active readers",
-            count);
-      }
-    }
+    retirements--;
+    failedRetirement = true;
+    final List<Runnable> dropped = new ArrayList<>();
+    executor.getQueue().drainTo(dropped);
+    pending -= dropped.size();
+    final int count = dropped.size() + deferred.size();
+    deferred.clear();
+    LOGGER.warn(
+        "Database notification retirement failed; abandoned {} queued notifications and retained active readers",
+        count);
+    progress.notifyAll();
   }
 
   public SirixThreadedException timeoutFailure() {
@@ -257,10 +252,10 @@ public final class DatabaseNotifications implements AutoCloseable {
 
     @Override
     public void close() {
-      if (!closed) {
-        closed = true;
-        if (retirement.getHoldCount() == 1) {
-          synchronized (progress) {
+      synchronized (progress) {
+        if (!closed) {
+          closed = true;
+          if (--retirements == 0) {
             accepting = !stopped;
             if (accepting) {
               failedRetirement = false;
@@ -269,10 +264,9 @@ public final class DatabaseNotifications implements AutoCloseable {
                 execute(notification);
               }
             }
-            progress.notifyAll();
           }
+          progress.notifyAll();
         }
-        retirement.unlock();
       }
     }
   }

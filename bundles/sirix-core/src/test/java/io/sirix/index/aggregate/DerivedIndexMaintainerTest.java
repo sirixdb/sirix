@@ -6,6 +6,7 @@ import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.access.AggregateKernelTestSupport;
 import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.DatabaseNotifications;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractResourceSession;
@@ -31,6 +32,7 @@ import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.SirixFiles;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -67,6 +69,54 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class DerivedIndexMaintainerTest {
   @TempDir
   File directory;
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  @Timeout(30)
+  void historyOwnerCanTruncateWhileDerivedCleanupWaits(final boolean databaseClose) throws Exception {
+    final var path = directory.toPath().resolve("database");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("lo", "hi")
+                                                   .storeDiffs(false)
+                                                   .build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        writer.commit();
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        final DatabaseNotifications notifications = ((AbstractResourceSession<?, ?>) session).getNotifications();
+        final CountDownLatch quiescent = new CountDownLatch(1);
+        final FutureTask<Void> cleanup = new FutureTask<>(() -> {
+          try (var pause = notifications.retire()) {
+            quiescent.countDown();
+            if (databaseClose) {
+              database.close();
+            } else {
+              resource.close();
+            }
+          }
+          return null;
+        });
+        final Thread cleaner = new Thread(cleanup);
+        resource.lockHistory();
+        try {
+          cleaner.start();
+          assertTrue(quiescent.await(10, TimeUnit.SECONDS));
+          writer.truncateTo(1);
+          assertEquals(1, session.getMostRecentRevisionNumber());
+        } finally {
+          resource.unlockHistory();
+        }
+        cleanup.get(10, TimeUnit.SECONDS);
+        cleaner.join(10000);
+        assertFalse(cleaner.isAlive());
+      }
+    }
+  }
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)

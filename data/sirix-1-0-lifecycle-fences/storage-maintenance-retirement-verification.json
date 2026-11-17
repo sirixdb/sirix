@@ -1,0 +1,1263 @@
+{
+  "findings": [
+    "review-truncation-storage-fence",
+    "review-retirement-stops-scheduled-commits",
+    "review-retirement-owner-lock-order"
+  ],
+  "starting_head": "e5847add3bbbe67a26f4c3068640f9d80d959025",
+  "review_base": "ba0000718e637a3f122816aaff77ad3996428308",
+  "recorded_utc": "2026-11-17T02:01:57.237678+00:00",
+  "invariants": [
+    "A bound page truncation owns node execution, fences hardening, revalidates its captured writer and fences append work before changing storage or snapshots",
+    "Notification quiescence pauses admission across overlapping scopes without exclusively locking lifecycle owners",
+    "Temporary admission refusal skips a periodic tick; actual user-hook vetoes and errors retain their original behaviour",
+    "Local teardown closes admission after callback quiescence, then drains derived workers and registered users outside its admission monitor before shared storage"
+  ],
+  "boundary_trace": [
+    "Node and raw bound-page truncation share runStorageMaintenance; unbound page truncation fences its own flush permit",
+    "Captured closed predecessors and interrupted maintenance reject before file/snapshot mutation; worker failure keeps its original cause",
+    "Same-database callback and ordinary enclosing-execution preflight remains before locks; only the validated maintenance owner enters its page boundary under execution",
+    "Session/handle/local close, bootstrap, resource removal and derived maintenance all use shared bounded notification scopes; existing mutation gates remain before these scopes",
+    "Derived history can request quiescence while cleanup waits for it; local joins/user drains hold no local admission monitor",
+    "Local failed user drain retains admission closure and shared storage for retry; independent user closes retain first error and suppress later failures",
+    "A second closer may finish cleanup after positive scheduler termination; delayed earlier cleanup cannot release a subsequent writer permit"
+  ],
+  "selected": {
+    "tests": 1461,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5
+  },
+  "auxiliary": {
+    "tests": 69,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2
+  },
+  "selected_suites": [
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.RefusedOverflowLeafTableTest.xml",
+      "name": "io.sirix.access.trx.page.RefusedOverflowLeafTableTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.CommitSafetyTest.xml",
+      "name": "io.sirix.access.trx.node.CommitSafetyTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.CommitReinstantiationWorkBudgetTest.xml",
+      "name": "io.sirix.budget.CommitReinstantiationWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonBulkInsertCollectionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonBulkInsertCollectionWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionTailAppendWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionTailAppendWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.BasicJsonDiffWorkBudgetTest.xml",
+      "name": "io.sirix.budget.BasicJsonDiffWorkBudgetTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonValidTimeIdentityWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonValidTimeIdentityWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonStructuralHashingWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonStructuralHashingWorkBudgetTest",
+      "tests": 32,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.WriterListenerRetentionBudgetTest.xml",
+      "name": "io.sirix.budget.WriterListenerRetentionBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.HOTHistoricalBlobReadWorkBudgetTest.xml",
+      "name": "io.sirix.budget.HOTHistoricalBlobReadWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.BloomOpenChunkFetchWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.BloomOpenChunkFetchWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.ChangeLogWorkBudgetTest.xml",
+      "name": "io.sirix.budget.ChangeLogWorkBudgetTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest.xml",
+      "name": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.ResourceSessionFactoryTest.xml",
+      "name": "io.sirix.access.ResourceSessionFactoryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionIdentityImportWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionIdentityImportWorkBudgetTest",
+      "tests": 112,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.DatabaseOwnershipTest.xml",
+      "name": "io.sirix.access.DatabaseOwnershipTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.aggregate.DerivedIndexMaintainerTest.xml",
+      "name": "io.sirix.index.aggregate.DerivedIndexMaintainerTest",
+      "tests": 71,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonDiffBookkeepingWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonDiffBookkeepingWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.PostingDeltaWorkBudgetTest.xml",
+      "name": "io.sirix.budget.PostingDeltaWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionSortedGroupRoutingWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionSortedGroupRoutingWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.WriterCatalogueHandoffTest.xml",
+      "name": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.TransactionExecutionLockTest.xml",
+      "name": "io.sirix.access.trx.node.TransactionExecutionLockTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.WorkCaptureTest.xml",
+      "name": "io.sirix.budget.WorkCaptureTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.DatabaseCloseStrandingTest.xml",
+      "name": "Database close retains failed cleanup for retry",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.ScratchBufferWorkBudgetTest.xml",
+      "name": "io.sirix.budget.ScratchBufferWorkBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionUnchangedRowWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionUnchangedRowWorkBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.IndexCatalogueCacheTest.xml",
+      "name": "io.sirix.access.trx.node.IndexCatalogueCacheTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.xml",
+      "name": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest",
+      "tests": 81,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "name": "io.sirix.access.DatabaseNotificationLifecycleTest",
+      "tests": 290,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.WriterConstructionFailureCleanupTest.xml",
+      "name": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.IndexCatalogueResolutionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.IndexCatalogueResolutionWorkBudgetTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.TemporalAggregateMaintenanceWorkBudgetTest.xml",
+      "name": "io.sirix.budget.TemporalAggregateMaintenanceWorkBudgetTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.AsyncFlushFailurePathTest.xml",
+      "name": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonIdentityReplayWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonIdentityReplayWorkBudgetTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.SuccessorPathSummaryWorkBudgetTest.xml",
+      "name": "io.sirix.budget.SuccessorPathSummaryWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonFMSEInsertionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonFMSEInsertionWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.AsyncCommitTest.xml",
+      "name": "io.sirix.access.AsyncCommitTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.TemporalAggregateCatalogueWorkBudgetTest.xml",
+      "name": "io.sirix.budget.TemporalAggregateCatalogueWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.SparseRevisionIndexWorkBudgetTest.xml",
+      "name": "io.sirix.budget.SparseRevisionIndexWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "name": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+      "tests": 143,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.HOTPostingFragmentMergeWorkBudgetTest.xml",
+      "name": "io.sirix.budget.HOTPostingFragmentMergeWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.ValidTimeTimestampAllocationBudgetTest.xml",
+      "name": "io.sirix.budget.ValidTimeTimestampAllocationBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.DerivedMaintainerWorkBudgetTest.xml",
+      "name": "io.sirix.budget.DerivedMaintainerWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonHashingWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonHashingWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.SharedCallbackLifetimeTest.xml",
+      "name": "io.sirix.access.trx.node.SharedCallbackLifetimeTest",
+      "tests": 84,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionSortedRetentionWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionSortedRetentionWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.json.IndexedArrayPositionTest.xml",
+      "name": "io.sirix.query.json.IndexedArrayPositionTest",
+      "tests": 48,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.CASMultiMatchWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.CASMultiMatchWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ValidTimeSliceWorkBudgetTest",
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ProjectionLoadPinnedPageBudgetTest.xml",
+      "name": "io.sirix.query.budget.ProjectionLoadPinnedPageBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.CASLookupWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.CASLookupWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.StoredDateTimeAllocationBudgetTest.xml",
+      "name": "io.sirix.query.budget.StoredDateTimeAllocationBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ProjectionQueryWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ProjectionQueryWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.AppendMutationBoundaryTest.xml",
+      "name": "io.sirix.query.AppendMutationBoundaryTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.MutationGateTest.xml",
+      "name": "io.sirix.query.MutationGateTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.TemporalAggregateSourceWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.TemporalAggregateSourceWorkBudgetTest",
+      "tests": 32,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.json.BasicJsonDBStoreTest.xml",
+      "name": "io.sirix.query.json.BasicJsonDBStoreTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.TemporalAggregateCatchUpWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.TemporalAggregateCatchUpWorkBudgetTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.IntervalRangeJoinWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.IntervalRangeJoinWorkBudgetTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.access.trx.node.XmlPendingUpdatePublicationTest.xml",
+      "name": "io.sirix.access.trx.node.XmlPendingUpdatePublicationTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ColumnarSerializationWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ColumnarSerializationWorkBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.EmptyAttributeAxisWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.EmptyAttributeAxisWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.IndexRoutedGroupWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.IndexRoutedGroupWorkBudgetTest",
+      "tests": 54,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.NativeImageDowncallConfigTest.xml",
+      "name": "io.sirix.query.budget.NativeImageDowncallConfigTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.LetMaterializationWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.LetMaterializationWorkBudgetTest",
+      "tests": 65,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ProviderPurityWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ProviderPurityWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.TemporalAggregateDictionaryWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.TemporalAggregateDictionaryWorkBudgetTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeRunWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ValidTimeRunWorkBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.MutationGateRegressionTest.xml",
+      "name": "io.sirix.query.MutationGateRegressionTest",
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-mcp/build/test-results/test/TEST-io.sirix.mcp.BoundedDiffWorkBudgetTest.xml",
+      "name": "io.sirix.mcp.BoundedDiffWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-mcp/build/test-results/test/TEST-io.sirix.mcp.BoundedQueryResultWorkBudgetTest.xml",
+      "name": "io.sirix.mcp.BoundedQueryResultWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-mcp/build/test-results/test/TEST-io.sirix.mcp.BoundedSerializationAllocationBudgetTest.xml",
+      "name": "io.sirix.mcp.BoundedSerializationAllocationBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "auxiliary_suites": [
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaRejectGlobalTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticGlobalTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/dictionaryReadViewAllocationTest/TEST-io.sirix.budget.InlineSlotCopyAllocationBudgetTest.xml",
+      "name": "io.sirix.budget.InlineSlotCopyAllocationBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/dictionaryReadViewAllocationTest/TEST-io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest.xml",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/allocatorColdStartupTest/TEST-io.sirix.access.AllocatorColdStartupTest.xml",
+      "name": "io.sirix.access.AllocatorColdStartupTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochStoreIdentityTest.xml",
+      "name": "io.sirix.access.trx.page.StorageEpochStoreIdentityTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochFsstInlineDecisionTest.xml",
+      "name": "io.sirix.access.trx.page.StorageEpochFsstInlineDecisionTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochDifferentialTest.xml",
+      "name": "io.sirix.access.trx.page.StorageEpochDifferentialTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/cleanerStartupTest/TEST-io.sirix.utils.CleanerStartupTest.xml",
+      "name": "io.sirix.utils.CleanerStartupTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaRejectSkipTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/configurationStartupTest/TEST-io.sirix.access.ConfigurationStartupTest.xml",
+      "name": "io.sirix.access.ConfigurationStartupTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.memorymapped.ArenaGenerationLifetimeTest.xml",
+      "name": "io.sirix.io.memorymapped.ArenaGenerationLifetimeTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 2
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/validTimeDisabledLookupCacheTest/TEST-io.sirix.index.interval.ValidTimeDisabledLookupCacheTest.xml",
+      "name": "io.sirix.index.interval.ValidTimeDisabledLookupCacheTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/bitemporalLoaderAllocationTest/TEST-io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest.xml",
+      "name": "io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/translatorThresholdIndependentTest/TEST-io.sirix.query.SirixTranslatorThresholdTest.xml",
+      "name": "io.sirix.query.SirixTranslatorThresholdTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/translatorThresholdLegacyTest/TEST-io.sirix.query.SirixTranslatorThresholdTest.xml",
+      "name": "io.sirix.query.SirixTranslatorThresholdTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/temporalNodeReaderLifetimeGenericTest/TEST-io.sirix.query.function.xml.io.TemporalNodeReaderLifetimeTest.xml",
+      "name": "io.sirix.query.function.xml.io.TemporalNodeReaderLifetimeTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "skips": [
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandPlainCohortsWithMatchFirst()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandInexactIntervalsHaveZeroReadEmptyStab()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandSelectiveIntervalsWithMatchFirst()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandSelectiveIntervalsWithMatchLast()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandPlainCohortsWithMatchLast()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.memorymapped.ArenaGenerationLifetimeTest.xml",
+      "case": "currentGenerationStaysLiveUntilStorageClose()",
+      "reason": "org.opentest4j.TestAbortedException: Assumption failed: assumption is not true"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.memorymapped.ArenaGenerationLifetimeTest.xml",
+      "case": "oldGenerationClosesOnlyAfterItsLastReaderReturns()",
+      "reason": "org.opentest4j.TestAbortedException: Assumption failed: assumption is not true"
+    }
+  ],
+  "new_cases": {
+    "raw_hardening_success_failure_closed_predecessor_interruption": 12,
+    "node_pending_revision_target": 2,
+    "node_bound_and_unbound_flush_success_failure_interruption": 18,
+    "execution_owner_and_session_handle_local_close": 6,
+    "overlapping_shared_scopes": 2,
+    "temporary_scheduled_admission": 2,
+    "derived_history_cleanup": 2,
+    "local_retained_owner_retry": 2
+  },
+  "preserved_matrices": {
+    "metadata_reads": 24,
+    "held_mutation_gate_ordinary_calls": 22,
+    "callback_pre_gate_rejection": 24,
+    "warm_open_cases": 2
+  },
+  "baseline_regression": {
+    "classes": "Seven independently compiled starting-HEAD lifecycle classes, prepended to current test runtime",
+    "frozen_sources": {
+      "io/sirix/access/DatabaseNotifications.java": "dd8d1d963ffdc1c579c5d576fe88c89909b638b151e777a1c1034d664a414607",
+      "io/sirix/access/LocalDatabase.java": "47930fd712dfd4f0f09f8ec61dec3fcd92e5bef8f4f4eb67ee9cab61b71d8178",
+      "io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "7fd73f6389313ef7c45f1e3fa9b36ea6f64ac46f39828b0f6dc99ef9f415b579",
+      "io/sirix/access/trx/node/AbstractResourceSession.java": "866eaad77362feba0edc40a49a6efcda2729961b18819d4002400226b8ecaeda",
+      "io/sirix/access/trx/node/InternalNodeTrx.java": "49bb879516001c7341cd73eb775fce86f85d033295a01633195de24a964ab309",
+      "io/sirix/access/trx/node/InternalResourceSession.java": "e0a5cea439abb4d0d0efa7679f46b4337a430de74ef82e9fc553f33febdf3184",
+      "io/sirix/access/trx/page/NodeStorageEngineWriter.java": "f7efbb3937123f1dfc4fbe654181a363c1813d8a370579985524174e057b256d"
+    },
+    "result": {
+      "tests": 42,
+      "failures": 42,
+      "errors": 0,
+      "skipped": 0
+    },
+    "suites": [
+      {
+        "path": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+        "name": "io.sirix.access.DatabaseNotificationLifecycleTest",
+        "tests": 10,
+        "failures": 10,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+        "name": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+        "tests": 30,
+        "failures": 30,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "path": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.index.aggregate.DerivedIndexMaintainerTest.xml",
+        "name": "io.sirix.index.aggregate.DerivedIndexMaintainerTest",
+        "tests": 2,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "expected_failures_are_not_passing_checks": true
+  },
+  "public_handle_timer_followup": {
+    "reason": "Strengthened timer setup after the full selection: capture the constructor-supplied task at the executor boundary, then run it periodically only after another handle owns retirement and blocks on a different resource writer; observe refusal and subsequent durable publication",
+    "production_changed_after_full_selection": false,
+    "fixed": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "fixed_suites": [
+      {
+        "path": "bundles/sirix-core/build/test-results/storageRetirementTimerRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+        "name": "io.sirix.access.DatabaseNotificationLifecycleTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "starting_head": {
+      "tests": 2,
+      "failures": 2,
+      "errors": 0,
+      "skipped": 0
+    },
+    "starting_head_suites": [
+      {
+        "path": "bundles/sirix-core/build/test-results/storageRetirementTimerBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+        "name": "io.sirix.access.DatabaseNotificationLifecycleTest",
+        "tests": 2,
+        "failures": 2,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "baseline_failures": [
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[1] \"json\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[2] \"xml\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[1] \"json\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[2] \"xml\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[1] \"json\", \"session\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: ordinary ownership overlap must not time out ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[2] \"json\", \"handle\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: ordinary ownership overlap must not time out ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[3] \"json\", \"local\"",
+      "failure_type": "java.util.concurrent.ExecutionException",
+      "message": "java.util.concurrent.ExecutionException: io.sirix.exception.SirixIOException: Async commit hardening failed"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[4] \"xml\", \"session\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: ordinary ownership overlap must not time out ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[5] \"xml\", \"handle\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: ordinary ownership overlap must not time out ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[6] \"xml\", \"local\"",
+      "failure_type": "java.util.concurrent.ExecutionException",
+      "message": "java.util.concurrent.ExecutionException: io.sirix.exception.SirixIOException: Async commit hardening failed"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"json\", \"page\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"json\", \"page\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"json\", \"node\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"json\", \"node\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"xml\", \"page\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"xml\", \"page\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"xml\", \"node\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"xml\", \"node\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"json\", \"page\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"json\", \"node\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"xml\", \"page\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"xml\", \"node\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"json\", \"unbound\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"json\", \"unbound\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"xml\", \"unbound\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"xml\", \"unbound\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"json\", \"unbound\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page append fence \"xml\", \"unbound\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: maintenance returned while append owned the pages ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"json\", \"false\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"json\", \"false\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"json\", \"true\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"json\", \"true\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"xml\", \"false\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"xml\", \"false\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"xml\", \"true\", \"false\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"xml\", \"true\", \"true\", \"false\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"json\", \"false\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"json\", \"true\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"xml\", \"false\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "case": "page hardening fence \"xml\", \"true\", \"false\", \"true\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: raw page maintenance returned before hardening exited ==> expected: <false> but was: <true>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.index.aggregate.DerivedIndexMaintainerTest.xml",
+      "case": "[1] false",
+      "failure_type": "io.sirix.exception.SirixThreadedException",
+      "message": "io.sirix.exception.SirixThreadedException: java.util.concurrent.ExecutionException: java.util.concurrent.TimeoutException: Database callback retirement exceeded PT5S; live reader ownership is retained for retry"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementBaselineRegression/TEST-io.sirix.index.aggregate.DerivedIndexMaintainerTest.xml",
+      "case": "[2] true",
+      "failure_type": "java.lang.IllegalStateException",
+      "message": "java.lang.IllegalStateException: Transaction is already closed."
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementTimerBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[1] \"json\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/storageRetirementTimerBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "case": "[2] \"xml\"",
+      "failure_type": "org.opentest4j.AssertionFailedError",
+      "message": "org.opentest4j.AssertionFailedError: expected: <true> but was: <false>"
+    }
+  ],
+  "work_budgets": "Documented core/query/MCP selections passed without widened bounds",
+  "compiled_hot_regions": {
+    "baseline": "e5847add3bbbe67a26f4c3068640f9d80d959025",
+    "comparison": "independently compiled baseline sources against the same dependency classpath, javap instructions and exception tables with constant-pool indices normalized",
+    "regions": [
+      {
+        "class": "io.sirix.access.trx.node.AbstractNodeTrxImpl",
+        "method": "public void runLocked(java.lang.Runnable);",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.node.AbstractNodeTrxImpl",
+        "method": "protected void checkAccessAndCommit();",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.node.json.JsonNodeTrxImpl",
+        "method": "public io.sirix.api.json.JsonNodeTrx setNumberValue(java.lang.Number);",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.node.json.JsonNodeTrxImpl",
+        "method": "private io.sirix.api.json.JsonNodeTrx setNumberValueFused(java.lang.Number);",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.node.xml.XmlNodeTrxImpl",
+        "method": "public io.sirix.api.xml.XmlNodeTrx setValue(java.lang.String);",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.page.NodeStorageEngineReader",
+        "method": "public <V extends io.sirix.node.interfaces.DataRecord> V getRecord(long, io.sirix.index.IndexType, int);",
+        "identical_instructions_and_exception_table": true
+      }
+    ],
+    "limits": [
+      "No runtime benchmark or native-code equivalence claim",
+      "Cold commit, callback dispatch, lifecycle retirement and revision-root ownership intentionally changed; not claimed identical",
+      "Frozen baseline is this fix-round starting HEAD, not original main"
+    ]
+  },
+  "runner": "Every Gradle/JVM invocation used the supplied heavy.sh wrapper; df / checked before Gradle against 60 GB floor; no benchmark",
+  "commands": {
+    "full": "bash build/verify-storage-retirement.sh",
+    "timer_and_shape": "bash build/verify-storage-retirement-timer.sh"
+  },
+  "logs": {
+    "build/verify-storage-retirement.log": "5d3c32cb0b23da111b3e88f1f60f4d188e874c5b04ab25f9a43cabd4a376629c",
+    "build/verify-storage-retirement-retry.log": "0e3178bfc0ef0bb5730dc44487435f9cb8cac95fe906de202bfc9dcdf74c74a5",
+    "build/verify-storage-retirement-final.log": "145466a9787b7835a66a9ffb8d9ec5889371d33cc4b9bf17a5532c185ea2a120",
+    "build/verify-storage-retirement-complete.log": "22699ed89dc0134d0962fd82860dd34f560bc7e23fc50c50d054b1244fdd1c53",
+    "build/verify-storage-retirement-timer.log": "374fce9fd81491bc0cedcc095afc4857207ddf4a72830010353267367c2bdb70",
+    "build/verify-storage-retirement-timer-final.log": "657dcff64aece1cecfe2d5d5ab3902115b152c4449a528ef148cab859fb6b7fd"
+  },
+  "formatting": "Spotless Java apply restricted to changed Java files",
+  "limitations": [
+    "The full selection precedes the strengthened public-handle timer fixture; the final two JSON/XML timer cases pass separately, and production sources did not change between these runs",
+    "Expected starting-HEAD failures are reported separately from passing tests",
+    "Compiled equality covers six selected methods against starting HEAD, not original main; no runtime/native equivalence or benchmark claim",
+    "Fresh scoped PIT and repository-wide lint/test/CI/delivery remain with the outer executor; historical mutation counts do not validate this fix"
+  ],
+  "production_source_sha256": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseNotifications.java": "7d4528a7731d48b0a84f443c86af04d1a7474359f2fe834fc9272b9d2839aea7",
+    "bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java": "a28455558592fd9e259107ca480df3555d85de2343682ca3634c43db05566d4d",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "1836bafb7d2ffab138f955b196781f452020aed77bd6b6969243d540de07ac67",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": "ab27e8f38e55b36225c902371a477dc6d751ab9a11a8464f8c4a79a16bb69e13",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalNodeTrx.java": "fc36b264f8d9ffae3239edb6b95710147eaba4012de81d28e17dc39dc48a3f43",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java": "7ca5f393e158565b28ed0cf16616c7353332e6f9ec1a967f6a32a3618c353a6f",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java": "a8de7101ee7b50b6188f5d6733ad65872b2443716550ec97da6de1be4f761cae"
+  },
+  "changed_test_sha256": {
+    "bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java": "b9d8d262db03273a1e8a50861eaedf7015f07b8ce875e963b8aedef95cd80741",
+    "bundles/sirix-core/src/test/java/io/sirix/access/DatabaseOwnershipTest.java": "7ec08f1c534cebdcc7dc33bf295b1e5e236eb8269949648b85ad0523c914ff7e",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java": "c9c647eebc795bf1cbe812f09edcb7665161414733c950599f210680c774db3c",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/SharedCallbackLifetimeTest.java": "9a8561bde99777fca78da83296bba09dd43516d62c4aabb80a0756c65494171a",
+    "bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedIndexMaintainerTest.java": "5743368bdc302f1f4c021eb740d526c014bbac088dd709933b709dfc0984fb69"
+  }
+}

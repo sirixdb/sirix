@@ -36,6 +36,7 @@ import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
+import io.sirix.access.trx.node.InternalNodeTrx;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -46,6 +47,7 @@ import io.sirix.cache.PageGuard;
 import io.sirix.cache.ScratchUse;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixThreadedException;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.io.IOStorage;
 import io.sirix.io.SharedArenas;
@@ -6608,10 +6610,35 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public StorageEngineWriter truncateTo(final int revision) {
     final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession;
     session.assertNotInCommitCallback();
+    if (isClosed) {
+      throw new IllegalStateException("Storage engine writer is closed");
+    }
+    if (isBoundToNodeTrx) {
+      final InternalNodeTrx<?> owner =
+          (InternalNodeTrx<?>) session.getNodeReadTrxByTrxId(getTrxId())
+                                      .orElseThrow(() -> new IllegalStateException("Bound node transaction is closed"));
+      if (!session.isHistoryRetirementOwner(owner)) {
+        owner.runStorageMaintenance(() -> truncateWithNotifications(revision));
+        return this;
+      }
+    }
+    return truncateWithNotifications(revision);
+  }
+
+  private StorageEngineWriter truncateWithNotifications(final int revision) {
+    if (isClosed) {
+      throw new IllegalStateException("Storage engine writer was closed during hardening");
+    }
+    awaitInFlightAsyncFlushOnly();
+    if (Thread.currentThread().isInterrupted()) {
+      throw new SirixThreadedException(new InterruptedException("Interrupted before storage truncation"));
+    }
+    final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession;
     try (var retirement = session.retireNotifications()) {
-      storageEngineReader.resourceSession.assertAccess(revision);
+      session.assertAccess(revision);
       final DerivedIndexMaintainer.Resource derived =
           ((AbstractResourceSession<?, ?>) getResourceSession()).getDerivedResource();
+      indexController.notifyTransactionAbort();
       if (derived == null) {
         return truncateStorageTo(revision);
       }

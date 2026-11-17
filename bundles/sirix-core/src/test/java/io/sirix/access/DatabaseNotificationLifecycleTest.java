@@ -29,6 +29,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadFactory;
+import org.mockito.MockedStatic;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -44,6 +50,7 @@ import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -56,7 +63,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 
 @Isolated
 @Timeout(30)
@@ -68,6 +78,192 @@ final class DatabaseNotificationLifecycleTest {
   void resetProbe() throws ReflectiveOperationException {
     final Field hook = field(AbstractNodeTrxImpl.class, "asyncCommitTestHook");
     hook.set(null, null);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void timedCommitResumesAfterTemporaryAdmissionRefusal(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      assertTrue(fixture.firstDatabase.createResource(
+          ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
+      final ResourceSession<?, ?> blockerSession = fixture.firstDatabase.beginResourceSession("other");
+      final NodeTrx blocker = blockerSession.beginNodeTrx(0, 1, TimeUnit.DAYS);
+      final DatabaseNotifications notifications = fixture.notifications();
+      final DatabaseNotifications observed = mock(DatabaseNotifications.class, delegatesTo(notifications));
+      final CountDownLatch refused = new CountDownLatch(1);
+      final CountDownLatch published = new CountDownLatch(1);
+      final ThreadFactory threads = Executors.defaultThreadFactory();
+      final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(threads);
+      final ScheduledExecutorService controlled = mock(ScheduledExecutorService.class, delegatesTo(executor));
+      final AtomicReference<Runnable> tick = new AtomicReference<>();
+      doAnswer(invocation -> {
+        tick.set(invocation.getArgument(0));
+        return mock(ScheduledFuture.class);
+      }).when(controlled).scheduleWithFixedDelay(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class));
+      doAnswer(invocation -> {
+        try {
+          notifications.runPreCommit(invocation.getArgument(0));
+        } catch (final IllegalStateException failure) {
+          refused.countDown();
+          throw failure;
+        }
+        return null;
+      }).when(observed).runPreCommit(any());
+      field(AbstractResourceSession.class, "notifications").set(fixture.second, observed);
+      final NodeTrx writer;
+      try (MockedStatic<Executors> factory = mockStatic(Executors.class)) {
+        factory.when(Executors::defaultThreadFactory).thenReturn(threads);
+        factory.when(() -> Executors.newSingleThreadScheduledExecutor(any(ThreadFactory.class))).thenReturn(controlled);
+        writer = fixture.second.beginNodeTrx(0, 10, TimeUnit.MILLISECONDS);
+      }
+      assertNotNull(tick.get());
+      final CompletableFuture<Void> closed = new CompletableFuture<>();
+      final AtomicReference<Thread> closer = new AtomicReference<>();
+      try {
+        writer.runLocked(() -> {
+          writer.addPreCommitHook(unused -> {
+          });
+          writer.addPostCommitHook(unused -> published.countDown());
+          setValue(writer, 1);
+        });
+        blocker.runLocked(() -> {
+          closer.set(start(fixture.firstDatabase::close, closed));
+          try {
+            final ReentrantLock execution =
+                (ReentrantLock) field(AbstractNodeTrxImpl.class, "executionLock").get(blocker);
+            while (!execution.hasQueuedThread(closer.get())) {
+              if (closed.isDone()) {
+                closed.get(10, TimeUnit.SECONDS);
+                throw new AssertionError("Handle close returned before its blocked writer cleanup");
+              }
+              Thread.onSpinWait();
+            }
+            executor.scheduleWithFixedDelay(tick.get(), 0, 10, TimeUnit.MILLISECONDS);
+            assertTrue(refused.await(10, TimeUnit.SECONDS));
+            assertEquals(1, fixture.second.getMostRecentRevisionNumber());
+          } catch (final Exception failure) {
+            throw new AssertionError(failure);
+          }
+        });
+        closed.get(10, TimeUnit.SECONDS);
+        assertTrue(published.await(10, TimeUnit.SECONDS));
+        writer.runLocked(() -> {
+          try (NodeReadOnlyTrx view = fixture.second.beginNodeReadOnlyTrx()) {
+            assertValue(view, 1);
+          }
+        });
+      } finally {
+        blocker.close();
+        blockerSession.close();
+        writer.rollback();
+        writer.close();
+        if (closer.get() != null) {
+          closer.get().join(10000);
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void overlappingRetirementsKeepAdmissionPausedUntilBothOwnersLeave(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch leave = new CountDownLatch(1);
+      final AtomicInteger calls = new AtomicInteger();
+      final CompletableFuture<Void> completed = new CompletableFuture<>();
+      Thread contender = null;
+      try {
+        try (var first = fixture.notifications().retire()) {
+          contender = start(() -> {
+            try (var second = fixture.notifications().retire()) {
+              entered.countDown();
+              await(leave);
+            }
+          }, completed);
+          assertTrue(entered.await(10, TimeUnit.SECONDS));
+          fixture.notifications().submit(calls::incrementAndGet);
+          assertEquals(0, calls.get());
+        }
+        assertThrows(IllegalStateException.class, () -> fixture.notifications().runPreCommit(calls::incrementAndGet));
+        assertEquals(0, calls.get());
+      } finally {
+        leave.countDown();
+        if (contender != null) {
+          contender.join(10000);
+        }
+      }
+      completed.get(10, TimeUnit.SECONDS);
+      fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+      assertEquals(1, calls.get());
+      fixture.notifications().runPreCommit(calls::incrementAndGet);
+      assertEquals(2, calls.get());
+    }
+  }
+
+  static Stream<Arguments> ownerCases() {
+    return Stream.of("json", "xml")
+                 .flatMap(format -> Stream.of("session", "handle", "local").map(entry -> Arguments.of(format, entry)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("ownerCases")
+  void executionOwnerCanQuiesceWhileCloseWaitsForExecution(final String format, final String entry) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx writer = fixture.second.beginNodeTrx(2, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
+      final CountDownLatch hardening = new CountDownLatch(1);
+      final CountDownLatch release = new CountDownLatch(1);
+      field(AbstractNodeTrxImpl.class, "asyncCommitTestHook").set(null, (Consumer<String>) stage -> {
+        if (stage.equals("before-harden")) {
+          hardening.countDown();
+          await(release);
+          assertTrue(fixture.firstDatabase.existsResource("resource"));
+          final long resource = fixture.firstDatabase.getResourceID("resource");
+          assertEquals("resource", fixture.firstDatabase.getResourceName(resource));
+        }
+      });
+      setValue(writer, 1);
+      setValue(writer, 2);
+      setValue(writer, 3);
+      assertTrue(hardening.await(10, TimeUnit.SECONDS));
+      final CompletableFuture<Void> truncated = new CompletableFuture<>();
+      final CompletableFuture<Void> closed = new CompletableFuture<>();
+      final Thread truncator = start(() -> writer.truncateTo(1), truncated);
+      Thread closer = null;
+      try {
+        final Semaphore permit = (Semaphore) field(AbstractNodeTrxImpl.class, "asyncCommitPermit").get(writer);
+        while (!permit.hasQueuedThreads()) {
+          assertFalse(truncated.isDone());
+          Thread.onSpinWait();
+        }
+        closer = start(() -> {
+          try {
+            switch (entry) {
+              case "session" -> fixture.second.close();
+              case "handle" -> fixture.secondDatabase.close();
+              case "local" -> fixture.local.close();
+              default -> throw new AssertionError(entry);
+            }
+          } catch (final RuntimeException failure) {
+            assertFalse(hasTimeout(failure), "ordinary ownership overlap must not time out");
+            assertTrue(writer.isClosed());
+            assertTrue(fixture.second.isClosed());
+          }
+        }, closed);
+        awaitRetirement(fixture, closed);
+        release.countDown();
+        truncated.get(10, TimeUnit.SECONDS);
+        closed.get(10, TimeUnit.SECONDS);
+        assertTrue(writer.isClosed());
+        assertTrue(fixture.second.isClosed());
+      } finally {
+        release.countDown();
+        truncator.join(10000);
+        if (closer != null) {
+          closer.join(10000);
+        }
+      }
+    }
   }
 
   static Stream<Arguments> entryCases() {
@@ -620,12 +816,16 @@ final class DatabaseNotificationLifecycleTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"json", "xml"})
-  void refusedNodeExecutionRetainsItsPageWriterUntilRetry(final String format) throws Exception {
+  @CsvSource({"json,false", "xml,false", "json,true", "xml,true"})
+  void refusedNodeExecutionRetainsItsPageWriterUntilRetry(final String format, final boolean local) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
       fixture.notifications().setCloseTimeout(Duration.ofMillis(25));
       final NodeTrx writer = fixture.second.beginNodeTrx(0, 1, TimeUnit.DAYS);
       final StorageEngineWriter pageWriter = writer.getStorageEngineWriter();
+      final NodeReadOnlyTrx reader = fixture.second.beginNodeReadOnlyTrx(1);
+      final Runnable close = local
+          ? fixture.local::close
+          : fixture.second::close;
       final CountDownLatch entered = new CountDownLatch(1);
       final CountDownLatch finish = new CountDownLatch(1);
       final CompletableFuture<Void> finished = new CompletableFuture<>();
@@ -637,17 +837,30 @@ final class DatabaseNotificationLifecycleTest {
       }), finished);
       try {
         assertTrue(entered.await(10, TimeUnit.SECONDS));
-        final RuntimeException failure = assertThrows(RuntimeException.class, fixture.second::close);
+        final RuntimeException failure = assertThrows(RuntimeException.class, close::run);
         assertTrue(hasTimeout(failure));
         assertFalse(pageWriter.isClosed());
         assertFalse(writer.isClosed());
         assertFalse(fixture.second.isClosed());
+        assertFalse(reader.isClosed());
+        assertValue(reader, 0);
+        if (local) {
+          assertTrue(fixture.local.isOpen());
+          assertTrue(fixture.firstDatabase.existsResource("resource"));
+          assertThrows(IllegalStateException.class, () -> fixture.firstDatabase.createResource(
+              ResourceConfiguration.newBuilder("late").storageType(StorageType.FILE_CHANNEL).build()));
+          assertFalse(Files.exists(fixture.path.resolve("data").resolve("late")));
+        }
         finish.countDown();
         finished.get(10, TimeUnit.SECONDS);
-        fixture.second.close();
+        close.run();
         assertTrue(writer.isClosed());
         assertTrue(pageWriter.isClosed());
         assertTrue(fixture.second.isClosed());
+        assertTrue(reader.isClosed());
+        if (local) {
+          assertFalse(fixture.local.isOpen());
+        }
       } finally {
         finish.countDown();
         owner.join(10000);
@@ -975,10 +1188,14 @@ final class DatabaseNotificationLifecycleTest {
             ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
   }
 
+  private static boolean notificationsPaused(final DatabaseNotifications notifications) throws Exception {
+    synchronized (field(DatabaseNotifications.class, "progress").get(notifications)) {
+      return !field(DatabaseNotifications.class, "accepting").getBoolean(notifications);
+    }
+  }
+
   private static void awaitRetirement(final Fixture fixture, final CompletableFuture<Void> changed) throws Exception {
-    final ReentrantLock retirement =
-        (ReentrantLock) field(DatabaseNotifications.class, "retirement").get(fixture.notifications());
-    while (!retirement.isLocked()) {
+    while (!notificationsPaused(fixture.notifications())) {
       if (changed.isDone()) {
         changed.get(10, TimeUnit.SECONDS);
         throw new AssertionError("Resource lifecycle returned before its notification fence");

@@ -44,6 +44,8 @@ import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.ArrayList;
+import io.sirix.cache.ShardedPageCache;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
@@ -75,6 +77,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * Determines if the database instance is in the closed state or not.
    */
   private volatile boolean isClosed;
+  private volatile boolean closing;
 
   private @Nullable DerivedIndexMaintainer derivedMaintainer;
 
@@ -160,7 +163,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private synchronized OpenedSession<T> beginResourceSession(final String resourceName,
       final @Nullable UberPage openingUberPage) {
-    assertNotClosed();
+    assertAcceptingResources();
     final String canonicalName = canonicalResourceName(resourceName);
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
     final Path resourcePath = dataDir.resolve(canonicalName);
@@ -212,7 +215,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private void enableDerivedIndexes(final JsonResourceSession source, final boolean onlyIfDeclared) {
     try (var retirement = notifications.retire()) {
       synchronized (this) {
-        assertNotClosed();
+        assertAcceptingResources();
         final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) source;
         if (shared.getDerivedResource() != null) {
           return;
@@ -307,9 +310,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   /** A handle owns user sessions; the database owns their common storage and revision state. */
-  <S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> ResourceStore<S> newUserResourceStore(
+  synchronized <S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> ResourceStore<S> newUserResourceStore(
       final User user) {
     requireNonNull(user);
+    assertAcceptingResources();
     final AtomicReference<ResourceStore<S>> storeReference = new AtomicReference<>();
     final ResourceStore<S> store = new ResourceStoreImpl<>(resourceSessions, (config, buffers, path) -> {
       final T shared = resourceStore.getOpenResourceSession(path);
@@ -362,7 +366,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private synchronized boolean createResourceQuiescent(final ResourceConfiguration resourceConfig,
       final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
-    assertNotClosed();
+    assertAcceptingResources();
     ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), requireNonNull(resourceConfig).getName(), true);
 
     boolean returnVal = true;
@@ -501,7 +505,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private synchronized Database<T> removeResourceInternal(final String name) {
     ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), canonicalResourceName(name), true);
-    assertNotClosed();
+    assertAcceptingResources();
     final String canonicalName = canonicalResourceName(name);
     final Path resourceFile =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
@@ -592,6 +596,13 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     return id;
   }
 
+  private void assertAcceptingResources() {
+    assertNotClosed();
+    if (closing) {
+      throw new IllegalStateException("Database resource admission is closed for teardown");
+    }
+  }
+
   private void assertNotClosed() {
     if (isClosed) {
       throw new IllegalStateException("Database is already closed.");
@@ -665,6 +676,12 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   public void close() {
     assertCanClose();
     try (DatabaseNotifications.Retirement ignored = notifications.retire()) {
+      synchronized (this) {
+        if (isClosed) {
+          return;
+        }
+        closing = true;
+      }
       closeQuiescent();
     }
   }
@@ -678,17 +695,34 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     return notifications;
   }
 
-  private synchronized void closeQuiescent() {
+  private void closeQuiescent() {
     if (isClosed) {
       return;
     }
 
     logger.trace("Close local database instance.");
     notifications.close();
-
     if (derivedMaintainer != null) {
       derivedMaintainer.close();
     }
+    final List<ResourceSession<?, ?>> users = new ArrayList<>();
+    final Path data = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    synchronized (this) {
+      for (final var entry : resourceSessions.asMap().entrySet()) {
+        if (data.equals(entry.getKey().getParent())) {
+          users.addAll(entry.getValue());
+        }
+      }
+    }
+    Throwable failure = null;
+    for (final ResourceSession<?, ?> session : users) {
+      try {
+        session.close();
+      } catch (final RuntimeException | Error next) {
+        failure = ShardedPageCache.retainCleanupFailure(failure, next);
+      }
+    }
+    ShardedPageCache.rethrowCleanupFailure(failure);
     resourceStore.close();
     transactionManager.close();
     isClosed = true;
