@@ -34,3 +34,24 @@
   assert retained ownership independently of whether its cancelling owner returned.
   Fail impossible mock interactions immediately so a termination mutant dies by assertion.
   See [Lessons](../LESSONS.md#coordinate-cancellation-before-releasing-borrowed-state).
+
+## Compile-and-package formatting follow-up
+
+- Symptom / trigger: CI run 44175487225 at `252be492dee3fcf6578e5df5801009c1f5929d49`
+  failed `:sirix-core:spotlessJavaCheck` on the new `WorkerTerminationTest` wait stub.
+- Root cause: the fluent call wrapped before `.thenAnswer` instead of inside its argument,
+  violating the configured Eclipse formatter. The build stopped before runtime/PIT jobs.
+- Correction: apply the formatter's reported two-line layout, preserving all four cases,
+  the impossible-wait assertion oracle and every shutdown/interruption assertion.
+- Regression check: execute `:sirix-core:spotlessJavaCheck` with the actual configured
+  formatter; compile tests with `-PerrorProne=true`. The hosted failure is the before-fix
+  evidence. Local execution status is recorded by the CI repair; pending runtime and
+  original four-part core mutation acceptance are not replaced by this formatting fix.
+- Local status (2026-11-17 21:12 UTC): `git diff --check` passed. The required
+  `heavy.sh` timing gate remained exclusively held; the waiting command was cancelled
+  before admission or any Gradle/JVM launch. About 88 GB was available before waiting;
+  no post-admission disk check ran. Spotless, Error Prone/NullAway test compilation,
+  repaired suites, the full remaining-core lane, all four original PIT partitions and
+  the exact WorkerTermination assertion kill remain unverified; no pass is claimed.
+- Lesson: run the configured formatter after the last test edit, including oracle-only
+  edits, before treating a runtime/mutation repair as ready for CI.

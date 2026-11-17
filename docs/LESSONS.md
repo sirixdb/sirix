@@ -311,3 +311,5 @@ quiescence notification. Keep the successful retirement path's pending assertion
 callback release. Executor mocks must assertion-fail impossible waits, so inverted termination
 loops are killed by assertions rather than process timeouts.
 See [the CI coordination postmortem](postmortems/lifecycle-ci-interrupt-coordination.md).
+After the final test edit, run the configured Spotless check as well as test compilation;
+an assertion-only repair can still block every downstream runtime and mutation job on formatting.
