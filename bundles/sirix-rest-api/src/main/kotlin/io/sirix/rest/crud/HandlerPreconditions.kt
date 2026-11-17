@@ -9,7 +9,7 @@ import io.vertx.ext.web.RoutingContext
  * to RequestFailureHandling; REST-204 records the missing-header mapping gap.
  */
 
-/** Parse-or-400 for integer params — `toInt()` on user input 500s on garbage. */
+/** Parse-or-400 for integer params. */
 fun requireIntParam(name: String, value: String): Int =
     value.toIntOrNull() ?: throw IllegalArgumentException("$name must be an integer: '$value'")
 
