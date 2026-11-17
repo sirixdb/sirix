@@ -50,5 +50,10 @@ remains unsupported. Do not infer full NATIVE-406 conformance from process exit.
 This change's local evidence summary (commands, results and tool versions) is
 in the PR description. See the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16)
 for the final core/query C results, same-library shutdown-omission controls,
-PIT drain-order results, CI artifact coverage and the I3 publication follow-up. The omission
-controls reproduce the non-return both with and without query evaluation.
+PIT drain-order results and CI artifact locations. The omission controls reproduce the non-return both with and without query evaluation.
+
+The [CI evidence contract](../../tests/native/SMOKE.md#ci-evidence-contract)
+locates the `native-library-smoke-linux-x64` artifact and its normal-run,
+constructor-omission and shutdown-control logs. The workflow uploads available
+evidence even after a failing check; artifact presence alone is not a passing
+regression verdict.

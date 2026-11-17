@@ -59,6 +59,21 @@ terminated before the hook returns. Repeated terminal close must be harmless.
 This hook is terminal for its isolate, not a restartable runtime implementation;
 I4 owns admission, user-handle checks, allocator cleanup and repeated isolates.
 
+### CI evidence contract
+
+The Linux x64 smoke job runs normal core/query checks and both omitted-shutdown
+controls, then builds separate core images omitting PSMS and PSMW constructors.
+Builds remain sequential with two builder threads and a maximum 4 GiB heap.
+Each omission must be killed by the specific failure oracle above; an unrelated
+build failure or watchdog is not a constructor-mutation success.
+
+The job uploads build and loader logs, process traces, thread/teardown diagnostics
+and omission reports even when a preceding check fails. Each invocation uses a
+separate output directory so controls cannot overwrite normal-run evidence.
+Acceptance checks are actionlint for workflow validity and a hosted workflow run
+whose artifact contains normal core/query results, both constructor reports and
+both shutdown-control diagnostics. Static lint alone does not prove publication.
+
 ### Validation record (2026-11-16)
 
 Oracle GraalVM 25.0.3+9.1, gcc 13.3.0, Linux x64. Builds use two threads and
@@ -70,14 +85,18 @@ in the PR description. The table below records the local regression outcomes;
 raw evidence is not committed.
 
 [The native-library workflow](../../.github/workflows/native-library-smoke.yml)
-is configured to upload normal-run build/loader logs, thread censuses, ELF
-dependencies and process traces as `native-library-smoke-linux-x64` from its
-`smoke` job. It does not yet run the PSMS/PSMW constructor omissions or the
-omitted-shutdown controls. Complete build/loader/teardown/omission-mutation
-evidence publication is tracked in [I3 (#1438)](https://github.com/sirixdb/sirix/issues/1438),
-the shared-library build/package CI work: once it lands, the native smoke job
-will publish that evidence as workflow artifacts of the CI run. The local
-results below do not establish that CI artifacts have been produced.
+uploads `native-library-smoke-linux-x64` from its `smoke` job, including logs and
+traces from successful or failed runs. Download it from the workflow run linked
+in the PR checks. Normal core/query builds and loader/thread evidence live under
+`normal/`; `normal/core/no-shutdown-*/` and `normal/query/no-shutdown-*/` contain
+the watchdog and laggard diagnostics. `mutation-PSMS/` and `mutation-PSMW/`
+contain separate build logs and matching missing-constructor failures. The
+`normal.log`, `mutation-PSMS.log` and `mutation-PSMW.log` invocation reports record
+the PASS/KILLED outcomes. Only logs, traces, ELF dependency lists and classpaths
+are uploaded; native binaries and database files are excluded.
+
+The local results below do not establish that CI artifacts have been produced;
+confirm the uploaded artifact from the shipping workflow run.
 
 | Check | Observed result |
 | --- | --- |

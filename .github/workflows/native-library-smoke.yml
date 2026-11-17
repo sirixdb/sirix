@@ -42,12 +42,27 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential zlib1g-dev strace binutils
-      - name: Core-only and query shared images, sequentially
+      - name: Core/query shared images and shutdown omissions, sequentially
         env:
           # Hosted runners have less free disk than the developer laptop's floor.
           SIRIX_SMOKE_DISK_FLOOR_KIB: '10485760'
-        run: tests/native/run-smoke.sh all "$RUNNER_TEMP/native-library"
-      - name: Preserve build logs, thread diagnostics and process traces
+          SIRIX_SMOKE_TEST_TEARDOWN_MUTATION: '1'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/native-library"
+          tests/native/run-smoke.sh all "$RUNNER_TEMP/native-library/normal" 2>&1 \
+            | tee "$RUNNER_TEMP/native-library/normal.log"
+      - name: Core constructor omissions, sequentially
+        env:
+          SIRIX_SMOKE_DISK_FLOOR_KIB: '10485760'
+        shell: bash
+        run: |
+          for constructor in PSMS PSMW; do
+            SIRIX_SMOKE_OMIT_CONSTRUCTOR="$constructor" \
+              tests/native/run-smoke.sh core "$RUNNER_TEMP/native-library/mutation-$constructor" 2>&1 \
+              | tee "$RUNNER_TEMP/native-library/mutation-$constructor.log"
+          done
+      - name: Preserve build, loader, teardown and omission evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -56,5 +71,5 @@ jobs:
             ${{ runner.temp }}/native-library/**/*.log
             ${{ runner.temp }}/native-library/**/*.trace
             ${{ runner.temp }}/native-library/**/elf.txt
-            ${{ runner.temp }}/native-library/*.classpath
+            ${{ runner.temp }}/native-library/**/*.classpath
           if-no-files-found: warn

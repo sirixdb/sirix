@@ -21,5 +21,10 @@
 
 See the [validation record](../../tests/native/SMOKE.md#validation-record-2026-11-16)
 for the core-only create/resource/write/close/reopen/read results after the
-registration fix, CI artifact coverage and the I3 publication follow-up. The test does not
-claim arbitrary user-provided serializers are reachable.
+registration fix and CI artifact locations. The test does not claim arbitrary user-provided serializers are reachable.
+
+The [CI evidence contract](../../tests/native/SMOKE.md#ci-evidence-contract)
+locates the `native-library-smoke-linux-x64` artifact and its normal-run,
+constructor-omission and shutdown-control logs. The workflow uploads available
+evidence even after a failing check; artifact presence alone is not a passing
+regression verdict.
