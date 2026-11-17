@@ -13,3 +13,16 @@ Writer close does not wait for post notifications: their independent read views 
 Lock order: lifecycle preflight precedes handle/local-database/session monitors. Callback drain uses only the dispatcher's condition and releases its monitor while waiting; it never holds a session/handle/database monitor. Post callbacks take no writer execution lock. A history operation may own its writer execution while quiescing independent read views; callback lifecycle rejection prevents reentry, and valid callbacks use independent readers. Normal per-row mutation and count-only paths gain no callback bookkeeping. Transaction lock/unlock inherits the standard ReentrantLock implementation; synchronous callback draining, async callback reservations and post-completion failure retention at writer close are removed.
 
 Specification/test mapping: database-wide dispatcher tests cover pre/post/revision callbacks against handle/local database/session/writer/page/manager/shutdown lifecycle entry points in JSON/XML, including the external-handle-close cycle; immutable revision/order checks and a held durability barrier prove successor overlap and delivery after durability; a blocked listener plus queued followers proves bounded timeout, queue abandonment, live reader retention and retry. Pre-hook tests preserve veto identity, synchronous timing and same-database rejection. Existing independent-owner cleanup and worker-fence regressions remain applicable. Historical callback-fence evidence describes the superseded synchronous delivery contract.
+
+Resource lifecycle lock order also applies to bootstrap and retained-resource removal: establish
+bounded notification quiescence before acquiring the mutation gate, handle admission monitor or
+local database monitor. Nested bootstrap/session cleanup reuses that established retirement scope.
+Eager derived initialization runs after session registration has released those monitors; derived
+creation/rebuild establishes the same outer retirement boundary. Callback metadata reads and
+ordinary existing-session opens remain permitted while another thread waits for quiescence.
+Timeout/interruption before quiescence must leave resource files and retained owners untouched,
+preserve the failure/interrupt status, and permit retry after the active callback exits.
+
+Session-open completion carries only the newly opened derived-source reference past admission;
+warm opens retain their existing fast return and never enter notification retirement. Resource
+removal rejects registered user sessions before waiting, then revalidates under the database monitor.

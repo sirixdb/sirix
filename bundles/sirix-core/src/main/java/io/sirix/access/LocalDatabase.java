@@ -177,12 +177,19 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         resourceFile.resolveSibling(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length())));
   }
 
-  @Override
-  public synchronized T beginResourceSession(final String resourceName) {
-    return beginResourceSession(resourceName, null);
+  record OpenedSession<S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>>(S session,
+      @Nullable JsonResourceSession derivedSource) {
   }
 
-  private T beginResourceSession(final String resourceName, final @Nullable UberPage openingUberPage) {
+  @Override
+  public T beginResourceSession(final String resourceName) {
+    final OpenedSession<T> opened = beginResourceSession(resourceName, null);
+    finishResourceOpen(opened);
+    return opened.session();
+  }
+
+  private synchronized OpenedSession<T> beginResourceSession(final String resourceName,
+      final @Nullable UberPage openingUberPage) {
     assertNotClosed();
     ensureInMemoryLeftoversRetired();
     final String canonicalName = canonicalResourceName(resourceName);
@@ -196,7 +203,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     if (resourceStore.hasOpenResourceSession(resourcePath)) {
-      return resourceStore.getOpenResourceSession(resourcePath);
+      return new OpenedSession<>(resourceStore.getOpenResourceSession(resourcePath), null);
     }
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourcePath);
@@ -221,40 +228,51 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     if (features.readOnlyCompat() == 0) {
       ProjectionSortedRunSpill.removeOrphanedRuns(resourceConfig);
     }
+    JsonResourceSession derivedSource = null;
     if (features.readOnlyCompat() == 0 && DerivedIndexMaintainer.enabled(resourceConfig)
         && resourceConfig.getValidTimeConfig() != null && session instanceof JsonResourceSession json
         && !DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
       final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) session;
-      shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json));
-      if (Files.exists(resourcePath.resolveSibling(resourcePath.getFileName() + DerivedIndexMaintainer.SUFFIX))
-          || (session.getMostRecentRevisionNumber() > 0
-              && json.getRtxIndexController(session.getMostRecentRevisionNumber())
-                     .getIndexes()
-                     .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) != 0)) {
-        shared.enableDerivedIndexes();
-      }
+      shared.initializeDerivedIndexesWith(() -> enableDerivedIndexes(json, false));
+      derivedSource = json;
     }
-    return session;
+    return new OpenedSession<>(session, derivedSource);
   }
 
-  private synchronized void enableDerivedIndexes(final JsonResourceSession source) {
-    assertNotClosed();
-    final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) source;
-    if (shared.getDerivedResource() != null) {
-      return;
+  void finishResourceOpen(final OpenedSession<?> opened) {
+    final @Nullable JsonResourceSession source = opened.derivedSource();
+    if (source != null) {
+      enableDerivedIndexes(source, true);
     }
-    try {
-      final JsonResourceSession derived = openDerivedResource(source);
-      shared.retainForDerivedIndexes();
-      ((AbstractResourceSession<?, ?>) derived).retainForDerivedIndexes();
-      resourceSessions.removeObject(source.getResourcePath(), source);
-      resourceSessions.removeObject(derived.getResourcePath(), derived);
-      if (derivedMaintainer == null) {
-        derivedMaintainer = new DerivedIndexMaintainer(getName());
+  }
+
+  private void enableDerivedIndexes(final JsonResourceSession source, final boolean onlyIfDeclared) {
+    try (var retirement = notifications.retire()) {
+      synchronized (this) {
+        assertNotClosed();
+        final AbstractResourceSession<?, ?> shared = (AbstractResourceSession<?, ?>) source;
+        if (shared.getDerivedResource() != null) {
+          return;
+        }
+        final Path path = source.getResourcePath();
+        if (onlyIfDeclared && !Files.exists(path.resolveSibling(path.getFileName() + DerivedIndexMaintainer.SUFFIX))
+            && (source.getMostRecentRevisionNumber() == 0
+                || source.getRtxIndexController(source.getMostRecentRevisionNumber())
+                         .getIndexes()
+                         .getNrOfIndexDefsWithType(IndexType.TEMPORAL_AGGREGATE) == 0)) {
+          return;
+        }
+        final JsonResourceSession derived = openDerivedResource(source);
+        shared.retainForDerivedIndexes();
+        ((AbstractResourceSession<?, ?>) derived).retainForDerivedIndexes();
+        resourceSessions.removeObject(source.getResourcePath(), source);
+        resourceSessions.removeObject(derived.getResourcePath(), derived);
+        if (derivedMaintainer == null) {
+          derivedMaintainer = new DerivedIndexMaintainer(getName());
+        }
+        shared.setDerivedResource(derivedMaintainer.register(source, derived));
       }
-      shared.setDerivedResource(derivedMaintainer.register(source, derived));
     } catch (final RuntimeException unavailable) {
-      // The source and its log remain authoritative even when derived storage cannot be opened.
       logger.error("Derived resource unavailable for {}; queries retain exact fallback", source.getResourcePath(),
           unavailable);
     }
@@ -282,7 +300,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
             }
           }
         }
-        final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name, derivedUberPage);
+        final JsonResourceSession derived = (JsonResourceSession) beginResourceSession(name, derivedUberPage).session();
         DerivedIndexMaintainer.validateSnapshot(derived);
         return derived;
       } catch (final UnsupportedStoreFeatureException unsupported) {
@@ -342,17 +360,20 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     return store;
   }
 
-  synchronized <S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> S beginUserResourceSession(
+  synchronized <S extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> OpenedSession<S> beginUserResourceSession(
       final String resourceName, final ResourceStore<S> userStore) {
     final String canonicalName = canonicalResourceName(resourceName);
     if (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)) {
       throw new SirixUsageException("Derived resources are internal: " + canonicalName);
     }
-    final T shared = beginResourceSession(canonicalName);
+    final OpenedSession<T> opened = beginResourceSession(canonicalName, null);
+    final T shared = opened.session();
     // The hidden database-owned session keeps storage warm, but is not a user of the resource.
     // The user session registration below is atomic with respect to removeResource's guard.
     resourceSessions.removeObject(shared.getResourcePath(), shared);
-    return userStore.beginResourceSession(shared.getResourceConfig(), bufferManager, shared.getResourcePath());
+    return new OpenedSession<>(
+        userStore.beginResourceSession(shared.getResourceConfig(), bufferManager, shared.getResourcePath()),
+        opened.derivedSource());
   }
 
   @Override
@@ -369,7 +390,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     return createResource(resourceConfig, null);
   }
 
-  synchronized boolean createResource(final ResourceConfiguration resourceConfig,
+  boolean createResource(final ResourceConfiguration resourceConfig,
+      final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
+    try (var retirement = notifications.retire()) {
+      return createResourceQuiescent(resourceConfig, userStore);
+    }
+  }
+
+  private synchronized boolean createResourceQuiescent(final ResourceConfiguration resourceConfig,
       final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
     assertNotClosed();
     ensureInMemoryLeftoversRetired();
@@ -484,7 +512,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final String resourceName = resConfig.getResource().getFileName().toString();
     try (final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceTrxManager = userStore == null
         ? beginResourceSession(resourceName)
-        : beginUserResourceSession(resourceName, userStore);
+        : beginUserResourceSession(resourceName, userStore).session();
         final NodeTrx wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.CLOSE)) {
       final var useCustomCommitTimestamps = resConfig.customCommitTimestamps();
       if (useCustomCommitTimestamps) {
@@ -508,8 +536,19 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   public Database<T> removeResource(final String name) {
     notifications.assertNotInCallback();
     final String canonicalName = canonicalResourceName(name);
-    try (var gate = MutationGate.acquireResource(dbConfig.getDatabaseFile(), canonicalName)) {
+    ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), canonicalName, true);
+    assertNotClosed();
+    assertNoOpenResourceSessions(
+        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName));
+    try (var retirement = notifications.retire();
+        var gate = MutationGate.acquireResource(dbConfig.getDatabaseFile(), canonicalName)) {
       return removeResourceInternal(canonicalName);
+    }
+  }
+
+  private void assertNoOpenResourceSessions(final Path resourceFile) {
+    if (resourceSessions.containsAnyEntry(resourceFile)) {
+      throw new IllegalStateException("Open resource sessions found, must be closed first: " + resourceSessions);
     }
   }
 
@@ -521,9 +560,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
 
     // Check that no running resource sessions are opened.
-    if (this.resourceSessions.containsAnyEntry(resourceFile)) {
-      throw new IllegalStateException("Open resource sessions found, must be closed first: " + resourceSessions);
-    }
+    assertNoOpenResourceSessions(resourceFile);
 
     if (derivedMaintainer != null) {
       derivedMaintainer.remove(resourceFile);

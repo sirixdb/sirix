@@ -45,7 +45,8 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
     Objects.requireNonNull(config, "config");
     // A cleanup callback must fail before waiting on the remover's database hold.
     database();
-    try (var gate = MutationGate.acquireResource(owner.path, config.getName())) {
+    try (var retirement = owner.localDatabase.getNotifications().retire();
+        var gate = MutationGate.acquireResource(owner.path, config.getName())) {
       synchronized (this) {
         database();
         return owner.localDatabase.createResource(config, resourceStore);
@@ -64,9 +65,14 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
   }
 
   @Override
-  public synchronized T beginResourceSession(final String resourceName) {
-    database();
-    return owner.localDatabase.beginUserResourceSession(resourceName, resourceStore);
+  public T beginResourceSession(final String resourceName) {
+    final LocalDatabase.OpenedSession<T> opened;
+    synchronized (this) {
+      database();
+      opened = owner.localDatabase.beginUserResourceSession(resourceName, resourceStore);
+    }
+    owner.localDatabase.finishResourceOpen(opened);
+    return opened.session();
   }
 
   @Override

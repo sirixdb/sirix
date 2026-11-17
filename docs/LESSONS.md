@@ -256,3 +256,11 @@ close timeout. Recovery after truncation must select an existing durable revisio
 Exercise the public wrapper and nested database scopes in deterministic interleavings; never treat
 cancellation or a deadline as proof that a callback released its readers.
 See [postmortem](postmortems/database-notification-dispatch.md) and [contract](hooks.md).
+
+## Resource bootstrap and notification drain
+
+A session close can hide inside resource bootstrap, removal or derived-resource repair. Establish
+notification quiescence before the outer handle/database monitor, including eager work behind session
+open. Never restrict already permitted callback metadata reads to compensate for reversed lock order.
+Keep registration serialized and move mutating initialization outside admission monitors.
+See [postmortem](postmortems/bootstrap-notification-monitor-order.md).
