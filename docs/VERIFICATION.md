@@ -216,6 +216,12 @@ in package `p` the first matching step wins:
    most `PACKAGE_TEST_LIMIT` of them.
 4. Otherwise the source is **unmapped**.
 
+The exact compiler/refusal associations in `CONTRACT_TESTS` additionally select
+`VectorizedReleaseCorrectnessTest` for the compile chain, both pipeline strategies and the
+refusal exception. This integration contract exercises refused and admitted grouping through
+every public compiler factory, including cold reopen. Associations augment the heuristic
+matches and share the same module cap; absent test classes are never selected.
+
 PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
 `[MIN_MUTANTS_PER_CLASS, MAX_MUTANTS_PER_CLASS]`, so a module's work scales with the size of the
 diff: one changed class gets every mutant the cap allows, while a 57-class diff samples a few
@@ -329,10 +335,10 @@ The opt-in [Gradle configuration](../gradle/pr-mutation.gradle) uses the existin
 [Gradle PIT plugin](https://gradle-pitest-plugin.solidsoft.info/) and versions. Its absence from
 normal task graphs preserves existing test-lane timing.
 
-Minions reuse each module's `test` task `opens`/`exports` and system properties, except properties
-whose synthesized `-D` argument contains a comma. Omitted property names are logged in
-`pitest.log`; the [Gradle configuration](../gradle/pr-mutation.gradle) documents the PIT argument
-transport constraint and why paired JVM options must be preserved.
+Minions reuse each module's final `test` task `opens`/`exports` and system properties, including
+late native-image properties and values containing commas or whitespace. The
+[Gradle configuration](../gradle/pr-mutation.gradle) owns the encoding for PIT's comma-separated
+CLI and Java launcher argument file; those arguments remain intact across both transports.
 
 ## Running the layers
 

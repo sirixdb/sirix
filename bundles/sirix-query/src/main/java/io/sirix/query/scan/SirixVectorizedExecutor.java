@@ -983,14 +983,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   private final ConcurrentHashMap<String, Boolean> sourcePathPresenceCache = new ConcurrentHashMap<>();
 
-  /**
-   * Cache of {@link #tryPathSummaryStats(String[], String, String)} results, keyed by
-   * {@code pathNodeKey + "#" + func}. The executor is bound to a single (session, revision) so each
-   * PathNode's statistics are stable for its lifetime; we don't need to reopen the PathSummary for
-   * repeat aggregate queries on the same path. Without this cache every {@code sum($doc[].age)} call
-   * paid the cost of {@code beginNodeReadOnlyTrx + openPathSummary} — roughly 0.5–1 ms per query on
-   * 10 M records, completely dominating the µs-level stats lookup itself.
-   */
+  /** Cache of structural field counts for this executor's immutable revision, keyed by path. */
   private final ConcurrentHashMap<String, Sequence> pathStatsCache = new ConcurrentHashMap<>();
 
   /**
@@ -1810,9 +1803,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   @Override
   public Sequence executeGroupByCount(QueryContext ctx, String[] sourcePath, String groupField) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats null as
+    // "unsupported", so return a supported empty result. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new ItemSequence();
     }
@@ -1840,6 +1832,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             cached = projected;
           return cached;
         }
+        requireKnownGroupSource(sourcePath);
         final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, groupField);
         Sequence fresh;
         if (isTypedPrimitiveKind(probeFirstAnchorSlotKind(groupField))) {
@@ -1874,8 +1867,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       }
       return cached;
     } catch (Exception e) {
-      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized group-by-count failed: %s",
-          e.getMessage());
+      throw vectorizedFailure(e, "group-by-count");
     }
   }
 
@@ -2088,9 +2080,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executePredicateCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate)
       throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new Int64(0L);
     }
@@ -2265,9 +2255,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executePredicateGroupByCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate,
       String groupField) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new ItemSequence();
     }
@@ -2316,11 +2304,10 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * Withdraw (or restore) the multi-key group-by capability.
    *
    * <p>
-   * Unlike every other entry point, this one is substituted at TRANSLATE time and has no generic
-   * pipeline behind it: brackit's {@code VectorizedGroupByExpr} turns a {@code null} result into a
-   * query failure rather than a fallback. Anything the kernel cannot answer therefore has to be
-   * answered anyway or raised — which is why a sparse multi-key grouping is completed by
-   * {@link #completeSparseMultiKeyGroups} rather than declined.
+   * Brackit's {@code VectorizedGroupByExpr} treats {@code null} as unsupported; the retained generic
+   * evaluator retries only {@link VectorizedRouteRefusedException}. Sparse top-level grouping is
+   * completed by {@link #completeSparseMultiKeyGroups}; unpredicated scans refuse unknown source
+   * cardinality.
    *
    * <p>
    * Kept as a switch for bisecting a suspected grouping regression: turning it off routes every
@@ -2336,9 +2323,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   public boolean supportsMultiKeyGroupBy() {
     // Not in wtx mode. There the ONLY multi-key path is the projection — the committed-revision
     // kernels would miss the transaction's uncommitted writes — and a projection that cannot cover
-    // the grouping leaves nothing to answer with. Since this substitution has no generic pipeline
-    // behind it, advertising the capability would turn "no covering projection" into a failed
-    // query; declining leaves the interpreter to read the same transaction and be right.
+    // the grouping leaves nothing to answer with. A null projection miss is not a refusal signal,
+    // so keep the capability disabled and let the interpreter read the same transaction.
     return multiKeyGroupByEnabled && wtx == null;
   }
 
@@ -2351,9 +2337,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executeGroupByCountMulti(QueryContext ctx, String[] sourcePath, String[] groupFields,
       String[] outNames, String countName, PredicateNode predicate) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats null as
+    // "unsupported", so return a supported empty result. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new ItemSequence();
     }
@@ -2398,7 +2383,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         fresh = buildTypedGroupRecords(projected, outNames, countName);
       }
       if (fresh == null) {
-        fresh = typedGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
+        fresh = completeSourceGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
       }
       cached = multiGroupByCountCache.putIfAbsent(cacheKey, fresh);
       return cached == null
@@ -2409,6 +2394,30 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     } catch (Exception e) {
       throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized multi-key group-by-count failed: %s",
           e.getMessage());
+    }
+  }
+
+  /** Preserve explicit refusals across the legacy SPI's exception-wrapping boundary. */
+  private static QueryException vectorizedFailure(final Exception failure, final String operation) {
+    if (failure instanceof VectorizedRouteRefusedException refused) {
+      throw refused;
+    }
+    return new QueryException(failure, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized %s failed: %s", operation,
+        failure.getMessage());
+  }
+
+  private Sequence completeSourceGroupByCount(final String[] sourcePath, final PredicateNode predicate,
+      final String[] groupFields, final String[] outNames, final String countName) throws Exception {
+    if (predicate == null) {
+      requireKnownGroupSource(sourcePath);
+    }
+    return typedGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
+  }
+
+  /** A field-anchor scan cannot reconstruct missing groups without a source cardinality. */
+  private void requireKnownGroupSource(final String[] sourcePath) {
+    if (topLevelRecordCountOrUnknown(sourcePath) < 0) {
+      throw new VectorizedRouteRefusedException("group source cardinality is unknown");
     }
   }
 
@@ -3940,18 +3949,15 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * The distinct values come from the typed group-key kernel, which already carries this file's
    * page-boundary, sparse-anchor and FSST-decoding guards; taking the extremum over the distinct
    * values equals taking it over all of them. The cost is a hash map of the column's distinct values,
-   * i.e. the same memory {@code count(distinct-values(...))} already pays, which is the right trade
-   * against declining a shape the caller cannot fall back from
-   * ({@code VectorizedGroupByExpr#requireSupported} turns a {@code null} into an error rather than
-   * into a generic-pipeline retry).
+   * i.e. the same memory {@code count(distinct-values(...))} already pays. This preserves a direct
+   * pure-string route without retrying the aggregate through the generic evaluator.
    *
    * @param sourcePath the scan source
    * @param predicateOrNull an optional predicate restricting the rows
    * @param field the aggregated field
    * @param func {@code "min"} or {@code "max"}; anything else declines
-   * @return the extremum, or {@code null} when this is not a pure-string column and the caller must
-   *         keep failing loudly (mixed types, JSON nulls, booleans, or an aggregate other than
-   *         min/max, where XQuery's own semantics are an error rather than a value)
+   * @return the extremum, or {@code null} when this route cannot serve the aggregate; the caller
+   *         signals refusal so the generic evaluator supplies its value or error
    */
   private Sequence stringMinMaxOrNull(final String[] sourcePath, final PredicateNode predicateOrNull,
       final String field, final String func) throws Exception {
@@ -4561,7 +4567,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
    * Record count of the loop source when it is the TOP-LEVEL ARRAY ({@code sourcePath == ["[]"]}); -1
-   * when unknown (nested or unrepresentable sources — callers must then skip completeness checks).
+   * when unknown (nested or unrepresentable sources).
    */
   private long topLevelRecordCountOrUnknown(final String[] sourcePath) {
     if (sourcePath == null || sourcePath.length != 1 || !"[]".equals(sourcePath[0])) {
@@ -5680,9 +5686,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executePredicateAggregate(QueryContext ctx, String[] sourcePath, PredicateNode predicate, String func,
       String field) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return statsToSequence(func, EMPTY_SOURCE_STATS);
     }
@@ -5748,8 +5752,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           ? fresh
           : cached;
     } catch (Exception e) {
-      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized predicate-aggregate failed: %s",
-          e.getMessage());
+      throw vectorizedFailure(e, "predicate-aggregate");
     }
   }
 
@@ -5848,8 +5851,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     final MixedAgg[] perThread = new MixedAgg[eff];
     final long[] countPerThread = new long[eff];
     // Benign-race flag: any worker that sees a non-numeric aggregate value
-    // (string/boolean/null/complex) sets it — used for the loud
-    // pure-non-numeric guard below.
+    // (string/boolean/null/complex) sets it — checked once after
+    // all workers finish, before returning an aggregate value.
     final boolean[] sawNonNumeric = new boolean[1];
     // Page-skip index — reuse bitmap from prior scans anchored on the
     // same nameKey, or build it as a side-effect of this scan. The
@@ -5930,7 +5933,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
             case TK_DBL -> acc.addDouble(typed.dbl[aggFieldIdx]);
             case TK_DECSTR -> acc.addDecimal(new BigDecimal(typed.str[aggFieldIdx]));
             default -> {
-              /* non-numeric value on this row — skip (legacy semantics) */ }
+              /* Missing values contribute nothing; other non-numeric kinds are checked after the scan. */ }
           }
         }
       }
@@ -5947,25 +5950,31 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     for (final MixedAgg a : perThread) {
       merged.merge(a);
     }
-    if (merged.longCount + merged.decCount + merged.dblCount == 0 && sawNonNumeric[0]) {
-      // Matching rows carried the aggregate field, but never as a number. min/max over a
-      // string column is well defined (fn:min/fn:max order xs:string by codepoint) and the
-      // interpreter answers it, so serve it rather than failing; sum/avg over strings really
-      // is a type error, and a mixed-type column stays loud.
-      final Sequence stringExtreme = stringMinMaxOrNull(sourcePath, predicate, aggField, func);
+    return checkedAggregateResult(sourcePath, predicate, aggField, func, merged, sawNonNumeric[0]);
+  }
+
+  /** Validate once per result, after all workers have joined and before a result is cached. */
+  private Sequence checkedAggregateResult(final String[] sourcePath, final PredicateNode predicate, final String field,
+      final String function, final MixedAgg values, final boolean sawNonNumeric) throws Exception {
+    if (sawNonNumeric) {
+      // Pure-string extrema remain supported. Mixed types must use the generic evaluator's error.
+      final Sequence stringExtreme = values.count() == 0
+          ? stringMinMaxOrNull(sourcePath, predicate, field, function)
+          : null;
       if (stringExtreme != null) {
         return stringExtreme;
       }
-      throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-          "Vectorized %s over field '%s': matching records hold no numeric values — "
-              + "string/boolean/null aggregation is not supported by the vectorized executor",
-          func, aggField);
+      throw new VectorizedRouteRefusedException("aggregate values include non-numeric items");
     }
-    // MixedAgg#result mirrors the interpreter's numeric promotion: pure
-    // long/decimal columns produce EXACT decimal results (incl. Dec#div for
-    // avg — digit-for-digit parity); double-bearing columns produce doubles;
-    // zero contributing rows yield sum=0 / empty for avg|min|max.
-    return merged.result(func);
+    requireOrderIndependentAggregate(values, function);
+    return values.result(function);
+  }
+
+  /** Checked once after the scan; the row kernels and exact integer/decimal folds are unchanged. */
+  private static void requireOrderIndependentAggregate(final MixedAgg values, final String function) {
+    if (values.dblCount != 0 && ("sum".equals(function) || "avg".equals(function))) {
+      throw new VectorizedRouteRefusedException("double sum/avg requires document-order evaluation");
+    }
   }
 
   /**
@@ -6796,8 +6805,8 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     // predicate provably excludes them (comparison/EBV over a missing field is
     // false in XQuery). Reorder so a sound anchor sits at index 0; if none
     // exists (e.g. `a > 1 or b > 1` from a pre-guard brackit), FAIL LOUDLY —
-    // an anchor-based scan would silently lose matches on sparse data, and the
-    // dispatch has no generic pipeline left to fall back to at evaluate time.
+    // an anchor-based scan would silently lose matches on sparse data. This detection-contract
+    // failure must propagate; only VectorizedRouteRefusedException triggers a generic retry.
     if (!fieldSet.isEmpty()) {
       final String soundAnchor = root.findSoundAnchorField();
       if (soundAnchor == null) {
@@ -12287,9 +12296,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   @Override
   public Sequence executeCountDistinct(QueryContext ctx, String[] sourcePath, String field) throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return new Int64(0L);
     }
@@ -13658,9 +13665,7 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executeAggregate(QueryContext ctx, String[] sourcePath, String func, String field)
       throws QueryException {
-    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
-    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
-    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    // An absent source has a supported empty result, not an unsupported null. See sourcePathIsPresent.
     if (!sourcePathIsPresent(sourcePath)) {
       return statsToSequence(func, EMPTY_SOURCE_STATS);
     }
@@ -13676,17 +13681,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         }
         return tryServeDoubleAggregate(sourcePath, field, null, func);
       }
-      // A maintained projection wins over the summary — the same order the wtx branch above
-      // already uses. Both answer in microseconds, but a projection is an index the user asked
-      // for and keeps maintained, and it covers shapes the summary declines; letting the summary
-      // short-circuit ahead of it silently retired it the moment path statistics were switched on.
+      // Prefer an explicitly maintained projection; a summary shortcut must not shadow its serving route.
       final long[] projectedFirst = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
       if (projectedFirst != null) {
         return statsToSequence(func, projectedFirst);
       }
-      // PathStatistics short-circuit: when the resource maintains per-path stats, an
-      // unfiltered aggregate over a single field resolves directly from the PathSummary
-      // — microseconds instead of a parallel scan of every data page.
       final Sequence fast = tryPathSummaryStats(sourcePath, field, func);
       if (fast != null) {
         return fast;
@@ -13793,21 +13792,11 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
           return new Int64(typedStats.visited());
         }
         final MixedAgg values = typedStats.values();
-        if (values.count() == 0 && typedStats.visited() > 0) {
-          final Sequence stringExtreme = stringMinMaxOrNull(sourcePath, null, field, func);
-          if (stringExtreme != null) {
-            return stringExtreme;
-          }
-          throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-              "Vectorized %s over field '%s': the field exists but holds no numeric values — "
-                  + "string/boolean/null aggregation is not supported by the vectorized executor",
-              func, field);
-        }
-        return values.result(func);
+        return checkedAggregateResult(sourcePath, null, field, func, values, values.count() != typedStats.visited());
       }
       return statsToSequence(func, stats);
     } catch (Exception e) {
-      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized aggregate failed: %s", e.getMessage());
+      throw vectorizedFailure(e, "aggregate");
     }
   }
 
@@ -23933,9 +23922,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   }
 
   /**
-   * Aggregates answered from the PATH SUMMARY's per-path statistics ({@link #tryPathSummaryStats}),
-   * since process start. The positive witness that a query genuinely WAS summary-served — a returned
-   * answer and a declined fallback are otherwise indistinguishable to a caller.
+   * Field counts answered from PATH SUMMARY references ({@link #tryPathSummaryStats}), since process
+   * start. The positive witness that a query genuinely WAS summary-served — a returned answer and a
+   * declined fallback are otherwise indistinguishable to a caller.
    */
   private static final LongAdder PATH_SUMMARY_STATS_SERVED = new LongAdder();
 
@@ -23944,51 +23933,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     return PATH_SUMMARY_STATS_SERVED.sum();
   }
 
-  /**
-   * Try to answer an unfiltered aggregate over a single field from its exact PathNode. A field
-   * {@code count} uses the structural reference count and therefore needs only the path summary;
-   * value aggregates use the optional per-path statistics. Returns {@code null} to signal the caller
-   * should fall back to a full parallel scan when:
-   * <ul>
-   * <li>the resource lacks the metadata required by the requested function,</li>
-   * <li>no PathNode matches the requested field's local name,</li>
-   * <li>the requested min/max bound is marked dirty (a prior delete may have tightened it — a rescan
-   * is correct, skip the fast path), or</li>
-   * <li>the function is not one of the supported aggregates.</li>
-   * </ul>
-   */
+  /** Returns the exact structural field count, or null when the path summary cannot serve it. */
   private Sequence tryPathSummaryStats(final String[] sourcePath, final String field, final String func) {
-    final boolean fieldCount = "count".equals(func) && field != null;
-    // A field count is structural: the exact named PathNode's reference count is maintained even
-    // when optional value statistics are disabled. Value aggregates still require statistics.
-    if (fieldCount
-        ? !session.getResourceConfig().withPathSummary
-        : !session.getResourceConfig().withPathStatistics) {
+    if (!"count".equals(func) || field == null || !session.getResourceConfig().withPathSummary) {
       return null;
     }
-    switch (func) {
-      case "count", "sum", "avg", "min", "max" -> {
-        /* supported */ }
-      default -> {
-        return null;
-      }
-    }
-    if (field == null) {
-      return null;
-    }
-    // Count retains the named OBJECT_KEY path even for array-valued fields. Value scans cannot use
-    // that key because the fused array slot carries its anonymous child and retain their existing
-    // fail-closed resolver.
-    final CountPathScope countPathScope = fieldCount
-        ? resolveCountPathScope(sourcePath, field)
-        : null;
-    if (countPathScope != null && countPathScope.absent()) {
+    final CountPathScope countPathScope = resolveCountPathScope(sourcePath, field);
+    if (countPathScope.absent()) {
       PATH_SUMMARY_STATS_SERVED.increment();
       return new Int64(0L);
     }
-    final long targetPathNodeKey = countPathScope == null
-        ? resolveTargetPathNodeKey(sourcePath, field)
-        : countPathScope.namedPathNodeKey();
+    final long targetPathNodeKey = countPathScope.namedPathNodeKey();
     if (targetPathNodeKey == -1L) {
       return null;
     }
@@ -23999,94 +23954,23 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
     if (cached != null) {
       return cached;
     }
-    final Sequence computed = computePathStatsSequence(targetPathNodeKey, func);
+    final Sequence computed = computePathStatsSequence(targetPathNodeKey);
     if (computed != null) {
       pathStatsCache.putIfAbsent(statsKey, computed);
     }
     return computed;
   }
 
-  /**
-   * Actually read the PathNode's per-path statistics and package them as a Brackit Sequence. Opens a
-   * read-only trx + PathSummaryReader for the call duration. Called at most once per
-   * {@code (pathNodeKey, func)} during the executor's lifetime — results are cached by the caller.
-   */
-  private Sequence computePathStatsSequence(final long targetPathNodeKey, final String func) {
-
+  private Sequence computePathStatsSequence(final long targetPathNodeKey) {
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
       try {
-        final PathNode p = summary.getPathNodeForPathNodeKey(targetPathNodeKey);
-        if (p == null) {
+        final PathNode path = summary.getPathNodeForPathNodeKey(targetPathNodeKey);
+        if (path == null) {
           return null;
         }
-        if ("count".equals(func)) {
-          // PathNode references count OBJECT_KEY occurrences, not merely primitive observations.
-          // They therefore include null, object and array values while excluding a missing field;
-          // the exact ancestor resolver above excludes same-named fields at other depths.
-          PATH_SUMMARY_STATS_SERVED.increment();
-          return new Int64(p.getReferences());
-        }
-        if (("min".equals(func) || "avg".equals(func)) && p.isStatsMinDirty()) {
-          return null;
-        }
-        if ("max".equals(func) && p.isStatsMaxDirty()) {
-          return null;
-        }
-        // A stale observation count disqualifies every VALUE aggregate: a subtree move leaves
-        // statistics attributed to the path the values left. Structural count returned above from
-        // PathNode references, which path-summary maintenance re-attributes with the moved nodes.
-        if (p.isStatsCountDirty()) {
-          return null;
-        }
-        // Value aggregates are served ONLY from an all-integral, still-reproducible column.
-        //
-        // Two independent reasons, both of which cost correctness if ignored. A sum stops being
-        // reproducible once a non-integral value is deleted, because floating-point addition is
-        // not invertible — the statistics mark that themselves. And even with no deletes at all, a
-        // double column's sum depends on the ORDER the values were added and on the rounding at
-        // each step: the interpreter walking the documents and an accumulator maintained per
-        // insert do not agree, and the summary's answer is not "the" answer merely because it is
-        // arithmetically better. Integers have neither problem, which is the case worth serving.
-        if (!p.isStatsSumTrustworthy() || !p.isStatsSumIntegral()) {
-          return null;
-        }
-        // avg is left to the scan even for integral columns: XQuery promotes it to xs:decimal
-        // (avg of 2, 2, 3 is 2.333333333333333333, not 2.3333333333333335), and reproducing
-        // brackit's decimal semantics from a long sum and a count is a way to be subtly wrong.
-        if ("avg".equals(func)) {
-          return null;
-        }
-        final long count = p.getStatsValueCount();
-        final long sum = p.getStatsSum();
-        final boolean numeric = p.hasNumericStats();
-        final long pMin = numeric
-            ? p.getStatsMin()
-            : Long.MAX_VALUE;
-        final long pMax = numeric
-            ? p.getStatsMax()
-            : Long.MIN_VALUE;
-        // Non-numeric stats cannot answer value aggregates — fall back instead of fabricating 0.
-        if (!numeric) {
-          return null;
-        }
-        final Sequence served = switch (func) {
-          // Reached only for an all-integral column (guarded above), so the long accumulator IS
-          // the exact sum and its integer type is the right one.
-          case "sum" -> new Int64(sum);
-          // min/max over ZERO values are the EMPTY sequence, not 0.
-          case "min" -> count == 0
-              ? new ItemSequence()
-              : new Int64(pMin);
-          case "max" -> count == 0
-              ? new ItemSequence()
-              : new Int64(pMax);
-          default -> null;
-        };
-        if (served != null) {
-          PATH_SUMMARY_STATS_SERVED.increment();
-        }
-        return served;
+        PATH_SUMMARY_STATS_SERVED.increment();
+        return new Int64(path.getReferences());
       } finally {
         summary.close();
       }
@@ -24253,10 +24137,9 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * decimal space and divides via {@code Dec#div} — accumulate {@link BigDecimal} exactly and
    * delegate the avg division to brackit for digit-for-digit parity. Exact accumulation is also
    * ORDER-FREE, so the parallel fold cannot drift from the interpreter's sequential fold.</li>
-   * <li>any double row: the interpreter's running sum becomes xs:double and stays there — fold
-   * everything in double space (the parallel re-association can differ from the sequential fold in
-   * the last ulp for adversarial values; exact for binary-fraction data — documented
-   * limitation).</li>
+   * <li>Any double row makes sum/avg order-sensitive. Callers must apply
+   * {@link SirixVectorizedExecutor#requireOrderIndependentAggregate} before serving a result from
+   * these per-kind totals.</li>
    * </ul>
    */
   private static final class MixedAgg {

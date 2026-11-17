@@ -36,10 +36,14 @@ import static io.sirix.page.PageUtils.fixupPageReferenceIds;
 
 public abstract class AbstractReader implements Reader {
 
-  private static final LongAdder BEACON_READS = new LongAdder();
+  // One long[1] lives until thread termination; it retains no reader, resource or user data.
+  // Keep cumulative attempts across reader lifetimes without per-read removal/allocation.
+  @SuppressWarnings("java:S5164")
+  private static final ThreadLocal<long[]> BEACON_READS = ThreadLocal.withInitial(() -> new long[1]);
 
+  /** Attempted beacon reads on this thread, excluding independent background maintenance. */
   public static long beaconReads() {
-    return BEACON_READS.sum();
+    return BEACON_READS.get()[0];
   }
 
   protected final ByteHandler byteHandler;
@@ -614,7 +618,7 @@ public abstract class AbstractReader implements Reader {
    * effective bytes of validation on the root of the whole resource.
    */
   private PageReference readVerifiedBeacon(final long offset) {
-    BEACON_READS.increment();
+    BEACON_READS.get()[0]++;
     final java.nio.ByteBuffer slot = readBeaconSlot(offset);
     // A data file truncated inside the first 4 beacon bytes must fail like every other corrupt
     // slot, not with a raw BufferUnderflowException from getInt().

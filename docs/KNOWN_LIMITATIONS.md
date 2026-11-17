@@ -228,26 +228,61 @@ else falls back to the generic (always correct) pipeline.
   `multiKeySparseKeyOrderDoesNotChangeTheGrouping`. An entirely absent **first**
   group key still fails closed rather than reproducing the interpreter's
   order-dependent all-null grouping; see `multiKeyAbsentFirstKeyFailsLoudEvenWithDenseSecond`.
-  Do not extend the top-level guarantee to nested sources or unknown record totals.
+  For nested sources or unknown record totals, see the scan restriction below.
 
 ### Remaining limitations
 
 - **Nested sources with sparse group fields (scan path).** The record total
-  is only cheaply known for top-level array sources; for nested sources a
-  sparse single group key still yields silently-partial groups (pre-existing,
-  unchanged). Projection-backed queries are exact.
-- **Non-numeric aggregates.** `min`/`max`/`sum`/`avg` over fields holding only
-  strings/booleans/nulls fail LOUDLY (the interpreter applies string/error
-  semantics the numeric kernels cannot reproduce; historically this silently
-  returned 0). Mixed numeric/non-numeric columns keep the legacy
-  "skip non-numeric values" fold, which diverges from the interpreter's type
-  error — unchanged.
+  is only cheaply known for top-level array sources. Unpredicated single- and
+  multi-key grouping now refuses the field-anchor scan when that total is
+  unknown, after trying a covering projection. The retained generic evaluator
+  supplies every group, including missing keys and their counts; nested scans
+  no longer return partial groups. This restriction costs generic evaluation
+  for nested sources without a usable projection, including dense ones.
+- **Non-numeric aggregates.** `min`/`max`/`sum`/`avg` scans that encounter
+  non-numeric aggregate values now refuse to the retained generic evaluator,
+  including mixed numeric/string/null/boolean columns. Values and error codes
+  therefore follow the generic evaluator instead of silently skipping items.
+  Pure-string `min`/`max` retain their existing exact route. Predicate-excluded
+  invalid values do not cause a refusal, and field counts still count present
+  values of every type. Path-summary value statistics cannot establish numeric
+  purity: deferred observations share a count and a later numeric value can erase
+  an earlier string marker. Summary serving therefore declines `sum`/`avg`/`min`/`max`
+  for all columns, including genuinely integral ones. Without a usable projection,
+  value aggregates use the existing typed scan and its cached results; ambiguous
+  types refuse to the generic evaluator. Structural field counts still use exact
+  path-summary reference counts, independently of optional value statistics.
+  A refused scan pays for the initial scan plus generic evaluation; the per-row
+  kernels are unchanged.
 - **Double-bearing aggregate columns and parallel summation order.** Once a
   column contains xs:double rows the interpreter's running sum becomes
-  double and the sequential fold order matters at the last ulp; the parallel
-  accumulator re-associates additions, so adversarial double data can differ
-  in the final ulp. Exact for binary-fraction values (the differential gate's
-  data); pure long/decimal columns are immune (exact, order-free folds).
+  double and sequential fold order matters. Scan-backed `sum`/`avg` now refuse
+  to the generic evaluator after detecting double contributors, even with one
+  worker: merging separate integer/decimal/double totals also changes order.
+  There is no permitted ulp discrepancy. Pure long/decimal folds remain exact;
+  projection serving follows the **Double projection columns** contract above.
+  The refusal changes cost (initial scan plus generic fold), not the row/page
+  kernels or the ordered projection kernel.
+
+These generic retries apply to queries compiled through `SirixCompileChain`.
+Grouping retains the selected strategy's generic evaluator for sequential chains,
+both `createParallel` overloads (ordered or unordered), and
+`createParallelWithMorsel`. An outer `count(...)` counts the resulting groups
+on both admitted and refused routes, for single and composite keys. Direct SPI calls signal
+`VectorizedRouteRefusedException` instead.
+
+`VectorizedReleaseCorrectnessTest` pins these three contracts against forced
+generic evaluation before and after closing/reopening the store. Its execution
+probe verifies actual SPI admission and grouping refusal/admission through the
+sequential and parallel factories listed above; adversarial cases include missing
+nested group keys, mixed-value type errors, excluded invalid values, cancellation
+across worker partitions, mixed numeric promotion with one worker, and outer counts
+over sparse and dense grouping.
+`VectorizedFallbackExprTest` verifies that unrelated query/storage errors are
+propagated rather than retried and that an empty sequence is a valid result.
+
+Other restrictions:
+
 - **`xs:float` document values in predicate fields** fail loudly: the
   interpreter compares xs:float operands in FLOAT space (`Float.compare`),
   which double-space evaluation cannot reproduce. JSON ingestion has not

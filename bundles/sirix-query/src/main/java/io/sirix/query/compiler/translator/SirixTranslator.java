@@ -127,9 +127,9 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
   /**
-   * Constructor with explicit pipeline strategy. Pass a
-   * {@link io.brackit.query.compiler.translator.BlockPipelineStrategy} to enable parallel
-   * (block-based) FLWOR execution via Brackit's ForkJoinPool model.
+   * Constructor with explicit pipeline strategy. Pass a {@link SirixBlockPipelineStrategy} to enable
+   * parallel (block-based) FLWOR execution via Brackit's ForkJoinPool model with Sirix's grouping
+   * refusal recovery.
    *
    * @param options options map
    * @param pipelineStrategy the strategy for pipelines without membership joins; membership joins use
@@ -327,6 +327,24 @@ public class SirixTranslator extends TopDownTranslator {
   }
 
   private Expr computedAggregateOrFunction(final AST node) {
+    if (node.getChildCount() == 1 && node.getValue() instanceof QNm function && builtinAggregate(function)
+        && "count".equals(function.getLocalName()) && node.getChild(0).getType() == XQ.PipeExpr
+        && SirixPipelineStrategy.needsGroupingFallback(node.getChild(0))) {
+      return new FunctionExpr(node.getStaticContext(), ctx.getFunctions().resolve(function, 1),
+          new Expr[] {expr(node.getChild(0), true)});
+    }
+    if (node.getChildCount() == 1 && node.getValue() instanceof QNm function && builtinAggregate(function)
+        && Set.of("sum", "avg", "min", "max").contains(function.getLocalName())
+        && node.getChild(0).getType() == XQ.PipeExpr
+        && Boolean.TRUE.equals(node.getChild(0).getProperty("VECTORIZED_AGGREGATE"))
+        && node.getChild(0).getProperty("VECTORIZED_AGGREGATE_BINARY") == null
+        && SequentialPipelineStrategy.getVectorizedExecutor() != null) {
+      final Expr routed = super.functionCall(node);
+      final AST genericCall = node.copyTree();
+      // Disable only this scalar SPI annotation; nested expressions keep their own routing.
+      genericCall.getChild(0).setProperty("VECTORIZED_AGGREGATE", false);
+      return new VectorizedFallbackExpr(routed, super.functionCall(genericCall));
+    }
     if (node.getChildCount() == 1 && node.getValue() instanceof QNm fn && node.getChild(0).getType() == XQ.PipeExpr
         && Boolean.TRUE.equals(node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
         && COMPUTED_AGG_FUNCS.contains(fn.getLocalName())

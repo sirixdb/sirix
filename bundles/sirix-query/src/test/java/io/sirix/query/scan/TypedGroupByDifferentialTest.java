@@ -1,6 +1,7 @@
 package io.sirix.query.scan;
 
 import io.brackit.query.Query;
+import io.brackit.query.QueryException;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
@@ -20,6 +21,7 @@ import java.nio.file.Path;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -711,15 +713,12 @@ public final class TypedGroupByDifferentialTest {
   }
 
   @Test
-  void stringSumAndAvgAggregatesFailLoud() {
-    // sum/avg over a STRING field are a type error in the interpreter too, so the numeric kernels
-    // must never fabricate a value for them — they stay loud.
+  void stringSumAndAvgPreserveGenericTypeErrors() {
     for (final String fn : new String[] {"sum", "avg"}) {
-      final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
-          () -> run(fn + "(for $u in " + SRC + " return $u.dept)", true), fn);
-      final String msg = String.valueOf(ex.getMessage());
-      org.junit.jupiter.api.Assertions.assertTrue(msg.contains("dept") || msg.contains("numeric"),
-          fn + " error should explain the non-numeric field, got: " + msg);
+      final String query = fn + "(for $u in " + SRC + " return $u.dept)";
+      final QueryException expected = assertThrows(QueryException.class, () -> run(query, false));
+      final QueryException actual = assertThrows(QueryException.class, () -> run(query, true));
+      assertEquals(expected.getCode(), actual.getCode(), fn);
     }
   }
 

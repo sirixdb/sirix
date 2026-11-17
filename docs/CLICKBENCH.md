@@ -171,20 +171,20 @@ reported sum was exactly the true sum modulo 2^64. `xs:integer` is arbitrary pre
 own `AbstractNumeric#addLong` escalates to `BigDecimal` on overflow; the kernel now detects overflow
 (exactly in the scalar lanes, by a magnitude bound for the SIMD page kernel) and redoes the fold
 through the exact accumulator. The same wrap existed a second time in the path-summary statistics
-(`PathStats.sum`), which serve `sum`/`avg` directly in the default configuration; that accumulator
-is 128 bits wide and the serving verdict is derived from the exact total, so a column whose TRUE sum
-leaves `long` declines and falls back to the scan (see `docs/DISK_FORMAT.md`, §2 "PathStats
-trailer"). Regression test: `VectorizedAggregateExactnessTest`.
+(`PathStats.sum`); that accumulator is now 128 bits wide (see `docs/DISK_FORMAT.md`, §2
+"PathStats trailer"). Current summary-serving restrictions are specified in
+[Known limitations](KNOWN_LIMITATIONS.md#remaining-limitations).
+Regression test: `VectorizedAggregateExactnessTest`.
 
 **2. `min`/`max` over a string column failed instead of answering.** *(fixed)* Q6 is
 `MIN(EventDate), MAX(EventDate)`; Q21/Q22 take `MIN(URL)`/`MIN(Title)`. The numeric kernels
 contribute nothing for a string column, and that branch was terminal — it threw
 `BIDY0300 … string/boolean/null aggregation is not supported`, and the caller
-(`VectorizedGroupByExpr#requireSupported`) turns a decline into an error rather than a fallback, so
-there was nothing to fall back to. String extrema are well defined (`fn:min`/`fn:max` order
+(`VectorizedGroupByExpr#requireSupported`) had no generic retry at the time.
+String extrema are well defined (`fn:min`/`fn:max` order
 `xs:string` by codepoint) and the interpreter answers them, so the kernel now answers them too, via
-the typed group-key kernel it already trusts for `count(distinct …)`. `sum`/`avg` over strings stay
-loud, because there the interpreter's own semantics are an error.
+the typed group-key kernel it already trusts for `count(distinct …)`. Current aggregate refusal
+and type-error behavior is specified in [Known limitations](KNOWN_LIMITATIONS.md#remaining-limitations).
 
 **3. An aggregate over a nested `for` on a grouped variable folded the whole input.** *(fixed in
 SirixDB; the root cause is upstream in brackit)* In the default configuration,

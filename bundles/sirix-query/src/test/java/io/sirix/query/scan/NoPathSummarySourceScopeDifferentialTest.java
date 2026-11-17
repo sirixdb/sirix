@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Structural source-path differential for resources without a path summary.
@@ -206,19 +207,38 @@ final class NoPathSummarySourceScopeDifferentialTest {
   private Snapshot vectorizedSnapshot(final VersioningType versioning, final int revision, final String[] sourcePath)
       throws Exception {
     try (var store = newStore(versioning);
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.create();
         var resourceSession = store.lookup(DB).getDatabase().beginResourceSession(RES)) {
       final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(resourceSession, revision);
       try {
+        final String groups;
+        final String multiGroups;
+        if (sourcePath.length > 1) {
+          assertThrows(VectorizedRouteRefusedException.class,
+              () -> executor.executeGroupByCount(null, sourcePath, "group"));
+          assertThrows(VectorizedRouteRefusedException.class, () -> executor.executeGroupByCountMulti(null, sourcePath,
+              new String[] {"group", "active"}, new String[] {"group", "active"}, "count", null));
+          SequentialPipelineStrategy.setVectorizedExecutor(executor);
+          final String source = revisionSource(revision, sourcePath);
+          groups = normalizeGroups(run(chain, ctx,
+              "for $r in " + source + " let $g := $r.group group by $g return {\"group\":$g,\"count\":count($r)}"));
+          multiGroups = normalizeGroups(
+              run(chain, ctx, "for $r in " + source + " let $g := $r.group, $a := $r.active group by $g, $a "
+                  + "return {\"group\":$g,\"active\":$a,\"count\":count($r)}"));
+        } else {
+          groups = normalizeGroups(serialize(executor.executeGroupByCount(null, sourcePath, "group")));
+          multiGroups = normalizeGroups(serialize(executor.executeGroupByCountMulti(null, sourcePath,
+              new String[] {"group", "active"}, new String[] {"group", "active"}, "count", null)));
+        }
         return new Snapshot(serialize(executor.executeAggregate(null, sourcePath, "count", "value")),
             serialize(executor.executeAggregate(null, sourcePath, "sum", "value")),
             serialize(executor.executePredicateCount(null, sourcePath, ACTIVE)),
-            serialize(executor.executePredicateAggregate(null, sourcePath, ACTIVE, "sum", "value")),
-            normalizeGroups(serialize(executor.executeGroupByCount(null, sourcePath, "group"))),
+            serialize(executor.executePredicateAggregate(null, sourcePath, ACTIVE, "sum", "value")), groups,
             normalizeGroups(serialize(executor.executePredicateGroupByCount(null, sourcePath, ACTIVE, "group"))),
-            serialize(executor.executeCountDistinct(null, sourcePath, "group")),
-            normalizeGroups(serialize(executor.executeGroupByCountMulti(null, sourcePath,
-                new String[] {"group", "active"}, new String[] {"group", "active"}, "count", null))));
+            serialize(executor.executeCountDistinct(null, sourcePath, "group")), multiGroups);
       } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();
       }
     }

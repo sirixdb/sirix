@@ -6,6 +6,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.compiler.optimizer.SirixOptimizer;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.translator.SirixPipelineStrategy;
+import io.sirix.query.compiler.translator.SirixBlockPipelineStrategy;
 import io.sirix.query.compiler.translator.SirixTranslator;
 import io.sirix.query.function.jn.JNFun;
 import io.sirix.query.function.sdb.SDBFun;
@@ -33,10 +34,10 @@ import io.brackit.query.util.Cfg;
  *
  * <p>
  * Uses sequential execution by default. Parallel (block-based) execution is available via
- * {@link #createParallel} factory methods for read-only queries. Brackit's
- * {@link BlockPipelineStrategy} leverages ForkJoinPool-based work-stealing to parallelize FLWOR
- * expressions automatically. The strategy only activates for FLWOR PipeExpr AST nodes, so simple
- * queries incur zero overhead.
+ * {@link #createParallel} factory methods for read-only queries. {@link SirixBlockPipelineStrategy}
+ * extends Brackit's {@link BlockPipelineStrategy}, which uses ForkJoinPool-based work-stealing to
+ * parallelize FLWOR expressions automatically. The strategy only activates for FLWOR PipeExpr AST
+ * nodes, so simple queries incur zero overhead.
  *
  * <p>
  * Thread-safety for parallel execution is provided by per-worker read-only transactions:
@@ -253,14 +254,14 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   }
 
   /**
-   * Create a parallel compile chain that additionally enables morsel-driven fan-out for PipeExprs
-   * that fall out of the vectorized fast path. Morsel wrapping is a process-wide toggle on
-   * {@link SequentialPipelineStrategy}, so enabling it here affects all compile chains in the JVM
-   * until disabled.
+   * Create a block-parallel compile chain and enable the process-wide morsel toggle on
+   * {@link SequentialPipelineStrategy}. The block strategy does not consume that toggle; use
+   * {@link #createWithMorsel} for source-splitting fan-out. The toggle affects sequential compile
+   * chains in the JVM until disabled.
    *
    * @param nodeStore the XML node store (or null)
    * @param jsonStore the JSON item store (or null)
-   * @return a parallel compile chain with morsel fan-out enabled
+   * @return a block-parallel compile chain
    */
   public static SirixCompileChain createParallelWithMorsel(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
     SequentialPipelineStrategy.setMorselEnabled(true);
@@ -272,13 +273,8 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    * source itself.
    *
    * <p>
-   * Note this is <em>not</em> {@link #createParallelWithMorsel}, despite the name overlap, and the
-   * difference is why that method could never do what it claimed. Morsel wrapping lives in
-   * {@link SequentialPipelineStrategy}, but {@code createParallelWithMorsel} also asks for the
-   * parallel translator — and that installs {@code BlockPipelineStrategy}, which does not extend
-   * {@code SequentialPipelineStrategy}. The flag was therefore set and then never consulted: the
-   * chain it returns is the block-parallel chain, nothing more. This factory keeps the sequential
-   * translator, which is the one that knows how to split.
+   * Uses the sequential translator for source splitting; see {@link #createParallelWithMorsel} for
+   * the block-parallel factory and its toggle behavior.
    *
    * <p>
    * The fan-out replaces the pipeline expression itself, so each worker runs the whole chain — leaf
@@ -510,7 +506,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   @Override
   protected Translator getTranslator(Map<QNm, Str> options) {
     if (parallel) {
-      final BlockPipelineStrategy strategy = new BlockPipelineStrategy();
+      final SirixBlockPipelineStrategy strategy = new SirixBlockPipelineStrategy();
       strategy.setOrdered(ordered);
       return new SirixTranslator(options, strategy);
     }

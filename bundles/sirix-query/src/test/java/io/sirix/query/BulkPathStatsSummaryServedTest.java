@@ -28,15 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * GATE 2 + the lifted-path smoke: a resource loaded by the PARALLEL BULK importer with
- * {@code buildPathStatistics} enabled must (a) load at all (the refusal is lifted), (b) answer
- * aggregate queries with the values a scan computes, and (c) genuinely answer them FROM THE PATH
- * SUMMARY — witnessed by {@link SirixVectorizedExecutor#pathSummaryStatsServed()}, the counter
- * added because a served answer and a declined fallback are otherwise indistinguishable.
- *
- * <p>
- * The query satisfies the full serve-precondition conjunction: statistics on, function in {count,
- * sum, min, max} (never avg), a numeric NON-array field, a single ancestor-chain match.
+ * Bulk-imported value aggregates retain exact results through the typed route, while structural
+ * field counts retain positively witnessed summary serving and cache reuse.
  */
 public final class BulkPathStatsSummaryServedTest {
 
@@ -55,15 +48,14 @@ public final class BulkPathStatsSummaryServedTest {
   }
 
   @Test
-  public void bulkLoadedStatsServeAggregatesFromTheSummary() throws Exception {
-    // Corpus: age = i, so count/sum/min/max have closed forms the query answers must match.
+  public void bulkLoadedStatsRetainExactAggregatesAndSummaryCounts() throws Exception {
     final StringBuilder json = new StringBuilder(RECORDS * 24);
     json.append('[');
     for (int i = 0; i < RECORDS; i++) {
       if (i > 0) {
         json.append(',');
       }
-      json.append("{\"age\":").append(i).append('}');
+      json.append("{\"age\":").append(i + 2).append('}');
     }
     json.append(']');
 
@@ -89,28 +81,40 @@ public final class BulkPathStatsSummaryServedTest {
     try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(location).build();
         SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
         SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
-      // The VALUE aggregates — the feature's point — must each be answered FROM the summary:
-      // per-function witness deltas, because equality alone cannot distinguish a served answer
-      // from a scan fallback.
-      assertServed(chain, ctx, "sum", String.valueOf((long) RECORDS * (RECORDS - 1) / 2));
-      assertServed(chain, ctx, "min", "0");
-      assertServed(chain, ctx, "max", String.valueOf(RECORDS - 1));
-      // count is allowed to take an even cheaper route than the path-summary stats (a structural
-      // count needs no statistics at all) — assert only the value, and record which route ran.
-      final long before = SirixVectorizedExecutor.pathSummaryStatsServed();
+      assertNotSummaryServed(chain, ctx, "sum", String.valueOf((long) RECORDS * (RECORDS + 3) / 2));
+      assertNotSummaryServed(chain, ctx, "min", "2");
+      assertNotSummaryServed(chain, ctx, "max", String.valueOf(RECORDS + 1));
+      assertNotSummaryServed(chain, ctx, "avg", "251.5");
       assertEquals(String.valueOf(RECORDS), evaluate(chain, ctx, "count"), "count value");
-      System.out.println("[served-witness] count route: " + (SirixVectorizedExecutor.pathSummaryStatsServed() > before
-          ? "path-summary stats"
-          : "structural/scan (allowed)"));
+      try (final JsonResourceSession session = store.lookup(DB_NAME).getDatabase().beginResourceSession(RESOURCE)) {
+        final SirixVectorizedExecutor executor =
+            new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+        try {
+          final long before = SirixVectorizedExecutor.pathSummaryStatsServed();
+          assertEquals(String.valueOf(RECORDS),
+              executor.executeAggregate(ctx, new String[] {"[]"}, "count", "age").toString());
+          assertTrue(SirixVectorizedExecutor.pathSummaryStatsServed() > before,
+              "field count must be answered from structural summary references");
+          final long after = SirixVectorizedExecutor.pathSummaryStatsServed();
+          assertEquals(String.valueOf(RECORDS),
+              executor.executeAggregate(ctx, new String[] {"[]"}, "count", "age").toString());
+          assertEquals(after, SirixVectorizedExecutor.pathSummaryStatsServed(), "repeat count must use its cache");
+          assertEquals("0", executor.executeAggregate(ctx, new String[] {"[]"}, "count", "absent").toString());
+          assertTrue(SirixVectorizedExecutor.pathSummaryStatsServed() > after,
+              "the exact summary must prove an absent field contributes no values");
+        } finally {
+          executor.close();
+        }
+      }
     }
   }
 
-  private static void assertServed(final SirixCompileChain chain, final SirixQueryContext ctx, final String func,
-      final String expected) throws Exception {
+  private static void assertNotSummaryServed(final SirixCompileChain chain, final SirixQueryContext ctx,
+      final String func, final String expected) throws Exception {
     final long before = SirixVectorizedExecutor.pathSummaryStatsServed();
     assertEquals(expected, evaluate(chain, ctx, func), func + " value");
-    assertTrue(SirixVectorizedExecutor.pathSummaryStatsServed() > before,
-        func + " was answered by a fallback route, not the path-summary statistics");
+    assertEquals(before, SirixVectorizedExecutor.pathSummaryStatsServed(),
+        func + " must not use value statistics without numeric purity evidence");
   }
 
   private static String evaluate(final SirixCompileChain chain, final SirixQueryContext ctx, final String func)

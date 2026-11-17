@@ -212,17 +212,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
      * PathSummary nodes. Requires {@link #buildPathSummary} to be {@code true}, which it is by default.
      *
      * <p>
-     * ON by default. These statistics are what let a count, sum or avg be answered from a handful of
-     * summary nodes instead of by reading every record, and leaving them opt-in meant the configuration
-     * that was measured and the configuration users actually get were not the same system.
-     *
-     * <p>
-     * They could not be defaulted on while they were inexact: numbers reached them through
-     * {@code Number.longValue()}, so a path holding {@code 17.125} contributed {@code 17} and a
-     * summary-served sum was silently short. The statistics now carry the fractional remainder beside
-     * the integral accumulator, and mark themselves untrusted when a delete makes the sum
-     * unreproducible — floating-point addition is not invertible — so a query falls back to the scan
-     * rather than returning a number that is merely close.
+     * ON by default. Query-serving restrictions are documented in {@code docs/KNOWN_LIMITATIONS.md},
+     * under "Vectorized executor (analytical fast paths)".
      *
      * <p>
      * Turn off with {@code -DbuildPathStatistics=false} on write-dominated workloads, where the
@@ -315,9 +306,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
 
     /**
-     * Set whether per-path value statistics should be maintained on PathSummary nodes. Enables the
-     * aggregate short-circuit for {@code sum / avg / min / max / count} queries at the cost of some
-     * write-path overhead. Requires {@link #buildPathSummary(boolean)} to be {@code true}.
+     * Set whether per-path value statistics should be maintained on PathSummary nodes, at the cost of
+     * some write-path overhead. Requires {@link #buildPathSummary(boolean)} to be {@code true}.
      *
      * @param buildPathStatistics {@code true} to enable per-path statistics
      * @return this builder instance

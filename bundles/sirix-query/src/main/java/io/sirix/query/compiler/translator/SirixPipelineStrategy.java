@@ -71,18 +71,26 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
    */
   @Override
   public Expr compilePipeExpr(AST node, Compiler compiler) throws QueryException {
+    final Expr routed = compileRoutedPipeExpr(node, compiler);
+    if (needsGroupingFallback(node)) {
+      // Legacy SPI grouping has no null-refusal fallback. Keep one without changing route priority.
+      return new VectorizedFallbackExpr(routed, super.compileGenericPipeExpr(node, compiler));
+    }
+    return routed;
+  }
+
+  static boolean needsGroupingFallback(final AST node) {
+    return SequentialPipelineStrategy.getVectorizedExecutor() != null
+        && (Boolean.TRUE.equals(node.getProperty("VECTORIZED_GROUPBY"))
+            || Boolean.TRUE.equals(node.getProperty("VECTORIZED_GROUPBY_MULTI")));
+  }
+
+  private Expr compileRoutedPipeExpr(final AST node, final Compiler compiler) throws QueryException {
     final Expr generic;
     if (hasMembershipJoin(node)) {
       // Membership tables have one cursor owner. Do not split this pipeline into morsels or
       // block workers, each of which would otherwise build the same inner relation again.
-      final SirixTranslator translator = (SirixTranslator) compiler;
-      final int initialBindings = translator.bindingCount();
-      final Operator root = anyOp(null, node.getChild(0), compiler);
-      AST end = node.getChild(0);
-      while (end.getType() != XQ.End) {
-        end = end.getLastChild();
-      }
-      generic = new PipeExpr(root, translator.pipelineReturn(end.getChild(0), initialBindings));
+      generic = compileMembershipPipeExpr(node, compiler);
       // A membership filter over an index-routed opener under a routed grouping is served as a
       // row-key subtraction before the grouping; the membership pipeline is its fallback.
       if (!Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG))
@@ -123,6 +131,17 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       return constantGroup;
     }
     return grouped(node, compiler, generic);
+  }
+
+  private Expr compileMembershipPipeExpr(final AST node, final Compiler compiler) throws QueryException {
+    final SirixTranslator translator = (SirixTranslator) compiler;
+    final int initialBindings = translator.bindingCount();
+    final Operator root = anyOp(null, node.getChild(0), compiler);
+    AST end = node.getChild(0);
+    while (end.getType() != XQ.End) {
+      end = end.getLastChild();
+    }
+    return new PipeExpr(root, translator.pipelineReturn(end.getChild(0), initialBindings));
   }
 
   private static boolean hasSpiShape(final AST node) {

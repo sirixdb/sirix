@@ -227,9 +227,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
 
     /**
-     * Set whether per-path value statistics should be maintained on PathSummary nodes. Enables the
-     * aggregate short-circuit for {@code sum / avg / min / max / count} queries at the cost of some
-     * write-path overhead. Requires {@link #buildPathSummary(boolean)} to be {@code true}.
+     * Set whether per-path value statistics should be maintained on PathSummary nodes, at the cost of
+     * some write-path overhead. Requires {@link #buildPathSummary(boolean)} to be {@code true}.
      *
      * @param buildPathStatistics {@code true} to enable per-path statistics
      * @return this builder instance
