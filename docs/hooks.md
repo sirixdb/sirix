@@ -2,7 +2,7 @@
 
 Pre-commit hooks run synchronously inside the writer transaction before publication. They may do ordinary independent read-only work. An exception or Error vetoes that commit with its original identity; the transaction remains available for retry or rollback. A hook may not commit, roll back, close, truncate or otherwise end its database, handles, sessions or writer transactions. Reentrant lifecycle calls reject immediately with IllegalStateException before any admission monitor, execution lock or closing wait.
 
-Post-commit hooks and revision listeners run asynchronously on one dedicated notification dispatcher per database after durable publication. Submission never waits for delivery. Notifications are ordered per resource (the database dispatcher also serializes resources), with at-least-once delivery attempts while notification admission remains open. A post-hook receives a fresh dispatcher-owned read-only cursor pinned to exactly the committed revision and initially at the document root; it must not retain the cursor. Revision listeners receive the published revision number and run within an equivalent revision-pinned read scope. Independent read-only cursors may be opened and closed normally; callbacks may not borrow a mutable writer cursor. Callback exceptions are reported by the dispatcher and cannot veto durable data. Applications should make notification handling idempotent.
+Post-commit hooks and revision listeners run asynchronously on one dedicated notification dispatcher per database after durable publication. Submission never waits for delivery. Notifications are ordered per resource (the database dispatcher also serializes resources), with best-effort delivery: capacity overflow drops new notifications without waiting for consumers or vetoing commits. A post-hook receives a fresh dispatcher-owned read-only cursor pinned to exactly the committed revision and initially at the document root; it must not retain the cursor. Revision listeners receive the published revision number and run within an equivalent revision-pinned read scope. Independent read-only cursors may be opened and closed normally; callbacks may not borrow a mutable writer cursor. Callback exceptions are reported by the dispatcher and cannot veto durable data. Applications should make notification handling idempotent.
 
 A dispatcher-thread callback may not close/commit/rollback/truncate the same database, any of its handles/sessions/writer transactions or database-wide manager/shutdown operations. Rejection occurs before locks and waits, including a second close while an external close is already underway. Different databases remain independent. Ordinary enclosing writer execution retains the existing pre-lock retirement rejection.
 
@@ -61,3 +61,26 @@ Local database resource admission closes only after callbacks have quiesced. Use
 derived-worker joins and shared-storage cleanup run outside its admission monitor. Metadata reads
 remain permitted until final closure; failure retains the admission boundary and unfinished owners
 for a later close retry.
+
+Notification capacity is a single per-database retained-work budget, including the active callback,
+the executor queue and retirement-deferred work together. It defaults to 1,024 jobs and is configurable
+before opening the database with `sirix.notifications.capacity` (a positive integer). Overflow drops
+the new job with a warning; it never runs a callback on the committing thread. A job has opened no
+read view until delivery, so dropped/abandoned jobs release their retained references without reader
+ownership to close. Jobs run at most once; source closure, submission failure, timeout and shutdown
+can prevent delivery, and handler failure can prevent successful handling. Neither is unconditional. Hooks expose `getRevisionNumber()` on their committed
+view, and revision listeners receive that revision number. No resume/replay API or durable replay
+infrastructure is provided in this change.
+
+Every job carries its resource and committed revision. Destructive page admission refuses if a
+deferred job for that resource would lose its revision; numeric equality after revision reuse cannot
+substitute for the original publication. The refusal leaves data and queued work intact and can be
+retried after delivery. It does not wait for another retirement owner. Deferred jobs for unrelated
+resources or retained revisions do not prevent maintenance. Node, bound-page, unbound-page and derived
+history use the same boundary, after the existing execution/hardening/append fences.
+
+A publication may be observed more than once, including when writer cleanup re-observes a durable
+beacon. Applications should keep handlers idempotent. The at-most-once statement applies to each
+admitted queue job, not to a revision's number of publication observations.
+
+Revision numbers can be reissued after truncation, so they are not durable replay cursors by themselves.

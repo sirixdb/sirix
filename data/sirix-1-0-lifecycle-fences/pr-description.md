@@ -32,6 +32,15 @@ and fence submitted async append work before changing files or snapshots. Closed
 interrupted maintenance reject before destructive work. A temporary pre-hook admission refusal
 skips only that scheduled tick; user-hook exceptions and Errors retain their veto behavior.
 
+Notification jobs now carry resource/revision identity. Shared destructive page admission refuses
+before mutation if a deferred publication would lose its original history; unrelated resources and
+retained revisions remain admissible. The single capacity budget covers active, executor-queued
+and deferred work (default 1,024, configured before database open with `sirix.notifications.capacity`).
+Overflow drops new work without waiting for consumers, running callbacks on committers or vetoing
+durable commits. Delivery is best effort; hooks expose their view's revision and listeners receive
+that revision. Repeated publication observations remain possible. Resume/replay is not implemented,
+and revision numbers alone are not durable replay cursors across truncation/reissue.
+
 ## Specification and executable evidence
 
 | Requirement | Independent observable checks |
@@ -46,35 +55,39 @@ skips only that scheduled tick; user-hook exceptions and Errors retain their vet
 | Refusal before resource mutation | resourceLifecycleRefusalPreservesFilesAndOwnersForRetry; timeout/interruption leaves files and retained owner usable, then retry succeeds |
 | Implicit derived lifecycle and ordinary opens | eagerDerivedRebuildQuiescesOutsideSessionAdmission, warmSessionOpenDoesNotEnterNotificationRetirement, DerivedIndexMaintainerTest; genuine hidden rebuild, usable snapshots and no warm-open callback wait |
 | Registration lifetime | delayedSessionReleaseStaysRegisteredUntilItReleasesItsBackend; early rejection while the backend still belongs to the previous generation, then recreation and writer reuse |
+| Deferred publication identity | deferredPublicationPreventsHistoryReuse; 24 JSON/XML hook/listener cases through node, bound and unbound page entry, including interruption, unchanged data on refusal, original delivery, retry and revision reuse |
+| Bounded non-blocking admission | saturatedNotificationsDoNotBlockDurableCommits; 8 cases with latched active/deferred delivery, successful durable commits, bounded physical/counted retention, ordered admitted views and closed readers; mixed-backlog, abandonment and resource/revision selection unit cases |
 | Physical storage maintenance fence | rawPageTruncationFencesBoundHardening, truncationFencesAsyncAppend, nodeTruncationCanTargetTheRevisionBeingHardened; JSON/XML raw/node/unbound entry, success/failure/interruption, closed predecessors and readable durable revisions |
 | Scheduled publication after temporary refusal | timedCommitResumesAfterTemporaryAdmissionRefusal; a real other-handle close owns retirement while blocked on a different resource writer, then a later periodic tick publishes the known value |
 | Ordinary ownership overlap | executionOwnerCanQuiesceWhileCloseWaitsForExecution, overlappingRetirementsKeepAdmissionPausedUntilBothOwnersLeave, historyOwnerCanTruncateWhileDerivedCleanupWaits; no active callback needed to exercise execution/history/cleanup ordering |
 | Local retained owners and safe retry | refusedNodeExecutionRetainsItsPageWriterUntilRetry; reader/page ownership survives failed local/session close, new resource admission stays closed, metadata reads and retry remain safe |
 
-Fresh focused result: **1,461 selected cases, 0 failures/errors, 5 configured skips**, plus
-**69 auxiliary cases, 0 failures/errors, 2 skips**. This includes 290 notification cases, 143 node-abort
-cases, 84 shared-reader cases, 71 derived-maintenance cases, the preserved 24 metadata and 22 held-gate
-cases, 49 query gate/store cases, and documented core/query/MCP budgets without wider bounds.
-After that full run, the timer fixture was strengthened to drive another handle's actual retirement
-and start its real periodic task deterministically; its **two JSON/XML cases pass separately**.
-Production sources did not change between those runs.
+Current focused results cover **1,496 selected cases with 0 final failures/errors and 5 configured
+skips**, plus **69 auxiliary cases with 0 failures/errors and 2 skips**. The full selection passed
+all other suites; the notification suite was retried after correcting a new test's unrequested
+exactly-once listener assumption. All **325 notification cases** then passed, including all 35 new
+cases. Production sources did not change between those runs. Existing callback metadata, held-gate,
+worker ownership, scheduled commit, R13 overlap and core/query/MCP budget checks remain green
+without wider bounds.
 
-Seven independently compiled starting-HEAD lifecycle classes fail all 42 new negative-control cases.
-The strengthened real-handle timer cases also fail twice on that baseline and pass on the fix.
-Expected baseline failures are separate from passing checks. Earlier 24-case bootstrap and 22-case
-mutation-gate counterfactuals remain historical evidence for their recorded revisions.
+Five independently compiled starting-HEAD lifecycle classes fail all **32 engine counterfactual
+cases**: deferred history reuse is not refused and saturation retains 8 or more jobs despite a
+configured bound of 3. These expected failures are separate from passing checks. The final listener
+oracle verifies every admitted original job against its original value, and requires ordered
+admitted delivery while preserving existing repeated publication observations.
 
 Six selected hot methods have identical compiled instructions and exception tables against
-independently compiled starting HEAD `e5847add`, with constant-pool indices normalized. Cold scheduler,
-maintenance, admission and teardown code intentionally differs. This comparison is not against
-original main and does not establish runtime or native-code equivalence. The operator's earlier
-fifteen-region proof against actual base `ba000071` at `ffba256a` remains external historical evidence.
-No benchmark was run. Exact suites, skips, hashes and limits are in
-[current verification](storage-maintenance-retirement-verification.json).
+independently compiled starting HEAD `320ce6ab`, with constant-pool indices normalized. Cold
+notification dispatch and destructive admission intentionally differ. This comparison is not
+against the new review base `ce56286b`, nor does it establish runtime/native equivalence. Earlier
+shape, mutation and counterfactual artifacts remain historical for their recorded source hashes.
+No benchmark was run. Exact reports, skips, source hashes and limits are in
+[current verification](deferred-notification-verification.json).
 
-Root cause and learning: [storage/retirement ownership postmortem](../../docs/postmortems/storage-maintenance-retirement-ownership.md),
+Root cause and learning: [deferred-publication postmortem](../../docs/postmortems/deferred-notification-history.md),
+[storage/retirement ownership postmortem](../../docs/postmortems/storage-maintenance-retirement-ownership.md),
 [mutation-gate postmortem](../../docs/postmortems/mutation-retirement-lock-order.md),
 [monitor-order postmortem](../../docs/postmortems/bootstrap-notification-monitor-order.md),
 [dispatcher postmortem](../../docs/postmortems/database-notification-dispatch.md) and
-[Lessons](../../docs/LESSONS.md). Scoped PIT, repository-wide lint/test/CI and delivery phases remain
-with the outer executor; historical mutation counts do not validate the current fix.
+[Lessons](../../docs/LESSONS.md). Fresh scoped PIT, repository-wide gates, post-custody probes and
+delivery remain with the outer executor; no historical mutation count validates the current fix.

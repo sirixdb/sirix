@@ -140,24 +140,24 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public final void enqueueNotification(final Runnable callback) {
+  public final void enqueueNotification(final int revision, final IntConsumer callback) {
     if (isClosed || closeAttempts != 0) {
       LOGGER.warn("Dropping a notification from a closing resource session");
       return;
     }
-    notifications.submit(() -> {
+    notifications.submit(resourceConfig.getID(), revision, publishedRevision -> {
       if (isClosed) {
         LOGGER.warn("Dropping a deferred notification from a closed resource session");
       } else {
-        callback.run();
+        callback.accept(publishedRevision);
       }
     });
   }
 
   @Override
-  public final DatabaseNotifications.Retirement retireNotifications() {
+  public final DatabaseNotifications.Retirement retireHistory(final int revision) {
     assertCanRetire(historyExecution.get());
-    return notifications.retire();
+    return notifications.retireHistory(resourceConfig.getID(), revision);
   }
 
   @Override
@@ -1985,8 +1985,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
     final int revision = page.getRevisionNumber();
     for (final IntConsumer listener : revisionListeners) {
-      enqueueNotification(() -> {
-        try (R view = beginPostCommitReadOnlyTrx(revision)) {
+      enqueueNotification(revision, publishedRevision -> {
+        try (R view = beginPostCommitReadOnlyTrx(publishedRevision)) {
           listener.accept(view.getRevisionNumber());
         }
       });

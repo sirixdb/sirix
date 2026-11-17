@@ -30,6 +30,10 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.ArrayDeque;
+import java.util.function.IntConsumer;
+import org.junit.jupiter.api.Test;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -182,7 +186,7 @@ final class DatabaseNotificationLifecycleTest {
             }
           }, completed);
           assertTrue(entered.await(10, TimeUnit.SECONDS));
-          fixture.notifications().submit(calls::incrementAndGet);
+          fixture.notifications().submit(0, 0, unused -> calls.incrementAndGet());
           assertEquals(0, calls.get());
         }
         assertThrows(IllegalStateException.class, () -> fixture.notifications().runPreCommit(calls::incrementAndGet));
@@ -264,6 +268,388 @@ final class DatabaseNotificationLifecycleTest {
         }
       }
     }
+  }
+
+  static Stream<Arguments> deferredHistoryCases() {
+    return Stream.of("json", "xml")
+                 .flatMap(
+                     format -> Stream.of("node", "bound", "unbound")
+                                     .flatMap(
+                                         entry -> Stream.of("post", "listener")
+                                                        .flatMap(phase -> Stream.of(false, true)
+                                                                                .map(interrupt -> Arguments.of(format,
+                                                                                    entry, phase, interrupt)))));
+  }
+
+  @ParameterizedTest(name = "deferred publication {arguments}")
+  @MethodSource("deferredHistoryCases")
+  void deferredPublicationPreventsHistoryReuse(final String format, final String entry, final String phase,
+      final boolean interrupt) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx writer = fixture.second.beginNodeTrx();
+      final List<Integer> revisions = new ArrayList<>();
+      final List<Integer> values = new ArrayList<>();
+      final CompletableFuture<Void> delivered = new CompletableFuture<>();
+      final Consumer<NodeReadOnlyTrx> observe = view -> {
+        try {
+          revisions.add(view.getRevisionNumber());
+          values.add(readValue(view));
+          delivered.complete(null);
+        } catch (final Throwable failure) {
+          delivered.completeExceptionally(failure);
+          throw failure;
+        }
+      };
+      if (phase.equals("post")) {
+        writer.addPostCommitHook(observe::accept);
+      } else {
+        fixture.second.addRevisionListener(revision -> {
+          try (NodeReadOnlyTrx view = fixture.second.beginNodeReadOnlyTrx(revision)) {
+            observe.accept(view);
+          }
+        });
+      }
+      final AtomicReference<StorageEngineWriter> page = new AtomicReference<>();
+      final AtomicInteger admitted = new AtomicInteger();
+      final Runnable truncate = () -> {
+        if (entry.equals("node")) {
+          writer.truncateTo(1);
+        } else {
+          page.get().truncateTo(1);
+        }
+      };
+      try {
+        duringOtherHandleClose(fixture, () -> {
+          setValue(writer, 1);
+          writer.commit();
+          if (entry.equals("unbound")) {
+            writer.close();
+            page.set(fixture.second.createStorageEngineWriter());
+          } else {
+            page.set(writer.getStorageEngineWriter());
+          }
+          if (interrupt) {
+            Thread.currentThread().interrupt();
+            try {
+              assertThrows(RuntimeException.class, truncate::run);
+              assertTrue(Thread.currentThread().isInterrupted());
+            } finally {
+              Thread.interrupted();
+            }
+          }
+          final IllegalStateException refusal = assertThrows(IllegalStateException.class, truncate::run);
+          assertTrue(refusal.getMessage().contains("deferred"));
+          assertEquals(2, fixture.second.getMostRecentRevisionNumber());
+          assertFalse(page.get().isClosed());
+          assertFalse(fixture.second.isClosed());
+          assertFalse(delivered.isDone());
+          try {
+            admitted.set(retainedNotifications(fixture.notifications()));
+          } catch (final Exception failure) {
+            throw new AssertionError(failure);
+          }
+          assertTrue(admitted.get() > 0);
+          try (NodeReadOnlyTrx view = fixture.second.beginNodeReadOnlyTrx(2)) {
+            assertValue(view, 1);
+          }
+        });
+        delivered.get(10, TimeUnit.SECONDS);
+        fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+        assertEquals(admitted.get(), revisions.size());
+        assertEquals(admitted.get(), values.size());
+        assertTrue(revisions.stream().allMatch(revision -> revision == 2));
+        assertTrue(values.stream().allMatch(value -> value == 1));
+        revisions.clear();
+        values.clear();
+        truncate.run();
+        if (entry.equals("unbound")) {
+          page.get().rollback();
+          page.get().close();
+        } else {
+          writer.rollback();
+          writer.close();
+        }
+        fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+        if (phase.equals("listener")) {
+          assertFalse(values.isEmpty());
+          assertTrue(revisions.stream().allMatch(revision -> revision == 1));
+          assertTrue(values.stream().allMatch(value -> value == 0));
+        }
+        revisions.clear();
+        values.clear();
+        final CompletableFuture<Integer> replacement = new CompletableFuture<>();
+        try (NodeTrx next = fixture.second.beginNodeTrx()) {
+          next.addPostCommitHook(view -> replacement.complete(readValue(view)));
+          setValue(next, 2);
+          next.commit();
+        }
+        assertEquals(2, replacement.get(10, TimeUnit.SECONDS));
+        fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+        assertEquals(2, fixture.second.getMostRecentRevisionNumber());
+        if (phase.equals("listener")) {
+          assertFalse(values.isEmpty());
+          assertTrue(revisions.stream().allMatch(revision -> revision == 2));
+          assertTrue(values.stream().allMatch(value -> value == 2));
+        }
+      } finally {
+        if (!writer.isClosed()) {
+          writer.rollback();
+          writer.close();
+        }
+        if (entry.equals("unbound") && page.get() != null && !page.get().isClosed()) {
+          page.get().rollback();
+          page.get().close();
+        }
+      }
+    }
+  }
+
+  static Stream<Arguments> saturationCases() {
+    return Stream.of("json", "xml")
+                 .flatMap(
+                     format -> Stream.of("post", "listener")
+                                     .flatMap(phase -> Stream.of(false, true)
+                                                             .map(deferred -> Arguments.of(format, phase, deferred))));
+  }
+
+  @ParameterizedTest(name = "bounded publications {arguments}")
+  @MethodSource("saturationCases")
+  void saturatedNotificationsDoNotBlockDurableCommits(final String format, final String phase, final boolean deferred)
+      throws Exception {
+    final String previous = System.getProperty("sirix.notifications.capacity");
+    System.setProperty("sirix.notifications.capacity", "3");
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx writer = fixture.second.beginNodeTrx();
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch finish = new CountDownLatch(1);
+      final List<Integer> revisions = new ArrayList<>();
+      final List<Integer> values = new ArrayList<>();
+      final List<NodeReadOnlyTrx> views = new ArrayList<>();
+      final AtomicReference<Thread> producer = new AtomicReference<>();
+      final Consumer<NodeReadOnlyTrx> observe = view -> {
+        assertNotSame(producer.get(), Thread.currentThread());
+        views.add(view);
+        entered.countDown();
+        await(finish);
+        revisions.add(view.getRevisionNumber());
+        values.add(readValue(view));
+      };
+      if (phase.equals("post")) {
+        writer.addPostCommitHook(observe::accept);
+      } else {
+        fixture.second.addRevisionListener(revision -> {
+          try (NodeReadOnlyTrx view = fixture.second.beginNodeReadOnlyTrx(revision)) {
+            observe.accept(view);
+          }
+        });
+      }
+      final Runnable publish = () -> {
+        final CompletableFuture<Void> committed = new CompletableFuture<>();
+        producer.set(start(() -> {
+          for (int value = 1; value <= 8; value++) {
+            setValue(writer, value);
+            writer.commit();
+            if (value == 1 && !deferred) {
+              await(entered);
+            }
+          }
+        }, committed));
+        try {
+          committed.get(10, TimeUnit.SECONDS);
+          assertEquals(1, finish.getCount());
+          assertEquals(3, retainedNotifications(fixture.notifications()));
+          synchronized (field(DatabaseNotifications.class, "progress").get(fixture.notifications())) {
+            final ThreadPoolExecutor executor =
+                (ThreadPoolExecutor) field(DatabaseNotifications.class, "executor").get(fixture.notifications());
+            final ArrayDeque<?> backlog =
+                (ArrayDeque<?>) field(DatabaseNotifications.class, "deferred").get(fixture.notifications());
+            assertEquals(3, executor.getQueue().size() + backlog.size() + (deferred
+                ? 0
+                : 1));
+          }
+          if (deferred) {
+            assertEquals(1, entered.getCount());
+          }
+          assertEquals(9, fixture.second.getMostRecentRevisionNumber());
+          try (NodeReadOnlyTrx view = fixture.second.beginNodeReadOnlyTrx(9)) {
+            assertValue(view, 8);
+          }
+          writer.close();
+        } catch (final Exception failure) {
+          throw new AssertionError(failure);
+        }
+      };
+      try {
+        if (deferred) {
+          duringOtherHandleClose(fixture, publish);
+        } else {
+          publish.run();
+        }
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        finish.countDown();
+        fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+        if (phase.equals("post")) {
+          assertEquals(List.of(2, 3, 4), revisions);
+          assertEquals(List.of(1, 2, 3), values);
+        } else {
+          assertEquals(3, revisions.size());
+          assertEquals(3, values.size());
+          assertEquals(2, revisions.getFirst());
+          for (int index = 0; index < 3; index++) {
+            assertTrue(revisions.get(index) >= 2 && revisions.get(index) <= 4);
+            assertEquals(revisions.get(index) - 1, values.get(index));
+            if (index != 0) {
+              assertTrue(revisions.get(index - 1) <= revisions.get(index));
+            }
+          }
+        }
+        assertEquals(3, views.size());
+        assertTrue(views.stream().allMatch(NodeReadOnlyTrx::isClosed));
+        assertEquals(0, retainedNotifications(fixture.notifications()));
+      } finally {
+        finish.countDown();
+        if (producer.get() != null) {
+          producer.get().join(10000);
+        }
+      }
+    } finally {
+      if (previous == null) {
+        System.clearProperty("sirix.notifications.capacity");
+      } else {
+        System.setProperty("sirix.notifications.capacity", previous);
+      }
+    }
+  }
+
+  @Test
+  void capacityCoversMixedBacklogsAndAbandonment() throws Exception {
+    final CountDownLatch entered = new CountDownLatch(1);
+    final CountDownLatch finish = new CountDownLatch(1);
+    final CountDownLatch retired = new CountDownLatch(1);
+    final CountDownLatch release = new CountDownLatch(1);
+    final List<Integer> revisions = new ArrayList<>();
+    try (DatabaseNotifications notifications = new DatabaseNotifications(3)) {
+      notifications.submit(7, 1, revision -> {
+        entered.countDown();
+        await(finish);
+        revisions.add(revision);
+      });
+      assertTrue(entered.await(10, TimeUnit.SECONDS));
+      notifications.submit(7, 2, revisions::add);
+      final CompletableFuture<Void> closed = new CompletableFuture<>();
+      final Thread owner = start(() -> {
+        try (var retirement = notifications.retire()) {
+          retired.countDown();
+          await(release);
+        }
+      }, closed);
+      try {
+        while (!notificationsPaused(notifications)) {
+          assertFalse(closed.isDone());
+          Thread.onSpinWait();
+        }
+        notifications.submit(7, 3, revisions::add);
+        notifications.submit(7, 6, revisions::add);
+        assertEquals(3, retainedNotifications(notifications));
+        finish.countDown();
+        assertTrue(retired.await(10, TimeUnit.SECONDS));
+        assertEquals(List.of(1, 2), revisions);
+        notifications.submit(7, 4, revisions::add);
+        notifications.submit(7, 5, revisions::add);
+        notifications.submit(7, 6, revisions::add);
+        assertEquals(3, retainedNotifications(notifications));
+        release.countDown();
+        closed.get(10, TimeUnit.SECONDS);
+        notifications.awaitIdle(Duration.ofSeconds(10));
+        assertEquals(List.of(1, 2, 3, 4, 5), revisions);
+        try (var retirement = notifications.retire()) {
+          notifications.submit(7, 6, revisions::add);
+          notifications.close();
+          assertEquals(0, retainedNotifications(notifications));
+        }
+        assertEquals(List.of(1, 2, 3, 4, 5), revisions);
+      } finally {
+        finish.countDown();
+        release.countDown();
+        owner.join(10000);
+      }
+    }
+  }
+
+  @Test
+  void deferredHistoryAdmissionIsScopedToRemovedRevisions() throws Exception {
+    final List<Integer> delivered = new ArrayList<>();
+    try (DatabaseNotifications notifications = new DatabaseNotifications(3)) {
+      try (var retirement = notifications.retire()) {
+        notifications.submit(7, 2, delivered::add);
+        try (var unrelated = notifications.retireHistory(8, 0); var retained = notifications.retireHistory(7, 2)) {
+          assertThrows(IllegalStateException.class, () -> notifications.retireHistory(7, 1));
+          assertEquals(1, retainedNotifications(notifications));
+        }
+      }
+      notifications.awaitIdle(Duration.ofSeconds(10));
+      assertEquals(List.of(2), delivered);
+      try (var retry = notifications.retireHistory(7, 1)) {
+        assertEquals(0, retainedNotifications(notifications));
+      }
+    }
+  }
+
+  @Test
+  void notificationCapacityMustBePositive() {
+    assertThrows(IllegalArgumentException.class, () -> new DatabaseNotifications(0));
+    assertThrows(IllegalArgumentException.class, () -> new DatabaseNotifications(-1));
+  }
+
+  private static void duringOtherHandleClose(final Fixture fixture, final Runnable action) throws Exception {
+    assertTrue(fixture.firstDatabase.createResource(
+        ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
+    final ResourceSession<?, ?> other = fixture.firstDatabase.beginResourceSession("other");
+    final NodeTrx blocker = other.beginNodeTrx(0, 1, TimeUnit.DAYS);
+    final CompletableFuture<Void> closed = new CompletableFuture<>();
+    final AtomicReference<Thread> closer = new AtomicReference<>();
+    try {
+      blocker.runLocked(() -> {
+        closer.set(start(fixture.firstDatabase::close, closed));
+        try {
+          final ReentrantLock execution =
+              (ReentrantLock) field(AbstractNodeTrxImpl.class, "executionLock").get(blocker);
+          while (!execution.hasQueuedThread(closer.get())) {
+            if (closed.isDone()) {
+              closed.get(10, TimeUnit.SECONDS);
+              throw new AssertionError("Handle close skipped its blocked writer owner");
+            }
+            Thread.onSpinWait();
+          }
+          action.run();
+        } catch (final Exception failure) {
+          throw new AssertionError(failure);
+        }
+      });
+      closed.get(10, TimeUnit.SECONDS);
+    } finally {
+      blocker.close();
+      other.close();
+      if (closer.get() != null) {
+        closer.get().join(10000);
+      }
+    }
+  }
+
+  private static int retainedNotifications(final DatabaseNotifications notifications) throws Exception {
+    synchronized (field(DatabaseNotifications.class, "progress").get(notifications)) {
+      return field(DatabaseNotifications.class, "pending").getInt(notifications)
+          + ((ArrayDeque<?>) field(DatabaseNotifications.class, "deferred").get(notifications)).size();
+    }
+  }
+
+  private static int readValue(final NodeReadOnlyTrx view) {
+    assertTrue(view.moveTo(view instanceof JsonNodeReadOnlyTrx
+        ? 1
+        : 2));
+    return view instanceof JsonNodeReadOnlyTrx json
+        ? json.getNumberValue().intValue()
+        : Integer.parseInt(view.getValue());
   }
 
   static Stream<Arguments> entryCases() {

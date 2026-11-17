@@ -74,9 +74,9 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void runPreCommitCallback(Runnable callback);
 
-  void enqueueNotification(Runnable callback);
+  void enqueueNotification(int revision, IntConsumer callback);
 
-  DatabaseNotifications.Retirement retireNotifications();
+  DatabaseNotifications.Retirement retireHistory(int revision);
 
   @Nullable
   InternalNodeTrx<?> enterHistoryRetirement(InternalNodeTrx<?> owner);
@@ -131,7 +131,8 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
    * wait for delivery. Same-database callback lifecycle reentry rejects before locks/waits. Close
    * drains only to its configured deadline, may abandon queued notifications, and retains active
    * reader ownership on timeout. Failures are reported by the dispatcher and do not veto publication.
-   * Delivery attempts are at least once while notification admission is open.
+   * Delivery is best effort: capacity overflow drops new work without delaying or vetoing commits.
+   * The callback receives its committed revision number; resume/replay is not provided.
    */
   void addRevisionListener(IntConsumer listener);
 
