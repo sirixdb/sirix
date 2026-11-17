@@ -21,9 +21,9 @@ final class StorageEngineWriterFactoryTest {
     final ExecutorService sharedAppend = sharedPool("SNAPSHOT_APPEND_EXECUTOR");
     final ExecutorService sharedSerialization = sharedPool("SNAPSHOT_FLUSH_POOL");
     try (final ForkJoinPool append = new ForkJoinPool(1);
-         final ForkJoinPool serialization = new ForkJoinPool(1);
-         final MockedStatic<SnapshotExecutorShutdown> shutdown =
-             mockStatic(SnapshotExecutorShutdown.class, CALLS_REAL_METHODS)) {
+        final ForkJoinPool serialization = new ForkJoinPool(1);
+        final MockedStatic<SnapshotExecutorShutdown> shutdown =
+            mockStatic(SnapshotExecutorShutdown.class, CALLS_REAL_METHODS)) {
       // Substitute only the terminal process-owned resources. Both public delegation layers
       // and the drain implementation execute; other tests can still open writers afterward.
       shutdown.when(() -> SnapshotExecutorShutdown.drain(sharedAppend, sharedSerialization)).thenAnswer(call -> {

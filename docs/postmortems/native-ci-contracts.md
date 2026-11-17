@@ -56,3 +56,32 @@
 
 Local logs and reports are under `build/ci-diagnosis/`. Hosted analyzer verdicts
 must be refreshed by the outer CI executor after publication.
+
+## CI follow-up: formatter contract
+
+- Symptom / trigger: `Compile and package` rejects the newly added public-hook
+  test at `:sirix-core:spotlessJavaCheck`.
+- Invariant / scope: every Java file changed since `origin/main` must match the
+  configured Eclipse formatter, including all try-with-resources continuations
+  in the shutdown regressions and production adapters.
+- Root cause: the public-hook test was added with continuation indentation one
+  space deeper than the formatter permits. Behavioral and mutation tests do not
+  check formatting; the formatter was not rerun after adding this test.
+- Regression / oracle: execute the real Spotless consumer with the repository's
+  formatter profile. `./gradlew :sirix-core:spotlessJavaCheck` fails before the
+  repair and must pass afterward; `./gradlew spotlessCheck` checks sibling
+  modules. Apply formatting without changing resource order, mock delegation,
+  shutdown calls or assertions. No executable logic changes, so there are no
+  new logic mutants to exercise.
+- Lesson: rerun the configured formatter after the final test edit, including
+  tests introduced during a CI repair; see [Lessons](../LESSONS.md).
+- Verification (2026-11-17): the focused check reproduced the hosted failure;
+  `:sirix-core:spotlessJavaApply` changed only the three reported indentation
+  lines, then `./gradlew spotlessCheck --console=plain` passed all eight modules
+  (16 tasks executed). `git diff --check` passed.
+- Separate unresolved check: GitHub's CodeFactor status for commit
+  `273c67d3371aaf807f9eec7d4e4e4716e70e8b70` reports two issues. Its linked
+  [detail page](https://www.codefactor.io/repository/github/sirixdb/sirix/pull/1451)
+  returned HTTP 403 through direct retrieval and Chrome; GitHub exposes no
+  corresponding check-run annotations. The issue details remain unavailable,
+  so this formatting repair does not claim to resolve CodeFactor.
