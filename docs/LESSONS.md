@@ -281,3 +281,12 @@ both directions. Destructive maintenance must fence hardening and append workers
 page boundary, including raw entry and captured predecessors. Test scheduled admission refusal
 separately from a user-hook veto so temporary maintenance cannot disable later ticks.
 See [the ownership postmortem](postmortems/storage-maintenance-retirement-ownership.md).
+
+## Deferred publications still own their history
+
+A deferred callback that opens its view later still depends on the original committed pages.
+Destructive admission must account for deferred as well as executing work; a reused revision number
+is not the same publication. Bound the combined active, queued and deferred retention budget, and
+check saturation with a latched consumer while proving durable commits finish. Never turn overflow
+into caller-thread delivery or claim replay that is not implemented.
+See [the deferred-publication postmortem](postmortems/deferred-notification-history.md).

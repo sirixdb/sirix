@@ -1600,8 +1600,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   private void enqueuePostCommitHooks(final List<PostCommitHook> hooks, final int revision) {
     for (final PostCommitHook hook : hooks) {
-      resourceSession.enqueueNotification(() -> {
-        try (R view = resourceSession.beginPostCommitReadOnlyTrx(revision)) {
+      resourceSession.enqueueNotification(revision, publishedRevision -> {
+        try (R view = resourceSession.beginPostCommitReadOnlyTrx(publishedRevision)) {
           hook.postCommit(view);
         }
       });

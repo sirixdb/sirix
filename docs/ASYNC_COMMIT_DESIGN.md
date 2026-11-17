@@ -176,3 +176,10 @@ Raw page truncation acquires its bound node execution owner and fences hardening
 the captured writer; all page truncations fence submitted async append work before changing history.
 Closed predecessors and interrupted maintenance reject before destructive storage work. Temporary
 pre-hook admission refusal leaves scheduled commits enabled; user-hook failures retain veto semantics.
+
+The dispatcher retains at most its configured capacity across active, executor-queued and deferred
+jobs. Each job carries its resource and published revision. Destructive page admission refuses
+before mutation when deferred work would lose that original history; overlapping non-destructive
+retirement stays shared. Overflow drops new work without waiting for delivery or vetoing durability.
+Delivery is best effort; hooks/listeners expose their revision, but resume/replay remains a follow-up.
+See [the hook contract](hooks.md) for capacity, ordering and abandonment semantics.

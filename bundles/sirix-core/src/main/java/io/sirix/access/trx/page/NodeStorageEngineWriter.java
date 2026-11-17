@@ -6665,7 +6665,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       throw new SirixThreadedException(new InterruptedException("Interrupted before storage truncation"));
     }
     final InternalResourceSession<?, ?> session = storageEngineReader.resourceSession;
-    try (var retirement = session.retireNotifications()) {
+    try (var retirement = session.retireHistory(revision)) {
       session.assertAccess(revision);
       final DerivedIndexMaintainer.Resource derived =
           ((AbstractResourceSession<?, ?>) getResourceSession()).getDerivedResource();

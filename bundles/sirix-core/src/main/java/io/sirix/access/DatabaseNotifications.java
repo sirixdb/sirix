@@ -10,7 +10,8 @@ import java.util.ArrayList;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.function.IntConsumer;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -26,12 +27,21 @@ public final class DatabaseNotifications implements AutoCloseable {
   private record CallbackScope(DatabaseNotifications owner, @Nullable CallbackScope parent) {
   }
 
+  private record Notification(DatabaseNotifications owner, long resourceId, int revision,
+      IntConsumer callback) implements Runnable {
+    @Override
+    public void run() {
+      owner.deliver(this);
+    }
+  }
+
   private final Object progress = new Object();
   private int retirements;
   private final ThreadPoolExecutor executor;
+  private final int capacity;
   private volatile Duration closeTimeout = Duration.ofSeconds(5);
   private @Nullable Path databasePath;
-  private final ArrayDeque<Runnable> deferred = new ArrayDeque<>();
+  private final ArrayDeque<Notification> deferred = new ArrayDeque<>();
   private boolean failedRetirement;
   private int pending;
   private int preHooks;
@@ -39,8 +49,16 @@ public final class DatabaseNotifications implements AutoCloseable {
   private boolean stopped;
 
   public DatabaseNotifications() {
+    this(Integer.parseInt(System.getProperty("sirix.notifications.capacity", "1024")));
+  }
+
+  public DatabaseNotifications(final int capacity) {
+    if (capacity <= 0) {
+      throw new IllegalArgumentException("Notification capacity must be positive");
+    }
+    this.capacity = capacity;
     setCloseTimeout(Duration.ofMillis(Long.getLong("sirix.notifications.closeTimeoutMillis", 5000L)));
-    executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), work -> {
+    executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(capacity), work -> {
       final Thread thread = new Thread(work, "sirix-database-notifications");
       thread.setDaemon(true);
       return thread;
@@ -97,23 +115,31 @@ public final class DatabaseNotifications implements AutoCloseable {
     }
   }
 
-  public void submit(final Runnable notification) {
-    Objects.requireNonNull(notification);
+  public void submit(final long resourceId, final int revision, final IntConsumer callback) {
+    Objects.requireNonNull(callback);
+    if (resourceId < 0 || revision < 0) {
+      throw new IllegalArgumentException("Notification resource and revision must be non-negative");
+    }
     synchronized (progress) {
       if (stopped || failedRetirement) {
         LOGGER.warn("Dropping a database notification after close or callback timeout");
-      } else if (!accepting) {
-        deferred.addLast(notification);
+      } else if (pending + deferred.size() >= capacity) {
+        LOGGER.warn("Dropping a database notification: retained-work capacity exhausted");
       } else {
-        execute(notification);
+        final Notification notification = new Notification(this, resourceId, revision, callback);
+        if (!accepting) {
+          deferred.addLast(notification);
+        } else {
+          execute(notification);
+        }
       }
     }
   }
 
-  private void execute(final Runnable notification) {
+  private void execute(final Notification notification) {
     pending++;
     try {
-      executor.execute(() -> deliver(notification));
+      executor.execute(notification);
     } catch (final RuntimeException | Error failure) {
       pending--;
       progress.notifyAll();
@@ -121,11 +147,11 @@ public final class DatabaseNotifications implements AutoCloseable {
     }
   }
 
-  private void deliver(final Runnable notification) {
+  private void deliver(final Notification notification) {
     final @Nullable CallbackScope previous = CURRENT.get();
     try {
       CURRENT.set(new CallbackScope(this, previous));
-      notification.run();
+      notification.callback().accept(notification.revision());
     } catch (final RuntimeException | Error failure) {
       LOGGER.error("Database notification failed after durable publication", failure);
     } finally {
@@ -168,11 +194,42 @@ public final class DatabaseNotifications implements AutoCloseable {
     }
   }
 
-  public Retirement retire() {
+  private void assertRetirementAllowed() {
     assertNotInCallback();
     if (Thread.currentThread().isInterrupted()) {
       throw new SirixThreadedException(new InterruptedException("Interrupted before notification retirement"));
     }
+  }
+
+  public Retirement retireHistory(final long resourceId, final int revision) {
+    assertRetirementAllowed();
+    if (resourceId < 0 || revision < 0) {
+      throw new IllegalArgumentException("Notification resource and revision must be non-negative");
+    }
+    synchronized (progress) {
+      assertDeferredHistoryRetained(resourceId, revision);
+      final Retirement scope = retire();
+      try {
+        assertDeferredHistoryRetained(resourceId, revision);
+        return scope;
+      } catch (final RuntimeException | Error failure) {
+        scope.close();
+        throw failure;
+      }
+    }
+  }
+
+  private void assertDeferredHistoryRetained(final long resourceId, final int revision) {
+    for (final Notification notification : deferred) {
+      if (notification.resourceId() == resourceId && notification.revision() > revision) {
+        throw new IllegalStateException(
+            "Destructive maintenance would invalidate a deferred publication; retry after delivery");
+      }
+    }
+  }
+
+  public Retirement retire() {
+    assertRetirementAllowed();
     synchronized (progress) {
       retirements++;
       accepting = false;
@@ -261,7 +318,7 @@ public final class DatabaseNotifications implements AutoCloseable {
             accepting = !stopped;
             if (accepting) {
               failedRetirement = false;
-              Runnable notification;
+              Notification notification;
               while ((notification = deferred.pollFirst()) != null) {
                 execute(notification);
               }
