@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -30,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.atomic.AtomicBoolean;
 import io.sirix.access.trx.TransactionManagerImpl;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1008,6 +1010,191 @@ final class DatabaseNotificationLifecycleTest {
       assertEquals(0, reader.getRevisionNumber());
       assertTrue(reader.moveTo(0));
       assertFalse(reader.moveTo(1));
+    }
+  }
+
+  static Stream<Arguments> outerGateCases() {
+    return Stream.of("json", "xml")
+                 .flatMap(format -> Stream.concat(
+                     Stream.of(false, true)
+                           .flatMap(database -> Stream.of("create", "remove", "session", "handle", "local")
+                                                      .map(action -> Arguments.of(format, database, action))),
+                     Stream.of(Arguments.of(format, true, "database"))));
+  }
+
+  @ParameterizedTest(name = "outer mutation gate {arguments}")
+  @MethodSource("outerGateCases")
+  void heldMutationGateCanEnterLifecycleBeforeQueuedCreator(final String format, final boolean databaseGate,
+      final String action) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final AbstractResourceSession<?, ?> retained = retainedResourceForRemoval(fixture, action.equals("remove"));
+      fixture.notifications().setCloseTimeout(Duration.ofSeconds(2));
+      final boolean invalidates = action.equals("local") || action.equals("database");
+      final AtomicBoolean created = new AtomicBoolean();
+      final AtomicReference<IllegalStateException> rejected = new AtomicReference<>();
+      final CompletableFuture<Void> finished = new CompletableFuture<>();
+      Thread contender = null;
+      try {
+        try (var outer = databaseGate
+            ? MutationGate.acquireDatabase(fixture.path)
+            : MutationGate.acquireResource(fixture.path, "other")) {
+          contender = start(() -> {
+            try {
+              created.set(fixture.secondDatabase.createResource(
+                  ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
+            } catch (final IllegalStateException failure) {
+              if (!invalidates) {
+                throw failure;
+              }
+              assertFalse(fixture.secondDatabase.isOpen());
+              rejected.set(failure);
+            }
+          }, finished);
+          awaitMutationGateWaiter(databaseGate, contender, finished);
+          assertFalse(finished.isDone());
+          switch (action) {
+            case "create" -> assertTrue(fixture.firstDatabase.createResource(
+                ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
+            case "remove" -> {
+              fixture.firstDatabase.removeResource("other");
+              assertTrue(retained.isClosed());
+              assertFalse(fixture.firstDatabase.existsResource("other"));
+            }
+            case "session" -> {
+              fixture.first.close();
+              assertTrue(fixture.first.isClosed());
+            }
+            case "handle" -> {
+              fixture.firstDatabase.close();
+              assertFalse(fixture.firstDatabase.isOpen());
+            }
+            case "local" -> {
+              fixture.local.close();
+              assertFalse(fixture.local.isOpen());
+            }
+            case "database" -> {
+              Databases.removeDatabase(fixture.path);
+              assertFalse(Files.exists(fixture.path));
+            }
+            default -> throw new AssertionError(action);
+          }
+          assertFalse(finished.isDone());
+        }
+        finished.get(10, TimeUnit.SECONDS);
+        if (invalidates) {
+          assertNotNull(rejected.get());
+          assertTrue(rejected.get().getMessage().contains("clos"));
+        } else {
+          assertEquals(!action.equals("create"), created.get());
+          try (ResourceSession<?, ?> other = fixture.secondDatabase.beginResourceSession("other");
+              NodeReadOnlyTrx reader = other.beginNodeReadOnlyTrx()) {
+            assertEquals(0, reader.getRevisionNumber());
+            assertTrue(reader.moveTo(0));
+            assertFalse(reader.moveTo(1));
+          }
+        }
+      } finally {
+        if (contender != null) {
+          contender.join(10000);
+          assertFalse(contender.isAlive());
+        }
+      }
+    }
+  }
+
+  static Stream<Arguments> callbackGateCases() {
+    return Stream.of("json", "xml")
+                 .flatMap(format -> Stream.of("pre", "post", "listener")
+                                          .flatMap(phase -> Stream.of(false, true)
+                                                                  .flatMap(database -> Stream.of(false, true)
+                                                                                             .map(alias -> Arguments.of(
+                                                                                                 format, phase,
+                                                                                                 database, alias)))));
+  }
+
+  @ParameterizedTest(name = "callback gate rejection {arguments}")
+  @MethodSource("callbackGateCases")
+  void callbackRejectsBeforeWaitingOnAnOuterMutationGate(final String format, final String phase,
+      final boolean databaseGate, final boolean alias) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final NodeTrx writer = fixture.second.beginNodeTrx();
+      final Path target = alias
+          ? fixture.path.resolve("uncreated").resolve("..")
+          : fixture.path;
+      final CompletableFuture<Void> checked = new CompletableFuture<>();
+      final AtomicBoolean invoked = new AtomicBoolean();
+      final Consumer<NodeReadOnlyTrx> callback = unused -> {
+        if (!invoked.compareAndSet(false, true)) {
+          return;
+        }
+        try {
+          final IllegalStateException failure = assertThrows(IllegalStateException.class, () -> {
+            try (var gate = databaseGate
+                ? MutationGate.acquireDatabase(target)
+                : MutationGate.acquireResource(target, "other")) {
+            }
+          });
+          assertTrue(failure.getMessage().contains("callback"));
+          assertMetadataReadable(fixture);
+          checked.complete(null);
+        } catch (final Throwable failure) {
+          checked.completeExceptionally(failure);
+          throw failure;
+        }
+      };
+      if (phase.equals("pre")) {
+        writer.addPreCommitHook(callback::accept);
+      } else if (phase.equals("post")) {
+        writer.addPostCommitHook(callback::accept);
+      } else {
+        fixture.second.addRevisionListener(revision -> callback.accept(null));
+      }
+      final CompletableFuture<Void> committed = new CompletableFuture<>();
+      Thread commit = null;
+      try {
+        try (var outer = databaseGate
+            ? MutationGate.acquireDatabase(fixture.path)
+            : MutationGate.acquireResource(fixture.path, "other")) {
+          commit = start(() -> {
+            setValue(writer, 1);
+            writer.commit();
+          }, committed);
+          checked.get(10, TimeUnit.SECONDS);
+          committed.get(10, TimeUnit.SECONDS);
+        }
+        fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+        writer.close();
+      } finally {
+        if (commit != null) {
+          commit.join(10000);
+          assertFalse(commit.isAlive());
+        }
+      }
+    }
+  }
+
+  private static void awaitMutationGateWaiter(final boolean database, final Thread contender,
+      final CompletableFuture<Void> finished) throws Exception {
+    final Map<?, ?> registry = (Map<?, ?>) field(MutationGate.class, database
+        ? "DATABASES"
+        : "RESOURCES").get(null);
+    while (true) {
+      for (final Object entry : registry.values()) {
+        final Object lock = field(entry.getClass(), "lock").get(entry);
+        if (database
+            ? ((ReentrantReadWriteLock) lock).hasQueuedThread(contender)
+            : ((ReentrantLock) lock).hasQueuedThread(contender)) {
+          return;
+        }
+      }
+      if (finished.isDone()) {
+        finished.get(10, TimeUnit.SECONDS);
+        throw new AssertionError("Contender returned before waiting for the held mutation gate");
+      }
+      if (Thread.currentThread().isInterrupted()) {
+        throw new AssertionError("Interrupted waiting for the mutation-gate contender");
+      }
+      Thread.onSpinWait();
     }
   }
 

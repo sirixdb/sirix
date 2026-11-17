@@ -168,3 +168,11 @@ notification quiescence before the outer handle/database monitor, including eage
 open. Never restrict already permitted callback metadata reads to compensate for reversed lock order.
 Keep registration serialized and move mutating initialization outside admission monitors.
 See [postmortem](postmortems/bootstrap-notification-monitor-order.md).
+
+## Mutation gates precede notification retirement
+
+Trace outer collection/store authorization gates before moving lifecycle waits. Any path needing
+both a mutation gate and notification retirement must acquire the gate first, then drain outside
+admission monitors. Reject callback mutation at gate entry itself; keep independent metadata reads
+ungated. Include held-outer-gate regressions alongside callback-drain tests.
+See [postmortem](postmortems/mutation-retirement-lock-order.md).

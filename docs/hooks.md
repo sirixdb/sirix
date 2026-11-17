@@ -14,8 +14,8 @@ Lock order: lifecycle preflight precedes handle/local-database/session monitors.
 
 Specification/test mapping: database-wide dispatcher tests cover pre/post/revision callbacks against handle/local database/session/writer/page/manager/shutdown lifecycle entry points in JSON/XML, including the external-handle-close cycle; immutable revision/order checks and a held durability barrier prove successor overlap and delivery after durability; a blocked listener plus queued followers proves bounded timeout, queue abandonment, live reader retention and retry. Pre-hook tests preserve veto identity, synchronous timing and same-database rejection. Existing independent-owner cleanup and worker-fence regressions remain applicable. Historical callback-fence evidence describes the superseded synchronous delivery contract.
 
-Resource lifecycle lock order also applies to bootstrap and retained-resource removal: establish
-bounded notification quiescence before acquiring the mutation gate, handle admission monitor or
+Resource lifecycle lock order also applies to bootstrap and retained-resource removal: acquire
+the mutation gate first, then bounded notification quiescence, before the handle admission or
 local database monitor. Nested bootstrap/session cleanup reuses that established retirement scope.
 Eager derived initialization runs after session registration has released those monitors; derived
 creation/rebuild establishes the same outer retirement boundary. Callback metadata reads and
@@ -26,3 +26,11 @@ preserve the failure/interrupt status, and permit retry after the active callbac
 Session-open completion carries only the newly opened derived-source reference past admission;
 warm opens retain their existing fast return and never enter notification retirement. Resource
 removal rejects registered user sessions before waiting, then revalidates under the database monitor.
+
+Mutation-gate entry itself rejects same-database callback mutation before retaining or locking a
+gate, using the canonical database identity. This covers collection/store wrappers that acquire an
+outer resource or database gate before reaching engine lifecycle methods. Ordinary metadata and
+read operations do not enter mutation gates. Guarded store cleanup and database removal already
+hold their mutation gate before handle/database/session retirement; ungated teardown and internal
+derived bootstrap acquire no later gate while holding retirement. A shared database hold must never
+be upgraded to an exclusive hold.
