@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Timeout;
 import org.mockito.MockedStatic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mockStatic;
 
 /** NATIVE-406: the public terminal hook must reach both engine-owned pools. */
@@ -22,10 +22,11 @@ final class StorageEngineWriterFactoryTest {
     final ExecutorService sharedSerialization = sharedPool("SNAPSHOT_FLUSH_POOL");
     try (final ForkJoinPool append = new ForkJoinPool(1);
         final ForkJoinPool serialization = new ForkJoinPool(1);
-        final MockedStatic<SnapshotExecutorShutdown> shutdown =
-            mockStatic(SnapshotExecutorShutdown.class, CALLS_REAL_METHODS)) {
+        final MockedStatic<SnapshotExecutorShutdown> shutdown = mockStatic(SnapshotExecutorShutdown.class)) {
       // Substitute only the terminal process-owned resources. Both public delegation layers
       // and the drain implementation execute; other tests can still open writers afterward.
+      // Stubbing must not run the terminal drain on the real process-owned pools.
+      shutdown.when(() -> SnapshotExecutorShutdown.drain(append, serialization)).thenCallRealMethod();
       shutdown.when(() -> SnapshotExecutorShutdown.drain(sharedAppend, sharedSerialization)).thenAnswer(call -> {
         SnapshotExecutorShutdown.drain(append, serialization);
         return null;
@@ -39,6 +40,9 @@ final class StorageEngineWriterFactoryTest {
       assertEquals(42, result.get());
       StorageEngineWriterFactory.shutdownSharedExecutors();
     }
+    assertFalse(sharedAppend.isShutdown(), "The test must preserve the process-owned append pool");
+    assertFalse(sharedSerialization.isShutdown(), "The test must preserve the process-owned serialization pool");
+    assertEquals(42, sharedSerialization.submit(() -> 42).get());
   }
 
   private static ExecutorService sharedPool(final String name) throws ReflectiveOperationException {

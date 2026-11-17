@@ -85,3 +85,70 @@ must be refreshed by the outer CI executor after publication.
   returned HTTP 403 through direct retrieval and Chrome; GitHub exposes no
   corresponding check-run annotations. The issue details remain unavailable,
   so this formatting repair does not claim to resolve CodeFactor.
+
+## CI follow-up: test isolation and fixture layout
+
+- Symptom / trigger: the Linux remaining and Windows core lanes each report
+  698 failed tests after the public shutdown regression; async commits reject
+  work because the shared snapshot executor has terminated. CodeFactor reports
+  two package/directory mismatches in the standalone Java fixtures.
+- Invariant / scope: lifecycle tests must leave both process-owned executors
+  usable by later tests, through both public delegation layers and subsequent
+  async commits. Both native fixtures must live beneath directories matching
+  their package, and both core/query compilation paths must use those locations.
+- Root cause: `CALLS_REAL_METHODS` executes the shared-pool drain while Mockito
+  registers the stub, before substitution takes effect. The test then drains its
+  own pools successfully and misses the damage to shared state. Adding fixture
+  package declarations previously fixed one style error but left their physical
+  paths inconsistent with those declarations.
+- Regression contract / independent oracle: after the test-owned terminal drain,
+  the actual shared executors must still accept work. Assert both are open and
+  execute a serialization task returning the specified value 42. This must fail
+  with the old mock setup, while the existing owned-pool termination assertions
+  still reject removal of either production delegation. Default static calls
+  must do nothing during stubbing; only the explicitly test-owned drain may call
+  the real implementation. Run the first failing writer-construction cases in
+  the same JVM as the shutdown regression to exercise later async commits.
+- Fixture acceptance: compile both relocated fixtures with GraalVM's real Java
+  compiler and run the core/query C smoke harness; no entrypoint names or package
+  names change. Checkstyle's real PackageDeclaration consumer must accept both
+  locations. There is no new production logic to mutate; scoped PIT must still
+  kill removal of the shutdown calls.
+- Lesson: verify shared resource state after closing the static-mock scope, and
+  keep standalone fixture paths consistent with their declared packages; see
+  [Lessons](../LESSONS.md).
+
+### Verification (2026-11-17)
+
+- The CodeFactor detail page was retrievable with browser User-Agent and HTML
+  Accept headers. Its issue model identifies `Package name is not same as
+  directory` for both fixtures; the source is unchanged between its reported
+  revision and this round's target. Moving both files fixes that shared contract
+  without changing their package, exported C symbols or contents.
+- Adding the shared-pool assertions before changing the mock reproduced the
+  defect: `StorageEngineWriterFactoryTest` failed because the real append pool
+  was shut down. After the fix, that test, both `SnapshotExecutorShutdownTest`
+  cases and both `successfulIntermediateProjectionEpochsKeepTheirOwnerAndQueryResults`
+  cases pass together (5 tests). The latter cases are the first failing async
+  commits in both hosted logs.
+- `:sirix-core:test --tests io.sirix.access.trx.page.StorageEngineWriterFactoryTest
+  --tests 'io.sirix.budget.*' --tests 'io.sirix.index.projection.*WorkBudgetTest'
+  --tests io.sirix.access.trx.page.RefusedOverflowLeafTableTest
+  :sirix-core:spotlessJavaCheck` passes: 326 tests across 33 suites, no failures,
+  errors or skips. Budget bounds are unchanged.
+- The same PR mutation selection still passes in blocking mode: 3/3 sampled
+  changed-line mutants killed, no survivors or uncovered changed-line mutants.
+  The 108 unchanged-line mutants retain their previously recorded advisory
+  disposition. No production logic changed in this repair.
+- Checkstyle 10.26.1 with the repository's `checkstyle.xml` accepts both relocated
+  fixtures. ShellCheck and `bash -n` accept the updated harness.
+- `tests/native/run-smoke.sh all` with GraalVM 25.0.3 rebuilds and passes both
+  profiles from the relocated sources. Each image runs twice through the real
+  C caller with `PATH=/nonexistent`, returns 42 after reopen, exercises all 16
+  cache shapes, loads no JVM, spawns no executable, and returns zero from
+  snapshot shutdown and isolate teardown. The query image also returns 42 via
+  JSONiq. Builders use two threads and a 4 GiB heap.
+
+Local logs, the temporary Checkstyle runner, focused JUnit results and PIT reports
+are under `build/ci-diagnosis/round4/`. Hosted Windows and analyzer verdicts must
+be refreshed by the outer executor after publication.

@@ -83,10 +83,10 @@ print(os.pathsep.join(entries))
 PYMUTATION
 )
   fi
-  sources=("$root/tests/native/java/CoreSmoke.java")
+  sources=("$root/tests/native/java/io/sirix/nativeimage/smoke/CoreSmoke.java")
   defines=()
   if [[ "$selected" == query ]]; then
-    sources+=("$root/tests/native/java/QuerySmoke.java")
+    sources+=("$root/tests/native/java/io/sirix/nativeimage/smoke/QuerySmoke.java")
     defines=(-DQUERY_SMOKE)
   fi
   heavy "$java_home/bin/javac" --enable-preview --source 25 --target 25 \
