@@ -63,6 +63,21 @@ final class HOTLeafPayloadCodecTest {
   }
 
   @Test
+  void encodedImagesRejectInvalidStoredLengths() {
+    for (final int stored : new int[] {Integer.MIN_VALUE, -1, 0, 1, Integer.MAX_VALUE}) {
+      try (MemorySegmentBytesOut wire = new MemorySegmentBytesOut()) {
+        writeHeader(wire, (byte) 2, 0, 8);
+        wire.writeInt(stored);
+        wire.writeByte((byte) 0);
+        final byte[] bytes = wire.toByteArray();
+        assertThrows(RuntimeException.class, () -> HOTLeafPayloadCodec.expandImage(bytes, 1));
+        final byte[] scratch = Arrays.copyOf(bytes, bytes.length + 100);
+        assertThrows(RuntimeException.class, () -> HOTLeafPayloadCodec.expandImage(scratch, 1, bytes.length));
+      }
+    }
+  }
+
+  @Test
   void zeroStoredLengthIsRejectedEvenForAnEmptyDecodedPayload() {
     try (Arena arena = Arena.ofConfined()) {
       final MemorySegment output = arena.allocate(1);
@@ -163,12 +178,14 @@ final class HOTLeafPayloadCodecTest {
       final byte[] scratch = Arrays.copyOf(wire, wire.length + 100);
       assertArrayEquals(HOTLeafPayloadCodec.expandImage(wire, 1),
           HOTLeafPayloadCodec.expandImage(scratch, 1, wire.length));
-      assertThrows(IllegalStateException.class, () -> HOTLeafPayloadCodec.expandImage(scratch, 1, wire.length - 1));
+      assertThrows(IndexOutOfBoundsException.class, () -> HOTLeafPayloadCodec.expandImage(scratch, 1, wire.length - 1));
       assertThrows(IndexOutOfBoundsException.class,
           () -> HOTLeafPayloadCodec.expandImage(scratch, 1, scratch.length + 1));
       assertThrows(IndexOutOfBoundsException.class, () -> HOTLeafPayloadCodec.expandImage(scratch, 1, 2));
       final byte[] raw = HOTLeafPayloadCodec.expandImage(wire, 1);
-      assertArrayEquals(raw, HOTLeafPayloadCodec.expandImage(Arrays.copyOf(raw, raw.length + 100), 1, raw.length));
+      assertThrows(IllegalArgumentException.class, () -> HOTLeafPayloadCodec.expandImage(raw, 1));
+      assertThrows(IllegalArgumentException.class,
+          () -> HOTLeafPayloadCodec.expandImage(Arrays.copyOf(raw, raw.length + 100), 1, raw.length));
       final byte[] replacement = new byte[64];
       replacement[0] = 99;
       assertTrue(leaf.updateValue(leaf.findEntry(key), replacement));
@@ -563,7 +580,7 @@ final class HOTLeafPayloadCodecTest {
 
   @Test
   void rawFallbackAccountsForFramingAndZeroRunGoldenPinsTheBoundary() {
-    for (final int used : new int[] {0, 4, 7, 8, 9, 32}) {
+    for (final int used : new int[] {0, 1, 4, 5, 6, 7, 8, 9, 32}) {
       try (MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
           MemorySegmentBytesOut encoded = new MemorySegmentBytesOut()) {
         raw.writeByte((byte) 12);
@@ -705,7 +722,9 @@ final class HOTLeafPayloadCodecTest {
         PageKind.HOT_LEAF_PAGE.serializePage(CONFIG, sink, original, SerializationType.DATA);
         final byte[] encoded = sink.toByteArray();
         assertTrue(encoded.length <= raw.length);
-        assertArrayEquals(raw, HOTLeafPayloadCodec.expandImage(encoded, 1),
+        assertArrayEquals(raw, (encoded[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0
+            ? encoded
+            : HOTLeafPayloadCodec.expandImage(encoded, 1),
             "cached images must have exactly the legacy raw bytes after one cold expansion");
         if (pattern == 0 || (pattern == 1 && FFILz4Compressor.isNativeAvailable())) {
           assertEquals(3, encoded[2]);

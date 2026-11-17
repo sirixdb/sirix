@@ -206,6 +206,9 @@ frames. Compression fixtures used across platforms must compress with every supp
 codec set; explicitly exercise missing-native-codec behavior. Verify native staging names,
 fallback directories and losing-publication cleanup through filesystem behavior, and
 separate functionally equivalent decoder-routing mutants from missing correctness tests.
+Keep encoded-frame expanders strict when callers already route raw frames: accepting raw
+scratch adds a redundant copy route that functional assertions cannot distinguish. Upload
+reports from all test tasks, including allocation forks, and print complete failures there.
 See the [leaf codec CI postmortem](postmortems/2026-11-17-leaf-codec-ci.md).
 
 - **Do not depend on escape analysis to remove codec accessor objects.** A heap segment's

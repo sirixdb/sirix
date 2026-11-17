@@ -326,6 +326,10 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
+    testLogging {
+        events 'failed'
+        exceptionFormat = 'full'
+    }
     filter {
         includeTestsMatching 'io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest'
         includeTestsMatching 'io.sirix.budget.InlineSlotCopyAllocationBudgetTest'

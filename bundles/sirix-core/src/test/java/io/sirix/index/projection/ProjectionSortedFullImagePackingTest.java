@@ -198,7 +198,9 @@ final class ProjectionSortedFullImagePackingTest {
       final byte[] body = new byte[storedSize];
       read(channel, ByteBuffer.wrap(body), root.getKey() + Integer.BYTES);
       assertEquals(root.getHashAsLong(), PageHasher.computeLong(body));
-      assertEquals(expectedSize, HOTLeafPayloadCodec.expandImage(body, 1).length);
+      assertEquals(expectedSize, (body[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0
+          ? body.length
+          : HOTLeafPayloadCodec.expandImage(body, 1).length);
     }
   }
 

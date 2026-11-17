@@ -166,3 +166,72 @@ pass locally with the default codec settings, with native decoding disabled, and
 the legacy raw writer selected in a fresh JVM. These controls do not prove the Windows
 failure is external to this PR. No structural algorithm or test assertion is changed
 without a reproducer; the original Windows failure still requires platform validation.
+
+## Follow-up: redundant expansion route and missing macOS diagnostics
+
+- Run `44169043569` again reports the two PIT survivors above. The macOS core lane
+  fails `HOTLeafCodecAllocationTest.encodedPathsAddNoAllocation(false)` at the final
+  relative-allocation assertion. Its log omits the operation and byte counts, and the
+  artifact uploader matches only `reports/tests/test`, so it uploads no allocation report.
+- Invariants and scope: raw image publication owns one payload array, including through
+  both `copyIfFits` and `copyVerifiedFrame`. Encoded publication owns one expanded payload
+  array; only encoded frames enter the expander. Expansion respects its logical input
+  length before sizing output, for both exact arrays and longer reusable scratch.
+  All matrix lanes must retain reports
+  from their actual failing test task, including allocation and startup forks.
+- Root cause of the routing survivor: the AND-to-OR mutant makes raw images take an
+  unnecessary scratch-and-expand copy route. Expansion's raw acceptance makes its result
+  indistinguishable from the direct raw route, including allocation: it copies thread-local
+  scratch into one owned array. The raw expansion branch has no production caller other
+  than this erroneous routing. Remove that acceptance instead of adding work counters or
+  weakening mutation reporting. Raw image factories keep their existing direct copy.
+- Regression: `projectionScratchRejectsEveryShortFrameAndDoesNotAliasRetainedImages`
+  now requires raw frames to bypass the encoded-frame expander, both for exact arrays
+  and bounded scratch. Existing image-factory tests continue to require raw publication,
+  so the erroneous routing becomes observable. Test-only packing/differential oracles
+  normalize their generated wire frames according to the compression flag.
+  `encodedImagesRejectInvalidStoredLengths` exercises negative, zero, truncated and
+  overflowing lengths against exact arrays and reusable scratch, using malformed wire
+  frames as the independent rejection oracle.
+- Remove the duplicate positive/MAX_ENCODED check in `expandImage`; the shared
+  `decodeHeap` boundary already enforces it. JDK range checks bound both the five-byte
+  codec header and the stored payload to the caller's logical frame before allocating
+  the expanded image. The former handwritten header arithmetic also had an equivalent
+  mutant because the later payload check independently refused it. Negative or
+  truncated ranges now throw `IndexOutOfBoundsException`, matching the other argument
+  range checks; zero-length payloads still reach the decoder's explicit refusal.
+- Retrace: valid encoded inputs produce the same output size and tail offset, then
+  decode into their owned array. Negative and oversized ranges fail before allocation;
+  zero stored length fails in `decodeHeap`. Both image factories keep their existing
+  raw and encoded allocation/ownership paths. Ordinary reads, fragments, serializer modes,
+  side references and lazy mutation promotion are unchanged.
+- A further sampled survivor moved the writer's `used < 6` shortcut by one byte;
+  the final savings-margin check still wrote raw bytes. Keep only the empty-payload
+  shortcut required by positive-size native scratch borrows, and let the shared savings
+  check decide every positive payload. Extend the independent framing golden to lengths
+  1, 5 and 6. Both codec sets retain raw bytes for every tested payload of at most 8 bytes.
+- macOS remains unconfirmed locally: HotSpot runs with escape analysis disabled, with
+  native LZ4 loading blocked, and with slower compilation/OSR disabled all pass. These
+  controls do not establish that the macOS failure is external. Keep its assertion and
+  every allocation/work bound intact. The cross-platform uploader now includes all HTML
+  and XML test-task reports, and the allocation task prints full assertion messages.
+  The next actual macOS execution belongs to the outer executor.
+- Reproduction evidence under `build/ci-repair/round4/`: the independent V0 golden-frame
+  probe fails against the original expander and passes against the strict expander.
+  Twelve fresh HotSpot JVMs, each restricted to two processors with LZ4 loading blocked,
+  pass the unchanged allocation method. An escaping 32-byte-array-per-encoded-operation
+  control fails it, including every previously zero-allocation operation at 196,608 bytes
+  per 4,096 calls. No tolerance, retry, work budget or codec-default change is introduced.
+- Final verification: the unchanged 38-class / 7-per-class bounded PIT configuration
+  completes with all 17 changed-line mutants killed, zero survivors and zero uncovered
+  mutants (177 total; unchanged-line debt remains advisory). Both original survivors
+  are eliminated without exclusions or reporter changes. The blocking local command is
+  `python3 .github/scripts/pr_mutation.py run --output build/ci-repair/round4/mutation-complete --seconds 1320 --blocking`;
+  its selection uses the supplied base commit and current working-tree source.
+- The final combined core codec/packing/work-budget invocation passes 362 tests plus
+  seven dedicated allocation tests. The query and MCP work-budget commands from
+  `docs/VERIFICATION.md` pass (327 query cases, five intentionally skipped; five query
+  allocation cases; three MCP cases). Six additional boundary contracts pass with native
+  LZ4 loading blocked. `spotlessJavaCheck`, `actionlint .github/workflows/gradle.yml` and
+  `git diff --check` pass. The macOS assertion is still unresolved, not classified as
+  infrastructure or claimed fixed by these local results.

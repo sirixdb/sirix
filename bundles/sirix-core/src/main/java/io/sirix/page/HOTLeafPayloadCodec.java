@@ -15,7 +15,6 @@ import io.sirix.node.Utils;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
-import java.util.Arrays;
 
 /** The kind-12 slot-payload frame; no codec state survives into a warm leaf. */
 public final class HOTLeafPayloadCodec {
@@ -68,7 +67,7 @@ public final class HOTLeafPayloadCodec {
     PageKind.readVersionAndFlagsAllowing(state.header, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
     final int used = seekSlots(state.header);
     final int slots = (int) state.header.position();
-    if (used < 6) {
+    if (used == 0) {
       sink.write(raw, 0, length);
       return;
     }
@@ -196,7 +195,7 @@ public final class HOTLeafPayloadCodec {
     }
   }
 
-  /** Expand once before immutable projection-image publication; warm accessors retain raw layout. */
+  /** Expand an encoded frame before immutable image publication; raw frames bypass this codec. */
   public static byte[] expandImage(final byte[] bytes, final int start) {
     return expandImage(bytes, start, bytes.length);
   }
@@ -214,19 +213,14 @@ public final class HOTLeafPayloadCodec {
     source.position(start);
     final byte flags = PageKind.readVersionAndFlagsAllowing(source, ALLOWED_FLAGS);
     if ((flags & FLAG_COMPRESSED) == 0) {
-      return length == bytes.length
-          ? bytes
-          : Arrays.copyOf(bytes, length);
+      throw new IllegalArgumentException("HOT image has no encoded payload");
     }
     final int used = seekSlots(source);
     final int slots = (int) source.position();
-    if (slots > length - 5) {
-      throw new IllegalStateException("Truncated HOT encoded image header");
-    }
+    Objects.checkFromIndexSize(slots, 5, length);
     final int stored = source.readInt();
-    if (stored <= 0 || stored > MAX_ENCODED || (long) slots + 5 + stored > length) {
-      throw new IllegalStateException("Invalid HOT encoded image length");
-    }
+    // Bound the frame before sizing its owned image; decodeHeap validates the codec payload once.
+    Objects.checkFromIndexSize(slots + 5, stored, length);
     final int tail = slots + 5 + stored;
     final byte[] raw = new byte[length - stored - 5 + used];
     System.arraycopy(bytes, 0, raw, 0, slots);

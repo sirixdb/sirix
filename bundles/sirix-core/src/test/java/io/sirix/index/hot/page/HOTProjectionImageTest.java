@@ -183,7 +183,10 @@ final class HOTProjectionImageTest {
   void fixedWordDirectoryOwnsAndAccountsEverySignedKeyAndRelocatedValueRange() throws IOException {
     final long[] keys =
         {Long.MIN_VALUE, Long.MIN_VALUE + 1, -129, -128, -1, 0, 1, 127, 128, 65_535, 1L << 46, Long.MAX_VALUE};
-    final byte[] dense = HOTLeafPayloadCodec.expandImage(wordWire(keys), 1);
+    final byte[] wire = wordWire(keys);
+    final byte[] dense = (wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0
+        ? wire
+        : HOTLeafPayloadCodec.expandImage(wire, 1);
     final ByteArrayBytesIn input = new ByteArrayBytesIn(dense);
     input.position(3);
     Utils.getVarLong(input);

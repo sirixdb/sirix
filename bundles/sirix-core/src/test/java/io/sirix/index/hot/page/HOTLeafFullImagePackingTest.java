@@ -51,7 +51,9 @@ final class HOTLeafFullImagePackingTest {
           final byte[] wire = sink.toByteArray();
           // kind/version/flags + varlong page key + revision + index kind + prefix length + counts
           assertEquals(19 + leaf.getCommonPrefixLen() + 4 * offsets.length + liveSize,
-              HOTLeafPayloadCodec.expandImage(wire, 1).length);
+              (wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0
+                  ? wire.length
+                  : HOTLeafPayloadCodec.expandImage(wire, 1).length);
           try (HOTLeafPage decoded = (HOTLeafPage) new PagePersister().deserializePage(config, Bytes.wrapForRead(wire),
               SerializationType.DATA)) {
             assertEquals(liveSize, decoded.getUsedSlotsSize());
