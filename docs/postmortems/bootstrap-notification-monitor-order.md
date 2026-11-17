@@ -8,7 +8,9 @@
 - Regression test: DatabaseNotificationLifecycleTest.resourceLifecycleQuiescesBeforeMetadataMonitors covers JSON/XML, direct/handle wrappers, creation/removal and pre/post/listener scopes. resourceLifecycleRefusalPreservesFilesAndOwnersForRetry covers timeout/interruption before mutation, retained readable owners and successful retry. eagerDerivedRebuildQuiescesOutsideSessionAdmission covers both session-open wrappers and actual hidden-resource rebuild. Bounds are deadlock guards; the success oracle is metadata/navigation, persisted empty resource state and released retained ownership.
 - Lesson: establish notification quiescence before every outer admission monitor on a path that can close a session; include implicit bootstrap/rebuild work behind read-looking session-open wrappers. See [Lessons](../LESSONS.md).
 
-Cold creation/removal acquires retirement before its mutation gate and monitors. Session registration
+Cold creation/removal quiesces before admission monitors. Its initial retirement-before-gate ordering
+was corrected by [the mutation-gate review](mutation-retirement-lock-order.md): the existing mutation
+gate precedes retirement. Session registration
 remains serialized; eager derived initialization runs after those monitors are released and establishes
 its own outer retirement scope. Independent callback metadata reads stay permitted. No row-loop,
 writer mutation or dispatcher delivery semantics change. Prior handle-cycle, bounded-close, ownership,

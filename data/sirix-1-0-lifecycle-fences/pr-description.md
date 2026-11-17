@@ -16,7 +16,7 @@ locks, including public handles, sessions, writer/page/facade operations, manage
 Close and destructive history changes use a configurable notification deadline. Unopened queued
 work may be dropped with a warning; active readers/backend/file ownership remain reachable on
 explicit timeout and can be closed on retry. Resource creation and retained removal establish
-quiescence before mutation gates and admission monitors. Session registration stays serialized;
+mutation-gate ownership, then quiescence before admission monitors. Session registration stays serialized;
 newly opened derived setup/rebuild finishes after those monitors are released. Warm session opens
 skip eager setup. Removal rejects registered owners before waiting and revalidates under the monitor.
 Callbacks retain their permitted independent metadata reads and existing-session opens.
@@ -36,21 +36,28 @@ Callbacks retain their permitted independent metadata reads and existing-session
 | Implicit derived lifecycle and ordinary opens | eagerDerivedRebuildQuiescesOutsideSessionAdmission, warmSessionOpenDoesNotEnterNotificationRetirement, DerivedIndexMaintainerTest; genuine hidden rebuild, usable snapshots and no warm-open callback wait |
 | Registration lifetime | delayedSessionReleaseStaysRegisteredUntilItReleasesItsBackend; early rejection while the backend still belongs to the previous generation, then recreation and writer reuse |
 
-Fresh result: **1,320 selected cases, 0 failures/errors, 5 configured skips**, plus **69 auxiliary
-cases, 0 failures/errors, 2 skips**. All 232 database-notification cases, 69 derived-maintainer cases
-and documented core/query/MCP work budgets passed without wider bounds. The two independently
-compiled starting-HEAD classes failed all 24 metadata matrix cases with retirement timeouts; the
-same 24 pass with the fix. Expected baseline failures are recorded separately from passing checks.
+Fresh result: **1,415 selected cases, 0 failures/errors, 5 configured skips**, plus **69 auxiliary
+cases, 0 failures/errors, 2 skips**. All 278 database-notification cases, 69 derived-maintainer cases,
+49 query gate/store cases and documented core/query/MCP budgets passed without wider bounds.
+Independently compiled starting-HEAD classes failed all 22 held-outer-gate cases with retirement
+timeouts; the same 22 pass on the fix. Earlier bootstrap evidence separately reproduces the original
+metadata cycle in 24 cases. Expected baseline failures are separate from passing checks.
 
 The five hot class files remain byte-identical to the snapshot used for the earlier six compiled
-caller comparisons against `fc8b9071`; only cold handle/database resource boundaries changed this
-round. That baseline is not original main, and bytecode identity is not runtime equivalence. The
-operator's separate fifteen-region proof against actual base `ba000071` at `ffba256a` remains external
-evidence, not a fresh benchmark claim. No benchmark was run. Exact suites, skips, hashes, diagnostic
-attempts and limits are in [current verification](bootstrap-monitor-order-verification.json).
+caller comparisons against `fc8b9071`. That baseline is not original main, and bytecode identity is
+not runtime equivalence. The operator's separate fifteen-region proof against actual base `ba000071`
+at `ffba256a` remains external evidence, not a fresh benchmark claim. No benchmark was run. Exact
+suites, skips, hashes and limits are in [current verification](mutation-retirement-order-verification.json).
 
-Root cause and learning: [monitor-order postmortem](../../docs/postmortems/bootstrap-notification-monitor-order.md),
+Root cause and learning: [mutation-gate postmortem](../../docs/postmortems/mutation-retirement-lock-order.md),
+[monitor-order postmortem](../../docs/postmortems/bootstrap-notification-monitor-order.md),
 [dispatcher postmortem](../../docs/postmortems/database-notification-dispatch.md) and
 [Lessons](../../docs/LESSONS.md). Older artifacts are historical snapshots. Scoped PIT, full lint,
 broader test/CI and delivery phases remain with the outer executor; no historical mutation count is
 claimed as current evidence.
+
+Mutation-gate ordering also covers existing JSON/XML collection/store callers: gates precede
+notification retirement, and callback mutation rejects at the shared gate entry before any wait.
+Held-outer-gate regressions cover creation, removal and guarded cleanup; the metadata-read matrix
+remains mandatory. See [lock-order postmortem](../../docs/postmortems/mutation-retirement-lock-order.md).
+The 1,320-case bootstrap snapshot remains historical evidence for its recorded source hashes.

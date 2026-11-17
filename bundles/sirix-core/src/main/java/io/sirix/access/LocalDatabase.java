@@ -540,8 +540,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     assertNotClosed();
     assertNoOpenResourceSessions(
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName));
-    try (var retirement = notifications.retire();
-        var gate = MutationGate.acquireResource(dbConfig.getDatabaseFile(), canonicalName)) {
+    try (var gate = MutationGate.acquireResource(dbConfig.getDatabaseFile(), canonicalName);
+        var retirement = notifications.retire()) {
       return removeResourceInternal(canonicalName);
     }
   }
