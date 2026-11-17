@@ -21,8 +21,8 @@ final class WorkerTerminationTest {
       throws InterruptedException {
     final ExecutorService executor = mock(ExecutorService.class);
     when(executor.isTerminated()).thenReturn(true);
-    when(executor.awaitTermination(anyLong(), any(TimeUnit.class)))
-        .thenAnswer(invocation -> fail("A terminated executor has no workers left to await"));
+    when(executor.awaitTermination(anyLong(), any(TimeUnit.class))).thenAnswer(
+        invocation -> fail("A terminated executor has no workers left to await"));
     if (interrupted) {
       Thread.currentThread().interrupt();
     }
