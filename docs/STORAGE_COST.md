@@ -18,7 +18,8 @@ change. A realistic post-fix figure is **~400–600 B/commit** (default features
 ~100–200 B.
 
 Workload: `{"counter":N,"label":…,"tags":[a,b,c]}` (10 JSON nodes), one `setNumberValue` +
-`commit()` per revision. Defaults: `SLIDING_SNAPSHOT` (window K=3), `ROLLING` hashes,
+`commit()` per revision. Baseline defaults (node hashes are opt-in since 1.0):
+`SLIDING_SNAPSHOT` (window K=3), `ROLLING` hashes,
 path summary, child counts, node history (`RECORD_TO_REVISIONS`), `storeDiffs`,
 `sirix.compression=none` (inner page codecs active), `FILE_CHANNEL` storage.
 

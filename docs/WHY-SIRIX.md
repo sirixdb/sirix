@@ -44,10 +44,10 @@ one-liner.
 ### 2. Diffs are semantic
 
 Because revisions share structure physically, SirixDB computes diffs by tree
-comparison with rolling hashes, not by serializing two snapshots and running a
-text diff. Diffing two revisions of a document returns exact node-level
-operations (insert/update/delete with stable node keys), skipping unchanged
-subtrees when their hashes match. The same machinery powers the web UI's
+comparison. Diffing two revisions of a document returns exact node-level
+operations (insert/update/delete with stable node keys). Optional node hashes
+allow unchanged subtrees to be skipped; see the
+[hash configuration and trade-offs](ERASURE_PREPARATION.md). The same machinery powers the web UI's
 revision scrubber and structured diff view.
 
 ### 3. Storage grows with *change*, not with *data size*

@@ -32,8 +32,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests for concurrent access patterns on JSON resources.
  *
- * <p>Sirix allows only ONE write transaction per resource at a time.
- * Multiple read-only transactions are allowed concurrently.</p>
+ * <p>
+ * Sirix allows only ONE write transaction per resource at a time. Multiple read-only transactions
+ * are allowed concurrently.
+ * </p>
  */
 public final class JsonConcurrentAccessTest {
 
@@ -54,8 +56,8 @@ public final class JsonConcurrentAccessTest {
    */
   @Test
   void testMultipleReadOnlyTrxSameRevision() {
-    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+    try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Insert initial data
       try (final var wtx = session.beginNodeTrx()) {
@@ -65,8 +67,8 @@ public final class JsonConcurrentAccessTest {
 
       // Open 3 read-only transactions on the same revision
       try (final var rtx1 = session.beginNodeReadOnlyTrx();
-           final var rtx2 = session.beginNodeReadOnlyTrx();
-           final var rtx3 = session.beginNodeReadOnlyTrx()) {
+          final var rtx2 = session.beginNodeReadOnlyTrx();
+          final var rtx3 = session.beginNodeReadOnlyTrx()) {
 
         assertEquals(rtx1.getRevisionNumber(), rtx2.getRevisionNumber());
         assertEquals(rtx2.getRevisionNumber(), rtx3.getRevisionNumber());
@@ -80,9 +82,13 @@ public final class JsonConcurrentAccessTest {
         assertTrue(rtx2.hasFirstChild());
         assertTrue(rtx3.hasFirstChild());
 
+        // Descendant counts are stored only when the resource maintains node hashes (off by
+        // default since 1.0), hence getDatabaseWithHashesEnabled above; without it all three
+        // readers would report 0 and the comparison below would hold vacuously.
         final long descendants1 = rtx1.getDescendantCount();
         final long descendants2 = rtx2.getDescendantCount();
         final long descendants3 = rtx3.getDescendantCount();
+        assertTrue(descendants1 > 0, "the witness must exist, else the comparison is vacuous");
 
         assertEquals(descendants1, descendants2);
         assertEquals(descendants2, descendants3);
@@ -99,13 +105,13 @@ public final class JsonConcurrentAccessTest {
   }
 
   /**
-   * Open a read-only transaction, then a write transaction modifies the data.
-   * The read-only transaction should still see the old data (snapshot isolation).
+   * Open a read-only transaction, then a write transaction modifies the data. The read-only
+   * transaction should still see the old data (snapshot isolation).
    */
   @Test
   void testReadOnlyDuringWrite() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Insert initial data
       try (final var wtx = session.beginNodeTrx()) {
@@ -138,13 +144,13 @@ public final class JsonConcurrentAccessTest {
   }
 
   /**
-   * A write transaction commits new data; a new read-only transaction opened after
-   * the commit should see the new data.
+   * A write transaction commits new data; a new read-only transaction opened after the commit should
+   * see the new data.
    */
   @Test
   void testReadAfterCommit() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Insert initial data and commit
       try (final var wtx = session.beginNodeTrx()) {
@@ -176,13 +182,13 @@ public final class JsonConcurrentAccessTest {
   }
 
   /**
-   * A write transaction inserts data but does NOT commit. A read-only transaction
-   * opened concurrently should NOT see the uncommitted changes.
+   * A write transaction inserts data but does NOT commit. A read-only transaction opened concurrently
+   * should NOT see the uncommitted changes.
    */
   @Test
   void testReadBeforeCommit() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Insert initial data and commit
       try (final var wtx = session.beginNodeTrx()) {
@@ -216,7 +222,7 @@ public final class JsonConcurrentAccessTest {
   @Test
   void testConcurrentReadersDifferentRevisions() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Revision 1: [1,2,3]
       try (final var wtx = session.beginNodeTrx()) {
@@ -239,7 +245,7 @@ public final class JsonConcurrentAccessTest {
 
       // Open readers on both revisions simultaneously
       try (final var rtxRev1 = session.beginNodeReadOnlyTrx(rev1);
-           final var rtxRev2 = session.beginNodeReadOnlyTrx(rev2)) {
+          final var rtxRev2 = session.beginNodeReadOnlyTrx(rev2)) {
 
         assertEquals(rev1, rtxRev1.getRevisionNumber());
         assertEquals(rev2, rtxRev2.getRevisionNumber());
@@ -261,7 +267,7 @@ public final class JsonConcurrentAccessTest {
   @Test
   void testConcurrentReaderThreadsVerifySameData() throws InterruptedException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Insert data
       try (final var wtx = session.beginNodeTrx()) {
@@ -316,7 +322,7 @@ public final class JsonConcurrentAccessTest {
   @Test
   void testWriterCloseAllowsNewWriter() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // First write transaction
       try (final var wtx = session.beginNodeTrx()) {
@@ -335,13 +341,13 @@ public final class JsonConcurrentAccessTest {
   }
 
   /**
-   * A read-only transaction opened before a commit still sees the pre-commit state,
-   * even after the commit completes.
+   * A read-only transaction opened before a commit still sees the pre-commit state, even after the
+   * commit completes.
    */
   @Test
   void testSnapshotIsolation() {
-    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+    try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Insert initial data
       try (final var wtx = session.beginNodeTrx()) {
@@ -356,13 +362,13 @@ public final class JsonConcurrentAccessTest {
         rtx.moveToDocumentRoot();
         assertTrue(rtx.moveToFirstChild()); // object node
         final long descendantsBefore = rtx.getDescendantCount();
+        assertTrue(descendantsBefore > 0, "the witness must exist, else the comparison is vacuous");
 
         // Now create revision 2
         try (final var wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild(); // object
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("{\"version\":2,\"extra\":\"data\"}"));
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"version\":2,\"extra\":\"data\"}"));
           wtx.commit();
         }
 
@@ -376,13 +382,12 @@ public final class JsonConcurrentAccessTest {
   }
 
   /**
-   * Write, commit, close, then write again, commit, close.
-   * Verify both sets of changes are visible.
+   * Write, commit, close, then write again, commit, close. Verify both sets of changes are visible.
    */
   @Test
   void testSequentialWriteTransactions() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // First write: insert an array with [1]
       try (final var wtx = session.beginNodeTrx()) {
@@ -431,8 +436,8 @@ public final class JsonConcurrentAccessTest {
    */
   @Test
   void testReaderAndWriterOnSameSession() {
-    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+    try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Insert initial data
       try (final var wtx = session.beginNodeTrx()) {
@@ -441,12 +446,12 @@ public final class JsonConcurrentAccessTest {
       }
 
       // Open read-only trx and write trx simultaneously
-      try (final var rtx = session.beginNodeReadOnlyTrx();
-           final var wtx = session.beginNodeTrx()) {
+      try (final var rtx = session.beginNodeReadOnlyTrx(); final var wtx = session.beginNodeTrx()) {
 
         // Reader sees current state
         rtx.moveToDocumentRoot();
         assertTrue(rtx.moveToFirstChild()); // object
+        // Needs stored descendant counts, i.e. node hashes: see getDatabaseWithHashesEnabled above.
         final long readerDescendants = rtx.getDescendantCount();
         assertTrue(readerDescendants > 0);
 
@@ -470,7 +475,7 @@ public final class JsonConcurrentAccessTest {
   @Test
   void testMultipleReadersCountDescendants() throws InterruptedException, ExecutionException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Insert data with several levels of nesting
       final String json = "{\"a\":{\"b\":{\"c\":1}},\"d\":[1,2,3],\"e\":\"hello\"}";
@@ -532,12 +537,11 @@ public final class JsonConcurrentAccessTest {
   @Test
   void testWriterModifiesReaderUnaffected() {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE)) {
+        final var session = database.beginResourceSession(RESOURCE)) {
 
       // Insert initial data: {"name":"original","items":[1,2]}
       try (final var wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(
-            JsonShredder.createStringReader("{\"name\":\"original\",\"items\":[1,2]}"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"name\":\"original\",\"items\":[1,2]}"));
         wtx.commit();
       }
 
@@ -572,8 +576,7 @@ public final class JsonConcurrentAccessTest {
         try (final var wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild(); // object
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("{\"extra\":\"added\"}"));
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"extra\":\"added\"}"));
           wtx.commit();
         }
 

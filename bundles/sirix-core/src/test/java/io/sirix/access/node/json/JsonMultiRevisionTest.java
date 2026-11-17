@@ -44,8 +44,7 @@ public final class JsonMultiRevisionTest {
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       // Revision 1: insert initial object
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"key\":\"value1\"}"),
-            JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"key\":\"value1\"}"), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
 
@@ -64,8 +63,7 @@ public final class JsonMultiRevisionTest {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild(); // object
         wtx.moveToFirstChild(); // object key "key"
-        wtx.insertObjectRecordAsRightSibling("extra",
-            new StringValue("data"));
+        wtx.insertObjectRecordAsRightSibling("extra", new StringValue("data"));
         wtx.commit();
       }
 
@@ -118,14 +116,13 @@ public final class JsonMultiRevisionTest {
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       // Revision 1
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"alpha\"]"),
-            JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"alpha\"]"), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
 
       // Open read-only trx on revision 1
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
         // Modify via write trx (creates revision 2)
         wtx.moveToDocumentRoot();
@@ -179,8 +176,7 @@ public final class JsonMultiRevisionTest {
       for (int i = 1; i <= 3; i++) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           if (i == 1) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
-                JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"), JsonNodeTrx.Commit.NO);
           } else {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild(); // array
@@ -203,8 +199,7 @@ public final class JsonMultiRevisionTest {
     final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonInput),
-            JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonInput), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
     }
@@ -226,8 +221,7 @@ public final class JsonMultiRevisionTest {
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       // Revision 1
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1]"),
-            JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1]"), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
 
@@ -242,7 +236,7 @@ public final class JsonMultiRevisionTest {
 
       // Open two read-only transactions simultaneously on different revisions
       try (final JsonNodeReadOnlyTrx rtx1 = session.beginNodeReadOnlyTrx(1);
-           final JsonNodeReadOnlyTrx rtx2 = session.beginNodeReadOnlyTrx(2)) {
+          final JsonNodeReadOnlyTrx rtx2 = session.beginNodeReadOnlyTrx(2)) {
 
         rtx1.moveToDocumentRoot();
         rtx1.moveToFirstChild();
@@ -266,8 +260,7 @@ public final class JsonMultiRevisionTest {
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       // Revision 1: initial array with one element
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"item0\"]"),
-            JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"item0\"]"), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
 
@@ -276,7 +269,7 @@ public final class JsonMultiRevisionTest {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
           wtx.moveToFirstChild(); // array
-          wtx.moveToLastChild();  // last element
+          wtx.moveToLastChild(); // last element
           wtx.insertStringValueAsRightSibling("item" + i);
           wtx.commit();
         }
@@ -301,12 +294,13 @@ public final class JsonMultiRevisionTest {
 
   @Test
   void testRevisionSpecificNodeCounts() throws Exception {
-    final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    // Compares stored descendant counts across revisions, which exist only when the resource
+    // maintains node hashes — off by default since 1.0, so this fixture opts in.
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       // Revision 1: simple object
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\":1}"),
-            JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\":1}"), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
 
@@ -315,8 +309,7 @@ public final class JsonMultiRevisionTest {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild(); // object
         wtx.moveToFirstChild(); // object key "a"
-        wtx.insertObjectRecordAsRightSibling("b",
-            new StringValue("two"));
+        wtx.insertObjectRecordAsRightSibling("b", new StringValue("two"));
         wtx.commit();
       }
 
@@ -333,8 +326,7 @@ public final class JsonMultiRevisionTest {
         descCount2 = rtx.getDescendantCount();
       }
 
-      assertTrue(descCount2 > descCount1,
-          "Revision 2 should have more descendants than revision 1");
+      assertTrue(descCount2 > descCount1, "Revision 2 should have more descendants than revision 1");
     }
   }
 
@@ -362,7 +354,7 @@ public final class JsonMultiRevisionTest {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild(); // array
-        wtx.moveToLastChild();  // "third"
+        wtx.moveToLastChild(); // "third"
         wtx.remove();
         wtx.commit();
       }
@@ -386,8 +378,7 @@ public final class JsonMultiRevisionTest {
       for (int i = 1; i <= 5; i++) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           if (i == 1) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
-                JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"), JsonNodeTrx.Commit.NO);
           } else {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
@@ -416,8 +407,7 @@ public final class JsonMultiRevisionTest {
       for (int i = 1; i <= 5; i++) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           if (i == 1) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
-                JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"), JsonNodeTrx.Commit.NO);
           } else {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
@@ -435,8 +425,7 @@ public final class JsonMultiRevisionTest {
       // Verify the returned revisions cover 2, 3, 4
       for (final RevisionInfo info : subset) {
         final int rev = info.getRevision();
-        assertTrue(rev >= 2 && rev <= 4,
-            "Revision should be between 2 and 4, got: " + rev);
+        assertTrue(rev >= 2 && rev <= 4, "Revision should be between 2 and 4, got: " + rev);
       }
     }
   }
@@ -448,8 +437,7 @@ public final class JsonMultiRevisionTest {
       for (int i = 1; i <= 5; i++) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           if (i == 1) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
-                JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"), JsonNodeTrx.Commit.NO);
           } else {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
@@ -494,8 +482,7 @@ public final class JsonMultiRevisionTest {
       for (int i = 1; i <= 5; i++) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           if (i == 1) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
-                JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"), JsonNodeTrx.Commit.NO);
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild(); // array
             wtx.moveToFirstChild(); // number value
@@ -538,18 +525,17 @@ public final class JsonMultiRevisionTest {
   void testScanValueRunsCarriesValuesForwardAcrossRevisions() throws Exception {
     final Database<JsonResourceSession> database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-      long stableKey = -1L;  // first element: set once, never changed again
+      long stableKey = -1L; // first element: set once, never changed again
       long changingKey = -1L; // second element: changed every revision
       for (int i = 1; i <= 5; i++) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           if (i == 1) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[10, 1]"),
-                JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[10, 1]"), JsonNodeTrx.Commit.NO);
             wtx.moveToDocumentRoot();
-            wtx.moveToFirstChild();   // array
-            wtx.moveToFirstChild();   // first element (10)
+            wtx.moveToFirstChild(); // array
+            wtx.moveToFirstChild(); // first element (10)
             stableKey = wtx.getNodeKey();
-            wtx.moveToRightSibling();  // second element (1)
+            wtx.moveToRightSibling(); // second element (1)
             changingKey = wtx.getNodeKey();
           } else {
             assertTrue(wtx.moveTo(changingKey));
@@ -595,16 +581,14 @@ public final class JsonMultiRevisionTest {
   void testScanRecordHistoryFallsBackWithoutNodeHistoryIndex() throws Exception {
     // storeNodeHistory(false) ⇒ no RECORD_TO_REVISIONS index ⇒ getRecordChangeRevisions is empty
     // and scanRecordHistory must fall back to scanning every revision.
-    final Database<JsonResourceSession> database = JsonTestHelper.getDatabaseWithResourceConfig(
-        PATHS.PATH1.getFile(),
+    final Database<JsonResourceSession> database = JsonTestHelper.getDatabaseWithResourceConfig(PATHS.PATH1.getFile(),
         io.sirix.access.ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).storeNodeHistory(false).build());
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       long valueNodeKey = -1L;
       for (int i = 1; i <= 4; i++) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           if (i == 1) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
-                JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"), JsonNodeTrx.Commit.NO);
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
             wtx.moveToFirstChild();
@@ -641,8 +625,7 @@ public final class JsonMultiRevisionTest {
       for (int i = 1; i <= 3; i++) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
           if (i == 1) {
-            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"),
-                JsonNodeTrx.Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[" + i + "]"), JsonNodeTrx.Commit.NO);
           } else {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
@@ -732,8 +715,7 @@ public final class JsonMultiRevisionTest {
     try (final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
       // Revision 1
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"count\":1}"),
-            JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"count\":1}"), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
 

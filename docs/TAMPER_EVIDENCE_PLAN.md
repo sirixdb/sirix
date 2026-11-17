@@ -23,7 +23,8 @@ and they are the hard ones to retrofit:
 - a per-commit record in the revisions file (32 bytes: offset, timestamp,
   record checksum over the leading 16/24 bytes, and the `RevisionRootPage`'s
   own 64-bit page hash);
-- optional per-node subtree hashes (`HashType.ROLLING`/`POSTORDER`).
+- optional per-node subtree hashes (`HashType.ROLLING`/`POSTORDER`), off by default since 1.0 and
+  opted into per resource ([erasure preparation](ERASURE_PREPARATION.md)).
 
 What it does **not** have is adversarial integrity:
 

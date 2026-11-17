@@ -37,6 +37,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.compiler.optimizer.stats.DocumentNodeCount;
 import io.sirix.query.stream.json.SirixJsonStream;
 
 import java.util.ArrayDeque;
@@ -110,6 +111,8 @@ class DerefDescendantExpr implements Expr {
   private static final boolean USE_PATH_SUMMARY_DESCENDANT_DEREF = true;
 
   @Nullable
+  // S3776: preserve the per-context-node axis construction; only its size signal changes here.
+  @SuppressWarnings("java:S3776")
   private SirixJsonLazySequence getLazySequence(String recordFieldAsString, JsonDBItem jsonDBItem,
       JsonNodeReadOnlyTrx rtx) {
     final var resourceSession = rtx.getResourceSession();
@@ -261,7 +264,7 @@ class DerefDescendantExpr implements Expr {
               axisQueue.push(axis);
             }
 
-            final var doParallelExecution = axisQueue.size() > 3 || rtx.getDescendantCount() > 50_000;
+            final var doParallelExecution = axisQueue.size() > 3 || DocumentNodeCount.estimate(rtx) > 50_000;
 
             Axis axis = axisQueue.pop();
             for (int k = 0, size = axisQueue.size(); k < size; k++) {

@@ -41,8 +41,8 @@
   and still bound at the commit, so the defect stayed hidden. A hashless record is smaller, yet it
   spilled where a larger one stayed inline: that reversal pointed at a defect rather than a threshold.
 - Why tests missed it: the identity suite is the only plain-versus-rotating FSST comparison, and it
-  inherits the JVM's hash default (`ROLLING`), under which the geometry never re-read the page. No
-  test compared what a page looked like after an owned replay with what the first copy-on-write had
+  inherited the JVM's then-default hash kind (`ROLLING`), under which the geometry never re-read the
+  page. No test compared what a page looked like after an owned replay with what the first copy-on-write had
   produced, even though the replay's own documentation promised they matched. No test compared the
   inline-or-carrier decisions of the async-flush import mode with a plain transaction.
 - Regression test: `StorageEpochFsstInlineDecisionTest`, run with `./gradlew

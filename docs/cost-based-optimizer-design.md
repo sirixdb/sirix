@@ -627,7 +627,7 @@ When the optimizer encounters a field with no histogram in the catalog, it recor
 
 The collection itself is done by `HistogramCollector` (`HistogramCollector.java`, 300 lines), which:
 1. Opens a read-only transaction
-2. Walks the document using stride-based sampling (to avoid reading every single value)
+2. Walks the document according to the sampling policy in [HistogramCollector](../bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/stats/HistogramCollector.java)
 3. Builds a histogram from the sampled values
 4. Registers it in the `StatisticsCatalog`
 

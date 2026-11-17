@@ -220,7 +220,10 @@ return {
 }
 ```
 
-The node key is stable across all revisions. The built-in Merkle hash tree instantly detects if the subtree changed.
+The node key is stable across all revisions. The `sdb:hash` comparison in this example
+requires node hashing to be enabled; see the [configuration and trade-offs](ERASURE_PREPARATION.md).
+For hashless resources, use `jn:diff`; stored change tracking and fallback behavior follow the
+[JSON revision-diff sidecar contract](DISK_FORMAT.md#json-revision-diff-sidecars).
 
 ---
 
@@ -2326,7 +2329,7 @@ Since SirixDB is append-only with CoW:
 ResourceConfiguration.newBuilder("myresource")
     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
     .revisionsToRestore(8)
-    .hashKind(HashType.ROLLING)
+    .hashKind(HashType.ROLLING)   // opt-in; the default is HashType.NONE
     .useTextCompression(true)
     .buildPathSummary(true)
     .build();
@@ -2341,7 +2344,7 @@ per-resource backend selector.
 |--------|--------|---------|-------------|
 | `versioningApproach` | FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT | SLIDING_SNAPSHOT | Page versioning strategy |
 | `revisionsToRestore` | 1-N | 3 | Max page fragments to combine for reconstruction |
-| `hashKind` | NONE, ROLLING, POSTORDER | ROLLING | Hash computation method |
+| `hashKind` | NONE, ROLLING, POSTORDER | **NONE** | Per-node subtree hashing; see [configuration and trade-offs](ERASURE_PREPARATION.md). |
 | `buildPathSummary` | true/false | true | Enable path summary |
 
 ---

@@ -1,6 +1,7 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.json.ObjectNode;
@@ -51,7 +52,8 @@ class ResizeFieldCorrectnessTest {
   @SuppressWarnings("MustBeClosedChecker") // fixture-scoped arena, closed in teardown
   void setUp() {
     arena = Arena.ofConfined();
-    page = new KeyValueLeafPage(0L, IndexType.DOCUMENT, new ResourceConfiguration.Builder("testResource").build(), 1,
+    page = new KeyValueLeafPage(0L, IndexType.DOCUMENT,
+        new ResourceConfiguration.Builder("testResource").hashKind(HashType.ROLLING).build(), 1,
         arena.allocate(SIXTYFOUR_KB), null);
 
     objectNode = new ObjectNode(NODE_KEY, PARENT_KEY, PREV_REVISION, LAST_MOD_REVISION, RIGHT_SIB_KEY, LEFT_SIB_KEY,

@@ -121,6 +121,17 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
+- **Node hashes are off by default.** Newly created Java, query-store and CLI resources now
+  match REST's `NONE` default. Existing resources retain their persisted hash kind and need no
+  migration. Callers relying on subtree hashes, stored descendant counts, hash-optimized diffs or
+  REST `ETag`/`If-Match` must explicitly enable hashing; see
+  [configuration, capabilities and erasure consequences](docs/ERASURE_PREPARATION.md).
+
+- **The hash-based diff shortcut is the resource's decision.** `DiffFactory.Builder.hashKind`
+  defaults to the diffed resource's own hash kind, and the diff forces the full comparison when the
+  resource stores no hashes, whatever the caller passed. Forcing `hashKind(NONE)` on a hashed
+  resource still suppresses the shortcut.
+
 - **The pool allocators are removed.** `FrameSlotAllocator` is the only off-heap allocator on every
   platform, so page frames, derived caches, scratch buffers and group-by working memory are charged to
   one budget. `-Dsirix.allocator` may be left unset or set to `frame`; `pool`, `windowspool` and any

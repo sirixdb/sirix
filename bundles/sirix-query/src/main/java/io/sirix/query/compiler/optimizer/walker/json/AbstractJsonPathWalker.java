@@ -16,6 +16,7 @@ import io.brackit.query.util.path.Path;
 
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.query.compiler.optimizer.stats.DocumentNodeCount;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
@@ -84,6 +85,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     }
   }
 
+  // S3776: keep existing revision/path safety checks together in this count-source-only change.
+  @SuppressWarnings("java:S3776")
   private AST replaceAstIfIndexApplicableImpl(AST astNode, AST predicateNode, Type type) {
     final var firstChildNode = astNode.getChild(0);
 
@@ -134,7 +137,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
         final var pathSummary = revisionData.revision() == -1
             ? resourceSession.openPathSummary()
             : resourceSession.openPathSummary(revisionData.revision())) {
-      if (rtx.getDescendantCount() < MIN_NODE_NUMBER) {
+      if (DocumentNodeCount.estimate(rtx) < MIN_NODE_NUMBER) {
         return astNode;
       }
 

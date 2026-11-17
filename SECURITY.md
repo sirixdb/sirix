@@ -39,7 +39,7 @@ is released, this table will track the supported stable line.
 SirixDB's append-only architecture provides inherent data integrity guarantees:
 
 - **Immutable revisions**: Once committed, revision data is never overwritten
-- **Merkle hash trees**: Optional per-node hashing for tamper detection
+- **Storage integrity limits**: See the [on-disk integrity contract](docs/DISK_FORMAT.md#3-integrity); optional node hashes do not provide cryptographic tamper evidence
 - **Keycloak integration**: The REST API supports OAuth2/OpenID Connect authentication via Keycloak
 
 When deploying SirixDB in production:

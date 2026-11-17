@@ -157,8 +157,7 @@ public final class DiffFactory {
    * @return new {@link Builder} instance
    */
   public static Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder(final XmlResourceSession resourceSession,
-      final int newRev, final int oldRev, final DiffOptimized diffKind,
-      final Set<DiffObserver> observers) {
+      final int newRev, final int oldRev, final DiffOptimized diffKind, final Set<DiffObserver> observers) {
     return new Builder<>(resourceSession, newRev, oldRev, diffKind, observers);
   }
 
@@ -169,10 +168,10 @@ public final class DiffFactory {
     final ResourceSession<R, W> session;
 
     /** Start key of new revision. */
-    transient long newStartKey;
+    long newStartKey;
 
     /** Start key of old revision. */
-    transient long oldStartKey;
+    long oldStartKey;
 
     /** New revision. */
     final int newRev;
@@ -181,10 +180,10 @@ public final class DiffFactory {
     final int oldRev;
 
     /** Depth of "root" node in new revision. */
-    transient int newDepth;
+    int newDepth;
 
     /** Depth of "root" node in old revision. */
-    transient int oldDepth;
+    int oldDepth;
 
     /** Diff kind. */
     final DiffOptimized kind;
@@ -193,19 +192,21 @@ public final class DiffFactory {
     final Set<DiffObserver> observers;
 
     /** Kind of diff to invoke. */
-    transient DiffAlgorithm mDiffKind;
+    DiffAlgorithm mDiffKind;
 
-    /** Kind of hash. */
-    transient HashType hashKind = HashType.ROLLING;
+    /**
+     * Requested hash kind; see {@link #hashKind(HashType)} for the resource-level safety gate.
+     */
+    HashType hashKind;
 
     /** Set if the GUI is used. */
-    transient boolean isGUI = true;
+    boolean isGUI = true;
 
     /** Determines if subtrees are skipped after detecting an insert/delete... */
-    transient boolean skipSubtrees = false;
+    boolean skipSubtrees = false;
 
     /** The maximum depth. */
-    transient long oldMaxDepth;
+    long oldMaxDepth;
 
     /**
      * Constructor.
@@ -216,8 +217,8 @@ public final class DiffFactory {
      * @param diffKind kind of diff (optimized or not)
      * @param observers {@link Set} of observers
      */
-    public Builder(final ResourceSession<R, W> resMgr, final int newRev, final int oldRev,
-        final DiffOptimized diffKind, final Set<DiffObserver> observers) {
+    public Builder(final ResourceSession<R, W> resMgr, final int newRev, final int oldRev, final DiffOptimized diffKind,
+        final Set<DiffObserver> observers) {
       this.session = requireNonNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
       this.newRev = newRev;
@@ -225,6 +226,7 @@ public final class DiffFactory {
       this.oldRev = oldRev;
       kind = requireNonNull(diffKind);
       this.observers = requireNonNull(observers);
+      hashKind = resMgr.getResourceConfig().hashType;
     }
 
     /**
@@ -311,7 +313,9 @@ public final class DiffFactory {
     }
 
     /**
-     * Set kind of hash. <strong>Must be the same as used for the database creation</strong>.
+     * Set the requested hash kind. Defaults to the diffed resource's hash kind. Setting
+     * {@link HashType#NONE} forces a full comparison even on a hashed resource; requesting hashes
+     * cannot enable the hash shortcut on a resource configured without them.
      *
      * @param kind {@link HashType} instance
      * @return this builder

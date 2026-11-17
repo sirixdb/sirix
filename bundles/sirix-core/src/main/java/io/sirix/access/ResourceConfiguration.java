@@ -185,17 +185,39 @@ public final class ResourceConfiguration {
    */
   private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
 
+  /** Name of the system property that overrides {@link #DEFAULT_HASH_TYPE} for a whole JVM. */
+  public static final String HASH_TYPE_PROPERTY = "sirix.hashType";
+
   /**
-   * Type of hashing. Default is {@link HashType#ROLLING} (incremental Merkle-tree hash maintained on
-   * structural mutations). Override at JVM level via {@code -Dsirix.hashType=NONE} when you want to
-   * elide per-record hash bytes entirely (bench workloads); legacy tests rely on the ROLLING default.
+   * Default node-hash kind for a newly created resource: {@link HashType#NONE}. Hashing is an
+   * explicit choice — call {@link Builder#hashKind(HashType)} to maintain an incremental Merkle-tree
+   * hash ({@link HashType#ROLLING}) or a postorder hash. Override the default for a whole JVM with
+   * {@code -Dsirix.hashType=ROLLING}.
    *
    * <p>
-   * The per-record hash field is stored as a signed-varint (1 byte for hash=0, up to 10 for a real
-   * 64-bit ROLLING hash) — when the resource is configured {@code HashType.NONE} the bench writer
-   * pays only 1 byte per record for the field, vs. 8 bytes under the previous fixed-width layout.
+   * An <em>existing</em> resource is unaffected: its hash kind is persisted in the resource settings
+   * and read back by {@link #deserialize(Path)}, so a store created with hashes keeps them.
+   *
+   * <p>
+   * Hashing is a change-detection aid, not cryptographic tamper evidence. Enabling it retains
+   * value-derived ancestor hashes even after a value is deleted. See
+   * <a href="https://github.com/sirixdb/sirix/blob/main/docs/ERASURE_PREPARATION.md">erasure
+   * preparation</a> for capabilities, storage costs and privacy consequences.
    */
-  private static final HashType HASH_TYPE = HashType.fromString(System.getProperty("sirix.hashType", "ROLLING"));
+  public static final HashType DEFAULT_HASH_TYPE = defaultHashType(System.getProperty(HASH_TYPE_PROPERTY));
+
+  /**
+   * Resolve {@link #DEFAULT_HASH_TYPE} from the {@value #HASH_TYPE_PROPERTY} system property.
+   *
+   * @param property the property's value, or {@code null} when it is unset
+   * @return {@link HashType#NONE} when the property is unset, else the named hash type
+   * @throws IllegalArgumentException if the property names no hash type
+   */
+  static HashType defaultHashType(final String property) {
+    return property == null
+        ? HashType.NONE
+        : HashType.fromString(property);
+  }
 
   /**
    * Versions to restore.
@@ -961,9 +983,9 @@ public final class ResourceConfiguration {
     private VersioningType revisionKind = VERSIONING;
 
     /**
-     * Kind of integrity hash (rolling, postorder).
+     * Kind of node hashing; defaults to {@link #DEFAULT_HASH_TYPE}.
      */
-    private HashType hashType = HASH_TYPE;
+    private HashType hashType = DEFAULT_HASH_TYPE;
 
     /**
      * Number of revisions to restore a complete set of data.
@@ -1155,7 +1177,11 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Set the hash kind to use for the nodes.
+     * Set the hash kind to use for the nodes. The default is {@link #DEFAULT_HASH_TYPE}
+     * ({@link HashType#NONE}): node hashing is opt-in.
+     *
+     * <p>
+     * See {@link #DEFAULT_HASH_TYPE} for configuration and privacy consequences.
      *
      * @param hashKind hash kind to use
      * @return reference to the builder object

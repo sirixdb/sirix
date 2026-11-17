@@ -152,7 +152,8 @@ the TOAST threshold, and which side a workload lands on decides who wins on stor
 below ~2 KB are the common case for document data, and there PostgreSQL does not compress at all
 while SirixDB's per-page LZ77 does.
 
-SirixDB's own defaults (path summary, rolling hashes, stored diffs, node history) cost only
+SirixDB's defaults at measurement time (path summary, rolling hashes, stored diffs, node history;
+node hashes are opt-in since 1.0) cost only
 **~34 MB / 2.6 %** — 1,344 MB against 1,310 MB, both partitioned×4, so the comparison holds one
 variable — for features PostgreSQL has no equivalent for at any price.
 

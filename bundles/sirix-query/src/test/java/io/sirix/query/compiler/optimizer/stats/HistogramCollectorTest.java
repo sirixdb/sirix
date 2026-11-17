@@ -1,22 +1,94 @@
 package io.sirix.query.compiler.optimizer.stats;
 
+import io.sirix.access.trx.node.HashType;
+import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
+import java.nio.file.Path;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit tests for {@link HistogramCollector} — value sampling and histogram building.
- *
- * <p>Integration tests requiring a live database are in
- * {@code CostBasedPipelineIntegrationTest}. These tests validate the
- * collector's configuration validation and null-safety.</p>
+ * Tests for {@link HistogramCollector} — persisted value sampling, histogram building,
+ * configuration validation and null-safety.
  */
 final class HistogramCollectorTest {
+
+  @ParameterizedTest
+  @EnumSource(value = HashType.class, names = {"NONE", "ROLLING"})
+  void deletedSubtreeDoesNotHideSurvivingSample(final HashType hashType, @TempDir final Path directory) {
+    final String databaseName = "sampling-history-" + hashType;
+    final String resourceName = "resource";
+    final StringBuilder json = new StringBuilder(200_040).append("{\"discard\":[");
+    for (int index = 0; index < 100_000; index++) {
+      if (index != 0) {
+        json.append(',');
+      }
+      json.append('0');
+    }
+    json.append("],\"price\":[7]}");
+
+    final int deletedRevision;
+    try (final var store =
+        BasicJsonDBStore.newBuilder().location(directory).hashType(hashType).buildPathSummary(true).build()) {
+      final var collection = store.create(databaseName, resourceName, json.toString());
+      try (final var session = collection.getDatabase().beginResourceSession(resourceName);
+          final var writer = session.beginNodeTrx()) {
+        assertEquals(hashType, session.getResourceConfig().hashType);
+        assertTrue(writer.moveToFirstChild());
+        assertTrue(writer.moveToFirstChild());
+        assertEquals("discard", writer.getName().getLocalName());
+        writer.remove();
+        writer.commit();
+        deletedRevision = session.getMostRecentRevisionNumber();
+      }
+    }
+
+    final var catalog = StatisticsCatalog.getInstance();
+    try (final var store = BasicJsonDBStore.newBuilder().location(directory).build()) {
+      try (final var session = store.lookup(databaseName).getDatabase().beginResourceSession(resourceName);
+          final var reader = session.beginNodeReadOnlyTrx()) {
+        assertEquals(hashType, session.getResourceConfig().hashType);
+        assertTrue(reader.getMaxNodeKey() > 100_000);
+        assertEquals(hashType == HashType.NONE
+            ? 0
+            : 3, reader.getDescendantCount());
+      }
+      final var collector = new HistogramCollector(store);
+      assertSurvivingSample(collector.collect(databaseName, resourceName, "price", 10_000));
+      assertTrue(collector.collectAndRegister(databaseName, resourceName, "price"));
+      assertSurvivingSample(catalog.get(databaseName, resourceName, "price"));
+      for (final int revision : new int[] {StatisticsCatalog.LATEST_REVISION, deletedRevision}) {
+        assertSurvivingSample(collector.collect(databaseName, resourceName, "price", 10_000, 64, revision));
+        assertTrue(collector.collectAndRegister(databaseName, resourceName, "price", revision));
+        assertSurvivingSample(catalog.get(databaseName, resourceName, "price", revision));
+        assertNull(collector.collect(databaseName, resourceName, "missing", 10_000, 64, revision));
+        assertFalse(collector.collectAndRegister(databaseName, resourceName, "missing", revision));
+        assertNull(catalog.get(databaseName, resourceName, "missing", revision));
+      }
+    } finally {
+      catalog.invalidateDatabase(databaseName);
+    }
+  }
+
+  private static void assertSurvivingSample(final Histogram histogram) {
+    assertNotNull(histogram);
+    assertEquals(1, histogram.totalCount());
+    assertEquals(1, histogram.distinctCount());
+    assertEquals(7.0, histogram.minValue());
+    assertArrayEquals(new double[] {7.0}, histogram.mcvValues());
+    assertArrayEquals(new long[] {1}, histogram.mcvFrequencies());
+  }
 
   @Test
   @DisplayName("Constructor rejects null jsonStore")
@@ -76,15 +148,12 @@ final class HistogramCollectorTest {
     final Histogram hist = builder.build();
 
     // A histogram with no values should report 0 total count
-    assertEquals(0, hist.totalCount(),
-        "Histogram with no values should have 0 total count");
-    assertEquals(0, hist.distinctCount(),
-        "Histogram with no values should have 0 distinct count");
+    assertEquals(0, hist.totalCount(), "Histogram with no values should have 0 total count");
+    assertEquals(0, hist.distinctCount(), "Histogram with no values should have 0 distinct count");
 
     // EQ selectivity on empty histogram: should return a safe default, not crash
     final double eqSel = hist.estimateEqualitySelectivity(42.0);
-    assertTrue(eqSel >= 0.0 && eqSel <= 1.0,
-        "Selectivity should be in [0,1] even for empty histogram, got " + eqSel);
+    assertTrue(eqSel >= 0.0 && eqSel <= 1.0, "Selectivity should be in [0,1] even for empty histogram, got " + eqSel);
 
     // Range selectivity on empty histogram
     final double rangeSel = hist.estimateRangeSelectivity(0.0, 100.0);
@@ -110,8 +179,7 @@ final class HistogramCollectorTest {
       Thread.sleep(5);
 
       // Should return null due to TTL expiry
-      assertNull(catalog.get("ttldb", "ttlres", "field"),
-          "Expired entry should return null");
+      assertNull(catalog.get("ttldb", "ttlres", "field"), "Expired entry should return null");
     } finally {
       catalog.setTtlMillis(originalTtl);
       catalog.remove("ttldb", "ttlres", "field");
@@ -136,7 +204,6 @@ final class HistogramCollectorTest {
 
     // Range [10, 50] ≈ ~40% of [10, 109]
     final double rangeSel = hist.estimateRangeSelectivity(10.0, 50.0);
-    assertTrue(rangeSel > 0.30 && rangeSel < 0.50,
-        "Range [10,50] of [10,109] should be ~40%, got " + rangeSel);
+    assertTrue(rangeSel > 0.30 && rangeSel < 0.50, "Range [10,50] of [10,109] should be ~40%, got " + rangeSel);
   }
 }

@@ -6,6 +6,7 @@
 package io.sirix.node.json;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
 import io.sirix.node.Bytes;
@@ -59,7 +60,7 @@ final class ObjectNodeResizeEncoderTest {
 
   @BeforeEach
   void setUp() {
-    config = ResourceConfiguration.newBuilder("object-node-resize-encoder").build();
+    config = ResourceConfiguration.newBuilder("object-node-resize-encoder").hashKind(HashType.ROLLING).build();
     page = new KeyValueLeafPage(0L, IndexType.DOCUMENT, config, 1, null, null, false);
     objectNode = detachedNode(INITIAL_STATE);
     objectNode.setWriteSingleton(true);

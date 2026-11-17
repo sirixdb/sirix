@@ -360,9 +360,9 @@ or more of them and states what it costs.
 
 \item \textbf{A store that verifies itself.} The format carries enough to check its own integrity: a
   self-describing on-disk layout, per-page and per-beacon checksums, two redundant beacons that survive a
-  torn write (Property~\ref{prop:torn}), and rolling node hashes that serve both integrity and the
-  hash-guided semantic diff (Ch.~\ref{ch:ondisk}). Crash recovery is a contract exercised under SIGKILL
-  fault injection, not an assumption.
+  torn write (Property~\ref{prop:torn}); see the integrity limits in Ch.~\ref{ch:ondisk}.
+  Optional node hashes accelerate semantic diffs (Ch.~\ref{ch:query}). Crash recovery is a contract
+  exercised under SIGKILL fault injection, not an assumption.
 
 \item \textbf{Measured, not asserted.} Every performance claim in this report is a number from a named
   harness under stated conditions, and where the design loses --- the small-document write regime, the
@@ -1092,16 +1092,12 @@ document order.
 
 \section{Node hashing}
 
-Controlled by \code{HashType} (\code{io/sirix/access/trx/node/HashType.java}), SirixDB
-maintains a \textbf{rolling Merkle hash} over the node tree. Each node stores a 64-bit
-hash computed (in \code{node/json/*.java}) over its identity, kind, structural pointers,
-name key, and aggregated child/descendant counts:
-
-\dcap{Per-node hash inputs}
-\begin{diagram}
-hash(node) = XXH3( nodeKey || parentKey || kind || childCount || descendantCount
-                   || leftSibling || rightSibling || firstChild [|| lastChild] || nameKey )
-\end{diagram}
+With node hashing explicitly enabled through \code{HashType}
+(\code{io/sirix/access/trx/node/HashType.java}), SirixDB maintains a
+\textbf{rolling Merkle hash} over the node tree. The creation defaults and privacy trade-offs
+are owned by \href{ERASURE_PREPARATION.md}{erasure preparation}. Each node kind defines its own-record
+hash inputs in its \code{computeHash} implementation (\code{node/json/*.java}); ancestor aggregation
+is described below.
 
 On mutation the node's hash is recomputed and the change propagates up the ancestor chain
 to the root, forming a Merkle tree whose root digests the whole document. The payoff is
@@ -1112,10 +1108,10 @@ much work the recompute does. \code{ROLLING} is a Horner-rule polynomial updated
 ancestor chain alone: each ancestor folds in the delta as
 $\text{hash} - \text{old}\cdot\textsc{prime} + \text{new}\cdot\textsc{prime}$
 (\textsc{prime} $= 77081$) and bumps its descendant count in the same pass, so a node's hash digests
-its structural pointers and its child/descendant \emph{counts} rather than child content directly.
+its own record and the aggregated hashes of its children.
 \code{POSTORDER} is heavier, re-reading every child on the path to the root (and, for XML, folding
 in attribute and namespace hashes). \code{NONE} disables hashing and additionally omits the hash and
-descendant-count fields from the record, trading diff and integrity capability for about 13\,\% more
+descendant-count fields from the record, trading hash-based change detection for about 13\,\% more
 commit throughput (measured, \S\ref{sec:w1}).
 
 A trace shows the \code{ROLLING} update touching only one root-to-leaf path.
@@ -1149,8 +1145,8 @@ makes the cost concrete (real XXH3 values are full 64-bit; small ones here keep 
 \end{diagramS}
 
 \noindent The recompute is therefore one 64-bit multiply, one add and one subtract per ancestor --- no
-big-integer, no child re-read. So the hash a node stores digests its structural pointers and its
-child/descendant \emph{counts}, and keeping the whole-document Merkle root current after an edit is one
+big-integer, no child re-read. The stored hash aggregates the child hashes as well as the node's own
+record, and keeping the whole-document Merkle root current after an edit is one
 walk up the spine, the same $O(\text{depth})$ the copy-on-write page copy already pays. That shared cost
 is why hashing is current by the time a diff needs it, without a separate pass.
 
@@ -4167,7 +4163,8 @@ Where change tracking (\S\ref{sec:changetracking}) answers \emph{where} and \emp
 \textbf{diff} answers \emph{what}: the exact transformation between two given revisions.
 \code{jn:diff(rev1,rev2[,path])} returns a JSON edit script
 (\code{\{database,resource,old-revision,new-revision,diffs:[\ldots]\}}) of insert/delete/update/replace
-operations. The engine (\code{DiffFactory}) is \textbf{hash-guided}: it descends the two revision trees
+operations. On resources with node hashing enabled, the engine (\code{DiffFactory}) is
+\textbf{hash-guided}: it descends the two revision trees
 in lock-step and, wherever a node's 64-bit rolling hash (Ch.~\ref{ch:pds}) matches, emits
 \code{SAMEHASH} and \textbf{prunes the whole subtree}: an unchanged subtree is one hash comparison, never
 descended, so deep structure below an unchanged node costs nothing (with \code{HashType.NONE} it degrades
@@ -4407,7 +4404,8 @@ result: a CAS range scan feeds ~33 000 books into the projection, not a 100 000-
 
 Base \textbf{cardinality} is read from the path summary: \code{SirixStatisticsProvider} sums
 \code{PathNode.getReferences()} over the path-class records matching a binding's path, and the total
-node count is the document root's descendant count. Cardinality \emph{propagates} through the tuple
+node-count estimate follows the contract in \code{DocumentNodeCount.java}, including its fallback
+when stored counts are unavailable. Cardinality \emph{propagates} through the tuple
 pipeline: a \code{ForBind} multiplies by the binding cardinality, a \code{Selection} scales by its
 predicate selectivity, a group-by divides by the distinct count, and a join multiplies by the join
 selectivity.
@@ -5553,7 +5551,7 @@ supported backends, safe rotation boundaries, and pre-commit page ownership.
 
 Bulk loading also uses a separate optimization. \code{insertSubtreeAs\ldots} runs the streaming shredder under a
 \textbf{bulk-insert} flag that suppresses the per-node bookkeeping that would otherwise dominate. Hash
-and descendant-count maintenance in particular has two mutually exclusive modes: inside one auto-commit
+and descendant-count maintenance, when enabled, has two mutually exclusive modes: inside one auto-commit
 epoch the writer adapts hashes incrementally per insert, and otherwise it performs a single post-order
 hash pass over the whole imported subtree at the end, turning an $O(\text{nodes}\times\text{depth})$
 ancestor-walk into one traversal. The bulk-insert flag is independent of the transaction mode;
@@ -5797,10 +5795,11 @@ POST /mydb/employees   (a MODIFY operation)   Bearer JWT for user "alice"
 
 A \code{POST} to a resource carries the JSON/XML fragment; \code{nodeId} selects the target and
 \code{insert} selects the mode (\code{ASFIRSTCHILD}, \code{ASRIGHTSIBLING}, \code{ASLEFTSIBLING};
-XML adds \code{REPLACE}). Writes are optimistically concurrency-controlled: the handler requires the
-client's \code{ETag} to equal the current node hash, else it reports that the resource may have
-changed in the meantime. Responses up to a few thousand nodes are serialised inline; larger writes
-return 200 {+} ETag and a follow-up paginated \code{GET}. Updating queries reach the engine through
+XML adds \code{REPLACE}). For resources with node hashing enabled, writes are optimistically
+concurrency-controlled; the request preconditions are owned by the REST OpenAPI specification
+(\code{bundles/sirix-rest-api/src/main/resources/openapi.yaml}). Responses up to a few thousand nodes
+are serialised inline; larger writes return 200 with a follow-up paginated \code{GET}, and an ETag
+when the resource stores node hashes. Updating queries reach the engine through
 \code{sdb:}/\allowbreak\code{jn:} functions (e.g.\ \code{replace json value of sdb:select-item(...)}).
 
 Large uploads use a \textbf{streaming shredder} (\code{KotlinJsonStreamingShredder}): a Vert.x JSON
@@ -5881,8 +5880,9 @@ an older revision, it would \code{revertTo} it first and branch the history.
 \textbf{Apply, in the node layer.} \code{replace json value of} resolves to \code{JsonDBObject.replace},
 which, seeing a number-to-number change, calls \code{setNumberValue(19.99)} on the \code{JsonNodeTrx}.
 The node factory writes the new value into the writer's \emph{modified} \code{KeyValueLeafPage} inside
-the Transaction Intent Log; the rolling hash of the touched node and its ancestors is recomputed in the
-same pass, and the path and CAS index listeners record the value change into the same intent log.
+the Transaction Intent Log; when node hashing is enabled, the rolling hash of the touched node and
+its ancestors is recomputed in the same pass. The path and CAS index listeners record the value
+change into the same intent log.
 Nothing has touched disk yet.
 
 \textbf{Commit.} \code{sdb:commit}, or the implicit commit when the query store closes, runs the commit
@@ -6342,7 +6342,7 @@ application is \textbf{75.7\,$\mu$s embedded vs $\sim$104\,$\mu$s} for client-se
 even over a local unix socket; there is no batching trick for an app that needs one document
 \emph{now}. Versioning is a first-class capability, not a pattern to assemble: numbered
 \emph{and} timestamped revisions, stable node identity across versions, time-travel axes,
-per-node history indexes, audit-grade rolling hashes, and \textbf{node-level semantic diffs in
+per-node history indexes, optional rolling hashes for change detection, and \textbf{node-level semantic diffs in
 0.3\,ms}, for which the PostgreSQL side must ship both full documents to the application and
 diff there. Most importantly, the \textbf{cost shape}: SirixDB's per-version cost is
 $O(\text{changed nodes}) + \text{fixed metadata}$, \emph{independent of document size};
@@ -6985,7 +6985,7 @@ Time-travel open by revision \# & $O(1)$ & index the revision array and read its
 Time-travel open by instant & $O(\log R_{\text{tot}})$ & binary search over the $R_{\text{tot}}$ commit timestamps (Property~\ref{prop:histcost})\\
 Reconstruct a leaf at revision $r$ & $O(R)$ & merge at most $R$ page fragments back to the last full dump (sliding snapshot, Ch.~\ref{ch:versioning})\\
 Diff, sidecar cache hit & $O(\delta)$ & cache eligibility follows the contract linked in \S\ref{sec:diff}\\
-Diff, recomputed revisions & see \S\ref{sec:diffbench} & hash-pruned lock-step descent; measured bounds include changed-level fan-out\\
+Diff, recomputed revisions & see \S\ref{sec:diffbench} & lock-step descent, hash-pruned when enabled; measured bounds include changed-level fan-out\\
 Secondary index point/range scan & $O(L+k)$ & HOT descent in key-byte length $L$ plus $k$ matches returned (Ch.~\ref{ch:hot}, Ch.~\ref{ch:pathsummary})\\
 Path-summary lookup & $O(p)$ & descend the summary trie one node per path segment (\S\ref{sec:pathsummary})\\
 DeweyID order comparison & $O(\min\text{ divisions})$ & lexicographic over tier-encoded divisions; siblings differ in the last (\S\ref{sec:deweyids})\\
@@ -6997,8 +6997,9 @@ Buffer-pool hit / eviction & $O(1)$ & concurrent-map probe; MVCC-aware clock-swe
 
 \noindent One theme runs down the cost column: \textbf{work is proportional to the region touched, not
 to the document}. A point lookup, an insert, a commit, and a diff are all sublinear or
-delta-proportional; the only genuinely $O(N)$ entries are a full scan with no applicable index and a
-diff run with hashing switched off, both of which the system avoids by default. The $f{=}1024$ fan-out
+delta-proportional when their shortcuts apply. A full scan with no applicable index and a
+recomputed diff without node hashes can both visit $O(N)$ nodes; stored diff eligibility and fallback
+behavior follow the contract linked in \S\ref{sec:diff}. The $f{=}1024$ fan-out
 is what makes the logarithmic terms behave like constants in practice: $\log_{1024}$ of a trillion
 nodes is four, so ``$O(\log_f N)$'' is, concretely, ``at most five page touches'' for any database that
 will ever be built. The reconstruction bound $O(R)$ is the price the sliding snapshot pays for its
@@ -7616,7 +7617,7 @@ slot page capacity & varies & records per \code{KeyValueLeafPage}, bounded by th
 \code{FMESTHRESHOLD} & $0.5$ & inner-node match threshold: fraction of shared matched descendants (\S\ref{sec:diff})\\
 DeweyID tier prefixes & 0, 10, 110, 1110, 1111 & unary-style selectors for tiers $0$–$4$ of the division encoding (\S\ref{sec:deweyids})\\
 \code{maxDivisionValue[3]} & $270{,}549{,}119$ & upper bound of tier-3 division values before tier-4 is used (\S\ref{sec:deweyids})\\
-hash word & $64$ bits & rolling node hash (\code{HashType.ROLLING} default) propagated up the ancestor spine (Ch.~\ref{ch:pds})\\
+hash word & $64$ bits & optional rolling node hash (\code{HashType.NONE} default) propagated up the ancestor spine (Ch.~\ref{ch:pds})\\
 checksum & XXH3-64 & per-page and per-beacon integrity tag in the durable-commit protocol (Ch.~\ref{ch:ondisk})\\
 write permit & $1$ & per-resource \code{Semaphore} permit: one writer, $N$ lock-free readers (Ch.~\ref{ch:rest})\\
 $W$ (SIMD lanes) & $4$ or $8$ & \code{LongVector} lanes of the preferred species (AVX2 / AVX-512) (Ch.~\ref{ch:vector})\\
@@ -7778,7 +7779,7 @@ that matter for this report:
 storageType                   FILE_CHANNEL (default) · MEMORY_MAPPED · FILE · IN_MEMORY · IO_URING · S3
 versioningApproach            SLIDING_SNAPSHOT (default) · INCREMENTAL · DIFFERENTIAL · FULL
 maxNumberOfRevisionsToRestore the reconstruction window R for the snapshot strategies
-hashKind                      ROLLING (default) · POSTORDER · NONE
+hashKind                      NONE (default) · ROLLING · POSTORDER
 useDeweyIDs                   store DeweyID labels                            (default off)
 buildPathSummary              maintain the path summary                       (default on)
 storeDiffs                    enable JSON revision-diff sidecars              (default on)
@@ -7841,12 +7842,12 @@ jn:all-times(item) & the item in every revision it appears in\\
 jn:diff(coll, res, r1, r2) & the edit script between two revisions\\
 sdb:item-history(item) & the item in each revision that touched it\\
 sdb:nodekey(item) & the stable node key\\
-sdb:hash(item) & the node's rolling hash\\
+sdb:hash(item) & node hash; subtree aggregation requires hashing enabled (\S\ref{app:config})\\
 sdb:path(item) & the node's path-summary path\\
 sdb:revision(item) & the revision number the item was read at\\
 sdb:timestamp(item) & the revision's commit timestamp\\
 sdb:author-id / sdb:author-name & the commit author\\
-sdb:child-count / sdb:descendant-count & structural counts\\
+sdb:child-count / sdb:descendant-count & stored structural counts; availability follows \code{NodeReadOnlyTrx.java}\\
 sdb:valid-from / sdb:valid-to & the item's valid-time bounds\\
 sdb:is-deleted(item) & whether the item is tombstoned in this revision\\
 sdb:select-item(item, nodeKey) & move to a node by key\\
@@ -7943,13 +7944,11 @@ maxNodes                     auto-commit threshold for a large load
 validFromPath, validToPath   the document paths carrying valid-time bounds
 \end{diagramS}
 
-\noindent Note the layering: the REST \code{PUT}/create endpoint defaults \code{hashType} to
-\code{NONE} when the parameter is omitted, whereas the \emph{embedded} \code{ResourceConfiguration}
-defaults to \code{ROLLING} (\S\ref{app:config}); a deployment that wants audit-grade hashing over
-REST must pass \code{hashType=ROLLING} explicitly at creation.
+\noindent Creation defaults, explicit opt-in, compatibility with existing resources and privacy
+consequences are owned by \href{ERASURE_PREPARATION.md}{erasure preparation}.
 
-An \code{ETag} equal to the node hash provides optimistic concurrency: a write must present the current
-ETag, or it is told the resource may have changed in the meantime.
+The request preconditions and document-root exception for hash-based optimistic concurrency are
+owned by the REST OpenAPI specification (\code{bundles/sirix-rest-api/src/main/resources/openapi.yaml}).
 
 \section{Node-kind reference}
 \label{app:nodekinds}
@@ -8817,9 +8816,9 @@ already-warm resources; \code{FILE\_CHANNEL} (default) is the safe general choic
 \textbf{Trading history for throughput.} The per-resource sliding-snapshot window
 (\code{revisionsToRestore}) is the central read/write dial: lower it on a read-mostly resource to make
 every historical read cheaper, raise it on a write-mostly one to write less per commit
-(Ch.~\ref{ch:versioning}). \code{HashType.NONE} buys about 13\,\% more commit throughput by dropping the
-rolling hash, at the cost of hash-guided diff and per-node integrity, choose it only when neither is
-needed (\S\ref{sec:w1}).
+(Ch.~\ref{ch:versioning}). The measured hash-maintenance cost is reported in \S\ref{sec:w1};
+creation defaults, capabilities and erasure trade-offs are owned by
+\href{ERASURE_PREPARATION.md}{erasure preparation}.
 
 \textbf{Bulk loading.} For a one-shot import, drive \code{insertSubtreeAs\ldots} so the bulk-insert flag
 suppresses per-node diff work, and use a count-bounded \code{KEEP\_OPEN\_ASYNC} writer so the intent log
@@ -8843,8 +8842,9 @@ never contend and scale freely.
 profile needs a count-based, not timed, auto-commit; \code{bufferedBeacons} needs \code{preallocated};
 \code{KEEP\_OPEN\_ASYNC} is \code{FILE\_CHANNEL}-only), and the headline gains quoted here are from the
 specific machines and workloads of Chapter~\ref{ch:eval}, not guarantees. The honest default advice is to
-measure on the target workload before turning anything off that protects correctness (hashing, checksum
-verification) for throughput.
+measure on the target workload before changing integrity controls such as checksum verification
+for throughput. Optional node hashes are a change-detection aid, with the integrity limits
+documented in \href{DISK_FORMAT.md\#3-integrity}{the on-disk integrity contract}.
 \end{honesty}
 
 \end{document}

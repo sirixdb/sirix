@@ -4,6 +4,7 @@
 package io.sirix.access.trx.node.json;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.index.IndexType;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.Bytes;
@@ -53,7 +54,8 @@ final class ParallelBulkBoundaryMergeOverflowTest {
 
   @Test
   void saturatedBoundaryMergePublishesCompleteFusedSideCarrier() throws ReflectiveOperationException {
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("parallel-boundary-overflow").build();
+    final ResourceConfiguration config =
+        ResourceConfiguration.newBuilder("parallel-boundary-overflow").hashKind(HashType.ROLLING).build();
     final KeyValueLeafPage target = new KeyValueLeafPage(0, IndexType.DOCUMENT, config, REVISION, null, null);
     final KeyValueLeafPage source = new KeyValueLeafPage(0, IndexType.DOCUMENT, config, REVISION, null, null);
     KeyValueLeafPage roundTripped = null;

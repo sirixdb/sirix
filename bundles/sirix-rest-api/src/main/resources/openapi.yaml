@@ -1035,8 +1035,10 @@ components:
       in: query
       description: |
         Node-hash kind for the new resource(s). `ROLLING` enables the
-        `ETag`/`If-Match` optimistic-concurrency mechanism; `NONE` (default)
-        disables it.
+        `ETag`/`If-Match` optimistic-concurrency mechanism and `sdb:hash`
+        subtree change detection; `NONE` (default) disables both. For the
+        privacy implications and remaining erasure limitations, see
+        [erasure preparation](https://github.com/sirixdb/sirix/blob/main/docs/ERASURE_PREPARATION.md).
       schema:
         type: string
         enum: [NONE, ROLLING, POSTORDER]

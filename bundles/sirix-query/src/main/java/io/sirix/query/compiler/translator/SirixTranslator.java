@@ -42,6 +42,7 @@ import io.sirix.query.compiler.expression.SirixReplaceValue;
 import io.sirix.query.compiler.expression.GuardedConjunctExpr;
 import io.sirix.query.compiler.expression.ConjunctInputs;
 import io.sirix.query.compiler.optimizer.CheapFirstConjunctStage;
+import io.sirix.query.compiler.optimizer.stats.DocumentNodeCount;
 import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
 import io.sirix.query.function.jn.index.scan.ScanValidTimeIndex;
 import io.sirix.query.function.jn.temporal.OpenBitemporal;
@@ -814,7 +815,8 @@ public class SirixTranslator extends TopDownTranslator {
       filterMap = ThreadLocal.withInitial(() -> new PathSummaryMatches(self));
     }
 
-    @SuppressWarnings("ConstantConditions")
+    // S3776: preserve the per-context-node descendant dispatch in this count-source-only change.
+    @SuppressWarnings({"ConstantConditions", "java:S3776"})
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       if (!isSimpleNodeTest(test)) {
@@ -824,7 +826,7 @@ public class SirixTranslator extends TopDownTranslator {
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       if (rtx.getResourceSession().getResourceConfig().withPathSummary && test.getNodeKind() == Kind.ELEMENT
           && test.getQName() != null && (rtx.isElement() || rtx.isDocumentRoot())
-          && rtx.getDescendantCount() > DESCENDANT_THRESHOLD) {
+          && DocumentNodeCount.estimate(rtx) > DESCENDANT_THRESHOLD) {
         try {
           final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber());
           final BitSet matches = filterMap.get().match(rtx, reader, test.getQName());

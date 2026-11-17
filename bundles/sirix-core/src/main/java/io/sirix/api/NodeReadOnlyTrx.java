@@ -117,9 +117,13 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   String nameForKey(int key);
 
   /**
-   * Get the number of descendants of the current node.
+   * Get the stored number of descendants of the current node.
    *
-   * @return the number of descendants of the current node
+   * <p>
+   * Resources configured with {@code HashType.NONE} do not maintain this statistic; zero then does
+   * not imply that the subtree is empty.
+   *
+   * @return the stored descendant count, or {@code 0} when unavailable
    */
   long getDescendantCount();
 
@@ -174,7 +178,12 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   /**
    * Get the hash code of the node.
    *
-   * @return the hash code
+   * <p>
+   * Subtree change detection requires node hashing to be enabled for the resource. With
+   * {@code HashType.NONE}, JSON containers return zero; primitive leaves and XML elements may derive
+   * a hash from their own record, without aggregating descendant content.
+   *
+   * @return the stored hash, or the node kind's unstored fallback
    */
   long getHash();
 

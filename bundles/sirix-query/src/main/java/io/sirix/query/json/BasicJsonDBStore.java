@@ -12,6 +12,7 @@ import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.util.io.URIHandler;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceAccessScope;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.query.MutationAuthorization;
 import io.sirix.access.Databases;
 import io.sirix.access.MutationGate;
@@ -151,7 +152,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final boolean useDeweyIDs;
 
   /**
-   * Determines the hash type to use (default: rolling).
+   * Determines the hash type to use; see {@link ResourceConfiguration#DEFAULT_HASH_TYPE} for the
+   * default.
    */
   private final HashType hashType;
 
@@ -239,11 +241,15 @@ public final class BasicJsonDBStore implements JsonDBStore {
         System.getProperty("useDeweyIDs") != null && Boolean.parseBoolean(System.getProperty("useDeweyIDs"));
 
     /**
-     * Determines the hash type to use (default: rolling).
+     * Determines the hash type to use for resources this store creates. Defaults to
+     * {@link ResourceConfiguration#DEFAULT_HASH_TYPE} ({@link HashType#NONE} unless overridden with
+     * {@code -Dsirix.hashType}), so node hashing is an explicit choice here as well — see that field
+     * for why hashes are off by default. The {@code -DhashType} property keeps overriding it for this
+     * store only.
      */
     private HashType hashType = System.getProperty("hashType") != null
         ? HashType.fromString(System.getProperty("hashType"))
-        : HashType.ROLLING;
+        : ResourceConfiguration.DEFAULT_HASH_TYPE;
 
     /**
      * Determines the versioning type.
@@ -349,7 +355,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
 
     /**
-     * Determines the hash type to use (default: rolling).
+     * Determines the hash type to use; see {@link ResourceConfiguration#DEFAULT_HASH_TYPE} for the
+     * default.
      *
      * @param hashType the hash type
      * @return this builder instance
