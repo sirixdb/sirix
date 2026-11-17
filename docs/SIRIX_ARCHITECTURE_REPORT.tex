@@ -360,9 +360,9 @@ or more of them and states what it costs.
 
 \item \textbf{A store that verifies itself.} The format carries enough to check its own integrity: a
   self-describing on-disk layout, per-page and per-beacon checksums, two redundant beacons that survive a
-  torn write (Property~\ref{prop:torn}), and rolling node hashes that serve both integrity and the
-  hash-guided semantic diff (Ch.~\ref{ch:ondisk}). Crash recovery is a contract exercised under SIGKILL
-  fault injection, not an assumption.
+  torn write (Property~\ref{prop:torn}); see the integrity limits in Ch.~\ref{ch:ondisk}.
+  Optional node hashes accelerate semantic diffs (Ch.~\ref{ch:query}). Crash recovery is a contract
+  exercised under SIGKILL fault injection, not an assumption.
 
 \item \textbf{Measured, not asserted.} Every performance claim in this report is a number from a named
   harness under stated conditions, and where the design loses --- the small-document write regime, the
@@ -5795,10 +5795,11 @@ POST /mydb/employees   (a MODIFY operation)   Bearer JWT for user "alice"
 
 A \code{POST} to a resource carries the JSON/XML fragment; \code{nodeId} selects the target and
 \code{insert} selects the mode (\code{ASFIRSTCHILD}, \code{ASRIGHTSIBLING}, \code{ASLEFTSIBLING};
-XML adds \code{REPLACE}). Writes are optimistically concurrency-controlled: the handler requires the
-client's \code{ETag} to equal the current node hash, else it reports that the resource may have
-changed in the meantime. Responses up to a few thousand nodes are serialised inline; larger writes
-return 200 {+} ETag and a follow-up paginated \code{GET}. Updating queries reach the engine through
+XML adds \code{REPLACE}). For resources with node hashing enabled, writes are optimistically
+concurrency-controlled; the request preconditions are owned by the REST OpenAPI specification
+(\code{bundles/sirix-rest-api/src/main/resources/openapi.yaml}). Responses up to a few thousand nodes
+are serialised inline; larger writes return 200 with a follow-up paginated \code{GET}, and an ETag
+when the resource stores node hashes. Updating queries reach the engine through
 \code{sdb:}/\allowbreak\code{jn:} functions (e.g.\ \code{replace json value of sdb:select-item(...)}).
 
 Large uploads use a \textbf{streaming shredder} (\code{KotlinJsonStreamingShredder}): a Vert.x JSON
@@ -7943,14 +7944,11 @@ maxNodes                     auto-commit threshold for a large load
 validFromPath, validToPath   the document paths carrying valid-time bounds
 \end{diagramS}
 
-\noindent Both REST and the embedded \code{ResourceConfiguration} default to \code{NONE}
-(\S\ref{app:config}). Hashing is an explicit creation-time choice: pass \code{hashType=ROLLING}
-over REST or \code{hashKind(HashType.ROLLING)} in Java. With hashes enabled, a deleted value remains
-confirmable from ancestor hashes in revisions where it existed. Existing resources retain their
-persisted hash kind. See \code{docs/ERASURE\_PREPARATION.md}.
+\noindent Creation defaults, explicit opt-in, compatibility with existing resources and privacy
+consequences are owned by \href{ERASURE_PREPARATION.md}{erasure preparation}.
 
-When node hashes are enabled, an \code{ETag} equal to the node hash provides optimistic concurrency: a write must present the current
-ETag, or it is told the resource may have changed in the meantime.
+The request preconditions and document-root exception for hash-based optimistic concurrency are
+owned by the REST OpenAPI specification (\code{bundles/sirix-rest-api/src/main/resources/openapi.yaml}).
 
 \section{Node-kind reference}
 \label{app:nodekinds}

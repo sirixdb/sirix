@@ -33,9 +33,9 @@ maintaining them.
 ## Why off is the default
 
 A leaf's own hash is computed over its key, its parent's key, its kind, its neighbours, its
-field-name key and its **raw value**. A container's *stored* hash is its own hash plus 77081 times
-the sum of its children's hashes. So every ancestor up to the document root carries a term that
-depends on the leaf's value, in every revision in which that value existed.
+field-name key and its **raw value**. With `ROLLING`, a container's *stored* hash is its own hash
+plus 77081 times the sum of its children's hashes. So every ancestor up to the document root
+carries a term that depends on the leaf's value, in every revision in which that value existed.
 
 Everything in that computation except the value itself is known to whoever holds the store.
 A guess can therefore be checked: rebuild the hash with a candidate value and compare. For a date of
@@ -55,7 +55,7 @@ is no residue: it is computed on demand from the value the caller already holds,
 persisted with `HashType.NONE`, and it aggregates nothing. The oracle in the section above needs the *container's* stored
 aggregate, which is exactly what is gone.
 
-## What you give up by turning them on — and what you do not
+## Capabilities and trade-offs
 
 Turning hashes **on** is a legitimate choice for a resource that holds no data anybody may ask you
 to erase. It buys:

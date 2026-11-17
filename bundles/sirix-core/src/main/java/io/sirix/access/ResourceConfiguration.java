@@ -199,20 +199,10 @@ public final class ResourceConfiguration {
    * and read back by {@link #deserialize(Path)}, so a store created with hashes keeps them.
    *
    * <p>
-   * <strong>Why off by default.</strong> A container record's stored hash is its own hash plus 77081
-   * times the sum of its children's hashes, so every ancestor up to the document root carries a term
-   * derived from a leaf's raw value, in every revision in which that value existed. Everything but
-   * the value is known to whoever holds the store, so once a value is deleted a guess at it can still
-   * be confirmed against the surviving ancestor hashes. Off is therefore the only default under which
-   * a resource can later be erased without that residue, and it also removes the stored hash of every
-   * container record and the hash work on every commit. Turn hashes on deliberately, for change
-   * detection ({@code sdb:hash}), hash-optimized diffs or the REST {@code ETag}/{@code If-Match}
-   * mechanism, and not for data that may have to be erased.
-   *
-   * <p>
-   * The per-record hash field is stored as a signed-varint (1 byte for hash=0, up to 10 for a real
-   * 64-bit ROLLING hash) — with {@link HashType#NONE} the field is omitted entirely rather than
-   * written as a zero.
+   * Hashing is a change-detection aid, not cryptographic tamper evidence. Enabling it retains
+   * value-derived ancestor hashes even after a value is deleted. See
+   * <a href="https://github.com/sirixdb/sirix/blob/main/docs/ERASURE_PREPARATION.md">erasure
+   * preparation</a> for capabilities, storage costs and privacy consequences.
    */
   public static final HashType DEFAULT_HASH_TYPE = defaultHashType(System.getProperty(HASH_TYPE_PROPERTY));
 
@@ -993,7 +983,7 @@ public final class ResourceConfiguration {
     private VersioningType revisionKind = VERSIONING;
 
     /**
-     * Kind of integrity hash (rolling, postorder).
+     * Kind of node hashing; defaults to {@link #DEFAULT_HASH_TYPE}.
      */
     private HashType hashType = DEFAULT_HASH_TYPE;
 
@@ -1191,11 +1181,7 @@ public final class ResourceConfiguration {
      * ({@link HashType#NONE}): node hashing is opt-in.
      *
      * <p>
-     * Enabling it buys change detection ({@code sdb:hash}), hash-optimized diffs and the REST
-     * {@code ETag}/{@code If-Match} mechanism, at the cost of hash maintenance on every commit, a
-     * stored hash plus descendant count on every container record, and the privacy consequence
-     * described on {@link #DEFAULT_HASH_TYPE}: a deleted value stays confirmable from the ancestor
-     * hashes of the revisions in which it existed.
+     * See {@link #DEFAULT_HASH_TYPE} for configuration and privacy consequences.
      *
      * @param hashKind hash kind to use
      * @return reference to the builder object

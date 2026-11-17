@@ -121,20 +121,11 @@ All notable changes to SirixDB are documented in this file.
 
 ### Changed
 
-- **Node hashes are off by default.** A resource created without an explicit
-  `hashKind(...)` now uses `HashType.NONE` — through the Java `ResourceConfiguration` builder, the
-  `BasicJsonDBStore`/`BasicXmlDBStore` query stores, the CLI and (unchanged) REST. Existing stores
-  keep whatever they were created with: the hash kind is persisted in the resource settings and read
-  back on open, so there is nothing to migrate. Opt in with `hashKind(HashType.ROLLING)`, the
-  `hashType` store option or the REST `hashType` query parameter; `-Dsirix.hashType=ROLLING` restores
-  the old default for a whole JVM. Callers that relied on the old default lose the REST
-  `ETag`/`If-Match` mechanism, stored descendant counts (so `sdb:descendant-count` answers `0`) and
-  the hash-optimized diff route — the diff
-  results are unchanged, only the route is — and `sdb:hash` stops being an aggregate: a container
-  reports `0`, while a primitive leaf still reports a hash *derived* from its own content, so
-  comparing it across revisions no longer detects a change below that node. Hashes on means a deleted value stays confirmable from the ancestor
-  hashes of the revisions in which it existed; see
-  [erasure preparation](docs/ERASURE_PREPARATION.md).
+- **Node hashes are off by default.** Newly created Java, query-store and CLI resources now
+  match REST's `NONE` default. Existing resources retain their persisted hash kind and need no
+  migration. Callers relying on subtree hashes, stored descendant counts, hash-optimized diffs or
+  REST `ETag`/`If-Match` must explicitly enable hashing; see
+  [configuration, capabilities and erasure consequences](docs/ERASURE_PREPARATION.md).
 
 - **The hash-based diff shortcut is the resource's decision.** `DiffFactory.Builder.hashKind`
   defaults to the diffed resource's own hash kind, and the diff forces the full comparison when the
