@@ -5,12 +5,11 @@ import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
 
 /**
- * Shared parse-and-precondition helpers for the REST handlers. The failure handler maps
- * [IllegalArgumentException] to 400 and [IllegalStateException] to a client-visible error, so a
- * malformed parameter or stale precondition never surfaces as a 500.
+ * Shared parse-and-precondition helpers for the REST handlers. Error status mapping belongs
+ * to RequestFailureHandling; REST-204 records the missing-header mapping gap.
  */
 
-/** Parse-or-400 for integer params — `toInt()` on user input 500s on garbage. */
+/** Parse-or-400 for integer params. */
 fun requireIntParam(name: String, value: String): Int =
     value.toIntOrNull() ?: throw IllegalArgumentException("$name must be an integer: '$value'")
 
@@ -38,9 +37,8 @@ fun checkNodeHashPrecondition(ctx: RoutingContext, actualHash: Long) {
 }
 
 /**
- * Move the cursor to the node or fail with a client-visible "not found": moveTo on a missing key
- * returns false and LEAVES THE CURSOR ON THE DOCUMENT ROOT, so an unchecked call silently
- * operates on an unrelated position (the bug class every handler used to have independently).
+ * Reject failed movement before a handler can serialize or mutate the previous cursor position.
+ * The exception does not itself select an HTTP status; RequestFailureHandling owns that mapping.
  */
 fun NodeCursor.moveToOrNotFound(nodeId: Long) {
     if (!moveTo(nodeId)) {

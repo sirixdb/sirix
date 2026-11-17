@@ -2,6 +2,42 @@
 
 ## 1.0.0 (unreleased)
 
+- Resolve imported timestamp ordering: preserve increasing source timestamps, adjust
+  ties/regressions to the preceding effective timestamp plus 1 microsecond, and keep
+  each adjusted original timestamp as queryable metadata. Preserve revision order;
+  time lookup uses only the effective timestamps. No migration tie-policy question remains.
+
+- Apply the final review decisions: known durable cleanup failures return success;
+  unknown durability stops writes and throws CommitOutcomeUnknownException without
+  fsync retry. Add revision-token notification replay, queue default 10,000 and close
+  default 5 seconds, callback-scoped views and no retry of listener exceptions.
+  Reject beta stores with history-preserving export/import guidance; require an
+  immutable 1.0 corpus in CI. Truncate fails fast for affected open readers. Backups
+  pin startup resource/revision membership; dropping a pinned resource fails fast.
+
+- Classify Java declarations into the decided small stable core, labelled expert tier
+  and internal tier. Include query/diff entry points and member-level exclusions.
+  Require a default CI signature-compatibility gate from 1.0; no JPMS export lockdown.
+
+- Resolve FMT-302: logical HOT height counts indirect levels and MUST satisfy
+  `h <= D <= 8 * L` for distinct discriminative positions D and longest encoded
+  key length L. Require validator enforcement; typical measured heights remain
+  informative. Record current fixed-depth and undefined-bit validation gaps.
+
+- Resolve timestamp ties and backwards clocks: TXN-310 and VER-201–204 require
+  `max(wall clock, previous commit timestamp + 1 microsecond)`, precision-preserving
+  persistence and unique timestamp lookup. Record current millisecond-storage gaps
+  and the remaining wire-encoding, legacy-store and custom-input integration details.
+
+- Add the P0 CONV, FMT, TXN, VER core, persisted CONF, JAPI/manifest and REST draft
+  chapters against baseline `13f65148b117b9c8e1858a7f1510d2f65501bad9`. Preserve TXN
+  sample IDs and record implementation gaps separately from decisions. Include the
+  decided asynchronous hook dispatcher, bounded close, three-way commit outcome contract,
+  no IN_MEMORY marker, current-head revert append, illegal one-child HOT nodes,
+  HOT discriminative-bit height bound, unchanged three opt-in/layout choices,
+  official work budgets, JSON type-change replacement identity and copied derived backups.
+  Trace tooling, runtime fixes, annotations and CI changes are planned follow-up work.
+
 - Adopt the 24 NATIVE requirements for stable native ABI 1.0, with JSON and XML
   parity and C/C++/Rust/Python embedding required together. Add the complete
   declaration header, numeric/layout/symbol manifests and executable header
