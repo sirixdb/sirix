@@ -593,9 +593,11 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
   offset repointed; dead bytes are reclaimed only by `compact()` when an append does not fit
   (`:2450-2507`, `:2760-2791`).
 - **Ordinary in-leaf search**: common-prefix check, then for 2..32 entries a lazily built PEXT index
-  over the leaf's own discriminative bits (spanning < 8 bytes, ≤ 32 bits) searched with `ByteLaneSearch.equal`
-  for byte keys with at most eight entries, otherwise SIMD equality, and
-  verified against the full suffix, otherwise binary search over suffixes; result is the index or
+  over the leaf's own discriminative bits (spanning < 8 bytes, ≤ 32 bits). `ByteLaneSearch.equal`
+  handles byte keys with at most eight entries; other partial-key searches use 256-bit SIMD equality
+  when the runtime's preferred vector width is at least 256 bits, or scalar equality on narrower
+  runtimes. Candidates are verified against the full suffix, with binary search over suffixes as
+  the fallback; the result is the index or
   `−(insertionPoint + 1)` (`:619-686`, `:833`, `:844-928`, `:1037-1046`).
 - **Side-reference map**: `PageReference`s to overflow pages owned by entries (used by projection
   segments and referenced CAS/VALIDTIME posting chunks), with a lifecycle ACTIVE → RETIRED → RELEASING → RELEASED
@@ -611,7 +613,8 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 
 #### 3.2.3 Serialized layout (`PageKind.HOT_LEAF_PAGE`)
 
-Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
+Writer `PageKind.serializeHOTLeaf` (raw layout in `serializeRawHOTLeaf`);
+reader `PageKind.deserializeHOTLeaf`.
 Body fields below follow the shared envelope and any extension block.
 
 | # | Width | Field | Notes |
@@ -624,16 +627,16 @@ Body fields below follow the shared envelope and any extension block.
 | 6 | u8 | index type id | stable ids defined by `IndexType`, pinned by `GoldenFormatTest.indexTypeIdsArePinned` |
 | 7 | u16 LE | commonPrefixLen | |
 | 8 | bytes | commonPrefix | |
-| 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`:5941-5944`, `:5962-5964`) |
+| 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`PageKind.serializeRawHOTLeaf`) |
 | 10 | i32 LE | usedSlotMemorySize | full image: sum of live slot sizes, excluding retired bytes; sparse image: size of the packed dirty entries |
 | 11 | count × i32 LE | slotOffsets | full: original offsets when already dense, otherwise offsets into live entries packed in key order; sparse: offsets into the packed dirty entries |
 | 12 | raw bytes or codec frame | heap | representation defined by the [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0). Full images contain live entries only; sparse images contain packed dirty entries. |
-| 13 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`:6725-6763`, `:5910-5917`) |
+| 13 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`PageKind.serializeSegmentRefs`) |
 
 - Full-image packing changes only the serialized offsets and payload; the source leaf's offsets,
   dirty state and native ownership remain unchanged (`PageKind.HOT_LEAF_PAGE.serializePage`).
 - **Sparse vs. full image**: `sparse = versioningType != FULL && completePageRef != null && hasDirty()`
-  (`page/PageKind.java:5907-5908`). A sparse image holds only the entries changed since the page was
+  (`PageKind.serializeRawHOTLeaf`). A sparse image holds only the entries changed since the page was
   copied from its previous image. Fresh pages from splits and structural rewrites are full images
   with `completeDump = true` (`hot/AbstractHOTIndexWriter.java:6871-6875`; `hot/page/HOTLeafPage.java:3010-3018`).
 - `PageKind.deserializeHOTLeaf` rejects entry counts above 512 and packed byte counts outside

@@ -347,8 +347,10 @@ The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a sepa
 It checks fresh interval roots and all companion postings after truncation reuses a revision number,
 and the surviving historical revision, under all four versioning types. Run it alone with
 `./gradlew :sirix-core:validTimeDisabledLookupCacheTest`; enabled-cache tests retain their usual settings.
-The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest` in a separate JVM so
-inline Mockito mocks in other suites cannot affect its allocation measurements. Run that suite alone
+The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest`,
+`InlineSlotCopyAllocationBudgetTest`, `HOTLeafCodecAllocationTest` and
+`HOTLeafLookupAllocationTest` in a separate JVM so inline Mockito mocks in other
+suites cannot affect their allocation measurements. Run this normal-width fork alone
 with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
 The normal core task also runs `:sirix-core:hotLeafNarrowVectorAllocationTest`, a clean
 HotSpot C2 fork with `-XX:MaxVectorSize=16`. It retains the strict raw/encoded codec

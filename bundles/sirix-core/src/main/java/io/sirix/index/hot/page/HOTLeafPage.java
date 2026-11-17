@@ -1062,8 +1062,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Equality search on 8-bit dense partial keys: machine-word lanes for up to eight entries,
-   * otherwise SIMD over the full partial-key array.
+   * Equality search on 8-bit dense partial keys; machine-word lanes cover up to eight entries.
    */
   private int simdEqualitySearchBytes(byte searchPK) {
     if (entryCount <= Long.BYTES) {
@@ -4187,9 +4186,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * keys its live-slot map by the ADDRESS IT HANDED OUT — the buffer's base. A slice's address is
    * {@code base + offset}, so binding from it misses, yields
    * {@link FrameSlotAllocator#NO_SLOT_COORDINATES}, and silently degrades {@link #validateStamp} to a
-   * bare closed-flag test for the whole page lifetime. That is the dominant read path, so the entire
-   * optimistic-stamp protocol would be inert exactly where it is needed. The deserializer therefore
-   * hands the base segment over via {@link #setStampBaseSegment}.
+   * bare closed-flag test for the whole page lifetime. The deserializer therefore hands the base
+   * segment over via {@link #setStampBaseSegment}. Encoded reads use a zero-offset view, which
+   * retains the allocation's address and needs no base override.
    * </p>
    */
   private volatile MemorySegment stampBaseSegment;
@@ -4197,7 +4196,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Tell this page which segment's address identifies its allocator slot. Called by the page
    * deserializer immediately after construction, before the page is published, whenever
-   * {@link #slotMemory} is a slice of a larger allocation rather than the allocation itself.
+   * {@link #slotMemory} starts at a nonzero offset within its allocation.
    *
    * @param base the segment as returned by the allocator; {@code null} clears the override
    */
