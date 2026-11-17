@@ -14,7 +14,6 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
 import io.sirix.page.interfaces.Page;
 
-import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -169,9 +168,10 @@ public final class RAMStorage implements IOStorage {
 
     @Override
     public PageReference readUberPageReference() {
-      final Page page = mResourceFileStorage.get(mUberPageKey.get(-1));
+      final Long key = mUberPageKey.get(-1);
+      final Page page = mResourceFileStorage.get(key);
       final PageReference uberPageReference = new PageReference();
-      uberPageReference.setKey(-1);
+      uberPageReference.setKey(key);
       uberPageReference.setPage(page);
       return uberPageReference;
     }

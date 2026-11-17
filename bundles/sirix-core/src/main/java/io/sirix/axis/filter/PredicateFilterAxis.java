@@ -62,6 +62,11 @@ public final class PredicateFilterAxis extends AbstractAxis {
   }
 
   @Override
+  public void close() {
+    predicate.close();
+  }
+
+  @Override
   public final void reset(final long nodeKey) {
     super.reset(nodeKey);
     if (predicate != null) {

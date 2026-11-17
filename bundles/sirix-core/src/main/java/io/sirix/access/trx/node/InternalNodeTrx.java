@@ -9,6 +9,12 @@ import io.sirix.api.NodeTrx;
  */
 public interface InternalNodeTrx<N extends NodeTrx> extends NodeTrx {
 
+  void abort();
+
+  void assertCanClose();
+
+  void runStorageMaintenance(Runnable maintenance);
+
   N setBulkInsertion(boolean bulkInsertion);
 
   void adaptHashesInPostorderTraversal();

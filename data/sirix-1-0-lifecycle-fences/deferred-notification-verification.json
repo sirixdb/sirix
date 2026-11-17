@@ -1,0 +1,1108 @@
+{
+  "findings": [
+    "review-deferred-notification-history",
+    "review-bounded-notification-admission"
+  ],
+  "starting_head": "320ce6ab011e9ee3d054f3b0c789622485ca35a6",
+  "review_base": "ce56286b86c0870cea3f652e1fdf319f14641bea",
+  "recorded_utc": "2026-11-17T18:00:02.797034+00:00",
+  "invariants": [
+    "Admitted deferred work retains its original resource/revision history until delivery or explicit permitted abandonment",
+    "The single configured capacity includes active, executor-queued and retirement-deferred jobs; overflow neither waits for consumers nor invokes callbacks on the committer",
+    "History refusal does not discard conflicting work or wait for another retirement owner; physical worker and callback reentry fences remain in force"
+  ],
+  "changes": [
+    "Immutable notification jobs carry resource ID and revision to delivery; no already-open reader is retained by a queued job",
+    "Shared page history admission rejects removal of a protected deferred revision, retaining work for delivery and safe retry",
+    "Unrelated resources and retained target revisions remain admissible; ordinary retirement remains shared",
+    "Bounded ArrayBlockingQueue plus a combined admission budget covers both queues and active delivery",
+    "Best-effort overflow, repeated publication observations, revision exposure and lack of resume/replay are documented"
+  ],
+  "boundary_trace": [
+    "Node and raw bound page maintenance acquire/fence the owning node before the shared page history check",
+    "Unbound page maintenance fences its append worker and reaches the same check",
+    "Derived history uses that page boundary with its own resource identity; deferred source jobs do not blanket-block unrelated derived resources",
+    "Post-hooks and revision listeners both use the recorded revision to open their committed view",
+    "Executor/deferred transfer reuses the same immutable job; delivery, submission failure, timeout and close release accounting and queued references"
+  ],
+  "selected": {
+    "tests": 1496,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5
+  },
+  "selected_suites": [
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.AsyncCommitTest.xml",
+      "name": "io.sirix.access.AsyncCommitTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.DatabaseCloseStrandingTest.xml",
+      "name": "Database close retains failed cleanup for retry",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "name": "io.sirix.access.DatabaseNotificationLifecycleTest",
+      "tests": 325,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.DatabaseOwnershipTest.xml",
+      "name": "io.sirix.access.DatabaseOwnershipTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.xml",
+      "name": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest",
+      "tests": 81,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.ResourceSessionFactoryTest.xml",
+      "name": "io.sirix.access.ResourceSessionFactoryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest.xml",
+      "name": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.node.CommitSafetyTest.xml",
+      "name": "io.sirix.access.trx.node.CommitSafetyTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.node.IndexCatalogueCacheTest.xml",
+      "name": "io.sirix.access.trx.node.IndexCatalogueCacheTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "name": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+      "tests": 143,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.node.SharedCallbackLifetimeTest.xml",
+      "name": "io.sirix.access.trx.node.SharedCallbackLifetimeTest",
+      "tests": 84,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.node.TransactionExecutionLockTest.xml",
+      "name": "io.sirix.access.trx.node.TransactionExecutionLockTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.node.WriterCatalogueHandoffTest.xml",
+      "name": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.page.AsyncFlushFailurePathTest.xml",
+      "name": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.page.RefusedOverflowLeafTableTest.xml",
+      "name": "io.sirix.access.trx.page.RefusedOverflowLeafTableTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.access.trx.page.WriterConstructionFailureCleanupTest.xml",
+      "name": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.BasicJsonDiffWorkBudgetTest.xml",
+      "name": "io.sirix.budget.BasicJsonDiffWorkBudgetTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.ChangeLogWorkBudgetTest.xml",
+      "name": "io.sirix.budget.ChangeLogWorkBudgetTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.CommitReinstantiationWorkBudgetTest.xml",
+      "name": "io.sirix.budget.CommitReinstantiationWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.DerivedMaintainerWorkBudgetTest.xml",
+      "name": "io.sirix.budget.DerivedMaintainerWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.HOTHistoricalBlobReadWorkBudgetTest.xml",
+      "name": "io.sirix.budget.HOTHistoricalBlobReadWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.HOTPostingFragmentMergeWorkBudgetTest.xml",
+      "name": "io.sirix.budget.HOTPostingFragmentMergeWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.IndexCatalogueResolutionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.IndexCatalogueResolutionWorkBudgetTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.JsonBulkInsertCollectionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonBulkInsertCollectionWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.JsonDiffBookkeepingWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonDiffBookkeepingWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.JsonFMSEInsertionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonFMSEInsertionWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.JsonHashingWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonHashingWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.JsonIdentityReplayWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonIdentityReplayWorkBudgetTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.JsonStructuralHashingWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonStructuralHashingWorkBudgetTest",
+      "tests": 32,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.JsonValidTimeIdentityWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonValidTimeIdentityWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.PostingDeltaWorkBudgetTest.xml",
+      "name": "io.sirix.budget.PostingDeltaWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.ScratchBufferWorkBudgetTest.xml",
+      "name": "io.sirix.budget.ScratchBufferWorkBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.SparseRevisionIndexWorkBudgetTest.xml",
+      "name": "io.sirix.budget.SparseRevisionIndexWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.SuccessorPathSummaryWorkBudgetTest.xml",
+      "name": "io.sirix.budget.SuccessorPathSummaryWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.TemporalAggregateCatalogueWorkBudgetTest.xml",
+      "name": "io.sirix.budget.TemporalAggregateCatalogueWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.TemporalAggregateMaintenanceWorkBudgetTest.xml",
+      "name": "io.sirix.budget.TemporalAggregateMaintenanceWorkBudgetTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.ValidTimeTimestampAllocationBudgetTest.xml",
+      "name": "io.sirix.budget.ValidTimeTimestampAllocationBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.WorkCaptureTest.xml",
+      "name": "io.sirix.budget.WorkCaptureTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.budget.WriterListenerRetentionBudgetTest.xml",
+      "name": "io.sirix.budget.WriterListenerRetentionBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.index.aggregate.DerivedIndexMaintainerTest.xml",
+      "name": "io.sirix.index.aggregate.DerivedIndexMaintainerTest",
+      "tests": 71,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.index.projection.BloomOpenChunkFetchWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.BloomOpenChunkFetchWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.index.projection.ProjectionIdentityImportWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionIdentityImportWorkBudgetTest",
+      "tests": 112,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.index.projection.ProjectionSortedGroupRoutingWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionSortedGroupRoutingWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.index.projection.ProjectionSortedRetentionWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionSortedRetentionWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.index.projection.ProjectionTailAppendWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionTailAppendWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-core/TEST-io.sirix.index.projection.ProjectionUnchangedRowWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionUnchangedRowWorkBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.access.trx.node.XmlPendingUpdatePublicationTest.xml",
+      "name": "io.sirix.access.trx.node.XmlPendingUpdatePublicationTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.AppendMutationBoundaryTest.xml",
+      "name": "io.sirix.query.AppendMutationBoundaryTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.MutationGateRegressionTest.xml",
+      "name": "io.sirix.query.MutationGateRegressionTest",
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.MutationGateTest.xml",
+      "name": "io.sirix.query.MutationGateTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.CASLookupWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.CASLookupWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.CASMultiMatchWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.CASMultiMatchWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ColumnarSerializationWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ColumnarSerializationWorkBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.EmptyAttributeAxisWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.EmptyAttributeAxisWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.IndexRoutedGroupWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.IndexRoutedGroupWorkBudgetTest",
+      "tests": 54,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.IntervalRangeJoinWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.IntervalRangeJoinWorkBudgetTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.LetMaterializationWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.LetMaterializationWorkBudgetTest",
+      "tests": 65,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.NativeImageDowncallConfigTest.xml",
+      "name": "io.sirix.query.budget.NativeImageDowncallConfigTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ProjectionLoadPinnedPageBudgetTest.xml",
+      "name": "io.sirix.query.budget.ProjectionLoadPinnedPageBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ProjectionQueryWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ProjectionQueryWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ProviderPurityWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ProviderPurityWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.StoredDateTimeAllocationBudgetTest.xml",
+      "name": "io.sirix.query.budget.StoredDateTimeAllocationBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.TemporalAggregateCatchUpWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.TemporalAggregateCatchUpWorkBudgetTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.TemporalAggregateDictionaryWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.TemporalAggregateDictionaryWorkBudgetTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.TemporalAggregateSourceWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.TemporalAggregateSourceWorkBudgetTest",
+      "tests": 32,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ValidTimeRunWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ValidTimeRunWorkBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ValidTimeSliceWorkBudgetTest",
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.json.BasicJsonDBStoreTest.xml",
+      "name": "io.sirix.query.json.BasicJsonDBStoreTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.json.IndexedArrayPositionTest.xml",
+      "name": "io.sirix.query.json.IndexedArrayPositionTest",
+      "tests": 48,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-mcp/TEST-io.sirix.mcp.BoundedDiffWorkBudgetTest.xml",
+      "name": "io.sirix.mcp.BoundedDiffWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-mcp/TEST-io.sirix.mcp.BoundedQueryResultWorkBudgetTest.xml",
+      "name": "io.sirix.mcp.BoundedQueryResultWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "build/deferred-notification-full-selection/sirix-mcp/TEST-io.sirix.mcp.BoundedSerializationAllocationBudgetTest.xml",
+      "name": "io.sirix.mcp.BoundedSerializationAllocationBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "auxiliary": {
+    "tests": 69,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2
+  },
+  "auxiliary_suites": [
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaRejectGlobalTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticGlobalTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/dictionaryReadViewAllocationTest/TEST-io.sirix.budget.InlineSlotCopyAllocationBudgetTest.xml",
+      "name": "io.sirix.budget.InlineSlotCopyAllocationBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/dictionaryReadViewAllocationTest/TEST-io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest.xml",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/allocatorColdStartupTest/TEST-io.sirix.access.AllocatorColdStartupTest.xml",
+      "name": "io.sirix.access.AllocatorColdStartupTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochStoreIdentityTest.xml",
+      "name": "io.sirix.access.trx.page.StorageEpochStoreIdentityTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochFsstInlineDecisionTest.xml",
+      "name": "io.sirix.access.trx.page.StorageEpochFsstInlineDecisionTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochDifferentialTest.xml",
+      "name": "io.sirix.access.trx.page.StorageEpochDifferentialTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/cleanerStartupTest/TEST-io.sirix.utils.CleanerStartupTest.xml",
+      "name": "io.sirix.utils.CleanerStartupTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaRejectSkipTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/configurationStartupTest/TEST-io.sirix.access.ConfigurationStartupTest.xml",
+      "name": "io.sirix.access.ConfigurationStartupTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.memorymapped.ArenaGenerationLifetimeTest.xml",
+      "name": "io.sirix.io.memorymapped.ArenaGenerationLifetimeTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 2
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/validTimeDisabledLookupCacheTest/TEST-io.sirix.index.interval.ValidTimeDisabledLookupCacheTest.xml",
+      "name": "io.sirix.index.interval.ValidTimeDisabledLookupCacheTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/bitemporalLoaderAllocationTest/TEST-io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest.xml",
+      "name": "io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/translatorThresholdIndependentTest/TEST-io.sirix.query.SirixTranslatorThresholdTest.xml",
+      "name": "io.sirix.query.SirixTranslatorThresholdTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/translatorThresholdLegacyTest/TEST-io.sirix.query.SirixTranslatorThresholdTest.xml",
+      "name": "io.sirix.query.SirixTranslatorThresholdTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/temporalNodeReaderLifetimeGenericTest/TEST-io.sirix.query.function.xml.io.TemporalNodeReaderLifetimeTest.xml",
+      "name": "io.sirix.query.function.xml.io.TemporalNodeReaderLifetimeTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "skips": [
+    {
+      "report": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandPlainCohortsWithMatchFirst()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandInexactIntervalsHaveZeroReadEmptyStab()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandSelectiveIntervalsWithMatchFirst()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandSelectiveIntervalsWithMatchLast()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "build/deferred-notification-full-selection/sirix-query/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandPlainCohortsWithMatchLast()",
+      "reason": "Configured skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.memorymapped.ArenaGenerationLifetimeTest.xml",
+      "case": "currentGenerationStaysLiveUntilStorageClose()",
+      "reason": "org.opentest4j.TestAbortedException: Assumption failed: assumption is not true"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.memorymapped.ArenaGenerationLifetimeTest.xml",
+      "case": "oldGenerationClosesOnlyAfterItsLastReaderReturns()",
+      "reason": "org.opentest4j.TestAbortedException: Assumption failed: assumption is not true"
+    }
+  ],
+  "focused_retry": {
+    "result": {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "name": "io.sirix.access.DatabaseNotificationLifecycleTest",
+      "tests": 325,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "reason": "Corrected the new listener oracle to preserve existing repeated publication observations. It now checks every admitted original job, exact original values, retained ordering and a strict capacity. No production source changed after the full selection.",
+    "initial_full_selection": {
+      "tests": 1496,
+      "failures": 16,
+      "errors": 0,
+      "skipped": 5
+    },
+    "final_aggregate": "Replace only the retried notification suite; all other selected results are the unchanged successful full-selection results"
+  },
+  "new_cases": {
+    "deferred_history_json_xml_node_bound_unbound_hook_listener_with_interruption": 24,
+    "durable_commit_under_active_and_deferred_saturation": 8,
+    "mixed_backlog_and_abandonment": 1,
+    "history_scope_resource_and_revision_selection": 1,
+    "capacity_validation": 1
+  },
+  "counterfactual": {
+    "result": {
+      "tests": 32,
+      "failures": 32,
+      "errors": 0,
+      "skipped": 0
+    },
+    "suites": [
+      {
+        "path": "bundles/sirix-core/build/test-results/deferredNotificationBaselineRegression/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+        "name": "io.sirix.access.DatabaseNotificationLifecycleTest",
+        "tests": 32,
+        "failures": 32,
+        "errors": 0,
+        "skipped": 0
+      }
+    ],
+    "expected_failures_are_not_passing_checks": true,
+    "failures": [
+      {
+        "case": "deferred publication \"json\", \"node\", \"post\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"node\", \"post\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"node\", \"listener\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"node\", \"listener\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"bound\", \"post\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"bound\", \"post\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"bound\", \"listener\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"bound\", \"listener\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"unbound\", \"post\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"unbound\", \"post\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"unbound\", \"listener\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"json\", \"unbound\", \"listener\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"node\", \"post\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"node\", \"post\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"node\", \"listener\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"node\", \"listener\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"bound\", \"post\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"bound\", \"post\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"bound\", \"listener\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"bound\", \"listener\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"unbound\", \"post\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"unbound\", \"post\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"unbound\", \"listener\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "deferred publication \"xml\", \"unbound\", \"listener\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: Expected java.lang.IllegalStateException to be thrown, but nothing was thrown."
+      },
+      {
+        "case": "bounded publications \"json\", \"post\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: expected: <3> but was: <8>"
+      },
+      {
+        "case": "bounded publications \"json\", \"post\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: expected: <3> but was: <8>"
+      },
+      {
+        "case": "bounded publications \"json\", \"listener\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: expected: <3> but was: <16>"
+      },
+      {
+        "case": "bounded publications \"json\", \"listener\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: expected: <3> but was: <16>"
+      },
+      {
+        "case": "bounded publications \"xml\", \"post\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: expected: <3> but was: <8>"
+      },
+      {
+        "case": "bounded publications \"xml\", \"post\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: expected: <3> but was: <8>"
+      },
+      {
+        "case": "bounded publications \"xml\", \"listener\", false",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: expected: <3> but was: <16>"
+      },
+      {
+        "case": "bounded publications \"xml\", \"listener\", true",
+        "type": "org.opentest4j.AssertionFailedError",
+        "message": "org.opentest4j.AssertionFailedError: expected: <3> but was: <16>"
+      }
+    ],
+    "frozen_sources": {
+      "io/sirix/access/DatabaseNotifications.java": "c4a4b254366a6f43715dcde7c53f774a3bf29ef0d325bbb558679a1ed8cc510c",
+      "io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "1836bafb7d2ffab138f955b196781f452020aed77bd6b6969243d540de07ac67",
+      "io/sirix/access/trx/node/AbstractResourceSession.java": "ab27e8f38e55b36225c902371a477dc6d751ab9a11a8464f8c4a79a16bb69e13",
+      "io/sirix/access/trx/node/InternalResourceSession.java": "7ca5f393e158565b28ed0cf16616c7353332e6f9ec1a967f6a32a3618c353a6f",
+      "io/sirix/access/trx/page/NodeStorageEngineWriter.java": "a8de7101ee7b50b6188f5d6733ad65872b2443716550ec97da6de1be4f761cae"
+    },
+    "scope": "Five independently compiled starting-HEAD lifecycle classes prepended to the current test runtime; no compatibility stubs"
+  },
+  "work_budgets": "Existing core/query/MCP selections passed without widened bounds",
+  "compiled_hot_regions": {
+    "baseline": "320ce6ab011e9ee3d054f3b0c789622485ca35a6",
+    "comparison": "independently compiled baseline sources against the same dependency classpath, javap instructions and exception tables with constant-pool indices normalized",
+    "regions": [
+      {
+        "class": "io.sirix.access.trx.node.AbstractNodeTrxImpl",
+        "method": "public void runLocked(java.lang.Runnable);",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.node.AbstractNodeTrxImpl",
+        "method": "protected void checkAccessAndCommit();",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.node.json.JsonNodeTrxImpl",
+        "method": "public io.sirix.api.json.JsonNodeTrx setNumberValue(java.lang.Number);",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.node.json.JsonNodeTrxImpl",
+        "method": "private io.sirix.api.json.JsonNodeTrx setNumberValueFused(java.lang.Number);",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.node.xml.XmlNodeTrxImpl",
+        "method": "public io.sirix.api.xml.XmlNodeTrx setValue(java.lang.String);",
+        "identical_instructions_and_exception_table": true
+      },
+      {
+        "class": "io.sirix.access.trx.page.NodeStorageEngineReader",
+        "method": "public <V extends io.sirix.node.interfaces.DataRecord> V getRecord(long, io.sirix.index.IndexType, int);",
+        "identical_instructions_and_exception_table": true
+      }
+    ],
+    "limits": [
+      "No runtime benchmark or native-code equivalence claim",
+      "Cold commit, callback dispatch, lifecycle retirement and revision-root ownership intentionally changed; not claimed identical",
+      "Frozen baseline is this fix-round starting HEAD, not original main"
+    ]
+  },
+  "runner": "All JVM/Gradle commands ran via the supplied heavy.sh; df / checked before each Gradle invocation with a 60 GB floor; no benchmark",
+  "commands": {
+    "full": "bash build/verify-deferred-notifications.sh",
+    "focused": "bash build/verify-deferred-notifications-focused.sh"
+  },
+  "logs": {
+    "build/verify-deferred-notifications.log": "474d14e14d8e1e2a023e9d1dd97f8b11bad3e3d17a35d7a0ea99d93d83f80397",
+    "build/verify-deferred-notifications-focused.log": "34a12cb9d318e4a49c044ad4832b9d341d19160ec16413be4459fdfca3d748d2"
+  },
+  "formatting": "Spotless Java apply limited to changed Java files",
+  "production_source_sha256": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseNotifications.java": "26c2fc5e89087462898e3d3e29459352d918d372a1d55fad4b9b30fe7777357f",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "b9da25f1e1bc9854fb16678f2cdc0bcb54d88ef53516aea8d92f2d0cca0c8922",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": "098e1a5fef9382f82b3712f76c8464b0cc4f7d650e97bc52f087f5723538c640",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java": "3a4fcfabe5a54103169121b5cdc5a9f7872d2ab85e0235fc1df89a9ce214eec4",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java": "50d7c292df0de7a991596c38781a6bbf78a1a071a1f958eeaf02416bae9c9c05",
+    "bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java": "72d56e5c102de1331e9f45e0af45fbccba178ae1ba5ac5534633764b0dce53e0"
+  },
+  "changed_test_sha256": {
+    "bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java": "9d325bb8d832a995ae8daf7f4a731864ac4e3be127b8768bc04eb092c997bbf3"
+  },
+  "limitations": [
+    "Results combine the full selection with a focused notification-suite retry after a test-oracle correction; the first run had 16 listener assertions requiring unrequested exactly-once observations",
+    "Compiled equality covers six selected methods against starting HEAD, not the new main base; no runtime or native equivalence is claimed",
+    "Fresh scoped PIT, repository-wide gates, post-custody probes and delivery remain with the outer executor; historical mutation counts do not validate this fix",
+    "Resume/replay and durable notification infrastructure are intentionally not implemented"
+  ]
+}

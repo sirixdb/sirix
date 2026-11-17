@@ -5,12 +5,15 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 
 /**
- * Manages database dependencies: factory methods for creating JSON and XML databases, and a pool
- * of open database sessions.
+ * Manages database dependencies: factory methods for creating JSON and XML databases, and a pool of
+ * open database sessions.
  *
  * @author Joao Sousa
  */
-public interface DatabaseManager {
+public interface DatabaseManager extends AutoCloseable {
+
+  @Override
+  void close();
 
   /**
    * Returns the factory used to create JSON database instances.

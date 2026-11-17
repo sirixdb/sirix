@@ -86,6 +86,7 @@ public final class MutationGate {
   @SuppressWarnings("java:S2222")
   public static Handle acquireDatabase(final Path databaseFile) {
     final Path path = key(databaseFile);
+    DatabaseNotifications.assertMayRetireDatabase(path);
     final var entry = retain(DATABASES, path, ReentrantReadWriteLock::new);
     final var gate = entry.lock.writeLock();
     gate.lock();
@@ -109,6 +110,7 @@ public final class MutationGate {
   public static Handle acquireResource(final Path databaseFile, final String resourceName) {
     Objects.requireNonNull(resourceName, "resourceName");
     final Path path = key(databaseFile);
+    DatabaseNotifications.assertMayRetireDatabase(path);
     final Path resourcePath = path.resolve(ResourceConfiguration.canonicalResourceName(resourceName)).normalize();
     final var entry = retain(DATABASES, path, ReentrantReadWriteLock::new);
     final var database = entry.lock.readLock();

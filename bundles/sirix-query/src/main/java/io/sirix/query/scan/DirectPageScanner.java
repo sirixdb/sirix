@@ -15,6 +15,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.settings.Constants;
+import io.sirix.utils.WorkerTermination;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -159,7 +160,7 @@ public final class DirectPageScanner {
   }
 
   @FunctionalInterface
-  private interface ChunkTask {
+  interface ChunkTask {
     void run(int threadIndex) throws Exception;
   }
 
@@ -169,6 +170,11 @@ public final class DirectPageScanner {
       t.setDaemon(true);
       return t;
     });
+    parallel(threads, task, exec);
+  }
+
+  static void parallel(final int threads, final ChunkTask task, final ExecutorService exec) {
+    boolean completed = false;
     try {
       Future<?>[] futures = new Future[threads];
       for (int i = 0; i < threads; i++) {
@@ -180,10 +186,14 @@ public final class DirectPageScanner {
       }
       for (var f : futures)
         f.get();
+      completed = true;
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Parallel scan interrupted", e);
     } catch (Exception e) {
       throw new RuntimeException("Parallel scan failed", e);
     } finally {
-      exec.shutdown();
+      WorkerTermination.shutdownAndAwait(exec, !completed);
     }
   }
 }

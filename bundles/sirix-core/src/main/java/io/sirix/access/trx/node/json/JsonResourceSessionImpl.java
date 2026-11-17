@@ -52,7 +52,7 @@ import io.sirix.io.IOStorage;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.locks.ReentrantLock;
+import io.sirix.access.trx.node.TransactionExecutionLock;
 
 /**
  * Provides node transactions on different revisions of JSON resources.
@@ -149,7 +149,7 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
     // Synchronize commit and other public methods if needed.
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
     final var lock = !autoCommitDelay.isZero()
-        ? new ReentrantLock()
+        ? new TransactionExecutionLock()
         : null;
     final var resourceConfig = getResourceConfig();
     return new JsonNodeTrxImpl(this.databaseName, this, nodeReadOnlyTrx, pathSummaryWriter, maxNodeCount, lock,

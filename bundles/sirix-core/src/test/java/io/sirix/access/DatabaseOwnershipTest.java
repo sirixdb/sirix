@@ -3,8 +3,10 @@ package io.sirix.access;
 import io.brackit.query.atomic.QNm;
 import io.sirix.api.Database;
 import io.sirix.api.NodeTrx;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.ResourceSession;
 import io.sirix.access.trx.node.AbstractNodeTrxImpl;
+import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -38,6 +40,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.OpenOption;
 import java.util.ArrayList;
@@ -56,7 +59,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -68,6 +70,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 
 final class DatabaseOwnershipTest {
   @TempDir
@@ -838,7 +841,12 @@ final class DatabaseOwnershipTest {
       } else {
         ((XmlNodeTrx) writer).insertElementAsFirstChild(new QNm("pending"));
       }
-      setWriterField(writer, "asyncCommitFailure", new IOException("injected hardening failure"));
+      final StorageEngineWriter original = writer.getStorageEngineWriter();
+      final StorageEngineWriter refusing = mock(StorageEngineWriter.class, delegatesTo(original));
+      final SirixIOException refusal = new SirixIOException("writer teardown refused");
+      doThrow(refusal).when(refusing).rollback();
+      doThrow(refusal).when(refusing).close();
+      setWriterField(writer, "storageEngineWriter", refusing);
       try (final Database<?> sibling = forceRemoval
           ? openDatabase(path, type)
           : null) {
@@ -873,8 +881,7 @@ final class DatabaseOwnershipTest {
               other.getRtxIndexController(other.getMostRecentRevisionNumber()));
         }
       } finally {
-        setWriterField(writer, "asyncCommitFailure", null);
-        setWriterField(writer, "asyncCommitTerminalFailure", false);
+        setWriterField(writer, "storageEngineWriter", original);
       }
       if (forceRemoval) {
         Databases.removeDatabase(path);
@@ -1293,6 +1300,7 @@ final class DatabaseOwnershipTest {
           }
         }
         final ResourceSession<?, ?> session = database.beginResourceSession("resource");
+        ((AbstractResourceSession<?, ?>) session).getNotifications().setCloseTimeout(Duration.ofSeconds(20));
         final NodeTrx writer = session.beginNodeTrx(10, TimeUnit.MILLISECONDS);
         writer.addPreCommitHook(_ -> {
           if (firstHook.compareAndSet(true, false)) {
@@ -1322,9 +1330,7 @@ final class DatabaseOwnershipTest {
                     });
                     assertThrows(IllegalStateException.class, () -> Databases.removeDatabase(path));
                   } else {
-                    try (final Database<?> concurrent = openDatabase(path, type)) {
-                      assertTrue(concurrent.isOpen());
-                    }
+                    assertThrows(IllegalStateException.class, database::close);
                   }
                 }
                 default -> throw new IllegalArgumentException(callback);
@@ -1337,9 +1343,12 @@ final class DatabaseOwnershipTest {
           }
         });
         assertTrue(hookEntered.await(30, TimeUnit.SECONDS));
-        final Field lockField = AbstractNodeTrxImpl.class.getDeclaredField("lock");
-        lockField.setAccessible(true);
-        final ReentrantLock transactionLock = (ReentrantLock) Objects.requireNonNull(lockField.get(writer));
+        final DatabaseNotifications notifications = ((AbstractResourceSession<?, ?>) session).getNotifications();
+        final Field progressField = DatabaseNotifications.class.getDeclaredField("progress");
+        progressField.setAccessible(true);
+        final Object progress = Objects.requireNonNull(progressField.get(notifications));
+        final Field acceptingField = DatabaseNotifications.class.getDeclaredField("accepting");
+        acceptingField.setAccessible(true);
         final Thread closer = Thread.ofPlatform().daemon().unstarted(() -> {
           try {
             if (forceRemoval) {
@@ -1355,11 +1364,17 @@ final class DatabaseOwnershipTest {
         try {
           closer.start();
           final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-          while (!transactionLock.hasQueuedThread(closer) && !cleanupFinished.isDone()
-              && System.nanoTime() < deadline) {
+          boolean paused = false;
+          while (!cleanupFinished.isDone() && System.nanoTime() < deadline) {
+            synchronized (progress) {
+              paused = !acceptingField.getBoolean(notifications);
+            }
+            if (paused) {
+              break;
+            }
             Thread.sleep(1);
           }
-          assertTrue(transactionLock.hasQueuedThread(closer));
+          assertTrue(paused);
           System.out.println("READY");
           System.out.flush();
           System.in.read();

@@ -36,10 +36,22 @@ public interface NodeTrx extends NodeReadOnlyTrx {
     return commit(commitMessage, null);
   }
 
+  /**
+   * Commit modifications. Lifecycle reentrancy from pre/post hooks or revision listeners for this
+   * database, including another user session, is rejected with IllegalStateException before acquiring
+   * execution locks.
+   *
+   * @param commitMessage optional message
+   * @param commitTimeStamp optional configured custom timestamp
+   * @return this transaction
+   */
   NodeTrx commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp);
 
   /**
-   * Rollback all modifications of the exclusive write transaction.
+   * Rollback all modifications of the exclusive write transaction. A failed rollback keeps mutations
+   * and commits blocked until rollback successfully reconstructs the transaction. Calling rollback on
+   * a closed transaction is rejected before recovery handling. Lifecycle calls from this database's
+   * commit hooks/listeners are rejected with IllegalStateException before locking.
    *
    * @return NodeTrx return current instance
    * @throws SirixException if the changes in this revision couldn't be rollbacked
@@ -66,7 +78,8 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   NodeTrx revertTo(int revision);
 
   /**
-   * Add pre commit hook.
+   * Add a before-publication hook; see {@link PreCommitHook#preCommit(NodeReadOnlyTrx)} for veto
+   * timing and lifecycle restrictions.
    *
    * @param hook pre commit hook
    * @return NodeTrx return current instance
@@ -74,7 +87,8 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   NodeTrx addPreCommitHook(PreCommitHook hook);
 
   /**
-   * Add a post commit hook.
+   * Add an after-publication notification; see {@link PostCommitHook#postCommit(NodeReadOnlyTrx)} for
+   * cursor ownership, delivery timing, lifecycle restrictions and failure handling.
    *
    * @param hook post commit hook
    * @return NodeTrx return current instance
@@ -86,8 +100,10 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * mutators and commits against a delay-scheduled auto-commit. Read-side coordination that touches
    * transaction-owned state (e.g. wtx-visible index serving, which flushes pending index maintenance
    * and navigates the transaction) must run under it, or it races the auto-commit thread.
-   * Transactions configured without a lock (no auto-commit timer) are single-threaded by contract;
-   * the default simply runs {@code work}.
+   * Post-publication notifications run asynchronously with independent committed read views and do
+   * not borrow this execution scope. Close must be called after this scope returns, so it cannot join
+   * the scheduler under an enclosing lock. Transactions configured without a lock are single-threaded
+   * by contract; the default simply runs {@code work}.
    *
    * @param work the work to run under the transaction's lock
    */
@@ -117,7 +133,12 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   }
 
   /**
-   * Truncate to a revision.
+   * Truncate to a revision after fencing pending hardening and establishing bounded quiescence of
+   * revision-pinned notification views. A callback timeout retains history and reports failure.
+   * Notification delivery pauses while history is invalidated. Calls from commit hooks/listeners of
+   * the same database are rejected before locking, including through another user session. Invoke
+   * outside an enclosing {@link #runLocked(Runnable)} scope. The cursor still refers to the truncated
+   * revision afterwards; close or roll back the transaction without committing through it.
    *
    * @param revision the revision to truncate to
    * @return NodeTrx return current instance
@@ -134,8 +155,14 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   PathSummaryReader getPathSummary();
 
   /**
-   * Closing current WriteTransaction.
+   * Close the write transaction after fencing asynchronous storage work. Post notifications use
+   * independent session-owned views and are not awaited here. Writer-lock acquisition is bounded;
+   * timeout retains ownership for retry. Uncommitted modifications must first be committed or rolled
+   * back.
    *
+   * @throws IllegalStateException if invoked from a same-database commit callback (see
+   *         {@link PostCommitHook#postCommit(NodeReadOnlyTrx)}) or an enclosing execution scope (see
+   *         {@link #runLocked(Runnable)})
    * @throws SirixIOException if write transaction couldn't be closed
    */
   @Override

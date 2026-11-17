@@ -1,0 +1,118 @@
+{
+  "scope": "R11/review-1 confirmation and R12-R14 callback completion, reader ownership and executable oracles",
+  "starting_head": "74385a1f5d4cc2447e1f67a8c310dd6b10f1f603",
+  "result": "passed",
+  "selected_tests": 220,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "classes": [
+    {
+      "name": "io.sirix.access.AsyncCommitTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.DatabaseOwnershipTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.CommitSafetyTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+      "tests": 140,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.TransactionExecutionLockTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "log": "build/lifecycle-callback-completion-settled.log",
+  "command_script": "build/verify-callback-completion.sh",
+  "gradle_arguments": ":sirix-core:compileJava --rerun :sirix-core:compileTestJava --rerun :sirix-core:test --rerun \\\n --tests 'io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest' \\\n --tests 'io.sirix.access.trx.node.TransactionExecutionLockTest' \\\n --tests 'io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest' \\\n --tests 'io.sirix.access.trx.node.CommitSafetyTest' \\\n --tests 'io.sirix.access.trx.node.WriterCatalogueHandoffTest' \\\n --tests 'io.sirix.access.trx.page.AsyncFlushFailurePathTest' \\\n --tests 'io.sirix.access.trx.page.WriterConstructionFailureCleanupTest' \\\n --tests 'io.sirix.access.AsyncCommitTest' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.handlesShareWriterAndLatestViewUntilLastClose' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.closingLastUserSessionAllowsResourceRemovalAndRecreation' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.timedCommitHookCanOpenAnotherDatabaseDuringCleanup' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.timedCommitHookCannotAdmitResourcesOnClosingHandle' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.failedCleanupRetainsWritersAndOwnershipUntilRetry' \\\n --tests 'io.sirix.access.DatabaseOwnershipTest.delayedSessionReleaseStaysRegisteredUntilItReleasesItsBackend' \\\n --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g -PtestHeapMin=512m -PtestHeapMax=3g",
+  "execution": "Every invocation used heavy.sh; the script checked / immediately before Gradle with the updated 60 GB floor. The settled run forced fresh core production/test compilation and focused test execution. Automatic startup-test task dependencies also ran.",
+  "available_disk_bytes_before_settled_gradle": 97511133184,
+  "earlier_attempts": [
+    {
+      "log": "build/lifecycle-callback-completion-focused.log",
+      "result": "Production compiled; test compilation failed on an ambiguous overloaded dispatch method reference. No tests ran. Removed the unused no-argument production dispatch helper; unit oracles now exercise outermost lock release directly."
+    },
+    {
+      "log": "build/lifecycle-callback-completion-final.log",
+      "result": "220 cases completed; 207 passed, 13 failed. New overlap and late-reader cases passed. Twelve previously hidden assertions exposed per-user callback context despite shared resource listeners; the context now shares the same resource owner. One mock failed to publish terminal reader closure while throwing; it now models real node-close behavior without removing the injected failure or independent cleanup assertions."
+    }
+  ],
+  "findings": {
+    "R11/review-1": "The existing option-A guard and outermost execution/scheduler boundary reject reentrant lifecycle calls cleanly in the combined count+timer matrix, foreground, timer and async modes for JSON/XML. No new reentrant lifecycle deadlock was observed.",
+    "R12": "Late shared/direct node readers are closed after callback/worker fencing and before node/page deregistration. Final read registration serializes with teardown and cleans up a constructed node if final closure wins. Four format/failure cases verify actual navigation, node/page closure, guard release, independent cleanup and exact admission release.",
+    "R13": "Each async epoch owns a registered deferred batch. Foreground unlock skips deferred batches; hardening completion or the final closer dispatches each batch once. Two format cases prove foreground and successor mutation completion before a held durability barrier is released, no early notifications and ordered completion-dispatcher hooks.",
+    "R14": "Node notification Errors are retained and rethrown by final node close after independent delivery and ownership release; raw/unbound dispatch rethrows after restoring its phase. Order checks compare recorded identities outside callbacks, and publication assertions have externally awaited failure channels. Error regressions check later hooks, durable values and admission release."
+  },
+  "static_trace": "Traced initial/late direct/shared reader registration, finalization, foreground/scheduled/async callback delivery, inline construction/submission failure, success/hardening failure, completed-epoch/final-close races and repeated owner release. Removed the obsolete foreground slot wait and unused dispatch helper. Marker recovery, admission ordering, public dirty-close guard and untimed row locking contract remain intact.",
+  "source_sha256_provenance_only": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "d1e6dad75d19afd56d9dc93051d42f4ccd861a79c526961a2c90ebe386425308",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": "632e7f5103a50dfad9ff57deacde2d2d9bc754b421b46c666b454beee63db613",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java": "ae5cf2416fdd77d8270b4a2eaa2bce865e5d64cb17dcf1c76031b24d8efff293",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java": "44c1d5240a9d7961721f04c52c2ab8a9ff160af9312ac803112c1776fb7977ad",
+    "bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java": "9b401d14313e8663ee44bcc86e476d6a7c2e7505fb932d4d6903c2a8e14e50ba",
+    "bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java": "c31b600d51e81ac1eda4a46908395800e3364d099562cb305b962a5d0f10e2a9",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java": "fb4f16ab52aa8b944f0c8b60e37a1d3447c45e5bbaa6740d9f03feedf6f3a930",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java": "c3699daf6d67c63ea1ba792e1ffb3c8dd84e38fcf322eab6b163e7a20f9d7262",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/TransactionExecutionLockTest.java": "00d8fd6ac4bfdaa7c40b55677c1fc536536d35b951142dd0d37130e86db3d2bb"
+  },
+  "source_changes_after_passing_run": false,
+  "limitations": [
+    "No pre-fix executable reproduction is claimed; the concrete failing sequences were traced statically and the focused run exposed additional previously hidden oracle failures.",
+    "No full test/lint suite, PIT or performance benchmark was run in this phase.",
+    "The historical diagnostic 198-case pass and blocked 210-case attempt do not validate this revision."
+  ],
+  "outer_validation_pending": [
+    "Fresh scoped PIT for deferred batch dispatch, reader registration/finalization, shared callback context and Error observation; review each survivor and timeout separately.",
+    "Compiled-path/work-budget evidence for execution and read-admission boundaries; no unchanged-shape or latency benchmark claim is made.",
+    "Broader test/lint/CI phases and deferred post-outcome policy/probe follow-ups."
+  ]
+}

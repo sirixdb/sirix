@@ -1,0 +1,120 @@
+{
+  "scope": "R9 node-owner registration, scheduler fencing and write-permit release",
+  "starting_head": "282a63912643a24ab6b060885e7564140d32a87c",
+  "result": "passed",
+  "selected_totals": {
+    "tests": 182,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "classes": [
+    {
+      "class": "io.sirix.access.AsyncCommitTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.DatabaseOwnershipTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.CommitSafetyTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+      "tests": 108,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "late_window_matrix": {
+    "test": "NodeTransactionAbortLifecycleTest.lateConcurrentCloseRetainsOwnerUntilPermitRelease",
+    "cases": 16,
+    "formats": [
+      "json",
+      "xml"
+    ],
+    "first_closer": [
+      "public transaction close",
+      "session abort"
+    ],
+    "timed": [
+      false,
+      true
+    ],
+    "terminal_writer_failure": [
+      false,
+      true
+    ]
+  },
+  "log": "build/lifecycle-owner-release-final.log",
+  "runner": "heavy.sh ./gradlew :sirix-core:test covering eight focused classes (DatabaseOwnershipTest selected methods); --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx2g -PtestHeapMin=512m -PtestHeapMax=3g",
+  "excluded_startup_tasks": [
+    "dictionaryReadViewAllocationTest",
+    "storageEpochStoreIdentityTest",
+    "validTimeDisabledLookupCacheTest"
+  ],
+  "automatic_startup_dependencies": [
+    "allocatorColdStartupTest",
+    "cleanerStartupTest",
+    "configurationStartupTest",
+    "sharedArenaDiagnosticGlobalTest",
+    "sharedArenaDiagnosticSkipTest",
+    "sharedArenaRejectGlobalTest",
+    "sharedArenaRejectSkipTest"
+  ],
+  "disk_check": "More than 86 GB available on / before both heavy.sh Gradle commands",
+  "initial_attempt": {
+    "log": "build/lifecycle-owner-release-focused.log",
+    "existing_cases_passed": 166,
+    "fixture_failures": 16,
+    "cause": "An already-terminated scheduler skips awaitTermination; gate the successful isTerminated observation instead."
+  },
+  "outer_validation_pending": [
+    "fresh scoped PIT",
+    "compiled-path evidence",
+    "broader tests and work budgets",
+    "lint",
+    "CI"
+  ],
+  "deferred": "IN_MEMORY marker-policy follow-up remains outside this round"
+}

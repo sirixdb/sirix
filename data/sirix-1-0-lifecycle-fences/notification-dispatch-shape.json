@@ -1,0 +1,86 @@
+{
+  "baseline": "fc8b90710979f111bfcdd5563e44eb42879c24ce",
+  "comparison": "independently compiled baseline sources against the same dependency classpath, javap instructions and exception tables with constant-pool indices normalized",
+  "regions": [
+    {
+      "class": "io.sirix.access.trx.node.AbstractNodeTrxImpl",
+      "method": "public void runLocked(java.lang.Runnable);",
+      "identical_instructions_and_exception_table": true
+    },
+    {
+      "class": "io.sirix.access.trx.node.AbstractNodeTrxImpl",
+      "method": "protected void checkAccessAndCommit();",
+      "identical_instructions_and_exception_table": true
+    },
+    {
+      "class": "io.sirix.access.trx.node.json.JsonNodeTrxImpl",
+      "method": "public io.sirix.api.json.JsonNodeTrx setNumberValue(java.lang.Number);",
+      "identical_instructions_and_exception_table": true
+    },
+    {
+      "class": "io.sirix.access.trx.node.json.JsonNodeTrxImpl",
+      "method": "private io.sirix.api.json.JsonNodeTrx setNumberValueFused(java.lang.Number);",
+      "identical_instructions_and_exception_table": true
+    },
+    {
+      "class": "io.sirix.access.trx.node.xml.XmlNodeTrxImpl",
+      "method": "public io.sirix.api.xml.XmlNodeTrx setValue(java.lang.String);",
+      "identical_instructions_and_exception_table": true
+    },
+    {
+      "class": "io.sirix.access.trx.page.NodeStorageEngineReader",
+      "method": "public <V extends io.sirix.node.interfaces.DataRecord> V getRecord(long, io.sirix.index.IndexType, int);",
+      "identical_instructions_and_exception_table": true
+    }
+  ],
+  "lock_change": "TransactionExecutionLock now inherits standard ReentrantLock lock/unlock; obsolete unlock-time callback queues removed",
+  "limits": [
+    "No runtime benchmark or native-code equivalence claim",
+    "Cold commit, callback dispatch, lifecycle retirement and revision-root ownership intentionally changed; not claimed identical",
+    "Frozen baseline is this fix-round starting HEAD, not original main"
+  ],
+  "production_source_sha256": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java": "9f5698ff1c9576c06f5f72089d04ec5160fe3f3753cdf939dac8b0cc70427313",
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseManager.java": "24c9a508e9260bc7a4ebc8540d956be0a37c5ca1dba682e9e4d8300b961e2197",
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseManagerFactory.java": "f6f2f96e2aaaacbcc68d65b708f77382089846b562823da425a25035c04174d7",
+    "bundles/sirix-core/src/main/java/io/sirix/access/Databases.java": "f42c3bd10a981d7a821f257e465e8939a5903244b0bf0a745dfeaaea81941b02",
+    "bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java": "e0d6686865d256fc5ee97b148eb0ca9b522d4202e37511c57907fd8a1cda94fb",
+    "bundles/sirix-core/src/main/java/io/sirix/access/ResourceStore.java": "7bba74915e2648b4adb6c92c4aa8d5657bbc2f6dc13741793041710d83672352",
+    "bundles/sirix-core/src/main/java/io/sirix/access/ResourceStoreImpl.java": "b8f72619e7975e3acabae8d66fbed02d21204889017a285728b89643a2975a7e",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/TransactionImpl.java": "5ca42f8f73b9f6ab761c48af631bb78ab6a72692f7080e2b9532b0122c11aa5c",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "7fd73f6389313ef7c45f1e3fa9b36ea6f64ac46f39828b0f6dc99ef9f415b579",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": "866eaad77362feba0edc40a49a6efcda2729961b18819d4002400226b8ecaeda",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalNodeTrx.java": "49bb879516001c7341cd73eb775fce86f85d033295a01633195de24a964ab309",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java": "e0a5cea439abb4d0d0efa7679f46b4337a430de74ef82e9fc553f33febdf3184",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java": "12970a804b92322a8da31520ca9714ba92688a6d09ddca4d75d35af255e7e1f7",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineReader.java": "11a0c6d7f993c7c51467051f4e6867b0955fed5ab51f2df32aee8c7e336eb71e",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java": "f7efbb3937123f1dfc4fbe654181a363c1813d8a370579985524174e057b256d",
+    "bundles/sirix-core/src/main/java/io/sirix/api/Database.java": "b586e168f514d09c18f19a39218dc88e124062201f9128b00b423df0d1e9da29",
+    "bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java": "a2d9676a9e1bc795f22165bbf18d1e257723b21c772cfdb9febd84b3352ac137",
+    "bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java": "74a827cc28e241594d7731077c6a7b9101770064164ca49ca43611f4714f32e7",
+    "bundles/sirix-core/src/main/java/io/sirix/api/PreCommitHook.java": "4ff84a06603c059a22b813bbcc6831ec23b729625b7e7e4d313841d01fa7b6f8",
+    "bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java": "50dac399afa70c74a9683744b9d5d96aaaeb8ae67fd24425bcf23c4725e5b1ef",
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseNotifications.java": "dd8d1d963ffdc1c579c5d576fe88c89909b638b151e777a1c1034d664a414607"
+  },
+  "class_sha256": {
+    "bundles/sirix-core/build/classes/java/main/io/sirix/access/trx/node/AbstractNodeTrxImpl.class": "a4650a91de595355d939c111070152bd1435d0af7f110406b7eaa5ca9d0f8d6e",
+    "bundles/sirix-core/build/classes/java/main/io/sirix/access/trx/node/TransactionExecutionLock.class": "6eeb310e7800a774a17cc7d671e9cf9de0576a294c72c98b71a29810a4091f1d",
+    "bundles/sirix-core/build/classes/java/main/io/sirix/access/trx/page/NodeStorageEngineReader.class": "585d4a2f183e87ddeebeb647f995cc6370b3dfd81fd7464249e88e8f47df305b",
+    "bundles/sirix-core/build/classes/java/main/io/sirix/access/trx/node/json/JsonNodeTrxImpl.class": "1c680c6f2ce8ffeab0f668e9c3a7794f6dcd95d1ac2021d7325602c1d117a896",
+    "bundles/sirix-core/build/classes/java/main/io/sirix/access/trx/node/xml/XmlNodeTrxImpl.class": "77e3af632cff90e49d0fa81291c4a597c896e1e20f817a33a00613545bafec32"
+  },
+  "baseline_compilation_sources": [
+    "io/sirix/access/trx/node/AbstractNodeTrxImpl.java",
+    "io/sirix/access/trx/node/TransactionExecutionLock.java",
+    "io/sirix/access/trx/node/InternalNodeTrx.java",
+    "io/sirix/access/trx/node/InternalResourceSession.java",
+    "io/sirix/access/trx/page/NodeStorageEngineReader.java",
+    "io/sirix/access/trx/node/json/JsonNodeTrxImpl.java",
+    "io/sirix/access/trx/node/xml/XmlNodeTrxImpl.java"
+  ],
+  "local_logs": [
+    "build/notification-shape/compare-final.log",
+    "build/notification-shape/*-before.javap",
+    "build/notification-shape/*-after.javap"
+  ]
+}

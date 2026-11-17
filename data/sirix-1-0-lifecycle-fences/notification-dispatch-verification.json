@@ -1,0 +1,857 @@
+{
+  "finding": "review-database-handle-callback-cycle",
+  "baseline": "fc8b90710979f111bfcdd5563e44eb42879c24ce",
+  "review_base": "ba0000718e637a3f122816aaff77ad3996428308",
+  "recorded_utc": "2026-11-16T23:41:32.723562+00:00",
+  "contract": "docs/hooks.md",
+  "result": "passed focused regressions, full documented work-budget selections and six compiled hot-caller regions",
+  "selected": {
+    "tests": 1207,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5
+  },
+  "auxiliary": {
+    "tests": 69,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 2
+  },
+  "selection_counts": {
+    "core_lifecycle_and_compatibility": 544,
+    "core_work_budgets": 325,
+    "query_lifecycle_and_work_budgets": 335,
+    "mcp_work_budgets": 3,
+    "new_database_notification_matrix": 188
+  },
+  "selected_suites": [
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.CommitSafetyTest.xml",
+      "name": "io.sirix.access.trx.node.CommitSafetyTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest.xml",
+      "name": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.ResourceSessionFactoryTest.xml",
+      "name": "io.sirix.access.ResourceSessionFactoryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.DatabaseOwnershipTest.xml",
+      "name": "io.sirix.access.DatabaseOwnershipTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.WriterCatalogueHandoffTest.xml",
+      "name": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.TransactionExecutionLockTest.xml",
+      "name": "io.sirix.access.trx.node.TransactionExecutionLockTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.DatabaseCloseStrandingTest.xml",
+      "name": "Database close retains failed cleanup for retry",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.IndexCatalogueCacheTest.xml",
+      "name": "io.sirix.access.trx.node.IndexCatalogueCacheTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest.xml",
+      "name": "io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest",
+      "tests": 81,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.DatabaseNotificationLifecycleTest.xml",
+      "name": "io.sirix.access.DatabaseNotificationLifecycleTest",
+      "tests": 188,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.WriterConstructionFailureCleanupTest.xml",
+      "name": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.AsyncFlushFailurePathTest.xml",
+      "name": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.AsyncCommitTest.xml",
+      "name": "io.sirix.access.AsyncCommitTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.xml",
+      "name": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+      "tests": 111,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.node.SharedCallbackLifetimeTest.xml",
+      "name": "io.sirix.access.trx.node.SharedCallbackLifetimeTest",
+      "tests": 84,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.json.IndexedArrayPositionTest.xml",
+      "name": "io.sirix.query.json.IndexedArrayPositionTest",
+      "tests": 48,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.CASMultiMatchWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.CASMultiMatchWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ValidTimeSliceWorkBudgetTest",
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 5
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ProjectionLoadPinnedPageBudgetTest.xml",
+      "name": "io.sirix.query.budget.ProjectionLoadPinnedPageBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.CASLookupWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.CASLookupWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.StoredDateTimeAllocationBudgetTest.xml",
+      "name": "io.sirix.query.budget.StoredDateTimeAllocationBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ProjectionQueryWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ProjectionQueryWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.TemporalAggregateSourceWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.TemporalAggregateSourceWorkBudgetTest",
+      "tests": 32,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.TemporalAggregateCatchUpWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.TemporalAggregateCatchUpWorkBudgetTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.IntervalRangeJoinWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.IntervalRangeJoinWorkBudgetTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.access.trx.node.XmlPendingUpdatePublicationTest.xml",
+      "name": "io.sirix.access.trx.node.XmlPendingUpdatePublicationTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ColumnarSerializationWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ColumnarSerializationWorkBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.EmptyAttributeAxisWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.EmptyAttributeAxisWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.IndexRoutedGroupWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.IndexRoutedGroupWorkBudgetTest",
+      "tests": 54,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.NativeImageDowncallConfigTest.xml",
+      "name": "io.sirix.query.budget.NativeImageDowncallConfigTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.LetMaterializationWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.LetMaterializationWorkBudgetTest",
+      "tests": 65,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ProviderPurityWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ProviderPurityWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.TemporalAggregateDictionaryWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.TemporalAggregateDictionaryWorkBudgetTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeRunWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.ValidTimeRunWorkBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest.xml",
+      "name": "io.sirix.query.budget.CheapFirstConjunctWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-mcp/build/test-results/test/TEST-io.sirix.mcp.BoundedDiffWorkBudgetTest.xml",
+      "name": "io.sirix.mcp.BoundedDiffWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-mcp/build/test-results/test/TEST-io.sirix.mcp.BoundedQueryResultWorkBudgetTest.xml",
+      "name": "io.sirix.mcp.BoundedQueryResultWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-mcp/build/test-results/test/TEST-io.sirix.mcp.BoundedSerializationAllocationBudgetTest.xml",
+      "name": "io.sirix.mcp.BoundedSerializationAllocationBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.trx.page.RefusedOverflowLeafTableTest.xml",
+      "name": "io.sirix.access.trx.page.RefusedOverflowLeafTableTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.CommitReinstantiationWorkBudgetTest.xml",
+      "name": "io.sirix.budget.CommitReinstantiationWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonBulkInsertCollectionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonBulkInsertCollectionWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionTailAppendWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionTailAppendWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.BasicJsonDiffWorkBudgetTest.xml",
+      "name": "io.sirix.budget.BasicJsonDiffWorkBudgetTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonValidTimeIdentityWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonValidTimeIdentityWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonStructuralHashingWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonStructuralHashingWorkBudgetTest",
+      "tests": 32,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.WriterListenerRetentionBudgetTest.xml",
+      "name": "io.sirix.budget.WriterListenerRetentionBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.HOTHistoricalBlobReadWorkBudgetTest.xml",
+      "name": "io.sirix.budget.HOTHistoricalBlobReadWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.BloomOpenChunkFetchWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.BloomOpenChunkFetchWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.ChangeLogWorkBudgetTest.xml",
+      "name": "io.sirix.budget.ChangeLogWorkBudgetTest",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionIdentityImportWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionIdentityImportWorkBudgetTest",
+      "tests": 112,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.BatchedSegmentReadWorkBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonDiffArrayPositionWorkBudgetTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonDiffBookkeepingWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonDiffBookkeepingWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.PostingDeltaWorkBudgetTest.xml",
+      "name": "io.sirix.budget.PostingDeltaWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionSortedGroupRoutingWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionSortedGroupRoutingWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.WorkCaptureTest.xml",
+      "name": "io.sirix.budget.WorkCaptureTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.ScratchBufferWorkBudgetTest.xml",
+      "name": "io.sirix.budget.ScratchBufferWorkBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionUnchangedRowWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionUnchangedRowWorkBudgetTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.IndexCatalogueResolutionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.IndexCatalogueResolutionWorkBudgetTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.TemporalAggregateMaintenanceWorkBudgetTest.xml",
+      "name": "io.sirix.budget.TemporalAggregateMaintenanceWorkBudgetTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonIdentityReplayWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonIdentityReplayWorkBudgetTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.SuccessorPathSummaryWorkBudgetTest.xml",
+      "name": "io.sirix.budget.SuccessorPathSummaryWorkBudgetTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonFMSEInsertionWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonFMSEInsertionWorkBudgetTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.TemporalAggregateCatalogueWorkBudgetTest.xml",
+      "name": "io.sirix.budget.TemporalAggregateCatalogueWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.SparseRevisionIndexWorkBudgetTest.xml",
+      "name": "io.sirix.budget.SparseRevisionIndexWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.HOTPostingFragmentMergeWorkBudgetTest.xml",
+      "name": "io.sirix.budget.HOTPostingFragmentMergeWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.ValidTimeTimestampAllocationBudgetTest.xml",
+      "name": "io.sirix.budget.ValidTimeTimestampAllocationBudgetTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.DerivedMaintainerWorkBudgetTest.xml",
+      "name": "io.sirix.budget.DerivedMaintainerWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.budget.JsonHashingWorkBudgetTest.xml",
+      "name": "io.sirix.budget.JsonHashingWorkBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/test/TEST-io.sirix.index.projection.ProjectionSortedRetentionWorkBudgetTest.xml",
+      "name": "io.sirix.index.projection.ProjectionSortedRetentionWorkBudgetTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "auxiliary_suites": [
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaRejectGlobalTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticGlobalTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/dictionaryReadViewAllocationTest/TEST-io.sirix.budget.InlineSlotCopyAllocationBudgetTest.xml",
+      "name": "io.sirix.budget.InlineSlotCopyAllocationBudgetTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/dictionaryReadViewAllocationTest/TEST-io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest.xml",
+      "name": "io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/allocatorColdStartupTest/TEST-io.sirix.access.AllocatorColdStartupTest.xml",
+      "name": "io.sirix.access.AllocatorColdStartupTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochStoreIdentityTest.xml",
+      "name": "io.sirix.access.trx.page.StorageEpochStoreIdentityTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochFsstInlineDecisionTest.xml",
+      "name": "io.sirix.access.trx.page.StorageEpochFsstInlineDecisionTest",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/storageEpochStoreIdentityTest/TEST-io.sirix.access.trx.page.StorageEpochDifferentialTest.xml",
+      "name": "io.sirix.access.trx.page.StorageEpochDifferentialTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/cleanerStartupTest/TEST-io.sirix.utils.CleanerStartupTest.xml",
+      "name": "io.sirix.utils.CleanerStartupTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaRejectSkipTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/configurationStartupTest/TEST-io.sirix.access.ConfigurationStartupTest.xml",
+      "name": "io.sirix.access.ConfigurationStartupTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.memorymapped.ArenaGenerationLifetimeTest.xml",
+      "name": "io.sirix.io.memorymapped.ArenaGenerationLifetimeTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 2
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.SharedArenaStartupPolicyTest.xml",
+      "name": "io.sirix.io.SharedArenaStartupPolicyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-core/build/test-results/validTimeDisabledLookupCacheTest/TEST-io.sirix.index.interval.ValidTimeDisabledLookupCacheTest.xml",
+      "name": "io.sirix.index.interval.ValidTimeDisabledLookupCacheTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/bitemporalLoaderAllocationTest/TEST-io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest.xml",
+      "name": "io.sirix.query.bench.bitemporal.BitemporalLoaderBudgetTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/translatorThresholdIndependentTest/TEST-io.sirix.query.SirixTranslatorThresholdTest.xml",
+      "name": "io.sirix.query.SirixTranslatorThresholdTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/translatorThresholdLegacyTest/TEST-io.sirix.query.SirixTranslatorThresholdTest.xml",
+      "name": "io.sirix.query.SirixTranslatorThresholdTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "path": "bundles/sirix-query/build/test-results/temporalNodeReaderLifetimeGenericTest/TEST-io.sirix.query.function.xml.io.TemporalNodeReaderLifetimeTest.xml",
+      "name": "io.sirix.query.function.xml.io.TemporalNodeReaderLifetimeTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "skips": [
+    {
+      "report": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.memorymapped.ArenaGenerationLifetimeTest.xml",
+      "case": "currentGenerationStaysLiveUntilStorageClose()",
+      "reason": "org.opentest4j.TestAbortedException: Assumption failed: assumption is not true"
+    },
+    {
+      "report": "bundles/sirix-core/build/test-results/sharedArenaDiagnosticSkipTest/TEST-io.sirix.io.memorymapped.ArenaGenerationLifetimeTest.xml",
+      "case": "oldGenerationClosesOnlyAfterItsLastReaderReturns()",
+      "reason": "org.opentest4j.TestAbortedException: Assumption failed: assumption is not true"
+    },
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandPlainCohortsWithMatchFirst()",
+      "reason": "Configured test skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandInexactIntervalsHaveZeroReadEmptyStab()",
+      "reason": "Configured test skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandSelectiveIntervalsWithMatchFirst()",
+      "reason": "Configured test skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandSelectiveIntervalsWithMatchLast()",
+      "reason": "Configured test skip; no passing assertion claimed"
+    },
+    {
+      "report": "bundles/sirix-query/build/test-results/test/TEST-io.sirix.query.budget.ValidTimeSliceWorkBudgetTest.xml",
+      "case": "oneHundredThousandPlainCohortsWithMatchLast()",
+      "reason": "Configured test skip; no passing assertion claimed"
+    }
+  ],
+  "runner": "All Gradle and JVM commands used the prescribed heavy.sh wrapper; df on / immediately before each Gradle invocation; observed available bytes at launches: 92244697088, 92115398656, 92161675264, 91991195648, 92931526656; floor 60000000000",
+  "focused_commands": [
+    "bash build/verify-notification-dispatch-retry.sh",
+    "bash build/verify-notification-core-budgets.sh",
+    "python3 build/notification-shape/compare.py"
+  ],
+  "logs": [
+    "build/notification-dispatch-focused-4.log",
+    "build/notification-dispatch-core-budgets-final.log",
+    "build/notification-shape/compare-final.log"
+  ],
+  "formatting": "Scoped spotlessJavaApply completed on edited Java files; git diff --check passed. Full lint belongs to the outer executor.",
+  "adversarial_checks": [
+    "External handle already closing when a pre-hook, post-hook or listener reenters it",
+    "All database/handle/session/writer/page/facade/manager/shutdown lifecycle callbacks reject before waits, in JSON and XML",
+    "A blocked callback times out close, retains independent readers and registry/backend ownership, drops unopened queued followers and allows retry",
+    "A stuck pre-hook cannot pin node or facade close indefinitely; ordinary execution refusal retains its page writer",
+    "Nested callbacks into another database preserve the outer database guard and independent database close/removal",
+    "A held durability barrier permits successor mutation, and a held delivered view permits writer close",
+    "A dispatcher view navigates durable pages while the pending root and predecessor are still live, then after predecessor close",
+    "Inline hardening fallback delivers a durable view while retaining the foreground failure",
+    "Raw page close/truncation notifications dispatch without a future writer execution; sequential handle cleanup completes",
+    "Pinned distant pages survive concurrent truncation until callback exit; interruption and callback/independent-owner failures retain the required causes"
+  ],
+  "diagnostic_attempts": [
+    {
+      "log": "build/notification-dispatch-focused.log",
+      "result": "compile failed before tests; timeout used an unsupported SirixThreadedException constructor; corrected using its existing ExecutionException constructor"
+    },
+    {
+      "log": "build/notification-dispatch-focused-2.log",
+      "result": "test compile failed before tests; updated two custom ResourceStore implementations and missing import"
+    },
+    {
+      "log": "build/notification-dispatch-focused-3.log",
+      "selected": {
+        "tests": 867,
+        "failures": 14,
+        "errors": 0,
+        "skipped": 0
+      },
+      "result": "One captured-writer replacement race in the rejection test; two raw-truncation cleanup failures fixed by bounding rollback base to the surviving durable revision; one retry expectation, eight concurrent-close expectations and two dependent-page expectations updated for bounded retirement and retained ownership. All affected suites passed fresh in attempt 4."
+    }
+  ],
+  "limitations": [
+    "No new benchmark or native-code equivalence claim; the frozen comparison is this round starting HEAD, not original main",
+    "No baseline deadlock execution is claimed; new deterministic regressions assert the adopted asynchronous/bounded contract",
+    "Scoped PIT, full lint, broader test/CI and delivery phases remain with the outer executor; no historical mutation counts are fresh evidence",
+    "Post notifications may be dropped at close or after a timeout; failures are logged and cannot veto durable data",
+    "A permanently blocked callback retains its readers/backend ownership and causes explicit timeout; a successful close requires callback exit and retry"
+  ],
+  "production_source_sha256": {
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java": "9f5698ff1c9576c06f5f72089d04ec5160fe3f3753cdf939dac8b0cc70427313",
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseManager.java": "24c9a508e9260bc7a4ebc8540d956be0a37c5ca1dba682e9e4d8300b961e2197",
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseManagerFactory.java": "f6f2f96e2aaaacbcc68d65b708f77382089846b562823da425a25035c04174d7",
+    "bundles/sirix-core/src/main/java/io/sirix/access/Databases.java": "f42c3bd10a981d7a821f257e465e8939a5903244b0bf0a745dfeaaea81941b02",
+    "bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java": "e0d6686865d256fc5ee97b148eb0ca9b522d4202e37511c57907fd8a1cda94fb",
+    "bundles/sirix-core/src/main/java/io/sirix/access/ResourceStore.java": "7bba74915e2648b4adb6c92c4aa8d5657bbc2f6dc13741793041710d83672352",
+    "bundles/sirix-core/src/main/java/io/sirix/access/ResourceStoreImpl.java": "b8f72619e7975e3acabae8d66fbed02d21204889017a285728b89643a2975a7e",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/TransactionImpl.java": "5ca42f8f73b9f6ab761c48af631bb78ab6a72692f7080e2b9532b0122c11aa5c",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java": "7fd73f6389313ef7c45f1e3fa9b36ea6f64ac46f39828b0f6dc99ef9f415b579",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java": "866eaad77362feba0edc40a49a6efcda2729961b18819d4002400226b8ecaeda",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalNodeTrx.java": "49bb879516001c7341cd73eb775fce86f85d033295a01633195de24a964ab309",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java": "e0a5cea439abb4d0d0efa7679f46b4337a430de74ef82e9fc553f33febdf3184",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/node/TransactionExecutionLock.java": "12970a804b92322a8da31520ca9714ba92688a6d09ddca4d75d35af255e7e1f7",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineReader.java": "11a0c6d7f993c7c51467051f4e6867b0955fed5ab51f2df32aee8c7e336eb71e",
+    "bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java": "f7efbb3937123f1dfc4fbe654181a363c1813d8a370579985524174e057b256d",
+    "bundles/sirix-core/src/main/java/io/sirix/api/Database.java": "b586e168f514d09c18f19a39218dc88e124062201f9128b00b423df0d1e9da29",
+    "bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java": "a2d9676a9e1bc795f22165bbf18d1e257723b21c772cfdb9febd84b3352ac137",
+    "bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java": "74a827cc28e241594d7731077c6a7b9101770064164ca49ca43611f4714f32e7",
+    "bundles/sirix-core/src/main/java/io/sirix/api/PreCommitHook.java": "4ff84a06603c059a22b813bbcc6831ec23b729625b7e7e4d313841d01fa7b6f8",
+    "bundles/sirix-core/src/main/java/io/sirix/api/ResourceSession.java": "50dac399afa70c74a9683744b9d5d96aaaeb8ae67fd24425bcf23c4725e5b1ef",
+    "bundles/sirix-core/src/main/java/io/sirix/access/DatabaseNotifications.java": "dd8d1d963ffdc1c579c5d576fe88c89909b638b151e777a1c1034d664a414607"
+  },
+  "changed_test_sha256": {
+    "bundles/sirix-core/src/test/java/io/sirix/access/DatabaseCloseStrandingTest.java": "7afa3972e84996e3da3de250d3f9c6e090ceab5fb68e9a7d0bfa0341d400a9b1",
+    "bundles/sirix-core/src/test/java/io/sirix/access/DatabaseOwnershipTest.java": "3a1845f862a4a7f9558d190100e57df5c5aa0971ace1af726681d022ca7996ae",
+    "bundles/sirix-core/src/test/java/io/sirix/access/InterruptedFirstCommitRecoveryStoreFeaturesTest.java": "b5e0fbcc7596706a49dfc708cb369a117e677848a30e21d050e3a7a172907279",
+    "bundles/sirix-core/src/test/java/io/sirix/access/ResourceSessionFactoryTest.java": "a7d5cf8bc6940cb2d88eea21e3599d873a8635caf22040971a74183ceb114755",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AbstractResourceSessionWriteFailureCleanupTest.java": "4444b46381154e78cc1a38a4a7524903d488b28467d6f5c78b0bebfb44558eb3",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/NodeTransactionAbortLifecycleTest.java": "9ae47c5f3323ebb25e162529b5ff4fddc3ed8f3ddb151030ed011d28d8e98e31",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/SharedCallbackLifetimeTest.java": "93d439bdeb495be4f80a358caeb6a2117e301d1e9be43221db4129ebb3c143e2",
+    "bundles/sirix-core/src/test/java/io/sirix/access/trx/node/TransactionExecutionLockTest.java": "d45b2a960b162b75cd845788009e686d3bc66784a16abed4a6fbc62f02cbd027",
+    "bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java": "7aeb9a6213c4587f7ebee2267a8d676a3f259a1e0e2fdb0bca13e3a1ef97d9c0"
+  }
+}

@@ -44,7 +44,9 @@ public final class SirixNodeStream implements Stream<XmlDBNode> {
   }
 
   @Override
-  public void close() {}
+  public void close() {
+    axis.close();
+  }
 
   @Override
   public String toString() {

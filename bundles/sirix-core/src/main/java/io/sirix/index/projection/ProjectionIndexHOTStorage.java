@@ -3320,6 +3320,44 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private static final List<RowGroupDirectory> PARALLEL_WALK_DECLINED =
       Collections.unmodifiableList(new ArrayList<>(0));
 
+  /** Start failure and interruption must fence every worker before fallback or reader release. */
+  // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+  @SuppressWarnings("java:S1181")
+  static boolean startAndJoinDirectoryWorkers(final Thread[] threads) {
+    boolean interrupted = false;
+    try {
+      for (final Thread thread : threads) {
+        thread.start();
+      }
+    } catch (final RuntimeException | Error failure) {
+      for (final Thread thread : threads) {
+        thread.interrupt();
+      }
+      throw failure;
+    } finally {
+      // Join even the thread whose start threw: a custom factory may throw after starting it.
+      // Joining an unstarted thread is harmless. Retry the same worker after interruption.
+      for (final Thread thread : threads) {
+        boolean joined = false;
+        while (!joined) {
+          try {
+            thread.join();
+            joined = true;
+          } catch (final InterruptedException _) {
+            interrupted = true;
+            for (final Thread worker : threads) {
+              worker.interrupt();
+            }
+          }
+        }
+      }
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    return interrupted;
+  }
+
   /**
    * The parallel walk proper: enumerate a frontier of subtree references without decoding leaves,
    * decode each partition of it on its own reader, then replay the captures into one
@@ -3380,23 +3418,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       }, "sirix-projection-dirwalk-" + w);
       thread.setDaemon(true);
       threads[w] = thread;
-      thread.start();
+    }
+    final boolean interrupted = startAndJoinDirectoryWorkers(threads);
+    if (interrupted) {
+      return PARALLEL_WALK_DECLINED;
     }
     // Every worker is joined before anything it produced is read, so its buffer, its unresolved
     // flag and its failure slot are all published by the join's happens-before edge — no volatile
     // and no synchronization on the per-worker state.
-    boolean interrupted = false;
-    for (final Thread thread : threads) {
-      try {
-        thread.join();
-      } catch (final InterruptedException e) {
-        interrupted = true;
-      }
-    }
-    if (interrupted) {
-      Thread.currentThread().interrupt();
-      return PARALLEL_WALK_DECLINED;
-    }
     IllegalStateException corrupt = null;
     Throwable infrastructure = null;
     for (final Throwable failure : failures) {

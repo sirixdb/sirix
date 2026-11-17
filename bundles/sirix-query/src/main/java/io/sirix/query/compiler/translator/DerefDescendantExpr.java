@@ -3,6 +3,7 @@ package io.sirix.query.compiler.translator;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import io.sirix.api.Axis;
+import io.sirix.cache.ShardedPageCache;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
@@ -508,7 +509,26 @@ class DerefDescendantExpr implements Expr {
           }
 
           @Override
-          public void close() {}
+          // Retain Error until independent cleanup/worker fencing is complete, then propagate it.
+          @SuppressWarnings("java:S1181")
+          public void close() {
+            Throwable failure = null;
+            for (final SirixJsonLazySequence sequence : nodeKindToLazySequence.values()) {
+              if (sequence != null) {
+                try {
+                  sequence.getAxis().close();
+                } catch (final RuntimeException | Error e) {
+                  failure = ShardedPageCache.retainCleanupFailure(failure, e);
+                }
+              }
+            }
+            try {
+              iter.close();
+            } catch (final RuntimeException | Error e) {
+              failure = ShardedPageCache.retainCleanupFailure(failure, e);
+            }
+            ShardedPageCache.rethrowCleanupFailure(failure);
+          }
         };
       }
     };

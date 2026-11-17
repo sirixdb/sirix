@@ -442,22 +442,21 @@ only holds long enough to append to the list and copy a snapshot. ∎
 
 ## 7. Crash recovery — partial-write truncation
 
-**Inv 7a (truncation eliminates torn bytes):** if a `.commit` marker is
-present and the data file contains bytes past the last successful revision's
-footer, the next writer creation truncates so those bytes are no longer
-observable to readers.
+**Inv 7a (safe writer admission):** ordinary writer admission must complete the
+[marker recovery contract](operations.md#marker-recovery) before reusing aborted
+offsets, or reject admission. That contract owns the recovery triggers, durable
+revision selection, cache invalidation order and failure behavior.
 
-**Pf:** `createPageTransaction` calls
-`truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists` which calls
-`writer.truncateTo(storageEngineWriter, lastCommittedRev)` whenever
-`Files.exists(getCommitFile())`. The `truncateTo` implementation (per backend)
-trims the data file at the recorded last-good offset. Subsequent reads
-through `Reader` open at that offset and never see beyond it. ∎
+**Pf:** See `AbstractResourceSession.createPageTransaction` and
+`truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists` for the
+admission barrier; the backend's `truncateTo` establishes the durable frontier.
 
 - **Test (7a):** `CrashRecoveryTest.partialWritePastLastRevision_isTruncatedOnReopen`
   — appends 4 KiB of `0xCC` past the last revision, drops the marker, re-opens,
   and asserts the file at the old garbage offset no longer reads as solid `0xCC`
   (either truncated or overwritten by a new revision — both correct).
+- **Failure/retry checks:** see the [recovery coverage](operations.md#10-known-limitations-and-operational-caveats)
+  in the operations guide.
 
 ---
 

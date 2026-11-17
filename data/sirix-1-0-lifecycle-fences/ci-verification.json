@@ -1,0 +1,199 @@
+{
+  "scope": "CI correction for PR #1353; local evidence, not a remote CI rerun",
+  "tests": {
+    "totals": {
+      "tests": 268,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "classes": [
+      {
+        "class": "io.sirix.access.trx.node.CommitSafetyTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.utils.WorkerTerminationTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.index.projection.ProjectionDirectoryWorkerFenceTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.index.projection.ProjectionParallelDirectoryWalkTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.axis.concurrent.ConcurrentAxisLifecycleTest",
+        "tests": 21,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.access.AsyncCommitTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.cache.BufferManagerTeardownTest",
+        "tests": 15,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+        "tests": 64,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.access.trx.node.JsonAsyncSidecarPublicationTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.query.compiler.translator.OrderedUnionAxisTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.query.scan.DirectPageScannerLifecycleTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.query.JsonIntegrationTest",
+        "tests": 93,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "class": "io.sirix.query.function.xml.io.TemporalNodeReaderLifetimeTest",
+        "tests": 16,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "mutation": {
+    "class": "io.sirix.access.trx.node.AbstractNodeTrxImpl",
+    "method": "hardenAndPublish",
+    "tests": [
+      "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+      "io.sirix.access.trx.node.JsonAsyncSidecarPublicationTest"
+    ],
+    "total": 8,
+    "killed": 8,
+    "mutants": [
+      {
+        "status": "KILLED",
+        "line": 705,
+        "mutation": "negated conditional",
+        "killing_test": "io.sirix.access.trx.node.JsonAsyncSidecarPublicationTest.[engine:junit-jupiter]/[class:io.sirix.access.trx.node.JsonAsyncSidecarPublicationTest]/[method:publishesFrozenPayloadOnlyAfterItsRevisionIsDurable()]"
+      },
+      {
+        "status": "KILLED",
+        "line": 685,
+        "mutation": "removed call to io/sirix/access/trx/node/AbstractNodeTrxImpl::notifyAsyncCommitTestHook",
+        "killing_test": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest]/[test-template:inlineDoubleFailureReleasesSlotAndRetainsPrimary(java.lang.String, java.lang.String)]/[test-template-invocation:#3]"
+      },
+      {
+        "status": "KILLED",
+        "line": 686,
+        "mutation": "removed call to io/sirix/api/StorageEngineWriter::hardenCommit",
+        "killing_test": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest]/[test-template:postBeaconCleanupFailureRecoversPublishedRevision(java.lang.String)]/[test-template-invocation:#1]"
+      },
+      {
+        "status": "KILLED",
+        "line": 687,
+        "mutation": "removed call to io/sirix/access/trx/node/InternalResourceSession::setLastCommittedUberPage",
+        "killing_test": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest]/[test-template:pendingRootCleanupRetainsFirstFailure(java.lang.String, boolean)]/[test-template-invocation:#3]"
+      },
+      {
+        "status": "KILLED",
+        "line": 692,
+        "mutation": "removed call to io/sirix/access/trx/node/InternalResourceSession::clearPendingRevisionRoot",
+        "killing_test": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest]/[test-template:inlineDoubleFailureReleasesSlotAndRetainsPrimary(java.lang.String, java.lang.String)]/[test-template-invocation:#3]"
+      },
+      {
+        "status": "KILLED",
+        "line": 696,
+        "mutation": "removed call to io/sirix/cache/ShardedPageCache::rethrowCleanupFailure",
+        "killing_test": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest]/[test-template:inlineDoubleFailureReleasesSlotAndRetainsPrimary(java.lang.String, java.lang.String)]/[test-template-invocation:#3]"
+      },
+      {
+        "status": "KILLED",
+        "line": 699,
+        "mutation": "removed call to io/sirix/access/trx/node/InternalResourceSession::requireCommitRecovery",
+        "killing_test": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest.[engine:junit-jupiter]/[class:io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest]/[test-template:pendingRootCleanupRetainsFirstFailure(java.lang.String, boolean)]/[test-template-invocation:#3]"
+      },
+      {
+        "status": "KILLED",
+        "line": 707,
+        "mutation": "removed call to java/lang/Runnable::run",
+        "killing_test": "io.sirix.access.trx.node.JsonAsyncSidecarPublicationTest.[engine:junit-jupiter]/[class:io.sirix.access.trx.node.JsonAsyncSidecarPublicationTest]/[method:publishesFrozenPayloadOnlyAfterItsRevisionIsDurable()]"
+      }
+    ],
+    "scope_note": "All other methods excluded through a local Gradle init script. This validates the changed hardening control flow, not the entire PR."
+  },
+  "formatting": {
+    "sirix-core:spotlessCheck": "passed",
+    "sirix-query:spotlessCheck": "passed",
+    "git diff --check": "passed"
+  },
+  "logs": [
+    "build/ci-evidence/core-confirmed.log",
+    "build/ci-evidence/mutation-query-confirmed.log"
+  ],
+  "remaining_ci_evidence": [
+    "macOS execution and remote Sonar quality gate require the outer executor to rerun CI.",
+    "Original whole-PR PIT analysis exhausted its unchanged 1320-second budget during full-module baseline discovery, including tests requiring isolated JVMs. It remains incomplete; no deadline, targets or blocking policy were weakened."
+  ]
+}

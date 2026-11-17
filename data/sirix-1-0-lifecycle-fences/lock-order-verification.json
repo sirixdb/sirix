@@ -1,0 +1,97 @@
+{
+  "scope": "R7/R8 session/rollback lock ordering and RAM root-reference boundary",
+  "totals": {
+    "tests": 168,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "classes": [
+    {
+      "class": "io.sirix.access.AsyncCommitTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.DatabaseOwnershipTest",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.CommitSafetyTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.NodeTransactionAbortLifecycleTest",
+      "tests": 92,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.node.WriterCatalogueHandoffTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.page.AsyncFlushFailurePathTest",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.access.trx.page.WriterConstructionFailureCleanupTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "class": "io.sirix.io.ram.RAMStorageTruncateToTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "interleaving_matrix_cases": 24,
+  "log": "build/lifecycle-lock-order-final.log",
+  "ram_oracle": "Empty-bootstrap admission, mutation/rollback, no marker and no hidden recovery guard; file-backed cases retain committed-value durability assertions.",
+  "prior_attempts": [
+    {
+      "log": "build/lifecycle-lock-order-focused.log",
+      "tests": 166,
+      "failures": 12,
+      "reason": "RAM fixture used file-backed value persistence; all failures preceded the interleaving."
+    },
+    {
+      "log": "build/lifecycle-lock-order-confirmed.log",
+      "status": "Test compilation failed: RAMStorage is not AutoCloseable; fixture corrected."
+    }
+  ],
+  "pending_outer_validation": [
+    "Fresh scoped PIT",
+    "Compiled-path comparison",
+    "Work budgets",
+    "Lint",
+    "Broader tests and CI"
+  ],
+  "automatic_dependencies": "Seven startup-test dependencies also ran; their cases are not included in these selected-test totals."
+}
