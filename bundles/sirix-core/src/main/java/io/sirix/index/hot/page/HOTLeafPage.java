@@ -269,6 +269,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
   private static final VectorSpecies<Short> SHORT_SPECIES = ShortVector.SPECIES_256;
   private static final VectorSpecies<Integer> INT_SPECIES = IntVector.SPECIES_256;
+  // Wider-than-preferred vectors use allocating software fallbacks on narrow-vector runtimes.
+  private static final boolean SIMD_256_SUPPORTED =
+      ByteVector.SPECIES_PREFERRED.vectorBitSize() >= BYTE_SPECIES.vectorBitSize();
 
   // ===== Page identity =====
   private final long recordPageKey;
@@ -1066,7 +1069,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     if (entryCount <= Long.BYTES) {
       return ByteLaneSearch.equal(densePKBytes, entryCount, searchPK);
     }
-    if (BYTE_SPECIES.length() >= PEXT_MAX_ENTRIES) {
+    if (SIMD_256_SUPPORTED) {
       final ByteVector searchVec = ByteVector.broadcast(BYTE_SPECIES, searchPK);
       final ByteVector entriesVec = ByteVector.fromArray(BYTE_SPECIES, densePKBytes, 0);
       final VectorMask<Byte> matches = searchVec.compare(VectorOperators.EQ, entriesVec);
@@ -1089,7 +1092,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * SIMD equality search on 16-bit dense partial keys.
    */
   private int simdEqualitySearchShorts(short searchPK) {
-    if (SHORT_SPECIES.length() >= 16) {
+    if (SIMD_256_SUPPORTED) {
       final ShortVector searchVec = ShortVector.broadcast(SHORT_SPECIES, searchPK);
       final ShortVector entriesVec = ShortVector.fromArray(SHORT_SPECIES, densePKShorts, 0);
       final VectorMask<Short> matches = searchVec.compare(VectorOperators.EQ, entriesVec);
@@ -1117,7 +1120,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * SIMD equality search on 32-bit dense partial keys.
    */
   private int simdEqualitySearchInts(int searchPK) {
-    if (INT_SPECIES.length() >= 8) {
+    if (SIMD_256_SUPPORTED) {
       final IntVector searchVec = IntVector.broadcast(INT_SPECIES, searchPK);
       int result = 0;
       for (int chunk = 0; chunk < 4 && chunk * 8 < entryCount; chunk++) {

@@ -146,6 +146,7 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   no-index cases cannot detect a broken NAME lookup. Use persisted definitions as
   the oracle for NAME/PATH/CAS priority, unmatched and empty paths, revisions and
   cached lookups. Evidence: [statistics mutation coverage](postmortems/hash-default-consumers.md#ci-follow-up-name-index-selection-lacked-assertions).
+
 ### Logical codec bounds
 
 When codec input uses reusable scratch, test every truncated frame length while
@@ -217,3 +218,13 @@ See the [leaf codec CI postmortem](postmortems/2026-11-17-leaf-codec-ci.md).
   disabled as well as the workstation compiler. Exercise both process settings through
   the shared writer, and document intentional thread-lifetime scratch at the field.
   Evidence: [leaf codec CI follow-up](postmortems/2026-11-17-leaf-codec-ci.md#follow-up-hotspot-allocation-writer-mode-coverage-and-sonar-lifetime).
+
+### Runtime vector width is an allocation boundary
+
+A fixed species' lane count does not establish hardware support. Gate fixed-width
+Vector API operations on runtime-preferred width across every primitive representation;
+otherwise software fallback can allocate on each cached lookup. Run exact allocation
+bounds in a clean narrow-vector C2 fork as well as the normal runtime, with unsigned
+key-order oracles for both lookup overloads. Attribute equal raw/encoded allocations
+to their actual stack before calling them codec overhead. See the
+[HOT leaf vector-width postmortem](postmortems/2026-11-17-hot-leaf-vector-width.md).

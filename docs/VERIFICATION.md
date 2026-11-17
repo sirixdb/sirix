@@ -350,6 +350,11 @@ and the surviving historical revision, under all four versioning types. Run it a
 The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest` in a separate JVM so
 inline Mockito mocks in other suites cannot affect its allocation measurements. Run that suite alone
 with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
+The normal core task also runs `:sirix-core:hotLeafNarrowVectorAllocationTest`, a clean
+HotSpot C2 fork with `-XX:MaxVectorSize=16`. It retains the strict raw/encoded codec
+allocation gate and checks both cached lookup overloads against unsigned key ordering
+and zero allocation for byte, short and int partial keys. The normal-width clean fork
+also runs those lookup cases, so narrower-vector coverage does not replace wider-vector coverage.
 
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM

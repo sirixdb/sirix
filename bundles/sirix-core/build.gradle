@@ -334,6 +334,23 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
         includeTestsMatching 'io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest'
         includeTestsMatching 'io.sirix.budget.InlineSlotCopyAllocationBudgetTest'
         includeTestsMatching 'io.sirix.page.HOTLeafCodecAllocationTest'
+        includeTestsMatching 'io.sirix.index.hot.page.HOTLeafLookupAllocationTest'
+    }
+}
+
+def hotLeafNarrowVectorAllocationTest = tasks.register('hotLeafNarrowVectorAllocationTest', Test) {
+    group = 'verification'
+    description = 'Checks HOT lookup and codec allocations with 128-bit HotSpot vectors in a clean JVM.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    testLogging {
+        events 'failed'
+        exceptionFormat = 'full'
+    }
+    filter {
+        includeTestsMatching 'io.sirix.page.HOTLeafCodecAllocationTest'
+        includeTestsMatching 'io.sirix.index.hot.page.HOTLeafLookupAllocationTest'
     }
 }
 
@@ -404,7 +421,7 @@ def sharedArenaPolicyTests = sharedArenaPolicyCases.collect { mode, settings ->
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests).each { testTask ->
+    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, hotLeafNarrowVectorAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests).each { testTask ->
         testTask.configure { isolatedTest ->
             standardTest.copyTo(isolatedTest)
             // copyTo flattens argument providers (including JaCoCo) into jvmArgs. Keep only
@@ -448,6 +465,10 @@ gradle.projectsEvaluated {
         // Finish warmup compilations before measuring allocations, including on slower CI runners.
         jvmArgs '-Xbatch'
     }
+    hotLeafNarrowVectorAllocationTest.configure {
+        // C2 must exercise its software-vector fallback even on wider-vector/GraalVM workstations.
+        jvmArgs '-Xbatch', '-XX:-UseJVMCICompiler', '-XX:MaxVectorSize=16'
+    }
     storageEpochStoreIdentityTest.configure {
         systemProperty 'sirix.codecBakeoff.probeInterval', '1'
     }
@@ -455,7 +476,7 @@ gradle.projectsEvaluated {
 
 // The standard test excludes these suites, so its execution data alone omits their coverage.
 tasks.named('jacocoTestReport') {
-    executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(),
+    executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(), hotLeafNarrowVectorAllocationTest.get(),
             storageEpochStoreIdentityTest.get(), configurationStartupTest.get(), allocatorColdStartupTest.get(), cleanerStartupTest.get()
     executionData sharedArenaPolicyTests.collect { it.get() }
 }
@@ -503,11 +524,13 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
     exclude 'io/sirix/budget/InlineSlotCopyAllocationBudgetTest*.class'
     exclude 'io/sirix/page/HOTLeafCodecAllocationTest*.class'
+    exclude 'io/sirix/index/hot/page/HOTLeafLookupAllocationTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'
     dependsOn validTimeDisabledLookupCacheTest
     dependsOn dictionaryReadViewAllocationTest
+    dependsOn hotLeafNarrowVectorAllocationTest
     dependsOn storageEpochStoreIdentityTest
 }
 
