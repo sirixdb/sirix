@@ -1,3 +1,5 @@
+package io.sirix.nativeimage.smoke;
+
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.DatabaseConfiguration;

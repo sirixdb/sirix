@@ -1,3 +1,5 @@
+package io.sirix.nativeimage.smoke;
+
 import io.brackit.query.Query;
 import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.jdm.Sequence;

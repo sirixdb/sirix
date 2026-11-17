@@ -69,14 +69,11 @@ final class SnapshotExecutorShutdownTest {
 
   @Test
   void validatesBothPoolsBeforeStartingShutdown() {
-    final ForkJoinPool pool = new ForkJoinPool(1);
-    try {
+    try (final ForkJoinPool pool = new ForkJoinPool(1)) {
       assertThrows(NullPointerException.class, () -> SnapshotExecutorShutdown.drain(pool, null));
       assertFalse(pool.isShutdown());
       assertThrows(NullPointerException.class, () -> SnapshotExecutorShutdown.drain(null, pool));
       assertFalse(pool.isShutdown());
-    } finally {
-      pool.close();
     }
   }
 
