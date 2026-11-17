@@ -3,13 +3,15 @@
  */
 package io.sirix.benchmark;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.index.hot.page.HOTProjectionImage;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.memorymapped.MMFileReader;
 import io.sirix.node.ByteArrayBytesIn;
-import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.Utils;
 import io.sirix.page.PageKind;
@@ -45,11 +47,11 @@ public class HOTLeafCodecBenchmark {
   public String content;
   private final ResourceConfiguration config =
       new ResourceConfiguration.Builder("codec-benchmark").versioningApproach(VersioningType.FULL).build();
-  private final PagePersister persister = new PagePersister();
+  private final MMFileReader reader = new MMFileReader(MemorySegment.NULL, MemorySegment.NULL,
+      new ByteHandlerPipeline(), SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build(), null);
   private final byte[][] keys = new byte[128][];
   private Arena arena;
   private MemorySegment wire;
-  private MemorySegmentBytesIn input;
   private HOTLeafPage cached;
   private HOTProjectionImage image;
   private int cursor;
@@ -94,8 +96,9 @@ public class HOTLeafCodecBenchmark {
       arena = Arena.ofConfined();
       wire = arena.allocate(bytes.length);
       wire.copyFrom(MemorySegment.ofArray(bytes));
-      input = new MemorySegmentBytesIn(wire);
-      cached = (HOTLeafPage) persister.deserializePage(config, input, SerializationType.DATA);
+      cached = (HOTLeafPage) reader.deserializeFromSegment(config, wire);
+      System.out.printf("codecRetained encoding=%s content=%s bytes=%d%n", encoding, content,
+          cached.getActualMemorySize());
       final ByteArrayBytesIn imageInput = new ByteArrayBytesIn(bytes);
       imageInput.readByte();
       image = HOTProjectionImage.copyIfFits(imageInput);
@@ -106,13 +109,9 @@ public class HOTLeafCodecBenchmark {
   }
 
   @Benchmark
-  public int coldMaterialize() throws Exception {
-    input.reset(wire, 0);
-    final HOTLeafPage page = (HOTLeafPage) persister.deserializePage(config, input, SerializationType.DATA);
-    try {
-      return page.getUsedSlotsSize();
-    } finally {
-      page.close();
+  public long coldMaterialize() throws Exception {
+    try (HOTLeafPage page = (HOTLeafPage) reader.deserializeFromSegment(config, wire)) {
+      return page.getActualMemorySize();
     }
   }
 
@@ -129,6 +128,7 @@ public class HOTLeafCodecBenchmark {
   @TearDown(Level.Trial)
   public void tearDown() {
     cached.close();
+    reader.close();
     arena.close();
   }
 }

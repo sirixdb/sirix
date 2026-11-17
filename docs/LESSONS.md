@@ -180,3 +180,21 @@ A loader refactor must update native-image `typeReached` resource conditions as
 well as Java calls. JVM tests do not apply those conditions. Pin the resource's
 actual loading type in a packaging regression, and keep downcall descriptors in
 sync with adapter signatures. See the [resource reachability postmortem](postmortems/2026-11-17-native-codec-resource-reachability.md).
+
+### Production read ownership and retention
+
+A direct decoder comparison can hide a production regression when raw reads
+transfer decompression storage and encoded reads allocate a second destination.
+Exercise the public reader as well as the real byte-handler ownership route;
+remove an identity-pipeline copy when the decoder always owns its output. Assert live allocator bytes and
+cache charge, then force mutation and verify lazy promotion invalidates the old
+stamp and releases its allocation. Include failure after decode, such as a
+truncated side-reference trailer. See the [retained-frame postmortem](postmortems/2026-11-17-leaf-codec-retained-frames.md).
+
+### Codec preference is a separate boundary
+
+A smaller encoding does not automatically justify a more expensive decoder.
+Use the specified shared margin for that choice, and test margin-minus-one,
+margin and margin-plus-one for both decoder choice and raw fallback, with framing
+included. Measure codec lengths independently and assert the emitted codec as
+well as the round trip. See the [preference-margin postmortem](postmortems/2026-11-17-leaf-codec-preference-margin.md).

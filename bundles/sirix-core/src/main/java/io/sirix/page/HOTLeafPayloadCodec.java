@@ -85,12 +85,12 @@ public final class HOTLeafPayloadCodec {
         if (lz4Length <= 0) {
           throw new IllegalStateException("HOT LZ4 encode failed");
         }
-        if (lz4Length < stored) {
+        if (lz4Length < stored - PageKind.PAYLOAD_COMPRESSION_MARGIN) {
           stored = lz4Length;
           codec = 1;
         }
       }
-      if (stored + 5 >= used) {
+      if (stored >= used - PageKind.PAYLOAD_COMPRESSION_MARGIN) {
         sink.write(raw, 0, length);
         return;
       }

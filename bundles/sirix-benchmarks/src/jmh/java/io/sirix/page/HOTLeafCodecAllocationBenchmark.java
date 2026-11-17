@@ -1,16 +1,21 @@
 package io.sirix.page;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.index.hot.page.HOTProjectionImage;
 import io.sirix.io.PageHasher;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.memorymapped.MMFileReader;
 import io.sirix.node.ByteArrayBytesIn;
-import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.MemorySegmentBytesIn;
+import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.Utils;
 import io.sirix.settings.VersioningType;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -138,6 +143,8 @@ public class HOTLeafCodecAllocationBenchmark {
     private final ByteBuffer[] buffers = new ByteBuffer[2];
     private final PageReference[] references = new PageReference[2];
     private final HOTProjectionImage[] images = new HOTProjectionImage[2];
+    private final MMFileReader reader = new MMFileReader(MemorySegment.NULL, MemorySegment.NULL,
+        new ByteHandlerPipeline(), SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build(), null);
     private final int payload;
     private final int used;
 
@@ -283,12 +290,11 @@ public class HOTLeafCodecAllocationBenchmark {
         }
         case 10 -> checksum = cached[arm].findEntry(key);
         case 11 -> {
-          nativeInputs[arm].position(1);
-          try (HOTLeafPage decoded =
-              (HOTLeafPage) PageKind.HOT_LEAF_PAGE.deserializePage(config, nativeInputs[arm], SerializationType.DATA)) {
-            // Materialized pages escape to their reader/cache in production in both arms.
+          try (HOTLeafPage decoded = (HOTLeafPage) reader.deserializeFromSegment(config, wires[arm])) {
             result = decoded;
-            checksum = decoded.getUsedSlotsSize();
+            checksum = decoded.getActualMemorySize();
+          } catch (final IOException failure) {
+            throw new UncheckedIOException(failure);
           }
         }
         default -> throw new AssertionError(operation);
@@ -297,6 +303,7 @@ public class HOTLeafCodecAllocationBenchmark {
 
     @Override
     public void close() {
+      reader.close();
       output.close();
       cached[0].close();
       cached[1].close();

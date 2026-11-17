@@ -7111,10 +7111,6 @@ public enum PageKind {
     HOTLeafPage page = null;
     try {
       final MemorySegment slotMemory;
-      // Base of the allocation backing slotMemory, when slotMemory is only a slice of it. The
-      // allocator's live-slot map is keyed by the address it handed out, so the page has to be
-      // told the base or its optimistic read stamps silently bind to "not slot-backed" and stop
-      // validating anything. Null on the copying path, where slotMemory IS the allocation.
       final MemorySegment stampBase;
       if (compactFragment) {
         // Own only the packed slot bytes. No allocator frame or PEXT index is needed to answer
@@ -7145,13 +7141,18 @@ public enum PageKind {
         acquiredFrameOwner = Objects.requireNonNull(decompressionResult.transferOwnership(),
             "HOT-leaf decompression-frame ownership was already transferred");
       } else {
-        stampBase = null;
         // Construct the owner before entering the allocator. No heap allocation is then needed
         // between a successful native-frame acquisition and publication into HOTLeafPage.
         final HOTLeafAllocatedFrameOwner allocatedFrameOwner = new HOTLeafAllocatedFrameOwner(allocator);
         acquiredFrameOwner = allocatedFrameOwner;
-        slotMemory = Objects.requireNonNull(allocator.allocate(HOTLeafPage.DEFAULT_SIZE));
-        allocatedFrameOwner.bind(slotMemory);
+        final MemorySegment allocation = Objects.requireNonNull(allocator.allocate(encodedPayload
+            ? Math.max(1, usedSlotMemorySize)
+            : HOTLeafPage.DEFAULT_SIZE));
+        allocatedFrameOwner.bind(allocation);
+        stampBase = null;
+        slotMemory = encodedPayload
+            ? allocation.asSlice(0, usedSlotMemorySize)
+            : allocation;
         if (encodedPayload) {
           HOTLeafPayloadCodec.decode(source, slotMemory, usedSlotMemorySize);
         } else if (source instanceof MemorySegmentBytesIn msSource) {
@@ -8699,6 +8700,8 @@ public enum PageKind {
    */
   private static final int OVERFLOW_COMPRESSION_MIN_BYTES = 64;
 
+  static final int PAYLOAD_COMPRESSION_MARGIN = Integer.BYTES + 1;
+
   /** Per-thread election result, so a page-sized decision allocates nothing. */
   private static final class OverflowPayloadCodecResult {
     private byte[] stored;
@@ -8786,7 +8789,7 @@ public enum PageKind {
     // The 5 bytes of compressed framing (stored length + codec byte) cost more than the 1 byte the
     // stored form pays, so a codec must beat the raw payload by more than the difference to be worth
     // electing. Tie order mirrors emitSmallestBody: LZ77 > ByteRun > ZeroRun.
-    if (bestLen >= totalBytes - (Integer.BYTES + 1)) {
+    if (bestLen >= totalBytes - PAYLOAD_COMPRESSION_MARGIN) {
       return false;
     }
     if (bestLen == v3Len) {

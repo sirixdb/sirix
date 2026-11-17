@@ -1,25 +1,30 @@
 package io.sirix.page;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.FrameSlotAllocator;
+import io.sirix.cache.ShardedPageCache;
 import io.sirix.index.IndexType;
-import io.sirix.io.bytepipe.ByteHandler.DecompressionResult;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.index.hot.page.HOTProjectionImage;
+import io.sirix.io.PageHasher;
+import io.sirix.io.bytepipe.ByteHandler;
+import io.sirix.io.bytepipe.ByteHandler.DecompressionResult;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.FFILz4Compressor;
+import io.sirix.io.memorymapped.MMFileReader;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.Utils;
 import io.sirix.settings.VersioningType;
-import java.nio.ByteBuffer;
-import io.sirix.io.PageHasher;
-import io.sirix.io.bytepipe.FFILz4Compressor;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.SplittableRandom;
@@ -34,6 +39,9 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @Isolated
 final class HOTLeafPayloadCodecTest {
@@ -68,7 +76,7 @@ final class HOTLeafPayloadCodecTest {
   }
 
   @Test
-  void emptyEncodedZeroRunPayloadRemainsReadable() {
+  void emptyEncodedZeroRunPayloadRemainsReadable() throws Exception {
     try (Arena arena = Arena.ofConfined(); MemorySegmentBytesOut wire = new MemorySegmentBytesOut()) {
       final MemorySegment output = arena.allocate(8);
       output.fill((byte) 42);
@@ -83,6 +91,11 @@ final class HOTLeafPayloadCodecTest {
       assertArrayEquals(new byte[] {42}, heap);
       writeHeader(wire, (byte) 2, 0, 0);
       wire.write(frame);
+      try (HOTLeafPage decoded = (HOTLeafPage) new PagePersister().deserializePage(CONFIG,
+          new ByteArrayBytesIn(wire.toByteArray()), SerializationType.DATA)) {
+        assertEquals(0, decoded.getEntryCount());
+        assertEquals(0, decoded.slotCapacity());
+      }
       final ByteArrayBytesIn imageInput = new ByteArrayBytesIn(wire.toByteArray());
       imageInput.position(1);
       assertNull(HOTProjectionImage.copyIfFits(imageInput).select(new byte[] {7}, 0));
@@ -269,6 +282,174 @@ final class HOTLeafPayloadCodecTest {
   }
 
   @Test
+  void encodedLookingInputStillRunsANonemptyOuterPipeline() throws Exception {
+    final FrameSlotAllocator allocator = assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance());
+    try (HOTLeafPage original = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+        MemorySegmentBytesOut sink = new MemorySegmentBytesOut();
+        Arena arena = Arena.ofConfined()) {
+      final byte[] value = new byte[256];
+      assertTrue(original.put(new byte[] {7}, value));
+      PageKind.HOT_LEAF_PAGE.serializePage(CONFIG, sink, original, SerializationType.DATA);
+      final byte[] bytes = sink.toByteArray();
+      assertEquals(2, bytes[2]);
+      final MemorySegment wire = arena.allocate(bytes.length);
+      wire.copyFrom(MemorySegment.ofArray(bytes));
+      final MemorySegment outerInput = arena.allocate(3);
+      outerInput.set(ValueLayout.JAVA_BYTE, 0, (byte) 12);
+      outerInput.set(ValueLayout.JAVA_BYTE, 2, (byte) 2);
+      final ByteHandler handler = mock(ByteHandler.class);
+      when(handler.supportsMemorySegments()).thenReturn(true);
+      final ByteHandlerPipeline identity = new ByteHandlerPipeline();
+      when(handler.decompressScoped(outerInput)).thenAnswer(invocation -> identity.decompressScoped(wire));
+      final long before = allocator.getActiveMemoryBytes();
+      try (MMFileReader reader = new MMFileReader(MemorySegment.NULL, MemorySegment.NULL,
+          new ByteHandlerPipeline(handler), SerializationType.DATA, new PagePersister(),
+          Caffeine.newBuilder().build(), null);
+          HOTLeafPage decoded = (HOTLeafPage) reader.deserializeFromSegment(CONFIG, outerInput)) {
+        assertEquals(1, decoded.getEntryCount());
+        assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {7})));
+        assertEquals(4096, allocator.getActiveMemoryBytes() - before);
+      }
+      assertEquals(before, allocator.getActiveMemoryBytes());
+    }
+  }
+
+  @Test
+  void strongerCodecMustBeatZeroRunByMoreThanFiveBytes() {
+    assumeTrue(FFILz4Compressor.isNativeAvailable());
+    final FFILz4Compressor compressor = new FFILz4Compressor();
+    try (Arena arena = Arena.ofConfined();
+        MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
+        MemorySegmentBytesOut encoded = new MemorySegmentBytesOut()) {
+      final MemorySegment input = arena.allocate(100);
+      final MemorySegment output = arena.allocate(compressor.compressBound(100));
+      final byte[] zeroRun = new byte[ZeroRunByteCodec.maxEncodedSize(100)];
+      for (final int saving : new int[] {4, 5, 6}) {
+        boolean witnessed = false;
+        for (int prefix = 1; prefix < 90; prefix++) {
+          final byte[] payload = new byte[100];
+          Arrays.fill(payload, 0, prefix, (byte) 4);
+          Arrays.fill(payload, 98, 100, (byte) 4);
+          input.copyFrom(MemorySegment.ofArray(payload));
+          final int lz4Length = compressor.compressSegmentBounded(input, 100, output, (int) output.byteSize());
+          final int zeroLength = ZeroRunByteCodec.encode(payload, 0, payload.length, zeroRun, 0);
+          if (zeroLength - lz4Length != saving) {
+            continue;
+          }
+          raw.clear();
+          encoded.clear();
+          writeHeader(raw, (byte) 0, 0, payload.length);
+          raw.write(payload);
+          HOTLeafPayloadCodec.writePage(encoded, raw.toByteArray(), (int) raw.position());
+          final byte[] wire = encoded.toByteArray();
+          assertEquals(2, wire[2]);
+          assertEquals(saving == 6 ? 1 : 0, wire[23], "five-byte decoder preference, saving=" + saving);
+          assertArrayEquals(raw.toByteArray(), HOTLeafPayloadCodec.expandImage(wire, 1));
+          witnessed = true;
+          break;
+        }
+        assertTrue(witnessed, "native codec must supply the boundary witness for saving=" + saving);
+      }
+    }
+  }
+
+  @Test
+  void ordinaryOwnedReadsRetainSmallFramesAndPromoteOnlyOnMutation() throws Exception {
+    final FrameSlotAllocator allocator = assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance());
+    final ByteHandlerPipeline pipeline = new ByteHandlerPipeline();
+    final PagePersister persister = new PagePersister();
+    for (final boolean repeated : new boolean[] {false, true}) {
+      try (HOTLeafPage original = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+          MemorySegmentBytesOut sink = new MemorySegmentBytesOut();
+          Arena arena = Arena.ofConfined()) {
+        final byte[] value = new byte[128];
+        if (repeated) {
+          for (int i = 0; i < value.length; i++) {
+            value[i] = (byte) (i % 17 + 1);
+          }
+        }
+        for (int i = 0; i < 32; i++) {
+          assertTrue(original.put(new byte[] {(byte) i}, value));
+        }
+        assertEquals(4256, original.getUsedSlotsSize());
+        original.setPageReference(7, new PageReference().setKey(123));
+        for (final VersioningType versioning : VersioningType.values()) {
+          final ResourceConfiguration config = new ResourceConfiguration.Builder("owned-codec")
+              .versioningApproach(versioning).build();
+          for (final boolean encoded : new boolean[] {false, true}) {
+            sink.clear();
+            if (encoded) {
+              PageKind.HOT_LEAF_PAGE.serializePage(config, sink, original, SerializationType.DATA);
+            } else {
+              PageKind.serializeRawHOTLeaf(config, sink, original);
+            }
+            final byte[] bytes = sink.toByteArray();
+            if (encoded) {
+              assertTrue((bytes[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+            }
+            final MemorySegment wire = arena.allocate(bytes.length);
+            wire.copyFrom(MemorySegment.ofArray(bytes));
+            final long before = allocator.getActiveMemoryBytes();
+            if (encoded) {
+              try (DecompressionResult truncated = pipeline.decompressScoped(wire.asSlice(0, bytes.length - 1))) {
+                assertThrows(RuntimeException.class, () -> persister.deserializePage(config,
+                    new MemorySegmentBytesIn(truncated.segment()), SerializationType.DATA, truncated));
+              }
+              assertEquals(before, allocator.getActiveMemoryBytes());
+            }
+            final HOTLeafPage decoded;
+            try (DecompressionResult outer = pipeline.decompressScoped(wire)) {
+              decoded = (HOTLeafPage) persister.deserializePage(config, new MemorySegmentBytesIn(outer.segment()),
+                  SerializationType.DATA, outer);
+              assertEquals(!encoded, outer.ownershipTransferred().get());
+            }
+            try (decoded) {
+              assertEquals(8192, allocator.getActiveMemoryBytes() - before);
+              assertEquals(4256, decoded.getActualMemorySize());
+              final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L << 20);
+              final PageReference reference = new PageReference().setKey(1);
+              cache.put(reference, decoded);
+              assertEquals(decoded.getActualMemorySize() + decoded.estimatedCanonicalCacheRetainedHeapBytes(),
+                  cache.getCurrentWeightBytes());
+              assertTrue(cache.getCurrentWeightBytes() < 16384);
+              wire.fill((byte) 0xa5);
+              assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {17})));
+              assertEquals(123, decoded.getPageReference(7).getKey());
+              final long binding = decoded.readStampBinding();
+              final long stamp = decoded.readStamp();
+              assertTrue(decoded.validateStamp(binding, stamp));
+              assertTrue(decoded.put(new byte[] {32}, value));
+              assertEquals(HOTLeafPage.DEFAULT_SIZE, decoded.slotCapacity());
+              assertTrue(!decoded.validateStamp(binding, stamp));
+              assertEquals(HOTLeafPage.DEFAULT_SIZE, allocator.getActiveMemoryBytes() - before);
+              assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {17})));
+              cache.clear();
+              assertEquals(0, cache.getCurrentWeightBytes());
+            }
+            assertEquals(before, allocator.getActiveMemoryBytes());
+            wire.copyFrom(MemorySegment.ofArray(bytes));
+            try (MMFileReader reader = new MMFileReader(MemorySegment.NULL, MemorySegment.NULL, pipeline,
+                SerializationType.DATA, persister, Caffeine.newBuilder().build(), null)) {
+              assertThrows(RuntimeException.class,
+                  () -> reader.deserializeFromSegment(config, wire.asSlice(0, bytes.length - 1)));
+              assertEquals(before, allocator.getActiveMemoryBytes());
+              try (HOTLeafPage read = (HOTLeafPage) reader.deserializeFromSegment(config, wire)) {
+                assertEquals(8192, allocator.getActiveMemoryBytes() - before);
+                assertEquals(4256, read.getActualMemorySize());
+                assertEquals(config.getDatabaseId(), read.getPageReference(7).getDatabaseId());
+                assertEquals(config.getID(), read.getPageReference(7).getResourceId());
+                wire.fill((byte) 0xa5);
+                assertArrayEquals(value, read.getValue(read.findEntry(new byte[] {17})));
+              }
+            }
+            assertEquals(before, allocator.getActiveMemoryBytes());
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   void codecSizeTiesPreferZeroRun() {
     final byte[] payload = new byte[100];
     Arrays.fill(payload, 0, 8, (byte) 4);
@@ -358,7 +539,7 @@ final class HOTLeafPayloadCodecTest {
 
   @Test
   void rawFallbackAccountsForFramingAndZeroRunGoldenPinsTheBoundary() {
-    for (final int used : new int[] {0, 4, 8, 9, 32}) {
+    for (final int used : new int[] {0, 4, 7, 8, 9, 32}) {
       try (MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
           MemorySegmentBytesOut encoded = new MemorySegmentBytesOut()) {
         raw.writeByte((byte) 12);

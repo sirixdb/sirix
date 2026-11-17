@@ -305,9 +305,13 @@ an additional size header. The optional side-reference trailer follows the
 encoded bytes and is never part of the codec frame. Offsets refer to decoded
 slots. Full, packed and sparse fragments have identical codec semantics.
 
-Writers compare both available codecs for each page, including the five-byte
-framing cost, and keep raw bytes unless compression is strictly smaller. Equal
-compressed sizes prefer zero-run. Native LZ4 availability affects writing only;
+Writers use the existing five-byte payload compression margin
+(`Integer.BYTES + 1`, shared with overflow pages). LZ4 replaces zero-run only
+when its payload is more than five bytes smaller; savings of four or five bytes
+keep zero-run, while six bytes select LZ4. The selected encoded payload must
+also beat raw by more than five bytes, covering the stored-length and codec
+framing: savings of four or five bytes keep raw, while six bytes encode.
+Native LZ4 availability affects writing only;
 the existing Java LZ4 decoder keeps codec-1 pages portable. Empty payloads remain
 raw. `-Dsirix.page.hotLeaf.compress=false` selects the raw writer for diagnostic
 A/B runs; it never disables reading encoded pages. No mutable source-page state
@@ -327,7 +331,19 @@ page must not be consumed by a malformed codec frame. Checksums retain their
 existing responsibility for detecting otherwise valid payload modifications.
 
 Decoded leaf memory and cached projection images retain their existing raw
-layout: warm lookup performs no codec work. Projection images are expanded once
+layout: warm lookup performs no codec work. Ordinary encoded reads allocate
+only the decoded slot length (at least one byte for an empty payload), rounded
+by the existing allocator size classes, rather than reserving writable 64 KiB
+capacity. The leaf exposes exactly the decoded slot length for the same cache
+charge as raw input and keeps the allocation base for release. The zero-offset
+view retains the same allocation-era stamp identity.
+An empty outer byte-handler pipeline borrows encoded HOT input for the duration
+of decode, avoiding an unused owned copy; raw HOT input still needs transferable
+owned storage. Other pipelines release their outer decompression input after
+decode. The leaf owns its separate decoded allocation and lazily promotes it
+on mutation. Decode, construction or side
+trailer failure releases any unpublished decoded allocation.
+Projection images are expanded once
 before cache publication and charged by their actual retained bytes, bounded by
 the existing stored-image limit plus the maximum decoded slot payload.
 After per-thread scratch initialization, codec selection and decoding into an existing
