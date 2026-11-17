@@ -39,11 +39,8 @@ final class HistogramCollectorTest {
     json.append("],\"price\":[7]}");
 
     final int deletedRevision;
-    try (final var store = BasicJsonDBStore.newBuilder()
-                                          .location(directory)
-                                          .hashType(hashType)
-                                          .buildPathSummary(true)
-                                          .build()) {
+    try (final var store =
+        BasicJsonDBStore.newBuilder().location(directory).hashType(hashType).buildPathSummary(true).build()) {
       final var collection = store.create(databaseName, resourceName, json.toString());
       try (final var session = collection.getDatabase().beginResourceSession(resourceName);
           final var writer = session.beginNodeTrx()) {
@@ -63,7 +60,9 @@ final class HistogramCollectorTest {
           final var reader = session.beginNodeReadOnlyTrx()) {
         assertEquals(hashType, session.getResourceConfig().hashType);
         assertTrue(reader.getMaxNodeKey() > 100_000);
-        assertEquals(hashType == HashType.NONE ? 0 : 3, reader.getDescendantCount());
+        assertEquals(hashType == HashType.NONE
+            ? 0
+            : 3, reader.getDescendantCount());
       }
       final var collector = new HistogramCollector(store);
       assertSurvivingSample(collector.collect(databaseName, resourceName, "price", 10_000));
@@ -149,15 +148,12 @@ final class HistogramCollectorTest {
     final Histogram hist = builder.build();
 
     // A histogram with no values should report 0 total count
-    assertEquals(0, hist.totalCount(),
-        "Histogram with no values should have 0 total count");
-    assertEquals(0, hist.distinctCount(),
-        "Histogram with no values should have 0 distinct count");
+    assertEquals(0, hist.totalCount(), "Histogram with no values should have 0 total count");
+    assertEquals(0, hist.distinctCount(), "Histogram with no values should have 0 distinct count");
 
     // EQ selectivity on empty histogram: should return a safe default, not crash
     final double eqSel = hist.estimateEqualitySelectivity(42.0);
-    assertTrue(eqSel >= 0.0 && eqSel <= 1.0,
-        "Selectivity should be in [0,1] even for empty histogram, got " + eqSel);
+    assertTrue(eqSel >= 0.0 && eqSel <= 1.0, "Selectivity should be in [0,1] even for empty histogram, got " + eqSel);
 
     // Range selectivity on empty histogram
     final double rangeSel = hist.estimateRangeSelectivity(0.0, 100.0);
@@ -183,8 +179,7 @@ final class HistogramCollectorTest {
       Thread.sleep(5);
 
       // Should return null due to TTL expiry
-      assertNull(catalog.get("ttldb", "ttlres", "field"),
-          "Expired entry should return null");
+      assertNull(catalog.get("ttldb", "ttlres", "field"), "Expired entry should return null");
     } finally {
       catalog.setTtlMillis(originalTtl);
       catalog.remove("ttldb", "ttlres", "field");
@@ -209,7 +204,6 @@ final class HistogramCollectorTest {
 
     // Range [10, 50] ≈ ~40% of [10, 109]
     final double rangeSel = hist.estimateRangeSelectivity(10.0, 50.0);
-    assertTrue(rangeSel > 0.30 && rangeSel < 0.50,
-        "Range [10,50] of [10,109] should be ~40%, got " + rangeSel);
+    assertTrue(rangeSel > 0.30 && rangeSel < 0.50, "Range [10,50] of [10,109] should be ~40%, got " + rangeSel);
   }
 }
