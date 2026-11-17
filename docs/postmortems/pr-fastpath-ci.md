@@ -125,11 +125,12 @@
   were checked individually. No production path was added or removed by the interval repair.
 - The outer executor still owns publication and full hosted changed-source PIT confirmation.
 
-## Follow-up: shared execution deadline (decision required)
+## Follow-up: shared execution deadline
 
 - Issue: PR #1352 at `e5b2c72682dea5f803c2b2c8e0934efea2996197`,
   [CI run 43730487790](https://github.com/sirixdb/sirix/actions/runs/43730487790/job/132862910158).
-  This finding remains unresolved; no passing mutation score or automatic repair is claimed.
+  This diagnostic checkpoint preceded the bounded-gate repairs; the final scope and completion
+  evidence are recorded in the [comment-scope repair](pr-fastpath-comment-scope.md#verification-results).
 - Symptom: `Shared 1320s execution deadline exceeded`. The downloaded artifact contains an
   empty `mutations.xml`, not a survivor report. Coverage completed in 852 seconds; PIT created
   43 mutation units at 15:55:20 UTC and the process group was killed at 15:59:57 UTC.
@@ -168,12 +169,12 @@
 - Existing regression evidence: all 23 Python tooling tests pass, including timeout/partial-XML
   rejection in `ReportingTest`. Inventory, coverage-identity analysis and summaries are retained
   under `build/ci-evidence/round4/`. No new application test was invented for this diagnosis.
-- Decision required: retain whole-source gating and authorize the broader coverage/survivor and
-  orchestration remediation under the existing limits, or explicitly approve a changed-code
+- Decision requested at that checkpoint: retain whole-source gating and authorize broader
+  coverage/survivor and orchestration remediation under the existing limits, or explicitly approve a changed-code
   mutation gate with whole-source analysis retained in a separately bounded lane. The latter
   changes policy and must not be implemented implicitly. Neither deadlines, thresholds, targets,
   test selection nor production row/page kernels were changed during this diagnosis. No full
-  changed-source mutation pass has been obtained.
+  changed-source mutation pass had yet been obtained at that checkpoint.
 - Lesson: focused mutation success does not establish full-selection capacity or coverage;
   obtain the complete inventory and baseline evidence before selecting a bounded-gate repair.
   See [Lessons](../LESSONS.md).
