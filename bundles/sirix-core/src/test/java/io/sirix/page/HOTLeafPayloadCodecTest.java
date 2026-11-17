@@ -10,8 +10,8 @@ import io.sirix.index.IndexType;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.index.hot.page.HOTProjectionImage;
 import io.sirix.io.PageHasher;
-import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandler.DecompressionResult;
+import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.memorymapped.MMFileReader;
@@ -21,6 +21,7 @@ import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.node.Utils;
 import io.sirix.settings.VersioningType;
+import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -33,6 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.mockito.MockedStatic;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -40,7 +43,13 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @Isolated
@@ -359,7 +368,7 @@ final class HOTLeafPayloadCodecTest {
   @Test
   void ordinaryOwnedReadsRetainSmallFramesAndPromoteOnlyOnMutation() throws Exception {
     final FrameSlotAllocator allocator = assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance());
-    final ByteHandlerPipeline pipeline = new ByteHandlerPipeline();
+    final ByteHandlerPipeline pipeline = spy(new ByteHandlerPipeline());
     final PagePersister persister = new PagePersister();
     for (final boolean repeated : new boolean[] {false, true}) {
       try (HOTLeafPage original = new HOTLeafPage(1, 1, IndexType.PROJECTION);
@@ -367,7 +376,7 @@ final class HOTLeafPayloadCodecTest {
           Arena arena = Arena.ofConfined()) {
         final byte[] value = new byte[128];
         if (repeated) {
-          for (int i = 0; i < value.length; i++) {
+          for (int i = 0; i < value.length / 2; i++) {
             value[i] = (byte) (i % 17 + 1);
           }
         }
@@ -431,6 +440,7 @@ final class HOTLeafPayloadCodecTest {
             }
             assertEquals(before, allocator.getActiveMemoryBytes());
             wire.copyFrom(MemorySegment.ofArray(bytes));
+            clearInvocations(pipeline);
             try (MMFileReader reader = new MMFileReader(MemorySegment.NULL, MemorySegment.NULL, pipeline,
                 SerializationType.DATA, persister, Caffeine.newBuilder().build(), null)) {
               assertThrows(RuntimeException.class,
@@ -445,10 +455,21 @@ final class HOTLeafPayloadCodecTest {
                 assertArrayEquals(value, read.getValue(read.findEntry(new byte[] {17})));
               }
             }
+            if (encoded) {
+              verify(pipeline, never()).decompressScoped(wire);
+            }
             assertEquals(before, allocator.getActiveMemoryBytes());
           }
         }
       }
+    }
+  }
+
+  @Test
+  void ownedReadsKeepTheirMemoryContractWithoutNativeLz4() throws Exception {
+    try (MockedStatic<FFILz4Compressor> codec = mockStatic(FFILz4Compressor.class, CALLS_REAL_METHODS)) {
+      codec.when(FFILz4Compressor::isNativeAvailable).thenReturn(false);
+      ordinaryOwnedReadsRetainSmallFramesAndPromoteOnlyOnMutation();
     }
   }
 
@@ -691,44 +712,51 @@ final class HOTLeafPayloadCodecTest {
           assertTrue(encoded.length < raw.length / 2);
         }
         for (final byte[] wire : new byte[][] {raw, encoded}) {
-          for (final boolean compact : new boolean[] {false, true}) {
-            final HOTLeafPage decoded = (HOTLeafPage) (compact
-                ? new PagePersister().deserializeHOTLeafFragment(CONFIG, new ByteArrayBytesIn(wire),
-                    SerializationType.DATA)
-                : new PagePersister().deserializePage(CONFIG, new ByteArrayBytesIn(wire), SerializationType.DATA));
-            try {
-              assertEquals(64, decoded.getEntryCount());
-              assertTrue(decoded.isCompleteDump());
-              assertEquals(123, decoded.getPageReference(7).getKey());
-              for (int i = 0; i < 64; i++) {
-                assertArrayEquals(original.getValue(i), decoded.getValue(decoded.findEntry(new byte[] {(byte) i})));
-              }
-            } finally {
-              decoded.close();
-            }
-          }
-          for (int i = 0; i <= 64; i++) {
-            final ByteArrayBytesIn pointSource = new ByteArrayBytesIn(wire);
-            pointSource.readByte();
-            final var point = PageKind.deserializeHOTProjectionEntry(pointSource, new byte[] {(byte) i}, 7);
-            if (i == 64) {
-              assertNull(point);
-            } else {
-              assertArrayEquals(original.getValue(i), point.value());
-              assertEquals(123, point.sideReference().getKey());
-            }
-            assertEquals(wire.length, pointSource.position());
-          }
-          final ByteArrayBytesIn source = new ByteArrayBytesIn(wire);
-          source.readByte();
-          final HOTProjectionImage image = HOTProjectionImage.copyIfFits(source);
-          for (int i = 0; i < 64; i++) {
-            assertArrayEquals(original.getValue(i), image.select(new byte[] {(byte) i}, 7).value());
-          }
+          assertDecodedLeaf(original, wire);
+          assertSelectedEntries(original, wire);
         }
       } finally {
         original.close();
       }
+    }
+  }
+
+  private static void assertDecodedLeaf(final HOTLeafPage original, final byte[] wire) throws IOException {
+    for (final boolean compact : new boolean[] {false, true}) {
+      final HOTLeafPage decoded = (HOTLeafPage) (compact
+          ? new PagePersister().deserializeHOTLeafFragment(CONFIG, new ByteArrayBytesIn(wire), SerializationType.DATA)
+          : new PagePersister().deserializePage(CONFIG, new ByteArrayBytesIn(wire), SerializationType.DATA));
+      try {
+        assertEquals(64, decoded.getEntryCount());
+        assertTrue(decoded.isCompleteDump());
+        assertEquals(123, decoded.getPageReference(7).getKey());
+        for (int i = 0; i < 64; i++) {
+          assertArrayEquals(original.getValue(i), decoded.getValue(decoded.findEntry(new byte[] {(byte) i})));
+        }
+      } finally {
+        decoded.close();
+      }
+    }
+  }
+
+  private static void assertSelectedEntries(final HOTLeafPage original, final byte[] wire) {
+    for (int i = 0; i <= 64; i++) {
+      final ByteArrayBytesIn pointSource = new ByteArrayBytesIn(wire);
+      pointSource.readByte();
+      final var point = PageKind.deserializeHOTProjectionEntry(pointSource, new byte[] {(byte) i}, 7);
+      if (i == 64) {
+        assertNull(point);
+      } else {
+        assertArrayEquals(original.getValue(i), point.value());
+        assertEquals(123, point.sideReference().getKey());
+      }
+      assertEquals(wire.length, pointSource.position());
+    }
+    final ByteArrayBytesIn source = new ByteArrayBytesIn(wire);
+    source.readByte();
+    final HOTProjectionImage image = HOTProjectionImage.copyIfFits(source);
+    for (int i = 0; i < 64; i++) {
+      assertArrayEquals(original.getValue(i), image.select(new byte[] {(byte) i}, 7).value());
     }
   }
 }

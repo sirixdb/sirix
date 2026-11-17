@@ -48,7 +48,7 @@ public final class NativeCodecLibrary {
    * Returns {@code null} if the resource is missing for the running platform — caller falls back to
    * Java decoder.
    */
-  private static @Nullable Path extractNativeLib() throws Exception {
+  static @Nullable Path extractNativeLib() throws Exception {
     final String os = System.getProperty("os.name", "").toLowerCase();
     final String arch = System.getProperty("os.arch", "").toLowerCase();
 
@@ -125,7 +125,7 @@ public final class NativeCodecLibrary {
    * until it lets go. Losing the race is not an error — the winner staged identical bytes, so the
    * loser drops its copy and uses theirs.
    */
-  private static Path publishNativeLib(final Path target, final byte[] lib) throws Exception {
+  static Path publishNativeLib(final Path target, final byte[] lib) throws Exception {
     if (Files.isReadable(target) && Files.size(target) == lib.length) {
       return target;
     }

@@ -6548,20 +6548,19 @@ public enum PageKind {
       sink.writeInt(encodedDirtyCount);
       sink.writeInt(dirtyUsed);
 
-      if (dirtyCount == 0) {
-        if (hasSegmentRefs && includeSideRefs) {
-          serializeSegmentRefs(sink, hotLeaf);
-        }
-        return;
+      if (dirtyCount > 0) {
+        serializeSparseHOTLeafEntries(sink, hotLeaf, dirtyCount, dirtyUsed);
       }
-
-      serializeSparseHOTLeafEntries(sink, hotLeaf, dirtyCount, dirtyUsed);
-      if (hasSegmentRefs && includeSideRefs) {
-        serializeSegmentRefs(sink, hotLeaf);
-      }
-      return;
+    } else {
+      serializeFullHOTLeafEntries(sink, hotLeaf);
     }
+    if (hasSegmentRefs && includeSideRefs) {
+      serializeSegmentRefs(sink, hotLeaf);
+    }
+  }
 
+  /** Validate and pack a full image without changing the source leaf's slots or ownership. */
+  private static void serializeFullHOTLeafEntries(final BytesOut<?> sink, final HOTLeafPage hotLeaf) {
     final int entryCount = hotLeaf.getEntryCount();
     final int usedSize = hotLeaf.getUsedSlotsSize();
     final MemorySegment slots = hotLeaf.slots();
@@ -6603,9 +6602,6 @@ public enum PageKind {
       for (int i = 0; i < entryCount; i++) {
         sink.writeSegment(slots, hotLeaf.getSlotOffset(i), hotLeaf.getSlotSize(i));
       }
-    }
-    if (hasSegmentRefs && includeSideRefs) {
-      serializeSegmentRefs(sink, hotLeaf);
     }
   }
 
@@ -7121,16 +7117,7 @@ public enum PageKind {
         // referenced, including by unguarded readers. Native storage keeps the shared leaf accessors
         // on the native-only path; see PageLayout#getBitmapWord(byte[], int).
         final MemorySegment owned = GcOwnedNativeMemory.allocate(usedSlotMemorySize);
-        if (encodedPayload) {
-          HOTLeafPayloadCodec.decode(source, owned, usedSlotMemorySize);
-        } else if (source instanceof MemorySegmentBytesIn segmentSource) {
-          MemorySegment.copy(segmentSource.getSource(), source.position(), owned, 0L, usedSlotMemorySize);
-          source.skip(usedSlotMemorySize);
-        } else {
-          final byte[] slots = new byte[usedSlotMemorySize];
-          source.read(slots);
-          MemorySegment.copy(slots, 0, owned, ValueLayout.JAVA_BYTE, 0L, usedSlotMemorySize);
-        }
+        readHOTLeafSlots(source, owned, usedSlotMemorySize, encodedPayload);
         slotMemory = owned;
         stampBase = null;
       } else if (canZeroCopy) {
@@ -7153,16 +7140,7 @@ public enum PageKind {
         slotMemory = encodedPayload
             ? allocation.asSlice(0, usedSlotMemorySize)
             : allocation;
-        if (encodedPayload) {
-          HOTLeafPayloadCodec.decode(source, slotMemory, usedSlotMemorySize);
-        } else if (source instanceof MemorySegmentBytesIn msSource) {
-          MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, usedSlotMemorySize);
-          source.skip(usedSlotMemorySize);
-        } else {
-          final byte[] slotData = new byte[usedSlotMemorySize];
-          source.read(slotData);
-          MemorySegment.copy(slotData, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, usedSlotMemorySize);
-        }
+        readHOTLeafSlots(source, slotMemory, usedSlotMemorySize, encodedPayload);
       }
 
       page = new HOTLeafPage(recordPageKey, revision, indexType, slotMemory, acquiredFrameOwner, slotOffsets,
@@ -7179,6 +7157,20 @@ public enum PageKind {
     } catch (final RuntimeException | Error failure) {
       closeUnpublishedHOTLeaf(page, acquiredFrameOwner, failure);
       throw failure;
+    }
+  }
+
+  private static void readHOTLeafSlots(final BytesIn<?> source, final MemorySegment destination, final int used,
+      final boolean encoded) {
+    if (encoded) {
+      HOTLeafPayloadCodec.decode(source, destination, used);
+    } else if (source instanceof MemorySegmentBytesIn segmentSource) {
+      MemorySegment.copy(segmentSource.getSource(), source.position(), destination, 0L, used);
+      source.skip(used);
+    } else {
+      final byte[] slots = new byte[used];
+      source.read(slots);
+      MemorySegment.copy(slots, 0, destination, ValueLayout.JAVA_BYTE, 0L, used);
     }
   }
 

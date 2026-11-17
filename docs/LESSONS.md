@@ -198,3 +198,12 @@ Use the specified shared margin for that choice, and test margin-minus-one,
 margin and margin-plus-one for both decoder choice and raw fallback, with framing
 included. Measure codec lengths independently and assert the emitted codec as
 well as the round trip. See the [preference-margin postmortem](postmortems/2026-11-17-leaf-codec-preference-margin.md).
+
+### Codec CI contracts
+
+Keep exact packing oracles on decoded logical frames and checksum oracles on stored wire
+frames. Compression fixtures used across platforms must compress with every supported
+codec set; explicitly exercise missing-native-codec behavior. Verify native staging names,
+fallback directories and losing-publication cleanup through filesystem behavior, and
+separate functionally equivalent decoder-routing mutants from missing correctness tests.
+See the [leaf codec CI postmortem](postmortems/2026-11-17-leaf-codec-ci.md).

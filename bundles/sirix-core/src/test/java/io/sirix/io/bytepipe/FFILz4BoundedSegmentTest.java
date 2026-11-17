@@ -5,10 +5,15 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
 
 final class FFILz4BoundedSegmentTest {
   @Test
@@ -54,6 +59,24 @@ final class FFILz4BoundedSegmentTest {
           () -> codec.decompressSegmentRange(scratch, 256, length, scratch, 2048, 1));
       assertThrows(IndexOutOfBoundsException.class,
           () -> codec.decompressSegmentRange(scratch, 256, length, scratch, 1024, -1));
+    }
+  }
+
+  @Test
+  void bundledNativeRangeDecoderDoesNotFallBackToJava() {
+    assumeTrue(FFILz4Compressor.isNativeAvailable());
+    assumeTrue(NativeCodecLibrary.lookup() != null);
+    // LZ4's literal-only block contract: high nibble 3 followed by exactly three literal bytes.
+    final byte[] block = {0x30, 7, 8, 9};
+    final FFILz4Compressor codec = new FFILz4Compressor();
+    try (Arena arena = Arena.ofConfined();
+        MockedStatic<JavaLz4BlockDecoder> fallback = mockStatic(JavaLz4BlockDecoder.class, CALLS_REAL_METHODS)) {
+      final MemorySegment input = arena.allocate(block.length);
+      input.copyFrom(MemorySegment.ofArray(block));
+      final MemorySegment output = arena.allocate(3);
+      assertEquals(3, codec.decompressSegmentRange(input, 0, block.length, output, 0, 3));
+      assertArrayEquals(new byte[] {7, 8, 9}, output.toArray(ValueLayout.JAVA_BYTE));
+      fallback.verifyNoInteractions();
     }
   }
 

@@ -17,6 +17,7 @@ import io.sirix.io.PageHasher;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.page.PageReference;
+import io.sirix.page.HOTLeafPayloadCodec;
 import io.sirix.settings.VersioningType;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.io.TempDir;
@@ -192,10 +193,12 @@ final class ProjectionSortedFullImagePackingTest {
     try (FileChannel channel = FileChannel.open(data, StandardOpenOption.READ)) {
       final ByteBuffer header = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
       read(channel, header, root.getKey());
-      assertEquals(expectedSize, header.flip().getInt());
-      final byte[] body = new byte[expectedSize];
+      final int storedSize = header.flip().getInt();
+      assertTrue(storedSize <= expectedSize);
+      final byte[] body = new byte[storedSize];
       read(channel, ByteBuffer.wrap(body), root.getKey() + Integer.BYTES);
       assertEquals(root.getHashAsLong(), PageHasher.computeLong(body));
+      assertEquals(expectedSize, HOTLeafPayloadCodec.expandImage(body, 1).length);
     }
   }
 
