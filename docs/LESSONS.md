@@ -207,3 +207,10 @@ codec set; explicitly exercise missing-native-codec behavior. Verify native stag
 fallback directories and losing-publication cleanup through filesystem behavior, and
 separate functionally equivalent decoder-routing mutants from missing correctness tests.
 See the [leaf codec CI postmortem](postmortems/2026-11-17-leaf-codec-ci.md).
+
+- **Do not depend on escape analysis to remove codec accessor objects.** A heap segment's
+  `heapBase()` returns an `Optional` per call. Reuse the writer's cached buffer view when
+  accessing its heap array, and validate allocation gates on HotSpot with escape analysis
+  disabled as well as the workstation compiler. Exercise both process settings through
+  the shared writer, and document intentional thread-lifetime scratch at the field.
+  Evidence: [leaf codec CI follow-up](postmortems/2026-11-17-leaf-codec-ci.md#follow-up-hotspot-allocation-writer-mode-coverage-and-sonar-lifetime).

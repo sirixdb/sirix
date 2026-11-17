@@ -92,3 +92,77 @@ below; focused reruns must use the actual JVM test names and preserve the gate's
   passed for core, query and MCP, including the dedicated allocation tasks. Spotless and
   `git diff --check` passed. Local logs and mutation reports are retained under the ignored
   `build/ci-repair/` directory.
+
+## Follow-up: HotSpot allocation, writer-mode coverage and Sonar lifetime
+
+- Symptom: run `44156426448` failed the macOS allocation fork; its artifact upload
+  omitted nonstandard test-task reports, so the original per-operation values are
+  unavailable. Sonar rejected only `java:S5164` on the two reusable codec thread locals
+  (new-code coverage was 88.6%). PIT reported the two equivalent survivors above and
+  the raw-writer branch without coverage.
+- Root cause reproduced locally: HotSpot without escape analysis allocates an
+  `Optional` from `MemorySegment.heapBase()` on every encoded serialization. The
+  unchanged allocation regression measured operation 7 at 0 raw versus 65,536 encoded
+  bytes per 4,096 pages, for both payload patterns. Graal eliminated this object and
+  hid the defect. This reproduces the allocation invariant violation, although the
+  unavailable macOS detail cannot establish that runner's exact allocating operation.
+- Invariants and scope: both process-lifetime writer modes preserve the V0 wire image,
+  codec flag, payload and complete side-reference trailer; encoded serialization adds
+  no per-page object. This covers full and sparse leaves, projection and other index
+  types, both codec choices and raw fallback at the shared kind-12 writer boundary.
+  Every scalar, batched, fragment and mapped read continues to receive the same bytes.
+  Thread-local codec scratch is reused until thread exit, native leases are closed in
+  `finally`, and published projection images own their decoded bytes.
+- Fix: expose the array through the writer's existing cached heap `ByteBuffer`, which
+  allocates a view only when backing storage changes. Move the unchanged mode dispatch
+  to `serializeHOTLeaf` so the ordinary `PageKindTest` selection executes both settings
+  without changing the process default or creating a second writer implementation.
+  Annotate the two intentional thread-lifetime scratch fields locally, following the
+  existing decoder-scratch lifetime convention; do not remove scratch on every page.
+- Regression tests and independent oracles: `HOTLeafCodecAllocationTest` retains its
+  zero-byte comparisons and all twelve operations. `PageKindTest` exercises both writer
+  settings against the independent one-entry V0 hexadecimal vector, then uses a
+  256-byte zero value (compressible by zero-run alone), flag bit 1 and a side reference
+  with disk key 123. These reject an omitted raw write, an ignored setting, lost payload
+  and omitted/duplicated trailer emission.
+- Retrace: disabled mode writes directly to the caller with side references; enabled
+  mode clears heap scratch, writes the logical frame without its trailer, offers its
+  array to the codec, then emits the trailer once. The cached buffer exposes the current
+  backing array even after growth and bounds its limit to the written prefix. No reader,
+  ownership-transfer or lazy-promotion branch changes; both existing callers and the
+  new test call use the same encoder.
+- Verification: the same HotSpot/no-escape-analysis command passes after the array
+  accessor correction, including operation 7 at zero bytes in both arms. Focused PIT
+  mutates all seven instructions/conditions in `serializeHOTLeaf`: all seven are
+  killed, including the formerly uncovered raw-writer call and trailer emission:
+
+  ```sh
+  JAVA_TOOL_OPTIONS='-XX:-UseJVMCICompiler -XX:-DoEscapeAnalysis' \
+    ./gradlew :sirix-core:dictionaryReadViewAllocationTest \
+    --tests io.sirix.page.HOTLeafCodecAllocationTest -PtestHeapMin=512m -PtestHeapMax=3g
+  ```
+
+The unchanged 7-per-class CI sample also completes (177 mutants). Against the
+current changed lines it kills 15 of 17 mutants, has no uncovered changed-line
+mutants, and retains only the two equivalent survivors already justified above:
+`expandImage` at line 227 and `copyVerifiedFrame` at line 141. The blocking reporter
+will still flag those two; neither its thresholds nor its scope are weakened.
+
+Final local checks pass: 370 combined core codec/packing/writer/work-budget tests,
+seven dedicated allocation tests, the query and MCP work-budget blocks from
+`docs/VERIFICATION.md`, `spotlessJavaCheck`, and `git diff --check`. The earlier
+separate core test invocations overlapped Gradle's report directory and produced
+EOF/missing-report-file errors; the 370-test combined run replaces those invalid
+results. Logs, downloaded provider reports and both PIT reports are retained under
+ignored `build/ci-repair/round3/`. Remote Sonar reanalysis and OS CI reruns belong
+to the outer executor and were not triggered here.
+
+### Windows query failure remains unconfirmed locally
+
+The downloaded Windows report identifies `I5-leaf-constancy` in
+`AbstractHOTIndexWriter.validatePublishedStructuralScopeBounded` during a pressured
+SH1 commit (`BitemporalStorageEpochEvictionTest`, unbounded case). Both eviction tests
+pass locally with the default codec settings, with native decoding disabled, and with
+the legacy raw writer selected in a fresh JVM. These controls do not prove the Windows
+failure is external to this PR. No structural algorithm or test assertion is changed
+without a reproducer; the original Windows failure still requires platform validation.

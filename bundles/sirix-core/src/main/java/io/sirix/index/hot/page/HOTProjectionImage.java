@@ -43,6 +43,8 @@ public final class HOTProjectionImage {
   private final int references;
   private final int referencesStart;
   // Encoded input is borrowed only during a synchronous copy; only the expanded owned image escapes.
+  // Keep this fixed 64 KiB buffer until thread termination; removing it per read adds allocation.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<byte[]> ENCODED_INPUT = ThreadLocal.withInitial(() -> new byte[MAX_BYTES]);
   private static final long[] NO_WORD_SLOTS = new long[0];
   private static final VarHandle WORD_SLOTS = wordSlotsHandle();

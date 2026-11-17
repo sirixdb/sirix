@@ -22,6 +22,9 @@ public final class HOTLeafPayloadCodec {
   public static final byte FLAG_COMPRESSED = 0x02;
   public static final byte ALLOWED_FLAGS = FLAG_COMPRESSED | HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS;
   private static final int MAX_ENCODED = ZeroRunByteCodec.maxEncodedSize(HOTLeafPage.DEFAULT_SIZE);
+  // Thread-lifetime codec scratch: leases release native storage in finally; cursors reuse the
+  // bounded writer/image inputs. Per-call removal would allocate buffers on every cold page.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<State> STATE = ThreadLocal.withInitial(State::new);
 
   private HOTLeafPayloadCodec() {}

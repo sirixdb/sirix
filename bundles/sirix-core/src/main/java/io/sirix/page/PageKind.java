@@ -5865,20 +5865,7 @@ public enum PageKind {
     @Override
     public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink, Page page,
         SerializationType type) {
-      if (!HOT_LEAF_COMPRESSION_ENABLED) {
-        serializeRawHOTLeaf(resourceConfig, sink, (HOTLeafPage) page);
-        return;
-      }
-      final MemorySegmentBytesOut raw = HOT_LEAF_WRITE_SCRATCH.get();
-      raw.clear();
-      final HOTLeafPage leaf = (HOTLeafPage) page;
-      PageKind.serializeRawHOTLeaf(resourceConfig, raw, leaf, false);
-      // Keep heap scratch off the shared native scalar accessors (see PageLayout's header contract).
-      HOTLeafPayloadCodec.writePage(sink, (byte[]) raw.baseSegment().heapBase().orElseThrow(),
-          Math.toIntExact(raw.position()));
-      if (leaf.segmentRefCount() > 0) {
-        serializeSegmentRefs(sink, leaf);
-      }
+      serializeHOTLeaf(resourceConfig, sink, (HOTLeafPage) page, HOT_LEAF_COMPRESSION_ENABLED);
     }
   },
 
@@ -6499,6 +6486,24 @@ public enum PageKind {
 
   private static final ThreadLocal<MemorySegmentBytesOut> HOT_LEAF_WRITE_SCRATCH =
       ThreadLocal.withInitial(() -> MemorySegmentBytesOut.synchronousScratch(HOTLeafPage.DEFAULT_SIZE + 4096));
+
+  /** Both process-lifetime writer modes share this boundary, including side-reference emission. */
+  static void serializeHOTLeaf(final ResourceConfiguration resourceConfig, final BytesOut<?> sink,
+      final HOTLeafPage leaf, final boolean compress) {
+    if (!compress) {
+      serializeRawHOTLeaf(resourceConfig, sink, leaf);
+      return;
+    }
+    final MemorySegmentBytesOut raw = HOT_LEAF_WRITE_SCRATCH.get();
+    raw.clear();
+    serializeRawHOTLeaf(resourceConfig, raw, leaf, false);
+    // Keep heap scratch off the shared native scalar accessors (see PageLayout's header contract).
+    // The cached heap buffer exposes its array without a per-page heapBase() Optional.
+    HOTLeafPayloadCodec.writePage(sink, raw.readableByteBuffer().array(), Math.toIntExact(raw.position()));
+    if (leaf.segmentRefCount() > 0) {
+      serializeSegmentRefs(sink, leaf);
+    }
+  }
 
   /** Raw V0 encoder shared by compression and legacy-format differential tests. */
   static void serializeRawHOTLeaf(final ResourceConfiguration resourceConfig, final BytesOut<?> sink,
