@@ -61,9 +61,10 @@ written beside the checked-in header or tests.
 The CI job currently runs Linux x64 header consumers. It does not certify macOS
 arm64 or Windows x64 packages. NATIVE-501 still requires native execution, symbol
 exports and old-client/new-library loading on every platform before it is claimed.
-No public ABI library exists to run those release tests against. The 24-requirement runtime
-suite plan and adversarial/differential cases are in the chapter's traceability
-table; they are explicitly pending I2–I10 and XML parity work.
+No public ABI library exists to run those release tests against. The chapter's
+traceability table owns the 24-requirement runtime suite plan and
+adversarial/differential cases. Those full conformance suites remain pending;
+the I2 smoke below supplies partial engine evidence.
 
 ## CoreNativeMetadataSmoke / NativeNoJvmSmoke (I2)
 
