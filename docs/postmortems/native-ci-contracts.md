@@ -79,12 +79,13 @@ must be refreshed by the outer CI executor after publication.
   `:sirix-core:spotlessJavaApply` changed only the three reported indentation
   lines, then `./gradlew spotlessCheck --console=plain` passed all eight modules
   (16 tasks executed). `git diff --check` passed.
-- Separate unresolved check: GitHub's CodeFactor status for commit
+- At this stage, GitHub's CodeFactor status for commit
   `273c67d3371aaf807f9eec7d4e4e4716e70e8b70` reports two issues. Its linked
   [detail page](https://www.codefactor.io/repository/github/sirixdb/sirix/pull/1451)
   returned HTTP 403 through direct retrieval and Chrome; GitHub exposes no
-  corresponding check-run annotations. The issue details remain unavailable,
-  so this formatting repair does not claim to resolve CodeFactor.
+  corresponding check-run annotations. The later [test isolation and fixture
+  layout repair](#ci-follow-up-test-isolation-and-fixture-layout) records the
+  retrieved issue details and their resolution.
 
 ## CI follow-up: test isolation and fixture layout
 

@@ -108,10 +108,9 @@ confirm the uploaded artifact from the shipping workflow run.
 | PIT shutdown order | Both generated close-call removal mutants killed (2/2); no surviving/uncovered mutants in that helper scope. |
 | Work budgets | Core: 325 passed. Query: 322 passed, 5 existing large cases skipped unless `SIRIX_VALID_TIME_LARGE_BUDGET=true`. MCP: 3 passed. |
 
-The two production forwarding methods contain only the terminal-hook call.
-Deleting either forwarding call has the same observable effect as the native
-omitted-hook control above. Their actual call chain is exercised by the normal
-C consumer; they are not included in the helper-only PIT count.
+The helper-only PIT count above predates the public-hook JVM regression.
+For subsequent coverage of both production forwarding methods and changed-line
+mutation results, see the [native CI verification record](../../docs/postmortems/native-ci-contracts.md#verification-2026-11-17-1).
 
 ShellCheck, actionlint, Bash syntax, the no-Graal skip path and final core
 Spotless checks passed. The GitHub workflow remains to be exercised by the
