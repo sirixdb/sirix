@@ -1,14 +1,32 @@
 # SirixDB specification
 
-Specification target: **SirixDB 1.0.0**. These chapters define intended behavior;
-individual requirement status and evidence distinguish design from implementation.
-A requirement marked `proposed` does not claim passing runtime conformance.
+Specification target: **SirixDB 1.0.0**. The P0 chapters below are drafts for adoption
+before the approximately **9 December 2026** format/API freeze. They define intended
+behavior, with implementation/test gaps and open decisions recorded explicitly.
+The NATIVE design retains its existing adoption status. No new runtime conformance
+or frozen release artifact is claimed by this documentation change.
 
 | Chapter | Contract | Status |
 |---|---|---|
+| [CONV](CONV-conventions.md) | normative language, IDs, evidence, traceability rollout, official work budgets | P0 draft |
+| [FMT](FMT-disk-format.md) | persisted bytes, feature negotiation, strict readers, compatibility | P0 draft |
+| [TXN](TXN-transactions-durability.md) | isolation, durability, recovery, async commits, hooks and backup consistency | P0 draft |
+| [VER](VER-versioning-bitemporal.md) | revisions, timestamps, retention representation, versioning equivalence | P0 core draft |
+| [CONF](CONF-configuration.md) | persisted database/resource settings and format-affecting defaults | P0 persisted-settings draft |
+| [JAPI](JAPI-java-api.md) / [manifest](JAPI-stable-api-manifest.md) | Java ownership/errors/hooks/identity and explicit compatibility inventory | P0 draft; three-tier boundary decided |
+| [REST](REST-api.md) | OpenAPI baseline, revisions, preconditions, authorization, errors | P0 draft |
 | [NATIVE](NATIVE-embedded-c-api.md) | JVM-free C/C++/Rust/Python embedding, stable ABI 1, JSON/XML parity | Design adopted for 1.0; runtime implementation pending |
 
-Requirement IDs are stable and never reused. Uppercase MUST/MUST NOT are
-normative; every requirement names verification suites. Tests are derived from
-the contract before implementation. Follow [CONTRIBUTING](../CONTRIBUTING.md)
-for mutation, adversarial and regression evidence. See [changes](CHANGELOG.md).
+Requirement IDs are stable and never reused. Every numbered requirement has a test
+mapping or an explicitly planned conformance case. Source-backed mappings are not test
+pass claims; the trace tables are maintained manually until tooling lands. Follow
+[CONTRIBUTING](../CONTRIBUTING.md) and [VERIFICATION](../docs/VERIFICATION.md) for validation.
+See [changes](CHANGELOG.md) and [retired IDs](RETIRED.md).
+
+The P0 documentation slice intentionally leaves spec_trace.py, @Verifies, annotation
+migration, response validation, compiled API checking and the crash CI lane as planned
+work. Product/CI code and the existing guides have not been changed or archived.
+Full MODEL/IDX/QRY/DIFF/LIM/SEC chapters and broader valid-time semantics remain P1;
+MCP/OPS and formal models remain later work. Required cross-cutting decisions already
+have stable owners here: HOT rules FMT-301–303, defaults CONF-106, budgets CONV-301,
+JSON replacement JAPI-301–302, derived backup TXN-613.
