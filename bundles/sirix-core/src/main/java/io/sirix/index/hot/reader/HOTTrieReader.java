@@ -439,7 +439,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * </p>
    *
    * <p>
-   * Algorithm (5 phases, ports the C++ reference 1:1):
+   * Algorithm (5 phases, adapted for multi-entry leaves):
    * </p>
    * <ol>
    * <li><b>PEXT-routed descent with stack.</b> Use the existing
