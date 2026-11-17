@@ -302,9 +302,10 @@ final class HOTLeafPayloadCodecTest {
       final ByteHandlerPipeline identity = new ByteHandlerPipeline();
       when(handler.decompressScoped(outerInput)).thenAnswer(invocation -> identity.decompressScoped(wire));
       final long before = allocator.getActiveMemoryBytes();
-      try (MMFileReader reader = new MMFileReader(MemorySegment.NULL, MemorySegment.NULL,
-          new ByteHandlerPipeline(handler), SerializationType.DATA, new PagePersister(),
-          Caffeine.newBuilder().build(), null);
+      try (
+          MMFileReader reader =
+              new MMFileReader(MemorySegment.NULL, MemorySegment.NULL, new ByteHandlerPipeline(handler),
+                  SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build(), null);
           HOTLeafPage decoded = (HOTLeafPage) reader.deserializeFromSegment(CONFIG, outerInput)) {
         assertEquals(1, decoded.getEntryCount());
         assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {7})));
@@ -343,7 +344,9 @@ final class HOTLeafPayloadCodecTest {
           HOTLeafPayloadCodec.writePage(encoded, raw.toByteArray(), (int) raw.position());
           final byte[] wire = encoded.toByteArray();
           assertEquals(2, wire[2]);
-          assertEquals(saving == 6 ? 1 : 0, wire[23], "five-byte decoder preference, saving=" + saving);
+          assertEquals(saving == 6
+              ? 1
+              : 0, wire[23], "five-byte decoder preference, saving=" + saving);
           assertArrayEquals(raw.toByteArray(), HOTLeafPayloadCodec.expandImage(wire, 1));
           witnessed = true;
           break;
@@ -374,8 +377,8 @@ final class HOTLeafPayloadCodecTest {
         assertEquals(4256, original.getUsedSlotsSize());
         original.setPageReference(7, new PageReference().setKey(123));
         for (final VersioningType versioning : VersioningType.values()) {
-          final ResourceConfiguration config = new ResourceConfiguration.Builder("owned-codec")
-              .versioningApproach(versioning).build();
+          final ResourceConfiguration config =
+              new ResourceConfiguration.Builder("owned-codec").versioningApproach(versioning).build();
           for (final boolean encoded : new boolean[] {false, true}) {
             sink.clear();
             if (encoded) {
@@ -683,7 +686,7 @@ final class HOTLeafPayloadCodecTest {
         assertTrue(encoded.length <= raw.length);
         assertArrayEquals(raw, HOTLeafPayloadCodec.expandImage(encoded, 1),
             "cached images must have exactly the legacy raw bytes after one cold expansion");
-        if (pattern == 0 || pattern == 1 && FFILz4Compressor.isNativeAvailable()) {
+        if (pattern == 0 || (pattern == 1 && FFILz4Compressor.isNativeAvailable())) {
           assertEquals(3, encoded[2]);
           assertTrue(encoded.length < raw.length / 2);
         }
