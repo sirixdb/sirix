@@ -205,3 +205,13 @@ valid lifecycle boundary. Registry assertions must use canonical path identity, 
 path aliases. Mutation coverage must explicitly map dedicated ownership suites and retain every
 selected source across bounded partitions; partial reports and timeouts never prove assertion kills.
 See [the CI ownership postmortem](postmortems/lifecycle-ci-ownership-contracts.md).
+
+## Coordinate cancellation before releasing borrowed state
+
+When retirement may abort promptly on interruption, observe that result while the callback
+is still held, then prove its readers/history remain usable. A future's completion is not
+proof of destructive cleanup, and releasing the callback first races interruption against
+quiescence notification. Keep the successful retirement path's pending assertion before
+callback release. Executor mocks must assertion-fail impossible waits, so inverted termination
+loops are killed by assertions rather than process timeouts.
+See [the CI coordination postmortem](postmortems/lifecycle-ci-interrupt-coordination.md).

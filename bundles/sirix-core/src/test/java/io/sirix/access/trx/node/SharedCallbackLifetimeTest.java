@@ -238,6 +238,13 @@ final class SharedCallbackLifetimeTest {
         }
         if (interrupt) {
           closer.interrupt();
+          // Observe cancellation while the pre-hook still owns its readers. Releasing the hook
+          // first would race retirement's interrupt handling against its quiescence notification.
+          final Throwable cancellation =
+              assertThrows(ExecutionException.class, () -> closed.get(10, TimeUnit.SECONDS)).getCause();
+          assertTrue(cancellation.getCause() instanceof InterruptedException);
+          closer.join(10000);
+          assertTrue(restored.get());
         }
         navigate.countDown();
         navigated.get(10, TimeUnit.SECONDS);
@@ -271,11 +278,6 @@ final class SharedCallbackLifetimeTest {
           assertEquals(1, fixture.second.getMostRecentRevisionNumber());
         }
         if (interrupt) {
-          final Throwable cancellation =
-              assertThrows(ExecutionException.class, () -> closed.get(10, TimeUnit.SECONDS)).getCause();
-          assertTrue(cancellation.getCause() instanceof InterruptedException);
-          closer.join(10000);
-          assertTrue(restored.get());
           if (failClose) {
             assertSame(primary, assertThrows(RuntimeException.class, owner::close));
             assertTrue(List.of(primary.getSuppressed()).contains(secondary));
@@ -398,6 +400,7 @@ final class SharedCallbackLifetimeTest {
       final DatabaseNotifications notifications = fixture.first.getNotifications();
       final CountDownLatch entered = new CountDownLatch(1);
       final CountDownLatch inspect = new CountDownLatch(1);
+      final CountDownLatch navigate = new CountDownLatch(1);
       final CountDownLatch finish = new CountDownLatch(1);
       final CompletableFuture<Void> waiting = new CompletableFuture<>();
       final CompletableFuture<Void> navigated = new CompletableFuture<>();
@@ -417,6 +420,7 @@ final class SharedCallbackLifetimeTest {
             Thread.onSpinWait();
           }
           waiting.complete(null);
+          await(navigate);
           assertTrue(pinned.moveTo(distant));
           assertEquals(11999, number(pinned));
           navigated.complete(null);
@@ -458,18 +462,23 @@ final class SharedCallbackLifetimeTest {
         truncate.start();
         inspect.countDown();
         waiting.get(10, TimeUnit.SECONDS);
+        assertFalse(truncated.isDone());
         if (interrupt) {
           truncate.interrupt();
-        }
-        navigated.get(10, TimeUnit.SECONDS);
-        assertFalse(truncated.isDone());
-        finish.countDown();
-        committed.get(10, TimeUnit.SECONDS);
-        if (interrupt) {
           final Throwable failure =
               assertThrows(ExecutionException.class, () -> truncated.get(10, TimeUnit.SECONDS)).getCause();
           assertTrue(causedByInterrupt(failure), failure.toString());
-        } else {
+        }
+        // Even after interrupted retirement returns, the callback must retain its pinned history.
+        navigate.countDown();
+        navigated.get(10, TimeUnit.SECONDS);
+        if (!interrupt) {
+          assertFalse(truncated.isDone());
+        }
+        assertFalse(view.get().isClosed());
+        finish.countDown();
+        committed.get(10, TimeUnit.SECONDS);
+        if (!interrupt) {
           truncated.get(10, TimeUnit.SECONDS);
           assertEquals(1, fixture.first.getMostRecentRevisionNumber());
         }
@@ -493,6 +502,7 @@ final class SharedCallbackLifetimeTest {
         assertEquals(1, fixture.first.writeLock.availablePermits());
       } finally {
         inspect.countDown();
+        navigate.countDown();
         finish.countDown();
         commit.join(10000);
         truncate.join(10000);
