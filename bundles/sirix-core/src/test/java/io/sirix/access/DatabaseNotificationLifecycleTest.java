@@ -18,6 +18,7 @@ import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.io.StorageType;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +29,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.atomic.AtomicBoolean;
 import io.sirix.access.trx.TransactionManagerImpl;
 import java.util.concurrent.atomic.AtomicReference;
@@ -690,6 +692,322 @@ final class DatabaseNotificationLifecycleTest {
       observed.get(10, TimeUnit.SECONDS);
       assertFalse(fixture.firstDatabase.isOpen());
       assertFalse(fixture.secondDatabase.isOpen());
+    }
+  }
+
+  static Stream<Arguments> resourceLifecycleCases() {
+    return Stream.of("json", "xml")
+                 .flatMap(
+                     format -> Stream.of(false, true)
+                                     .flatMap(local -> Stream.of(false, true)
+                                                             .flatMap(remove -> Stream.of("pre", "post", "listener")
+                                                                                      .map(phase -> Arguments.of(format,
+                                                                                          local, remove, phase)))));
+  }
+
+  @ParameterizedTest(name = "resource monitor order {arguments}")
+  @MethodSource("resourceLifecycleCases")
+  void resourceLifecycleQuiescesBeforeMetadataMonitors(final String format, final boolean local, final boolean remove,
+      final String phase) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final AbstractResourceSession<?, ?> retained = retainedResourceForRemoval(fixture, remove);
+      final NodeTrx writer = fixture.second.beginNodeTrx();
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch inspect = new CountDownLatch(1);
+      final CompletableFuture<Void> read = new CompletableFuture<>();
+      final AtomicBoolean invoked = new AtomicBoolean();
+      final Consumer<NodeReadOnlyTrx> callback = unused -> {
+        if (!invoked.compareAndSet(false, true)) {
+          return;
+        }
+        try {
+          entered.countDown();
+          await(inspect);
+          assertMetadataReadable(fixture);
+          read.complete(null);
+        } catch (final Throwable failure) {
+          read.completeExceptionally(failure);
+          throw failure;
+        }
+      };
+      if (phase.equals("pre")) {
+        writer.addPreCommitHook(callback::accept);
+      } else if (phase.equals("post")) {
+        writer.addPostCommitHook(callback::accept);
+      } else {
+        fixture.second.addRevisionListener(revision -> callback.accept(null));
+      }
+      final CompletableFuture<Void> committed = new CompletableFuture<>();
+      final Thread commit = start(() -> {
+        setValue(writer, 1);
+        writer.commit();
+      }, committed);
+      final CompletableFuture<Void> changed = new CompletableFuture<>();
+      Thread lifecycle = null;
+      try {
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        lifecycle = start(resourceLifecycle(fixture, local, remove), changed);
+        awaitRetirement(fixture, changed);
+        assertFalse(changed.isDone());
+        inspect.countDown();
+        read.get(10, TimeUnit.SECONDS);
+        committed.get(10, TimeUnit.SECONDS);
+        changed.get(10, TimeUnit.SECONDS);
+        assertResourceChange(fixture, retained, remove);
+        writer.close();
+      } finally {
+        inspect.countDown();
+        commit.join(10000);
+        if (lifecycle != null) {
+          lifecycle.join(10000);
+        }
+      }
+    }
+  }
+
+  static Stream<Arguments> refusedResourceLifecycleCases() {
+    return Stream.of("json", "xml")
+                 .flatMap(
+                     format -> Stream.of(false, true)
+                                     .flatMap(
+                                         local -> Stream.of(false, true)
+                                                        .flatMap(remove -> Stream.of(false, true)
+                                                                                 .map(interrupt -> Arguments.of(format,
+                                                                                     local, remove, interrupt)))));
+  }
+
+  @ParameterizedTest(name = "resource retirement refusal {arguments}")
+  @MethodSource("refusedResourceLifecycleCases")
+  void resourceLifecycleRefusalPreservesFilesAndOwnersForRetry(final String format, final boolean local,
+      final boolean remove, final boolean interrupt) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final AbstractResourceSession<?, ?> retained = retainedResourceForRemoval(fixture, remove);
+      fixture.notifications()
+             .setCloseTimeout(interrupt
+                 ? Duration.ofSeconds(10)
+                 : Duration.ofMillis(25));
+      final NodeTrx writer = fixture.second.beginNodeTrx();
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch inspect = new CountDownLatch(1);
+      final CompletableFuture<Void> read = new CompletableFuture<>();
+      writer.addPostCommitHook(unused -> {
+        try {
+          entered.countDown();
+          await(inspect);
+          assertMetadataReadable(fixture);
+          read.complete(null);
+        } catch (final Throwable failure) {
+          read.completeExceptionally(failure);
+          throw failure;
+        }
+      });
+      final AtomicBoolean interrupted = new AtomicBoolean();
+      final CompletableFuture<Void> changed = new CompletableFuture<>();
+      Thread lifecycle = null;
+      try {
+        setValue(writer, 1);
+        writer.commit();
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        lifecycle = start(() -> {
+          try {
+            resourceLifecycle(fixture, local, remove).run();
+          } finally {
+            interrupted.set(Thread.currentThread().isInterrupted());
+          }
+        }, changed);
+        if (interrupt) {
+          awaitRetirement(fixture, changed);
+          lifecycle.interrupt();
+        }
+        final Throwable failure =
+            assertThrows(ExecutionException.class, () -> changed.get(10, TimeUnit.SECONDS)).getCause();
+        assertTrue(interrupt
+            ? failure.getCause() instanceof InterruptedException
+            : hasTimeout(failure));
+        assertEquals(interrupt, interrupted.get());
+        assertEquals(remove, fixture.firstDatabase.existsResource("other"));
+        assertEquals(remove,
+            Files.exists(fixture.path.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve("other")));
+        if (retained != null) {
+          assertFalse(retained.isClosed());
+          try (NodeReadOnlyTrx view = retained.beginNodeReadOnlyTrx()) {
+            assertEquals(0, view.getRevisionNumber());
+          }
+        }
+        assertFalse(fixture.first.isClosed());
+        assertFalse(writer.isClosed());
+        inspect.countDown();
+        read.get(10, TimeUnit.SECONDS);
+        fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+        resourceLifecycle(fixture, local, remove).run();
+        assertResourceChange(fixture, retained, remove);
+        writer.close();
+      } finally {
+        inspect.countDown();
+        if (lifecycle != null) {
+          lifecycle.join(10000);
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void eagerDerivedRebuildQuiescesOutsideSessionAdmission(final boolean local) throws Exception {
+    try (Fixture fixture = new Fixture("json", directory)) {
+      assertTrue(fixture.firstDatabase.createResource(ResourceConfiguration.newBuilder("other")
+                                                                           .storageType(StorageType.FILE_CHANNEL)
+                                                                           .validTimePaths("lo", "hi")
+                                                                           .storeDiffs(false)
+                                                                           .build()));
+      assertTrue(fixture.local.createResource(ResourceConfiguration.newBuilder("other$derived")
+                                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                                   .aggregateKernel(true)
+                                                                   .storeDiffs(false)
+                                                                   .build(),
+          null));
+      final NodeTrx writer = fixture.second.beginNodeTrx();
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch inspect = new CountDownLatch(1);
+      final CompletableFuture<Void> read = new CompletableFuture<>();
+      writer.addPostCommitHook(unused -> {
+        try {
+          entered.countDown();
+          await(inspect);
+          assertMetadataReadable(fixture);
+          read.complete(null);
+        } catch (final Throwable failure) {
+          read.completeExceptionally(failure);
+          throw failure;
+        }
+      });
+      final CompletableFuture<Void> opened = new CompletableFuture<>();
+      final AtomicReference<ResourceSession<?, ?>> other = new AtomicReference<>();
+      Thread opener = null;
+      try {
+        setValue(writer, 1);
+        writer.commit();
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        opener = start(() -> other.set((local
+            ? fixture.local
+            : fixture.firstDatabase).beginResourceSession("other")), opened);
+        awaitRetirement(fixture, opened);
+        assertFalse(opened.isDone());
+        inspect.countDown();
+        read.get(10, TimeUnit.SECONDS);
+        opened.get(10, TimeUnit.SECONDS);
+        assertNotNull(((AbstractResourceSession<?, ?>) other.get()).getDerivedResource());
+        assertTrue(fixture.firstDatabase.existsResource("other"));
+        writer.close();
+      } finally {
+        inspect.countDown();
+        if (opener != null) {
+          opener.join(10000);
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void warmSessionOpenDoesNotEnterNotificationRetirement(final boolean local) throws Exception {
+    try (Fixture fixture = new Fixture("json", directory)) {
+      assertTrue(fixture.firstDatabase.createResource(ResourceConfiguration.newBuilder("other")
+                                                                           .storageType(StorageType.FILE_CHANNEL)
+                                                                           .validTimePaths("lo", "hi")
+                                                                           .storeDiffs(false)
+                                                                           .build()));
+      fixture.firstDatabase.beginResourceSession("other");
+      fixture.notifications().setCloseTimeout(Duration.ofMinutes(1));
+      final NodeTrx writer = fixture.second.beginNodeTrx();
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch finish = new CountDownLatch(1);
+      writer.addPostCommitHook(unused -> {
+        entered.countDown();
+        await(finish);
+      });
+      final CompletableFuture<Void> opened = new CompletableFuture<>();
+      Thread opener = null;
+      try {
+        setValue(writer, 1);
+        writer.commit();
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        opener = start(() -> assertEquals(0, (local
+            ? fixture.local
+            : fixture.firstDatabase).beginResourceSession("other").getMostRecentRevisionNumber()), opened);
+        opened.get(10, TimeUnit.SECONDS);
+        assertEquals(1, finish.getCount());
+        finish.countDown();
+        fixture.notifications().awaitIdle(Duration.ofSeconds(10));
+        writer.close();
+      } finally {
+        finish.countDown();
+        if (opener != null) {
+          opener.join(10000);
+        }
+      }
+    }
+  }
+
+  private static AbstractResourceSession<?, ?> retainedResourceForRemoval(final Fixture fixture, final boolean remove) {
+    if (!remove) {
+      return null;
+    }
+    assertTrue(fixture.firstDatabase.createResource(
+        ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
+    final AbstractResourceSession<?, ?> retained =
+        (AbstractResourceSession<?, ?>) fixture.local.beginResourceSession("other");
+    retained.retainForDerivedIndexes();
+    fixture.firstDatabase.beginResourceSession("other").close();
+    assertFalse(retained.isClosed());
+    return retained;
+  }
+
+  private static Runnable resourceLifecycle(final Fixture fixture, final boolean local, final boolean remove) {
+    final Database<?> database = local
+        ? fixture.local
+        : fixture.firstDatabase;
+    return remove
+        ? () -> database.removeResource("other")
+        : () -> assertTrue(database.createResource(
+            ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
+  }
+
+  private static void awaitRetirement(final Fixture fixture, final CompletableFuture<Void> changed) throws Exception {
+    final ReentrantLock retirement =
+        (ReentrantLock) field(DatabaseNotifications.class, "retirement").get(fixture.notifications());
+    while (!retirement.isLocked()) {
+      if (changed.isDone()) {
+        changed.get(10, TimeUnit.SECONDS);
+        throw new AssertionError("Resource lifecycle returned before its notification fence");
+      }
+      Thread.onSpinWait();
+    }
+  }
+
+  private static void assertMetadataReadable(final Fixture fixture) {
+    assertTrue(fixture.firstDatabase.existsResource("resource"));
+    assertTrue(fixture.firstDatabase.listResources()
+                                    .stream()
+                                    .anyMatch(path -> path.getFileName().toString().equals("resource")));
+    final long id = fixture.firstDatabase.getResourceID("resource");
+    assertEquals("resource", fixture.firstDatabase.getResourceName(id));
+    assertSame(fixture.first, fixture.firstDatabase.beginResourceSession("resource"));
+  }
+
+  private static void assertResourceChange(final Fixture fixture, final AbstractResourceSession<?, ?> retained,
+      final boolean remove) {
+    assertEquals(!remove, fixture.firstDatabase.existsResource("other"));
+    if (remove) {
+      assertTrue(retained.isClosed());
+      assertTrue(fixture.firstDatabase.createResource(
+          ResourceConfiguration.newBuilder("other").storageType(StorageType.FILE_CHANNEL).build()));
+    }
+    try (ResourceSession<?, ?> session = fixture.firstDatabase.beginResourceSession("other");
+        NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
+      assertEquals(0, reader.getRevisionNumber());
+      assertTrue(reader.moveTo(0));
+      assertFalse(reader.moveTo(1));
     }
   }
 

@@ -6,41 +6,51 @@ Worker fences now cover partial starts, interruption, reset and fallback. Iterat
 
 Callback behavior is defined by [PreCommitHook](../../bundles/sirix-core/src/main/java/io/sirix/api/PreCommitHook.java), [PostCommitHook](../../bundles/sirix-core/src/main/java/io/sirix/api/PostCommitHook.java) and [revision listeners](../../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/InternalResourceSession.java). The [ownership design](../../docs/ASYNC_COMMIT_DESIGN.md#failure-and-teardown-ownership) owns the notification, reader-retirement and truncation boundaries; the current specification and evidence follow.
 
-## Current callback contract
+## Callback and resource lifecycle contract
 
-[Database hooks](../../docs/hooks.md) supersedes the earlier synchronous callback fence design.
-Pre-hooks remain synchronous vetoes. Durable post-hooks and revision listeners use a dedicated
-per-database dispatcher with exact committed read views and ordered delivery. Same-database lifecycle
-calls reject before admission locks, including nested callbacks and public database handles. Commit
-and successor mutation never wait for notification delivery. Close/truncation have a configurable
-notification deadline: unopened queued work can be dropped with a warning; active readers/storage
-remain owned on explicit timeout and can be closed on retry.
+[Database hooks](../../docs/hooks.md) defines synchronous pre-publication veto hooks and asynchronous
+post-hooks/listeners on a dedicated database dispatcher. Delivery uses exact committed read views
+and remains independent of writer/successor progress. Same-database lifecycle reentry rejects before
+locks, including public handles, sessions, writer/page/facade operations, manager and shutdown.
+
+Close and destructive history changes use a configurable notification deadline. Unopened queued
+work may be dropped with a warning; active readers/backend/file ownership remain reachable on
+explicit timeout and can be closed on retry. Resource creation and retained removal establish
+quiescence before mutation gates and admission monitors. Session registration stays serialized;
+newly opened derived setup/rebuild finishes after those monitors are released. Warm session opens
+skip eager setup. Removal rejects registered owners before waiting and revalidates under the monitor.
+Callbacks retain their permitted independent metadata reads and existing-session opens.
 
 ## Specification and executable evidence
 
-| Requirement | Executable oracle |
+| Requirement | Independent observable checks |
 | --- | --- |
-| Worker termination and iterator close propagation | ConcurrentAxisLifecycleTest, ProjectionDirectoryWorkerFenceTest, DirectPageScannerLifecycleTest, QuerySerializerLifecycleTest; original lifecycle fixes retained |
-| Recovery and independent owner cleanup | NodeTransactionAbortLifecycleTest, AbstractResourceSessionWriteFailureCleanupTest, AsyncFlushFailurePathTest, WriterConstructionFailureCleanupTest; first error, suppression, physical worker fencing and permit ownership |
-| Pre/post/listener rejection at all public wrappers | DatabaseNotificationLifecycleTest.allLifecycleEntryPointsRejectCallbackReentry and closingHandleRejectsCallbackBeforeItsClosingWait; JSON/XML immediate IllegalStateException and usable owner |
-| Bounded close, queue loss and safe retry | unreturnedDeliveryRetainsReadersDropsQueueAndAllowsRetry, blockedPreHookCannotPinAnExternalCloserForever, refusedNodeExecutionRetainsItsPageWriterUntilRetry; precise timeout, live cursor navigation, retained registry and final release |
-| Durability, immutable views and R13 overlap | asyncDurabilityAndBlockedDeliveryDoNotBlockSuccessorOrWriterClose, asyncPostHookNavigationCannotMoveTheCountOnlyWriterCursor; known per-revision values, independent node cursors, setter/close completion while hook is blocked |
-| Every publication path | inlineHardeningFallbackStillDeliversDurableHooks, notificationViewUsesDurableRootWhilePendingCleanupIsBlocked; original setup failure and data readable after predecessor close |
-| Hook errors, scope and ordering | preHookVetoRemainsSynchronousAndRetryable, notificationErrorCannotVetoDurabilityOrSkipTheNextView, anotherDatabaseRemainsIndependentDuringCallbacks; exception identity, later views and nested database independence |
-| Pre-hook readers and destructive history | SharedCallbackLifetimeTest; direct/shared/page readers, interruption, independent-close failure, distant pinned pages versus truncation |
+| Started workers stop before release/reset/fallback | ConcurrentAxisLifecycleTest, ProjectionDirectoryWorkerFenceTest, DirectPageScannerLifecycleTest, WorkerTerminationTest; prior fixes retained |
+| Real iterator/composite close propagation | QuerySerializerLifecycleTest; partial traversal reaches real nested producers; prior fix retained |
+| Failure, recovery and independent owner teardown | NodeTransactionAbortLifecycleTest, AbstractResourceSessionWriteFailureCleanupTest, AsyncFlushFailurePathTest, WriterConstructionFailureCleanupTest; original error/suppression, physical fences, exact admission release |
+| Callback rejection and the external handle-close cycle | DatabaseNotificationLifecycleTest; JSON/XML pre/post/listener calls through every lifecycle wrapper reject without partial teardown |
+| Bounded timeout, retained reads and safe retry | DatabaseNotificationLifecycleTest and SharedCallbackLifetimeTest; live navigation after refusal, dropped queued followers, retry and interruption |
+| R13 overlap and immutable revision views | asyncDurabilityAndBlockedDeliveryDoNotBlockSuccessorOrWriterClose, asyncPostHookNavigationCannotMoveTheCountOnlyWriterCursor; known revision/node values with held durability and delivery barriers |
+| Creation/removal and permitted metadata reads | resourceLifecycleQuiescesBeforeMetadataMonitors; JSON/XML × direct/handle × creation/removal × pre/post/listener; actual metadata/navigation and resource state |
+| Refusal before resource mutation | resourceLifecycleRefusalPreservesFilesAndOwnersForRetry; timeout/interruption leaves files and retained owner usable, then retry succeeds |
+| Implicit derived lifecycle and ordinary opens | eagerDerivedRebuildQuiescesOutsideSessionAdmission, warmSessionOpenDoesNotEnterNotificationRetirement, DerivedIndexMaintainerTest; genuine hidden rebuild, usable snapshots and no warm-open callback wait |
+| Registration lifetime | delayedSessionReleaseStaysRegisteredUntilItReleasesItsBackend; early rejection while the backend still belongs to the previous generation, then recreation and writer reuse |
 
-Root cause and learning: [database notification postmortem](../../docs/postmortems/database-notification-dispatch.md)
-and [Lessons](../../docs/LESSONS.md). Earlier postmortems and verification artifacts are historical
-and do not validate the changed callback contract. No benchmark is authorized for this round.
-Fresh focused counts, work budgets, compiled caller comparison and limitations are recorded in
-notification-dispatch-verification.json. Scoped mutation and broader delivery gates remain owned by
-the outer executor; no old mutation or benchmark result is claimed as fresh evidence.
+Fresh result: **1,320 selected cases, 0 failures/errors, 5 configured skips**, plus **69 auxiliary
+cases, 0 failures/errors, 2 skips**. All 232 database-notification cases, 69 derived-maintainer cases
+and documented core/query/MCP work budgets passed without wider bounds. The two independently
+compiled starting-HEAD classes failed all 24 metadata matrix cases with retirement timeouts; the
+same 24 pass with the fix. Expected baseline failures are recorded separately from passing checks.
 
-Fresh result: **1,207 selected cases, 0 failures/errors, 5 configured skips**, plus **69 auxiliary
-cases, 0 failures/errors, 2 skips**. All documented core/query/MCP work-budget selections passed;
-all 188 new notification lifecycle cases passed. The six selected hot caller instruction and
-exception-table comparisons match independently compiled starting HEAD `fc8b9071`; normal lock/unlock
-now inherits ReentrantLock, and cold commit/retirement paths intentionally changed. No native-code
-or latency equivalence is claimed. Exact suites, source hashes, diagnostic attempts, skips and
-limitations are in [verification](notification-dispatch-verification.json) and
-[compiled comparison](notification-dispatch-shape.json). Full lint/PIT/CI remain outer gates.
+The five hot class files remain byte-identical to the snapshot used for the earlier six compiled
+caller comparisons against `fc8b9071`; only cold handle/database resource boundaries changed this
+round. That baseline is not original main, and bytecode identity is not runtime equivalence. The
+operator's separate fifteen-region proof against actual base `ba000071` at `ffba256a` remains external
+evidence, not a fresh benchmark claim. No benchmark was run. Exact suites, skips, hashes, diagnostic
+attempts and limits are in [current verification](bootstrap-monitor-order-verification.json).
+
+Root cause and learning: [monitor-order postmortem](../../docs/postmortems/bootstrap-notification-monitor-order.md),
+[dispatcher postmortem](../../docs/postmortems/database-notification-dispatch.md) and
+[Lessons](../../docs/LESSONS.md). Older artifacts are historical snapshots. Scoped PIT, full lint,
+broader test/CI and delivery phases remain with the outer executor; no historical mutation count is
+claimed as current evidence.
