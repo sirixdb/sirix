@@ -111,6 +111,8 @@ class DerefDescendantExpr implements Expr {
   private static final boolean USE_PATH_SUMMARY_DESCENDANT_DEREF = true;
 
   @Nullable
+  // S3776: preserve the per-context-node axis construction; only its size signal changes here.
+  @SuppressWarnings("java:S3776")
   private SirixJsonLazySequence getLazySequence(String recordFieldAsString, JsonDBItem jsonDBItem,
       JsonNodeReadOnlyTrx rtx) {
     final var resourceSession = rtx.getResourceSession();

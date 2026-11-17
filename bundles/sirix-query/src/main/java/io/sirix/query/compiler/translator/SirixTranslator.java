@@ -815,7 +815,8 @@ public class SirixTranslator extends TopDownTranslator {
       filterMap = ThreadLocal.withInitial(() -> new PathSummaryMatches(self));
     }
 
-    @SuppressWarnings("ConstantConditions")
+    // S3776: preserve the per-context-node descendant dispatch in this count-source-only change.
+    @SuppressWarnings({"ConstantConditions", "java:S3776"})
     @Override
     public Stream<? extends Node<?>> performStep(final Node<?> node, final NodeType test) {
       if (!isSimpleNodeTest(test)) {

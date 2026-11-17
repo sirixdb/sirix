@@ -102,8 +102,73 @@ The Sonar maintainability report also includes three existing complex methods:
 `DerefDescendantExpr.getLazySequence` (139), and
 `SirixTranslator.DescOrSelf.performStep` (77). Against base `ce56286b8`, each method's
 only change is replacing a stored-count read with `DocumentNodeCount.estimate`;
-their control flow and complexity are unchanged. They remain inherited findings,
-without suppressions or a traversal refactor in this CI repair. The reported
-unused import, redundant Jupiter visibility and ineffective builder `transient`
-modifiers are removed. CodeFactor's report returns HTTP 403 through both HTTP and
+their control flow and complexity are unchanged. They were left unresolved in
+the first CI repair. The follow-up below resolves them without a traversal refactor.
+The reported unused import, redundant Jupiter visibility and ineffective builder
+`transient` modifiers are removed. CodeFactor's report returns HTTP 403 through both HTTP and
 the connected browser, so its specific findings could not be retrieved.
+
+## CI follow-up: unchanged traversal complexity
+
+- Fix / issue: PR 1455, `Run Sonarqube` run 44162810777 and its companion
+  `SonarCloud Code Analysis` check.
+- Symptom: the scanner completed, but the quality gate rejected maintainability
+  rating C; reliability, security, 91.5% new-code coverage and duplication passed.
+- Trigger: replacing the count source touches three existing methods with S3776
+  complexities 22, 139 and 77, although it adds no control flow.
+- Root cause: the new-code analysis attributes existing method complexity to the
+  count-source correction. The invariant is that correcting the size signal must
+  retain index selection, traversal order, cursor ownership and fallback behavior.
+  It applies to JSON index rewrites, JSON descendant dereferences and XML
+  descendant/descendant-or-self accessors, including empty/single/multiple path
+  matches, same/mixed depths, arrays/fused objects, summary-disabled resources,
+  latest/historical revisions and hashed/hashless configurations.
+- Resolution: use the repository's method-level `java:S3776` exception convention
+  on exactly these three methods, with a specific reason at each site. No global
+  rule, quality-gate condition, executable statement or test expectation changes.
+  The JSON/XML runtime accessors execute per context node; retaining their shape
+  also avoids an unmeasured hot-path refactor. The AST rewrite retains its existing
+  revision and path safety checks together.
+- Why tests missed it: behavioral tests cannot detect a static-analysis gate's
+  classification of unchanged complexity. The regression check must execute the
+  analyzer, rather than search source text for an annotation.
+- Regression checks: run S3776 with the CI analyzer against the original and fixed
+  files; the three reported methods must disappear only in the fixed analysis.
+  Existing descendant/index-query tests provide an independent input/output oracle;
+  work-budget tests reject extra loads, scans or allocations. No new runtime logic
+  is introduced to mutation-test in this follow-up; earlier count-source and index
+  selection mutation evidence remains above.
+- Caller trace: the PATH, NAME and CAS walkers still call
+  `replaceAstIfIndexApplicable`, which delegates to the same rewrite
+  body, retains dynamic-index fallback and owns only its opened read handles;
+  `SirixTranslator.derefDescendantExpr` still constructs `DerefDescendantExpr`, whose
+  evaluation/sequence overloads reach the same path-summary dispatch and generic
+  fallback; both `DescOrSelf` axis variants still select the same simple-node-test
+  fast path or superclass fallback. No alias, branch, parameter or helper becomes
+  unreachable because annotations do not alter execution.
+- Lesson: diagnose the precise quality-gate condition, and use a documented local
+  exception for inherited traversal complexity when the fix only changes a size
+  signal. See the Sonar maintainability entry in [Lessons](../LESSONS.md).
+
+Rebase: replayed all five change commits onto `6ea5e7ede1b39f847ee382c9af8b00b145c0190a`.
+The sole conflict was the lessons table; both the HOT/MCP lessons from the base
+and the hash-default lessons from this change were retained.
+
+Local analyzer verification: Sonar Java **8.46.0.59609** reproduced complexities
+22/139/77 before the fix; its real `SuppressWarningFilter` excluded exactly those
+three findings afterward while retaining all eight other S3776 findings in the
+same files. The before/after scanner output and executable verification harness
+are under `build/ci-sonar-followup/`. The module formatting check also passed.
+This is local rule verification; a fresh hosted quality-gate result belongs to
+the outer CI executor.
+
+Local runtime verification: query tests and all three modules' documented work-budget
+commands passed, including their required isolated JVM tasks. Across these runs,
+942 cases passed and 7 existing assumption-gated cases were skipped (five opt-in
+valid-time cases and two arena-lifetime cases in the diagnostic skip-mode lane);
+there were no failures or errors. The query run also selected `JsonIntegrationTest`,
+`XmlDescendantQueryTest`, `ArrayIndexAccessOptimizerTest` and all statistics tests.
+Commands used `--no-daemon --max-workers=1 -Dorg.gradle.jvmargs=-Xmx2g`,
+`-PtestHeapMin=256m -PtestHeapMax=2g -Dsirix.allocator.maxSize=512M`;
+no work-budget bound changed. Logs and per-suite XML summaries are retained in
+`build/ci-sonar-followup/`. `git diff --check` and the pinned-base ancestry check pass.

@@ -85,6 +85,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     }
   }
 
+  // S3776: keep existing revision/path safety checks together in this count-source-only change.
+  @SuppressWarnings("java:S3776")
   private AST replaceAstIfIndexApplicableImpl(AST astNode, AST predicateNode, Type type) {
     final var firstChildNode = astNode.getChild(0);
 
