@@ -494,7 +494,9 @@ no compound child to fold. A previously normalized or deserialized block with no
 structural mutation also needs no normalization, including after a value-only CoW update.
 A transient per-page pending hint records structural opportunity; it is not serialized.
 Fresh compound blocks start pending; structural publication marks the already-owned outer
-spine, including subtree-local handoffs even if their height is unchanged. Copy-on-write
+spine, including subtree-local handoffs and periodic leaf consolidation even if their height
+is unchanged. Consolidation can free fanout for a later dirty-child fold, so its outer
+ancestors MUST remain eligible for normalization and resulting height repair. Copy-on-write
 preserves a pending hint without changing the source. Successful normalization clears it;
 a later structural change re-arms it. Existing writer/decoder invariants remain responsible
 for input validity on skipped blocks. Defensive normalization checks apply to visited blocks.

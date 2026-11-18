@@ -70,6 +70,44 @@ Raw evidence: pending-strengthened-pit-report/mutations.xml, pending-pit-constru
 
 The wider method scope also contains unchanged-code survivors/uncovered mutants, individually listed in pending-final-pit-all-mutants.txt. No new coverage is claimed for them.
 
+## Consolidation publication review fix
+
+The R1 correction adds one production statement at
+`AbstractHOTIndexWriter.consolidateLeafParent:5994`: `markNormalizationSpine(route)`.
+The new four-version regression exercises committed height-three input, value-only CoW,
+periodic consolidation, live exact heights and cold two-revision routing/height checks.
+PIT's `VOID_METHOD_CALLS` operator generated **15 mutants: four killed, one survived,
+ten uncovered**, with no timeouts or errors. The sole changed-line mutant was **killed**:
+removing `markNormalizationSpine` fails
+`HOTConstructedShapeIntegrationTest.consolidationAfterValueUpdatesRearmsTheOuterSpine`
+(invocation #4). This removal reproduces the pre-fix failure to re-arm the outer hint.
+
+The other three killed mutants remove child swizzling (`5978`), replacement publication
+(`5991`) and fresh-subtree registration (`5993`). These are unchanged statements, not
+additional changed-line coverage. Remaining dispositions, all unchanged code:
+
+| Status | Method / line | Removed call | Disposition |
+| --- | --- | --- | --- |
+| SURVIVED | `consolidateLeafParent:5996` | `releaseOrphanedHOTLeaves` | Routing/height assertions do not prove retirement of detached leaves; retained lifecycle coverage debt, not equivalent. |
+| NO_COVERAGE | `consolidateLeafParent:6003` | `markTransactionRollbackOnly` | Successful consolidation does not reach the failure handler; unchanged failure-path scope debt. |
+| NO_COVERAGE | `consolidateLeafParent:6009` | `closeUnregisteredFreshChildren` | Successful registration does not reach failed-publication cleanup; unchanged lifecycle scope debt. |
+| NO_COVERAGE | `branchAddStrandsExisting:2918` | `addSuppressed` | Unchanged refusal/failure path outside the consolidation correction. |
+| NO_COVERAGE | `existingKeyRoutesToSlot:3128` | `requireCandidateSlot` | Unchanged annotated helper outside the consolidation scope. |
+| NO_COVERAGE | `existingKeyRoutingVerdict:3142` | `requireCandidateSlot` | Unchanged annotated helper outside the consolidation scope. |
+| NO_COVERAGE | `spliceBulkBuiltRoot:1610` | `setPage` | Unchanged bulk-root publication outside the consolidation scope. |
+| NO_COVERAGE | `spliceBulkBuiltRoot:1612` | `registerFreshSubtree` | Unchanged bulk-root registration outside the consolidation scope. |
+| NO_COVERAGE | `spliceBulkBuiltRoot:1616` | `markTransactionRollbackOnly` | Unchanged bulk-root failure handling outside the consolidation scope. |
+| NO_COVERAGE | `spliceBulkBuiltRoot:1617` | `closeLocallyOwnedFreshSubtree` | Unchanged bulk-root failure cleanup outside the consolidation scope. |
+| NO_COVERAGE | `spliceBulkBuiltRoot:1619` | `closeFreshHOTSubtree` | Unchanged bulk-root failure cleanup outside the consolidation scope. |
+
+The worktree-local init script excludes other declared method names; annotated/generic
+signatures omitted from that selection also emitted the unrelated mutants listed above.
+This is a narrow void-call scope for the added statement, not a new all-operator or
+whole-class coverage claim. Raw evidence remains in
+`build/review-r1/pit-report/mutations.xml`, scope in `build/review-r1/pit.gradle`, and the
+successful combined focused run in `build/review-r1/verification-retry.log`. Results do
+not supersede or pool the earlier structural, constructor or workspace scopes.
+
 ## Session workspace ownership follow-up
 
 The later ownership/reset/commit scope generated **122 mutants: 19 killed, 11 survived,

@@ -5991,6 +5991,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       parentRef.setPage(consolidated);
       lastDispatchHandler = "h:consolidate-local-parent";
       registerFreshSubtree(parentRef);
+      markNormalizationSpine(route);
       storageEngineWriter.getLog()
                          .releaseOrphanedHOTLeaves(indexScope(), parentRef, orphanedLeaves,
                              TransactionIntentLog.RELEASE_SITE_CONSOLIDATE);

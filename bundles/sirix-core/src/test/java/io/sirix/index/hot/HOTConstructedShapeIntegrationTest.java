@@ -40,6 +40,7 @@ import java.util.TreeMap;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -135,6 +136,51 @@ final class HOTConstructedShapeIntegrationTest {
       fixture.put(0x33, payload(3));
       assertEquals(before + 1, AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get());
       fixture.commitAndVerifyHistory("merge crossing ancestor neighbour");
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  void consolidationAfterValueUpdatesRearmsTheOuterSpine(final VersioningType versioning) {
+    AbstractHOTIndexWriter.setConsolidationIntervalForTesting(2);
+    try (final Fixture fixture = new Fixture(temporaryDirectory.resolve("consolidation-spine"), versioning)) {
+      final PageReference[] children = new PageReference[32];
+      final int[] partials = new int[32];
+      for (int slot = 0; slot < 32; slot++) {
+        partials[slot] = slot;
+        children[slot] = slot == 0
+            ? fixture.node(new int[] {42}, new int[] {0, 1}, fixture.leaf(0), fixture.leaf(1L << 21))
+            : fixture.leaf((long) slot << 22);
+      }
+      final PageReference parent = fixture.node(new int[] {37, 38, 39, 40, 41}, partials, children);
+      for (int slot = 0; slot < 32; slot++) {
+        children[slot] = slot == 0
+            ? parent
+            : fixture.leaf((long) slot << 27);
+      }
+      fixture.install(fixture.node(new int[] {32, 33, 34, 35, 36}, partials, children));
+      fixture.commitBaselineAndReopen();
+      assertEquals(3, fixture.assertStoredHeights(fixture.storage.getRootReference(), fixture.engine));
+
+      fixture.put(0, payload(3));
+      final HOTIndirectPage root =
+          assertInstanceOf(HOTIndirectPage.class, fixture.engine.loadHOTPage(fixture.storage.getRootReference()));
+      assertFalse(root.needsNormalization(), "value-only CoW must retain the cleared outer hint");
+      fixture.put(1L << 22, payload(3));
+      final HOTIndirectPage consolidated =
+          assertInstanceOf(HOTIndirectPage.class, fixture.engine.loadHOTPage(root.getChildReference(0)));
+      assertTrue(consolidated.getNumChildren() < 32, "the cadence must publish a consolidated parent");
+      assertEquals(3, fixture.assertStoredHeights(fixture.storage.getRootReference(), fixture.engine));
+      assertTrue(root.needsNormalization(), "consolidation must re-arm unchanged-height outer ancestors");
+      fixture.commitAndVerifyHistory("consolidation after value-only CoW repairs outer stored heights");
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(fixture.databasePath);
+          JsonResourceSession session = database.beginResourceSession(RESOURCE);
+          JsonNodeReadOnlyTrx transaction = session.beginNodeReadOnlyTrx(2)) {
+        final StorageEngineReader reader = transaction.getStorageEngineReader();
+        assertEquals(2, fixture.assertStoredHeights(ProjectionIndexHOTStorage.rootReference(reader, 0), reader));
+      }
+    } finally {
+      AbstractHOTIndexWriter.setConsolidationIntervalForTesting(0);
     }
   }
 
@@ -410,10 +456,27 @@ final class HOTConstructedShapeIntegrationTest {
           ? new HOTInvariantValidator.Result(List.of(), 0, 0)
           : HOTInvariantValidator.validate(root, reader);
       result.assertOk();
+      if (root != null) {
+        assertStoredHeights(root, reader);
+      }
       assertEquals(model.size(), result.storedKeyCount());
       for (final Map.Entry<Long, byte[]> entry : model.entrySet()) {
         assertArrayEquals(entry.getValue(), ProjectionIndexHOTStorage.readBlob(reader, 0, entry.getKey()));
       }
+    }
+
+    private int assertStoredHeights(final PageReference reference, final StorageEngineReader reader) {
+      final Page page = reader.loadHOTPage(reference);
+      if (page instanceof HOTLeafPage) {
+        return 0;
+      }
+      final HOTIndirectPage indirect = assertInstanceOf(HOTIndirectPage.class, page);
+      int height = 0;
+      for (int slot = 0; slot < indirect.getNumChildren(); slot++) {
+        height = Math.max(height, assertStoredHeights(indirect.getChildReference(slot), reader) + 1);
+      }
+      assertEquals(height, indirect.getHeight(), "stored height must equal the reference walk");
+      return height;
     }
 
     private void put(final long slot, final byte[] value) {

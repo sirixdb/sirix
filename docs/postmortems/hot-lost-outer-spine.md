@@ -94,6 +94,57 @@ assuming valid metadata in the input revision. Private intermediate states durin
 or normalization are not published as snapshots. This dirty-only change does not backfill
 already-invalid metadata or globally rebuild inflated clean subtrees in older revisions.
 
+### Review follow-up: consolidation after value-only updates
+
+R1 identified a second publication boundary after `dispatchInsert`: periodic
+`consolidateLeafParent`. A cold committed height-three root can retain a cleared pending
+hint through value-only CoW. Updating a leaf below a two-leaf indirect child makes that
+child transaction-owned; a subsequent cadence update in a direct sibling consolidates
+their full 32-child parent. Consolidation preserves live height but frees fanout, making
+the dirty indirect child foldable at commit. Without re-arming the outer spine, commit
+normalizes the parent independently and serializes the skipped root with stale height three
+above a structural height-two tree.
+
+The root cause was treating dispatch completion as the only structural publication
+boundary. Consolidation now marks its existing owned route after successful registration,
+using the same bounded, allocation-free marking helper as structural dispatch. No-work
+consolidation and value-only dispatch still do not mark ancestors. Both the unchanged live
+height and the later commit shrink must obey the exact-height invariant.
+
+`HOTConstructedShapeIntegrationTest.consolidationAfterValueUpdatesRearmsTheOuterSpine`
+constructs this full-parent witness, commits and cold reopens it, then performs the two
+value updates with cadence two. It requires actual consolidation, unchanged live height
+three, a re-armed root, exact stored heights from an independent reference walk, full blob
+routing, and cold revision-one/revision-two history across all four versioning modes.
+The resulting revision must have height two. Previous re-arming coverage reached a
+structural insertion within dispatch, not this later maintenance publication. The fixture's
+shared verification now checks exact stored heights as well as routing in all constructed
+scenarios. See the corresponding [lesson](../LESSONS.md).
+
+Earlier timing and allocation tables below describe their original measured source versions,
+before this review correction; they are not measurements of the consolidation fix. The
+accepted fold graph, 32-byte container and 152-byte cache-retirement budgets, zero workspace
+and no-fold bounds remain unchanged. Refs #1452.
+
+Review-fix verification passed on this worktree: 83 focused tests (26 constructed-shape,
+including all four consolidation regressions; 49 normalizer/workspace/fold/height tests;
+eight HOT historical-read/posting work-budget cases), with no skips or failures. The clean
+`dictionaryReadViewAllocationTest` passed all 13 cases, including eight HOT commit allocation
+cases, with existing exact bounds unchanged. Error Prone compilation completed with existing
+warnings. All JVM commands used the required `heavy.sh` wrapper; available disk remained
+above 60 GiB. The first invocation stopped before the scoped tests because its inherited
+5 GiB minimum heap exceeded the requested 2 GiB maximum; the successful retry explicitly
+set `-PtestHeapMin=128m -PtestHeapMax=2g`.
+
+Scoped PIT removed the new marking call and the regression killed that mutant, reproducing
+the pre-fix missing outer hint. The scope produced 15 void-call mutants: four killed, one
+surviving unchanged retirement call, and ten uncovered unchanged calls. Only the new
+marking call is a changed production line. Individual scope limits and dispositions are
+retained in [mutation dispositions](hot-lost-outer-spine-mutations.md#consolidation-publication-review-fix).
+Worktree artifacts: `build/review-r1/verification-retry.log`,
+`build/review-r1/pit.gradle`, `build/review-r1/pit-report/mutations.xml`, and the two
+core test-result directories. No full-suite or new timing gate was run.
+
 | Workload | Original live/committed H | New live H | New committed H | Fixed leaf reference H |
 | --- | ---: | ---: | ---: | ---: |
 | Ascending 2,048 / 4,096 | 1 / 1 | 1 / 1 | 1 / 1 | 1 / 1 |
