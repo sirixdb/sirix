@@ -335,6 +335,7 @@ def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocat
         includeTestsMatching 'io.sirix.budget.InlineSlotCopyAllocationBudgetTest'
         includeTestsMatching 'io.sirix.page.HOTLeafCodecAllocationTest'
         includeTestsMatching 'io.sirix.index.hot.page.HOTLeafLookupAllocationTest'
+        includeTestsMatching 'io.sirix.io.bytepipe.JavaLz4BlockDecoderAllocationTest'
     }
 }
 
@@ -526,6 +527,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/budget/InlineSlotCopyAllocationBudgetTest*.class'
     exclude 'io/sirix/page/HOTLeafCodecAllocationTest*.class'
     exclude 'io/sirix/index/hot/page/HOTLeafLookupAllocationTest*.class'
+    exclude 'io/sirix/io/bytepipe/JavaLz4BlockDecoderAllocationTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'
