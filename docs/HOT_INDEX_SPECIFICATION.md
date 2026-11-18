@@ -1716,6 +1716,18 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
   by page key; closed or unresolvable pages are skipped; it performs no mutation and no I/O of its own
   (`HOTMalformedSubtreeDetector.walk` and `resolve`).
 - The detector's enforced invariants are listed in §2.8; it reports the first failure.
+- **Leaf lifetime.** The detector MUST hold a guard on a leaf for as long as it reads that leaf's
+  keys (the I5 key walk and the first and last key of a subtree), and releases it when the read ends,
+  so it pins at most one leaf at a time. A resolved leaf alone has no lifetime guarantee (§4.9.2): the
+  writer's traversal resolver hands out cache-backed leaves unguarded, and both the source resource
+  and its derived resource evict from one global cache. A leaf that is closed or being torn down when
+  the guard is asked for is resolved again, at most `MAX_LEAF_RETAIN_ATTEMPTS` (8) times per read;
+  after that it is skipped like an unresolvable page, so the detector under-reports and never judges
+  bytes it could not hold. Indirect pages need no guard: eviction only de-swizzles them
+  (`HOTMalformedSubtreeDetector.resolveRetained`; `HOTMalformedSubtreeDetectorTests`).
+  Before this rule the detector checked `isClosed()` once and read unguarded; an eviction during the
+  read made it report I5, I8 or I12 in a sound trie and end the transaction
+  (`docs/postmortems/2026-11-18-hot-validator-unguarded-leaf-read.md`).
 - **Only production call**: `validatePublishedStructuralScopeBounded` after a structural publication,
   when `VALIDATE_STRUCTURAL_MUTATIONS` (default on) and the scope fits the bounded budget; oversized
   scopes are counted in `STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED` and not checked

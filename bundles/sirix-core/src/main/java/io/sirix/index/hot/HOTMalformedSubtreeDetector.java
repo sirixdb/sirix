@@ -16,6 +16,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Structural validation of HOT secondary-index tries (see {@code
@@ -41,6 +42,13 @@ import java.util.Set;
  * writer (TIL-aware resolution) and a unit test (swizzled-page resolution).
  *
  * <p>
+ * <b>Leaf lifetime.</b> A resolved leaf has no lifetime guarantee of its own: the page cache may
+ * evict it at any moment, and its frame is then handed out again and overwritten. The detector
+ * therefore reads a leaf's keys only while it holds a guard on that leaf, and releases the guard as
+ * soon as the read ends, so it pins at most one leaf at a time. A leaf that was evicted before the
+ * guard could be taken is resolved again; see {@link #MAX_LEAF_RETAIN_ATTEMPTS}.
+ *
+ * <p>
  * <b>Cost.</b> One DFS per index. The I5 check walks each indirect's subtree keys; summed over a
  * root-to-leaf path a key is visited once per ancestor, and HOT's height is a small constant
  * (height-optimized — {@code log_k |S|}), so the pass is {@code O(|S|)} per index.
@@ -53,6 +61,18 @@ public final class HOTMalformedSubtreeDetector {
 
   /** Runaway-recursion guard. HOT is height-optimized (shallow); this is a generous upper bound. */
   private static final int MAX_DEPTH = 64;
+
+  /**
+   * How often one leaf read resolves its reference before giving up on a leaf that eviction closes
+   * between resolution and guard acquisition. Every failed attempt resolves again, which reloads the
+   * leaf, so losing all of them takes a cache that cannot keep a freshly loaded leaf for the few
+   * instructions in between. Such a leaf is skipped like an unresolvable reference: the detector then
+   * under-reports, and never reports a defect from bytes it could not hold still.
+   */
+  static final int MAX_LEAF_RETAIN_ATTEMPTS = 8;
+
+  /** Runs on each retained leaf before its keys are read; see {@link #setRetainedLeafTestHook}. */
+  private static volatile @Nullable Consumer<HOTLeafPage> retainedLeafTestHook;
 
   /**
    * Resolves a {@link PageReference} to its in-memory {@link Page}. Returning {@code null} marks the
@@ -311,22 +331,27 @@ public final class HOTMalformedSubtreeDetector {
     if (depth > MAX_DEPTH) {
       return null;
     }
-    final Page page = resolve(reference);
+    final Page page = resolveRetained(reference);
     if (page instanceof HOTLeafPage leaf) {
-      final int entryCount = leaf.getEntryCount();
-      for (int i = 0; i < entryCount; i++) {
-        final byte[] key = leaf.getKey(i);
-        if (key == null || key.length == 0) {
-          continue;
+      try {
+        beforeLeafRead(leaf);
+        final int entryCount = leaf.getEntryCount();
+        for (int i = 0; i < entryCount; i++) {
+          final byte[] key = leaf.getKey(i);
+          if (key == null || key.length == 0) {
+            continue;
+          }
+          // Tombstones are keys (foundation §1.2) — they participate in I5 like any other entry.
+          final int densePartialKey = maskNode.computeDensePartialKey(key);
+          if ((sparsePartial & ~densePartialKey) != 0) {
+            failingDensePK[0] = densePartialKey;
+            return key;
+          }
         }
-        // Tombstones are keys (foundation §1.2) — they participate in I5 like any other entry.
-        final int densePartialKey = maskNode.computeDensePartialKey(key);
-        if ((sparsePartial & ~densePartialKey) != 0) {
-          failingDensePK[0] = densePartialKey;
-          return key;
-        }
+        return null;
+      } finally {
+        leaf.releaseGuard();
       }
-      return null;
     }
     if (page instanceof HOTIndirectPage indirect) {
       final int n = indirect.getNumChildren();
@@ -351,11 +376,16 @@ public final class HOTMalformedSubtreeDetector {
   private byte @Nullable [] firstKeyOfSubtree(final PageReference reference) {
     PageReference current = reference;
     for (int depth = 0; depth <= MAX_DEPTH; depth++) {
-      final Page page = resolve(current);
+      final Page page = resolveRetained(current);
       if (page instanceof HOTLeafPage leaf) {
-        return leaf.getEntryCount() == 0
-            ? null
-            : leaf.getFirstKey();
+        try {
+          beforeLeafRead(leaf);
+          return leaf.getEntryCount() == 0
+              ? null
+              : leaf.getFirstKey();
+        } finally {
+          leaf.releaseGuard();
+        }
       }
       if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
         return null;
@@ -376,12 +406,17 @@ public final class HOTMalformedSubtreeDetector {
   private byte @Nullable [] lastKeyOfSubtree(final PageReference reference) {
     PageReference current = reference;
     for (int depth = 0; depth <= MAX_DEPTH; depth++) {
-      final Page page = resolve(current);
+      final Page page = resolveRetained(current);
       if (page instanceof HOTLeafPage leaf) {
-        final int entryCount = leaf.getEntryCount();
-        return entryCount == 0
-            ? null
-            : leaf.getKey(entryCount - 1);
+        try {
+          beforeLeafRead(leaf);
+          final int entryCount = leaf.getEntryCount();
+          return entryCount == 0
+              ? null
+              : leaf.getKey(entryCount - 1);
+        } finally {
+          leaf.releaseGuard();
+        }
       }
       if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
         return null;
@@ -402,6 +437,50 @@ public final class HOTMalformedSubtreeDetector {
     return page != null && !page.isClosed()
         ? page
         : null;
+  }
+
+  /**
+   * Resolve {@code reference} for a read of leaf keys. A HOT leaf comes back holding one guard, which
+   * the caller must release with {@link HOTLeafPage#releaseGuard()} once it has read; while the guard
+   * is held an eviction only orphans the leaf and its frame stays intact. Any other page comes back
+   * exactly as {@link #resolve} returns it, because an indirect page lives on the heap.
+   *
+   * @return the page, or {@code null} when the reference is unresolvable or its leaf could not be
+   *         retained within {@link #MAX_LEAF_RETAIN_ATTEMPTS} resolutions
+   */
+  private @Nullable Page resolveRetained(final @Nullable PageReference reference) {
+    if (reference == null) {
+      return null;
+    }
+    for (int attempt = 0; attempt < MAX_LEAF_RETAIN_ATTEMPTS; attempt++) {
+      final Page page = resolver.resolve(reference);
+      if (!(page instanceof HOTLeafPage leaf)) {
+        return page != null && !page.isClosed()
+            ? page
+            : null;
+      }
+      if (leaf.acquireGuard()) {
+        return leaf;
+      }
+      // Closed or being torn down: evicted since it was resolved. Resolving again reloads it.
+    }
+    return null;
+  }
+
+  private static void beforeLeafRead(final HOTLeafPage leaf) {
+    final Consumer<HOTLeafPage> hook = retainedLeafTestHook;
+    if (hook != null) {
+      hook.accept(leaf);
+    }
+  }
+
+  /**
+   * Test seam: {@code hook} runs on the detecting thread for every leaf the detector has retained,
+   * immediately before it reads that leaf's keys. A test uses it to evict the leaf at exactly the
+   * point where an unguarded read would lose its frame. {@code null} removes the hook.
+   */
+  static void setRetainedLeafTestHook(final @Nullable Consumer<HOTLeafPage> hook) {
+    retainedLeafTestHook = hook;
   }
 
   private static String hex(final byte @Nullable [] bytes) {

@@ -238,3 +238,15 @@ real Gradle worker and its existing behavioral assertions on the CI distribution
 removing or misordering the unlock must fail startup. Keep compiler/vector flags
 and strict allocation bounds intact. See the
 [fork-startup postmortem](postmortems/2026-11-18-hot-leaf-fork-startup.md).
+
+### A closed check is not a lifetime
+
+Code that reads off-heap page memory must hold the page for the whole read, or validate a
+stamp afterwards and discard what it read. Checking `isClosed()` first proves nothing about
+the bytes read next: eviction can release the frame in between, and a released frame keeps
+its bytes until it is reused, so the read is usually still correct and the defect hides
+until a slower or busier machine reuses the frame in time. Zero-fill released frames
+(`FrameSlotAllocator.setPoisonOnReleaseForTesting`) when testing any such reader, evict at
+the point between "resolved" and "read", and assert on background threads as well as the
+test thread. See the
+[validator leaf-lifetime postmortem](postmortems/2026-11-18-hot-validator-unguarded-leaf-read.md).
