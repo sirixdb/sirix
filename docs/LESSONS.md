@@ -154,3 +154,4 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   no-index cases cannot detect a broken NAME lookup. Use persisted definitions as
   the oracle for NAME/PATH/CAS priority, unmatched and empty paths, revisions and
   cached lookups. Evidence: [statistics mutation coverage](postmortems/hash-default-consumers.md#ci-follow-up-name-index-selection-lacked-assertions).
+- Consume resolved HOT boundary heights during each load: a later load may clear an earlier PageReference. Allocation comparison factories may retain temporary arrays on another JVM; keep exact production output budgets independent of that control (postmortems/hot-ci-boundary-heights.md).

@@ -299,13 +299,14 @@ final class HOTCommitAllocationBudgetTest {
         sink = HOTIncrementalInsert.foldCompatibleChild(parent, 0, child, 1, 10, scratch);
       final long foldBytes = bean.getThreadAllocatedBytes(thread) - foldStart;
       assertTrue(outputBytes >= ITERATIONS * 32L, "required output must escape and be counted");
-      // Compare with the independent established page factories. C2 already eliminates their
-      // temporary shuffle-index array; subtracting its source-level size would count it twice.
+      // Established factories are an independent allocating control, but may also allocate a
+      // temporary shuffle array depending on JVM escape analysis. The fold's exact graph budget
+      // excludes that temporary workspace on every JVM.
       final long pinnedGraphBytes = childBit == 72
           ? 352L
           : 240L;
-      assertEquals(pinnedGraphBytes * ITERATIONS, outputBytes,
-          "independent owned output must match the pinned graph size");
+      assertTrue(outputBytes >= pinnedGraphBytes * ITERATIONS,
+          "independent factory must allocate at least the required output graph");
       assertEquals(pinnedGraphBytes * ITERATIONS, foldBytes,
           "each accepted fold allocates exactly one owned graph and zero workspace");
       assertTrue(foldBytes <= outputBytes,

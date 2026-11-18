@@ -86,7 +86,7 @@ public final class HOTCommitNormalizer {
     if (depth >= scratch.ancestors.length) {
       throw new IllegalStateException("Dirty HOT commit spine exceeds bounded writer depth");
     }
-    for (int ancestor = 0; ancestor < depth; ancestor++) {
+    for (int ancestor = depth - 1; ancestor >= 0; ancestor--) {
       if (scratch.ancestors[ancestor] == page) {
         throw new IllegalStateException("Cycle in dirty HOT commit spine");
       }
@@ -135,10 +135,16 @@ public final class HOTCommitNormalizer {
         slot++;
       } else {
         // Only an accepted fold needs these clean boundary roots. Never unpack leaf entries.
+        int height = 1;
         for (int retained = 0; retained < count; retained++) {
-          resolveChild(scratch.children[retained], writer);
+          final Page resolved = resolveChild(scratch.children[retained], writer);
+          // A subsequent load can evict this page and clear its reference; consume metadata now.
+          if (resolved instanceof HOTIndirectPage indirect) {
+            height = Math.max(height, indirect.getHeight() + 1);
+          }
         }
-        result = HOTIncrementalInsert.materializePreparedFold(page.getRevision(), page.getPageKey(), count, scratch);
+        result =
+            HOTIncrementalInsert.materializePreparedFold(page.getRevision(), page.getPageKey(), count, height, scratch);
         // The child was already normalized; its inserted references cannot gain capacity or
         // mask room in this larger parent. Earlier refusals cannot improve as both grow.
         slot += child.getNumChildren();

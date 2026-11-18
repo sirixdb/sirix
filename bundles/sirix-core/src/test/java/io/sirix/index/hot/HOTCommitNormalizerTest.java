@@ -1,6 +1,12 @@
 package io.sirix.index.hot;
 
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
+import io.sirix.page.PageKind;
+import io.sirix.page.SerializationType;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
@@ -25,11 +31,33 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.when;
 
 final class HOTCommitNormalizerTest {
+  @Test
+  void deserializedCompoundStartsNormalizedUntilStructurallyEdited() {
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("normalization").build();
+    final PageReference left = new PageReference();
+    left.setKey(100);
+    final PageReference right = new PageReference();
+    right.setKey(101);
+    final HOTIndirectPage original = HOTIndirectPage.createBiNode(3, 1, 0, left, right, 2);
+    assertTrue(original.needsNormalization());
+    final BytesOut<?> encoded = Bytes.elasticHeapByteBuffer();
+    PageKind.HOT_INDIRECT_PAGE.serializePage(config, encoded, original, SerializationType.DATA);
+    final BytesIn<?> source = encoded.bytesForRead();
+    source.readByte();
+    final HOTIndirectPage decoded =
+        (HOTIndirectPage) PageKind.HOT_INDIRECT_PAGE.deserializePage(config, source, SerializationType.DATA);
+    assertFalse(decoded.needsNormalization(), "durable blocks are opaque normalization boundaries");
+    assertEquals(2, decoded.getHeight());
+    decoded.setChildReference(0, left);
+    assertTrue(decoded.needsNormalization(), "a private structural edit re-arms normalization");
+  }
+
   @Test
   void normalizedCompoundIsSkippedUntilItsPrivateStructureChanges() {
     try (HOTLeafPage a = leaf(1); HOTLeafPage b = leaf(2)) {
@@ -151,6 +179,36 @@ final class HOTCommitNormalizerTest {
       assertSame(clean, cleanRef.getPage());
       verify(fixture.writer, never()).loadHOTPage(same(cr));
       verify(fixture.writer, never()).loadHOTPage(same(dr));
+    }
+  }
+
+  @Test
+  void foldHeightSurvivesEvictionOfPreviouslyResolvedBoundaryRoots() {
+    try (HOTLeafPage a = leaf(1); HOTLeafPage b = leaf(2); HOTLeafPage c = leaf(3)) {
+      final Fixture fixture = new Fixture();
+      final PageReference ar = ref(a);
+      final PageReference br = ref(b);
+      final PageReference cr = ref(c);
+      final HOTIndirectPage clean = HOTIndirectPage.createBiNode(4, 0, 3, ar, br, 1);
+      final PageReference cleanRef = ref(clean);
+      cleanRef.setKey(4);
+      final PageReference dirty = fixture.dirty(HOTIndirectPage.createBiNode(5, 1, 1, cleanRef, br, 2));
+      final HOTIndirectPage root = HOTIndirectPage.createBiNode(6, 1, 0, dirty, cr, 3);
+      final PageReference rootRef = fixture.dirty(root);
+      when(fixture.writer.loadHOTPage(any(PageReference.class))).thenAnswer(call -> {
+        final PageReference reference = call.getArgument(0);
+        // A later boundary load may evict any earlier clean page from its reference.
+        cleanRef.setPage(null);
+        if (reference == cleanRef) {
+          return clean;
+        }
+        return reference.getPage();
+      });
+      final HOTIndirectPage folded = HOTCommitNormalizer.normalize(rootRef, root, fixture.writer, fixture.scratch);
+      assertEquals(3, folded.getNumChildren());
+      assertEquals(2, folded.getHeight(), "one clean inner level remains below the folded root");
+      assertSame(cleanRef, folded.getChildReference(0));
+      assertNull(cleanRef.getPage(), "the fold must tolerate eviction, rather than relying on swizzling");
     }
   }
 
@@ -308,6 +366,10 @@ final class HOTCommitNormalizerTest {
       fixture.entries.put(cycle, PageContainer.getInstance(root, root));
       final IllegalStateException failure = assertThrows(IllegalStateException.class,
           () -> HOTCommitNormalizer.normalize(cycle, root, fixture.writer, fixture.scratch));
+      assertEquals("Cycle in dirty HOT commit spine", failure.getMessage());
+      // Entry ownership, root-frame ownership, child edge, repeated-frame ownership.
+      // Detect the first back edge, rather than traversing the cycle a second time.
+      verify(fixture.log, times(4)).get(same(cycle));
       verify(fixture.writer).markTransactionRollbackOnly(failure);
     }
   }

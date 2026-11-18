@@ -978,9 +978,14 @@ public final class HOTIncrementalInsert {
   static @Nullable HOTIndirectPage foldCompatibleChild(final HOTIndirectPage parent, final int slot,
       final HOTIndirectPage child, final int revision, final long pageKey, final HOTCommitNormalizer.Scratch scratch) {
     final int count = prepareCompatibleChild(parent, slot, child, scratch);
-    return count == 0
-        ? null
-        : materializePreparedFold(revision, pageKey, count, scratch);
+    if (count == 0) {
+      return null;
+    }
+    int height = 1;
+    for (int retained = 0; retained < count; retained++) {
+      height = Math.max(height, heightOf(scratch.children[retained].getPage()) + 1);
+    }
+    return materializePreparedFold(revision, pageKey, count, height, scratch);
   }
 
   /** Compose into borrowed scratch; zero means refusal, before loading any clean boundary. */
@@ -1079,14 +1084,10 @@ public final class HOTIncrementalInsert {
     return count;
   }
 
-  /** Materialize only after an accepted composition's retained children have been resolved. */
+  /** Materialize using the height captured while each retained child was resolved. */
   static HOTIndirectPage materializePreparedFold(final int revision, final long pageKey, final int count,
-      final HOTCommitNormalizer.Scratch scratch) {
-    int height = 0;
-    for (int child = 0; child < count; child++) {
-      height = Math.max(height, heightOf(scratch.children[child].getPage()));
-    }
-    return HOTIndirectPage.createFoldedNode(pageKey, revision, height + 1, scratch.unionBits, scratch.unionBitCount,
+      final int height, final HOTCommitNormalizer.Scratch scratch) {
+    return HOTIndirectPage.createFoldedNode(pageKey, revision, height, scratch.unionBits, scratch.unionBitCount,
         scratch.partials, scratch.children, count, scratch.shuffleIndices);
   }
 
