@@ -71,7 +71,11 @@ public final class HOTMalformedSubtreeDetector {
    */
   static final int MAX_LEAF_RETAIN_ATTEMPTS = 8;
 
-  /** Runs on each retained leaf before its keys are read; see {@link #setRetainedLeafTestHook}. */
+  /**
+   * Runs on each retained leaf before its keys are read; see {@link #setRetainedLeafTestHook}.
+   * Volatile publishes the hook reference; it does not protect mutable hook state.
+   */
+  @SuppressWarnings("java:S3077")
   private static volatile @Nullable Consumer<HOTLeafPage> retainedLeafTestHook;
 
   /**
