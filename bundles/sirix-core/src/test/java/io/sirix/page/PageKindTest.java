@@ -14,7 +14,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.HexFormat;
@@ -46,6 +48,40 @@ final class PageKindTest {
       assertArrayEquals(HexFormat.of().parseHex("0c000001010000000a010007010000000500000000000000000001002a"),
           sink.toByteArray());
     }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void aSlotThatRunsPastTheUsedBytesIsRefusedNotWritten(final boolean compress) {
+    Allocators.getInstance().init(1L << 30);
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("corrupt-directory").build();
+    try (Arena arena = Arena.ofConfined(); BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
+      final MemorySegment slots = arena.allocate(HOTLeafPage.DEFAULT_SIZE);
+      // Two six-byte slots at offsets 0 and 8, so the second one ends at byte 14.
+      writeSixByteSlot(slots, 0, (byte) 1, (byte) 42);
+      writeSixByteSlot(slots, 8, (byte) 2, (byte) 43);
+      final int[] offsets = new int[HOTLeafPage.MAX_ENTRIES];
+      offsets[1] = 8;
+      // The leaf claims twelve used bytes, exactly the sum of both slots. Writing "twelve bytes, already
+      // dense" would publish a page whose second entry points two bytes past its own payload.
+      try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION, slots, null, offsets, 2, 12)) {
+        assertThrows(IllegalStateException.class, () -> PageKind.serializeHOTLeaf(config, sink, page, compress));
+      }
+    }
+  }
+
+  /**
+   * One slot as the leaf stores it: suffix length, suffix, value length, value; lengths
+   * little-endian.
+   */
+  private static void writeSixByteSlot(final MemorySegment slots, final long offset, final byte suffix,
+      final byte value) {
+    slots.set(ValueLayout.JAVA_BYTE, offset, (byte) 1);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 1, (byte) 0);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 2, suffix);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 3, (byte) 1);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 4, (byte) 0);
+    slots.set(ValueLayout.JAVA_BYTE, offset + 5, value);
   }
 
   @ParameterizedTest

@@ -10,6 +10,7 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import org.junit.jupiter.api.Test;
@@ -99,6 +100,26 @@ final class NativeCodecLibraryTest {
            .thenThrow(new FileAlreadyExistsException(target.toString()));
       assertEquals(target, NativeCodecLibrary.publishNativeLib(target, bytes));
     }
+    assertArrayEquals(bytes, Files.readAllBytes(target));
+    try (var files = Files.list(directory)) {
+      assertEquals(1, files.count());
+    }
+  }
+
+  @Test
+  void anAlreadyStagedLibraryIsReusedAndAFileOfAnotherLengthIsReplaced() throws Exception {
+    final Path target = directory.resolve("staged.so");
+    final byte[] bytes = {1, 2, 3, 4};
+    assertEquals(target, NativeCodecLibrary.publishNativeLib(target, bytes));
+    final Object staged = Files.readAttributes(target, BasicFileAttributes.class).fileKey();
+    // Without file keys (some file systems) a rewrite cannot be told from a reuse.
+    assumeTrue(staged != null);
+    assertEquals(target, NativeCodecLibrary.publishNativeLib(target, bytes));
+    // Staging again would rename a new file over this one, and every process start would do it.
+    assertEquals(staged, Files.readAttributes(target, BasicFileAttributes.class).fileKey());
+    // A file of another length is not this library and must not be handed out as it.
+    Files.write(target, new byte[] {9});
+    assertEquals(target, NativeCodecLibrary.publishNativeLib(target, bytes));
     assertArrayEquals(bytes, Files.readAllBytes(target));
     try (var files = Files.list(directory)) {
       assertEquals(1, files.count());
