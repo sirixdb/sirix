@@ -227,6 +227,18 @@ Count-based auto-commit MUST NOT split a compound node move or replacement into 
 
 For each new live commit on a resource timeline, its commit timestamp MUST equal `max(wall clock, previous commit timestamp + 1 microsecond)`. Commit timestamps MUST strictly increase even when the wall clock repeats or moves backwards. This applies to explicit, automatic and asynchronous commits, empty commits and commits after revert or reopen. History import instead MUST process source revisions in order: preserve the first source timestamp; preserve a later source timestamp if it is greater than the preceding effective timestamp; otherwise assign the preceding effective timestamp plus 1 microsecond and retain the original as queryable metadata (FMT-402). Import MUST adjust only where needed and MUST NOT replace historical timestamps with import-time wall-clock values. Subsequent live commits MUST use the final effective imported timestamp as their predecessor. The predecessor MUST come from the same resource timeline, not an unrelated resource or a historical state restored by revert. Effective timestamps MUST survive persistence/recovery at the required precision, so time lookup selects exactly one revision.
 
+### TXN-311 — Conditional write preconditions
+
+- **Level:** MUST
+- **Status:** proposed
+- **Since:** 1.0
+- **Code:** [NodeTrx.java](../bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java); [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`commitInternal`; [NodeDelegate.java](../bundles/sirix-core/src/main/java/io/sirix/node/delegates/NodeDelegate.java):`getLastModifiedRevisionNumber`; [WriteLocksRegistry.java](../bundles/sirix-core/src/main/java/io/sirix/access/WriteLocksRegistry.java)
+- **Verified by:** No existing test mapped. **Planned:** ConditionalWritePreconditionConformance: for each target kind in the table below, a token taken before an interleaved foreign commit that does and does not touch the target, a concurrent reorder and a same-depth move that leave ancestor hashes unchanged, a deleted target, a reused node key after revert, a token from before a truncate and from before a resource replacement, a token above the head, a pruned token revision, a document-root target, an empty foreign commit, and a rejected check followed by a successful retry; assert the rejection, the unchanged head and the committed result of the accepted write. Run each case with hashing enabled and disabled and assert the same verdicts. **Planned:** ConditionalWritePreconditionBudgetTest: record-read counters for a scalar target, a deep subtree and an insertion point (CONV-301).
+- **Evidence class:** doc-only (unverified); decided target has unverified implementation gaps
+- **Gap/note:** No conditional check exists at this baseline; REST's node-hash comparison (REST-204) is the only optimistic guard, it is unavailable with the 1.0 default `HashType.NONE` (CONF-104), and the rationale below records why it is not sound even when hashing is on. The predicate depends on VER-206 stamping and on the epoch and last-revert metadata of FMT-209, all decided targets with recorded implementation mismatches.
+
+A write transaction MUST offer a conditional check that takes a token and a target and fails the write when the target changed since the token. The token MUST consist of the resource's history epoch and a revision number `R` of that epoch, on every resource; it MUST NOT carry a node hash, and a stored node hash MUST NOT decide any precondition, for the reason given in the rationale below. The check MUST be evaluated by the single admitted writer (TXN-102) against the head revision its pending revision is based on, after writer admission and before the mutation it guards; because one writer exists per resource, no concurrent commit can intervene between the check and the guarded mutation, so there is no time-of-check/time-of-use window. A failed check MUST leave the transaction, the resource, its metadata and its visible history unchanged, MUST NOT consume a revision number, and MUST report the resource's current epoch and head revision so the caller can re-read and retry. The conflict predicates in the table below are incorporated into this requirement. Two gates MUST precede them for every target kind: the check MUST fail when the token's epoch differs from the resource's current epoch (FMT-209), which is how truncate and resource replacement invalidate every token issued against the history they ended, and it MUST fail when `R` is greater than the head revision of that epoch. It MUST also fail, for every target kind, when `R` is less than the resource's last-revert revision (FMT-209), because a revert republishes older records with their older stamps and restores the older node-key frontier, so node keys allocated afterwards may denote different nodes. The predicates MUST be identical on resources with and without node hashing. The check MUST NOT require revision `R` itself to be readable: a pruned token revision (VER-303) MUST still be evaluable, failing only where the predicates say so. The check MUST be sound — it MUST NOT accept a write whose target changed since the token — and MAY be conservative where it cannot distinguish a change from a non-change, provided each conservative case is documented. Its work MUST be bounded by the target: at most the records of the target subtree in the head revision plus a constant, O(1) records for a record-sized target and for an insertion point, with no scan proportional to resource size, revision count or the distance between `R` and the head; that bound is an official work budget under CONV-301. An implementation MAY use any cheaper equivalent evidence that yields the identical verdict.
+
 ### TXN-401 — Rollback state
 
 - **Level:** MUST
@@ -261,7 +273,7 @@ Successful rollback MUST clear the recovery marker only after safe reconstructio
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Captain call 9 is decided. REST implements current-head append; inspect MCP guard as a known cross-interface implementation gap, not authorization for a no-op.
 
-revertTo(r) MUST stage the content of retained revision r and require commit. That commit MUST append head+1, even when r is the current head; intermediate historical revisions MUST remain unchanged. Pruned targets MUST fail with `SirixRevisionPrunedException`, with no substitution. REST and MCP whole-resource revert MUST follow the same append rule.
+revertTo(r) MUST stage the content of retained revision r and require commit. That commit MUST append head+1, even when r is the current head; intermediate historical revisions MUST remain unchanged. Pruned targets MUST fail with `SirixRevisionPrunedException`, with no substitution. REST and MCP whole-resource revert MUST follow the same append rule. A commit that publishes a revert MUST record its own revision number as the resource's last-revert revision (FMT-209), because reverted records are republished with the stamps they carried in r and the restored revision root reinstates r's node-key frontier; both make a revert invisible to the per-record evidence TXN-311 otherwise relies on.
 
 ### TXN-404 — Explicit truncate
 
@@ -271,9 +283,9 @@ revertTo(r) MUST stage the content of retained revision r and require commit. Th
 - **Code:** [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`nodeTrxMap`; [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`beginNodeReadOnlyTrx`; [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`truncateTo`; [FileChannelWriter.java](../bundles/sirix-core/src/main/java/io/sirix/io/filechannel/FileChannelWriter.java):`truncateTo`
 - **Verified by:** [ExplicitRollbackCrashSimulationTest.java](../bundles/sirix-core/src/test/java/io/sirix/crash/ExplicitRollbackCrashSimulationTest.java); [NodeStorageEngineWriterTruncateToRevisionIntegrationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/NodeStorageEngineWriterTruncateToRevisionIntegrationTest.java); [RAMStorageTruncateToTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/ram/RAMStorageTruncateToTest.java); [SparseRevisionHistoryTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/SparseRevisionHistoryTest.java) **Planned:** TruncateReaderFenceConformance: open readers below/at/above target across handles, dispatcher views and independent page-read paths; blocked set named in immediate error, unchanged bytes/history/state, no wait; reader-admission race; close conflicting readers then successful truncate, JSON/XML and supported backends.
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Captain chose fail-fast reader protection. The current truncate path checks backend support but does not enumerate/atomically fence all readers of removed revisions or report them. Existing crash tests are not proof of that admission contract.
+- **Gap/note:** Captain chose fail-fast reader protection. The current truncate path checks backend support but does not enumerate/atomically fence all readers of removed revisions or report them. Existing crash tests are not proof of that admission contract. The epoch allocation is likewise unimplemented: the current path rewinds the uber-page counter and the next commit reissues a removed number, which is permitted (VER-101) only because the epoch, not the revision number, carries token identity across a truncate.
 
-truncateTo(r) MUST validate that r is retained. If any open reader holds a revision that truncation would remove, it MUST fail immediately with an error identifying those readers and their revisions, without waiting for them and without changing transaction state, metadata, files or visible history. Reader admission and the eligibility check MUST be coordinated so a new reader cannot enter the removed range between validation and mutation. Readers at or below r MUST NOT be rejected solely for being open. When eligible, truncate MUST durably publish the retained frontier before removing later data/directory records; a crash MUST leave the old head or r, never a partly readable history. Unsupported backends MUST reject before mutation.
+truncateTo(r) MUST allocate and durably publish a new resource history epoch (FMT-209) before removing any data, so that every conditional-write token issued against a removed revision fails under TXN-311 even though later commits reissue its revision number. Publishing the epoch before the removal is required rather than convenient: a crash between the two leaves an epoch that is ahead of the data, which only rejects tokens that would otherwise have been accepted, whereas the opposite order could accept a token from a destroyed timeline. truncateTo(r) MUST validate that r is retained. If any open reader holds a revision that truncation would remove, it MUST fail immediately with an error identifying those readers and their revisions, without waiting for them and without changing transaction state, metadata, files or visible history. Reader admission and the eligibility check MUST be coordinated so a new reader cannot enter the removed range between validation and mutation. Readers at or below r MUST NOT be rejected solely for being open. When eligible, truncate MUST durably publish the retained frontier before removing later data/directory records; a crash MUST leave the old head or r, never a partly readable history. Unsupported backends MUST reject before mutation.
 
 ### TXN-501 — Dirty transaction close
 
@@ -635,6 +647,61 @@ A listener that falls behind or restarts MUST be able to resume after revision X
 
 A listener exception MUST be logged and MUST NOT trigger automatic retry of that failed delivery. A delivery means a callback invocation, not an acknowledgement of successful application processing; the listener MAY explicitly resume from its own saved revision token. The dispatcher MUST open and close the read-only revision view; it MUST be valid only during that callback and MUST NOT be retained or used afterwards. Retained references MUST fail safely rather than read a mutable successor or freed storage. The listener MUST NOT own or prolong the lifetime of the view. TXN-803 bounds close even when the callback never returns.
 
+## Conditional write preconditions (TXN-311)
+
+`R` is the token revision, `head` the head revision the writer is based on, and
+`stamp(x)` the last-modified revision of record `x` in the head revision (VER-206).
+An insertion point is the triple (parent `P`, anchor `A`, side `s`), where `A` is the
+node the insertion is expressed relative to and `s` the side it is inserted on; for a
+first-child or last-child insert `A` is `P` and the neighbour position is `P`'s first
+or last child, and for a sibling insert the neighbour position is `A`'s sibling on `s`.
+
+| Target kind | Rejected when | Explicitly not a conflict |
+|---|---|---|
+| Update, delete or replace of node `N` | `N` is absent at `head`; or `stamp(x) > R` for any record `x` in `N`'s subtree at `head`, `N` included | any change outside `N`'s subtree, including to `N`'s ancestors, siblings or their subtrees |
+| Insert at insertion point (`P`, `A`, `s`) | `P` or `A` is absent at `head`; or `A`'s parent at `head` is no longer `P`; or the neighbour position on side `s` is occupied by a different node than at `R`; or `A` is not `P` and `stamp(A) > R` | a changed child count of `P`; an insert, delete or update elsewhere under `P`, including at the other end of the same array or object |
+| Whole document root, or a write with no single node target | `head > R` | nothing; this is the deliberately coarse resource-level case |
+
+Every target kind is rejected additionally when the token's epoch differs from the
+resource's current epoch, when `R > head`, or when `R < lastRevertRevision`. A rejection
+names the target kind, the token's epoch and revision, and the resource's current epoch
+and head revision. Weak entity tags are rejected by the interfaces that carry the token
+(REST-204).
+
+Informative: the predicates are evaluable from the head revision alone. For an update or
+delete, walk the target subtree and stop at the first record with a larger stamp.
+For an insert, VER-206 makes the neighbour test local: if the node occupying the
+neighbour position has a stamp not greater than `R`, it occupied that position at `R`
+already, since any relinking of that record stamps it; if the position is empty at
+`head`, `stamp(P) > R` is the conservative rejection, because emptying it stamps `P`
+alone. Excluding `P`'s record from the insert predicate is deliberate: `storeChildCount`
+rewrites `P` on every insert under it, so a record-level test on `P` would make two
+inserts into one array conflict even when their insertion points are disjoint.
+
+Rationale (informative): node hashes are not used to decide preconditions, even on a resource
+that stores them, because the rolling hash is insensitive to exactly the changes a precondition must
+catch. [AbstractNodeHashing.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeHashing.java):`rollingAdd`
+sets an ancestor's hash to its previous value plus `PRIME` times the added child's hash, and
+`rollingUpdate` maintains that same sum, so a container's hash is an order-insensitive weighted sum
+of its children. Reordering an array's items leaves every ancestor hash unchanged, and moving a node
+from one sibling subtree to another at the same depth multiplies the same term by the same power of
+`PRIME` on both sides, so their common ancestor is unchanged too. These are not improbable collisions
+but systematic ones produced by ordinary editing, so a hash comparison would accept a stale replace
+and silently undo a concurrent reorder or move. The stamp predicate has no such blind spot: a reorder
+or a move rewrites links and therefore stamps the records it touches (VER-206).
+
+Rationale (informative): a revision number is a monotone logical clock for the resource, so a token
+naming one is the same device as etcd's `mod_revision`, where a transaction compares the revision of
+the keys it touches rather than of the whole store, and as Elasticsearch's `if_seq_no` per document.
+Kubernetes' `resourceVersion` is the stricter whole-object form, rejected here because it would make
+every write to a large document conflict. The epoch is the Kubernetes `uid` half of that pair: a
+`resourceVersion` is only meaningful together with the `uid` of the object incarnation it came from,
+because a deleted and recreated object restarts versioning, and truncate and whole-resource
+replacement do exactly that to a Sirix resource. Paying nothing at write time and deciding on demand is what
+distinguishes this from a stored per-subtree token such as the retired node hashes: the hash had to be
+maintained up every ancestor on every commit, whereas the stamps TXN-311 reads are a by-product of
+writing the records anyway.
+
 ## Model and error cases
 
 A persistent commit has four observable stages: private mutation, appended but unacknowledged
@@ -653,6 +720,15 @@ interruption, stalled workers and stale-forward secondary beacons.
   CommitRecovery model includes marker durability independently from page durability.
 - TXN-802–806: registration/token signatures, configuration keys/ranges, explicit-truncate interaction and safe cancellation/retirement mechanics after a timed-out callback. Replay, no callback retry, view ownership, queue default 10,000 and close default 5 seconds are decided.
 - TXN-102: existing 5-second node-writer and 20-second page-writer admission bounds are recorded; any API consolidation is outside this P0 draft.
+- TXN-311: the check, its exception, the subtree walk and its work-budget assertion are unimplemented. It depends on VER-206 stamping and on the FMT-209 epoch and last-revert metadata, including the epoch allocation that TXN-404 truncate and REST-210 replacement must perform.
+- Open (CONV-101), recorded here because TXN-311's rationale establishes it: the rolling hash does not
+  reflect child order or a node's placement among same-depth siblings, so an equal stored hash does
+  not imply equal content. Every other consumer that treats hash equality as content equality needs
+  auditing against that, in particular the hashed diff shortcut in
+  [AbstractDiff.java](../bundles/sirix-core/src/main/java/io/sirix/diff/AbstractDiff.java) and
+  [DiffFactory.java](../bundles/sirix-core/src/main/java/io/sirix/diff/DiffFactory.java). No behavior
+  is chosen here and no claim is made about which consumers are affected; the audit is filed
+  separately.
 - TXN-404: fail-fast reader identification/admission fencing is decided; implementation and race tests remain pending. TXN-613/614 define the decided backup start snapshot and fail-fast drop policy.
 - The three commit outcomes and CommitOutcomeUnknownException, IN_MEMORY marker exclusion, current-head revert append,
   copying `$derived` and the hook model are decided, not open alternatives.
@@ -684,6 +760,7 @@ Neither model nor a crash CI lane is delivered by this chapter.
 | TXN-308 | No existing test mapped. **Planned:** AtomicCommitGuardConformance: attempt sync/async commits inside nested scopes, inject post-publication failure, assert rejection then successful rollback recovery. | gap |
 | TXN-309 | [CommitSafetyTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/CommitSafetyTest.java):`autoCommitDoesNotSplitJsonReplaceObjectRecordValue`; [CommitSafetyTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/CommitSafetyTest.java):`autoCommitDoesNotSplitXmlMoveSubtree` | partial |
 | TXN-310 | [RevisionIndexIntegrationTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/RevisionIndexIntegrationTest.java); [AsyncCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/AsyncCommitTest.java) **Planned:** StrictCommitTimestampConformance: controlled repeating/regressing live clocks and max(previous+1us,clock) oracle; import equal/decreasing/increasing source sequences with conditional adjustment oracle; original metadata queryability, preserved order, first and unchanged timestamps, live commit after import, sync/async and JSON/XML reopen/recovery without wall-clock timing assertions. | designed |
+| TXN-311 | No existing test mapped. **Planned:** ConditionalWritePreconditionConformance: every target kind, interleaved touching and non-touching commits, concurrent reorder and same-depth move, deleted target, reused node key after revert, tokens from before a truncate and a replacement, token above the head, pruned token revision, document root, empty foreign commit and accepted retry, each with hashing enabled and disabled; **Planned:** ConditionalWritePreconditionBudgetTest record-read bounds (CONV-301). | proposed |
 | TXN-401 | [RollbackStateTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/node/json/RollbackStateTest.java); [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** RollbackMatrixConformance: JSON/XML, all versioning types, sync/async failure, compare serialization, indexes and diff after retry. | partial |
 | TXN-402 | [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java) **Planned:** RollbackMarkerConformance: failure at every reconstruction stage, closed rollback while a new writer owns the resource, marker and permit assertions. | designed |
 | TXN-403 | [XmlRevertTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/node/xml/XmlRevertTest.java); [JsonIdentityHistoryTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/json/JsonIdentityHistoryTest.java); [RevertHandlerTest.kt](../bundles/sirix-rest-api/src/test/kotlin/io/sirix/rest/RevertHandlerTest.kt):`optionalHeadAndMessageAndRevertToHeadAppendARevision`; [RevertHandlerTest.kt](../bundles/sirix-rest-api/src/test/kotlin/io/sirix/rest/RevertHandlerTest.kt):`prunedTargetFailsWithoutAppendingOrReplacingTheTarget` **Planned:** RevertParityConformance: Java/REST/MCP, JSON/XML, current head/old head/pruned target, unchanged history after cold reopen. | partial |

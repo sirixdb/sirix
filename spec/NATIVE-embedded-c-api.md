@@ -837,6 +837,10 @@ Open engineering questions (not optional release scope):
   implementations are not evidence of bounded delivery.
 - I9/I11: certify platform OS/deployment floors, AOT toolchain versions and real
   default memory envelopes on native runners. Do not claim untested platforms.
+- TXN-311/JAPI-111 integration: ABI 1 has no conditional-write entry point, so a native or SDK
+  client cannot express the precondition the Java and REST interfaces will carry. The declaration
+  header, numeric manifest and header consumer checks must gain it before the ABI freeze; adding
+  an entry point after the freeze is an ABI change, not an additive fix.
 - CONF/FMT chapter integration: reconcile the explicit native creation defaults
   and formatProfile identity when those chapters land; changes require spec and
   fixture review, never silent adoption of mutable Java defaults.

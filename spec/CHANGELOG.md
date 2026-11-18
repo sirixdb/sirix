@@ -2,6 +2,21 @@
 
 ## 1.0.0 (unreleased)
 
+- Replace the retired node-hash REST precondition with an opaque conditional-write token.
+  The ETag is `<epoch>.<revision>` for the revision a response serves, in every hash mode; a
+  conditional write checks on demand whether the target changed, so writes pay nothing. The epoch
+  is a per-resource history number, bumped by truncate and by whole-resource replacement, that
+  invalidates tokens from an ended history without renumbering revisions. Node hashes are not used
+  as preconditions at all: the rolling hash is an order-insensitive weighted sum, so a reorder or a
+  same-depth move leaves ancestor hashes unchanged, which a precondition must not miss. Add TXN-311
+  conflict semantics (subtree, insertion-point and resource target kinds over per-record
+  modification stamps, evaluated under the single writer), VER-206 last-modified stamping,
+  FMT-209 persisted epoch and last-revert revision with a readOnlyCompat feature bit and a
+  monotonic per-database epoch counter in CONF-103, CONF-109 `requirePreconditions` answering
+  428, JAPI-111 one stable conditional check, and REST-204/205/211/212 for If-Match, ETag,
+  412/428 responses and root/query scope. Record the superseded REST-204/205 wording in RETIRED.
+  Nothing here is implemented: every requirement states its gap.
+
 - Resolve imported timestamp ordering: preserve increasing source timestamps, adjust
   ties/regressions to the preceding effective timestamp plus 1 microsecond, and keep
   each adjusted original timestamp as queryable metadata. Preserve revision order;

@@ -203,6 +203,22 @@ Readers MUST reject malformed persisted references, unknown reference tags, impo
 
 The repository MUST keep an immutable frozen corpus of stores created by the 1.0 release, covering every supported feature, index and persisted configuration, including JSON/XML, storage backends, versioning strategies, compression, feature/extension handling and representative revision histories. Every later release MUST read this corpus correctly, enforced in default CI; unsupported-format refusal MUST NOT substitute for reading a supported 1.0 corpus member. Corpus bytes MUST NOT be regenerated to hide a regression. Composite-page and primitive encoding pins MUST cover record/HOT pages, index containers, revision references, delta varints, roaring64 values and supported codecs; new codecs require an explicit wire ID and unsupported-reader behavior before emission.
 
+### FMT-209 — Conditional-write resource metadata
+
+- **Level:** MUST
+- **Status:** proposed
+- **Since:** 1.0
+- **Code:** [PageExtensions.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageExtensions.java):`readOrRefuse`; [PageExtensions.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageExtensions.java):`Builder`; [RevisionRootPage.java](../bundles/sirix-core/src/main/java/io/sirix/page/RevisionRootPage.java); [StoreFeatures.java](../bundles/sirix-core/src/main/java/io/sirix/page/StoreFeatures.java):`requireWritable`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`revertTo`; [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`truncateTo`
+- **Verified by:** No existing test mapped. **Planned:** ConditionalWriteMetadataFormatConformance: a resource that never reverted has byte-identical revision-root images; the entry appears in the revert-publishing revision and in every later revision root; both fields survive cold reopen, backup/restore, every versioning strategy and both persistent backends; truncate publishes the new epoch before removing data and a crash between the two leaves the larger epoch; two resources created in one database, a replaced resource and a truncated resource all hold distinct epochs; a store carrying the feature bit refuses writes from an engine that does not know the bit while still reading it; a malformed, truncated, duplicated or misordered entry is refused under FMT-203.
+- **Evidence class:** doc-only (unverified); decided target has unverified implementation gaps
+- **Gap/note:** Neither field, the extension tag, the feature bit nor the database-level epoch counter exists at this baseline; the extension decoder states that no shared or kind-local tags are assigned yet, and the FMT-205 feature registry is empty. `RevisionRootPage`'s clone constructor is the carry-forward seam, and it currently copies only the node-key frontiers, timestamp, message and user. Assigning the bit and the tag before the format freeze is required because TXN-311 cannot be made safe by a later additive change: a writer that does not maintain these fields silently destroys the guarantee rather than failing. The split placement below is a Firstmate best-practice choice: the epoch is written by resource creation and truncate only, so paying revision-root bytes for it on every commit would be waste.
+
+A resource MUST persist two pieces of conditional-write metadata (TXN-311): its history epoch, identifying the resource incarnation and timeline the revision numbers belong to, and its last-revert revision, the revision number of the most recent commit that published a revert, 0 when none.
+
+The last-revert revision MUST be published atomically with the commit that changes it and MUST be carried forward unchanged by every later revision root, so reading it at the head costs no additional page read. It MUST be encoded as the optional kind-local revision-root page-extension entry defined in the wire table below, under FMT-203 framing, and MUST be omitted entirely by a resource that has never reverted, keeping its revision-root images unchanged; absence MUST read as 0. A store that carries the entry MUST set the named `readOnlyCompat` feature bit in the wire table, so an engine that does not know the field may still read the store but MUST NOT write it: FMT-203 requires unknown optional entries to be skipped and discarded on rewrite, which would silently drop the evidence TXN-311 depends on. A maintenance tool that rewrites revision roots MUST preserve the value or refuse (FMT-204).
+
+The history epoch MUST be persisted in the resource settings (CONF-102) rather than per revision, because only resource creation and truncate change it. It MUST be allocated from the monotonic per-database epoch counter of CONF-103, so that no two incarnations of a resource path and no two timelines of one resource ever share an epoch: every resource creation MUST allocate one, including a creation that replaces an existing resource (REST-210) or re-creates a deleted name, and truncate MUST allocate a new one and publish it durably before removing data (TXN-404). An epoch MUST NOT be reused or decrease. Absence of the member MUST read as epoch 0, which no 1.0 allocation produces.
+
 ### FMT-301 — HOT fanout legality
 
 - **Level:** MUST
@@ -263,7 +279,7 @@ Version 1.0 MUST be the on-disk compatibility baseline. The 1.0 engine MUST NOT 
 
 Beta migration MUST export all resource revisions with their committed content, commit timestamps, authors and messages and import them into a newly created 1.0 store in source revision order without dropping revisions. The first imported timestamp MUST retain its source value. For each later revision, if its source timestamp is greater than the preceding imported effective timestamp, import MUST preserve it unchanged; if it would tie or go backwards, import MUST set its effective commit timestamp to the preceding imported timestamp plus 1 microsecond. For every adjusted revision, its original timestamp MUST be preserved as queryable revision metadata. Only necessary timestamp adjustments are permitted; content, authors, messages and revision order MUST be preserved. Open-by-time MUST use the effective strictly increasing timestamps, not the original metadata values (VER-204). An exporter capable of reading the beta version MUST produce the interchange; the 1.0 engine MUST consume it rather than open the beta store directly. The source MUST remain unchanged. Unavailable history MUST be reported rather than claiming a complete conversion.
 
-## Wire tables (FMT-102, FMT-104, FMT-106)
+## Wire tables (FMT-102, FMT-104, FMT-106, FMT-209)
 
 | Superblock offset | Width | Meaning |
 |---|---|---|
@@ -278,6 +294,19 @@ Beta migration MUST export all resource revisions with their committed content, 
 | 40 | 16 | resource UUID, most-significant then least-significant 64-bit words |
 | 56 | 8 | XXH3-64 of bytes [0,56) |
 
+The last-revert revision (FMT-209) is one page-extension entry on the revision root page.
+Its tag is kind-local and optional: bit 0x40 set, required bit 0x80 clear.
+
+| Field | Width | Meaning |
+|---|---|---|
+| tag | 1 | 0x41, kind-local optional revision-root entry |
+| length | stop-bit | 4 |
+| payload[0..4) | 4 | last-revert revision, little-endian u32 |
+
+| Feature word | Bit | Name | Meaning |
+|---|---|---|---|
+| readOnlyCompat | 0 (0x00000001) | conditional-write metadata | the store carries the FMT-209 last-revert entry; an engine that does not maintain it may read but MUST NOT write |
+
 The revision ring occupies the last 768 bytes of each beacon slot. Its entry layout is
 revision u32, reserved-zero u32, root offset i64, timestamp i64, revision-record checksum i64,
 root hash i64, then tail-entry checksum i64. IOStorage's `tailLogEntryChecksum` and numeric constants
@@ -287,7 +316,8 @@ are the current encoder evidence; the ring is bounded to 16 recent records.
 
 - FMT-102/401/402: beta refusal, removal of zero UUID/stride exceptions and history-preserving export/import are decided. Implement the 1.0 discriminator and migration tooling, including the decided conditional timestamp adjustment and queryable original metadata in TXN-310/VER-204.
 - FMT-302: the numeric bound and indirect-level height convention are decided. Enforcing the key-derived bound and rejecting undefined discriminative positions remain implementation/test gaps, not open product choices.
-- FMT-208: produce and check in the immutable 1.0-created feature/index/config corpus and CI coverage manifest; the compatibility policy is decided.
+- FMT-208: produce and check in the immutable 1.0-created feature/index/config corpus and CI coverage manifest; the compatibility policy is decided. The corpus MUST include a resource carrying the FMT-209 last-revert entry and one without it, and a resource whose epoch was advanced by a truncate.
+- FMT-209: the extension tag, the feature bit, the carry-forward in the revision-root clone, the settings member and the per-database epoch counter are unimplemented. The tag and bit assignments above are the first entries in the otherwise empty FMT-203 tag and FMT-205 feature registries and must be reviewed before the format freeze; TXN-311 cannot be retrofitted compatibly afterwards.
 - Node hash default: the accepted 1.0 design targets NONE; current ResourceConfiguration still falls back to ROLLING. CONF-104 records this implementation gap explicitly.
 
 ## Traceability
@@ -310,6 +340,7 @@ are the current encoder evidence; the ring is bounded to 16 recent records.
 | FMT-206 | [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java):`deterministicRecordPageSaltIsPinned`; [RecordPageSaltSourceTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/RecordPageSaltSourceTest.java); [RecordPageSaltAllocationTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/RecordPageSaltAllocationTest.java) | partial |
 | FMT-207 | [StrictReferenceFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/StrictReferenceFormatTest.java) **Planned:** StrictReaderFuzzTest: fixed-seed byte mutations, all prefix truncations and differential heap/segment decoders; no unbounded allocation from counts. | partial |
 | FMT-208 | [GoldenCompositePageTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenCompositePageTest.java); [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java) **Planned:** FrozenStoreCorpusConformance: immutable hashes plus a feature/index/config coverage manifest, read every store with independent content/history/index expectations in default CI; deliberately incompatible reader fixture fails without changing corpus bytes. | designed |
+| FMT-209 | No existing test mapped. **Planned:** ConditionalWriteMetadataFormatConformance: absent-entry byte identity, publication on revert, carry-forward, survival across reopen/backup/strategies/backends, epoch published before truncate removes data, distinct epochs across creations, replacement and truncate, read-only refusal for an engine without the bit, and malformed-entry refusal. | proposed |
 | FMT-301 | [HOTInvariantValidator.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidator.java); [HOTInvariantValidatorChecksTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorChecksTest.java); [HOTHeightOptimalTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTHeightOptimalTest.java) **Planned:** HOTFanoutConformance: inject one-child nodes at every production constructor/decoder/publish boundary; delete down to one child, cold reopen, then scan and point lookup. | designed |
 | FMT-302 | [HOTInvariantValidatorChecksTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorChecksTest.java); [HOTHeightOptimalTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTHeightOptimalTest.java); [HOTStructuralPropertyTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTStructuralPropertyTest.java) **Planned:** HOTHeightBoundConformance: independent encoded-key discriminative-position oracle; empty/leaf-only/one-indirect conventions; ascending, descending, shuffled, long common-prefix and variable-length/prefix keys; valid boundaries and malformed repeated/decreasing/undefined/out-of-range leading positions; assert h <= D and D <= 8*L after mutation and cold reopen, across node types; compare lookup/scan with an ordered-map oracle. | designed |
 | FMT-303 | [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java):`indexTypeIdsArePinned` | partial |
