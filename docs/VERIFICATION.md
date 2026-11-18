@@ -347,9 +347,12 @@ The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a sepa
 It checks fresh interval roots and all companion postings after truncation reuses a revision number,
 and the surviving historical revision, under all four versioning types. Run it alone with
 `./gradlew :sirix-core:validTimeDisabledLookupCacheTest`; enabled-cache tests retain their usual settings.
-The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest` in a separate JVM so
-inline Mockito mocks in other suites cannot affect its allocation measurements. Run that suite alone
-with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
+The normal core task also runs the allocation suites selected by
+[`dictionaryReadViewAllocationTest`](../bundles/sirix-core/build.gradle) in a separate JVM so
+inline Mockito mocks in other suites cannot affect their allocation measurements. Run that fork
+alone with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`. For only the HOT commit
+allocation checks, add `--tests 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'`; the
+[HOT specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing) owns their allocation contract.
 
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM

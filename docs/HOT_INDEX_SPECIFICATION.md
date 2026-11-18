@@ -3,10 +3,11 @@
 Status: **specification based on the code on `main` after PR
 [#1214](https://github.com/sirixdb/sirix/pull/1214)** (merged 2026-09-19), with subsequent branch-split
 candidate handling reflected in §4.5.4 case 4, and current posting-delta and referenced-chunk
-behavior reflected in §§2.2–2.5, 4.2, 4.4–4.6 and 6.2. First written 2026-09-17
+behavior reflected in §§2.2–2.5, 4.2, 4.4–4.6 and 6.2, and height maintenance and dirty commit
+normalization specified in §2.6. First written 2026-09-17
 against commit `739e46288` and revised 2026-09-20 against the merged tree, by reading the code only;
-nothing in this document was verified by running code. Where a statement could only be settled by
-execution it says so.
+that original survey did not run code. Later regression and measurement evidence is identified
+where used.
 
 PR #1214 is a projection-index and read-path change; it touches HOT in three places, each noted where
 it belongs: a range cursor's `close()` now ends its reader's walk and so releases a guarded leaf
@@ -500,7 +501,7 @@ ancestors MUST remain eligible for normalization and resulting height repair. Co
 preserves a pending hint without changing the source. Successful normalization clears it;
 a later structural change re-arms it. Existing writer/decoder invariants remain responsible
 for input validity on skipped blocks. Defensive normalization checks apply to visited blocks.
-No-fold blocks must allocate zero bytes and must not set up per-page traversal state.
+Blocks skipped by the no-work guard MUST NOT set up per-page traversal state.
 Repeated normalization of unchanged output must not rescan it. A completed child remains
 eligible for absorption by a changed parent; the hint skips descending into the child, not
 parent-child composition. Fold traversal must not repeatedly reconsider earlier slots when
@@ -1376,6 +1377,9 @@ never splits the node. The other branch-path decomposition of a full node, `bran
 checks the constructed halves before publication; its candidate handling is specified in §4.5.4
 case 4. At both sites, `splitHalvesKeepKeyApart` separately proves `K` on its own side of the
 boundary between the halves (§4.5.4 cases 2 and 4).
+`HOTOrderingGuardTest.fullNodeWithStraddlingChildDeclinesSplitBeforePublication` pins the
+full-node refusal independently of the correction stream, whose committed geometry changes
+under §2.6 normalization.
 
 **The measurement is taken before the insert, and one arm re-splits after it.** The
 `splitKeepsTrieCondition` pre-checks read the node's children as they are when the handler starts.
@@ -1409,9 +1413,9 @@ generic leaf pair or the complete frontier places `K` instead, counted by
 `HOTOrderingGuardTest` pins both overflows that reach the decline, by count and by bytes, and each
 publishes a malformed path without it.
 
-Evidence, for exactly what it covers: the decline is exercised only from an assembled state. The
-100,000-record stream takes this arm four times (`FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT` reads 4
-after `HOTValidTimeCorrectionStreamTest`) without reaching the shape, and a bounded search with the
+Evidence, for exactly what it covers: the decline is exercised only from an assembled state.
+`HOTValidTimeCorrectionStreamTest` does not establish reachability of this shape; historical
+handler counts predate commit normalization. A bounded pre-normalization search with the
 property generator — 36 seeded heavy streams of 8,000 work units each over PATH, CAS and NAME, plus
 longer 25,000-unit ones — produced no put stream that reaches it either, so **reachability from an
 ordinary stream remains unproven**: it is a shape derived from the code, refused because the decline
@@ -1850,9 +1854,11 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
    forwards (`:280`, `:1165-1188`).
 6. `TransactionIntentLog.put` resets the reference's disk key, so every staged page gets a new location
    (`cache/TransactionIntentLog.java:794-823`).
-7. Commit recurses `page.commit(writer)` (indirect → staged children; leaf → side-map overflow pages),
+7. Before recursion, a pending dirty HOT subtree is normalized according to §2.6 by
+   `HOTCommitNormalizer`, using `InternalResourceSession.getHOTCommitScratch`. Commit then recurses
+   `page.commit(writer)` (indirect → staged children; leaf → side-map overflow pages),
    writes the page, propagates the disk key to copies sharing the log key, and closes both pages of the
-   container (`trx/NodeStorageEngineWriter.java:3797-3885`).
+   container (`NodeStorageEngineWriter.commit(PageReference)`).
 
 Before a structural split, integration or recompression reads child heights, the writer resolves
 every required direct child and retains guards on cache-backed leaves through the operation,
@@ -1989,7 +1995,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Full-node branch split | `HOTBranchSplitOverlapTest` | seeds validated sparse paths and retained leaf endpoints, then reaches §4.5.4 case 4 through public writer puts in either split half under every `VersioningType`; checks rejection before publication, ordered exact physical scans, postings and structural invariants after inserts and commits, all historical revisions, and cold reopen |
 | Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTIndirectCardinalityTest`, `HOTInvariantValidatorChecksTest` (6), [`HOTInvariantValidatorWorkTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorWorkTest.java) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; cardinality: factory, decode, detector and writer-preflight enforcement of I10 in both layouts; validator: I1, I4, I6, I11, leaf-insert precondition and unreadable slots; reuse scope is specified in [Verification](VERIFICATION.md#running-the-layers) |
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `index/hot/page/HOTCompleteDumpMergeTest` (5), `index/hot/page/HOTLeafPageCowTest` (15), `index/hot/page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
-| Writer mechanics | `HOTRebuildFootprintTest`, `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
+| Writer mechanics | `HOTRebuildFootprintTest`, `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `index/hot/page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `index/hot/cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
 | Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2), `HOTTrieReaderBoundContractTest`, `HOTTrieReaderBoundPropertyTest`, `HOTTrieReaderCasRangeRegressionTest` | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending; the lower- and upper-bound contract of §4.3.1: on hand-built tries for every probe of their key universe, including search keys routed below or above their leaf and keys no bit separates from a stored key; on bulk-built and writer-built tries against a sorted reference for fixed seeds (fresh seeds in `test/property/HotBoundSeekOracleRandomTest`); and end to end through CAS range filters with absent lower bounds. Each suite asserts that its probes reach the geometry it claims |
 | Index builds | `index/JsonCASIndexBuildTest`, `JsonPathAndNameIndexBuildTest`, `JsonIndexDropRecreateVersioningTest` | `STRUCTURAL_VALIDATION_FAILURE` stays zero during real index builds (`JsonCASIndexBuildTest.java:170-176`) |
@@ -2130,10 +2136,8 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
    higher layer does was not traced.
 3. **Thread-safety of one index reader** across threads: the walk-state pool suggests yes, the storage
    reader contract says no (§4.9.5).
-4. **Remaining excess height on skewed descending inserts**: the lost outer-spine fix restores
-   exact metadata and folds the four/eight-leaf regressions to H=1. The 50,000-key skewed seeds
-   5/6 improve from live H=9 to committed H=3, while their fixed leaf sets admit H=2. Remaining frontier shapes
-   are a follow-up under issue #1452; this is not a global minimum-height guarantee.
+4. **Remaining excess height on skewed descending inserts**: see §2.6 for the normalization
+   contract, regression bounds and remaining frontier-shape follow-up under issue #1452.
 5. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
 6. **`short` MSB index** for keys longer than 4 095 bytes (NAME keys are not bounded) (§2.6.1).
 7. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
@@ -2156,7 +2160,7 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 | Document | Covers | Verdict on the merged tree |
 |---|---|---|
 | `docs/DISK_FORMAT.md` | file layout, envelope, kind ids, index container pages, projection slot layout, CAS/VALIDTIME posting layout | owns posting key and marker formats; HOT page-body details and integrity limits remain in §3.6 |
-| `docs/HOT_BULK_BUILD.md` | canonicity verdict, memory arithmetic, bulk vs incremental shape | mostly current; "zero-self-heal witness" (`:57-58`) and "Stage-3c machinery" (`:125`, now `propagateStructuralSpliceUpSpine`) are stale; the stale-heights open item is unverified |
+| `docs/HOT_BULK_BUILD.md` | canonicity verdict, memory arithmetic, bulk vs incremental shape | historical probe shapes; current height contract is in §2.6; "zero-self-heal witness" and "Stage-3c machinery" (now `propagateStructuralSpliceUpSpine`) remain stale |
 | `docs/HOT_FORMAL_FOUNDATION.md` | formal model, Theorems 1-3 | theorems current; §8 detect-and-rebuild not implemented; "right-padded keys" model (`:34-36`) differs from unsigned-prefix order (§2.5); line references stale (`findChildIndex` at `:71`) |
 | `docs/HOT_INCREMENTAL_SPLIT_VERIFICATION.md` | Binna split proofs | archive note; design basis of `HOTIncrementalInsert`; does not cover SirixDB-specific handlers |
 | `docs/HOT_PAPER_IMPOSSIBILITY.md` | impossibility of local fixes | theorems stand; self-heal mechanism and figures stale; no archive note |
