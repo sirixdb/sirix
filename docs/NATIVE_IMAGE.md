@@ -29,11 +29,14 @@ evaluator. Q4 must use the routed masked-column join, which exercises Caffeine's
 generated weak-key weighted cache implementation. The test runs in the existing
 native-image CI job; `nativeImageSmokeTest` runs the same corpus on the JVM.
 
-Generated Caffeine cache and node registrations come from tracing the query
-workload with `native-image-agent`, then retaining the cache factories, node
-constructors and fields needed at runtime. Keep unrelated JVM instrumentation
-and benchmark output resources out of the shipped metadata. Validate changes
-with an actual native smoke image; a passing JVM test cannot detect missing
+Core's `reachability-metadata.json` owns the Caffeine node constructors, cache
+factory fields and built-in resource serializer/handler registrations needed
+without query/REST. Query-specific registrations extend that baseline; tracing
+the query workload with `native-image-agent` alone does not establish core-only
+coverage. Keep unrelated JVM instrumentation and benchmark output resources out
+of the shipped metadata. Validate changes with the
+[core/query shared-image smoke](../tests/native/README.md#corenativemetadatasmoke--nativenojvmsmoke-i2)
+and the query native smoke above; a passing JVM test cannot detect missing
 native reachability metadata.
 
 ## PGO (profile-guided optimization)
@@ -296,3 +299,21 @@ Image does not reject a name that matches nothing; with it, a rename that reache
 fails the test instead. Only the argument quoted earlier in this document is unchecked prose — keep
 it in step by hand. The test builds no image, so it **cannot** tell whether an image built with the
 option is fast, or builds at all on a given GraalVM; only a timed run of a real image can.
+
+## Core/query shared-library feasibility (I2)
+
+`tests/native/run-smoke.sh all /absolute/evidence/directory` builds separate
+core-only and query test libraries and drives them from C11 with an emptied
+runtime environment. See [the test specification](../tests/native/SMOKE.md) and
+[execution instructions](../tests/native/README.md#corenativemetadatasmoke--nativenojvmsmoke-i2).
+These are private test entrypoints, not a public C ABI or a replacement for the
+existing CLI/REST executable targets.
+
+The [shared-image specification](../tests/native/SMOKE.md) owns the core-only
+bootstrap checks, loader/exec oracles and teardown diagnostics.
+
+Snapshot append/serialization pools expose an explicit terminal shutdown hook;
+ordinary database close still retains the engine's bounded warm caches. I4 must
+supply the complete terminal runtime owner and prove allocator release,
+outstanding-handle refusal and repeated isolate cycles. Passing this
+small C fixture is not full NATIVE-406 conformance or permission to hot-unload.

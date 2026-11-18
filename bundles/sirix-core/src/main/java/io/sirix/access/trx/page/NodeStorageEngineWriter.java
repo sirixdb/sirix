@@ -3794,6 +3794,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
+  static void shutdownSharedExecutors() {
+    SnapshotExecutorShutdown.drain(SNAPSHOT_APPEND_EXECUTOR, SNAPSHOT_FLUSH_POOL);
+  }
+
   private static SnapshotAppendExecutor createSnapshotAppendExecutor() {
     final int processors = Runtime.getRuntime().availableProcessors();
     final int parallelism =
