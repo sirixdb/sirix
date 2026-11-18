@@ -233,7 +233,7 @@ For each new live commit on a resource timeline, its commit timestamp MUST equal
 - **Status:** proposed
 - **Since:** 1.0
 - **Code:** [NodeTrx.java](../bundles/sirix-core/src/main/java/io/sirix/api/NodeTrx.java); [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`commitInternal`; [NodeDelegate.java](../bundles/sirix-core/src/main/java/io/sirix/node/delegates/NodeDelegate.java):`getLastModifiedRevisionNumber`; [WriteLocksRegistry.java](../bundles/sirix-core/src/main/java/io/sirix/access/WriteLocksRegistry.java)
-- **Verified by:** No existing test mapped. **Planned:** ConditionalWritePreconditionConformance: for each target kind in the table below, a token taken before an interleaved foreign commit that does and does not touch the target, a concurrent reorder and a same-depth move that leave ancestor hashes unchanged, a deleted target, unchanged first/last-child insertion points, before-first/after-last sibling inserts after disjoint opposite-end edits, empty-container inserts, opposite-side context-link changes, an anchor-container descendant update under ROLLING and NONE, a reused node key after revert, a token from before a truncate, resource replacement, database recreation and backup restore with coincident revision numbers, a token above the head, a pruned token revision, a document-root target, an empty foreign commit, and a rejected check followed by a successful retry; assert the rejection, the unchanged head and the committed result of the accepted write. Run each case with hashing enabled and disabled and assert the same verdicts. **Planned:** ConditionalWritePreconditionBudgetTest: record-read counters for a scalar target, a deep subtree and an insertion point (CONV-301).
+- **Verified by:** No existing test mapped. **Planned:** ConditionalWritePreconditionConformance: for each target kind in the table below, a token taken before an interleaved foreign commit that does and does not touch the target, a concurrent reorder and a same-depth move that leave ancestor hashes unchanged, a deleted target, XML attribute and namespace insertion/removal on a non-root element followed by a stale conditional replacement, retained attribute/namespace value or name edits within an XML subtree, XML context-element membership changes at insertion points, unchanged first/last-child insertion points, before-first/after-last sibling inserts after disjoint opposite-end edits, empty-container inserts, opposite-side context-link changes, an anchor-container descendant update under ROLLING and NONE, a reused node key after revert, a token from before a truncate, resource replacement, database recreation and backup restore with coincident revision numbers, a token above the head, a pruned token revision, a document-root target, an empty foreign commit, and a rejected check followed by a successful retry; assert the rejection, the unchanged head and the committed result of the accepted write. Run each case with hashing enabled and disabled and assert the same verdicts. **Planned:** ConditionalWritePreconditionBudgetTest: record-read counters for a scalar target, a deep subtree and an insertion point (CONV-301).
 - **Evidence class:** doc-only (unverified); decided target has unverified implementation gaps
 - **Gap/note:** No conditional check exists at this baseline; REST's node-hash comparison (REST-204) is the only optimistic guard, it is unavailable with the 1.0 default `HashType.NONE` (CONF-104), and the rationale below records why it is not sound even when hashing is on. The predicate depends on VER-206 stamping and on the incarnation id and last-revert metadata of FMT-209, all decided targets with recorded implementation mismatches.
 
@@ -657,11 +657,15 @@ first-child or last-child insert `A` is `P` and the neighbour position is `P`'s 
 or last child, and for a sibling insert the neighbour position is `A`'s sibling on `s`.
 The context records are `A` only when `A != P`, and the insertion-side neighbour `B`
 when present. `P` supplies the context stamp only when the container is empty.
+For XML, a subtree includes its root, its descendants, and the attribute and namespace
+records owned by every included element; the subtree predicate MUST scan those records.
+Attribute or namespace membership changes MUST stamp the owning element (VER-206),
+so removal remains visible even though the removed record is absent at `head`.
 
 | Target kind | Rejected when | Explicitly not a conflict |
 |---|---|---|
-| Update, delete or replace of node `N` | `N` is absent at `head`; or `stamp(x) > R` for any record `x` in `N`'s subtree at `head`, `N` included | any change outside `N`'s subtree, including to `N`'s ancestors, siblings or their subtrees |
-| Insert at insertion point (`P`, `A`, `s`) | `P` or `A` is absent at `head`; or `A != P` and (`A`'s parent at `head` is not `P` or `stamp(A) > R`); or the neighbour `B` on side `s` exists at `head` and (`B`'s parent is not `P` or `stamp(B) > R`); or `P` is empty at `head` and `stamp(P) > R` | a changed child count of `P`; an insert, delete or update elsewhere under `P`, including at the other end of the same array or object, provided it leaves the non-parent anchor (`A != P`) and occupied insertion-side neighbour unchanged in value, name and structural links |
+| Update, delete or replace of node `N` | `N` is absent at `head`; or `stamp(x) > R` for any record `x` in `N`'s subtree at `head`, including `N` and, for XML, attribute/namespace records of every included element | any change outside `N`'s subtree, including to `N`'s ancestors, siblings or their subtrees |
+| Insert at insertion point (`P`, `A`, `s`) | `P` or `A` is absent at `head`; or `A != P` and (`A`'s parent at `head` is not `P` or `stamp(A) > R`); or the neighbour `B` on side `s` exists at `head` and (`B`'s parent is not `P` or `stamp(B) > R`); or `P` is empty at `head` and `stamp(P) > R` | a changed child count of `P`; an insert, delete or update elsewhere under `P`, including at the other end of the same array or object, provided it leaves the non-parent anchor (`A != P`) and occupied insertion-side neighbour unchanged in value, name, structural links and attribute/namespace membership |
 | Whole document root, or a write with no single node target | `head > R` | nothing; this is the deliberately coarse resource-level case |
 
 Every target kind is rejected additionally when the token's incarnation id differs from the
@@ -671,7 +675,9 @@ and head revision. Weak entity tags are rejected by the interfaces that carry th
 (REST-204).
 
 Informative: the predicates are evaluable from the head revision alone. For an update or
-delete, walk the target subtree and stop at the first record with a larger stamp.
+delete, walk the target subtree, including every included XML element's attribute and
+namespace records, and stop at the first record with a larger stamp. Membership
+removal is detected through the surviving owning element's stamp (VER-206).
 For an insert, check `P` and `A` exist and, only when `A != P`, check that `A` is still
 under `P` and `stamp(A) <= R`. If the insertion-side neighbour `B` exists, check that it
 is under `P` and `stamp(B) <= R`. Relinking either context record stamps it, so these
@@ -679,9 +685,10 @@ checks establish the unchanged boundary without opening revision `R`. An absent
 neighbour does not require `stamp(P)` while `P` is non-empty: after the last child or
 before the first child, the unchanged child's insertion-side link proves that the
 position is still empty. Only an empty `P` uses `stamp(P) <= R`; changing between
-empty and non-empty changes its first-child link. A value, name or structural-link
-change anywhere in either context record, including its opposite-side link, remains
-a conservative conflict even if the insertion-side link is unchanged. Changes to
+empty and non-empty changes its first-child link. A value, name, structural-link or
+attribute/namespace membership change in either context record, including an
+opposite-side link change, remains a conservative conflict even if the insertion-side
+link is unchanged. Changes to
 `P`'s child count and edits elsewhere under `P` that leave those context records
 unchanged do not conflict; neither do derived hash or count changes (VER-206).
 

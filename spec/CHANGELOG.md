@@ -11,15 +11,19 @@
   the rolling hash is order-insensitive, so reorders and same-depth moves can leave it unchanged.
   Add TXN-311 subtree, insertion-point and resource predicates under the single writer;
   child-position anchors skip the sibling-parent test, and only empty containers use a parent
-  stamp. VER-206 stamps value, name and structural-link changes, excluding derived hash/count
-  bookkeeping. FMT-209 stores the incarnation id in CONF-102 settings and the last-revert revision
+  stamp. VER-206 stamps value, name, structural-link and XML attribute/namespace membership
+  changes, excluding derived hash/count bookkeeping. Membership changes stamp the owning
+  element; XML subtree checks include attribute and namespace records of every included element.
+  FMT-209 stores the incarnation id in CONF-102 settings and the last-revert revision
   in a revision-root extension with a readOnlyCompat bit. Add CONF-109 `requirePreconditions`
   answering 428, JAPI-111 one stable conditional check, and REST-204/205/211/212 for If-Match,
   ETag, 412/428 responses and root/query scope. Conditional queries refuse cross-resource
   mutation; strict policy is enforced at the shared mutation boundary through every route.
   Successful mutation ETags require exactly one surviving resource head; deletion and
   multi-resource operations carry none. Record superseded REST-204/205 wording in RETIRED.
-  Nothing here is implemented: every requirement states its gap.
+  Native/SDK conditional-write entry points are planned open capabilities, not required for 1.0;
+  REST reuses the shared Java core check. Nothing here is implemented: every requirement
+  states its gap.
 
 - Resolve imported timestamp ordering: preserve increasing source timestamps, adjust
   ties/regressions to the preceding effective timestamp plus 1 microsecond, and keep
