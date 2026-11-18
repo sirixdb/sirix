@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.function.UnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -328,19 +329,23 @@ final class HOTConstructedShapeIntegrationTest {
     return ((long) rowGroup << 16) | kind;
   }
 
-  private static byte[] payload(final int length) {
+  static byte[] payload(final int length) {
     final byte[] bytes = new byte[length];
     Arrays.fill(bytes, (byte) 0x5a);
     return bytes;
   }
 
-  private static byte[] key(final long slot) {
+  static byte[] key(final long slot) {
     final byte[] bytes = new byte[Long.BYTES];
     PathKeySerializer.INSTANCE.serialize(slot, bytes, 0);
     return bytes;
   }
 
-  private static final class Fixture implements AutoCloseable {
+  /**
+   * A projection store on production storage whose initial trie is assembled by hand. Shared with
+   * {@link HOTIndexWriterLeafRetentionTest}, which puts through an engine of its own choosing.
+   */
+  static final class Fixture implements AutoCloseable {
     private final Path databasePath;
     private final VersioningType versioning;
     private final TreeMap<Long, byte[]> expected = new TreeMap<>();
@@ -349,12 +354,23 @@ final class HOTConstructedShapeIntegrationTest {
     private @Nullable Database<JsonResourceSession> database;
     private @Nullable JsonResourceSession session;
     private @Nullable JsonNodeTrx transaction;
-    private StorageEngineWriter engine;
-    private ProjectionIndexHOTStorage storage;
+    private final UnaryOperator<StorageEngineWriter> writerEngine;
+    StorageEngineWriter engine;
+    ProjectionIndexHOTStorage storage;
 
-    private Fixture(final Path databasePath, final VersioningType versioning) {
+    Fixture(final Path databasePath, final VersioningType versioning) {
+      this(databasePath, versioning, UnaryOperator.identity());
+    }
+
+    /**
+     * @param writerEngine maps each transaction's storage engine to the one the store under test writes
+     *        through; every check of this fixture reads through the transaction's own engine
+     */
+    Fixture(final Path databasePath, final VersioningType versioning,
+        final UnaryOperator<StorageEngineWriter> writerEngine) {
       this.databasePath = databasePath;
       this.versioning = versioning;
+      this.writerEngine = Objects.requireNonNull(writerEngine, "writerEngine");
       assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
       database = Databases.openJsonDatabase(databasePath);
       assertTrue(
@@ -368,11 +384,11 @@ final class HOTConstructedShapeIntegrationTest {
       final JsonNodeTrx transaction = session.beginNodeTrx();
       this.transaction = transaction;
       engine = transaction.getStorageEngineWriter();
-      storage = new ProjectionIndexHOTStorage(engine, 0);
+      storage = new ProjectionIndexHOTStorage(writerEngine.apply(engine), 0);
     }
 
     /** Obtain real wire values from the production encoder in a separate fixture index. */
-    private byte[] encoded(final byte[] value) {
+    byte[] encoded(final byte[] value) {
       return encodedValues.computeIfAbsent(value.length, ignored -> {
         final ProjectionIndexHOTStorage encoder = new ProjectionIndexHOTStorage(engine, 1);
         encoder.putBlob(1L, value);
@@ -386,16 +402,16 @@ final class HOTConstructedShapeIntegrationTest {
                    .incrementAndGetMaxHotPageKey(0);
     }
 
-    private HOTLeafPage emptyLeaf() {
+    HOTLeafPage emptyLeaf() {
       return new HOTLeafPage(nextPageKey(), engine.getRevisionNumber(), IndexType.PROJECTION);
     }
 
-    private void add(final HOTLeafPage leaf, final long slot, final byte[] value) {
+    void add(final HOTLeafPage leaf, final long slot, final byte[] value) {
       assertTrue(leaf.put(key(slot), encoded(value)), "constructed leaf must fit before mutation");
       expected.put(slot, value);
     }
 
-    private PageReference leaf(final long... slots) {
+    PageReference leaf(final long... slots) {
       final HOTLeafPage leaf = emptyLeaf();
       for (final long slot : slots) {
         add(leaf, slot, EMPTY);
@@ -403,14 +419,14 @@ final class HOTConstructedShapeIntegrationTest {
       return register(leaf);
     }
 
-    private PageReference register(final Page page) {
+    PageReference register(final Page page) {
       final PageReference reference = new PageReference();
       reference.setPage(page);
       engine.getLog().put(reference, PageContainer.getInstance(page, page));
       return reference;
     }
 
-    private PageReference node(final int[] bits, final int[] partials, final PageReference... children) {
+    PageReference node(final int[] bits, final int[] partials, final PageReference... children) {
       int height = 1;
       for (final PageReference child : children) {
         if (engine.loadHOTPage(child) instanceof HOTIndirectPage indirect) {
@@ -421,7 +437,7 @@ final class HOTConstructedShapeIntegrationTest {
           IndexType.PROJECTION, this::nextPageKey));
     }
 
-    private void install(final PageReference assembled) {
+    void install(final PageReference assembled) {
       final Page page = Objects.requireNonNull(engine.loadHOTPage(assembled));
       final PageReference root = storage.getRootReference();
       root.setPage(page);
@@ -450,7 +466,7 @@ final class HOTConstructedShapeIntegrationTest {
       install(node(new int[] {33, 34, 35, 36, 37, 38, 39}, partials, children));
     }
 
-    private void verify(final StorageEngineReader reader, final Map<Long, byte[]> model) {
+    void verify(final StorageEngineReader reader, final Map<Long, byte[]> model) {
       final PageReference root = ProjectionIndexHOTStorage.rootReference(reader, 0);
       final HOTInvariantValidator.Result result = root == null
           ? new HOTInvariantValidator.Result(List.of(), 0, 0)
@@ -479,13 +495,13 @@ final class HOTConstructedShapeIntegrationTest {
       return height;
     }
 
-    private void put(final long slot, final byte[] value) {
+    void put(final long slot, final byte[] value) {
       storage.putBlob(slot, value);
       expected.put(slot, value);
       verify(engine, expected);
     }
 
-    private void commitBaselineAndReopen() {
+    void commitBaselineAndReopen() {
       verify(engine, expected);
       baseline = new TreeMap<>(expected);
       Objects.requireNonNull(transaction).commit();
@@ -496,7 +512,7 @@ final class HOTConstructedShapeIntegrationTest {
       verify(engine, Objects.requireNonNull(baseline));
     }
 
-    private void commitAndVerifyHistory(final String scenario) {
+    void commitAndVerifyHistory(final String scenario) {
       final Map<Long, byte[]> baseline = Objects.requireNonNull(this.baseline);
       Objects.requireNonNull(transaction).commit();
       close();

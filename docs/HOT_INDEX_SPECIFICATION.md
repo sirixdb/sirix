@@ -1870,6 +1870,40 @@ already have transaction lifetime. `ensurePathChildrenLoaded`, `ensureNodeChildr
 `ChildPageGuards` implement this boundary; `HOTStructuralChildEvictionTest` exercises it under
 a cache smaller than one leaf.
 
+**Every other leaf a mutation reads is held as well** ([FMT-304](../spec/FMT-disk-format.md)).
+Direct children are a small part of what a put reads: the first and last key of a neighbouring
+subtree, every key of the leaves a strand guard planned to scan, the pair of leaves a consolidation
+merges and the source leaf of a two-leaf migration all lie outside that boundary. `doIndex`,
+`doRemovePostingBit` and `doReplacePostingChunk` therefore bracket their work (`enterMutation`,
+`exitMutation`). Inside a mutation the writer's resolver takes a guard on each leaf it resolves
+from the page cache and keeps it until the mutation ends, normally or by exception; the exit then
+releases all of them. Three kinds of page are not held, because the cache cannot evict them: a page
+the TIL owns, an indirect page (eviction only de-swizzles it), and a leaf the mutation built and has
+not published (its reference has neither a disk key nor a log key). A leaf that cannot be held,
+because eviction won between its resolution and the guard, is loaded again through the guarded
+handoff (§4.9.4); it is never read unheld. The guard set is allocated with the first sibling a
+writer's mutations resolve, and a put that stays inside the TIL takes no guard. Two reads stay
+outside the rule, because every put makes them. The descent to the key's own leaf
+(`resolveUnheld`) copies every page it resolves into the TIL, the leaf under the guard of its
+copy-on-write (§4.9.4), and reads nothing before that. It must resolve with the guard set a
+constant `null`: that is what lets the JIT fold the holding code out of the resolver and inline
+the rest into the descent, and reading the guard set from a field there cost every put a call per
+hop. The other is optimistic: the neighbour comparison of a put that extends its leaf's range
+(`compareSubtreeExtreme`) would otherwise put a guard acquire and release, three interlocked
+instructions on a page other threads read, into every such put. It compares on the unheld leaf and
+trusts the result only if the leaf is not orphaned afterwards; otherwise it repeats the comparison
+on a held leaf. The check is sound
+because every path that releases a leaf's frame (`close`, `markOrphaned`, the last `releaseGuard`)
+sets the orphaned flag first and nothing clears it, so a leaf that is not orphaned after the read
+owned its frame during the read. It needs no stamp (§4.9.3): a committed leaf is never re-bound to
+another frame, and the flag sits in the leaf object the comparison has just read. `consolidateNodeLeaves`, being
+callable on its own, also guards each pair for the duration of its copy and leaves a pair it cannot
+guard unmerged. `HOTIndexWriterLeafRetentionTest`, `HOTIncrementalInsertLeafRetentionTest` and
+`HOTStructuralPropertyTest.mutationsSurviveLeafEviction` evict every unguarded leaf at the writer's
+calls into its storage engine; the
+[postmortem](postmortems/2026-11-hot-writer-unheld-leaf-reads.md) records what the writer did
+before.
+
 Readers inside a write transaction resolve TIL modified → TIL complete → swizzle → leaf cache → disk
 (`trx/NodeStorageEngineReader.java:4364-4434`; `trx/NodeStorageEngineWriter.java:5393-5423`), and three
 memos are disabled for them: the lookup cache, the root memo and the first-key memo

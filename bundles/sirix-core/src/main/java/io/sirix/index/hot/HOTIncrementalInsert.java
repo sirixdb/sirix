@@ -1225,6 +1225,11 @@ public final class HOTIncrementalInsert {
    * {@code releaseOrphanedHOTLeaves}. Leaves carrying side references are deliberately not merged;
    * copying only their key/value slots would orphan projection segments or referenced posting pages.
    *
+   * <p>
+   * <b>Leaf lifetime.</b> A child leaf is read through its swizzled page, which the page cache may
+   * evict at any moment. Each pair is therefore guarded for exactly as long as it is copied, and a
+   * pair that cannot be guarded is not merged.
+   *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
    * @return the consolidated node, or {@code node} itself when nothing was mergeable
    */
@@ -1255,14 +1260,33 @@ public final class HOTIncrementalInsert {
               || right.segmentRefCount() != 0) {
             continue;
           }
-          final HOTLeafPage mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-          pendingSpeculativeLeaf = mergedLeaf;
+          // Hold the pair across the copy. The merged leaf is allocated before the pair is read, and
+          // allocating may evict either sibling; an unheld one then reads back as whichever page took
+          // its frame, and those bytes would become entries of the merged leaf. A sibling that cannot
+          // be held was evicted already, so the pair is left for a later attempt.
+          final HOTLeafPage mergedLeaf;
           boolean fits = true;
-          for (int e = 0; e < left.getEntryCount() && fits; e++) {
-            fits = mergedLeaf.put(left.getKey(e), left.copyStoredValue(e));
+          if (!left.acquireGuard()) {
+            continue;
           }
-          for (int e = 0; e < right.getEntryCount() && fits; e++) {
-            fits = mergedLeaf.put(right.getKey(e), right.copyStoredValue(e));
+          try {
+            if (!right.acquireGuard()) {
+              continue;
+            }
+            try {
+              mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+              pendingSpeculativeLeaf = mergedLeaf;
+              for (int e = 0; e < left.getEntryCount() && fits; e++) {
+                fits = mergedLeaf.put(left.getKey(e), left.copyStoredValue(e));
+              }
+              for (int e = 0; e < right.getEntryCount() && fits; e++) {
+                fits = mergedLeaf.put(right.getKey(e), right.copyStoredValue(e));
+              }
+            } finally {
+              right.releaseGuard();
+            }
+          } finally {
+            left.releaseGuard();
           }
           if (!fits) {
             mergedLeaf.close();

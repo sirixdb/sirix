@@ -1,0 +1,209 @@
+/*
+ * Copyright (c) 2026, SirixDB. All rights reserved.
+ */
+package io.sirix.index.hot;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import io.sirix.cache.FrameSlotAllocator;
+import io.sirix.index.IndexType;
+import io.sirix.index.hot.page.HOTIndirectPage;
+import io.sirix.index.hot.page.HOTLeafPage;
+import io.sirix.page.PageReference;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+/**
+ * Leaf consolidation must hold the two sibling leaves it copies into their merged leaf.
+ *
+ * <p>
+ * {@link HOTIncrementalInsert#consolidateNodeLeaves} settles on a pair of leaves, allocates the
+ * merged leaf and only then reads the pair. A leaf the page cache owns can be evicted in between:
+ * allocating under pressure evicts whatever nobody guards. Its frame is released and handed out
+ * again, and the copy then reads another page's bytes and stores them as entries of the merged
+ * leaf, which the writer publishes.
+ * </p>
+ *
+ * <p>
+ * The tests evict the pair from the page-key allocator, which runs exactly in that window. A
+ * released frame keeps its bytes until it is reused, so a stale read is usually right by luck; the
+ * tests remove the luck both ways. {@link FrameSlotAllocator#setPoisonOnReleaseForTesting}
+ * zero-fills a released frame, and in the second mode two foreign leaves of the same layout take
+ * the released frames at once, as the next page load would.
+ * </p>
+ */
+@Isolated
+@DisplayName("HOT leaf consolidation holds the leaves it copies")
+final class HOTIncrementalInsertLeafRetentionTest {
+
+  /** Same merge bound the index writer passes ({@code MAX_ENTRIES * 3 / 4}). */
+  private static final int CONSOLIDATION_TARGET = (HOTLeafPage.MAX_ENTRIES * 3) / 4;
+
+  private static final byte[] VALUE = {1, 2, 3};
+
+  @BeforeEach
+  void poisonReleasedFrames() {
+    FrameSlotAllocator.setPoisonOnReleaseForTesting(true);
+  }
+
+  @AfterEach
+  void restore() {
+    FrameSlotAllocator.setPoisonOnReleaseForTesting(false);
+  }
+
+  @ParameterizedTest(name = "released frames recycled into foreign leaves: {0}")
+  @ValueSource(booleans = {false, true})
+  @DisplayName("consolidation copies only from leaves it holds, even when allocating the target evicts them")
+  void consolidationCopiesOnlyFromLeavesItHolds(final boolean recycle) {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final HOTLeafPage left = unitLeaf(pageKeys, 0x00, 6);
+    final HOTLeafPage right = unitLeaf(pageKeys, 0x20, 4);
+    final HOTLeafPage third = unitLeaf(pageKeys, 0x40, 2);
+    final HOTLeafPage fourth = unitLeaf(pageKeys, 0x80, 2);
+    // Bits 0..2 of the first key byte; partials 0 and 1 are BiNode-paired, so the first two merge.
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
+        new PageReference[] {swizzle(left), swizzle(right), swizzle(third), swizzle(fourth)}, 1, 1, IndexType.PATH,
+        pageKeys::getAndIncrement);
+    final List<HOTLeafPage> foreign = new ArrayList<>();
+    // The merged leaf is allocated between the moment consolidation settles on the pair and the
+    // moment it reads them. Allocating under pressure evicts whatever is unguarded: here, the pair.
+    final LongSupplier evictingAllocator = () -> {
+      if (foreign.isEmpty()) {
+        left.close();
+        right.close();
+        // Stand-ins for the pages loaded next: with nobody holding the pair, they take its frames.
+        foreign.add(unitLeaf(pageKeys, 0x60, recycle
+            ? 6
+            : 0));
+        foreign.add(unitLeaf(pageKeys, 0x70, recycle
+            ? 6
+            : 0));
+      }
+      return pageKeys.getAndIncrement();
+    };
+    final List<PageReference> dropped = new ArrayList<>();
+    HOTIndirectPage consolidated = null;
+    try {
+      consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2, IndexType.PATH,
+          evictingAllocator, dropped);
+
+      assertFalse(foreign.isEmpty(), "the pair must have been evicted while the merge was under way");
+      // The merged leaf then absorbs the third leaf as well; the node keeps its fourth child.
+      assertEquals(2, consolidated.getNumChildren(), "the BiNode-paired leaves must have merged");
+      final HOTLeafPage merged = assertInstanceOf(HOTLeafPage.class, consolidated.getChildReference(0).getPage());
+      assertEquals(12, merged.getEntryCount(), "the merged leaf holds every entry of the three siblings");
+      for (int i = 0; i < 6; i++) {
+        assertArrayEquals(unitKey(0x00, i), merged.getKey(i), "left key " + i);
+        assertArrayEquals(unitValue(0x00, i), merged.copyStoredValue(i), "left value " + i);
+      }
+      for (int i = 0; i < 4; i++) {
+        assertArrayEquals(unitKey(0x20, i), merged.getKey(6 + i), "right key " + i);
+        assertArrayEquals(unitValue(0x20, i), merged.copyStoredValue(6 + i), "right value " + i);
+      }
+      for (int i = 0; i < 2; i++) {
+        assertArrayEquals(unitKey(0x40, i), merged.getKey(10 + i), "third key " + i);
+        assertArrayEquals(unitValue(0x40, i), merged.copyStoredValue(10 + i), "third value " + i);
+      }
+      assertEquals(3, dropped.size(), "every merged-away leaf is handed to retirement");
+      assertTrue(left.isClosed() && right.isClosed(), "the deferred eviction completes once the copy is done");
+      assertEquals(0, left.getGuardCount(), "consolidation must release every guard it takes");
+      assertEquals(0, right.getGuardCount(), "consolidation must release every guard it takes");
+      assertEquals(0, third.getGuardCount(), "consolidation must release every guard it takes");
+    } finally {
+      closeLeaves(parent, consolidated);
+      closeLeaf(left);
+      closeLeaf(right);
+      foreign.forEach(HOTIncrementalInsertLeafRetentionTest::closeLeaf);
+    }
+  }
+
+  @Test
+  @DisplayName("consolidation leaves alone a pair it cannot hold")
+  void consolidationSkipsAPairItCannotHold() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final HOTLeafPage left = unitLeaf(pageKeys, 0x00, 6);
+    final HOTLeafPage right = unitLeaf(pageKeys, 0x20, 4);
+    final HOTLeafPage third = unitLeaf(pageKeys, 0x40, 2);
+    final HOTLeafPage fourth = unitLeaf(pageKeys, 0x80, 2);
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
+        new PageReference[] {swizzle(left), swizzle(right), swizzle(third), swizzle(fourth)}, 1, 1, IndexType.PATH,
+        pageKeys::getAndIncrement);
+    // Evicted while another reader still holds it: open, and it refuses every further guard.
+    assertTrue(right.acquireGuard());
+    right.close();
+    assertFalse(right.isClosed());
+    final long allocatedBefore = pageKeys.get();
+    final List<PageReference> dropped = new ArrayList<>();
+    try {
+      final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2,
+          IndexType.PATH, pageKeys::getAndIncrement, dropped);
+
+      assertSame(parent, consolidated, "a pair that cannot be held is not merged");
+      assertTrue(dropped.isEmpty(), "nothing merged, so nothing is handed to retirement");
+      assertEquals(allocatedBefore, pageKeys.get(), "no merge target is allocated for a pair that cannot be held");
+      assertEquals(0, left.getGuardCount(), "the guard on the retainable sibling must be released");
+      assertEquals(1, right.getGuardCount(), "only this test guards the unretainable sibling");
+    } finally {
+      right.releaseGuard();
+      closeLeaves(parent);
+    }
+  }
+
+  // ===== fixtures =====
+
+  /** {@code entries} keys sharing the one-byte prefix {@code firstByte} and differing behind it. */
+  private static HOTLeafPage unitLeaf(final AtomicLong pageKeys, final int firstByte, final int entries) {
+    final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.PATH);
+    for (int i = 0; i < entries; i++) {
+      assertTrue(leaf.put(unitKey(firstByte, i), unitValue(firstByte, i)), "the fixture leaf must take every key");
+    }
+    return leaf;
+  }
+
+  private static byte[] unitKey(final int firstByte, final int ordinal) {
+    return new byte[] {(byte) firstByte, 0x55, (byte) (ordinal + 1)};
+  }
+
+  private static byte[] unitValue(final int firstByte, final int ordinal) {
+    return new byte[] {VALUE[0], VALUE[1], VALUE[2], (byte) firstByte, (byte) ordinal};
+  }
+
+  private static PageReference swizzle(final HOTLeafPage leaf) {
+    final PageReference reference = new PageReference();
+    reference.setPage(leaf);
+    return reference;
+  }
+
+  private static void closeLeaves(final HOTIndirectPage... nodes) {
+    for (final HOTIndirectPage node : nodes) {
+      if (node == null) {
+        continue;
+      }
+      for (int i = 0; i < node.getNumChildren(); i++) {
+        if (node.getChildReference(i).getPage() instanceof HOTLeafPage leaf) {
+          closeLeaf(leaf);
+        }
+      }
+    }
+  }
+
+  private static void closeLeaf(final HOTLeafPage leaf) {
+    if (!leaf.isClosed()) {
+      leaf.close();
+    }
+  }
+}

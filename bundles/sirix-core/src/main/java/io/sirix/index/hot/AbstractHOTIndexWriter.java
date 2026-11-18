@@ -55,6 +55,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
@@ -242,6 +243,18 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /** Inserts since the last route-local consolidation attempt. */
   private int insertsSinceConsolidation;
+
+  /**
+   * Whether a mutation is in progress. Inside one, {@link #resolveHOTPageForTraversal(PageReference)}
+   * holds the leaves it hands out; see {@link #enterMutation()}.
+   */
+  private boolean mutating;
+
+  /**
+   * The leaves the mutation in progress holds. Allocated with the first sibling a mutation of this
+   * writer resolves, so a writer that only ever puts into its own leaves never pays for it.
+   */
+  private @Nullable ChildPageGuards heldLeaves;
 
   /**
    * Root of the last published structural splice, captured at {@link #registerFreshSubtree} and used
@@ -927,7 +940,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Reset path depth counter — no allocation
     int pathDepth = 0;
     PageReference currentRef = cowedRootRef;
-    Page page = resolveHOTPageForTraversal(currentRef);
+    Page page = resolveUnheld(currentRef);
 
     // Top-down CoW (task #57): on every indirect along the path, deep-copy it on first
     // touch in this trx via the HOTIndirectPage copy ctor, which itself deep-copies every
@@ -956,7 +969,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
 
       currentRef = childRef;
-      page = resolveHOTPageForTraversal(currentRef);
+      page = resolveUnheld(currentRef);
     }
 
     if (page instanceof HOTLeafPage hotLeaf) {
@@ -1113,7 +1126,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (currentRef == null)
       return null;
 
-    Page page = resolveHOTPageForTraversal(currentRef);
+    Page page = resolveUnheld(currentRef);
     while (page instanceof HOTIndirectPage indirectPage) {
       int childIndex = indirectPage.findChildIndex(keyBuf, keyLen);
       if (childIndex < 0)
@@ -1125,7 +1138,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         return null;
       }
       currentRef = childRef;
-      page = resolveHOTPageForTraversal(currentRef);
+      page = resolveUnheld(currentRef);
       if (page == null) {
         LOG.warn("HOT navigation: unresolvable page for ref key={}", currentRef.getKey());
         return null;
@@ -1217,10 +1230,109 @@ public abstract class AbstractHOTIndexWriter<K> {
    * </p>
    */
   private @Nullable Page resolveHOTPageForTraversal(final PageReference ref) {
+    return resolveHOTPageForTraversal(ref, mutationGuards());
+  }
+
+  /**
+   * Resolve {@code ref} for a descent that copies or guards the page before it reads it, and hold
+   * nothing.
+   *
+   * <p>
+   * Two descents qualify. {@link #prepareLeafOfTree} copies every page of the key's own path into the
+   * transaction log: an indirect page through {@link #prepareIndirectPage}, the leaf through
+   * {@link #cowHOTLeafForModification}, which takes its own guard and resolves again when eviction
+   * wins. {@link #navigateToLeafBeforeReadGuard} hands its leaf to the guard-retry loop of
+   * {@link #acquireLeafForRead(byte[], int)}. Neither reads a leaf it has not secured.
+   * </p>
+   *
+   * <p>
+   * They are also the hops every put and every lookup makes, and that is why they do not go through
+   * {@link #resolveHOTPageForTraversal(PageReference)}. With the guard set a constant {@code null}
+   * the JIT folds the holding code out of the resolver and inlines what is left into the descent;
+   * with the guard set read from a field it keeps a call per hop.
+   * </p>
+   */
+  private @Nullable Page resolveUnheld(final PageReference ref) {
     return resolveHOTPageForTraversal(ref, null);
   }
 
-  /** Optionally retain cache-backed leaves through a structural operation. */
+  /**
+   * Begin a mutation: until the matching {@link #exitMutation}, every leaf this writer resolves
+   * through {@link #resolveHOTPageForTraversal(PageReference)} is held.
+   *
+   * <p>
+   * A leaf the transaction log owns lives as long as the transaction. Any other leaf belongs to the
+   * page cache, which may evict it at any moment: another thread sharing the cache does so
+   * concurrently, and this thread does so itself whenever it loads a sibling or allocates a page.
+   * Eviction releases the frame of an unguarded leaf at once, the frame is handed out again, and a
+   * read of the evicted leaf then returns another page's bytes. A mutation reads sibling leaves to
+   * prove a structural change safe and copies their entries into new leaves, so a stale read is a
+   * wrong proof or a wrong entry in the index.
+   * </p>
+   *
+   * <p>
+   * Inside a mutation the resolver therefore takes one guard on every leaf it resolves from the page
+   * cache, and the exit releases them all. A leaf the mutation built itself and has not published yet
+   * is the writer's own and is not held. An eviction in between only orphans a held leaf; its frame
+   * stays intact until the release. The rule holds for every sibling read at once, including the
+   * structural validator and the bounded size preflight that resolve through
+   * {@link #traversalPageResolver}.
+   * </p>
+   *
+   * <p>
+   * Two kinds of read stay out of it, because every put makes them. The descent to the key's own leaf
+   * copies what it resolves ({@link #resolveUnheld}). And {@link #compareSubtreeExtreme}, the
+   * neighbour comparison of every put that extends its leaf's range, checks after the read that the
+   * leaf was not evicted and holds the leaf only when it was. An ordinary put thus pays for the rule
+   * with one flag set and cleared.
+   * </p>
+   *
+   * <p>
+   * Every mutation entry point brackets its work: {@link #doIndex}, {@link #doRemovePostingBit} and
+   * {@link #doReplacePostingChunk}. Mutations may nest; only the outermost exit releases, so a leaf
+   * is held to the end of the whole mutation.
+   * </p>
+   *
+   * @return whether this call began the mutation, to be handed to {@link #exitMutation}
+   */
+  private boolean enterMutation() {
+    final boolean outermost = !mutating;
+    mutating = true;
+    return outermost;
+  }
+
+  /**
+   * End what {@link #enterMutation()} began and release every leaf the mutation held.
+   *
+   * @param outermost what {@link #enterMutation()} returned
+   * @param failure the failure the mutation ends with, or {@code null}; a failure to release is
+   *        attached to it instead of replacing it
+   */
+  private void exitMutation(final boolean outermost, final @Nullable Throwable failure) {
+    if (outermost) {
+      mutating = false;
+      final ChildPageGuards held = heldLeaves;
+      // Most mutations hold nothing; keep the release loop out of their exit.
+      if (held != null && held.size != 0) {
+        held.release(failure);
+      }
+    }
+  }
+
+  /** The guard set of the mutation in progress, or {@code null} between mutations. */
+  private @Nullable ChildPageGuards mutationGuards() {
+    if (!mutating) {
+      return null;
+    }
+    ChildPageGuards held = heldLeaves;
+    if (held == null) {
+      held = new ChildPageGuards();
+      heldLeaves = held;
+    }
+    return held;
+  }
+
+  /** Retain cache-backed leaves in {@code guards}; with {@code null} they are handed out unheld. */
   private @Nullable Page resolveHOTPageForTraversal(final PageReference ref, final @Nullable ChildPageGuards guards) {
     PageReference current = ref;
     for (int hop = 0; hop < MAX_RELEASED_LEAF_FORWARDS; hop++) {
@@ -1275,7 +1387,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     final Page swizzled = ref.getPage();
-    if (servesTraversal(swizzled) && (guards == null || guards.retain(swizzled))) {
+    if (servesTraversal(swizzled) && (guards == null || isUnpublished(ref) || guards.retain(swizzled))) {
       return swizzled;
     }
 
@@ -1289,6 +1401,16 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     return reloadUnlessAlreadyMergedAway(log, ref, guards);
+  }
+
+  /**
+   * Whether {@code ref} was never published: it carries neither a durable key nor a log key, so a
+   * page swizzled on it is one this mutation built itself. The page cache does not know such a page
+   * and cannot evict it, so it needs no guard. Holding it would also be wrong: a guard defers the
+   * close of a leaf the writer retires, and the write path takes a leaf that is not closed for live.
+   */
+  private static boolean isUnpublished(final PageReference ref) {
+    return ref.getKey() < 0 && ref.getLogKey() < 0;
   }
 
   /** The page a resolved container can hand a write-path descent, or {@code null} if neither can. */
@@ -2002,7 +2124,14 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @throws SirixIOException if the index is uninitialized or the entry cannot be stored
    */
   protected final void doIndex(byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
-    doMutation(MutationOperation.UPSERT, keyBuf, keyLen, valueBuf, valueLen, 0L);
+    final boolean outermost = enterMutation();
+    try {
+      doMutation(MutationOperation.UPSERT, keyBuf, keyLen, valueBuf, valueLen, 0L);
+    } catch (final RuntimeException | Error failure) {
+      exitMutation(outermost, failure);
+      throw failure;
+    }
+    exitMutation(outermost, null);
   }
 
   /**
@@ -2023,7 +2152,16 @@ public abstract class AbstractHOTIndexWriter<K> {
     if ((bit16 & ~0xFFFFL) != 0L) {
       throw new IllegalArgumentException("posting-list chunk bit must be in [0, 65535]: " + bit16);
     }
-    return doMutation(MutationOperation.REMOVE_POSTING_BIT, keyBuf, keyLen, null, 0, bit16);
+    final boolean outermost = enterMutation();
+    final boolean removed;
+    try {
+      removed = doMutation(MutationOperation.REMOVE_POSTING_BIT, keyBuf, keyLen, null, 0, bit16);
+    } catch (final RuntimeException | Error failure) {
+      exitMutation(outermost, failure);
+      throw failure;
+    }
+    exitMutation(outermost, null);
+    return removed;
   }
 
   /** Chunks a fold stored as referenced side pages instead of inline leaf values. */
@@ -2091,6 +2229,19 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected final void doReplacePostingChunk(final byte[] keyBuf, final int keyLen, final byte[] valueBuf,
       final int valueLen, final boolean referencePayload) {
+    final boolean outermost = enterMutation();
+    try {
+      replacePostingChunk(keyBuf, keyLen, valueBuf, valueLen, referencePayload);
+    } catch (final RuntimeException | Error failure) {
+      exitMutation(outermost, failure);
+      throw failure;
+    }
+    exitMutation(outermost, null);
+  }
+
+  /** The body of {@link #doReplacePostingChunk}, kept at its size so that it stays inlinable. */
+  private void replacePostingChunk(final byte[] keyBuf, final int keyLen, final byte[] valueBuf, final int valueLen,
+      final boolean referencePayload) {
     storageEngineWriter.assertTransactionWritable();
     storageEngineWriter.getLog().invalidateHOTPostingViews(indexScope());
     requireNonNull(keyBuf);
@@ -2834,6 +2985,44 @@ public abstract class AbstractHOTIndexWriter<K> {
     PageReference cur = ref;
     for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
       final Page page = resolveHOTPageForTraversal(cur);
+      if (page == null) {
+        return null;
+      }
+      if (page instanceof HOTLeafPage leaf) {
+        return leaf.getEntryCount() == 0
+            ? null
+            : leaf;
+      }
+      if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
+        return null;
+      }
+      cur = indirect.getChildReference(side == 0
+          ? 0
+          : indirect.getNumChildren() - 1);
+      if (cur == null) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * {@link #extremeLeafOfSubtree(PageReference, int)} without holding the leaf: only a read validated
+   * afterwards may be trusted (see {@link #compareSubtreeExtreme}).
+   *
+   * <p>
+   * A copy of that walk rather than a shared one with the guard set as a parameter. The JIT compiles
+   * this walk on its own, and there a parameter is not the constant {@code null} that lets it fold
+   * the holding code out of the resolver (see {@link #resolveUnheld}).
+   * </p>
+   */
+  private @Nullable HOTLeafPage unheldExtremeLeafOfSubtree(final @Nullable PageReference ref, final int side) {
+    if (ref == null) {
+      return null;
+    }
+    PageReference cur = ref;
+    for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
+      final Page page = resolveUnheld(cur);
       if (page == null) {
         return null;
       }
@@ -3901,15 +4090,77 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int slot = childSlots[depth];
       if (side == 0) {
         if (slot > 0) {
-          final HOTLeafPage previous = extremeLeafOfSubtree(node.getChildReference(slot - 1), 1);
-          return previous != null && previous.compareKeyWithBound(previous.getEntryCount() - 1, keyBuf, keyLen) < 0;
+          final int previous = compareSubtreeExtreme(node.getChildReference(slot - 1), 1, keyBuf, keyLen);
+          return previous != NO_EXTREME && previous < 0;
         }
       } else if (slot + 1 < node.getNumChildren()) {
-        final HOTLeafPage next = extremeLeafOfSubtree(node.getChildReference(slot + 1), 0);
-        return next != null && next.compareKeyWithBound(0, keyBuf, keyLen) > 0;
+        return compareSubtreeExtreme(node.getChildReference(slot + 1), 0, keyBuf, keyLen) > 0;
       }
     }
     return true; // K becomes the index's own extreme on that side
+  }
+
+  /**
+   * {@link #compareSubtreeExtreme}'s answer for a subtree that offers no key; negative on purpose.
+   */
+  private static final int NO_EXTREME = Integer.MIN_VALUE;
+
+  /**
+   * Compare the smallest ({@code side == 0}) or greatest ({@code side == 1}) key of the subtree at
+   * {@code ref} with {@code keyBuf[0..keyLen)}: negative, zero or positive as
+   * {@link HOTLeafPage#compareKeyWithBound} answers, or {@link #NO_EXTREME}.
+   *
+   * <p>
+   * This is the one sibling read an ordinary put makes: every merge that extends its leaf's range
+   * asks it. Holding the neighbouring leaf would put a guard acquire and release, three interlocked
+   * instructions on a page other threads read, into each of those puts. So the comparison is made on
+   * the unheld leaf and trusted only if the leaf is still not orphaned afterwards.
+   * </p>
+   *
+   * <p>
+   * That is enough because of the order in which a leaf goes away. Every path that releases a leaf's
+   * frame ({@link HOTLeafPage#close()}, {@code markOrphaned()} and the last {@code releaseGuard()})
+   * sets the orphaned flag first, and nothing ever clears it. A leaf that is not orphaned after the
+   * read therefore still owned its frame during the read. A leaf evicted under the read is orphaned
+   * by then, and the comparison is repeated on a leaf the mutation holds.
+   * </p>
+   */
+  private int compareSubtreeExtreme(final @Nullable PageReference ref, final int side, final byte[] keyBuf,
+      final int keyLen) {
+    final HOTLeafPage unheld = unheldExtremeLeafOfSubtree(ref, side);
+    if (unheld != null) {
+      int comparison = 0;
+      boolean readable = true;
+      try {
+        comparison = unheld.compareKeyWithBound(side == 0
+            ? 0
+            : unheld.getEntryCount() - 1, keyBuf, keyLen);
+      } catch (final RuntimeException torn) {
+        // The bytes of a frame reused under the read can describe a key that runs past its segment.
+        readable = false;
+      }
+      // Keep the loads of the comparison above the load of the flag that vouches for them.
+      VarHandle.acquireFence();
+      if (readable && !unheld.isOrphaned()) {
+        return comparison;
+      }
+    }
+    // Unresolvable without a guard, or evicted under the read: hold the leaf and compare again.
+    return compareHeldSubtreeExtreme(ref, side, keyBuf, keyLen);
+  }
+
+  /**
+   * {@link #compareSubtreeExtreme} on a leaf the mutation holds. Kept out of line: no ordinary put
+   * comes here, and the holding resolver inlined into the comparison would be most of its code.
+   */
+  private int compareHeldSubtreeExtreme(final @Nullable PageReference ref, final int side, final byte[] keyBuf,
+      final int keyLen) {
+    final HOTLeafPage held = extremeLeafOfSubtree(ref, side);
+    return held == null
+        ? NO_EXTREME
+        : held.compareKeyWithBound(side == 0
+            ? 0
+            : held.getEntryCount() - 1, keyBuf, keyLen);
   }
 
   /**
@@ -5972,11 +6223,17 @@ public abstract class AbstractHOTIndexWriter<K> {
       // so it can distinguish those pairs without recursing into any indirect child.
       for (int i = 0; i < childCount; i++) {
         final PageReference childRef = parent.getChildReference(i);
-        if (childRef == null || childRef.getPage() != null) {
+        if (childRef == null) {
           continue;
         }
+        final Page swizzled = childRef.getPage();
+        if (swizzled != null && !(swizzled instanceof HOTLeafPage)) {
+          continue; // an indirect child is never merged, and it lives on the heap
+        }
+        // Resolve a leaf even when it is already swizzled: consolidation copies every entry of the
+        // leaves it merges, and resolution is what holds a cache-backed leaf for this mutation.
         final Page child = resolveHOTPageForTraversal(childRef);
-        if (child != null) {
+        if (child != null && child != swizzled) {
           childRef.setPage(child);
           borrowedRefs[borrowedCount] = childRef;
           borrowedPages[borrowedCount++] = child;
@@ -8511,7 +8768,12 @@ public abstract class AbstractHOTIndexWriter<K> {
     return true;
   }
 
-  /** Short-lived guards for structural work; allocated only off the in-leaf mutation fast path. */
+  /**
+   * Guards on cache-backed leaves, released together. A structural handler allocates a short-lived
+   * one for the direct children it rewrites; the writer keeps one more for the siblings its mutations
+   * resolve (see {@link #enterMutation()}), emptied at the end of each. Allocated only off the
+   * in-leaf mutation fast path, and its array with the first leaf it holds.
+   */
   private static final class ChildPageGuards implements AutoCloseable {
     private HOTLeafPage[] leaves;
     private int size;
@@ -8519,6 +8781,14 @@ public abstract class AbstractHOTIndexWriter<K> {
     private boolean retain(final Page page) {
       if (!(page instanceof HOTLeafPage leaf)) {
         return true;
+      }
+      // One guard holds a leaf, however often a walk resolves it: its page, its first key, its last
+      // key. Newest first, because a repeat usually follows at once; the set is one node's children
+      // or a bounded scan, so the walk is short.
+      for (int i = size - 1; i >= 0; i--) {
+        if (leaves[i] == leaf) {
+          return true;
+        }
       }
       if (!leaf.acquireGuard()) {
         return false;
