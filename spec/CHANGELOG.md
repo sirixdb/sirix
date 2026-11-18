@@ -3,18 +3,22 @@
 ## 1.0.0 (unreleased)
 
 - Replace the retired node-hash REST precondition with an opaque conditional-write token.
-  The ETag is `<epoch>.<revision>` for the revision a response serves, in every hash mode; a
-  conditional write checks on demand whether the target changed, so writes pay nothing. The epoch
-  is a per-resource history number, bumped by truncate and by whole-resource replacement, that
-  invalidates tokens from an ended history without renumbering revisions. Node hashes are not used
-  as preconditions at all: the rolling hash is an order-insensitive weighted sum, so a reorder or a
-  same-depth move leaves ancestor hashes unchanged, which a precondition must not miss. Add TXN-311
-  conflict semantics (subtree, insertion-point and resource target kinds over per-record
-  modification stamps, evaluated under the single writer), VER-206 last-modified stamping,
-  FMT-209 persisted epoch and last-revert revision with a readOnlyCompat feature bit and a
-  monotonic per-database epoch counter in CONF-103, CONF-109 `requirePreconditions` answering
-  428, JAPI-111 one stable conditional check, and REST-204/205/211/212 for If-Match, ETag,
-  412/428 responses and root/query scope. Record the superseded REST-204/205 wording in RETIRED.
+  The ETag is `<incarnation-hex>.<revision>` for the revision a response serves in every hash mode;
+  the id is a 16-digit lowercase hexadecimal, cryptographically secure random 64-bit value,
+  regenerated at creation, truncate, whole-resource replacement and backup restore. No global
+  allocator is needed; reproduction of a particular old token has probability 2^-64. Conditional
+  writes check the target on demand without ancestor propagation. Node hashes are not used:
+  the rolling hash is order-insensitive, so reorders and same-depth moves can leave it unchanged.
+  Add TXN-311 subtree, insertion-point and resource predicates under the single writer;
+  child-position anchors skip the sibling-parent test, and only empty containers use a parent
+  stamp. VER-206 stamps value, name and structural-link changes, excluding derived hash/count
+  bookkeeping. FMT-209 stores the incarnation id in CONF-102 settings and the last-revert revision
+  in a revision-root extension with a readOnlyCompat bit. Add CONF-109 `requirePreconditions`
+  answering 428, JAPI-111 one stable conditional check, and REST-204/205/211/212 for If-Match,
+  ETag, 412/428 responses and root/query scope. Conditional queries refuse cross-resource
+  mutation; strict policy is enforced at the shared mutation boundary through every route.
+  Successful mutation ETags require exactly one surviving resource head; deletion and
+  multi-resource operations carry none. Record superseded REST-204/205 wording in RETIRED.
   Nothing here is implemented: every requirement states its gap.
 
 - Resolve imported timestamp ordering: preserve increasing source timestamps, adjust

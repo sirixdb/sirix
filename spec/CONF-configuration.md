@@ -29,11 +29,11 @@ Resource creation MUST persist the selected configuration in ressetting.obj. Reo
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java):`JSONNAMES`; [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java):`expectField`; [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java):`serialize`; [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java):`deserialize`
-- **Verified by:** [ResourceSettingsExtensionsTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceSettingsExtensionsTest.java)
+- **Verified by:** [ResourceSettingsExtensionsTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceSettingsExtensionsTest.java) **Planned:** ConditionalWriteMetadataFormatConformance (FMT-209): round-trip zero and high-bit-set unsigned ids as 16 lowercase hex digits; reject missing, numeric, wrong-length and non-lowercase-hex ids; preserve the id on ordinary settings rewrites.
 - **Evidence class:** code+test (source inspection)
-- **Gap/note:** extensions is an optional metadata escape hatch and is not retained by this reader. It cannot carry required decoding semantics; use FMT feature negotiation. Partial valid-time pairs currently become disabled; stricter valid-time schema policy is deferred with the broader P1 valid-time contract.
+- **Gap/note:** extensions is an optional metadata escape hatch and is not retained by this reader. It cannot carry required decoding semantics; use FMT feature negotiation. Partial valid-time pairs currently become disabled; stricter valid-time schema policy is deferred with the broader P1 valid-time contract. The required `incarnationId` member and its validation are unimplemented (FMT-209).
 
-The resource-settings writer MUST emit the names, nesting and types in the table below, including the historical spelling `numbersOfRevisiontoRestore`. Required fields MUST be read in the established prefix order; supported tail fields may be omitted with their documented defaults. Unknown fields MUST fail with their name except an object-valued `extensions` field, whose contents are skipped. Unknown nested revisioning/valid-time fields MUST fail.
+The resource-settings writer MUST emit the names, nesting and types in the table below, including the historical spelling `numbersOfRevisiontoRestore`. Required fields MUST be read in the established prefix order; supported tail fields may be omitted with their documented defaults. Unknown fields MUST fail with their name except an object-valued `extensions` field, whose contents are skipped. Unknown nested revisioning/valid-time fields MUST fail. The `incarnationId` member MUST be persisted as a 16-digit lowercase hexadecimal string, because JSON numbers cannot safely represent every unsigned 64-bit value; its generation and lifecycle follow FMT-209.
 
 ### CONF-103 — Database settings
 
@@ -41,11 +41,11 @@ The resource-settings writer MUST emit the names, nesting and types in the table
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [DatabaseConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseConfiguration.java):`serialize`; [DatabaseConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseConfiguration.java):`deserializeOnce`
-- **Verified by:** [DatabaseConfigurationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/conf/DatabaseConfigurationTest.java); [BackupRestoreTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupRestoreTest.java) **Planned:** DatabaseSettingsConformance: atomic replacement under concurrent readers, moved/copied directory with old source present, cache mutation isolation, invalid JSON, and monotonic epoch allocation across resource creation, deletion, replacement and truncate.
+- **Verified by:** [DatabaseConfigurationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/conf/DatabaseConfigurationTest.java); [BackupRestoreTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupRestoreTest.java) **Planned:** DatabaseSettingsConformance: atomic replacement under concurrent readers, moved/copied directory with old source present, cache mutation isolation and invalid JSON.
 - **Evidence class:** code+test (source inspection)
-- **Gap/note:** Database parser uses positional/assert checks in some places; resource-settings strict unknown-field guarantees are not claimed for this separate parser. The history-epoch counter does not exist at this baseline; it is the allocator that makes FMT-209 epochs unique across resource incarnations, which per-resource state alone cannot provide because replacement and deletion destroy it.
+- **Gap/note:** Database parser uses positional/assert checks in some places; resource-settings strict unknown-field guarantees are not claimed for this separate parser.
 
-dbsetting.obj MUST carry file (informational path), ID (maximum resource ID), databaseId (database identity when assigned), databaseType, maxSegmentAllocationSize and the monotonic history-epoch counter of FMT-209 (the highest conditional-write epoch ever allocated in this database). The counter MUST increase only, MUST NOT be reused or reset by dropping, deleting or replacing a resource, and MUST be advanced durably before the resource creation or truncate that consumes its value becomes visible. Serialization MUST use a temporary file and atomic replacement; reads MUST NOT be redirected to a stale serialized location after move/restore. Cache reuse MUST NOT share mutable configuration instances among callers.
+dbsetting.obj MUST carry file (informational path), ID (maximum resource ID), databaseId (database identity when assigned), databaseType and maxSegmentAllocationSize. Serialization MUST use a temporary file and atomic replacement; reads MUST NOT be redirected to a stale serialized location after move/restore. Cache reuse MUST NOT share mutable configuration instances among callers.
 
 ### CONF-104 — Current creation defaults
 
@@ -166,7 +166,7 @@ Prefix fields appear in this order. Names are exact, including legacy spelling.
 | regionCompression | enum name | LZ77 |
 | aggregateKernel | boolean | false |
 | saltRecordPages | boolean | true |
-| historyEpoch | positive integer | 0 (absent); every 1.0 creation allocates one (FMT-209) |
+| incarnationId | 16-digit lowercase hexadecimal string encoding an unsigned 64-bit id | required for 1.0; generated under FMT-209, with no absent-value default |
 | requirePreconditions | boolean | false; omitted when false |
 | extensions | object, arbitrary optional nested values | absent; skipped, not retained |
 
@@ -188,12 +188,12 @@ Prefix fields appear in this order. Names are exact, including legacy spelling.
 | resourceUuid | newly generated UUID at creation |
 | segment dictionary / chunked body writer toggles | false / false |
 | require preconditions | false |
-| history epoch | allocated at creation from the database counter |
+| incarnation id | independent uniform 64-bit draw from a cryptographically secure RNG at creation (FMT-209) |
 
 ## Deferred work
 
 Default-off hashing, complete valid-time pair validation, database settings parser strictness,
-the `requirePreconditions` member of CONF-109, the `historyEpoch` member and its database-level counter
+the `requirePreconditions` member of CONF-109, the `incarnationId` member of FMT-209
 and dispatcher configuration keys/ranges remain implementation/verification work. Serializer
 and byte-handler internals remain outside the stable core under JAPI-109. Runtime tuning property enumeration beyond these format-affecting choices
 is a later CONF extension, not an implicitly frozen API.
@@ -203,8 +203,8 @@ is a later CONF extension, not an implicitly frozen API.
 | Requirement | Existing or planned verification | Status |
 |---|---|---|
 | CONF-101 | [ResourceConfigurationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceConfigurationTest.java); [DatabaseConfigurationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/conf/DatabaseConfigurationTest.java); [SuperblockResourceUuidTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/SuperblockResourceUuidTest.java); [BackupRestoreTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupRestoreTest.java) | partial |
-| CONF-102 | [ResourceSettingsExtensionsTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceSettingsExtensionsTest.java) | partial |
-| CONF-103 | [DatabaseConfigurationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/conf/DatabaseConfigurationTest.java); [BackupRestoreTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupRestoreTest.java) **Planned:** DatabaseSettingsConformance: atomic replacement under concurrent readers, moved/copied directory with old source present, cache mutation isolation, invalid JSON and monotonic epoch allocation. | partial |
+| CONF-102 | [ResourceSettingsExtensionsTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceSettingsExtensionsTest.java) **Planned:** ConditionalWriteMetadataFormatConformance (FMT-209): unsigned-id string round-trip, invalid/missing-id refusal and preservation on settings rewrite. | partial |
+| CONF-103 | [DatabaseConfigurationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/conf/DatabaseConfigurationTest.java); [BackupRestoreTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupRestoreTest.java) **Planned:** DatabaseSettingsConformance: atomic replacement under concurrent readers, moved/copied directory with old source present, cache mutation isolation and invalid JSON. | partial |
 | CONF-104 | [ResourceConfigurationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceConfigurationTest.java); [ResourceSettingsExtensionsTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceSettingsExtensionsTest.java) **Planned:** ConfigurationDefaultsConformance: clean subprocess per process property, create/serialize/reopen with changed properties; compare all settings. | designed |
 | CONF-105 | [ResourceConfigurationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceConfigurationTest.java) **Planned:** ResourceConfigurationBoundaryConformance: every invalid bound, absolute/parent/multipart names, null selectors and unchanged existing resource on rejection. | partial |
 | CONF-106 | [ProjectionSlotLayoutTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/projection/ProjectionSlotLayoutTest.java); [SegmentDictionaryLaneTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/projection/SegmentDictionaryLaneTest.java); [SegmentDictionaryLaneEndToEndTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/projection/SegmentDictionaryLaneEndToEndTest.java) **Planned:** ProjectionDefaultConformance: clean process with unset properties, persisted layouts read independently of writer toggles, invalid segment/chunk combination rejected. | partial |
