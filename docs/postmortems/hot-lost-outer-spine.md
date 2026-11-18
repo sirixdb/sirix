@@ -78,8 +78,10 @@ is checked independently of this output budget; no-fold and steady-state workspa
 is exactly zero. Primitive mask round-trips and workspace-overwrite routing tests
 check all 32 discriminator columns, scalar/vector layouts and ownership of retained arrays.
 The warmed measurement batches avoid one-time test-loop initialization; no zero bound is
-widened. C2 already removes the established factory's temporary shuffle-index array, so
-its measured output cost is compared directly rather than subtracting that array twice.
+widened. The initial measurement JVM removed the established factory's temporary
+shuffle-index array; that optimization is not portable. The later
+[CI follow-up](hot-ci-boundary-heights.md) records why the comparison factory became
+an allocating control independent of the exact production output budget.
 
 Fanout, mask width, parent decision order, sparse partial order and wire representability
 must all permit a fold. Otherwise the existing structure remains. The differential oracle

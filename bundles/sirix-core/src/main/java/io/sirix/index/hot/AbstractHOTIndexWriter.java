@@ -2576,9 +2576,9 @@ public abstract class AbstractHOTIndexWriter<K> {
           branchAboveLeaf(navResult, beta, insertDepth, affectedChildIndex, structuralKey, valueBuf, valueLen);
     }
 
-    // Defense-in-depth only. Every structural handler must finish all checks before its sole
-    // publication boundary; this post-publication pass is forbidden to mutate. If a primitive ever
-    // violates that contract, poison the transaction and surface the exact invariant immediately.
+    // Every structural handler must finish all checks before its sole publication boundary.
+    // After re-arming normalization hints, validation is read-only defense in depth: a violated
+    // invariant poisons the transaction rather than repairing a published structure.
     if (structurallyChanged) {
       if (structuralValidationScope != null) {
         markNormalizationSpine(navResult);
@@ -2672,13 +2672,15 @@ public abstract class AbstractHOTIndexWriter<K> {
    * C2-collision handlers: when {@code addChildAtCombination}'s {@code comboPartial} coincides with
    * an existing child of d* (or of the boundary node), K structurally belongs INSIDE that child's
    * subtree -- the descent stopped one level too shallow. This method extends the descent through
-   * {@code subtreeRef} and runs the standard merge-vs-branch dispatch at the deeper depth
-   * ({@code docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md} Â§4.1).
+   * {@code subtreeRef} and runs the standard merge-vs-branch dispatch at the deeper depth (height and
+   * normalization contract: {@code docs/HOT_INDEX_SPECIFICATION.md} §2.6).
    *
    * <p>
    * Uses local descent arrays (not the shared {@code _pathNodes} field) so it is safe under recursive
    * invocation (a sub-insert that itself triggers another C2). Bounded by tree depth
-   * ({@code MAX_PATH_DEPTH}).
+   * ({@code MAX_PATH_DEPTH}). The overload receiving the outer route propagates height changes to its
+   * ancestors. This local-only entry is for a split half whose caller recompresses and publishes the
+   * outer path.
    *
    * @return {@code true} iff the insert succeeded incrementally; {@code false} before publication on
    *         an unresolvable descent or depth overflow, so the caller can use the complete frontier

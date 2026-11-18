@@ -482,8 +482,8 @@ For a compatible compound-child fold, composed sparse partials MUST remain stric
 and unique; acceptance MUST preserve the original two-stage router for every key, including
 absent keys. Reject a fold whose combined sparse requirements alias or reorder slots.
 The merged mask MUST fit the existing wire layout: a SingleMask may start beyond byte 255,
-but MultiMask extraction positions are u8, so a union spanning eight or more byte positions
-MUST be refused if its last byte exceeds 255.
+but MultiMask extraction positions are u8, so a union whose last and first byte positions
+differ by at least eight MUST be refused if its last byte exceeds 255.
 A refused fold preflight MUST NOT publish that fold. Commit normalization MUST reject
 unresolved/non-HOT children, stale transaction ownership, cycles and dirty recursion beyond
 the writer's 64-level spine limit. Any normalization failure MUST make the transaction

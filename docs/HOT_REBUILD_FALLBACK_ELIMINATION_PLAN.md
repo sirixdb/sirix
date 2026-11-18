@@ -1,5 +1,9 @@
 # HOT rebuild-fallback elimination — design plan
 
+Historical design and review record. The height-minimality arguments below were withdrawn
+after the lost-outer-spine regression; current height and normalization requirements are owned
+by [HOT Index Specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing).
+
 ## Status snapshot (2026-08-12, Stage 6 — zero detector heals on the shred workload)
 
 Per-firing dumps (`-Dhot.diag.healDump=true`, threaded the inserted key K into
@@ -609,11 +613,10 @@ together with the iter-18 `pathDepth < 2` guard.
 
 ## §5. Formal verification
 
-Inductive hypothesis (carried from prior plans): the trie is **canonical-enough** —
-invariant-clean and height-minimal — before each insert. The Stage 0/1/2 fixes proved
-the merge fast-path, leaf-overflow `addEntry`, betaIsDiscBit-full, and
-betaIsDiscBit-boundary cases all preserve this. This section discharges the C2 and
-off-path-overflow cases via the new `subInsertAt` primitive.
+This plan assumed the trie was **canonical-enough** — invariant-clean and height-minimal —
+before each insert, carrying forward the Stage 0/1/2 arguments for the merge fast-path,
+leaf-overflow `addEntry`, betaIsDiscBit-full and betaIsDiscBit-boundary cases. The C2 and
+off-path-overflow analysis used that assumption; its height conclusion is withdrawn in §5.4.
 
 ### §5.1 Theorem 1 — `subInsertAt` preserves invariants
 
@@ -670,24 +673,12 @@ Routing: every L₀ key routes to L's slot (unchanged); every L₁ key routes to
 comboPartial-slot (if fresh) or descends through c' (if collision). All keys reach
 their leaves. ∎
 
-### §5.4 Theorem 4 — height-minimal preserved
+### §5.4 Theorem 4 — height-minimality argument withdrawn
 
-> §4.2 and §4.3 do not inflate trie height beyond the minimum.
-
-*Proof.* The fixes use:
-- `addChildAtCombination` — adds one child to a not-full node; height unchanged
-  (`HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` §5.2 Theorem 3 corollary).
-- `subInsertAt` — recursively invokes the merge-vs-branch handlers; each handler is
-  proven height-preserving (Stage 0/1/2 §5.2-3). The descent only extends DOWN through
-  existing nodes — no new height level.
-- Slot replacement (L → L₀) — leaf-only, no height change.
-
-For Issue B's L₁ branch: if L₁ is added as a new child, N gains one child (no height
-change for N since N was not made full by this operation). If L₁'s keys are
-sub-inserted into c''s subtree, each sub-insert is height-preserving by induction.
-
-Hence height = `minheight(S ∪ {K})` throughout (the same minimum the Stage 0–2 plans
-established for their cases). ∎
+The argument incorrectly assumed that descending through existing nodes prevents a
+sub-insert from adding a local root. `HOTSubInsertSpineTest` supplies counterexamples.
+See [HOT Index Specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing)
+for the current contract and its limits.
 
 ### §5.5 Theorem 5 — termination
 
@@ -832,10 +823,8 @@ rejection) without contradicting the straddle finding.
 CoW chain DOWN; `registerFreshSubtree` is called at the topmost re-pointed reference
 and walks the new subtree; no new TIL discipline.
 
-**Pass 5 (height + termination).** — *Confirmed:* §5.4 height-minimal proof — neither
-fix introduces a new height level (existing primitives are height-preserving;
-`subInsertAt` only descends). §5.5 termination — bounded by tree height + L₁'s
-key count.
+**Pass 5 (height + termination).** — The height conclusion is withdrawn; see §5.4.
+§5.5's termination argument is separate.
 
 **Pass 6 (self-heal unreachability).** — *Confirmed:* §5.6 enumerates every catchable
 exception source; each is either handled by §4.2/§4.3 or precondition-holds-by-induction.
@@ -902,8 +891,8 @@ primitives — `splitLeafPage`, `splitIndirect`, `addEntry`, `addChildAtCombinat
 `addEntryWithInsertInfo`, `splitIndirectWithEntry`, `splitIndirectWithSlotReplaceAndInsertion`
 (iter-18), `integrate`, `subInsertAt`, `handleOffPathOverflow`,
 `handleOffPathOverflowFullN` (iter-18) — with **zero `HOTBulkBuilder` subtree or
-whole-trie rebuilds from any code path**, incremental and
-minimum-trie-height-preserving after every insert.
+whole-trie rebuilds from any code path**. The accompanying minimum-height goal was
+not established; see §5.4.
 
 ---
 
@@ -1397,14 +1386,10 @@ intact (Lemmas 2, 3).
 Routing: root → ... → d* → `affected` (Lemma 2) → ... → K's leaf (the extended-path
 descent that placed K). ∎
 
-#### Theorem 2 — height-minimal preserved
+#### Theorem 2 — height-minimality argument withdrawn
 
-> Direction 1 does not inflate trie height beyond `minheight(S ∪ {K})`.
-
-*Proof.* `subInsertAt` only descends and dispatches the standard handlers, each proven
-height-preserving (Stage 0/1/2 §5.2-3, plan §5.4). It never adds a level above d*.
-Since the standard handlers never raise height beyond the minimum for the post-insert
-key set, height stays at the minimum. ∎
+This repeated §5.4's invalid local-descent argument. See that section's counterexample
+and pointer to the authoritative height contract.
 
 #### Theorem 3 — termination
 
@@ -1526,13 +1511,12 @@ finding shows this is canonical (`HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` §3.1).
 **Pass 4 (recursive C2).** *Confirmed.* §11.4 — the catch is at every `addChildAtCombination`
 site, so a deeper C2 dispatches the same redirection. Bounded by `MAX_PATH_DEPTH`.
 
-**Pass 5 (CoW + TIL).** *Confirmed.* `subInsertAt` already CoWs the sub-path
+**Pass 5 (CoW + TIL).** `subInsertAt` CoWs the sub-path
 (local `prepareIndirectPage` chain) and calls `registerFreshSubtree` via `dispatchInsert`
-→ handlers. d*'s parents are unaffected (their child references to d* are unchanged;
-d* itself is in the TIL from the original descent).
+→ handlers. The original conclusion that d*'s parents are unaffected was wrong:
+unchanged child references do not imply unchanged ancestor heights. See §5.4.
 
-**Pass 6 (height-minimal).** *Confirmed.* Theorem 2 — sub-insert never adds a level
-above d*; the recursive handlers are height-preserving.
+**Pass 6 (height-minimal).** Withdrawn; see Theorem 2.
 
 **Pass 7 (Stage 4b's misroutes will pass).** *Verifying.* The 11 misroutes happened
 because K was placed in c' but routing went to affected → K missed. Direction 1 puts K
