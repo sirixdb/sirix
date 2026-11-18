@@ -126,8 +126,9 @@ final class HOTLeafCodecAllocationTest {
       bytes[0] = output.toByteArray();
       output.clear();
       if (repeated) {
-        // The caller has assumed native LZ4, and this fixture saves far more than a third.
-        PageKind.HOT_LEAF_PAGE.serializePage(config, output, page, SerializationType.DATA);
+        // The caller has assumed native LZ4, and this fixture saves far more than a third. The writer
+        // is switched on explicitly: it is off by default.
+        PageKind.serializeHOTLeaf(config, output, page, true);
         bytes[1] = output.toByteArray();
         assertTrue((bytes[1][2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
       }
@@ -217,7 +218,7 @@ final class HOTLeafCodecAllocationTest {
         case 7 -> {
           output.clear();
           if (encoded) {
-            PageKind.HOT_LEAF_PAGE.serializePage(config, output, page, SerializationType.DATA);
+            PageKind.serializeHOTLeaf(config, output, page, true);
           } else {
             PageKind.serializeRawHOTLeaf(config, output, page);
           }

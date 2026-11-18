@@ -50,6 +50,28 @@ final class PageKindTest {
     }
   }
 
+  @Test
+  void thePageWriterStoresLeavesRawUnlessCompressionIsSwitchedOn() {
+    Allocators.getInstance().init(1L << 30);
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("writer-default").build();
+    // Read the way the writer reads it: once per process, absent means off.
+    final boolean switchedOn = Boolean.getBoolean("sirix.page.hotLeaf.compress");
+    try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+        BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
+        BytesOut<?> raw = Bytes.elasticHeapByteBuffer()) {
+      // 256 zero bytes: LZ4 would save far more than a third, so only the setting keeps this page raw.
+      assertTrue(page.put(new byte[] {7}, new byte[256]));
+      PageKind.HOT_LEAF_PAGE.serializePage(config, sink, page, SerializationType.DATA);
+      final byte[] wire = sink.toByteArray();
+      assertEquals(switchedOn && FFILz4Compressor.isNativeAvailable(),
+          (wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+      if (!switchedOn) {
+        PageKind.serializeHOTLeaf(config, raw, page, false);
+        assertArrayEquals(raw.toByteArray(), wire, "the default writer is the raw writer, byte for byte");
+      }
+    }
+  }
+
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void aSlotThatRunsPastTheUsedBytesIsRefusedNotWritten(final boolean compress) {

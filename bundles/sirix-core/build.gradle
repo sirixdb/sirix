@@ -368,6 +368,36 @@ def storageEpochStoreIdentityTest = tasks.register('storageEpochStoreIdentityTes
     }
 }
 
+// Leaf compression is opt-in, so the standard test JVM writes raw leaves and only unit tests reach the
+// encoded writer. The setting is read once per process: this fork switches it on and reruns the suites
+// that write leaves through the engine and read them back.
+def hotLeafCompressionEnabledTest = tasks.register('hotLeafCompressionEnabledTest', Test) {
+    group = 'verification'
+    description = 'Runs leaf, HOT storage and index round-trip suites with opt-in leaf compression switched on.'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    // One Linux lane is enough; the hot-property lane would only repeat it.
+    onlyIf { providers.gradleProperty('coreTestLane').orNull != 'hot-property' }
+    filter {
+        includeTestsMatching 'io.sirix.page.PageKindTest'
+        includeTestsMatching 'io.sirix.page.HOTLeafPayloadCodecTest'
+        includeTestsMatching 'io.sirix.page.HOTLeafPageNativeWireTest'
+        includeTestsMatching 'io.sirix.index.hot.page.*'
+        includeTestsMatching 'io.sirix.io.filechannel.HOTCompactFragmentReadTest'
+        includeTestsMatching 'io.sirix.access.trx.page.PinnedTrieSpillSparseFragmentTest'
+        includeTestsMatching 'io.sirix.index.hot.HOTIndexIntegrationTest'
+        includeTestsMatching 'io.sirix.index.hot.HOTVersioningIntegrationTest'
+        includeTestsMatching 'io.sirix.index.hot.HOTDifferentialVersioningFragmentChainTest'
+        includeTestsMatching 'io.sirix.index.hot.HOTSparseStorageLeafLookupTest'
+        includeTestsMatching 'io.sirix.index.hot.HOTSplitIntegrationTest'
+        includeTestsMatching 'io.sirix.index.hot.HOTIndexManyRevisionsTest'
+        includeTestsMatching 'io.sirix.index.CASIndexDifferentialTest'
+        // Allocation suites keep their own clean JVM.
+        excludeTestsMatching 'io.sirix.index.hot.page.HOTLeafLookupAllocationTest'
+    }
+}
+
 def configurationStartupTest = tasks.register('configurationStartupTest', Test) {
     group = 'verification'
     description = 'Checks effective process startup configuration in an isolated JVM.'
@@ -422,7 +452,7 @@ def sharedArenaPolicyTests = sharedArenaPolicyCases.collect { mode, settings ->
 // finalizes task inputs. This also preserves immutable JVM properties such as java.io.tmpdir.
 gradle.projectsEvaluated {
     def standardTest = tasks.named('test', Test).get()
-    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, hotLeafNarrowVectorAllocationTest, storageEpochStoreIdentityTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests).each { testTask ->
+    ([validTimeDisabledLookupCacheTest, dictionaryReadViewAllocationTest, hotLeafNarrowVectorAllocationTest, storageEpochStoreIdentityTest, hotLeafCompressionEnabledTest, configurationStartupTest, allocatorColdStartupTest, cleanerStartupTest] + sharedArenaPolicyTests).each { testTask ->
         testTask.configure { isolatedTest ->
             standardTest.copyTo(isolatedTest)
             // copyTo flattens argument providers (including JaCoCo) into jvmArgs. Keep only
@@ -474,12 +504,16 @@ gradle.projectsEvaluated {
     storageEpochStoreIdentityTest.configure {
         systemProperty 'sirix.codecBakeoff.probeInterval', '1'
     }
+    hotLeafCompressionEnabledTest.configure {
+        systemProperty 'sirix.page.hotLeaf.compress', 'true'
+    }
 }
 
 // The standard test excludes these suites, so its execution data alone omits their coverage.
 tasks.named('jacocoTestReport') {
     executionData validTimeDisabledLookupCacheTest.get(), dictionaryReadViewAllocationTest.get(), hotLeafNarrowVectorAllocationTest.get(),
-            storageEpochStoreIdentityTest.get(), configurationStartupTest.get(), allocatorColdStartupTest.get(), cleanerStartupTest.get()
+            storageEpochStoreIdentityTest.get(), hotLeafCompressionEnabledTest.get(), configurationStartupTest.get(),
+            allocatorColdStartupTest.get(), cleanerStartupTest.get()
     executionData sharedArenaPolicyTests.collect { it.get() }
 }
 
@@ -535,6 +569,7 @@ tasks.named('test', Test).configure {
     dependsOn dictionaryReadViewAllocationTest
     dependsOn hotLeafNarrowVectorAllocationTest
     dependsOn storageEpochStoreIdentityTest
+    dependsOn hotLeafCompressionEnabledTest
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

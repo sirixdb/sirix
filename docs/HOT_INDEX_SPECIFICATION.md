@@ -528,7 +528,7 @@ container pages and the leaf payload codec. This section specifies the HOT body 
   (`page/PageKind.java:5804`, `:5989`, `:6800-6801`; `docs/DISK_FORMAT.md:185-188`).
 - The serialized page then passes through the resource's byte-handler pipeline (compression,
   optional encryption) as a whole (`io/filechannel/FileChannelWriter.java:990`, `:1013-1033`).
-  Kind 12 also supports slot payload compression behind envelope flag `0x02`; the
+  Kind 12 also supports opt-in slot payload compression behind envelope flag `0x02`, off by default; the
   [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0) defines its framing.
   The outer reader decompresses into a `DecompressionResult` that a
   leaf may adopt without copying (§3.2.3).

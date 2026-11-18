@@ -6480,9 +6480,14 @@ public enum PageKind {
   /** Tiny introsort partitions are faster as a branch-light in-place insertion pass. */
   private static final int HOT_LEAF_SIDE_REFERENCE_INSERTION_SORT_THRESHOLD = 24;
 
-  /** Diagnostic A/B switch; readers always accept both raw and encoded leaves. */
-  private static final boolean HOT_LEAF_COMPRESSION_ENABLED =
-      Boolean.parseBoolean(System.getProperty("sirix.page.hotLeaf.compress", "true"));
+  /**
+   * Opt-in leaf compression, off by default. With {@code -Dsirix.page.hotLeaf.compress=true} the
+   * writer stores a leaf payload as LZ4 when that saves a third of it. That trades about a third of
+   * the leaf bytes for a decode on every leaf a fresh process loads, which costs latency whenever
+   * those bytes would have come from the page cache; {@code docs/DISK_FORMAT.md} has the
+   * measurements. Read once per process. Readers accept raw and encoded leaves whatever it says.
+   */
+  private static final boolean HOT_LEAF_COMPRESSION_ENABLED = Boolean.getBoolean("sirix.page.hotLeaf.compress");
 
   private static final ThreadLocal<MemorySegmentBytesOut> HOT_LEAF_WRITE_SCRATCH =
       ThreadLocal.withInitial(() -> MemorySegmentBytesOut.synchronousScratch(HOTLeafPage.DEFAULT_SIZE + 4096));

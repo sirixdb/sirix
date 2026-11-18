@@ -257,3 +257,16 @@ until a slower or busier machine reuses the frame in time. Zero-fill released fr
 the point between "resolved" and "read", and assert on background threads as well as the
 test thread. See the
 [validator leaf-lifetime postmortem](postmortems/2026-11-18-hot-validator-unguarded-leaf-read.md).
+
+### Fewer bytes only pay where the bytes come from the device
+
+- A page codec was credited with "cold reads only: a decode replaces a copy". In the gate's cold
+  regime a fresh process reads from a warm page cache: the smaller pages save nothing there, every
+  loaded leaf is decoded, and the first use of the decoder costs about a millisecond once.
+- Before building a codec, multiply the per-page decode cost by the pages a fresh process loads for
+  the heaviest gated query, and compare it with that query's time. If it exceeds the gate's
+  threshold, the codec is opt-in from the start.
+- Measure in the gate's own regime first. A half-hour run of the real cold endpoints with the
+  feature on and off would have shown this before the microbenchmarks, the device probe and the
+  image builds. A device-cold probe and an in-memory decode comparison answer different questions.
+- See [`2026-11-18-leaf-codec-default-cold-cost.md`](postmortems/2026-11-18-leaf-codec-default-cold-cost.md).

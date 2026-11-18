@@ -218,7 +218,8 @@ final class HOTLeafPayloadCodecTest {
         try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION);
             MemorySegmentBytesOut sink = new MemorySegmentBytesOut()) {
           assertTrue(page.put(new byte[] {7}, new byte[256]));
-          PageKind.HOT_LEAF_PAGE.serializePage(CONFIG, sink, page, SerializationType.DATA);
+          // The writer with compression switched on; it is off by default.
+          PageKind.serializeHOTLeaf(CONFIG, sink, page, true);
           final ByteArrayBytesIn source = new ByteArrayBytesIn(sink.toByteArray());
           source.readByte();
           final HOTProjectionImage image = HOTProjectionImage.copyIfFits(source);
@@ -659,7 +660,8 @@ final class HOTLeafPayloadCodecTest {
   void sparseFragmentsAndMixedStreamsReadExactlyOneImage() throws Exception {
     final ResourceConfiguration sliding =
         new ResourceConfiguration.Builder("codec-sparse").versioningApproach(VersioningType.SLIDING_SNAPSHOT).build();
-    // The page as this host's writer stores it, and under each codec a reader accepts.
+    // The page as a writer with compression switched on stores it, and under each codec a reader
+    // accepts.
     for (final int form : new int[] {-1, HOTLeafPayloadCodec.CODEC_ZERO_RUN, HOTLeafPayloadCodec.CODEC_LZ4}) {
       try (HOTLeafPage base = new HOTLeafPage(7, 1, IndexType.PROJECTION);
           MemorySegmentBytesOut sink = new MemorySegmentBytesOut()) {
@@ -672,7 +674,7 @@ final class HOTLeafPayloadCodecTest {
           final byte[] rawFragment = sink.toByteArray();
           sink.clear();
           if (form < 0) {
-            PageKind.HOT_LEAF_PAGE.serializePage(sliding, sink, changed, SerializationType.DATA);
+            PageKind.serializeHOTLeaf(sliding, sink, changed, true);
             // 512 zero bytes save far more than a third wherever LZ4 can be written.
             assertEquals(FFILz4Compressor.isNativeAvailable()
                 ? 3
@@ -783,7 +785,7 @@ final class HOTLeafPayloadCodecTest {
         PageKind.serializeRawHOTLeaf(CONFIG, sink, original);
         final byte[] raw = sink.toByteArray();
         sink.clear();
-        PageKind.HOT_LEAF_PAGE.serializePage(CONFIG, sink, original, SerializationType.DATA);
+        PageKind.serializeHOTLeaf(CONFIG, sink, original, true);
         final byte[] written = sink.toByteArray();
         assertTrue(written.length <= raw.length);
         assertArrayEquals(raw, (written[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0

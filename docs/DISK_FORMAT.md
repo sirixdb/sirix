@@ -305,9 +305,11 @@ an additional size header. The optional side-reference trailer follows the
 encoded bytes and is never part of the codec frame. Offsets refer to decoded
 slots. Full, packed and sparse fragments have identical codec semantics.
 
-**Writer rule.** A writer stores a payload raw or as LZ4. It never writes codec 0;
-readers accept codec 0 because an earlier writer of this format produced it. An
-LZ4 block of `storedLength` bytes is kept only when
+**Writer rule.** Leaf compression is opt-in. By default a writer stores every payload
+raw with the flag clear. With `-Dsirix.page.hotLeaf.compress=true`, read once per
+process, it stores a payload raw or as LZ4. It never writes codec 0; readers accept
+codec 0 because an earlier writer of this format produced it. An LZ4 block of
+`storedLength` bytes is kept only when
 
 ```
 3 × (decodedLength − storedLength − 5) ≥ decodedLength
@@ -317,13 +319,34 @@ that is, when it saves at least a third of the payload after its own five bytes 
 framing (`HOTLeafPayloadCodec.LZ4_MIN_SAVING_DIVISOR`, `FRAME_OVERHEAD`). Anything
 less is written raw with the flag clear: for 300 payload bytes a block of 195 bytes
 is kept and one of 196 is not. Empty payloads are raw. A host without native LZ4
-cannot write codec 1 and writes every leaf raw. Reading is unaffected: the Java LZ4
-decoder keeps codec-1 pages portable. `-Dsirix.page.hotLeaf.compress=false` selects
-the raw writer for diagnostic A/B runs; it never disables reading encoded pages. No
-mutable source-page state changes during serialization. A store may hold raw and
-LZ4 leaves side by side, and zero-run leaves from an earlier writer. Older readers
-refuse the newly assigned required flag rather than interpreting compressed bytes
-as slots; new readers retain compatibility with old raw pages.
+cannot write codec 1 and writes every leaf raw. Reading does not depend on the
+setting: every reader accepts raw, LZ4 and zero-run pages, and the Java LZ4 decoder
+keeps codec-1 pages portable. No mutable source-page state changes during
+serialization. A store may hold raw and LZ4 leaves side by side, and zero-run leaves
+from an earlier writer, so the setting can change between runs of one store. Older
+readers refuse the newly assigned required flag rather than interpreting compressed
+bytes as slots; new readers retain compatibility with old raw pages.
+
+**Why it is off by default.** Compression pays where leaf bytes come from the
+device and costs where they come from the page cache. Measured on 2026-11-18:
+
+| | Writer off (default) | Writer on |
+| --- | --- | --- |
+| Store bytes, t100k comparison store | 468.9 MB | 320.3 MB (−31.7 %); leaf slot bytes −59 % |
+| Leaf read from the device, page cache dropped, per leaf | 78.5 µs | 68.2 µs (−13 %) |
+| Leaf decode in memory, per leaf | 1.4 µs (copy) | 4.8 µs native LZ4, 10.6 µs Java |
+| Fresh process on a warm page cache, short query (SH1 Q7, t250k) | 1.9 ms | 3.3 ms: about 1.4 ms once per process |
+| Fresh process on a warm page cache, leaf-heavy query (SH1 Q8, t250k) | 298 ms | 377 ms (+26 %) |
+| Load and commit (t250k, two loads per arm) | | load +2.6 %, commit total +4.3 % |
+
+A process that has just started reads its leaves from the page cache far more often
+than from the device, and there the smaller pages save nothing while every loaded
+leaf is decoded. Three quarters of the extra time of the leaf-heavy query is inside
+the LZ4 decoder, so it is not an implementation detail that can be tuned away. Warm
+queries are unaffected either way: cached leaves are decoded once. Switch the writer
+on for stores that are read from slow storage or whose size matters more than the
+first queries after a start. The fresh-process figures are diagnostics on one build
+and one tier, not gate results.
 
 **Why a third, and why not zero-run.** A cold leaf read pays for the decode and is
 repaid by the bytes it does not read. Both costs were measured on 2026-11-18 on the

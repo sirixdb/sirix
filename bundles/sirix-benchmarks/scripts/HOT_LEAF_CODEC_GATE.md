@@ -91,3 +91,12 @@ the difference in bytes is what a byte not read is worth.
 
 A codec pays for itself on a cold read when `saved bytes × storage cost per byte` is at least
 `payload bytes × (decode cost per byte − raw copy cost per byte)`.
+
+## The writer is opt-in
+
+Leaf compression is off by default and switched on with `-Dsirix.page.hotLeaf.compress=true`, read
+once per process. Every measurement in this file that compares raw with encoded leaves therefore
+needs that property on the encoded arm. The reason for the default, with its numbers, is in
+[`docs/DISK_FORMAT.md`](../../../docs/DISK_FORMAT.md) under "Why it is off by default": compression
+pays where leaf bytes come from the device and costs a fresh process that reads them from the page
+cache.

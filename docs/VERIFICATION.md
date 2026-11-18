@@ -360,6 +360,11 @@ It retains the strict raw/encoded codec
 allocation gate and checks both cached lookup overloads against unsigned key ordering
 and zero allocation for byte, short and int partial keys. The normal-width clean fork
 also runs those lookup cases, so narrower-vector coverage does not replace wider-vector coverage.
+Leaf compression is opt-in and read once per process, so the standard test JVM writes raw leaves.
+`:sirix-core:hotLeafCompressionEnabledTest` and `:sirix-query:hotLeafCompressionEnabledTest` set
+`sirix.page.hotLeaf.compress=true` and rerun the leaf, HOT storage and index round-trip suites and the
+bitemporal storage-epoch suites, so the encoded writer keeps end-to-end coverage. The normal test tasks
+run both forks; the core one is skipped in the `hot-property` lane.
 
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM

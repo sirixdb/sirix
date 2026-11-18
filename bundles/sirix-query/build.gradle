@@ -330,6 +330,33 @@ tasks.named('test', Test).configure {
     dependsOn bitemporalLoaderAllocationTest
 }
 
+// Leaf compression is opt-in and read once per process, so the standard test JVM writes raw leaves.
+// This fork switches it on for the load-under-eviction suites, which write and re-read index leaves of
+// a source resource and its derived resource through one page cache.
+def hotLeafCompressionEnabledTest = tasks.register('hotLeafCompressionEnabledTest', Test) {
+    group = 'verification'
+    description = 'Runs the bitemporal storage-epoch suites with opt-in leaf compression switched on.'
+    reports.html.outputLocation = layout.buildDirectory.dir('reports/tests/test/hot-leaf-compression')
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching 'io.sirix.query.bench.bitemporal.BitemporalStorageEpochEvictionTest'
+        includeTestsMatching 'io.sirix.query.bench.bitemporal.BitemporalStorageEpochTest'
+    }
+}
+gradle.projectsEvaluated {
+    def standardTest = tasks.named('test', Test).get()
+    hotLeafCompressionEnabledTest.configure { isolatedTest ->
+        standardTest.copyTo(isolatedTest)
+        isolatedTest.jvmArgs = standardTest.jvmArgs
+        isolatedTest.systemProperty 'sirix.page.hotLeaf.compress', 'true'
+    }
+}
+tasks.named('test', Test).configure {
+    dependsOn hotLeafCompressionEnabledTest
+}
+
 def temporalNodeReaderLifetimeGenericTest = tasks.register('temporalNodeReaderLifetimeGenericTest', Test) {
     group = 'verification'
     description = 'Checks temporal reader ownership with generic accessors in a separate JVM.'
