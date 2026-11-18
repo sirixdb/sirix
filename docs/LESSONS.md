@@ -228,3 +228,13 @@ bounds in a clean narrow-vector C2 fork as well as the normal runtime, with unsi
 key-order oracles for both lookup overloads. Attribute equal raw/encoded allocations
 to their actual stack before calling them codec overhead. See the
 [HOT leaf vector-width postmortem](postmortems/2026-11-17-hot-leaf-vector-width.md).
+
+### Verify ordered VM options on the CI runtime
+
+A compiler-specific regression fork must start on the CI JDK as well as the local
+JDK. Unlock experimental VM options before setting `UseJVMCICompiler`, even when
+disabling it: GraalVM can accept an argument list that Temurin rejects. Verify a
+real Gradle worker and its existing behavioral assertions on the CI distribution;
+removing or misordering the unlock must fail startup. Keep compiler/vector flags
+and strict allocation bounds intact. See the
+[fork-startup postmortem](postmortems/2026-11-18-hot-leaf-fork-startup.md).

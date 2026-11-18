@@ -467,7 +467,8 @@ gradle.projectsEvaluated {
     }
     hotLeafNarrowVectorAllocationTest.configure {
         // C2 must exercise its software-vector fallback even on wider-vector/GraalVM workstations.
-        jvmArgs '-Xbatch', '-XX:-UseJVMCICompiler', '-XX:MaxVectorSize=16'
+        // Temurin requires the experimental unlock before even disabling JVMCI.
+        jvmArgs '-Xbatch', '-XX:+UnlockExperimentalVMOptions', '-XX:-UseJVMCICompiler', '-XX:MaxVectorSize=16'
     }
     storageEpochStoreIdentityTest.configure {
         systemProperty 'sirix.codecBakeoff.probeInterval', '1'

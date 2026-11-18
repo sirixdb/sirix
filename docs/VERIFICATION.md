@@ -353,7 +353,10 @@ The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest`,
 suites cannot affect their allocation measurements. Run this normal-width fork alone
 with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
 The normal core task also runs `:sirix-core:hotLeafNarrowVectorAllocationTest`, a clean
-HotSpot C2 fork with `-XX:MaxVectorSize=16`. It retains the strict raw/encoded codec
+HotSpot C2 fork with `-XX:MaxVectorSize=16`. Its JVM arguments unlock experimental
+options before disabling JVMCI; verify this fork on the CI Temurin JDK as well as
+the workstation JDK, since invalid ordering prevents any test from running.
+It retains the strict raw/encoded codec
 allocation gate and checks both cached lookup overloads against unsigned key ordering
 and zero allocation for byte, short and int partial keys. The normal-width clean fork
 also runs those lookup cases, so narrower-vector coverage does not replace wider-vector coverage.
