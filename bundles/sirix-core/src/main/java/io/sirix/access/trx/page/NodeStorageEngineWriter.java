@@ -75,6 +75,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
 import io.sirix.page.CASPage;
+import io.sirix.index.hot.HOTCommitNormalizer;
 import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
@@ -133,6 +134,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -297,6 +299,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * writer; rollback replaces the writer instead of clearing the cause in place.
    */
   private volatile @Nullable Throwable transactionRollbackOnlyCause;
+
+  /** A dirty HOT root is normalized once, before this recursive serialization enters its children. */
+  private boolean committingHotSubtree;
 
   /**
    * State captured for leak diagnostics. Static class with no reference to the enclosing writer —
@@ -4285,7 +4290,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return;
     }
 
-    final var page = container.getModified();
+    Page page = container.getModified();
 
     // Guard against double-commit: when a HOTIndirectPage is COW'd, its child
     // references are copied via new PageReference(original). The copy shares the
@@ -4307,32 +4312,43 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return;
     }
 
-    // Recursively commit indirectly referenced pages and then write self.
-    page.commit(this);
-    requireNoSpillKeys(reference, page);
-    final PageReference.TransactionLogReference logReference = reference.transactionLogReference();
-    writeUncommittedPage(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
-    PageReference.completeTransactionLogReference(logReference, reference.getKey(), reference.getHashAsLong(),
-        reference.hasHash());
-
-    // Propagate disk offset to TIL back-reference so other PageReference copies
-    // (from CoW'd indirect pages sharing the same logKey) can resolve the disk key
-    // when they hit the isClosed() guard in a subsequent commit(ref) call.
-    final int refLogKey = reference.getLogKey();
-    if (refLogKey >= 0) {
-      final PageReference backRef = log.getOriginalRef(reference);
-      if (backRef != null && backRef != reference && backRef.getKey() < 0) {
-        backRef.setKey(reference.getKey());
-        backRef.copyHashFrom(reference);
+    final boolean alreadyCommittingHot = committingHotSubtree;
+    try {
+      if (!alreadyCommittingHot && page instanceof HOTIndirectPage indirect && indirect.needsNormalization()) {
+        committingHotSubtree = true;
+        page = HOTCommitNormalizer.normalize(reference, indirect, this,
+            storageEngineReader.resourceSession.getHOTCommitScratch());
+        container = Objects.requireNonNull(log.get(reference));
       }
+      // Recursively commit indirectly referenced pages and then write self.
+      page.commit(this);
+      requireNoSpillKeys(reference, page);
+      final PageReference.TransactionLogReference logReference = reference.transactionLogReference();
+      writeUncommittedPage(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
+      PageReference.completeTransactionLogReference(logReference, reference.getKey(), reference.getHashAsLong(),
+          reference.hasHash());
+
+      // Propagate disk offset to TIL back-reference so other PageReference copies
+      // (from CoW'd indirect pages sharing the same logKey) can resolve the disk key
+      // when they hit the isClosed() guard in a subsequent commit(ref) call.
+      final int refLogKey = reference.getLogKey();
+      if (refLogKey >= 0) {
+        final PageReference backRef = log.getOriginalRef(reference);
+        if (backRef != null && backRef != reference && backRef.getKey() < 0) {
+          backRef.setKey(reference.getKey());
+          backRef.copyHashFrom(reference);
+        }
+      }
+      reference.refreshTransactionLogReference();
+
+      container.getComplete().close();
+      page.close();
+
+      // Remove page reference.
+      reference.setPage(null);
+    } finally {
+      committingHotSubtree = alreadyCommittingHot;
     }
-    reference.refreshTransactionLogReference();
-
-    container.getComplete().close();
-    page.close();
-
-    // Remove page reference.
-    reference.setPage(null);
   }
 
   @Override

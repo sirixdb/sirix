@@ -322,13 +322,14 @@ def validTimeDisabledLookupCacheTest = tasks.register('validTimeDisabledLookupCa
 // interception prologues. Measure production dictionary and inline-slot allocations in a clean JVM.
 def dictionaryReadViewAllocationTest = tasks.register('dictionaryReadViewAllocationTest', Test) {
     group = 'verification'
-    description = 'Checks dictionary read-view and inline-slot allocation bounds in a separate JVM.'
+    description = 'Checks dictionary, inline-slot and HOT commit allocation bounds in a separate JVM.'
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform()
     filter {
         includeTestsMatching 'io.sirix.index.projection.GlobalValueDictionaryReadViewMissPathTest'
         includeTestsMatching 'io.sirix.budget.InlineSlotCopyAllocationBudgetTest'
+        includeTestsMatching 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'
     }
 }
 
@@ -497,6 +498,7 @@ tasks.named('test', Test).configure {
     exclude 'io/sirix/index/interval/ValidTimeDisabledLookupCacheTest*.class'
     exclude 'io/sirix/index/projection/GlobalValueDictionaryReadViewMissPathTest*.class'
     exclude 'io/sirix/budget/InlineSlotCopyAllocationBudgetTest*.class'
+    exclude 'io/sirix/index/hot/HOTCommitAllocationBudgetTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochStoreIdentityTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochDifferentialTest*.class'
     exclude 'io/sirix/access/trx/page/StorageEpochFsstInlineDecisionTest*.class'

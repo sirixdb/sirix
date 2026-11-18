@@ -2579,11 +2579,23 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Defense-in-depth only. Every structural handler must finish all checks before its sole
     // publication boundary; this post-publication pass is forbidden to mutate. If a primitive ever
     // violates that contract, poison the transaction and surface the exact invariant immediately.
-    if (structurallyChanged && VALIDATE_STRUCTURAL_MUTATIONS) {
-      final byte[] exactStructuralKey = requireNonNull(structuralKey, "structuralKey");
-      validatePublishedStructuralScope(structuralValidationScope, exactStructuralKey);
-      validatePublishedStructuralPath(exactStructuralKey, exactStructuralKey.length,
-          outermost && structuralValidationScope != null);
+    if (structurallyChanged) {
+      if (structuralValidationScope != null) {
+        markNormalizationSpine(navResult);
+      }
+      if (VALIDATE_STRUCTURAL_MUTATIONS) {
+        final byte[] exactStructuralKey = requireNonNull(structuralKey, "structuralKey");
+        validatePublishedStructuralScope(structuralValidationScope, exactStructuralKey);
+        validatePublishedStructuralPath(exactStructuralKey, exactStructuralKey.length,
+            outermost && structuralValidationScope != null);
+      }
+    }
+  }
+
+  /** Cold structural path only: unchanged-height local replacements still re-arm their ancestors. */
+  private static void markNormalizationSpine(final LeafNavigationResult route) {
+    for (int depth = 0; depth < route.pathDepth(); depth++) {
+      route.pathNodes()[depth].markNormalizationNeeded();
     }
   }
 
@@ -2672,6 +2684,12 @@ public abstract class AbstractHOTIndexWriter<K> {
    *         an unresolvable descent or depth overflow, so the caller can use the complete frontier
    */
   private boolean subInsertAt(PageReference subtreeRef, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
+    return subInsertAt(null, 0, subtreeRef, keyBuf, keyLen, valueBuf, valueLen);
+  }
+
+  private boolean subInsertAt(final @Nullable LeafNavigationResult outer, final int outerDepth,
+      final PageReference subtreeRef, final byte[] keyBuf, final int keyLen, final byte[] valueBuf,
+      final int valueLen) {
     if (subtreeRef == null) {
       return false;
     }
@@ -2687,6 +2705,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     int subPathDepth = 0;
     PageReference currentRef = subtreeRef;
     Page page = resolveHOTPageForTraversal(currentRef);
+    final int originalHeight = page instanceof HOTIndirectPage indirect
+        ? indirect.getHeight()
+        : 0;
 
     while (page instanceof HOTIndirectPage indirectPage) {
       if (subPathDepth >= MAX_PATH_DEPTH) {
@@ -2726,7 +2747,57 @@ public abstract class AbstractHOTIndexWriter<K> {
             Arrays.copyOf(subPathRefs, subPathDepth), Arrays.copyOf(subPathChildIndices, subPathDepth), subPathDepth);
 
     dispatchInsert(subNav, keyBuf, keyLen, valueBuf, valueLen, false);
+    if (outer != null && structuralValidationScope != null) {
+      refreshOuterHeight(outer, outerDepth, subtreeRef, originalHeight);
+    }
     return true;
+  }
+
+  /**
+   * Update only metadata on the already-CoW'd outer spine; structural normalization waits for commit.
+   */
+  private void refreshOuterHeight(final LeafNavigationResult outer, final int outerDepth,
+      final PageReference replacement, final int originalHeight) {
+    try {
+      final Page page = resolveHOTPageForTraversal(replacement);
+      if (page == null) {
+        throw new IllegalStateException("Unresolved published HOT replacement");
+      }
+      int newChildHeight = page instanceof HOTIndirectPage indirect
+          ? indirect.getHeight()
+          : 0;
+      int oldChildHeight = originalHeight;
+      for (int depth = outerDepth - 1; depth >= 0 && newChildHeight != oldChildHeight; depth--) {
+        final HOTIndirectPage ancestor = outer.pathNodes()[depth];
+        final int oldHeight = ancestor.getHeight();
+        int newHeight = Math.max(oldHeight, newChildHeight + 1);
+        if (newChildHeight < oldChildHeight) {
+          if (oldHeight != oldChildHeight + 1) {
+            break; // another child already determines this ancestor's exact maximum
+          }
+          newHeight = 1;
+          for (int slot = 0; slot < ancestor.getNumChildren(); slot++) {
+            final Page child = resolveHOTPageForTraversal(ancestor.getChildReference(slot));
+            if (child == null) {
+              throw new IllegalStateException("Unresolved HOT sibling during height propagation");
+            }
+            newHeight = Math.max(newHeight, child instanceof HOTIndirectPage indirect
+                ? indirect.getHeight() + 1
+                : 1);
+          }
+        }
+        if (newHeight == oldHeight) {
+          break;
+        }
+        // prepareLeafOfTree already acquired this transaction's private indirect page on descent.
+        ancestor.setHeightForWrite(newHeight);
+        oldChildHeight = oldHeight;
+        newChildHeight = newHeight;
+      }
+    } catch (final RuntimeException | Error failure) {
+      markTransactionRollbackOnly(failure);
+      throw failure;
+    }
   }
 
   /**
@@ -4853,8 +4924,8 @@ public abstract class AbstractHOTIndexWriter<K> {
               && keyKeepsSpineOrder(navResult, insertDepth + 1, keySlice)) {
             lastDispatchHandler = "h:d1-subinsert";
             DIRECTION_ONE_SUBINSERT.incrementAndGet();
-            return subInsertAt(node.getChildReference(affectedChildIndex), keySlice, keySlice.length, valueSlice,
-                valueSlice.length);
+            return subInsertAt(navResult, insertDepth + 1, node.getChildReference(affectedChildIndex), keySlice,
+                keySlice.length, valueSlice, valueSlice.length);
           }
           if (tryDirectionOneLeafPairSplice(navResult, node, insertDepth, collisionSlot, affectedChildIndex, keySlice,
               valueSlice)) {
@@ -5014,10 +5085,17 @@ public abstract class AbstractHOTIndexWriter<K> {
           comboLeaf.close();
           if (isDirectionOneI8Safe(navResult, insertDepth + 1, childEntryIndex, keySlice)
               && keyKeepsSpineOrder(navResult, insertDepth + 2, keySlice)) {
+            if (beta <= child.getMostSignificantBitIndex() && (navResult.pathDepth() != insertDepth + 2
+                || !leafTakesKeyInPlace(navResult.leaf(), keySlice, valueSlice))) {
+              // A local structural root at beta would repeat the containing child's MSB (I11).
+              // Commit can fold valid excess levels; this collision needs the existing outer
+              // frontier before publication. A certain in-place leaf write creates no such root.
+              return false;
+            }
             lastDispatchHandler = "h:d1-subinsert";
             DIRECTION_ONE_SUBINSERT.incrementAndGet();
-            return subInsertAt(child.getChildReference(childEntryIndex), keySlice, keySlice.length, valueSlice,
-                valueSlice.length);
+            return subInsertAt(navResult, insertDepth + 2, child.getChildReference(childEntryIndex), keySlice,
+                keySlice.length, valueSlice, valueSlice.length);
           }
           if (tryDirectionOneLeafPairSplice(navResult, child, insertDepth + 1, collisionSlot, childEntryIndex, keySlice,
               valueSlice)) {

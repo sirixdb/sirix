@@ -528,6 +528,39 @@ final class HOTOrderingGuardTest {
   }
 
   @Test
+  void fullNodeWithStraddlingChildDeclinesSplitBeforePublication() {
+    try (final Fixture fixture = new Fixture()) {
+      final PageReference[] children = new PageReference[32];
+      final int[] partials = new int[32];
+      final int[] keys = new int[33];
+      for (int i = 0; i < 16; i++) {
+        children[i] = fixture.leaf(i);
+        partials[i] = i;
+        keys[i] = i;
+      }
+      children[16] = fixture.node(new int[] {3}, new int[] {0, 1}, fixture.leaf(0x80), fixture.leaf(0x90));
+      partials[16] = 32;
+      keys[16] = 0x80;
+      keys[17] = 0x90;
+      for (int i = 17; i < 32; i++) {
+        final int key = 0x90 + i - 16;
+        children[i] = fixture.leaf(key);
+        partials[i] = 32 + i - 16;
+        keys[i + 1] = key;
+      }
+      // The full parent already carries bit 2, where the new key branches. Splitting at bit 0
+      // would drop that constant column and leave the upper half's bit 4 above its child's bit 3.
+      fixture.install(fixture.node(new int[] {0, 2, 4, 5, 6, 7}, partials, children));
+      fixture.assertKeys(keys);
+      final long before = AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.get();
+      fixture.writer.insert(0x20);
+      fixture.assertKeys(fixture.sortedUnion(keys, 0x20));
+      assertTrue(AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.get() > before,
+          "the full-node guard must reject the invalid half before the outer frontier publishes");
+    }
+  }
+
+  @Test
   void aSliceMsbMustBeFoundInTheSignBitColumnToo() throws Exception {
     try (final Fixture fixture = new Fixture()) {
       // 32 discriminative bits make column 0 weigh 1 << 31, so its extracted value is negative. The

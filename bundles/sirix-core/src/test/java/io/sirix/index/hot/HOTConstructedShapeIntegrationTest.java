@@ -140,6 +140,63 @@ final class HOTConstructedShapeIntegrationTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
+  void boundaryChildOverflowUsesOuterFrontierBeforePublication(final VersioningType versioning) {
+    try (final Fixture fixture = new Fixture(temporaryDirectory.resolve("boundary-child-spine"), versioning)) {
+      installBoundaryChildSpine(fixture);
+      fixture.commitBaselineAndReopen();
+      // Commit now folds the baseline's compatible blocks. Reconstruct the same valid live
+      // topology so this regression still reaches the two-ancestor call site before next commit.
+      installBoundaryChildSpine(fixture);
+      final long before = AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get();
+      final long frontierBefore = AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE.get();
+      fixture.put(0, payload(3));
+      assertEquals(before, AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get());
+      assertTrue(AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE.get() > frontierBefore);
+      fixture.commitAndVerifyHistory("boundary child overflow retains valid outer spine before commit");
+    }
+  }
+
+  @Test
+  void boundaryChildWithSpaceKeepsItsLocalInsertionPath() {
+    try (final Fixture fixture =
+        new Fixture(temporaryDirectory.resolve("boundary-child-in-place"), VersioningType.FULL)) {
+      installBoundaryChildSpine(fixture, false);
+      fixture.commitBaselineAndReopen();
+      installBoundaryChildSpine(fixture, false);
+      final long before = AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get();
+      final long frontierBefore = AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE.get();
+      fixture.put(0, payload(3));
+      assertEquals(before + 1, AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get());
+      assertEquals(frontierBefore, AbstractHOTIndexWriter.COMPLETE_STRUCTURAL_FRONTIER_SPLICE.get());
+      fixture.commitAndVerifyHistory("boundary child with byte/count capacity keeps local insertion");
+    }
+  }
+
+  private static void installBoundaryChildSpine(final Fixture fixture) {
+    installBoundaryChildSpine(fixture, true);
+  }
+
+  private static void installBoundaryChildSpine(final Fixture fixture, final boolean overflow) {
+    final HOTLeafPage full = fixture.emptyLeaf();
+    if (overflow) {
+      for (int i = 0; i < HOTLeafPage.MAX_ENTRIES; i++) {
+        fixture.add(full, 0x60000000L + i, EMPTY);
+      }
+    } else {
+      // Their byte prefix already ends before the inserted key differs, so the local write
+      // is certain to fit without rebuilding resident suffixes or materializing an inner root.
+      fixture.add(full, 0x60000000L, EMPTY);
+      fixture.add(full, 0x6f000000L, EMPTY);
+    }
+    // Sparse partial 00 also serves keys with extracted partial 10. Inserting 00 therefore
+    // collides at the boundary child and overflows its leaf two levels below the original root.
+    final PageReference child =
+        fixture.node(new int[] {33, 35}, new int[] {0, 3}, fixture.register(full), fixture.leaf(0x70000000L));
+    fixture.install(fixture.node(new int[] {32}, new int[] {0, 1}, child, fixture.leaf(0x80000000L)));
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
   void directionOneCountOverflowKeepsTheHalfTrieCondition(final VersioningType versioning) {
     try (final Fixture fixture = new Fixture(temporaryDirectory.resolve("direction-one-count"), versioning)) {
       final HOTLeafPage straddling = fixture.emptyLeaf();

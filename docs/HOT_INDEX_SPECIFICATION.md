@@ -451,13 +451,101 @@ code now explains (`hot/page/HOTIndirectPage.java:566-572`).
   lookup format. The legal fanout domain and its enforcement are specified in §2.8.
 - There is no BiNode page type. `createBiNode` builds a 2-child `SINGLE_MASK` `SPAN_NODE` with partial
   keys {0, 1} and mask bit `1L << (63 − bitInWindow)` (`hot/page/HOTIndirectPage.java:378-399`).
-- `height` is the distance from the leaves (a node whose children are leaves has height 1); u8 on
-  disk (`hot/page/HOTIndirectPage.java:212`; `page/PageKind.java:6109`, `:5998`).
+- Structural height H is the maximum number of indirect pages on a root-to-leaf path:
+  a leaf has H=0 and an indirect page has H=1+max(child H). Every stored `height`
+  MUST equal this structural height, including after a subtree-local insertion, commit,
+  and cold reopen; the field is u8 on disk. A direct successful descent visits at most
+  H+1 logical pages. Under discriminative-bit progress, H is at most 8L for maximum
+  serialized stored-key length L (including chunk suffixes). Leaf packing and inner shape
+  may depend on insertion order; minimum height, minimum average lookup cost, and equality
+  to Binna's canonical partition are not guaranteed.
+
+A subtree-local structural insert MUST propagate exact height changes through the original
+ancestor spine before returning, including for in-transaction readers. It may retain a local
+root until commit. Commit MUST normalize compatible compound children along the dirty HOT
+spine, before serializing it; only pages already owned by the transaction log may be replaced
+or folded. Clean subtrees are opaque boundaries: their root height may be read, but they MUST
+NOT be recursively normalized or rewritten. Folding is reference-only and MUST NOT unpack,
+repack or reserialize leaf entries. Incompatible masks/fanout retain the existing structure.
+Normalizing a dirty subtree must not change its routing function or its leaf references.
+Ancestors receive exact height changes using bounded child resolution. Existing full-key routing,
+sibling ordering, copy-on-write revision isolation and page-guard ownership MUST hold.
+Exactness is required at successful mutation boundaries and in committed snapshots, starting
+from a revision with valid metadata. This dirty-only operation does not backfill already-invalid
+heights in older clean subtrees or historical revisions.
+A boundary-child collision MUST NOT publish a new local root at or above the containing
+child's leading discriminator. Unless a direct leaf can certainly accept the mutation
+without splitting, use the existing outer structural-frontier fallback before publication.
+Commit normalization may remove redundant valid levels; it cannot defer routing invariants.
+For a compatible compound-child fold, composed sparse partials MUST remain strictly ordered
+and unique; acceptance MUST preserve the original two-stage router for every key, including
+absent keys. Reject a fold whose combined sparse requirements alias or reorder slots.
+The merged mask MUST fit the existing wire layout: a SingleMask may start beyond byte 255,
+but MultiMask extraction positions are u8, so a union spanning eight or more byte positions
+MUST be refused if its last byte exceeds 255.
+A refused fold preflight MUST NOT publish that fold. Commit normalization MUST reject
+unresolved/non-HOT children, stale transaction ownership, cycles and dirty recursion beyond
+the writer's 64-level spine limit. Any normalization failure MUST make the transaction
+rollback-only because earlier dirty descendants may already have been normalized.
+
+Commit normalization MUST have a constant-time no-work guard before transaction-log lookup,
+workspace initialization/reset, child resolution or child iteration. A height-one block has
+no compound child to fold. A previously normalized or deserialized block with no later
+structural mutation also needs no normalization, including after a value-only CoW update.
+A transient per-page pending hint records structural opportunity; it is not serialized.
+Fresh compound blocks start pending; structural publication marks the already-owned outer
+spine, including subtree-local handoffs even if their height is unchanged. Copy-on-write
+preserves a pending hint without changing the source. Successful normalization clears it;
+a later structural change re-arms it. Existing writer/decoder invariants remain responsible
+for input validity on skipped blocks. Defensive normalization checks apply to visited blocks.
+No-fold blocks must allocate zero bytes and must not set up per-page traversal state.
+Repeated normalization of unchanged output must not rescan it. A completed child remains
+eligible for absorption by a changed parent; the hint skips descending into the child, not
+parent-child composition. Fold traversal must not repeatedly reconsider earlier slots when
+fanout/mask growth cannot make them eligible. Stored heights and all routing/history
+invariants above remain mandatory. An error after publication still poisons the transaction.
+
+Commit normalization is a per-page hot path. Its bounded traversal and fold scratch MUST
+be resource-session-owned, initialized lazily, and reused across storage-writer replacement,
+commit, rollback and later transactions in that session. It MUST NOT be held by a global
+ThreadLocal. Only the exclusive writer uses it, after pending writes have completed; each
+normalization releases all page references in a finally block and resets its active counts.
+Closing the session releases the workspace. No transaction may observe a prior transaction's
+scratch state. Steady-state workspace allocation MUST be zero; a clean-root no-op and an
+already-resident dirty traversal that accepts no fold MUST allocate zero bytes.
+Refused folds MUST allocate zero bytes, including when masks have not been cached.
+A no-fold traversal MUST NOT load clean child pages solely to reconfirm unchanged valid
+height metadata. Resolve clean boundaries only after accepting a fold or when a descendant
+fold changed the parent's possible height maximum. A missing non-durable child reference
+still fails closed before publication.
+An accepted fold may create one replacement page and its exact-sized owned routing arrays
+and search state; temporary union/partial/reference arrays, capturing key suppliers and
+boxed mask assembly are forbidden. The pinned publication allowance is one PageContainer (32 bytes) plus the existing cache
+retirement path (at most 152 bytes) per published replacement, only when a replacement is
+published. Thus the bound is the exact owned graph bytes per successful fold plus 184 bytes
+per publication, with zero additional workspace or no-fold allocation. These byte counts
+assume the allocation test's 64-bit JVM with compressed references and 8-byte alignment;
+no unrelated allocation is charged to this allowance.
+Normalization MUST NOT increase the number of reachable pages written at commit.
+Allocation tests pin the owned graph sizes and publication bound independently, compare
+folds with direct construction of their required output, and retain a positive allocating control; both SingleMask and MultiMask layouts are covered.
+
+Regression acceptance: ascending and descending 2,048/4,096 sequential 16-byte keys retain
+four/eight 512-entry leaves and reach H=1 after commit; live height may be greater, but stored
+metadata MUST already equal the live structure. Every key routes to its actual leaf before
+and after commit. Descending skewed
+50,000-key seeds 5 and 6 exercise deeper ancestors and fanout overflow; their regression bound
+is H<=3 after commit (live H=9), with the attainable H=2 remaining a known gap under issue #1452.
+All stored heights must equal independently walked child-reference heights. Check live and cold-reopened
+snapshots and historical revisions. These checks do not establish global minimality.
+Bulk SMHP construction and rebuilding from leaf minima are separate follow-ups; minima alone
+are insufficient to establish routing equivalence for multi-entry leaves.
 
 ### 2.7 The split criterion as implemented
 
 Binna's height-optimal insertion keeps the trie a binary Patricia trie over the keys, grouped into
-nodes of at most 32 children so that height is minimal. SirixDB implements this in three places.
+nodes of at most 32 children so that height is minimal. SirixDB uses related structural
+primitives in three places, without promising that minimality for multi-entry leaves.
 **`HeightOptimalSplitter`, `PartialKeyMapping`, `NodeUpgradeManager` and `SiblingMerger` are not
 among them**: they have no production callers (only each other, tests, and a Javadoc mention in
 `bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/stats/JsonCostModel.java:55`).
@@ -648,7 +736,8 @@ Body fields below follow the shared envelope and any extension block.
 
 #### 3.3.1 In-memory fields
 
-`pageKey`, `revision`, `height`, `nodeType` (final); `layoutType`, `numChildren`, the mask fields of
+`pageKey`, `revision`, `nodeType` (final); exact structural `height` (writer-owned mutation only),
+transient `normalizationPending`, `layoutType`, `numChildren`, the mask fields of
 §2.6.1, `mostSignificantBitIndex`, `int[] partialKeys`, `SparsePartialKeys`, `PageReference[]
 childReferences` (`hot/page/HOTIndirectPage.java:210-239`). A per-child first-key memo
 (`childFirstKeyCache`, 32 entries, lazily created, never serialized) is used only by readers without
@@ -2039,9 +2128,10 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
    higher layer does was not traced.
 3. **Thread-safety of one index reader** across threads: the walk-state pool suggests yes, the storage
    reader contract says no (§4.9.5).
-4. **Stale heights on descending inserts** (`docs/HOT_BULK_BUILD.md:63-66`): `integrate` consumes heights
-   and `heightOf` now fails closed on unresolved children (`hot/HOTIncrementalInsert.java:2175-2178`);
-   whether the reported issue still occurs was not established.
+4. **Remaining excess height on skewed descending inserts**: the lost outer-spine fix restores
+   exact metadata and folds the four/eight-leaf regressions to H=1. The 50,000-key skewed seeds
+   5/6 improve from live H=9 to committed H=3, while their fixed leaf sets admit H=2. Remaining frontier shapes
+   are a follow-up under issue #1452; this is not a global minimum-height guarantee.
 5. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
 6. **`short` MSB index** for keys longer than 4 095 bytes (NAME keys are not bounded) (§2.6.1).
 7. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
