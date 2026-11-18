@@ -257,7 +257,7 @@ mechanism rather than the retired hash form:
 - `If-Match` handling is the decided revision-token mechanism of REST-204/205 and is unimplemented:
   the handlers still compare node hashes, a missing header returns 500, a stale one 400, and no
   route emits 412, 428 or a current-revision header. Retiring the hash form, the `requirePreconditions`
-  setting and the schema corrections below belong to that implementation.
+  setting and the schema corrections above belong to that implementation.
 - XML diff schema says null; implementation/intended behavior is 400.
 - Mixed revision selectors and history selectors need explicit rejection coverage.
 - Pruned-read HTTP mapping outside revert remains a deferred endpoint conformance detail; this

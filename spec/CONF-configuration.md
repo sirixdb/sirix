@@ -55,9 +55,9 @@ dbsetting.obj MUST carry file (informational path), ID (maximum resource ID), da
 - **Code:** [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java):`Builder`; [ResourceConfiguration.java](../bundles/sirix-core/src/main/java/io/sirix/access/ResourceConfiguration.java):`selectDefaultByteHandler`
 - **Verified by:** [ResourceConfigurationTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceConfigurationTest.java); [ResourceSettingsExtensionsTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/ResourceSettingsExtensionsTest.java) **Planned:** ConfigurationDefaultsConformance: clean subprocess per process property, create/serialize/reopen with changed properties; compare all settings.
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
-- **Gap/note:** Current hash default is sirix.hashType with fallback ROLLING. Default-off hashing is the 1.0 design target; production change and clean-process default tests are still required. Node history remains on, and page checksums/salts are independent.
+- **Gap/note:** ResourceConfiguration.DEFAULT_HASH_TYPE now resolves sirix.hashType with fallback NONE. Clean-process coverage of all creation defaults remains planned. Node history remains on, and page checksums/salts are independent.
 
-For 1.0, resource creation MUST default node hashing to NONE, as targeted by the accepted full-spec design. Other creation defaults MUST follow the table below. Existing resources MUST retain their persisted values when process defaults change. The current-source column is evidence of the implementation gap, not permission to claim that NONE has already landed.
+For 1.0, resource creation MUST default node hashing to NONE, as targeted by the accepted full-spec design. Other creation defaults MUST follow the table below. Existing resources MUST retain their persisted values when process defaults change.
 
 ### CONF-105 — Input bounds
 
@@ -176,7 +176,7 @@ Prefix fields appear in this order. Names are exact, including legacy spelling.
 |---|---|
 | storage / versioning / restore window | FILE_CHANNEL / SLIDING_SNAPSHOT / 3 |
 | binary version / record serializer | V0 / NodeSerializerImpl |
-| node hashing | current sirix.hashType fallback ROLLING → required 1.0 default NONE; hash function XX3 |
+| node hashing | sirix.hashType fallback NONE; hash function XX3 |
 | byte pipeline | sirix.compression, fallback none (empty pipeline); lz4 is selectable |
 | text compression / string compression | false / NONE |
 | region compression / read checksum algorithm | LZ77 / XXH3 |

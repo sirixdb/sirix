@@ -19,8 +19,8 @@
   answering 428, JAPI-111 one stable conditional check, and REST-204/205/211/212 for If-Match,
   ETag, 412/428 responses and root/query scope. Conditional queries refuse cross-resource
   mutation; strict policy is enforced at the shared mutation boundary through every route.
-  Successful mutation ETags require exactly one surviving resource head; deletion and
-  multi-resource operations carry none. Record superseded REST-204/205 wording in RETIRED.
+  Successful mutation ETags require exactly one surviving resource head; resource/database
+  deletion and multi-resource operations carry none. Record superseded REST-204/205 wording in RETIRED.
   Native/SDK conditional-write entry points are planned open capabilities, not required for 1.0;
   REST reuses the shared Java core check. Nothing here is implemented: every requirement
   states its gap.

@@ -64,17 +64,17 @@ to erase. It buys:
   `jn:all-times`;
 * stored descendant counts, and with them `sdb:descendant-count`, which answers `0` on a resource
   that keeps no hashes (the count shares the hash field's storage gate);
-* the hash-optimized diff route, which can skip a subtree whose stored hash is unchanged;
-* the REST `ETag` / `If-Match` optimistic-concurrency mechanism, which is only offered when
-  `hashType != NONE`.
+* the hash-optimized diff route, which can skip a subtree whose stored hash is unchanged.
 
-What you do **not** give up by leaving them off is diff *correctness*. The hash route is an
-optimization: without hashes the diff compares the nodes instead, and reports exactly the same
-differences. This is enforced by differential tests that run the same edit history on a hashed and a
-hashless resource and require byte-identical diffs
-(`JsonDiffHashEquivalenceTest`, `XmlDiffHashEquivalenceTest`), and the diff refuses the hash
-shortcut on a resource that stores no hashes even when a caller asks for it
-(`DiffFactoryHashKindTest`).
+For the current REST precondition mechanism and its planned replacement, see the
+[README](../README.md#bitemporal-queries).
+
+Without hashes the diff compares nodes. The existing differential fixtures
+(`JsonDiffHashEquivalenceTest`, `XmlDiffHashEquivalenceTest`) require byte-identical diffs
+with and without hashing, and `DiffFactoryHashKindTest` checks that a hashless resource
+refuses the hash shortcut. These fixtures do not establish equivalence for every edit:
+the [open hash-equality audit](../spec/TXN-transactions-durability.md#deferred-implementation-and-verification)
+records why rolling-hash equality cannot establish unchanged child order or placement.
 
 These hashes never were a security control: they are XXH3-64, recomputable by anyone. See the
 [storage integrity limits](DISK_FORMAT.md#3-integrity) and the
