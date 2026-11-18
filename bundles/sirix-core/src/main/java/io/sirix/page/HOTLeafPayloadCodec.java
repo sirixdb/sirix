@@ -16,10 +16,55 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
-/** The kind-12 slot-payload frame; no codec state survives into a warm leaf. */
+/**
+ * The kind-12 slot-payload frame; no codec state survives into a warm leaf.
+ *
+ * <p>
+ * Writers store a payload raw or as LZ4. Readers also decode zero-run frames, which an earlier
+ * writer of this format produced, so that every frame ever written stays readable.
+ */
 public final class HOTLeafPayloadCodec {
   public static final byte FLAG_COMPRESSED = 0x02;
   public static final byte ALLOWED_FLAGS = FLAG_COMPRESSED | HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS;
+
+  /** Codec id of a zero-run frame: read, never written. */
+  static final int CODEC_ZERO_RUN = 0;
+
+  /** Codec id of an LZ4 block. */
+  static final int CODEC_LZ4 = 1;
+
+  /** Bytes an encoded payload adds to a page: its stored length (i32) and its codec id (u8). */
+  static final int FRAME_OVERHEAD = Integer.BYTES + 1;
+
+  /**
+   * An LZ4 payload is kept only when it saves, its framing included, at least one part in this many
+   * of the raw payload. Anything less is written raw.
+   *
+   * <p>
+   * Derivation. A cold leaf read pays for the decode and is repaid by the bytes it does not read.
+   * Measured on the 8,192 leaves of the comparison store's cold probe (58.74 MB of payload, mean
+   * 7,169 bytes), through the ordinary reader, ten fresh JVMs per decoder:
+   * <ul>
+   * <li>native LZ4 decodes at 0.59 ns per payload byte and a raw copy costs 0.10 ns, so decoding adds
+   * 0.49 ns per payload byte;</li>
+   * <li>the store's device reads a byte it would otherwise have skipped in 1.56 ns (640 MB/s for the
+   * bytes a smaller store no longer reads).</li>
+   * </ul>
+   * LZ4 therefore breaks even when it saves 0.49 / 1.56 = 32 % of the payload, and a third is the
+   * nearest rule that needs no arithmetic beyond a multiply. On that sample it keeps LZ4 for 5,407
+   * leaves and saves 34.96 MB, against 35.68 MB for "any saving beyond the framing": 2 % of the gain
+   * is given up so that no encoded leaf reads slower cold than its raw form where the native decoder
+   * exists. Faster storage raises the break-even and slower storage lowers it; one third is this
+   * device's, not a universal constant.
+   *
+   * <p>
+   * Zero-run is not offered. On the same leaves it decodes at 2.0 ns per byte, 3.3 times the cost of
+   * native LZ4 and 1.5 times that of the Java LZ4 decoder, saves 37 % where LZ4 saves 61 %, and adds
+   * less than 0.01 MB where LZ4 exists. A zero-run leaf reads slower cold than a raw one. The table
+   * and its protocol are in {@code docs/DISK_FORMAT.md}.
+   */
+  static final int LZ4_MIN_SAVING_DIVISOR = 3;
+
   private static final int MAX_ENCODED = ZeroRunByteCodec.maxEncodedSize(HOTLeafPage.DEFAULT_SIZE);
   // Thread-lifetime codec scratch: leases release native storage in finally; cursors reuse the
   // bounded writer/image inputs. Per-call removal would allocate buffers on every cold page.
@@ -29,7 +74,6 @@ public final class HOTLeafPayloadCodec {
   private HOTLeafPayloadCodec() {}
 
   private static final class State {
-    private final byte[] zeroRun = new byte[MAX_ENCODED];
     private final byte[] input = new byte[MAX_ENCODED];
     private final FFILz4Compressor lz4 = new FFILz4Compressor();
     private final ScratchLease nativeBytes = new ScratchLease();
@@ -55,7 +99,10 @@ public final class HOTLeafPayloadCodec {
     return used;
   }
 
-  /** Offer a packed raw V0 image to both codecs, keeping raw on ties with framing included. */
+  /**
+   * Write a packed raw V0 image with its slot payload as LZ4 when {@link #keepsLz4} says the saving
+   * repays the decode, and unchanged otherwise. A host without native LZ4 writes every page raw.
+   */
   static void writePage(final BytesOut<?> sink, final byte[] raw, final int length) {
     final State state = STATE.get();
     Objects.checkFromIndexSize(0, length, raw.length);
@@ -67,32 +114,23 @@ public final class HOTLeafPayloadCodec {
     PageKind.readVersionAndFlagsAllowing(state.header, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
     final int used = seekSlots(state.header);
     final int slots = (int) state.header.position();
-    if (used == 0) {
+    if (used == 0 || !FFILz4Compressor.isNativeAvailable()) {
       sink.write(raw, 0, length);
       return;
     }
-    final int zeroLength = ZeroRunByteCodec.encode(raw, slots, used, state.zeroRun, 0);
-    int stored = zeroLength;
-    int codec = 0;
     final ScratchLease lease = state.nativeBytes;
     final ScratchLease compressed = state.compressedBytes;
     try {
-      if (FFILz4Compressor.isNativeAvailable()) {
-        final int bound = state.lz4.compressBound(used);
-        lease.acquire(used, ScratchUse.CODEC);
-        compressed.acquire(bound, ScratchUse.CODEC);
-        final MemorySegment scratch = lease.segment();
-        MemorySegment.copy(raw, slots, scratch, ValueLayout.JAVA_BYTE, 0, used);
-        final int lz4Length = state.lz4.compressSegmentBounded(scratch, used, compressed.segment(), bound);
-        if (lz4Length <= 0) {
-          throw new IllegalStateException("HOT LZ4 encode failed");
-        }
-        if (lz4Length < stored - PageKind.PAYLOAD_COMPRESSION_MARGIN) {
-          stored = lz4Length;
-          codec = 1;
-        }
+      final int bound = state.lz4.compressBound(used);
+      lease.acquire(used, ScratchUse.CODEC);
+      compressed.acquire(bound, ScratchUse.CODEC);
+      final MemorySegment scratch = lease.segment();
+      MemorySegment.copy(raw, slots, scratch, ValueLayout.JAVA_BYTE, 0, used);
+      final int stored = state.lz4.compressSegmentBounded(scratch, used, compressed.segment(), bound);
+      if (stored <= 0) {
+        throw new IllegalStateException("HOT LZ4 encode failed");
       }
-      if (stored >= used - PageKind.PAYLOAD_COMPRESSION_MARGIN) {
+      if (!keepsLz4(used, stored)) {
         sink.write(raw, 0, length);
         return;
       }
@@ -100,12 +138,8 @@ public final class HOTLeafPayloadCodec {
       sink.writeByte((byte) (raw[2] | FLAG_COMPRESSED));
       sink.write(raw, 3, slots - 3);
       sink.writeInt(stored);
-      sink.writeByte((byte) codec);
-      if (codec == 0) {
-        sink.write(state.zeroRun, 0, stored);
-      } else {
-        sink.writeSegment(compressed.segment(), 0, stored);
-      }
+      sink.writeByte((byte) CODEC_LZ4);
+      sink.writeSegment(compressed.segment(), 0, stored);
       sink.write(raw, slots + used, length - slots - used);
     } finally {
       try {
@@ -116,6 +150,15 @@ public final class HOTLeafPayloadCodec {
     }
   }
 
+  /**
+   * Whether an LZ4 block of {@code stored} bytes replaces {@code used} bytes of raw payload: the
+   * bytes saved after the frame's own {@link #FRAME_OVERHEAD} must be at least one part in
+   * {@link #LZ4_MIN_SAVING_DIVISOR} of the payload.
+   */
+  static boolean keepsLz4(final int used, final int stored) {
+    return (long) (used - stored - FRAME_OVERHEAD) * LZ4_MIN_SAVING_DIVISOR >= used;
+  }
+
   /** Decode exactly one bounded payload directly into its final destination. */
   public static void decode(final BytesIn<?> source, final MemorySegment destination, final int used) {
     if (used < 0 || used > HOTLeafPage.DEFAULT_SIZE || used > destination.byteSize() || !destination.isNative()) {
@@ -123,12 +166,12 @@ public final class HOTLeafPayloadCodec {
     }
     final int stored = source.readInt();
     final int codec = source.readByte() & 255;
-    if (stored <= 0 || stored > MAX_ENCODED || stored > source.remaining() || codec > 1) {
+    if (stored <= 0 || stored > MAX_ENCODED || stored > source.remaining() || codec > CODEC_LZ4) {
       throw new IllegalStateException("Invalid HOT encoded payload frame");
     }
     final State state = STATE.get();
     final int produced;
-    if (codec == 0) {
+    if (codec == CODEC_ZERO_RUN) {
       source.read(state.input, 0, stored);
       produced = ZeroRunByteCodec.decode(state.input, 0, stored, destination, 0, used);
     } else if (source instanceof MemorySegmentBytesIn nativeSource && nativeSource.getSource().isNative()) {
@@ -159,13 +202,13 @@ public final class HOTLeafPayloadCodec {
     }
     final int stored = source.readInt();
     final int codec = source.readByte() & 255;
-    if (stored <= 0 || stored > MAX_ENCODED || stored > source.remaining() || codec > 1) {
+    if (stored <= 0 || stored > MAX_ENCODED || stored > source.remaining() || codec > CODEC_LZ4) {
       throw new IllegalStateException("Invalid HOT encoded payload frame");
     }
     final State state = STATE.get();
     source.read(state.input, 0, stored);
     final int produced;
-    if (codec == 0) {
+    if (codec == CODEC_ZERO_RUN) {
       // Bound native output to this payload before copying into the larger retained image.
       final ScratchLease lease = state.nativeBytes.acquire(Math.max(used, 1), ScratchUse.CODEC);
       try {

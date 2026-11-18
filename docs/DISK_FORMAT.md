@@ -305,20 +305,68 @@ an additional size header. The optional side-reference trailer follows the
 encoded bytes and is never part of the codec frame. Offsets refer to decoded
 slots. Full, packed and sparse fragments have identical codec semantics.
 
-Writers use the existing five-byte payload compression margin
-(`Integer.BYTES + 1`, shared with overflow pages). LZ4 replaces zero-run only
-when its payload is more than five bytes smaller; savings of four or five bytes
-keep zero-run, while six bytes select LZ4. The selected encoded payload must
-also beat raw by more than five bytes, covering the stored-length and codec
-framing: savings of four or five bytes keep raw, while six bytes encode.
-Native LZ4 availability affects writing only;
-the existing Java LZ4 decoder keeps codec-1 pages portable. Empty payloads remain
-raw. `-Dsirix.page.hotLeaf.compress=false` selects the raw writer for diagnostic
-A/B runs; it never disables reading encoded pages. No mutable source-page state
-changes during serialization. The same store may contain raw, zero-run and LZ4
-leaves across revisions. Older readers refuse
-the newly assigned required flag rather than interpreting compressed bytes as
-slots; new readers retain compatibility with old raw pages.
+**Writer rule.** A writer stores a payload raw or as LZ4. It never writes codec 0;
+readers accept codec 0 because an earlier writer of this format produced it. An
+LZ4 block of `storedLength` bytes is kept only when
+
+```
+3 × (decodedLength − storedLength − 5) ≥ decodedLength
+```
+
+that is, when it saves at least a third of the payload after its own five bytes of
+framing (`HOTLeafPayloadCodec.LZ4_MIN_SAVING_DIVISOR`, `FRAME_OVERHEAD`). Anything
+less is written raw with the flag clear: for 300 payload bytes a block of 195 bytes
+is kept and one of 196 is not. Empty payloads are raw. A host without native LZ4
+cannot write codec 1 and writes every leaf raw. Reading is unaffected: the Java LZ4
+decoder keeps codec-1 pages portable. `-Dsirix.page.hotLeaf.compress=false` selects
+the raw writer for diagnostic A/B runs; it never disables reading encoded pages. No
+mutable source-page state changes during serialization. A store may hold raw and
+LZ4 leaves side by side, and zero-run leaves from an earlier writer. Older readers
+refuse the newly assigned required flag rather than interpreting compressed bytes
+as slots; new readers retain compatibility with old raw pages.
+
+**Why a third, and why not zero-run.** A cold leaf read pays for the decode and is
+repaid by the bytes it does not read. Both costs were measured on 2026-11-18 on the
+8,192 leaves of the t100k comparison store's cold probe (58.74 MB of slot payload,
+mean 7,169 bytes). Each leaf was re-framed under a forced codec and decoded through
+the ordinary reader in memory: ten fresh JVMs per decoder, each in an exclusive
+timing window on one core (Oracle GraalVM 25.0.3). The table gives the median of
+the ten forks; no fork was excluded.
+
+| Decoder | ns per leaf | Fastest and slowest fork | ns per payload byte, 32–64 KiB leaves |
+| --- | --- | --- | --- |
+| raw copy | 1,433 | 1,409 – 1,462 | 0.10 |
+| LZ4, native range decoder | 4,814 | 4,802 – 4,829 | 0.59 |
+| LZ4, Java decoder (no bundled native library) | 10,632 | 10,523 – 11,088 | 1.56 |
+| zero-run | 16,003 | 15,887 – 16,099 | 2.01 |
+
+The paired cold probe of the raw and the encoded store (five rounds, the same device)
+read 38.5 MB less in 60 ms less read time: 640 MB/s, or 1.56 ns for a byte not read.
+
+- Native LZ4 breaks even when it saves `(0.59 − 0.10) / 1.56` = 32 % of the payload. A
+  third is the nearest rule that costs one multiplication.
+- The 1.56 ns is the least certain number here. The five rounds of that probe span 1.4 to
+  2.3 ns, and two later runs over stores that were all more than two hours old gave 1.9 and
+  2.1 ns, which puts the break-even nearer a quarter. One third is on the safe side of
+  every value but the lowest round. The same runs showed that a file written minutes ago
+  reads faster from this device than the same bytes written hours ago, so compare stores
+  cold only when both are old.
+- On these leaves the rule keeps LZ4 for 5,407 and writes 2,785 raw, saving 34.96 MB. Keeping
+  every block that beats its framing would save 35.68 MB: 2 % of the gain is given up so that
+  no encoded leaf reads slower cold than its raw form where the native decoder exists.
+- Zero-run decodes 3.3 times slower than native LZ4 and 1.5 times slower than the Java LZ4
+  decoder, in every size class and in every fork. It saves 37 % of this payload where LZ4
+  saves 61 %, and offering it next to LZ4 adds less than 0.01 MB. Its decode adds 1.9 ns
+  per payload byte, so it would have to save nine tenths of a payload or more to repay it
+  on this device. The plan for this format called zero-run the cheap codec; the measurement
+  says otherwise, so writers no longer use it.
+- A reader without the bundled native library decodes LZ4 in Java at 1.56 ns per byte. For
+  it an LZ4 leaf still costs more to read cold than a raw one on this device (modelled mean
+  14.6 µs against 12.6 µs per leaf under this rule). The rule is set for readers that have
+  the native decoder.
+- One third is this device's break-even. Slower storage lowers it and faster storage raises
+  it. Re-measure before changing the constant; the protocol is in
+  [`HOT_LEAF_CODEC_GATE.md`](../bundles/sirix-benchmarks/scripts/HOT_LEAF_CODEC_GATE.md#decode-cost-behind-the-writer-rule).
 
 Readers bound decoded slots to 65,536 bytes and entries to 512 before allocation.
 An encoded frame must have a positive stored length within the remaining input,
@@ -374,10 +422,11 @@ the fork counts and profiler-noise allowance.
 Reader payload fixtures (hex; directory and page header omitted): eight zero slot
 bytes can be represented as `03 00 00 00 00 ff 08 86`; the corresponding raw payload is eight
 `00` bytes. An LZ4 literal-only frame for bytes `01 02 03 04` is
-`05 00 00 00 01 40 01 02 03 04`. Both are readable, but writers keep these payloads raw
-because the encoded frames do not meet the savings margin.
-Tests must independently pin these bytes, codec selection including ties/raw
-fallback, both byte-array and native input, mixed raw/encoded streams, sparse
+`05 00 00 00 01 40 01 02 03 04`. Both are readable, but a writer stores both payloads raw,
+because neither saves a third.
+Tests must independently pin these bytes, the writer rule one byte under, on and over its
+boundary, that no writer emits codec 0, raw output without native LZ4, readers of both codecs
+on frames the test builds, both byte-array and native input, mixed raw/encoded streams, sparse
 and packed full images, side references, compact fragments, cached and uncached
 projection lookup, scratch reuse, and corrupt/truncated boundaries.
 

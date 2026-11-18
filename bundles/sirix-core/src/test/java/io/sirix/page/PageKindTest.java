@@ -4,6 +4,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.page.HOTLeafPage;
+import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -59,8 +60,10 @@ final class PageKindTest {
       page.setPageReference(7, new PageReference().setKey(123));
       PageKind.serializeHOTLeaf(config, sink, page, compress);
       final byte[] wire = sink.toByteArray();
-      // Zero-run alone saves well over the specified margin; only the enabled mode sets bit 1.
-      assertEquals(compress, (wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+      // 256 zero bytes save far more than a third as LZ4. Only the enabled mode sets bit 1, and
+      // only on a host that can write LZ4.
+      assertEquals(compress && FFILz4Compressor.isNativeAvailable(),
+          (wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
       assertEquals(HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS, wire[2] & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
       final ByteArrayBytesIn source = new ByteArrayBytesIn(wire);
       source.position(1);

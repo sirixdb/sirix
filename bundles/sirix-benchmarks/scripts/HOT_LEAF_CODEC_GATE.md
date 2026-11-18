@@ -63,10 +63,31 @@ including canonical retained heap, never a speculative 64 KiB writable frame. Bo
 first insertion. Empty payloads, malformed trailers, side references, allocation
 stamps, close and all four versioning types are covered.
 
-After the ownership and five-byte decoder-preference fixes, regenerate the
+After the ownership fix and any change to the writer rule, regenerate the
 five-fork owned-result comparisons, EA-off site captures, work budgets, store
 census, cold I/O/decode probe and affected warm evidence in their pipeline phases.
 Earlier numbers used a different reader fixture or codec policy and are historical,
 not evidence for the revised implementation. Preserve the discard-only diagnostic
 and its prior disposition. Keep evidence inside the authorized worktree/evidence
 boundary; do not overwrite earlier artifacts or external PR notes from this review.
+
+## Decode cost behind the writer rule
+
+The writer keeps LZ4 only when it saves a third of the payload
+([rule and derivation](../../../docs/DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0)). The
+constant comes from two measured costs, and both must be measured again before it is changed.
+
+Decode cost per codec: take raw kind-12 frames from a real store (the derivation used the 8,192
+leaves of the t100k comparison store's cold probe), re-frame each one under a forced codec so that
+the writer rule plays no part, check that every arm decodes to the raw slot bytes, and time
+`AbstractReader.deserializeFromSegment` with an empty byte-handler pipeline on in-memory frames:
+all leaves, and per payload size class. One arm per fresh JVM, ten profiler-free JVMs per arm,
+arm order rotated, each in an exclusive timing window on one core. Arms: raw, LZ4 with the native
+range decoder, LZ4 with the Java decoder (bundled library absent), zero-run. Report every fork.
+
+Storage cost per byte: the paired cold probe of the raw and the encoded store (`cold I/O/decode
+probe` above) gives the read time and the bytes read of each; the difference in read time over
+the difference in bytes is what a byte not read is worth.
+
+A codec pays for itself on a cold read when `saved bytes × storage cost per byte` is at least
+`payload bytes × (decode cost per byte − raw copy cost per byte)`.

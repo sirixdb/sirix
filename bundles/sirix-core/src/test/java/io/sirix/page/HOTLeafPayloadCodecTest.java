@@ -57,6 +57,11 @@ final class HOTLeafPayloadCodecTest {
   private static final ResourceConfiguration CONFIG =
       new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).versioningApproach(VersioningType.FULL).build();
 
+  /**
+   * Every codec a reader accepts. Writers emit LZ4 only; zero-run frames come from earlier writers.
+   */
+  private static final int[] CODECS = {HOTLeafPayloadCodec.CODEC_ZERO_RUN, HOTLeafPayloadCodec.CODEC_LZ4};
+
   @BeforeAll
   static void allocator() {
     Allocators.getInstance().init(1L << 30);
@@ -147,60 +152,62 @@ final class HOTLeafPayloadCodecTest {
 
   @Test
   void projectionScratchRejectsEveryShortFrameAndDoesNotAliasRetainedImages() {
-    try (HOTLeafPage leaf = new HOTLeafPage(7, 3, IndexType.PROJECTION);
-        MemorySegmentBytesOut output = new MemorySegmentBytesOut()) {
-      final byte[] key = {7};
-      final byte[] value = new byte[128];
-      value[0] = 42; // Remains compressible with zero-run when native LZ4 is unavailable.
-      assertTrue(leaf.put(key, value));
-      PageKind.HOT_LEAF_PAGE.serializePage(CONFIG, output, leaf, SerializationType.DATA);
-      final byte[] wire = output.toByteArray();
-      assertTrue((wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
-      final PageReference reference = new PageReference().setKey(7);
-      reference.setHash(PageHasher.compute(wire));
-      final HOTProjectionImage retained =
-          HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(wire), reference, CONFIG);
-      final ByteArrayBytesIn complete = new ByteArrayBytesIn(wire);
-      complete.position(1);
-      final HOTProjectionImage retainedSecond = HOTProjectionImage.copyIfFits(complete);
-      for (int length = 3; length < wire.length; length++) {
-        final byte[] shortFrame = Arrays.copyOf(wire, length);
-        // Fill reusable scratch with valid bytes immediately before every truncated copy.
-        HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(wire), reference, CONFIG);
-        assertThrows(RuntimeException.class,
-            () -> HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(shortFrame), new PageReference(), CONFIG));
+    for (final int codec : CODECS) {
+      try (HOTLeafPage leaf = new HOTLeafPage(7, 3, IndexType.PROJECTION);
+          MemorySegmentBytesOut output = new MemorySegmentBytesOut()) {
+        final byte[] key = {7};
+        final byte[] value = new byte[128];
+        value[0] = 42;
+        assertTrue(leaf.put(key, value));
+        PageKind.serializeRawHOTLeaf(CONFIG, output, leaf);
+        final byte[] wire = encodedImage(output.toByteArray(), codec);
+        assertTrue((wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+        final PageReference reference = new PageReference().setKey(7);
+        reference.setHash(PageHasher.compute(wire));
+        final HOTProjectionImage retained =
+            HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(wire), reference, CONFIG);
+        final ByteArrayBytesIn complete = new ByteArrayBytesIn(wire);
         complete.position(1);
-        HOTProjectionImage.copyIfFits(complete);
-        final ByteArrayBytesIn shortInput = new ByteArrayBytesIn(shortFrame);
-        shortInput.position(1);
-        assertThrows(RuntimeException.class, () -> HOTProjectionImage.copyIfFits(shortInput));
+        final HOTProjectionImage retainedSecond = HOTProjectionImage.copyIfFits(complete);
+        for (int length = 3; length < wire.length; length++) {
+          final byte[] shortFrame = Arrays.copyOf(wire, length);
+          // Fill reusable scratch with valid bytes immediately before every truncated copy.
+          HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(wire), reference, CONFIG);
+          assertThrows(RuntimeException.class,
+              () -> HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(shortFrame), new PageReference(), CONFIG));
+          complete.position(1);
+          HOTProjectionImage.copyIfFits(complete);
+          final ByteArrayBytesIn shortInput = new ByteArrayBytesIn(shortFrame);
+          shortInput.position(1);
+          assertThrows(RuntimeException.class, () -> HOTProjectionImage.copyIfFits(shortInput));
+        }
+        final byte[] scratch = Arrays.copyOf(wire, wire.length + 100);
+        assertArrayEquals(HOTLeafPayloadCodec.expandImage(wire, 1),
+            HOTLeafPayloadCodec.expandImage(scratch, 1, wire.length));
+        assertThrows(IndexOutOfBoundsException.class,
+            () -> HOTLeafPayloadCodec.expandImage(scratch, 1, wire.length - 1));
+        assertThrows(IndexOutOfBoundsException.class,
+            () -> HOTLeafPayloadCodec.expandImage(scratch, 1, scratch.length + 1));
+        assertThrows(IndexOutOfBoundsException.class, () -> HOTLeafPayloadCodec.expandImage(scratch, 1, 2));
+        final byte[] raw = HOTLeafPayloadCodec.expandImage(wire, 1);
+        assertThrows(IllegalArgumentException.class, () -> HOTLeafPayloadCodec.expandImage(raw, 1));
+        assertThrows(IllegalArgumentException.class,
+            () -> HOTLeafPayloadCodec.expandImage(Arrays.copyOf(raw, raw.length + 100), 1, raw.length));
+        final byte[] replacement = new byte[64];
+        replacement[0] = 99;
+        assertTrue(leaf.updateValue(leaf.findEntry(key), replacement));
+        output.clear();
+        PageKind.serializeRawHOTLeaf(CONFIG, output, leaf);
+        final byte[] replacementWire = encodedImage(output.toByteArray(), codec);
+        final ByteArrayBytesIn replacementInput = new ByteArrayBytesIn(replacementWire);
+        replacementInput.position(1);
+        assertArrayEquals(replacement, HOTProjectionImage.copyIfFits(replacementInput).select(key, 0).value());
+        assertArrayEquals(value, retained.select(key, 0).value());
+        assertArrayEquals(value, retainedSecond.select(key, 0).value());
+        // Hash the logical short frame, never the longer scratch capacity.
+        assertArrayEquals(value,
+            HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(wire), reference, CONFIG).select(key, 0).value());
       }
-      final byte[] scratch = Arrays.copyOf(wire, wire.length + 100);
-      assertArrayEquals(HOTLeafPayloadCodec.expandImage(wire, 1),
-          HOTLeafPayloadCodec.expandImage(scratch, 1, wire.length));
-      assertThrows(IndexOutOfBoundsException.class, () -> HOTLeafPayloadCodec.expandImage(scratch, 1, wire.length - 1));
-      assertThrows(IndexOutOfBoundsException.class,
-          () -> HOTLeafPayloadCodec.expandImage(scratch, 1, scratch.length + 1));
-      assertThrows(IndexOutOfBoundsException.class, () -> HOTLeafPayloadCodec.expandImage(scratch, 1, 2));
-      final byte[] raw = HOTLeafPayloadCodec.expandImage(wire, 1);
-      assertThrows(IllegalArgumentException.class, () -> HOTLeafPayloadCodec.expandImage(raw, 1));
-      assertThrows(IllegalArgumentException.class,
-          () -> HOTLeafPayloadCodec.expandImage(Arrays.copyOf(raw, raw.length + 100), 1, raw.length));
-      final byte[] replacement = new byte[64];
-      replacement[0] = 99;
-      assertTrue(leaf.updateValue(leaf.findEntry(key), replacement));
-      output.clear();
-      PageKind.HOT_LEAF_PAGE.serializePage(CONFIG, output, leaf, SerializationType.DATA);
-      final byte[] replacementWire = output.toByteArray();
-      assertTrue((replacementWire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
-      final ByteArrayBytesIn replacementInput = new ByteArrayBytesIn(replacementWire);
-      replacementInput.position(1);
-      assertArrayEquals(replacement, HOTProjectionImage.copyIfFits(replacementInput).select(key, 0).value());
-      assertArrayEquals(value, retained.select(key, 0).value());
-      assertArrayEquals(value, retainedSecond.select(key, 0).value());
-      // Hash the logical short frame, never the longer scratch capacity.
-      assertArrayEquals(value,
-          HOTProjectionImage.copyVerifiedFrame(ByteBuffer.wrap(wire), reference, CONFIG).select(key, 0).value());
     }
   }
 
@@ -287,97 +294,192 @@ final class HOTLeafPayloadCodecTest {
 
   @Test
   void failedSinkReturnsBothCodecScratchBuffers() {
-    try (MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
-        MemorySegmentBytesOut recovered = new MemorySegmentBytesOut();
-        MemorySegmentBytesOut failing = new MemorySegmentBytesOut() {
-          @Override
-          public MemorySegmentBytesOut write(final byte[] bytes, final int offset, final int length) {
-            throw new IllegalArgumentException("injected sink failure");
-          }
-        }) {
-      writeHeader(raw, (byte) 0, 0, 128);
-      raw.write(new byte[128]);
-      final byte[] wire = raw.toByteArray();
-      final IllegalArgumentException failure =
-          assertThrows(IllegalArgumentException.class, () -> HOTLeafPayloadCodec.writePage(failing, wire, wire.length));
-      assertEquals("injected sink failure", failure.getMessage());
-      // A leaked input or output lease makes this second encode reject reacquisition.
-      HOTLeafPayloadCodec.writePage(recovered, wire, wire.length);
-      assertTrue((recovered.toByteArray()[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+    assumeTrue(FFILz4Compressor.isNativeAvailable(), "the writer takes its scratch only when it can compress");
+    final byte[] incompressible = new byte[128];
+    new SplittableRandom(9).nextBytes(incompressible);
+    // The encoded exit (128 zero bytes) and the raw exit (128 random bytes) both write to the sink
+    // while the two leases are held.
+    for (final byte[] payload : new byte[][] {new byte[128], incompressible}) {
+      try (MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
+          MemorySegmentBytesOut recovered = new MemorySegmentBytesOut();
+          MemorySegmentBytesOut failing = new MemorySegmentBytesOut() {
+            @Override
+            public MemorySegmentBytesOut write(final byte[] bytes, final int offset, final int length) {
+              throw new IllegalArgumentException("injected sink failure");
+            }
+          }) {
+        writeHeader(raw, (byte) 0, 0, payload.length);
+        raw.write(payload);
+        final byte[] wire = raw.toByteArray();
+        final IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+            () -> HOTLeafPayloadCodec.writePage(failing, wire, wire.length));
+        assertEquals("injected sink failure", failure.getMessage());
+        // A leaked input or output lease makes this second encode reject reacquisition.
+        HOTLeafPayloadCodec.writePage(recovered, wire, wire.length);
+        assertEquals(payload != incompressible,
+            (recovered.toByteArray()[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+      }
     }
   }
 
   @Test
   void encodedLookingInputStillRunsANonemptyOuterPipeline() throws Exception {
     final FrameSlotAllocator allocator = assertInstanceOf(FrameSlotAllocator.class, Allocators.getInstance());
-    try (HOTLeafPage original = new HOTLeafPage(1, 1, IndexType.PROJECTION);
-        MemorySegmentBytesOut sink = new MemorySegmentBytesOut();
-        Arena arena = Arena.ofConfined()) {
-      final byte[] value = new byte[256];
-      assertTrue(original.put(new byte[] {7}, value));
-      PageKind.HOT_LEAF_PAGE.serializePage(CONFIG, sink, original, SerializationType.DATA);
-      final byte[] bytes = sink.toByteArray();
-      assertEquals(2, bytes[2]);
-      final MemorySegment wire = arena.allocate(bytes.length);
-      wire.copyFrom(MemorySegment.ofArray(bytes));
-      final MemorySegment outerInput = arena.allocate(3);
-      outerInput.set(ValueLayout.JAVA_BYTE, 0, (byte) 12);
-      outerInput.set(ValueLayout.JAVA_BYTE, 2, (byte) 2);
-      final ByteHandler handler = mock(ByteHandler.class);
-      when(handler.supportsMemorySegments()).thenReturn(true);
-      final ByteHandlerPipeline identity = new ByteHandlerPipeline();
-      when(handler.decompressScoped(outerInput)).thenAnswer(invocation -> identity.decompressScoped(wire));
-      final long before = allocator.getActiveMemoryBytes();
-      try (
-          MMFileReader reader =
-              new MMFileReader(MemorySegment.NULL, MemorySegment.NULL, new ByteHandlerPipeline(handler),
-                  SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build(), null);
-          HOTLeafPage decoded = (HOTLeafPage) reader.deserializeFromSegment(CONFIG, outerInput)) {
-        assertEquals(1, decoded.getEntryCount());
-        assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {7})));
-        assertEquals(4096, allocator.getActiveMemoryBytes() - before);
+    for (final int codec : CODECS) {
+      try (HOTLeafPage original = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+          MemorySegmentBytesOut sink = new MemorySegmentBytesOut();
+          Arena arena = Arena.ofConfined()) {
+        final byte[] value = new byte[256];
+        assertTrue(original.put(new byte[] {7}, value));
+        PageKind.serializeRawHOTLeaf(CONFIG, sink, original);
+        final byte[] bytes = encodedImage(sink.toByteArray(), codec);
+        assertEquals(2, bytes[2]);
+        final MemorySegment wire = arena.allocate(bytes.length);
+        wire.copyFrom(MemorySegment.ofArray(bytes));
+        final MemorySegment outerInput = arena.allocate(3);
+        outerInput.set(ValueLayout.JAVA_BYTE, 0, (byte) 12);
+        outerInput.set(ValueLayout.JAVA_BYTE, 2, (byte) 2);
+        final ByteHandler handler = mock(ByteHandler.class);
+        when(handler.supportsMemorySegments()).thenReturn(true);
+        final ByteHandlerPipeline identity = new ByteHandlerPipeline();
+        when(handler.decompressScoped(outerInput)).thenAnswer(invocation -> identity.decompressScoped(wire));
+        final long before = allocator.getActiveMemoryBytes();
+        try (
+            MMFileReader reader =
+                new MMFileReader(MemorySegment.NULL, MemorySegment.NULL, new ByteHandlerPipeline(handler),
+                    SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build(), null);
+            HOTLeafPage decoded = (HOTLeafPage) reader.deserializeFromSegment(CONFIG, outerInput)) {
+          assertEquals(1, decoded.getEntryCount());
+          assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {7})));
+          assertEquals(4096, allocator.getActiveMemoryBytes() - before);
+        }
+        assertEquals(before, allocator.getActiveMemoryBytes());
       }
-      assertEquals(before, allocator.getActiveMemoryBytes());
     }
   }
 
   @Test
-  void strongerCodecMustBeatZeroRunByMoreThanFiveBytes() {
+  void lz4IsKeptExactlyWhenItSavesAThirdOfThePayloadFramingIncluded() {
+    assertEquals(5, HOTLeafPayloadCodec.FRAME_OVERHEAD);
+    assertEquals(3, HOTLeafPayloadCodec.LZ4_MIN_SAVING_DIVISOR);
+    // used, and the largest stored length that still saves a third: used - 5 - ceil(used / 3).
+    for (final int[] boundary : new int[][] {{9, 1}, {10, 1}, {11, 2}, {12, 3}, {300, 195}, {301, 195}, {302, 196},
+        {4256, 2832}, {65536, 43685}}) {
+      final int used = boundary[0];
+      final int largestKept = boundary[1];
+      assertEquals(used - 5 - (used + 2) / 3, largestKept, "the table must state the rule, used=" + used);
+      assertTrue(HOTLeafPayloadCodec.keepsLz4(used, largestKept - 1), "one byte better than needed, used=" + used);
+      assertTrue(HOTLeafPayloadCodec.keepsLz4(used, largestKept), "exactly a third saved, used=" + used);
+      assertTrue(!HOTLeafPayloadCodec.keepsLz4(used, largestKept + 1), "one byte short of a third, used=" + used);
+    }
+    // Nothing shorter than nine bytes can repay five bytes of framing with a third to spare.
+    for (int used = 0; used < 9; used++) {
+      assertTrue(!HOTLeafPayloadCodec.keepsLz4(used, 1), "used=" + used);
+    }
+    assertTrue(!HOTLeafPayloadCodec.keepsLz4(Integer.MAX_VALUE, Integer.MAX_VALUE), "no overflow at the extremes");
+    assertTrue(HOTLeafPayloadCodec.keepsLz4(Integer.MAX_VALUE, 1));
+  }
+
+  @Test
+  void theWriterAppliesTheRuleToTheBlockNativeLz4Produces() {
     assumeTrue(FFILz4Compressor.isNativeAvailable());
     final FFILz4Compressor compressor = new FFILz4Compressor();
+    final int used = 300;
+    final int largestKept = used - HOTLeafPayloadCodec.FRAME_OVERHEAD - (used + 2) / 3;
+    final SplittableRandom random = new SplittableRandom(0x7e1ea5e);
+    final boolean[] witnessed = new boolean[3]; // one short of the boundary, on it, one past it
     try (Arena arena = Arena.ofConfined();
         MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
-        MemorySegmentBytesOut encoded = new MemorySegmentBytesOut()) {
-      final MemorySegment input = arena.allocate(100);
-      final MemorySegment output = arena.allocate(compressor.compressBound(100));
-      final byte[] zeroRun = new byte[ZeroRunByteCodec.maxEncodedSize(100)];
-      for (final int saving : new int[] {4, 5, 6}) {
-        boolean witnessed = false;
-        for (int prefix = 1; prefix < 90; prefix++) {
-          final byte[] payload = new byte[100];
-          Arrays.fill(payload, 0, prefix, (byte) 4);
-          Arrays.fill(payload, 98, 100, (byte) 4);
-          input.copyFrom(MemorySegment.ofArray(payload));
-          final int lz4Length = compressor.compressSegmentBounded(input, 100, output, (int) output.byteSize());
-          final int zeroLength = ZeroRunByteCodec.encode(payload, 0, payload.length, zeroRun, 0);
-          if (zeroLength - lz4Length != saving) {
-            continue;
-          }
-          raw.clear();
-          encoded.clear();
-          writeHeader(raw, (byte) 0, 0, payload.length);
-          raw.write(payload);
-          HOTLeafPayloadCodec.writePage(encoded, raw.toByteArray(), (int) raw.position());
-          final byte[] wire = encoded.toByteArray();
-          assertEquals(2, wire[2]);
-          assertEquals(saving == 6
-              ? 1
-              : 0, wire[23], "five-byte decoder preference, saving=" + saving);
-          assertArrayEquals(raw.toByteArray(), HOTLeafPayloadCodec.expandImage(wire, 1));
-          witnessed = true;
-          break;
+        MemorySegmentBytesOut written = new MemorySegmentBytesOut()) {
+      final MemorySegment input = arena.allocate(used);
+      final MemorySegment output = arena.allocate(compressor.compressBound(used));
+      // An incompressible prefix followed by zeros: each prefix byte adds about one stored byte, so
+      // the sweep crosses the boundary in single steps.
+      for (int prefix = 0; prefix <= used; prefix++) {
+        final byte[] payload = new byte[used];
+        for (int i = 0; i < prefix; i++) {
+          payload[i] = (byte) (1 + random.nextInt(255));
         }
-        assertTrue(witnessed, "native codec must supply the boundary witness for saving=" + saving);
+        input.copyFrom(MemorySegment.ofArray(payload));
+        final int stored = compressor.compressSegmentBounded(input, used, output, (int) output.byteSize());
+        raw.clear();
+        written.clear();
+        writeHeader(raw, (byte) 0, 0, used);
+        raw.write(payload);
+        HOTLeafPayloadCodec.writePage(written, raw.toByteArray(), (int) raw.position());
+        final byte[] wire = written.toByteArray();
+        if (stored <= largestKept) {
+          assertEquals(2, wire[2], "stored=" + stored + " saves a third and must be written as LZ4");
+          assertEquals(HOTLeafPayloadCodec.CODEC_LZ4, wire[23]);
+          assertEquals(19 + HOTLeafPayloadCodec.FRAME_OVERHEAD + stored, wire.length);
+          assertArrayEquals(raw.toByteArray(), HOTLeafPayloadCodec.expandImage(wire, 1));
+        } else {
+          assertArrayEquals(raw.toByteArray(), wire, "stored=" + stored + " saves less than a third: raw");
+        }
+        if (Math.abs(stored - largestKept) <= 1) {
+          witnessed[stored - largestKept + 1] = true;
+        }
+      }
+    }
+    assertTrue(witnessed[0] && witnessed[1] && witnessed[2],
+        "native LZ4 must supply a block one byte under, on and one byte over the boundary: "
+            + Arrays.toString(witnessed));
+  }
+
+  @Test
+  void theWriterNeverEmitsZeroRun() {
+    // Payloads zero-run encodes well, including the 100-byte fixture on which both codecs used to
+    // tie at 15 bytes: every page is LZ4 or raw.
+    for (int prefix = 0; prefix <= 100; prefix++) {
+      final byte[] payload = new byte[100];
+      Arrays.fill(payload, 0, prefix, (byte) 4);
+      Arrays.fill(payload, 98, 100, (byte) 4);
+      try (MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
+          MemorySegmentBytesOut written = new MemorySegmentBytesOut()) {
+        writeHeader(raw, (byte) 0, 0, payload.length);
+        raw.write(payload);
+        HOTLeafPayloadCodec.writePage(written, raw.toByteArray(), (int) raw.position());
+        final byte[] wire = written.toByteArray();
+        if ((wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0) {
+          assertArrayEquals(raw.toByteArray(), wire, "prefix=" + prefix);
+        } else {
+          assertEquals(HOTLeafPayloadCodec.CODEC_LZ4, wire[23], "prefix=" + prefix);
+          assertArrayEquals(raw.toByteArray(), HOTLeafPayloadCodec.expandImage(wire, 1), "prefix=" + prefix);
+        }
+      }
+    }
+  }
+
+  @Test
+  void aHostWithoutNativeLz4WritesRawPages() {
+    try (MockedStatic<FFILz4Compressor> codec = mockStatic(FFILz4Compressor.class, CALLS_REAL_METHODS);
+        MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
+        MemorySegmentBytesOut written = new MemorySegmentBytesOut()) {
+      codec.when(FFILz4Compressor::isNativeAvailable).thenReturn(false);
+      writeHeader(raw, (byte) 0, 0, 4096);
+      raw.write(new byte[4096]);
+      HOTLeafPayloadCodec.writePage(written, raw.toByteArray(), (int) raw.position());
+      assertArrayEquals(raw.toByteArray(), written.toByteArray(), "4,096 zero bytes stay raw without native LZ4");
+    }
+  }
+
+  @Test
+  void tinyAndEmptyPayloadsStayRaw() {
+    for (final int used : new int[] {0, 1, 4, 5, 6, 7, 8, 9, 12}) {
+      try (MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
+          MemorySegmentBytesOut written = new MemorySegmentBytesOut()) {
+        raw.writeByte((byte) 12);
+        PageKind.writeVersionAndFlags(raw);
+        raw.writeByte((byte) 1); // page key varint
+        raw.writeInt(1);
+        raw.writeByte(IndexType.PROJECTION.getID());
+        raw.writeShort((short) 0);
+        raw.writeInt(0);
+        raw.writeInt(used);
+        raw.write(new byte[used]);
+        HOTLeafPayloadCodec.writePage(written, raw.toByteArray(), (int) raw.position());
+        // LZ4 cannot shorten fewer than thirteen bytes, so none of these can save a third.
+        assertArrayEquals(raw.toByteArray(), written.toByteArray(), "used=" + used);
       }
     }
   }
@@ -405,17 +507,15 @@ final class HOTLeafPayloadCodecTest {
         for (final VersioningType versioning : VersioningType.values()) {
           final ResourceConfiguration config =
               new ResourceConfiguration.Builder("owned-codec").versioningApproach(versioning).build();
-          for (final boolean encoded : new boolean[] {false, true}) {
+          // Raw, then the same page under each codec a reader accepts.
+          for (final int form : new int[] {-1, HOTLeafPayloadCodec.CODEC_ZERO_RUN, HOTLeafPayloadCodec.CODEC_LZ4}) {
+            final boolean encoded = form >= 0;
             sink.clear();
-            if (encoded) {
-              PageKind.HOT_LEAF_PAGE.serializePage(config, sink, original, SerializationType.DATA);
-            } else {
-              PageKind.serializeRawHOTLeaf(config, sink, original);
-            }
-            final byte[] bytes = sink.toByteArray();
-            if (encoded) {
-              assertTrue((bytes[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
-            }
+            PageKind.serializeRawHOTLeaf(config, sink, original);
+            final byte[] bytes = encoded
+                ? encodedImage(sink.toByteArray(), form)
+                : sink.toByteArray();
+            assertEquals(encoded, (bytes[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
             final MemorySegment wire = arena.allocate(bytes.length);
             wire.copyFrom(MemorySegment.ofArray(bytes));
             final long before = allocator.getActiveMemoryBytes();
@@ -483,31 +583,6 @@ final class HOTLeafPayloadCodecTest {
   }
 
   @Test
-  void ownedReadsKeepTheirMemoryContractWithoutNativeLz4() throws Exception {
-    try (MockedStatic<FFILz4Compressor> codec = mockStatic(FFILz4Compressor.class, CALLS_REAL_METHODS)) {
-      codec.when(FFILz4Compressor::isNativeAvailable).thenReturn(false);
-      ordinaryOwnedReadsRetainSmallFramesAndPromoteOnlyOnMutation();
-    }
-  }
-
-  @Test
-  void codecSizeTiesPreferZeroRun() {
-    final byte[] payload = new byte[100];
-    Arrays.fill(payload, 0, 8, (byte) 4);
-    Arrays.fill(payload, 98, 100, (byte) 4);
-    try (MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
-        MemorySegmentBytesOut encoded = new MemorySegmentBytesOut()) {
-      writeHeader(raw, (byte) 0, 0, payload.length);
-      raw.write(payload);
-      HOTLeafPayloadCodec.writePage(encoded, raw.toByteArray(), (int) raw.position());
-      final byte[] wire = encoded.toByteArray();
-      assertEquals(2, wire[2]);
-      assertEquals(0, wire[23], "both native LZ4 and zero-run encode this fixture to 15 bytes");
-      assertEquals(19 + 5 + 15, wire.length);
-    }
-  }
-
-  @Test
   void encodedImagesRejectTruncationBeforePublication() {
     try (MemorySegmentBytesOut wire = new MemorySegmentBytesOut()) {
       writeHeader(wire, (byte) 2, 0, 8);
@@ -552,55 +627,30 @@ final class HOTLeafPayloadCodecTest {
 
   @Test
   void encodedLeafDoesNotAdoptTheOuterDecompressionFrame() throws Exception {
-    try (HOTLeafPage original = new HOTLeafPage(1, 1, IndexType.PROJECTION);
-        MemorySegmentBytesOut sink = new MemorySegmentBytesOut();
-        Arena arena = Arena.ofConfined()) {
-      final byte[] value = new byte[1024];
-      assertTrue(original.put(new byte[] {7}, value));
-      PageKind.HOT_LEAF_PAGE.serializePage(CONFIG, sink, original, SerializationType.DATA);
-      final byte[] bytes = sink.toByteArray();
-      assertEquals(2, bytes[2]);
-      final MemorySegment wire = arena.allocate(bytes.length);
-      MemorySegment.copy(bytes, 0, wire, ValueLayout.JAVA_BYTE, 0, bytes.length);
-      final AtomicInteger releases = new AtomicInteger();
-      final HOTLeafPage decoded;
-      try (DecompressionResult outer = new DecompressionResult(wire, releases::incrementAndGet)) {
-        decoded = (HOTLeafPage) new PagePersister().deserializePage(CONFIG, new MemorySegmentBytesIn(wire),
-            SerializationType.DATA, outer);
-        assertEquals(0, releases.get());
-      }
-      try (decoded) {
-        assertEquals(1, releases.get(), "the outer owner remains responsible for compressed input");
-        wire.fill((byte) 0xa5);
-        assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {7})));
-      }
-      assertEquals(1, releases.get(), "closing the leaf must release only its separate decoded frame");
-    }
-  }
-
-  @Test
-  void rawFallbackAccountsForFramingAndZeroRunGoldenPinsTheBoundary() {
-    for (final int used : new int[] {0, 1, 4, 5, 6, 7, 8, 9, 32}) {
-      try (MemorySegmentBytesOut raw = new MemorySegmentBytesOut();
-          MemorySegmentBytesOut encoded = new MemorySegmentBytesOut()) {
-        raw.writeByte((byte) 12);
-        PageKind.writeVersionAndFlags(raw);
-        raw.writeByte((byte) 1); // page key varint
-        raw.writeInt(1);
-        raw.writeByte(IndexType.PROJECTION.getID());
-        raw.writeShort((short) 0);
-        raw.writeInt(0);
-        raw.writeInt(used);
-        raw.write(new byte[used]);
-        HOTLeafPayloadCodec.writePage(encoded, raw.toByteArray(), (int) raw.position());
-        final byte[] bytes = encoded.toByteArray();
-        if (used <= 8) {
-          assertArrayEquals(raw.toByteArray(), bytes, "framing ties and tiny payloads remain raw");
-        } else {
-          assertEquals(2, bytes[2]);
-          assertArrayEquals(new byte[] {3, 0, 0, 0, 0, (byte) 0xff, (byte) used, (byte) (0x80 + used - 2)},
-              Arrays.copyOfRange(bytes, 19, bytes.length));
+    for (final int codec : CODECS) {
+      try (HOTLeafPage original = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+          MemorySegmentBytesOut sink = new MemorySegmentBytesOut();
+          Arena arena = Arena.ofConfined()) {
+        final byte[] value = new byte[1024];
+        assertTrue(original.put(new byte[] {7}, value));
+        PageKind.serializeRawHOTLeaf(CONFIG, sink, original);
+        final byte[] bytes = encodedImage(sink.toByteArray(), codec);
+        assertEquals(2, bytes[2]);
+        final MemorySegment wire = arena.allocate(bytes.length);
+        MemorySegment.copy(bytes, 0, wire, ValueLayout.JAVA_BYTE, 0, bytes.length);
+        final AtomicInteger releases = new AtomicInteger();
+        final HOTLeafPage decoded;
+        try (DecompressionResult outer = new DecompressionResult(wire, releases::incrementAndGet)) {
+          decoded = (HOTLeafPage) new PagePersister().deserializePage(CONFIG, new MemorySegmentBytesIn(wire),
+              SerializationType.DATA, outer);
+          assertEquals(0, releases.get());
         }
+        try (decoded) {
+          assertEquals(1, releases.get(), "the outer owner remains responsible for compressed input");
+          wire.fill((byte) 0xa5);
+          assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {7})));
+        }
+        assertEquals(1, releases.get(), "closing the leaf must release only its separate decoded frame");
       }
     }
   }
@@ -609,35 +659,49 @@ final class HOTLeafPayloadCodecTest {
   void sparseFragmentsAndMixedStreamsReadExactlyOneImage() throws Exception {
     final ResourceConfiguration sliding =
         new ResourceConfiguration.Builder("codec-sparse").versioningApproach(VersioningType.SLIDING_SNAPSHOT).build();
-    try (HOTLeafPage base = new HOTLeafPage(7, 1, IndexType.PROJECTION);
-        MemorySegmentBytesOut sink = new MemorySegmentBytesOut()) {
-      assertTrue(base.put(new byte[] {1}, new byte[256]));
-      try (HOTLeafPage changed = base.copy()) {
-        assertTrue(changed.put(new byte[] {2}, new byte[512]));
-        changed.setCompleteDump(true);
-        changed.setPageReference(7, new PageReference().setKey(123));
-        PageKind.serializeRawHOTLeaf(sliding, sink, changed);
-        final byte[] rawFragment = sink.toByteArray();
-        sink.clear();
-        PageKind.HOT_LEAF_PAGE.serializePage(sliding, sink, changed, SerializationType.DATA);
-        final int boundary = (int) sink.position();
-        assertEquals(3, sink.toByteArray()[2]);
-        assertArrayEquals(rawFragment, HOTLeafPayloadCodec.expandImage(sink.toByteArray(), 1));
-        PageKind.serializeRawHOTLeaf(CONFIG, sink, base);
-        final ByteArrayBytesIn source = new ByteArrayBytesIn(sink.toByteArray());
-        try (HOTLeafPage first =
-            (HOTLeafPage) new PagePersister().deserializePage(sliding, source, SerializationType.DATA)) {
-          assertEquals(1, first.getEntryCount());
-          assertArrayEquals(new byte[] {2}, first.getKey(0));
-          assertArrayEquals(new byte[512], first.getValue(0));
-          assertTrue(first.isCompleteDump());
-          assertEquals(123, first.getPageReference(7).getKey());
-          assertEquals(boundary, source.position());
-        }
-        try (HOTLeafPage second =
-            (HOTLeafPage) new PagePersister().deserializePage(CONFIG, source, SerializationType.DATA)) {
-          assertArrayEquals(new byte[] {1}, second.getKey(0));
-          assertEquals(sink.position(), source.position());
+    // The page as this host's writer stores it, and under each codec a reader accepts.
+    for (final int form : new int[] {-1, HOTLeafPayloadCodec.CODEC_ZERO_RUN, HOTLeafPayloadCodec.CODEC_LZ4}) {
+      try (HOTLeafPage base = new HOTLeafPage(7, 1, IndexType.PROJECTION);
+          MemorySegmentBytesOut sink = new MemorySegmentBytesOut()) {
+        assertTrue(base.put(new byte[] {1}, new byte[256]));
+        try (HOTLeafPage changed = base.copy()) {
+          assertTrue(changed.put(new byte[] {2}, new byte[512]));
+          changed.setCompleteDump(true);
+          changed.setPageReference(7, new PageReference().setKey(123));
+          PageKind.serializeRawHOTLeaf(sliding, sink, changed);
+          final byte[] rawFragment = sink.toByteArray();
+          sink.clear();
+          if (form < 0) {
+            PageKind.HOT_LEAF_PAGE.serializePage(sliding, sink, changed, SerializationType.DATA);
+            // 512 zero bytes save far more than a third wherever LZ4 can be written.
+            assertEquals(FFILz4Compressor.isNativeAvailable()
+                ? 3
+                : 1, sink.toByteArray()[2]);
+          } else {
+            sink.write(encodedImage(rawFragment, form));
+            assertEquals(3, sink.toByteArray()[2]);
+          }
+          final int boundary = (int) sink.position();
+          final byte[] first = sink.toByteArray();
+          assertArrayEquals(rawFragment, (first[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0
+              ? first
+              : HOTLeafPayloadCodec.expandImage(first, 1));
+          PageKind.serializeRawHOTLeaf(CONFIG, sink, base);
+          final ByteArrayBytesIn source = new ByteArrayBytesIn(sink.toByteArray());
+          try (HOTLeafPage firstPage =
+              (HOTLeafPage) new PagePersister().deserializePage(sliding, source, SerializationType.DATA)) {
+            assertEquals(1, firstPage.getEntryCount());
+            assertArrayEquals(new byte[] {2}, firstPage.getKey(0));
+            assertArrayEquals(new byte[512], firstPage.getValue(0));
+            assertTrue(firstPage.isCompleteDump());
+            assertEquals(123, firstPage.getPageReference(7).getKey());
+            assertEquals(boundary, source.position());
+          }
+          try (HOTLeafPage second =
+              (HOTLeafPage) new PagePersister().deserializePage(CONFIG, source, SerializationType.DATA)) {
+            assertArrayEquals(new byte[] {1}, second.getKey(0));
+            assertEquals(sink.position(), source.position());
+          }
         }
       }
     }
@@ -720,23 +784,81 @@ final class HOTLeafPayloadCodecTest {
         final byte[] raw = sink.toByteArray();
         sink.clear();
         PageKind.HOT_LEAF_PAGE.serializePage(CONFIG, sink, original, SerializationType.DATA);
-        final byte[] encoded = sink.toByteArray();
-        assertTrue(encoded.length <= raw.length);
-        assertArrayEquals(raw, (encoded[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0
-            ? encoded
-            : HOTLeafPayloadCodec.expandImage(encoded, 1),
+        final byte[] written = sink.toByteArray();
+        assertTrue(written.length <= raw.length);
+        assertArrayEquals(raw, (written[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0
+            ? written
+            : HOTLeafPayloadCodec.expandImage(written, 1),
             "cached images must have exactly the legacy raw bytes after one cold expansion");
-        if (pattern == 0 || (pattern == 1 && FFILz4Compressor.isNativeAvailable())) {
-          assertEquals(3, encoded[2]);
-          assertTrue(encoded.length < raw.length / 2);
+        if (pattern != 2 && FFILz4Compressor.isNativeAvailable()) {
+          assertEquals(3, written[2], "zeros and a short repeat save far more than a third");
+          assertTrue(written.length < raw.length / 2);
+        } else {
+          assertArrayEquals(raw, written, "random bytes, or no native LZ4: the page is written raw");
         }
-        for (final byte[] wire : new byte[][] {raw, encoded}) {
+        for (final byte[] wire : new byte[][] {raw, written, encodedImage(raw, HOTLeafPayloadCodec.CODEC_ZERO_RUN),
+            encodedImage(raw, HOTLeafPayloadCodec.CODEC_LZ4)}) {
           assertDecodedLeaf(original, wire);
           assertSelectedEntries(original, wire);
         }
       } finally {
         original.close();
       }
+    }
+  }
+
+  /**
+   * The raw image with its slot payload stored under {@code codec}, whatever this host's writer would
+   * choose. Readers must accept zero-run frames, which no writer emits any more, and LZ4 frames on
+   * hosts that cannot write them: there the block is a literal-only one, which is valid LZ4 and needs
+   * no compressor.
+   */
+  private static byte[] encodedImage(final byte[] raw, final int codec) {
+    final ByteArrayBytesIn header = new ByteArrayBytesIn(raw);
+    header.position(3);
+    Utils.getVarLong(header);
+    header.readInt();
+    header.readByte();
+    header.skip(Short.toUnsignedInt(header.readShort()));
+    final int count = header.readInt() & Integer.MAX_VALUE;
+    final int used = header.readInt();
+    header.skip((long) count * Integer.BYTES);
+    final int slots = (int) header.position();
+    final byte[] payload;
+    final int stored;
+    if (codec == HOTLeafPayloadCodec.CODEC_ZERO_RUN) {
+      payload = new byte[ZeroRunByteCodec.maxEncodedSize(used)];
+      stored = ZeroRunByteCodec.encode(raw, slots, used, payload, 0);
+    } else if (FFILz4Compressor.isNativeAvailable()) {
+      final FFILz4Compressor compressor = new FFILz4Compressor();
+      try (Arena arena = Arena.ofConfined()) {
+        final MemorySegment input = arena.allocate(Math.max(1, used));
+        MemorySegment.copy(raw, slots, input, ValueLayout.JAVA_BYTE, 0, used);
+        final MemorySegment output = arena.allocate(compressor.compressBound(used));
+        stored = compressor.compressSegmentBounded(input, used, output, (int) output.byteSize());
+        assertTrue(stored > 0, "native LZ4 must produce a block");
+        payload = output.asSlice(0, stored).toArray(ValueLayout.JAVA_BYTE);
+      }
+    } else {
+      try (MemorySegmentBytesOut block = new MemorySegmentBytesOut()) {
+        block.writeByte((byte) (Math.min(used, 15) << 4));
+        for (int rest = used - 15; rest >= 0; rest -= 255) {
+          block.writeByte((byte) Math.min(rest, 255));
+        }
+        block.write(raw, slots, used);
+        payload = block.toByteArray();
+        stored = payload.length;
+      }
+    }
+    try (MemorySegmentBytesOut sink = new MemorySegmentBytesOut()) {
+      sink.write(raw, 0, 2);
+      sink.writeByte((byte) (raw[2] | HOTLeafPayloadCodec.FLAG_COMPRESSED));
+      sink.write(raw, 3, slots - 3);
+      sink.writeInt(stored);
+      sink.writeByte((byte) codec);
+      sink.write(payload, 0, stored);
+      sink.write(raw, slots + used, raw.length - slots - used);
+      return sink.toByteArray();
     }
   }
 

@@ -27,3 +27,36 @@ The complete local mutation ledger and execution log are retained alongside the
 [ownership fix's verification record](2026-11-17-leaf-codec-retained-frames.md#focused-review-verification).
 The outer executor must regenerate the census and cold probe with this policy;
 no updated space or timing result is claimed by this review phase.
+
+## Follow-up 2026-11-18: the premise of this fix was wrong
+
+The fix above made LZ4 beat zero-run by five bytes because zero-run was taken to be the cheap
+decoder. That was the plan's wording, never a measurement. When the margin was to be replaced by a
+measured one, the measurement inverted it.
+
+- Method: 8,192 real kind-12 leaves of the t100k comparison store (58.74 MB of slot payload), each
+  re-framed under a forced codec, decoded through the ordinary reader in memory; ten fresh JVMs per
+  decoder in exclusive timing windows, one core.
+- Result, per leaf, median of the ten forks: raw copy 1,433 ns, native LZ4 4,814 ns, zero-run
+  16,003 ns, Java LZ4 as it was 24,058 ns and rewritten 10,632 ns. Zero-run is 3.3 times slower
+  than native LZ4 in every size class, and no fork of one overlaps a fork of the other.
+- Sizes on the same leaves: zero-run alone saves 37 % of the payload, LZ4 61 %. Where LZ4 can be
+  written, also offering zero-run adds less than 0.01 MB.
+- Consequence for a cold read on the store's device (1.56 ns per byte not read): a zero-run leaf
+  reads slower than its raw form, and an LZ4 leaf breaks even when it saves about a third of the
+  payload.
+
+Correction: the leaf writer emits LZ4 or raw. LZ4 is kept when it saves at least a third of the
+payload, framing included (`HOTLeafPayloadCodec.LZ4_MIN_SAVING_DIVISOR`, with its derivation). A
+host without native LZ4 writes raw leaves. Readers keep decoding zero-run frames. The Java LZ4
+fallback decoder was rewritten in the same round, because a store written with native LZ4 is also
+read where only the fallback exists, and the old fallback was slower than zero-run.
+
+Tests: `strongerCodecMustBeatZeroRunByMoreThanFiveBytes`, `codecSizeTiesPreferZeroRun` and the
+zero-run raw-boundary golden are replaced by `lz4IsKeptExactlyWhenItSavesAThirdOfThePayloadFramingIncluded`,
+`theWriterAppliesTheRuleToTheBlockNativeLz4Produces`, `theWriterNeverEmitsZeroRun`,
+`aHostWithoutNativeLz4WritesRawPages` and `tinyAndEmptyPayloadsStayRaw`. Reader tests build zero-run
+and LZ4 frames themselves, so they run the same on hosts that cannot write LZ4.
+
+Why the first fix was not caught: its review and tests checked that the code matched the stated
+preference, and nothing checked the preference. The lesson above is extended accordingly.

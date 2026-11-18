@@ -125,9 +125,12 @@ final class HOTLeafCodecAllocationTest {
       PageKind.serializeRawHOTLeaf(config, output, page);
       bytes[0] = output.toByteArray();
       output.clear();
-      PageKind.HOT_LEAF_PAGE.serializePage(config, output, page, SerializationType.DATA);
-      bytes[1] = output.toByteArray();
-      assertTrue((bytes[1][2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+      if (repeated) {
+        // The caller has assumed native LZ4, and this fixture saves far more than a third.
+        PageKind.HOT_LEAF_PAGE.serializePage(config, output, page, SerializationType.DATA);
+        bytes[1] = output.toByteArray();
+        assertTrue((bytes[1][2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+      }
       final ByteArrayBytesIn source = new ByteArrayBytesIn(bytes[0]);
       source.position(3);
       Utils.getVarLong(source);
@@ -139,7 +142,7 @@ final class HOTLeafCodecAllocationTest {
       source.skip((long) count * Integer.BYTES);
       payload = (int) source.position();
       if (!repeated) {
-        // Force the legal zero-run arm even when LZ4 would win for this fixture's directory pattern.
+        // Zero-run frames are read on every host and written by none: build the frame here.
         final byte[] frame = new byte[ZeroRunByteCodec.maxEncodedSize(used)];
         final int stored = ZeroRunByteCodec.encode(bytes[0], payload, used, frame, 0);
         output.clear();
