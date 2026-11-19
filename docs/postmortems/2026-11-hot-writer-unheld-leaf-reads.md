@@ -54,12 +54,13 @@
 - Regression test: `HOTIncrementalInsertLeafRetentionTest` (the consolidation primitive, with all
   four input leaves evicted from the page-key allocator before copying and recompression;
   released frames zero-filled, and in a second mode taken at once by foreign leaves),
-  `HOTIndexWriterLeafRetentionTest` (the writer on production storage: five puts, each repeated with
+  `HOTIndexWriterLeafRetentionTest` (the writer on production storage: six puts, each repeated with
   every unguarded leaf evicted at one engine call after the other and at all of them, and the guard
   counts in the middle of a put) and `HOTStructuralPropertyTest.mutationsSurviveLeafEviction`
   (generated CAS, PATH and NAME streams under all four versioning types, with every unguarded leaf
-  evicted at every engine call of every mutation). With the two production files as on `main`, ten
-  tests fail: the primitive skips the merge on zeroed frames, copies a foreign byte on recycled ones
+  evicted at every engine call of every mutation). In the recorded baseline run with the two
+  production files as on `main`, ten tests failed: the primitive skips the merge on zeroed frames,
+  copies a foreign byte on recycled ones
   and merges a pair it could not hold; the writer holds none of three committed leaves in the middle
   of a put; the crossing merge is accepted at 2 of 318 eviction points and the ordered merge
   mishandled at 2 of 24; 11 of 42, 4 of 108 and 5 of 31 eviction points of the other three puts

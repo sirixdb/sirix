@@ -1244,7 +1244,7 @@ The thresholds and stored layout are owned by
       complete-frontier splice at its lexicographic position instead, counted by
       `MERGE_SPINE_ORDER_DELEGATED`. Both questions are asked of the writer's serialization buffer
       over `[0, keyLen)`, and the walk compares each neighbour's facing extreme on the leaf that
-      holds it (`extremeLeafOfSubtree` plus `HOTLeafPage.compareKeyWithBound`) rather than
+      holds it (`compareSubtreeExtreme` and its validated optimistic read, §4.9.2) rather than
       materializing that key, so the guard materializes no key arrays for an ordinary merge; only a
       declined merge materializes the exact key the frontier needs. Leaf-update allocation remains
       dependent on prefix and value handling (§3.2.2). The seeded structural property test
@@ -1898,12 +1898,11 @@ on a held leaf. The check is sound
 because every path that releases a leaf's frame (`close`, `markOrphaned`, the last `releaseGuard`)
 sets the orphaned flag first and nothing clears it, so a leaf that is not orphaned after the read
 owned its frame during the read. It needs no stamp (§4.9.3): a committed leaf is never re-bound to
-another frame, and the flag sits in the leaf object the comparison has just read. `consolidateNodeLeaves`,
-being callable on its own, guards every direct leaf child before checking eligibility and keeps
-those guards through all copies and recompressions, including surviving children whose heights
-recompression reads. If a child is unavailable or cannot be guarded, it returns the original node
-without allocating a replacement or retiring an input. Every exit releases all guards it acquired;
-new speculative leaves remain privately owned until returned or retired by the primitive.
+another frame, and the flag sits in the leaf object the comparison has just read. Standalone
+consolidation has its own retention scope, documented in
+[`consolidateNodeLeaves`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTIncrementalInsert.java),
+which also covers surviving children needed by recompression. Its scratch-array overload lets the
+writer reuse retention storage across attempts.
 The [postmortem](postmortems/2026-11-hot-writer-unheld-leaf-reads.md) records the regression
 coverage and the writer's earlier failures.
 

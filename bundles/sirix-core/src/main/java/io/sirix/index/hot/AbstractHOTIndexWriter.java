@@ -6224,6 +6224,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * @return {@code true} iff a changed parent was published and registered
    */
+  // Page identity determines which temporary swizzles this call owns and may clear.
+  @SuppressWarnings("ReferenceEquality")
   private boolean consolidateLeafParent(final LeafNavigationResult route) {
     final int pathDepth = route.pathDepth();
     if (pathDepth == 0) {

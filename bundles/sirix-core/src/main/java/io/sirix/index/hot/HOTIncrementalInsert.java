@@ -1229,19 +1229,15 @@ public final class HOTIncrementalInsert {
    * <b>Leaf lifetime.</b> A child leaf is read through its swizzled page, which the page cache may
    * evict at any moment. Every direct leaf child is guarded before any eligibility inspection and
    * held through every copy and recompression; a child that is unavailable or cannot be guarded makes
-   * this return the original node without allocating a replacement. Maintenance declines, it never
-   * throws, because its caller can always try again later.
+   * this return the original node without allocating a replacement. Unavailable children defer this
+   * optional maintenance; allocation and other failures still propagate after cleanup.
    *
    * <p>
-   * The guards exist for what a merge reads: the pair's own entries, which are
-   * copied, and the surviving children, whose swizzled pages the recompression of the parent resolves
-   * again. {@code heightOf} asks a leaf for nothing but its type, so a survivor is held for its page
+   * The guards exist for what a merge reads: the pair's own entries, which are copied, and the
+   * surviving children, whose swizzled pages the recompression of the parent resolves again.
+   * {@code heightOf} asks a leaf for nothing but its type, so a survivor is held for its page
    * identity rather than for its bytes: without the guard its reference is cleared when the cache
    * evicts it, and the recompression would have no height for a child that still exists.
-   *
-   * <p>
-   * The writer owns and reuses {@code retentionScratch}, so retaining leaves needs no new array.
-   * Its slots are cleared when the guards are released, on every path including a failure.
    *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
    * @return the consolidated node, or {@code node} itself when nothing was mergeable
@@ -1256,11 +1252,12 @@ public final class HOTIncrementalInsert {
   /**
    * {@link #consolidateNodeLeaves(HOTIndirectPage, int, int, IndexType, LongSupplier, List)} on a
    * retained-leaf array the caller owns, for a caller that consolidates often enough to care: the
-   * array is written and cleared within the call, so one instance serves every consolidation of a
-   * writer. It must hold {@link HOTIndirectPage#MAX_NODE_ENTRIES} leaves.
+   * array is written within the call and every slot used for retention is cleared on success or
+   * failure, so one instance serves every consolidation of a writer without allocating a retention
+   * array per attempt. It must hold {@link HOTIndirectPage#MAX_NODE_ENTRIES} leaves.
    *
    * @param retentionScratch caller-owned space for the leaves this call holds; its contents are not
-   *        read on entry and are cleared before this returns
+   *        read on entry, and slots used for retention are cleared on every exit
    */
   public static HOTIndirectPage consolidateNodeLeaves(final HOTIndirectPage node, final int targetMaxEntries,
       final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator,
