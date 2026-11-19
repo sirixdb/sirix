@@ -22,9 +22,11 @@ import java.lang.foreign.ValueLayout.OfInt;
 import java.lang.invoke.MethodHandle;
 import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Objects;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
+import static java.lang.foreign.ValueLayout.JAVA_LONG;
 import static java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED;
 
 /**
@@ -74,6 +76,8 @@ public final class FFILz4Compressor implements ByteHandler {
   private static final MethodHandle LZ4_COMPRESS_FAST;
   private static final MethodHandle LZ4_COMPRESS_HC;
   private static final MethodHandle LZ4_DECOMPRESS_SAFE;
+  private static final MethodHandle LZ4_DECOMPRESS_RANGE;
+  private static final MemorySegment LZ4_DECOMPRESS_SYMBOL;
   private static final MethodHandle LZ4_DECOMPRESS_FAST;
   private static final MethodHandle LZ4_COMPRESS_BOUND;
 
@@ -132,6 +136,8 @@ public final class FFILz4Compressor implements ByteHandler {
     MethodHandle compressFast = null;
     MethodHandle compressHC = null;
     MethodHandle decompress = null;
+    MethodHandle decompressRange = null;
+    MemorySegment decompressSymbol = null;
     MethodHandle decompressFast = null;
     MethodHandle compressBound = null;
 
@@ -168,7 +174,8 @@ public final class FFILz4Compressor implements ByteHandler {
           FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT));
 
       // int LZ4_decompress_safe(const char* src, char* dst, int compressedSize, int dstCapacity)
-      decompress = LINKER.downcallHandle(lz4Lib.find("LZ4_decompress_safe").orElseThrow(),
+      decompressSymbol = lz4Lib.find("LZ4_decompress_safe").orElseThrow();
+      decompress = LINKER.downcallHandle(decompressSymbol,
           FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT));
 
       // int LZ4_decompress_fast(const char* src, char* dst, int originalSize)
@@ -182,6 +189,15 @@ public final class FFILz4Compressor implements ByteHandler {
           FunctionDescriptor.of(JAVA_INT, JAVA_INT));
 
       available = true;
+      // The adapter adjusts pointers in C; FFM still holds both original segment scopes.
+      final SymbolLookup adapters = NativeCodecLibrary.lookup();
+      if (adapters != null) {
+        final MemorySegment bridge = adapters.find("sirix_lz4_decode_range").orElse(null);
+        if (bridge != null) {
+          decompressRange = LINKER.downcallHandle(bridge,
+              FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_LONG, ADDRESS, JAVA_LONG, JAVA_INT, JAVA_INT));
+        }
+      }
       LOGGER.info("Native LZ4 library loaded successfully via FFI (with fast and HC modes)");
     } catch (Exception e) {
       LOGGER.warn("Native LZ4 library not available, falling back to lz4-java: {}", e.getMessage());
@@ -192,6 +208,8 @@ public final class FFILz4Compressor implements ByteHandler {
     LZ4_COMPRESS_FAST = compressFast;
     LZ4_COMPRESS_HC = compressHC;
     LZ4_DECOMPRESS_SAFE = decompress;
+    LZ4_DECOMPRESS_RANGE = decompressRange;
+    LZ4_DECOMPRESS_SYMBOL = decompressSymbol;
     LZ4_DECOMPRESS_FAST = decompressFast;
     LZ4_COMPRESS_BOUND = compressBound;
 
@@ -275,6 +293,47 @@ public final class FFILz4Compressor implements ByteHandler {
           (int) destination.byteSize());
     } catch (Throwable e) {
       throw new RuntimeException("LZ4 compression failed", e);
+    }
+  }
+
+  /**
+   * Compress bounded prefixes of independently borrowed native buffers without constructing views.
+   * The logical lengths may be smaller than the allocator's size-class capacity.
+   */
+  public int compressSegmentBounded(final MemorySegment source, final int sourceLength, final MemorySegment destination,
+      final int destinationCapacity) {
+    if (!NATIVE_LZ4_AVAILABLE) {
+      throw new UnsupportedOperationException("Native LZ4 not available");
+    }
+    Objects.checkFromIndexSize(0, sourceLength, source.byteSize());
+    Objects.checkFromIndexSize(0, destinationCapacity, destination.byteSize());
+    try {
+      return (int) LZ4_COMPRESS_DEFAULT.invokeExact(source, destination, sourceLength, destinationCapacity);
+    } catch (Throwable e) {
+      throw new RuntimeException("LZ4 compression failed", e);
+    }
+  }
+
+  /** Decode disjoint logical ranges without exposing any view beyond this codec call. */
+  public int decompressSegmentRange(final MemorySegment source, final long sourceOffset, final int compressedSize,
+      final MemorySegment destination, final long destinationOffset, final int destinationCapacity) {
+    Objects.checkFromIndexSize(sourceOffset, compressedSize, source.byteSize());
+    Objects.checkFromIndexSize(destinationOffset, destinationCapacity, destination.byteSize());
+    if (!source.scope().isAlive() || !destination.scope().isAlive()) {
+      throw new IllegalStateException("LZ4 range uses a closed segment");
+    }
+    if (destination.isReadOnly()) {
+      throw new IllegalArgumentException("LZ4 destination is read-only");
+    }
+    if (!NATIVE_LZ4_AVAILABLE || LZ4_DECOMPRESS_RANGE == null) {
+      return JavaLz4BlockDecoder.decompressSafe(source, sourceOffset, compressedSize, destination, destinationOffset,
+          destinationCapacity);
+    }
+    try {
+      return (int) LZ4_DECOMPRESS_RANGE.invokeExact(LZ4_DECOMPRESS_SYMBOL, source, sourceOffset, destination,
+          destinationOffset, compressedSize, destinationCapacity);
+    } catch (Throwable e) {
+      throw new RuntimeException("LZ4 decompression failed", e);
     }
   }
 

@@ -269,6 +269,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
   private static final VectorSpecies<Short> SHORT_SPECIES = ShortVector.SPECIES_256;
   private static final VectorSpecies<Integer> INT_SPECIES = IntVector.SPECIES_256;
+  // Wider-than-preferred vectors use allocating software fallbacks on narrow-vector runtimes.
+  private static final boolean SIMD_256_SUPPORTED =
+      ByteVector.SPECIES_PREFERRED.vectorBitSize() >= BYTE_SPECIES.vectorBitSize();
 
   // ===== Page identity =====
   private final long recordPageKey;
@@ -1059,14 +1062,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Equality search on 8-bit dense partial keys: machine-word lanes for up to eight entries,
-   * otherwise SIMD over the full partial-key array.
+   * Equality search on 8-bit dense partial keys; machine-word lanes cover up to eight entries.
    */
   private int simdEqualitySearchBytes(byte searchPK) {
     if (entryCount <= Long.BYTES) {
       return ByteLaneSearch.equal(densePKBytes, entryCount, searchPK);
     }
-    if (BYTE_SPECIES.length() >= PEXT_MAX_ENTRIES) {
+    if (SIMD_256_SUPPORTED) {
       final ByteVector searchVec = ByteVector.broadcast(BYTE_SPECIES, searchPK);
       final ByteVector entriesVec = ByteVector.fromArray(BYTE_SPECIES, densePKBytes, 0);
       final VectorMask<Byte> matches = searchVec.compare(VectorOperators.EQ, entriesVec);
@@ -1089,7 +1091,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * SIMD equality search on 16-bit dense partial keys.
    */
   private int simdEqualitySearchShorts(short searchPK) {
-    if (SHORT_SPECIES.length() >= 16) {
+    if (SIMD_256_SUPPORTED) {
       final ShortVector searchVec = ShortVector.broadcast(SHORT_SPECIES, searchPK);
       final ShortVector entriesVec = ShortVector.fromArray(SHORT_SPECIES, densePKShorts, 0);
       final VectorMask<Short> matches = searchVec.compare(VectorOperators.EQ, entriesVec);
@@ -1117,7 +1119,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * SIMD equality search on 32-bit dense partial keys.
    */
   private int simdEqualitySearchInts(int searchPK) {
-    if (INT_SPECIES.length() >= 8) {
+    if (SIMD_256_SUPPORTED) {
       final IntVector searchVec = IntVector.broadcast(INT_SPECIES, searchPK);
       int result = 0;
       for (int chunk = 0; chunk < 4 && chunk * 8 < entryCount; chunk++) {
@@ -4184,9 +4186,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * keys its live-slot map by the ADDRESS IT HANDED OUT — the buffer's base. A slice's address is
    * {@code base + offset}, so binding from it misses, yields
    * {@link FrameSlotAllocator#NO_SLOT_COORDINATES}, and silently degrades {@link #validateStamp} to a
-   * bare closed-flag test for the whole page lifetime. That is the dominant read path, so the entire
-   * optimistic-stamp protocol would be inert exactly where it is needed. The deserializer therefore
-   * hands the base segment over via {@link #setStampBaseSegment}.
+   * bare closed-flag test for the whole page lifetime. The deserializer therefore hands the base
+   * segment over via {@link #setStampBaseSegment}. Encoded reads use a zero-offset view, which
+   * retains the allocation's address and needs no base override.
    * </p>
    */
   private volatile MemorySegment stampBaseSegment;
@@ -4194,7 +4196,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Tell this page which segment's address identifies its allocator slot. Called by the page
    * deserializer immediately after construction, before the page is published, whenever
-   * {@link #slotMemory} is a slice of a larger allocation rather than the allocation itself.
+   * {@link #slotMemory} starts at a nonzero offset within its allocation.
    *
    * @param base the segment as returned by the allocator; {@code null} clears the override
    */

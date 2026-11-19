@@ -1,10 +1,13 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
+import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.LE;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -13,6 +16,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -27,6 +31,47 @@ final class PageKindTest {
   private static final int HEADER_START = 9;
   private static final int SALT_START = HEADER_START + 24;
   private static final byte[] RECORD = {1, 2, 3};
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void hotWriterModesPreserveTheLegacyTinyLeaf(final boolean compress) {
+    // Independent V0 disk-format vector: a single key 7 with value 42 needs no codec framing.
+    Allocators.getInstance().init(1L << 30);
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("raw-leaf").build();
+    try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+        BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
+      assertTrue(page.put(new byte[] {7}, new byte[] {42}));
+      PageKind.serializeHOTLeaf(config, sink, page, compress);
+      assertArrayEquals(HexFormat.of().parseHex("0c000001010000000a010007010000000500000000000000000001002a"),
+          sink.toByteArray());
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void hotWriterModesPreservePayloadAndSideReferences(final boolean compress) {
+    Allocators.getInstance().init(1L << 30);
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("writer-modes").build();
+    final byte[] value = new byte[256];
+    try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION);
+        BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
+      assertTrue(page.put(new byte[] {7}, value));
+      page.setPageReference(7, new PageReference().setKey(123));
+      PageKind.serializeHOTLeaf(config, sink, page, compress);
+      final byte[] wire = sink.toByteArray();
+      // Zero-run alone saves well over the specified margin; only the enabled mode sets bit 1.
+      assertEquals(compress, (wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+      assertEquals(HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS, wire[2] & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
+      final ByteArrayBytesIn source = new ByteArrayBytesIn(wire);
+      source.position(1);
+      try (HOTLeafPage decoded =
+          (HOTLeafPage) PageKind.HOT_LEAF_PAGE.deserializePage(config, source, SerializationType.DATA)) {
+        assertArrayEquals(value, decoded.getValue(decoded.findEntry(new byte[] {7})));
+        assertEquals(123, decoded.getPageReference(7).getKey());
+        assertEquals(0, source.remaining());
+      }
+    }
+  }
 
   @Test
   void disposableEncodingSaltsOutputWithoutMutatingTheSourceHeader() {

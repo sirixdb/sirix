@@ -153,3 +153,107 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   no-index cases cannot detect a broken NAME lookup. Use persisted definitions as
   the oracle for NAME/PATH/CAS priority, unmatched and empty paths, revisions and
   cached lookups. Evidence: [statistics mutation coverage](postmortems/hash-default-consumers.md#ci-follow-up-name-index-selection-lacked-assertions).
+
+### Logical codec bounds
+
+When codec input uses reusable scratch, test every truncated frame length while
+leaving the complete valid frame in the backing array. Run the same adversarial
+contract against every output overload: bounds against array capacity alone can
+silently consume stale bytes. Require exact input consumption and bound decoded
+output before any writes. See the [native zero-run postmortem](postmortems/2026-11-17-zero-run-native-frame-bounds.md).
+
+### Cold paths can change warm compilation
+
+When adding a cold codec, include its setup work in fresh-process warm lookup
+benchmarks. Heap-backed foreign-memory scalar accesses can alter process-wide
+receiver profiles and slow unchanged native lookup methods. Keep heap parsing
+on array accessors and native FFM paths native-only; verify compiled shape as
+well as allocations. See the [leaf-codec postmortem](postmortems/2026-11-17-leaf-codec-receiver-profiles.md).
+
+### Measure allocation at each cold entry point
+
+A zero-allocation warm lookup does not establish an allocation-free codec.
+Compare raw and encoded arms for encoder selection, decode into existing storage,
+full/compact materialization, image creation and uncached selection. Reuse input
+arrays **and** parsing cursors. A native view eliminated in a standalone
+helper may still allocate in a larger caller; use JFR stacks to verify whole
+entry points and remove avoidable view construction instead of assuming escape
+analysis will remove it. When instrumentation changes the result, disable escape analysis for the allocation-site comparison. Gate every fresh fork, rather than only the mean. Pass owning base segments and primitive offsets through an adapter instead of replacing checked FFM arguments with raw addresses. Compare unchanged main with owned-result fixtures. When substituting scratch for an exact array, test every logical
+truncation after a valid longer frame and verify previously published images
+remain independent. See the [codec allocation postmortem](postmortems/2026-11-17-leaf-codec-allocation.md).
+
+### Move conditional native resources with their loader
+
+A loader refactor must update native-image `typeReached` resource conditions as
+well as Java calls. JVM tests do not apply those conditions. Pin the resource's
+actual loading type in a packaging regression, and keep downcall descriptors in
+sync with adapter signatures. See the [resource reachability postmortem](postmortems/2026-11-17-native-codec-resource-reachability.md).
+
+### Production read ownership and retention
+
+A direct decoder comparison can hide a production regression when raw reads
+transfer decompression storage and encoded reads allocate a second destination.
+Exercise the public reader as well as the real byte-handler ownership route;
+remove an identity-pipeline copy when the decoder always owns its output. Assert live allocator bytes and
+cache charge, then force mutation and verify lazy promotion invalidates the old
+stamp and releases its allocation. Include failure after decode, such as a
+truncated side-reference trailer. See the [retained-frame postmortem](postmortems/2026-11-17-leaf-codec-retained-frames.md).
+
+### Codec preference is a separate boundary
+
+A smaller encoding does not automatically justify a more expensive decoder.
+Use the specified shared margin for that choice, and test margin-minus-one,
+margin and margin-plus-one for both decoder choice and raw fallback, with framing
+included. Measure codec lengths independently and assert the emitted codec as
+well as the round trip. See the [preference-margin postmortem](postmortems/2026-11-17-leaf-codec-preference-margin.md).
+
+### Codec CI contracts
+
+Keep exact packing oracles on decoded logical frames and checksum oracles on stored wire
+frames. Compression fixtures used across platforms must compress with every supported
+codec set; explicitly exercise missing-native-codec behavior. Verify native staging names,
+fallback directories and losing-publication cleanup through filesystem behavior, and
+separate functionally equivalent decoder-routing mutants from missing correctness tests.
+Keep encoded-frame expanders strict when callers already route raw frames: accepting raw
+scratch adds a redundant copy route that functional assertions cannot distinguish. Upload
+reports from all test tasks, including allocation forks, and print complete failures there.
+See the [leaf codec CI postmortem](postmortems/2026-11-17-leaf-codec-ci.md).
+
+- **Do not depend on escape analysis to remove codec accessor objects.** A heap segment's
+  `heapBase()` returns an `Optional` per call. Reuse the writer's cached buffer view when
+  accessing its heap array, and validate allocation gates on HotSpot with escape analysis
+  disabled as well as the workstation compiler. Exercise both process settings through
+  the shared writer, and document intentional thread-lifetime scratch at the field.
+  Evidence: [leaf codec CI follow-up](postmortems/2026-11-17-leaf-codec-ci.md#follow-up-hotspot-allocation-writer-mode-coverage-and-sonar-lifetime).
+
+### Runtime vector width is an allocation boundary
+
+A fixed species' lane count does not establish hardware support. Gate fixed-width
+Vector API operations on runtime-preferred width across every primitive representation;
+otherwise software fallback can allocate on each cached lookup. Run exact allocation
+bounds in a clean narrow-vector C2 fork as well as the normal runtime, with unsigned
+key-order oracles for both lookup overloads. Attribute equal raw/encoded allocations
+to their actual stack before calling them codec overhead. See the
+[HOT leaf vector-width postmortem](postmortems/2026-11-17-hot-leaf-vector-width.md).
+
+### Verify ordered VM options on the CI runtime
+
+A compiler-specific regression fork must start on the CI JDK as well as the local
+JDK. Unlock experimental VM options before setting `UseJVMCICompiler`, even when
+disabling it: GraalVM can accept an argument list that Temurin rejects. Verify a
+real Gradle worker and its existing behavioral assertions on the CI distribution;
+removing or misordering the unlock must fail startup. Keep compiler/vector flags
+and strict allocation bounds intact. See the
+[fork-startup postmortem](postmortems/2026-11-18-hot-leaf-fork-startup.md).
+
+### A closed check is not a lifetime
+
+Code that reads off-heap page memory must hold the page for the whole read, or validate a
+stamp afterwards and discard what it read. Checking `isClosed()` first proves nothing about
+the bytes read next: eviction can release the frame in between, and a released frame keeps
+its bytes until it is reused, so the read is usually still correct and the defect hides
+until a slower or busier machine reuses the frame in time. Zero-fill released frames
+(`FrameSlotAllocator.setPoisonOnReleaseForTesting`) when testing any such reader, evict at
+the point between "resolved" and "read", and assert on background threads as well as the
+test thread. See the
+[validator leaf-lifetime postmortem](postmortems/2026-11-18-hot-validator-unguarded-leaf-read.md).

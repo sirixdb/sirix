@@ -432,3 +432,19 @@ int sirix_lz77_decode(const uint8_t *input, int input_len,
     }
     return slz_decode_fast(input, in_pos, in_end, output, uncompressed);
 }
+
+/* Range adapter only: decoding remains the host library's existing LZ4_decompress_safe.
+ * Java validates the ranges and passes both owning segments as FFM ADDRESS arguments;
+ * their scopes stay acquired across this call. No pointer wrapper or allocation is needed.
+ */
+typedef int (*sirix_lz4_decode_fn)(const char *, char *, int, int);
+SLZ_EXPORT int sirix_lz4_decode_range(sirix_lz4_decode_fn decode,
+        const char *source, int64_t source_offset,
+        char *destination, int64_t destination_offset, int compressed_size, int destination_capacity) {
+    if (!decode || !source || !destination || source_offset < 0 || destination_offset < 0
+            || compressed_size < 0 || destination_capacity < 0) {
+        return -1;
+    }
+    return decode(source + source_offset, destination + destination_offset,
+            compressed_size, destination_capacity);
+}

@@ -518,7 +518,7 @@ publication/preflight guards enforce the same I10 rule as `HOTInvariantValidator
 ## 3. Node and page formats
 
 `docs/DISK_FORMAT.md` specifies the file layout, the page envelope, the page kind ids and the index
-container pages; it contains no body layout for either HOT page kind. This section adds them.
+container pages and the leaf payload codec. This section specifies the HOT body fields.
 
 ### 3.1 Common framing
 
@@ -527,8 +527,10 @@ container pages; it contains no body layout for either HOT page kind. This secti
 - Kind ids: `HOT_LEAF_PAGE = 12`, `HOT_INDIRECT_PAGE = 13`; 14 is permanently reserved
   (`page/PageKind.java:5804`, `:5989`, `:6800-6801`; `docs/DISK_FORMAT.md:185-188`).
 - The serialized page then passes through the resource's byte-handler pipeline (compression,
-  optional encryption) as a whole (`io/filechannel/FileChannelWriter.java:990`, `:1013-1033`); there
-  is no compression inside a HOT body. The reader decompresses into a `DecompressionResult` that a
+  optional encryption) as a whole (`io/filechannel/FileChannelWriter.java:990`, `:1013-1033`).
+  Kind 12 also supports slot payload compression behind envelope flag `0x02`; the
+  [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0) defines its framing.
+  The outer reader decompresses into a `DecompressionResult` that a
   leaf may adopt without copying (§3.2.3).
 
 ### 3.2 HOTLeafPage
@@ -549,7 +551,7 @@ container pages; it contains no body layout for either HOT page kind. This secti
 #### 3.2.2 In-memory layout
 
 ```
-ordinary leaf slotMemory (64 KiB off-heap frame, or an exact-size slice of a decompression buffer)
+ordinary leaf slotMemory (native storage; decoded-read ownership is specified below)
 +--------------------------------------------------------------------------------+
 | entry | entry | dead bytes | entry | ... | entry |            free              |
 +--------------------------------------------------------------------------------+
@@ -591,9 +593,11 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
   offset repointed; dead bytes are reclaimed only by `compact()` when an append does not fit
   (`:2450-2507`, `:2760-2791`).
 - **Ordinary in-leaf search**: common-prefix check, then for 2..32 entries a lazily built PEXT index
-  over the leaf's own discriminative bits (spanning < 8 bytes, ≤ 32 bits) searched with `ByteLaneSearch.equal`
-  for byte keys with at most eight entries, otherwise SIMD equality, and
-  verified against the full suffix, otherwise binary search over suffixes; result is the index or
+  over the leaf's own discriminative bits (spanning < 8 bytes, ≤ 32 bits). `ByteLaneSearch.equal`
+  handles byte keys with at most eight entries; other partial-key searches use 256-bit SIMD equality
+  when the runtime's preferred vector width is at least 256 bits, or scalar equality on narrower
+  runtimes. Candidates are verified against the full suffix, with binary search over suffixes as
+  the fallback; the result is the index or
   `−(insertionPoint + 1)` (`:619-686`, `:833`, `:844-928`, `:1037-1046`).
 - **Side-reference map**: `PageReference`s to overflow pages owned by entries (used by projection
   segments and referenced CAS/VALIDTIME posting chunks), with a lifecycle ACTIVE → RETIRED → RELEASING → RELEASED
@@ -609,7 +613,8 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 
 #### 3.2.3 Serialized layout (`PageKind.HOT_LEAF_PAGE`)
 
-Writer `page/PageKind.java:5904-5984`; reader `:5806-5899`.
+Writer `PageKind.serializeHOTLeaf` (raw layout in `serializeRawHOTLeaf`);
+reader `PageKind.deserializeHOTLeaf`.
 Body fields below follow the shared envelope and any extension block.
 
 | # | Width | Field | Notes |
@@ -622,26 +627,24 @@ Body fields below follow the shared envelope and any extension block.
 | 6 | u8 | index type id | stable ids defined by `IndexType`, pinned by `GoldenFormatTest.indexTypeIdsArePinned` |
 | 7 | u16 LE | commonPrefixLen | |
 | 8 | bytes | commonPrefix | |
-| 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`:5941-5944`, `:5962-5964`) |
+| 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`PageKind.serializeRawHOTLeaf`) |
 | 10 | i32 LE | usedSlotMemorySize | full image: sum of live slot sizes, excluding retired bytes; sparse image: size of the packed dirty entries |
 | 11 | count × i32 LE | slotOffsets | full: original offsets when already dense, otherwise offsets into live entries packed in key order; sparse: offsets into the packed dirty entries |
-| 12 | usedSlotMemorySize bytes | heap | full: only live entries, bulk-copied if already dense, otherwise concatenated in key order; sparse: the dirty entries concatenated |
-| 13 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`:6725-6763`, `:5910-5917`) |
+| 12 | raw bytes or codec frame | heap | representation defined by the [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0). Full images contain live entries only; sparse images contain packed dirty entries. |
+| 13 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`PageKind.serializeSegmentRefs`) |
 
 - Full-image packing changes only the serialized offsets and payload; the source leaf's offsets,
   dirty state and native ownership remain unchanged (`PageKind.HOT_LEAF_PAGE.serializePage`).
 - **Sparse vs. full image**: `sparse = versioningType != FULL && completePageRef != null && hasDirty()`
-  (`page/PageKind.java:5907-5908`). A sparse image holds only the entries changed since the page was
+  (`PageKind.serializeRawHOTLeaf`). A sparse image holds only the entries changed since the page was
   copied from its previous image. Fresh pages from splits and structural rewrites are full images
   with `completeDump = true` (`hot/AbstractHOTIndexWriter.java:6871-6875`; `hot/page/HOTLeafPage.java:3010-3018`).
 - `PageKind.deserializeHOTLeaf` rejects entry counts above 512 and packed byte counts outside
   `[0, 65536]`. Ordinary decoding reserves the full writable offset directory; compact raw decoding
   follows the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
-- **Zero-copy ordinary decoding**: if the input is a `MemorySegmentBytesIn` with a
-  `DecompressionResult`, `slotMemory` becomes a slice of the decompressed buffer and ownership of
-  that buffer transfers to the page;
-  otherwise a 64 KiB frame is allocated and the heap copied (`:5838-5871`). The first mutation of a
-  zero-copy leaf promotes it into a fresh frame (`hot/page/HOTLeafPage.java:2379-2441`).
+- **Decoded-read ownership and mutation promotion** follow the
+  [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0),
+  including raw zero-copy adoption and compact allocations for encoded ordinary reads.
 - There is no checksum in the body; see §3.6 for what is and is not hashed.
 
 ### 3.3 HOTIndirectPage
@@ -1713,6 +1716,18 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
   by page key; closed or unresolvable pages are skipped; it performs no mutation and no I/O of its own
   (`HOTMalformedSubtreeDetector.walk` and `resolve`).
 - The detector's enforced invariants are listed in §2.8; it reports the first failure.
+- **Leaf lifetime.** The detector MUST hold a guard on a leaf for as long as it reads that leaf's
+  keys (the I5 key walk and the first and last key of a subtree), and releases it when the read ends,
+  so it pins at most one leaf at a time. A resolved leaf alone has no lifetime guarantee (§4.9.2): the
+  writer's traversal resolver hands out cache-backed leaves unguarded, and both the source resource
+  and its derived resource evict from one global cache. A leaf that is closed or being torn down when
+  the guard is asked for is resolved again, at most `MAX_LEAF_RETAIN_ATTEMPTS` (8) times per read;
+  after that it is skipped like an unresolvable page, so the detector under-reports and never judges
+  bytes it could not hold. Indirect pages need no guard: eviction only de-swizzles them
+  (`HOTMalformedSubtreeDetector.resolveRetained`; `HOTMalformedSubtreeDetectorTests`).
+  Before this rule the detector checked `isClosed()` once and read unguarded; an eviction during the
+  read made it report I5, I8 or I12 in a sound trie and end the transaction
+  (`docs/postmortems/2026-11-18-hot-validator-unguarded-leaf-read.md`).
 - **Only production call**: `validatePublishedStructuralScopeBounded` after a structural publication,
   when `VALIDATE_STRUCTURAL_MUTATIONS` (default on) and the scope fits the bounded budget; oversized
   scopes are counted in `STRUCTURAL_VALIDATION_OVERSIZE_SKIPPED` and not checked

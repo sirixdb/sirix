@@ -5,32 +5,32 @@ import io.sirix.cache.CacheablePage;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.UnsupportedStoreFeatureException;
+import io.sirix.index.hot.page.HOTProjectionRead;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.node.Bytes;
 import io.sirix.node.MemorySegmentBytesIn;
+import io.sirix.page.HOTLeafPayloadCodec;
 import io.sirix.page.PageKind;
+import io.sirix.page.PageLayout;
 import io.sirix.page.PagePersister;
 import io.sirix.page.PageReference;
-import io.sirix.index.hot.page.HOTProjectionRead;
 import io.sirix.page.RegionsOnlyPage;
 import io.sirix.page.SerializationType;
-import io.sirix.page.UberPage;
 import io.sirix.page.StoreFeatures;
+import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
-import io.sirix.node.Bytes;
-import io.sirix.page.PageLayout;
-import org.jspecify.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
-import java.util.concurrent.atomic.LongAdder;
 import java.util.Objects;
+import java.util.concurrent.atomic.LongAdder;
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static io.sirix.page.PageUtils.fixupPageReferenceIds;
 
@@ -353,11 +353,17 @@ public abstract class AbstractReader implements Reader {
 
     if (borrowOverflowInput && compressedPage.byteSize() > 0
         && compressedPage.get(ValueLayout.JAVA_BYTE, 0L) == PageKind.OVERFLOWPAGE.getID()) {
-      // The empty pipeline needs no transformation. Both raw and region-compressed overflow
-      // decoders produce their own byte array before returning, so this input can remain borrowed.
-      // Record/HOT pages still take the owned-buffer path below. Overflow pages have no references
-      // to fix up, and their ordinary decoder retains all version, length and codec checks.
       return pagePersister.deserializePage(resourceConfiguration, new MemorySegmentBytesIn(compressedPage), type);
+    }
+    if (byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty() && compressedPage.byteSize() > 2
+        && compressedPage.get(ValueLayout.JAVA_BYTE, 0L) == PageKind.HOT_LEAF_PAGE.getID()
+        && (compressedPage.get(ValueLayout.JAVA_BYTE, 2L) & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0) {
+      final Page page =
+          pagePersister.deserializePage(resourceConfiguration, new MemorySegmentBytesIn(compressedPage), type);
+      if (resourceConfiguration != null) {
+        fixupPageReferenceIds(page, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+      }
+      return page;
     }
 
     // Decompress - ownership may be transferred to page for zero-copy

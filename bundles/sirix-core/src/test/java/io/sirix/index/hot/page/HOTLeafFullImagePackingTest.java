@@ -4,6 +4,7 @@
 package io.sirix.index.hot.page;
 
 import io.sirix.page.PagePersister;
+import io.sirix.page.HOTLeafPayloadCodec;
 import io.sirix.page.SerializationType;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
@@ -49,7 +50,10 @@ final class HOTLeafFullImagePackingTest {
           new PagePersister().serializePage(config, sink, leaf, SerializationType.DATA);
           final byte[] wire = sink.toByteArray();
           // kind/version/flags + varlong page key + revision + index kind + prefix length + counts
-          assertEquals(19 + leaf.getCommonPrefixLen() + 4 * offsets.length + liveSize, wire.length);
+          assertEquals(19 + leaf.getCommonPrefixLen() + 4 * offsets.length + liveSize,
+              (wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0
+                  ? wire.length
+                  : HOTLeafPayloadCodec.expandImage(wire, 1).length);
           try (HOTLeafPage decoded = (HOTLeafPage) new PagePersister().deserializePage(config, Bytes.wrapForRead(wire),
               SerializationType.DATA)) {
             assertEquals(liveSize, decoded.getUsedSlotsSize());
