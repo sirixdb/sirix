@@ -1319,6 +1319,23 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 
+  /**
+   * Space {@link HOTIncrementalInsert#consolidateNodeLeaves} holds its retained leaves in. One array
+   * serves every consolidation of this writer: the call writes and clears it within itself, and the
+   * consolidation cadence would otherwise allocate one per attempt.
+   */
+  private HOTLeafPage @Nullable [] consolidationRetentionScratch;
+
+  /** The retention scratch of {@link HOTIncrementalInsert#consolidateNodeLeaves}, allocated once. */
+  private HOTLeafPage[] consolidationRetentionScratch() {
+    HOTLeafPage[] scratch = consolidationRetentionScratch;
+    if (scratch == null) {
+      scratch = new HOTLeafPage[HOTIndirectPage.MAX_NODE_ENTRIES];
+      consolidationRetentionScratch = scratch;
+    }
+    return scratch;
+  }
+
   /** The guard set of the mutation in progress, or {@code null} between mutations. */
   private @Nullable ChildPageGuards mutationGuards() {
     if (!mutating) {
@@ -6244,7 +6261,8 @@ public abstract class AbstractHOTIndexWriter<K> {
 
       final List<PageReference> orphanedLeaves = new ArrayList<>(HOTIndirectPage.MAX_NODE_ENTRIES);
       final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET,
-          storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator, orphanedLeaves);
+          storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator, orphanedLeaves,
+          consolidationRetentionScratch());
       if (consolidated == parent) {
         return false;
       }

@@ -1227,9 +1227,25 @@ public final class HOTIncrementalInsert {
    *
    * <p>
    * <b>Leaf lifetime.</b> A child leaf is read through its swizzled page, which the page cache may
-   * evict at any moment. All direct leaf children are guarded before eligibility inspection and held
-   * through every copy and recompression. If a child is unavailable or cannot be guarded,
-   * consolidation returns the original node without allocating a replacement.
+   * evict at any moment. Every direct leaf child is guarded before any eligibility inspection and
+   * held through every copy and recompression; a child that is unavailable or cannot be guarded makes
+   * this return the original node without allocating a replacement. Maintenance declines, it never
+   * throws, because its caller can always try again later.
+   *
+   * <p>
+   * Nothing is held until the node's own mask says a merge is possible. Whether an adjacent pair is
+   * BiNode-paired is decided by {@link #biNodePairs(HOTIndirectPage)} from the node, not from any
+   * leaf, so a call that finds no pair reads no leaf and takes no guard -- which is most calls on a
+   * consolidation cadence. The guards exist for what a merge reads: the pair's own entries, which are
+   * copied, and the surviving children, whose swizzled pages the recompression of the parent resolves
+   * again. {@code heightOf} asks a leaf for nothing but its type, so a survivor is held for its page
+   * identity rather than for its bytes: without the guard its reference is cleared when the cache
+   * evicts it, and the recompression would have no height for a child that still exists.
+   *
+   * <p>
+   * The retained-leaf array comes from {@code retentionScratch}, which the caller owns and reuses, so
+   * a consolidation allocates nothing for its own bookkeeping. Its slots are cleared when the guards
+   * are released, on every path including a failure.
    *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
    * @return the consolidated node, or {@code node} itself when nothing was mergeable
@@ -1237,12 +1253,33 @@ public final class HOTIncrementalInsert {
   public static HOTIndirectPage consolidateNodeLeaves(final HOTIndirectPage node, final int targetMaxEntries,
       final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator,
       final List<PageReference> droppedLeavesOut) {
+    return consolidateNodeLeaves(node, targetMaxEntries, revision, indexType, pageKeyAllocator, droppedLeavesOut,
+        new HOTLeafPage[HOTIndirectPage.MAX_NODE_ENTRIES]);
+  }
+
+  /**
+   * {@link #consolidateNodeLeaves(HOTIndirectPage, int, int, IndexType, LongSupplier, List)} on a
+   * retained-leaf array the caller owns, for a caller that consolidates often enough to care: the
+   * array is written and cleared within the call, so one instance serves every consolidation of a
+   * writer. It must hold {@link HOTIndirectPage#MAX_NODE_ENTRIES} leaves.
+   *
+   * @param retentionScratch caller-owned space for the leaves this call holds; its contents are not
+   *        read on entry and are cleared before this returns
+   */
+  public static HOTIndirectPage consolidateNodeLeaves(final HOTIndirectPage node, final int targetMaxEntries,
+      final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator,
+      final List<PageReference> droppedLeavesOut, final HOTLeafPage[] retentionScratch) {
     Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(retentionScratch, "retentionScratch");
+    if (retentionScratch.length < HOTIndirectPage.MAX_NODE_ENTRIES) {
+      throw new IllegalArgumentException(
+          "retentionScratch holds " + retentionScratch.length + " leaves, needs " + HOTIndirectPage.MAX_NODE_ENTRIES);
+    }
     Objects.requireNonNull(indexType, "indexType");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
     Objects.requireNonNull(droppedLeavesOut, "droppedLeavesOut");
     HOTIndirectPage current = node;
-    final HOTLeafPage[] retainedLeaves = new HOTLeafPage[node.getNumChildren()];
+    final HOTLeafPage[] retainedLeaves = retentionScratch;
     int retainedCount = 0;
     final PageReference[] ownedSpeculativeRefs = new PageReference[HOTIndirectPage.MAX_NODE_ENTRIES];
     final HOTLeafPage[] ownedSpeculativeLeaves = new HOTLeafPage[HOTIndirectPage.MAX_NODE_ENTRIES];
@@ -1252,6 +1289,12 @@ public final class HOTIncrementalInsert {
     try {
       Throwable consolidationFailure = null;
       try {
+        // The mask decides this, and it lives in the node: a call that finds no mergeable pair reads
+        // no leaf and therefore holds none. On a consolidation cadence that is most calls.
+        final boolean[] nodePairs = biNodePairs(node);
+        if (node.getNumChildren() < 3 || !anyPaired(nodePairs)) {
+          return node;
+        }
         for (int i = 0; i < node.getNumChildren(); i++) {
           final Page child = node.getChildReference(i).getPage();
           if (child == null) {
@@ -1265,9 +1308,13 @@ public final class HOTIncrementalInsert {
           }
         }
         boolean merged = true;
+        boolean firstPass = true;
         while (merged && current.getNumChildren() >= 3) {
           merged = false;
-          final boolean[] pairs = biNodePairs(current);
+          final boolean[] pairs = firstPass
+              ? nodePairs
+              : biNodePairs(current);
+          firstPass = false;
           for (int i = 0; i < pairs.length; i++) {
             final PageReference leftRef = current.getChildReference(i);
             final PageReference rightRef = current.getChildReference(i + 1);
@@ -1341,12 +1388,24 @@ public final class HOTIncrementalInsert {
     }
   }
 
+  /** Whether any adjacent child pair is BiNode-paired, the cheapest reason to hold nothing. */
+  private static boolean anyPaired(final boolean[] paired) {
+    for (final boolean pair : paired) {
+      if (pair) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private static void releaseConsolidationGuards(final HOTLeafPage[] leaves, final int count,
       final @Nullable Throwable failure) {
     Throwable primary = failure;
     for (int i = count - 1; i >= 0; i--) {
+      final HOTLeafPage leaf = leaves[i];
+      leaves[i] = null; // the array outlives the call; never leave it pointing at a released leaf
       try {
-        leaves[i].releaseGuard();
+        leaf.releaseGuard();
       } catch (final RuntimeException | Error releaseFailure) {
         if (primary == null) {
           primary = releaseFailure;
