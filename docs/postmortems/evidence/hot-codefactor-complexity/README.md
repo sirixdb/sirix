@@ -1,6 +1,9 @@
 # CodeFactor complexity follow-up evidence — Refs #1452
 
-**Latency follow-up in progress.** Three production methods were refactored.
+**24-block latency follow-up PASS.** All 96 JVMs completed and all five cases
+meet the fixed gate, with zero timed GC. The original four-block trial remains
+a separate HOLD; both results and the interrupted attempt are retained. Three
+production methods were refactored.
 After an initial disk-floor hold, space recovered and fresh quiet admission passed;
 the single exclusive comparison began at `2026-11-19T00:52:05Z`.
 CodeFactor's remote verdict remains for the outer executor after publication.
@@ -9,6 +12,10 @@ allocation changes, limitations and the fixed timing protocol.
 
 | Artifact | Contents |
 |---|---|
+| [Timing](timing.tar.gz) | All 16 JVM results, raw measurements and counters, complete-run analysis, frozen hashes, source comparison, and resource/command provenance; overall HOLD |
+| [24-block timing](timing-24-blocks.tar.gz) | All 96 JVM results, measurements, counters, frozen hashes, admission, commands, preregistration and complete PASS analysis |
+| [Interrupted attempt](timing-interrupted-029.tar.gz) | Scheduling-interrupted attempt: 58 complete JVMs and partial next log, unanalysed; never pooled into either completed trial |
+| [Fresh local verification](local-verification-and-shape.tar.gz) | Local focused/allocation and work-budget XML/logs, source/class identity, fresh compiled-shape and helper-inlining captures |
 | [Allocation](allocation.tar.gz) | All 160 operations' normalization/fold allocation stacks, full-operation counters, per-operation categories, controls, commands, exact pinned-budget checks, whole-process summaries and hashes of complete raw stacks |
 | [Compiled shape](compiled-shape.tar.gz) | Baseline/candidate `javap`, all captured compilation profiles and inlining, exact commands, hashes and setup-failure logs; diagnostic timing is not a latency result |
 | [Verification](verification.tar.gz) | Focused/budget JUnit XML, all three overlapping PIT reports, final summary, build/test/PIT logs and counts |
@@ -48,34 +55,23 @@ The wrapper is
 `/home/johannes/IdeaProjects/firstmate/data/tools/heavy.sh`.
 No pipeline control, push, PR edit, merge or external cleanup occurred.
 
-## Remaining fixed follow-up
+## Timing provenance
 
-The current worktree retains frozen `build/codefactor/before` (published
-`9732747e47fc549960256af9d4516644badfda1e`), `after_`, harness `classes`, and
-`shared-runtime` directories. Complete source/class/dependency hashes accompany
-them. The two benchmark Java sources are byte-identical to the task proof.
-Project runtime directories were frozen to prevent concurrent test compilation
-from changing the service-provider classpath during a measurement.
+The original 4-block trial completed at `2026-11-19T01:39:25Z` and remains
+HOLD. Its archive records the historical commands and frozen runtime.
+The independently authorized 24-block trial used the unchanged candidate and
+the same acceptance rule, with df 23. See the [protocol](protocol-24-blocks.md)
+for the preregistration and explicit scheduling overrides. The final launcher
+used `FM_TIMING_CPUS=0 timing-window.sh` directly, never nested in `heavy.sh`.
+Ordinary build and diagnostic JVM work used `heavy.sh`.
 
-Only after restoring at least 60 GiB free, obtaining the original quiet admission
-(three consecutive 30-second observations: one-minute load <4, five-minute <6),
-and allowing the full run before `2026-11-19T02:30Z`, the outer executor can run
-this single planned comparison from the worktree root:
+The 24-block archive contains the exact launcher, runner and analysis scripts,
+per-JVM command arrays, symmetric ordered classpaths, source/runtime hashes,
+quiet-admission readings, all raw results, and complete analysis. Frozen runtime
+files remain in the external task proof under `local-codefactor/`; no second
+checkout supplied production classes. Both production path names have equal
+length. Local compilation matched all 1,854 frozen candidate class files.
 
-```sh
-/home/johannes/IdeaProjects/firstmate/data/tools/heavy.sh \
-  python3 build/codefactor/inside-heavy-hft-replication-timing.py \
-  python3 build/codefactor/run-measurements.py timing \
-  > build/codefactor/timing-driver.log 2>&1
-python3 build/codefactor/analyze-timing.py > build/codefactor/timing-analysis.log
-```
-
-This upgrades the inherited timing lock; it does not nest/bypass the wrapper.
-The runner pins CPU0, uses symmetric production substitution, checks the 60 GiB
-floor and frozen bytecode, and stops before the cutoff. The parameters remain
-4 ABBA blocks, 16 fresh JVMs, five cases, 30s real + 50 JMH warmup batches,
-36 retained measurements, default asynchronous C2; df3 intervals and the original
-point/lower-bound/zero-timed-GC decision. No adaptive rerun or tuning is authorized.
-The one `timing` invocation is in progress; it must not be launched again. A
-missed or inconclusive window retains HOLD; prior timing hashes do not cover
-these changed kernels.
+These commands and scripts are replay provenance, not authorization to repeat
+a trial. The 24-block result passes the registered gate; broad commit intervals
+do not establish a precise speedup. CodeFactor must still pass remotely.
