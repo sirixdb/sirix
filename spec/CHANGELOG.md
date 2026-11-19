@@ -25,12 +25,8 @@
   REST reuses the shared Java core check. Nothing here is implemented: every requirement
   states its gap.
 
-- Add FMT-304: during one index mutation a HOT writer reads a leaf's contents only while
-  the transaction log owns the leaf, while the writer holds it, or with a check after the
-  read that the leaf's memory was not released, discarding the result otherwise. A held leaf stays
-  held until the mutation ends. A leaf that cannot be held is resolved again or its
-  optional step declined; no unheld, unvalidated read is used. Record the planned
-  concurrent-evictor conformance case.
+- Add the [FMT-304 leaf-lifetime contract](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime)
+  for HOT mutations, with retention regressions and a planned concurrent-evictor conformance case.
 
 - Resolve imported timestamp ordering: preserve increasing source timestamps, adjust
   ties/regressions to the preceding effective timestamp plus 1 microsecond, and keep

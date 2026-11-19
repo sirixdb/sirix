@@ -1227,8 +1227,8 @@ public final class HOTIncrementalInsert {
    *
    * <p>
    * <b>Leaf lifetime.</b> A child leaf is read through its swizzled page, which the page cache may
-   * evict at any moment. All direct leaf children are guarded before eligibility inspection and
-   * held through every copy and recompression. If a child is unavailable or cannot be guarded,
+   * evict at any moment. All direct leaf children are guarded before eligibility inspection and held
+   * through every copy and recompression. If a child is unavailable or cannot be guarded,
    * consolidation returns the original node without allocating a replacement.
    *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away

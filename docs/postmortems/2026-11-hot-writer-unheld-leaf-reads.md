@@ -136,39 +136,16 @@
 
 ## What the fix does
 
-The rule is [FMT-304](../../spec/FMT-disk-format.md): during one index mutation the writer reads a
-leaf's contents only while the transaction log owns the leaf, while the writer holds it, or with a
-check after the read that the leaf's memory was not released, discarding the result otherwise.
-
-- `doIndex`, `doRemovePostingBit` and `doReplacePostingChunk` open one retention scope for the
-  mutation. Inside it the writer's resolver takes one guard on every leaf it resolves from the page
-  cache and the scope releases them all when the mutation ends, however it ends. An eviction in
-  between only orphans a held leaf; its frame stays intact until the release. A leaf that cannot be
-  held because eviction won the race is loaded again through the storage engine's guarded handoff.
-- One rule covers every read site, including the ones nobody listed, the structural validator and
-  the size preflight, because they all resolve through the same method. It also ends the false
-  failures: a held leaf cannot be closed under the preflight or under a strand scan.
-- A leaf the mutation built itself and has not published is not held. The page cache does not know
-  it, and a guard would keep it open after the writer retires it, a state the write path reads as
-  live.
-- The spine-order check of a merge is the one sibling read an ordinary put makes, and it does not
-  take a guard. `compareSubtreeExtreme` compares on the unheld neighbour and trusts the result only
-  if the leaf is not orphaned afterwards: a frame is released only after that flag is set and the
-  flag is never cleared. A leaf evicted under the read fails the check and the comparison is
-  repeated on a held leaf.
-- `consolidateNodeLeaves` retains every direct leaf child before eligibility inspection and keeps
-  them held through all copies and recompressions. An unavailable or unguardable child declines
-  consolidation before allocating a replacement. The public primitive does not depend on its
-  caller holding its inputs.
-- `consolidateLeafParent` resolves every leaf child through the resolver. It used to skip children
-  that were already swizzled, which left exactly those unheld.
+[FMT-304](../../spec/FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime) owns the leaf-lifetime
+contract. The [HOT specification §4.9.2](../HOT_INDEX_SPECIFICATION.md#492-writers-copy-on-write-through-the-intent-log)
+describes the resolver retention scope, the optimistic neighbour comparison and standalone
+consolidation. The regressions above cover their failure modes.
 
 ## What it costs
 
-- Allocation: nothing per mutation, and nothing at all for a writer whose mutations never read a
-  sibling -- the guard set and its 32-slot array are allocated with the first leaf one of them
-  holds. `HotWriterLeafRetentionAllocationBudgetTest` holds a put beside a committed neighbour to
-  exactly the bytes of a put beside a logged one.
+- Allocation: `HotWriterLeafRetentionAllocationBudgetTest` holds a put beside a committed neighbour
+  to exactly the bytes of a put beside a logged one. The guard set's allocation lifetime is described
+  in [§4.9.2](../HOT_INDEX_SPECIFICATION.md#492-writers-copy-on-write-through-the-intent-log).
 - Compiled shape: 222 of the 240 methods of `AbstractHOTIndexWriter` are byte-identical to `main`,
   among them `doMutation`, `dispatchInsert` and `mergeIntoLeaf`. Nine changed and nine are new, and
   the new ones are small enough to inline: `resolveUnheld` 7 bytes, `enterMutation` 20,

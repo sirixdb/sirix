@@ -251,8 +251,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   private boolean mutating;
 
   /**
-   * The leaves the mutation in progress holds. Allocated with the first sibling a mutation of this
-   * writer resolves, so a writer that only ever puts into its own leaves never pays for it.
+   * The leaves the mutation in progress holds. The set is allocated on the first holding-resolver
+   * call inside a mutation; its backing array is allocated with the first retained leaf.
    */
   private @Nullable ChildPageGuards heldLeaves;
 
@@ -2239,7 +2239,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     exitMutation(outermost, null);
   }
 
-  /** The body of {@link #doReplacePostingChunk}, kept at its size so that it stays inlinable. */
+  /**
+   * Body of {@link #doReplacePostingChunk}, separated so the bracketing entry point stays inlinable.
+   */
   private void replacePostingChunk(final byte[] keyBuf, final int keyLen, final byte[] valueBuf, final int valueLen,
       final boolean referencePayload) {
     storageEngineWriter.assertTransactionWritable();

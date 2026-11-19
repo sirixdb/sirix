@@ -1870,7 +1870,8 @@ already have transaction lifetime. `ensurePathChildrenLoaded`, `ensureNodeChildr
 `ChildPageGuards` implement this boundary; `HOTStructuralChildEvictionTest` exercises it under
 a cache smaller than one leaf.
 
-**Every other leaf a mutation reads is held as well** ([FMT-304](../spec/FMT-disk-format.md)).
+**Mutation-wide retention covers sibling reads**, with the exceptions below
+([FMT-304](../spec/FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime)).
 Direct children are a small part of what a put reads: the first and last key of a neighbouring
 subtree, every key of the leaves a strand guard planned to scan, the pair of leaves a consolidation
 merges and the source leaf of a two-leaf migration all lie outside that boundary. `doIndex`,
@@ -1881,9 +1882,10 @@ releases all of them. Three kinds of page are not held, because the cache cannot
 the TIL owns, an indirect page (eviction only de-swizzles it), and a leaf the mutation built and has
 not published (its reference has neither a disk key nor a log key). A leaf that cannot be held,
 because eviction won between its resolution and the guard, is loaded again through the guarded
-handoff (§4.9.4); it is never read unheld. The guard set is allocated with the first sibling a
-writer's mutations resolve, and a put that stays inside the TIL takes no guard. Two reads stay
-outside the rule, because every put makes them. The descent to the key's own leaf
+handoff (§4.9.4); it is never read unheld. The writer lazily allocates its guard set on the first
+call to the holding resolver inside a mutation; its backing array is allocated only with the first
+retained leaf. A put that stays inside the TIL takes no guard. Two reads stay outside the rule,
+because every put makes them. The descent to the key's own leaf
 (`resolveUnheld`) copies every page it resolves into the TIL, the leaf under the guard of its
 copy-on-write (§4.9.4), and reads nothing before that. It must resolve with the guard set a
 constant `null`: that is what lets the JIT fold the holding code out of the resolver and inline
@@ -1902,11 +1904,8 @@ those guards through all copies and recompressions, including surviving children
 recompression reads. If a child is unavailable or cannot be guarded, it returns the original node
 without allocating a replacement or retiring an input. Every exit releases all guards it acquired;
 new speculative leaves remain privately owned until returned or retired by the primitive.
-`HOTIndexWriterLeafRetentionTest`, `HOTIncrementalInsertLeafRetentionTest` and
-`HOTStructuralPropertyTest.mutationsSurviveLeafEviction` evict every unguarded leaf at the writer's
-calls into its storage engine; the
-[postmortem](postmortems/2026-11-hot-writer-unheld-leaf-reads.md) records what the writer did
-before.
+The [postmortem](postmortems/2026-11-hot-writer-unheld-leaf-reads.md) records the regression
+coverage and the writer's earlier failures.
 
 Readers inside a write transaction resolve TIL modified → TIL complete → swizzle → leaf cache → disk
 (`trx/NodeStorageEngineReader.java:4364-4434`; `trx/NodeStorageEngineWriter.java:5393-5423`), and three

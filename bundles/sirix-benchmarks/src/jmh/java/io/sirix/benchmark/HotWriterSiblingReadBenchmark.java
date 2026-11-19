@@ -69,7 +69,7 @@ import java.util.concurrent.TimeUnit;
  * Gradle overrides these annotations with defaults of two warm-up and three measurement iterations,
  * below that plateau. Set both iteration properties explicitly. One Gradle invocation applies one
  * schedule to every selected benchmark, so run the steady benchmark separately:
- * </p>
+ *
  * <pre>
  * ./gradlew :sirix-benchmarks:jmh \
  *   -Pjmh.includes='HotWriterSiblingReadBenchmark.(appendsBesideCommittedLeaves.*|insertsInsideLoggedLeaves)$' \
