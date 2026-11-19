@@ -1255,9 +1255,7 @@ public final class HOTIncrementalInsert {
           final PageReference leftRef = current.getChildReference(i);
           final PageReference rightRef = current.getChildReference(i + 1);
           if (!pairs[i] || !(leftRef.getPage() instanceof HOTLeafPage left)
-              || !(rightRef.getPage() instanceof HOTLeafPage right)
-              || left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
-              || right.segmentRefCount() != 0) {
+              || !(rightRef.getPage() instanceof HOTLeafPage right)) {
             continue;
           }
           // Hold the pair across the copy. The merged leaf is allocated before the pair is read, and
@@ -1274,6 +1272,10 @@ public final class HOTIncrementalInsert {
               continue;
             }
             try {
+              if (left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
+                  || right.segmentRefCount() != 0) {
+                continue;
+              }
               mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
               pendingSpeculativeLeaf = mergedLeaf;
               for (int e = 0; e < left.getEntryCount() && fits; e++) {

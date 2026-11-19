@@ -72,6 +72,33 @@
   out of a stale read; and a guard has a price that belongs on the scale before it goes into a path
   every put takes. See [Lessons](../LESSONS.md).
 
+## Review follow-up: eligibility reads and benchmark schedules
+
+- Fix / issue: review findings R1 and R2 on the #1459 fix.
+- Symptom: standalone consolidation can throw `FrameReusedException` instead of skipping an
+  evicted pair; the steady benchmark's inherited 180-shot schedule exhausts its 127-shot fixture.
+- Trigger: either swizzled sibling is fully retired before eligibility inspection, or JMH runs
+  the steady benchmark with its annotation defaults. Gradle's default 2/3 schedule instead
+  finishes before the documented compilation plateau.
+- Root cause: the pair's entry-count and side-reference checks preceded guard acquisition.
+  The benchmark used one class-level schedule for fixtures with different reset lifetimes.
+- Why tests missed it: the unguardable-pair test kept the retired right sibling alive with a
+  test-owned guard, so its side references remained readable. Latency runs supplied explicit
+  60/60 overrides for the steady benchmark, hiding its inherited 120/60 annotations.
+- Regression test: `HOTIncrementalInsertLeafRetentionTest.consolidationSkipsAPairItCannotHold`
+  now covers either sibling, fully retired or awaiting retirement. The oracle is the standalone
+  primitive's documented skip-without-allocation contract. Its fully retired cases reach the
+  old unguarded `segmentRefCount()` and reject the resulting exception.
+  `consolidationReleasesGuardsForIneligiblePairs` checks both side-reference exclusions and the
+  count bound, including guard cleanup and unchanged inputs. The existing copy tests exercise
+  successful and repeated merges under poisoned and recycled frames.
+  For R2, run the steady benchmark directly through JMH without iteration overrides: its
+  method-level annotations must complete 60 warm-up and 60 measurement shots within 127 slots.
+  The class Javadoc gives separate Gradle commands for the 120/60 and 60/60 schedules.
+- Lesson: guard eligibility reads as well as payload copies, exercise both sides after actual
+  retirement, and verify benchmark schedules through the harness that consumes them. See
+  [Lessons](../LESSONS.md).
+
 ## What the fix does
 
 The rule is [FMT-304](../../spec/FMT-disk-format.md): during one index mutation the writer reads a

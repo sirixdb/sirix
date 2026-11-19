@@ -65,8 +65,18 @@ import java.util.concurrent.TimeUnit;
  * shots.
  * </p>
  *
+ * <p>
+ * Gradle overrides these annotations with defaults of two warm-up and three measurement iterations,
+ * below that plateau. Set both iteration properties explicitly. One Gradle invocation applies one
+ * schedule to every selected benchmark, so run the steady benchmark separately:
+ * </p>
  * <pre>
- * ./gradlew :sirix-benchmarks:jmh -Pjmh.includes='HotWriterSiblingReadBenchmark' -Pjmh.profilers=gc
+ * ./gradlew :sirix-benchmarks:jmh \
+ *   -Pjmh.includes='HotWriterSiblingReadBenchmark.(appendsBesideCommittedLeaves.*|insertsInsideLoggedLeaves)$' \
+ *   -Pjmh.warmupIterations=120 -Pjmh.iterations=60 -Pjmh.profilers=gc
+ * ./gradlew :sirix-benchmarks:jmh \
+ *   -Pjmh.includes='HotWriterSiblingReadBenchmark.steadyAppendsBesideCommittedLeaves$' \
+ *   -Pjmh.warmupIterations=60 -Pjmh.iterations=60 -Pjmh.profilers=gc
  * </pre>
  */
 @BenchmarkMode(Mode.SingleShotTime)
@@ -119,7 +129,7 @@ public class HotWriterSiblingReadBenchmark {
 
   /**
    * Shots one fork of {@link OneTransaction} may run, warm-up included: the leaves have room for this
-   * many. Pass {@code -wi 60 -i 60}, as the per-shot benchmarks do.
+   * many. Pass {@code -wi 60 -i 60} when running this benchmark directly.
    *
    * <p>
    * The count is what makes this benchmark decide anything. With the leaves holding room for 15
@@ -131,6 +141,8 @@ public class HotWriterSiblingReadBenchmark {
    * </p>
    */
   static final int STEADY_SHOTS = (LEAF_ENTRIES - GROUP_KEYS) / STEADY_PUTS_PER_LEAF;
+
+  static final int STEADY_ITERATIONS = 60;
 
   /**
    * Complete put schedules {@link OneTransaction} runs and rolls back before its measured transaction
@@ -303,6 +315,8 @@ public class HotWriterSiblingReadBenchmark {
    * STEADY_PUTS_PER_LEAF} puts that each read one committed neighbour.
    */
   @Benchmark
+  @Warmup(iterations = STEADY_ITERATIONS)
+  @Measurement(iterations = STEADY_ITERATIONS)
   public void steadyAppendsBesideCommittedLeaves(final OneTransaction state) {
     state.putShot();
   }

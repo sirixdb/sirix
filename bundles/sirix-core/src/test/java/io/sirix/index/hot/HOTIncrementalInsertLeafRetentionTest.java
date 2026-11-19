@@ -22,9 +22,9 @@ import java.util.function.LongSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
@@ -131,9 +131,10 @@ final class HOTIncrementalInsertLeafRetentionTest {
     }
   }
 
-  @Test
+  @ParameterizedTest(name = "evict left: {0}, deferred retirement: {1}")
+  @CsvSource({"true, false", "false, false", "true, true", "false, true"})
   @DisplayName("consolidation leaves alone a pair it cannot hold")
-  void consolidationSkipsAPairItCannotHold() {
+  void consolidationSkipsAPairItCannotHold(final boolean evictLeft, final boolean deferredRetirement) {
     final AtomicLong pageKeys = new AtomicLong(1);
     final HOTLeafPage left = unitLeaf(pageKeys, 0x00, 6);
     final HOTLeafPage right = unitLeaf(pageKeys, 0x20, 4);
@@ -142,10 +143,13 @@ final class HOTIncrementalInsertLeafRetentionTest {
     final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
         new PageReference[] {swizzle(left), swizzle(right), swizzle(third), swizzle(fourth)}, 1, 1, IndexType.PATH,
         pageKeys::getAndIncrement);
-    // Evicted while another reader still holds it: open, and it refuses every further guard.
-    assertTrue(right.acquireGuard());
-    right.close();
-    assertFalse(right.isClosed());
+    final HOTLeafPage evicted = evictLeft ? left : right;
+    final HOTLeafPage retainable = evictLeft ? right : left;
+    if (deferredRetirement) {
+      assertTrue(evicted.acquireGuard());
+    }
+    evicted.close();
+    assertEquals(!deferredRetirement, evicted.isClosed());
     final long allocatedBefore = pageKeys.get();
     final List<PageReference> dropped = new ArrayList<>();
     try {
@@ -155,10 +159,47 @@ final class HOTIncrementalInsertLeafRetentionTest {
       assertSame(parent, consolidated, "a pair that cannot be held is not merged");
       assertTrue(dropped.isEmpty(), "nothing merged, so nothing is handed to retirement");
       assertEquals(allocatedBefore, pageKeys.get(), "no merge target is allocated for a pair that cannot be held");
-      assertEquals(0, left.getGuardCount(), "the guard on the retainable sibling must be released");
-      assertEquals(1, right.getGuardCount(), "only this test guards the unretainable sibling");
+      assertEquals(0, retainable.getGuardCount(), "the guard on the retainable sibling must be released");
+      assertEquals(deferredRetirement ? 1 : 0, evicted.getGuardCount(),
+          "only this test may guard the unretainable sibling");
     } finally {
-      right.releaseGuard();
+      if (deferredRetirement) {
+        evicted.releaseGuard();
+      }
+      closeLeaves(parent);
+    }
+  }
+
+  @ParameterizedTest(name = "side reference on child (-1 means count refusal): {0}")
+  @ValueSource(ints = {-1, 0, 1})
+  @DisplayName("ineligible pairs release both guards without allocating or retiring leaves")
+  void consolidationReleasesGuardsForIneligiblePairs(final int sideReferenceChild) {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final HOTLeafPage left = unitLeaf(pageKeys, 0x00, 6);
+    final HOTLeafPage right = unitLeaf(pageKeys, 0x20, 4);
+    final HOTLeafPage third = unitLeaf(pageKeys, 0x40, 2);
+    final HOTLeafPage fourth = unitLeaf(pageKeys, 0x80, 2);
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
+        new PageReference[] {swizzle(left), swizzle(right), swizzle(third), swizzle(fourth)}, 1, 1, IndexType.PATH,
+        pageKeys::getAndIncrement);
+    if (sideReferenceChild >= 0) {
+      final HOTLeafPage referencedLeaf = sideReferenceChild == 0 ? left : right;
+      referencedLeaf.setPageReference(123L, new PageReference());
+    }
+    final long allocatedBefore = pageKeys.get();
+    final List<PageReference> dropped = new ArrayList<>();
+    try {
+      final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent,
+          sideReferenceChild < 0 ? 9 : CONSOLIDATION_TARGET, 2, IndexType.PATH, pageKeys::getAndIncrement, dropped);
+
+      assertSame(parent, consolidated, "entry-count and side-reference exclusions must preserve the parent");
+      assertTrue(dropped.isEmpty(), "ineligible leaves must not be retired");
+      assertEquals(allocatedBefore, pageKeys.get(), "an ineligible pair needs no replacement");
+      assertEquals(0, left.getGuardCount(), "left eligibility guard must be released");
+      assertEquals(0, right.getGuardCount(), "right eligibility guard must be released");
+      assertArrayEquals(unitKey(0x00, 0), left.getKey(0));
+      assertArrayEquals(unitKey(0x20, 0), right.getKey(0));
+    } finally {
       closeLeaves(parent);
     }
   }

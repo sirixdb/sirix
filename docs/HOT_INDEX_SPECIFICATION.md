@@ -1897,8 +1897,10 @@ because every path that releases a leaf's frame (`close`, `markOrphaned`, the la
 sets the orphaned flag first and nothing clears it, so a leaf that is not orphaned after the read
 owned its frame during the read. It needs no stamp (§4.9.3): a committed leaf is never re-bound to
 another frame, and the flag sits in the leaf object the comparison has just read. `consolidateNodeLeaves`, being
-callable on its own, also guards each pair for the duration of its copy and leaves a pair it cannot
-guard unmerged. `HOTIndexWriterLeafRetentionTest`, `HOTIncrementalInsertLeafRetentionTest` and
+callable on its own, also guards both leaves before checking their entry counts or side references,
+keeps the guards through the copy, and leaves a pair it cannot guard unmerged. Every eligibility
+refusal releases the acquired guards without allocating a replacement or retiring either input.
+`HOTIndexWriterLeafRetentionTest`, `HOTIncrementalInsertLeafRetentionTest` and
 `HOTStructuralPropertyTest.mutationsSurviveLeafEviction` evict every unguarded leaf at the writer's
 calls into its storage engine; the
 [postmortem](postmortems/2026-11-hot-writer-unheld-leaf-reads.md) records what the writer did
