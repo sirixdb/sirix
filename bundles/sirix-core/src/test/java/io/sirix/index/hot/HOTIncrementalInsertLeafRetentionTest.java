@@ -194,8 +194,9 @@ final class HOTIncrementalInsertLeafRetentionTest {
       assertTrue(dropped.isEmpty(), "nothing merged, so nothing is handed to retirement");
       assertEquals(allocatedBefore, pageKeys.get(), "no merge target is allocated for a pair that cannot be held");
       for (int i = 0; i < leaves.length; i++) {
-        assertEquals(deferredRetirement && i == evictedChild ? 1 : 0, leaves[i].getGuardCount(),
-            "only this test may retain a guard on child " + i);
+        assertEquals(deferredRetirement && i == evictedChild
+            ? 1
+            : 0, leaves[i].getGuardCount(), "only this test may retain a guard on child " + i);
       }
     } finally {
       if (deferredRetirement) {
@@ -224,8 +225,8 @@ final class HOTIncrementalInsertLeafRetentionTest {
       for (int i = 0; i < 2; i++) {
         assertTrue(fourth.put(unitKey(0x80, i), unitValue(0x80, i)));
       }
-      final HOTLeafPage[] leaves = {unitLeaf(pageKeys, 0x00, 6), unitLeaf(pageKeys, 0x20, 4),
-          unitLeaf(pageKeys, 0x40, 2), fourth};
+      final HOTLeafPage[] leaves =
+          {unitLeaf(pageKeys, 0x00, 6), unitLeaf(pageKeys, 0x20, 4), unitLeaf(pageKeys, 0x40, 2), fourth};
       final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
           new PageReference[] {swizzle(leaves[0]), swizzle(leaves[1]), swizzle(leaves[2]), swizzle(leaves[3])}, 1, 1,
           IndexType.PATH, pageKeys::getAndIncrement);
@@ -242,11 +243,13 @@ final class HOTIncrementalInsertLeafRetentionTest {
       };
       final List<PageReference> dropped = new ArrayList<>();
       try {
-        assertSame(failure, assertThrows(IllegalStateException.class,
-            () -> HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2, IndexType.PATH,
-                failingAllocator, dropped)));
+        assertSame(failure,
+            assertThrows(IllegalStateException.class, () -> HOTIncrementalInsert.consolidateNodeLeaves(parent,
+                CONSOLIDATION_TARGET, 2, IndexType.PATH, failingAllocator, dropped)));
         assertEquals(failingAllocation, allocations.get());
-        assertEquals(failingRetirement ? 1 : 0, failure.getSuppressed().length);
+        assertEquals(failingRetirement
+            ? 1
+            : 0, failure.getSuppressed().length);
         if (failingRetirement) {
           assertSame(retirementFailure, failure.getSuppressed()[0], "retirement must preserve the allocation failure");
         }
@@ -278,14 +281,17 @@ final class HOTIncrementalInsertLeafRetentionTest {
         new PageReference[] {swizzle(left), swizzle(right), swizzle(third), swizzle(fourth)}, 1, 1, IndexType.PATH,
         pageKeys::getAndIncrement);
     if (sideReferenceChild >= 0) {
-      final HOTLeafPage referencedLeaf = sideReferenceChild == 0 ? left : right;
+      final HOTLeafPage referencedLeaf = sideReferenceChild == 0
+          ? left
+          : right;
       referencedLeaf.setPageReference(123L, new PageReference());
     }
     final long allocatedBefore = pageKeys.get();
     final List<PageReference> dropped = new ArrayList<>();
     try {
-      final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent,
-          sideReferenceChild < 0 ? 9 : CONSOLIDATION_TARGET, 2, IndexType.PATH, pageKeys::getAndIncrement, dropped);
+      final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, sideReferenceChild < 0
+          ? 9
+          : CONSOLIDATION_TARGET, 2, IndexType.PATH, pageKeys::getAndIncrement, dropped);
 
       assertSame(parent, consolidated, "entry-count and side-reference exclusions must preserve the parent");
       assertTrue(dropped.isEmpty(), "ineligible leaves must not be retired");
