@@ -1233,19 +1233,15 @@ public final class HOTIncrementalInsert {
    * throws, because its caller can always try again later.
    *
    * <p>
-   * Nothing is held until the node's own mask says a merge is possible. Whether an adjacent pair is
-   * BiNode-paired is decided by {@link #biNodePairs(HOTIndirectPage)} from the node, not from any
-   * leaf, so a call that finds no pair reads no leaf and takes no guard -- which is most calls on a
-   * consolidation cadence. The guards exist for what a merge reads: the pair's own entries, which are
+   * The guards exist for what a merge reads: the pair's own entries, which are
    * copied, and the surviving children, whose swizzled pages the recompression of the parent resolves
    * again. {@code heightOf} asks a leaf for nothing but its type, so a survivor is held for its page
    * identity rather than for its bytes: without the guard its reference is cleared when the cache
    * evicts it, and the recompression would have no height for a child that still exists.
    *
    * <p>
-   * The retained-leaf array comes from {@code retentionScratch}, which the caller owns and reuses, so
-   * a consolidation allocates nothing for its own bookkeeping. Its slots are cleared when the guards
-   * are released, on every path including a failure.
+   * The writer owns and reuses {@code retentionScratch}, so retaining leaves needs no new array.
+   * Its slots are cleared when the guards are released, on every path including a failure.
    *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
    * @return the consolidated node, or {@code node} itself when nothing was mergeable
@@ -1289,12 +1285,10 @@ public final class HOTIncrementalInsert {
     try {
       Throwable consolidationFailure = null;
       try {
-        // The mask decides this, and it lives in the node: a call that finds no mergeable pair reads
-        // no leaf and therefore holds none. On a consolidation cadence that is most calls.
-        final boolean[] nodePairs = biNodePairs(node);
-        if (node.getNumChildren() < 3 || !anyPaired(nodePairs)) {
+        if (node.getNumChildren() < 3) {
           return node;
         }
+        final boolean[] nodePairs = biNodePairs(node);
         for (int i = 0; i < node.getNumChildren(); i++) {
           final Page child = node.getChildReference(i).getPage();
           if (child == null) {
@@ -1386,16 +1380,6 @@ public final class HOTIncrementalInsert {
       }
       throw failure;
     }
-  }
-
-  /** Whether any adjacent child pair is BiNode-paired, the cheapest reason to hold nothing. */
-  private static boolean anyPaired(final boolean[] paired) {
-    for (final boolean pair : paired) {
-      if (pair) {
-        return true;
-      }
-    }
-    return false;
   }
 
   private static void releaseConsolidationGuards(final HOTLeafPage[] leaves, final int count,
