@@ -9,12 +9,15 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.PageReference;
+import io.sirix.page.interfaces.Page;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -148,8 +151,16 @@ final class HOTIncrementalInsertLeafRetentionTest {
     if (deferredRetirement) {
       assertTrue(evicted.acquireGuard());
     }
-    evicted.close();
-    assertEquals(!deferredRetirement, evicted.isClosed());
+    final int evictedChild = evictLeft ? 0 : 1;
+    final PageReference evictingRef = spy(parent.getChildReference(evictedChild));
+    doAnswer(invocation -> {
+      final Page captured = (Page) invocation.callRealMethod();
+      evicted.close();
+      return captured;
+    }).when(evictingRef).getPage();
+    parent.setChildReference(evictedChild, evictingRef);
+    final PageReference[] originalChildren = {parent.getChildReference(0), parent.getChildReference(1),
+        parent.getChildReference(2), parent.getChildReference(3)};
     final long allocatedBefore = pageKeys.get();
     final List<PageReference> dropped = new ArrayList<>();
     try {
@@ -157,11 +168,18 @@ final class HOTIncrementalInsertLeafRetentionTest {
           IndexType.PATH, pageKeys::getAndIncrement, dropped);
 
       assertSame(parent, consolidated, "a pair that cannot be held is not merged");
+      assertEquals(4, consolidated.getNumChildren(), "all input children must remain in the parent");
+      for (int i = 0; i < originalChildren.length; i++) {
+        assertSame(originalChildren[i], consolidated.getChildReference(i), "child " + i + " must remain unchanged");
+      }
+      assertEquals(!deferredRetirement, evicted.isClosed(), "retirement must occur during child resolution");
       assertTrue(dropped.isEmpty(), "nothing merged, so nothing is handed to retirement");
       assertEquals(allocatedBefore, pageKeys.get(), "no merge target is allocated for a pair that cannot be held");
       assertEquals(0, retainable.getGuardCount(), "the guard on the retainable sibling must be released");
       assertEquals(deferredRetirement ? 1 : 0, evicted.getGuardCount(),
           "only this test may guard the unretainable sibling");
+      assertEquals(0, third.getGuardCount(), "no guard may remain on the third child");
+      assertEquals(0, fourth.getGuardCount(), "no guard may remain on the fourth child");
     } finally {
       if (deferredRetirement) {
         evicted.releaseGuard();

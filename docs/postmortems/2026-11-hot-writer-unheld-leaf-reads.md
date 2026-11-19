@@ -83,12 +83,18 @@
 - Root cause: the pair's entry-count and side-reference checks preceded guard acquisition.
   The benchmark used one class-level schedule for fixtures with different reset lifetimes.
 - Why tests missed it: the unguardable-pair test kept the retired right sibling alive with a
-  test-owned guard, so its side references remained readable. Latency runs supplied explicit
-  60/60 overrides for the steady benchmark, hiding its inherited 120/60 annotations.
+  test-owned guard, so its side references remained readable. The first review regression then
+  closed the leaf before consolidation, so `PageReference.getPage()` cleared its swizzle and
+  returned `null`; it skipped the pair without exercising the eligibility reads. Latency runs
+  supplied explicit 60/60 overrides for the steady benchmark, hiding its inherited 120/60 annotations.
 - Regression test: `HOTIncrementalInsertLeafRetentionTest.consolidationSkipsAPairItCannotHold`
-  now covers either sibling, fully retired or awaiting retirement. The oracle is the standalone
-  primitive's documented skip-without-allocation contract. Its fully retired cases reach the
-  old unguarded `segmentRefCount()` and reject the resulting exception.
+  now retires either sibling after the real `PageReference.getPage()` captures its live leaf
+  but before returning that leaf to consolidation, with full and deferred retirement cases.
+  The oracle is the standalone primitive's documented skip-without-allocation contract:
+  the same parent retains all four children, no replacement is allocated, and every acquired
+  guard is released. Eligibility is decided under both guards; an unguardable sibling leaves
+  the pair for a later attempt. Restoring the pre-guard eligibility ordering makes both fully
+  retired cases throw `FrameReusedException` at `segmentRefCount()` instead.
   `consolidationReleasesGuardsForIneligiblePairs` checks both side-reference exclusions and the
   count bound, including guard cleanup and unchanged inputs. The existing copy tests exercise
   successful and repeated merges under poisoned and recycled frames.
