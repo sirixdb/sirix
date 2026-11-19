@@ -300,6 +300,10 @@ final class HOTCommitNormalizerTest {
     verify(fixture.writer, never()).loadHOTPage(any(PageReference.class));
     assertSame(child, children[0].getPage(), "visited dirty boundaries retain their current page without I/O");
     assertEquals(2, root.getHeight());
+    // A full block cannot fold: one ownership lookup per clean child is the entire work budget.
+    for (int slot = 1; slot < children.length; slot++) {
+      verify(fixture.log, times(1)).get(same(children[slot]));
+    }
   }
 
   @Test
@@ -425,6 +429,27 @@ final class HOTCommitNormalizerTest {
               () -> HOTCommitNormalizer.normalize(reference, page, fixture.writer, fixture.scratch));
           verify(fixture.writer).markTransactionRollbackOnly(failure);
         }
+      }
+    }
+  }
+
+  @Test
+  void boundsActualDirtyDepthEvenWhenStoredHeightsUnderstateIt() {
+    try (HOTLeafPage leaf = leaf(1)) {
+      final Fixture fixture = new Fixture();
+      PageReference reference = ref(leaf);
+      // The writer contract permits 64 dirty frames. Understated metadata must not bypass it.
+      for (int depth = 0; depth < 65; depth++) {
+        reference = fixture.dirty(HOTIndirectPage.createBiNode(depth + 2, 1, 64 - depth, reference, ref(leaf), 2));
+      }
+      final PageReference rootRef = reference;
+      final HOTIndirectPage root = (HOTIndirectPage) fixture.entries.get(rootRef).getModified();
+      final IllegalStateException failure = assertThrows(IllegalStateException.class,
+          () -> HOTCommitNormalizer.normalize(rootRef, root, fixture.writer, fixture.scratch));
+      assertEquals("Dirty HOT commit spine exceeds bounded writer depth", failure.getMessage());
+      verify(fixture.writer).markTransactionRollbackOnly(failure);
+      for (final HOTIndirectPage ancestor : fixture.scratch.ancestors) {
+        assertNull(ancestor);
       }
     }
   }

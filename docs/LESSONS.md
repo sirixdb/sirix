@@ -155,3 +155,7 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   the oracle for NAME/PATH/CAS priority, unmatched and empty paths, revisions and
   cached lookups. Evidence: [statistics mutation coverage](postmortems/hash-default-consumers.md#ci-follow-up-name-index-selection-lacked-assertions).
 - Consume resolved HOT boundary heights during each load: a later load may clear an earlier PageReference. Allocation comparison factories may retain temporary arrays on another JVM; keep exact production output budgets independent of that control (postmortems/hot-ci-boundary-heights.md).
+- Extract complete cold HOT decisions at shared boundaries when complexity grows;
+  helper extraction changes bytecode, so retain pinned allocation budgets and
+  recapture compiled shape before claiming latency neutrality. Evidence:
+  [HOT complexity follow-up](postmortems/hot-codefactor-complexity.md).

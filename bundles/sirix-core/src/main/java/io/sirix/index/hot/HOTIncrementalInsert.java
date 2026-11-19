@@ -1005,51 +1005,14 @@ public final class HOTIncrementalInsert {
     final int parentBitCount = parent.copyDiscriminativeBits(parentBits);
     final int childBitCount = child.copyDiscriminativeBits(childBits);
     final int[] parentPartials = parent.getPartialKeysRef();
-    int lo = 0;
-    int hi = parent.getNumChildren() - 1;
-    while (lo < hi) {
-      final int splitBit = Integer.highestOneBit(parentPartials[lo] ^ parentPartials[hi]);
-      final int column = parentBitCount - 1 - Integer.numberOfTrailingZeros(splitBit);
-      if (childBits[0] <= parentBits[column]) {
-        return 0;
-      }
-      int mid = lo + 1;
-      while ((parentPartials[mid] & splitBit) == 0) {
-        mid++;
-      }
-      if (slot < mid) {
-        hi = mid - 1;
-      } else {
-        lo = mid;
-      }
+    if (!isChildBelowParentPath(parentPartials, parent.getNumChildren(), slot, parentBitCount, scratch)) {
+      return 0;
     }
-    int unionCount = parentBitCount;
-    for (int childBit = 0; childBit < childBitCount; childBit++) {
-      if (Arrays.binarySearch(parentBits, 0, parentBitCount, childBits[childBit]) < 0) {
-        unionCount++;
-      }
-    }
-    if (unionCount > Integer.SIZE) {
+    final int unionCount = mergeDiscriminativeBits(parentBitCount, childBitCount, scratch);
+    if (unionCount == 0) {
       return 0;
     }
     final int[] bits = scratch.unionBits;
-    int pi = 0;
-    int ci = 0;
-    for (int i = 0; i < unionCount; i++) {
-      final int pb = pi < parentBitCount
-          ? parentBits[pi]
-          : Integer.MAX_VALUE;
-      final int cb = ci < childBitCount
-          ? childBits[ci]
-          : Integer.MAX_VALUE;
-      bits[i] = Math.min(pb, cb);
-      if (pb <= cb) {
-        pi++;
-      }
-      if (cb <= pb) {
-        ci++;
-      }
-    }
     final int firstByte = bits[0] >>> 3;
     final int lastByte = bits[unionCount - 1] >>> 3;
     if (lastByte - firstByte >= Long.BYTES && lastByte > 255) {
@@ -1082,6 +1045,67 @@ public final class HOTIncrementalInsert {
     }
     scratch.unionBitCount = unionCount;
     return count;
+  }
+
+  /** Every decision above the selected slot must precede the child's first bit. */
+  private static boolean isChildBelowParentPath(final int[] parentPartials, final int parentChildCount, final int slot,
+      final int parentBitCount, final HOTCommitNormalizer.Scratch scratch) {
+    final int[] parentBits = scratch.parentBits;
+    final int[] childBits = scratch.childBits;
+    int lo = 0;
+    int hi = parentChildCount - 1;
+    while (lo < hi) {
+      final int splitBit = Integer.highestOneBit(parentPartials[lo] ^ parentPartials[hi]);
+      final int column = parentBitCount - 1 - Integer.numberOfTrailingZeros(splitBit);
+      if (childBits[0] <= parentBits[column]) {
+        return false;
+      }
+      int mid = lo + 1;
+      while ((parentPartials[mid] & splitBit) == 0) {
+        mid++;
+      }
+      if (slot < mid) {
+        hi = mid - 1;
+      } else {
+        lo = mid;
+      }
+    }
+    return true;
+  }
+
+  /** Merge ordered mask columns into borrowed scratch; zero means the union exceeds 32 bits. */
+  private static int mergeDiscriminativeBits(final int parentBitCount, final int childBitCount,
+      final HOTCommitNormalizer.Scratch scratch) {
+    final int[] parentBits = scratch.parentBits;
+    final int[] childBits = scratch.childBits;
+    int unionCount = parentBitCount;
+    for (int childBit = 0; childBit < childBitCount; childBit++) {
+      if (Arrays.binarySearch(parentBits, 0, parentBitCount, childBits[childBit]) < 0) {
+        unionCount++;
+      }
+    }
+    if (unionCount > Integer.SIZE) {
+      return 0;
+    }
+    final int[] bits = scratch.unionBits;
+    int pi = 0;
+    int ci = 0;
+    for (int i = 0; i < unionCount; i++) {
+      final int pb = pi < parentBitCount
+          ? parentBits[pi]
+          : Integer.MAX_VALUE;
+      final int cb = ci < childBitCount
+          ? childBits[ci]
+          : Integer.MAX_VALUE;
+      bits[i] = Math.min(pb, cb);
+      if (pb <= cb) {
+        pi++;
+      }
+      if (cb <= pb) {
+        ci++;
+      }
+    }
+    return unionCount;
   }
 
   /** Materialize using the height captured while each retained child was resolved. */

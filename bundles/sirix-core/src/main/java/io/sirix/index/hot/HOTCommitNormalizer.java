@@ -83,6 +83,41 @@ public final class HOTCommitNormalizer {
     if (owner.getModified() != page) {
       throw new IllegalStateException("HOT normalization requires the current transaction-owned page");
     }
+    enterDirtySpine(page, scratch, depth);
+
+    final boolean repairHeight = normalizeChildren(page, writer, scratch, depth, log);
+
+    HOTIndirectPage result = page;
+    int slot = 0;
+    while (result.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES && slot < result.getNumChildren()) {
+      final PageReference childRef = result.getChildReference(slot);
+      final PageContainer childOwner = log.get(childRef);
+      if (childOwner == null || !(childOwner.getModified() instanceof HOTIndirectPage child)) {
+        slot++;
+        continue;
+      }
+      final int count = HOTIncrementalInsert.prepareCompatibleChild(result, slot, child, scratch);
+      if (count == 0) {
+        slot++;
+      } else {
+        result = materializeFold(page, count, writer, scratch);
+        // The child was already normalized; its inserted references cannot gain capacity or
+        // mask room in this larger parent. Earlier refusals cannot improve as both grow.
+        slot += child.getNumChildren();
+      }
+    }
+    if (result == page && repairHeight) {
+      repairHeight(page, writer);
+    }
+    if (result != page) {
+      log.put(reference, PageContainer.getInstance(result, result));
+    }
+    result.markNormalized();
+    scratch.ancestors[depth] = null;
+    return result;
+  }
+
+  private static void enterDirtySpine(final HOTIndirectPage page, final Scratch scratch, final int depth) {
     if (depth >= scratch.ancestors.length) {
       throw new IllegalStateException("Dirty HOT commit spine exceeds bounded writer depth");
     }
@@ -92,7 +127,10 @@ public final class HOTCommitNormalizer {
       }
     }
     scratch.ancestors[depth] = page;
+  }
 
+  private static boolean normalizeChildren(final HOTIndirectPage page, final StorageEngineWriter writer,
+      final Scratch scratch, final int depth, final TransactionIntentLog log) {
     boolean repairHeight = false;
     for (int slot = 0; slot < page.getNumChildren(); slot++) {
       final PageReference childRef = page.getChildReference(slot);
@@ -120,52 +158,32 @@ public final class HOTCommitNormalizer {
         childRef.setPage(child);
       }
     }
+    return repairHeight;
+  }
 
-    HOTIndirectPage result = page;
-    int slot = 0;
-    while (result.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES && slot < result.getNumChildren()) {
-      final PageReference childRef = result.getChildReference(slot);
-      final PageContainer childOwner = log.get(childRef);
-      if (childOwner == null || !(childOwner.getModified() instanceof HOTIndirectPage child)) {
-        slot++;
-        continue;
-      }
-      final int count = HOTIncrementalInsert.prepareCompatibleChild(result, slot, child, scratch);
-      if (count == 0) {
-        slot++;
-      } else {
-        // Only an accepted fold needs these clean boundary roots. Never unpack leaf entries.
-        int height = 1;
-        for (int retained = 0; retained < count; retained++) {
-          final Page resolved = resolveChild(scratch.children[retained], writer);
-          // A subsequent load can evict this page and clear its reference; consume metadata now.
-          if (resolved instanceof HOTIndirectPage indirect) {
-            height = Math.max(height, indirect.getHeight() + 1);
-          }
-        }
-        result =
-            HOTIncrementalInsert.materializePreparedFold(page.getRevision(), page.getPageKey(), count, height, scratch);
-        // The child was already normalized; its inserted references cannot gain capacity or
-        // mask room in this larger parent. Earlier refusals cannot improve as both grow.
-        slot += child.getNumChildren();
+  private static HOTIndirectPage materializeFold(final HOTIndirectPage page, final int count,
+      final StorageEngineWriter writer, final Scratch scratch) {
+    // Only an accepted fold needs these clean boundary roots. Never unpack leaf entries.
+    int height = 1;
+    for (int retained = 0; retained < count; retained++) {
+      final Page resolved = resolveChild(scratch.children[retained], writer);
+      // A subsequent load can evict this page and clear its reference; consume metadata now.
+      if (resolved instanceof HOTIndirectPage indirect) {
+        height = Math.max(height, indirect.getHeight() + 1);
       }
     }
-    if (result == page && repairHeight) {
-      int height = 1;
-      for (int child = 0; child < page.getNumChildren(); child++) {
-        final Page resolved = resolveChild(page.getChildReference(child), writer);
-        if (resolved instanceof HOTIndirectPage indirect) {
-          height = Math.max(height, indirect.getHeight() + 1);
-        }
+    return HOTIncrementalInsert.materializePreparedFold(page.getRevision(), page.getPageKey(), count, height, scratch);
+  }
+
+  private static void repairHeight(final HOTIndirectPage page, final StorageEngineWriter writer) {
+    int height = 1;
+    for (int child = 0; child < page.getNumChildren(); child++) {
+      final Page resolved = resolveChild(page.getChildReference(child), writer);
+      if (resolved instanceof HOTIndirectPage indirect) {
+        height = Math.max(height, indirect.getHeight() + 1);
       }
-      page.setHeightForWrite(height);
     }
-    if (result != page) {
-      log.put(reference, PageContainer.getInstance(result, result));
-    }
-    result.markNormalized();
-    scratch.ancestors[depth] = null;
-    return result;
+    page.setHeightForWrite(height);
   }
 
   private static Page resolveChild(final PageReference reference, final StorageEngineWriter writer) {

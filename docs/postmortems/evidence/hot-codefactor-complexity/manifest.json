@@ -1,0 +1,18 @@
+{
+  "allocation.tar.gz": {
+    "bytes": 1022633,
+    "sha256": "930f5379e72dbf384539e9ec849cf8ced49f99f600157530812ad038e77b477e"
+  },
+  "compiled-shape.tar.gz": {
+    "bytes": 2235549,
+    "sha256": "331ba0fa5cf27bc23bf7a5e7e1a200dc9d99eb86a62e9d11869b464277da5497"
+  },
+  "replay-and-provenance.tar.gz": {
+    "bytes": 421336,
+    "sha256": "93acdbe375e7fedb1dcae9793ad68020b6279568d250af79144e5c8c416a7372"
+  },
+  "verification.tar.gz": {
+    "bytes": 122622,
+    "sha256": "cbe76f5d0c32783ebb74ebb29b70cee7b053c29884bcf99c4887918ad7bf12f0"
+  }
+}
