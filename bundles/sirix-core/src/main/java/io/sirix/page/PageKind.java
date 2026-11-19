@@ -6081,6 +6081,7 @@ public enum PageKind {
         };
       }
 
+      created.markNormalized(); // transient structural opportunity is never persisted
       return created;
     }
 

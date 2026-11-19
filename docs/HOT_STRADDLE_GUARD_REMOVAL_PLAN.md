@@ -1,14 +1,17 @@
 # HOT straddle-guard removal — design plan
 
-**Status:** design, pending review. **Branch:** `fix/hot-strict-binna-conformance`.
+Historical design and review record from `fix/hot-strict-binna-conformance`.
+The minimum-height conclusions were withdrawn after the lost-outer-spine regression;
+current height and normalization requirements are owned by
+[HOT Index Specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing).
 **Supersedes:** `docs/HOT_ADDENTRY_STRADDLE_FIX.md` — that fix produces *correct* trees
 (`rebuildSubtree` is canonical by construction) but it preserves a **non-invariant** at
 **O(subtree)** cost per leaf split. **Empirically settled:** `StraddleCanonicityProbe`
 (this campaign) + the guard-disabled canary run below.
 
-This plan keeps the HOT insert path **fully incremental** (no commit-time pass, no
-provisional nodes) and **minimum-trie-height preserving** after *every* insert — the two
-hard constraints — by *removing* the guard rather than adding machinery.
+This plan removed the guard to keep leaf-overflow folding incremental. Its original
+no-commit-pass and minimum-height goals do not describe the current implementation;
+see §5.2.
 
 ---
 
@@ -71,8 +74,7 @@ bit that is *off* child `i`'s block-path — there `pᵢ`'s column is 0 (sparse-
 encoding), so `(pᵢ & ~densePK)` is unaffected. **I5-raw is strictly stronger than
 routing requires, and §3 shows the canonical HOT does not even satisfy it.**
 
-Three properties — kept distinct, because §5 proves the first two and deliberately does
-*not* claim the third:
+The historical analysis distinguished three properties:
 
 - **invariant-clean** — satisfies I1–I8 + I11. `HOT_FORMAL_FOUNDATION.md` Theorem 2
   proves invariant-clean ⟹ I6 (routing-correct). This is **correctness**.
@@ -82,16 +84,9 @@ Three properties — kept distinct, because §5 proves the first two and deliber
   order-independent node-grouping `HOTBulkBuilder.build` produces, unique by Binna
   Lemma 2.
 
-`canonical ⟹ height-minimal ∧ invariant-clean`, but **not conversely**: the incremental
-insert is insertion-order-dependent — a node's compound-block membership depends on which
-leaf overflowed when — so it produces invariant-clean, height-minimal tries that need
-*not* be byte-identical to the SMHP grouping. **This plan claims, and §5 proves,
-`invariant-clean` + `height-minimal` after every insert** — exactly the two stated
-requirements (correctness + minimum height). It does **not** claim the incremental tree
-reproduces the unique SMHP node-grouping, and need not: among equally-height-minimal
-invariant-clean tries the grouping affects neither routing nor height. (The committed
-straddle guard does not maintain the SMHP grouping continuously either — only
-momentarily, at each `rebuildSubtree`; between straddles plain `addEntry` runs.)
+The incremental insert is insertion-order-dependent: a node's compound-block membership
+depends on which leaf overflowed when. The accompanying minimum-height claim was not
+established; see §5.2.
 
 ---
 
@@ -124,7 +119,7 @@ keys may take either value at `b` freely. ∎
 I5-raw is therefore *not* a HOT invariant — it cannot be, since the canonical structure
 breaks it.
 
-### §3.2 `addEntry` already produces an invariant-clean, height-minimal fold
+### §3.2 The I5-route argument for `addEntry`
 
 `addEntry` (`HOTIncrementalInsert.java:733`) re-encodes, for the new bit `λ` at column
 `betaColumn`: the affected child's two replacements get `betaValue` 0 (`L₀`, `:777`–`:781`)
@@ -188,7 +183,7 @@ malformed per `HOTMalformedSubtreeDetector`, 100 % routing) with the guard disab
 `λ ∉ D(N)` and `N` not full (`HOTIncrementalInsert.java:740`–`:751`) — and always folds
 incrementally in O(children). `integrate` always folds or cascades; no
 `HOTStraddleException`, no straddle-driven `rebuildSubtree`. The result is the
-**incremental, minimum-height** path the campaign wanted, with **no new machinery** — a
+**incremental** path the campaign wanted, with **no new machinery** — a
 pure removal.
 
 `rebuildSubtree` itself **stays** — it remains the target of the genuine
@@ -214,17 +209,15 @@ index is canonical). `doIndex` does one of: fast-path merge; leaf-overflow → `
 ### §5.1 Theorem 2 — the leaf-overflow fold preserves invariant-cleanness
 
 > `doIndex` of a key whose insert overflows a leaf `L` leaves the trie
-> **invariant-clean** (I1–I8 + I11 ⟹ I6, routing-correct). Height-minimality is
-> Theorem 3.
+> **invariant-clean** (I1–I8 + I11 ⟹ I6, routing-correct).
 
 *Proof.* `splitLeafPage` produces `BiNode(λ, L₀, L₁)` with `λ = msdb(L ∪ {K})`; `L₀`,
 `L₁` are valid `R`-subtrees, `λ`-constant (`HOTLeafPageSplitFaithfulTest`). `integrate`:
 
 - **`N` not full** → `addEntry`. Invariant-cleanness: Theorem 1 (§3.2). Height:
   `addEntry` sets `height = 1 + maxChildHeight` (`:795`–`:800`); `λ` joins `N`'s block,
-  which keeps `N` one compound node (a block of `m+1 ≤ 31` BiNodes is still one node) —
-  Theorem 3 proves the resulting height is minimal. So `N'` is invariant-clean and
-  (Theorem 3) height-minimal.
+  which keeps `N` one compound node (a block of `m+1 ≤ 31` BiNodes is still one node).
+  This local height calculation does not establish global minimality (§5.2).
 - **`N` full** → capacity cascade: `splitIndirect(N)` at `N.MSB` + `foldIntoHalf` (the
   affected half absorbs `λ` via `addEntry`) + recurse. This is Binna's verified split
   (`HOT_INCREMENTAL_SPLIT_VERIFICATION.md`); removing the guard removes only the
@@ -233,78 +226,25 @@ index is canonical). `doIndex` does one of: fast-path merge; leaf-overflow → `
 - **`currentDepth == 0` / intermediate-node** cases add no disc bit — they cannot
   straddle and were never guarded; unchanged.
 
-So insert `i` leaves the trie canonical; the induction carries. ∎
+This is the local invariant-preservation argument; the global height induction is
+withdrawn (§5.2).
 
-### §5.2 Theorem 3 — minimum trie height is preserved after every insert
+### §5.2 Theorem 3 — minimum-height argument withdrawn
 
-> If the trie is height-minimal before the insert — its height equals `minheight(S)`,
-> the smallest any fanout-≤32 HOT over `S` can have — then after a leaf-overflow
-> `addEntry` into a not-full node it is height-minimal for `S ∪ {K}`.
+The original argument assumed every insertion handler preserved a globally minimal
+height and that bulk construction supplied the same minimum. The lost-outer-spine
+regression invalidated that induction; `HOTSubInsertSpineTest` supplies counterexamples.
+See [HOT Index Specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing)
+for the current contract and its limits.
 
-*Proof.* Let `h = minheight(S)` be the pre-insert height (induction hypothesis; base: a
-single leaf page, height 0). `addEntry` folds the split BiNode into the target node `N`'s
-block; `N` is not full (`integrate` cascades a full node instead — Theorem 2 case 2), so
-`N` stays a single compound node and its stored `height = 1 + maxChildHeight` is
-unchanged: the affected leaf `L` (height 0) is replaced by leaves `L₀`,`L₁` (height 0),
-and no other node changes. So the post-insert trie has height `h`.
+The historical `StraddleCanonicityProbe` with the guard disabled observed unchanged
+height after each `addEntry` fold and height 2 for both incremental and bulk builds
+of its 20 K-random key set. That sample does not prove the withdrawn general claim.
 
-- That trie is a valid HOT for `S ∪ {K}`, hence `minheight(S ∪ {K}) ≤ h`.
-- `minheight` is non-decreasing under key insertion: any HOT for `S ∪ {K}` with `K`'s
-  leaf entry deleted (and any degenerate node collapsed) is a HOT for `S` of no greater
-  height, so `minheight(S) ≤ minheight(S ∪ {K})`.
+### §5.3 Theorem 4 — height-equivalence argument withdrawn
 
-Hence `h = minheight(S) ≤ minheight(S ∪ {K}) ≤ h` — so `minheight(S ∪ {K}) = h` and the
-incremental trie achieves it. **The fold is height-minimal.** ∎
-
-*Corollary.* `h` is exactly the height `HOTBulkBuilder` (= SMHP = the minimum) produces
-for `S ∪ {K}`: the committed guard's `rebuildSubtree` reaches the **identical height** at
-O(subtree) cost. Removing the guard makes the trie neither taller (both achieve the
-minimum) nor shorter (nothing beats the minimum).
-
-*Oversized-half case.* If a split half exceeds a page (> 512 keys) `splitLeafPage`
-recurses it through `HOTBulkBuilder` into a compound subtree and `N`'s height may rise by
-one. This is **forced**: a > 512-key contiguous key range cannot occupy one leaf page, so
-*every* HOT for `S ∪ {K}` has a compound node there — `minheight` genuinely increased and
-`addEntry` matches it. Still height-minimal.
-
-*The full-node cascade.* When `N` is full, `integrate` cascades (`splitIndirect` +
-recurse) — Binna's incremental split, **unchanged by this plan** (the guard lived in
-`addEntry`, never in the cascade structure). It adds a height level only when it
-propagates to the root — i.e. when every node on the insert path is full, the same
-condition under which `minheight` itself rises. Its height behaviour is identical before
-and after guard removal; empirically the canaries reach height 1–3, equal to
-`HOTBulkBuilder` of the same keys (`StraddleCanonicityProbe`: incremental 20K-random
-height = `HOTBulkBuilder` 20K-random height = 2).
-
-> **Remark (height-minimal ≠ the unique SMHP grouping).** Theorem 3 proves the trie
-> *height* is minimal — the property the campaign requires. It does **not** prove the
-> incremental tree is byte-identical to `HOTBulkBuilder`'s output: `addEntry` is
-> insertion-order-dependent (which BiNodes share a compound block depends on overflow
-> history), whereas the SMHP grouping is order-independent (Binna Lemma 2). The two are
-> different height-minimal invariant-clean tries; the grouping difference affects neither
-> routing (Theorem 2) nor height (Theorem 3), and the committed guard does not maintain
-> the SMHP grouping continuously either (only at each `rebuildSubtree`). Leaf-page
-> *boundaries* likewise depend on fill history — orthogonal, and every leaf page is still
-> a complete `R`-subtree.
-
-**Empirical confirmation (`StraddleCanonicityProbe`, guard disabled):** every `addEntry`
-fold left the node's height unchanged (none inflated); a 20 K-random incremental build
-reached `observedHeight = 2`, **equal to `HOTBulkBuilder`(same 20 K keys) height = 2**.
-
-### §5.3 Theorem 4 — removing the guard changes nothing observable but cost
-
-> For every insert sequence, the trie produced with the guard removed is
-> **invariant-clean, height-minimal, and routing-equivalent** to the trie the committed
-> straddle fix produces; only the per-leaf-split cost differs (O(children) vs O(subtree)).
-
-*Proof.* The committed fix, on a straddle, runs `rebuildSubtree` → `HOTBulkBuilder` —
-invariant-clean and height-minimal, at height `h = minheight(S∪{K})` (its Theorem 2 +
-`HOTBulkBuilder` = SMHP = the minimum). Guard removed, the same fold runs `addEntry` —
-invariant-clean (Theorem 2) and height-minimal at the *same* `h` (Theorem 3 Corollary).
-Both route every key (I6). They may differ in compound-node grouping and leaf-page
-boundaries (§5.2 Remark) — orthogonal, always-valid choices — but **not** in height,
-invariant-cleanness, or routing. The committed fix's cost is O(subtree) per straddle
-(collect + sort + build); the removal's is O(children) — the `addEntry` re-encode. ∎
+This comparison with the straddle-driven rebuild depended on §5.2. The I5-route
+argument in §3.2 remains separate from height or shape equivalence.
 
 ### §5.4 Theorem 5 — termination
 
@@ -422,27 +362,20 @@ on-path sibling straddle of `λ` is structurally impossible (`addEntry` makes `�
 off-path for every sibling); a malformed affected run is exempt from the guard anyway.
 Probe step 4: 76/76 folds canonical with the guard off.
 
-**Pass 4 (the two constraints).** Incremental? — yes, `addEntry` is the O(children)
-incremental fold; no commit-time pass, no provisional node. Minimum height? — yes,
-Theorem 3 + the probe (incremental height == `HOTBulkBuilder` height).
+**Pass 4 (the two constraints).** The minimum-height and no-commit-pass
+conclusions are superseded; see §5.2.
 
 **Pass 5 (what still uses `rebuildSubtree`?).** — *Checked:* the
 `IllegalArgumentException | IllegalStateException` self-heal, `rebuildWholeIndex`, and
 height-escalation. Only the straddle caller is removed; `rebuildSubtree` stays. On a
 canonical tree the self-heal never fires.
 
-**Pass 6 (regression surface).** — *Checked:* removing the guard cannot make a tree
-*less* canonical (Theorem 4 — same canonical result as the committed fix, fewer
-rebuilds). The risk is the *opposite* — a pre-existing non-canonical input — which the
-guard never healed (it healed via `rebuildSubtree`, but only when *it itself* fired on a
-straddle; a non-straddle malformation already bypassed it). The optional debug assertion
-(§4) covers testing.
+**Pass 6 (regression surface).** The equivalence conclusion depended on
+withdrawn Theorem 4 (§5.3). The optional debug assertion (§4) was proposed to detect
+malformed inputs during testing.
 
-**Pass 7 (leaf-packing vs Lemma 2).** — *Caught and stated:* the incremental tree is
-canonical and minimum-height but not necessarily byte-identical to `HOTBulkBuilder` —
-leaf-page boundaries are fill-history-dependent. §5.2 Remark makes the claimed
-equivalence "canonical", not "identical"; the probe asserts canonical (detector-clean +
-equal height + 100 % routing), which is what the user's constraints require.
+**Pass 7 (leaf-packing vs Lemma 2).** Leaf boundaries are fill-history-dependent;
+the accompanying height-equivalence conclusion is withdrawn (§5.2).
 
 **Pass 8 (test honesty).** — *Caught:* `HOTIndirectPageSplitFaithfulTest`'s `addEntry`
 tests were *weakened* to tolerate the guard. They must be re-tightened (§7.8), else the
@@ -453,22 +386,9 @@ I5-route (§7.9 / C9) or it false-positives on canonical straddles.
 `IllegalArgumentException` self-heal are out of scope and untouched; this plan changes
 exactly one thing — the leaf-overflow `addEntry` straddle response.
 
-**Pass 10 (the "is it really minimum height?" pass — a real overclaim caught).** — An
-earlier draft of §3.2/§5.2/§5.3 claimed `addEntry`'s output "**is** the SMHP node" /
-"== `HOTBulkBuilder`" / "canonical". *That is false:* `addEntry` is insertion-order-
-dependent, so it does not reproduce the unique (order-independent) SMHP node-grouping.
-*Fix:* §2 now separates **height-minimal** (the trie-height number — what the campaign
-requires) from **canonical/SMHP** (the unique grouping — neither claimed nor needed);
-Theorem 3 is re-proved as a genuine height argument — `addEntry` runs only into a
-not-full node ⟹ height unchanged ⟹ a height-`minheight(S)` HOT exists for `S∪{K}` ⟹
-`minheight` did not rise ⟹ the fold is height-minimal — independent of node-grouping and
-of Binna Lemma 2's uniqueness. The claimed-and-proven property is exactly
-`invariant-clean` + `height-minimal`, which is correctness + minimum height.
-
-*Ten passes. No outstanding holes; the change is a verified net deletion that makes the
-leaf-overflow path incremental and provably minimum-trie-height-preserving (correctness +
-the minimum height *number* — not the SMHP node-grouping, which is neither needed nor
-claimed).*
+**Pass 10 (minimum height).** The review distinguished minimum height from
+SMHP grouping but still relied on the invalid induction in §5.2. Its conclusion
+that no height-related holes remained is withdrawn.
 
 ---
 
@@ -476,8 +396,7 @@ claimed).*
 
 **In scope.** Removing the `addEntry` straddle guard (`splitBitIsSafe` /
 `subtreeStraddles` / `HOTStraddleException` / the `integrate` + driver catch arms) so the
-leaf-overflow fold runs as the pure incremental, minimum-height O(children) operation it
-already is.
+leaf-overflow fold runs as an incremental O(children) operation.
 
 **Out of scope — `betaIsDiscBit` + full node.** `tryBranchIncremental` still falls back
 to `rebuildSubtree` there (`hot-betaisdiscbit-fullnode-blocked`). Its diagnosis rests on

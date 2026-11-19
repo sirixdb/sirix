@@ -4,6 +4,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -11,7 +12,10 @@ import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.interval.ValidTimeKey;
 import io.sirix.index.interval.ValidTimeKeySerializer;
+import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.page.PageReference;
+import io.sirix.page.interfaces.Page;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
@@ -60,8 +64,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the reduction dropped is replayed as the removal of an absent posting), replayed at index level
  * with one transaction per publication, so the consolidation cadence and the delta slots come out
  * as they did in the load. After every commit the trie must satisfy every invariant and hold
- * exactly the stream's postings, under each versioning type; the reach assertion comes last so that
- * a broken writer is reported as the defect it is.
+ * exactly the stream's postings, under each versioning type. Commit normalization now removes the
+ * captured inner geometry before later transactions reach the old split-half path. The stream
+ * therefore checks observed commit folding; the independent constructed split-half witness remains
+ * mandatory in {@code HOTOrderingGuardTest}. Reach assertions come after the posting oracle.
  */
 final class HOTFrontierSplitHalfCanonicalTest {
 
@@ -77,21 +83,21 @@ final class HOTFrontierSplitHalfCanonicalTest {
     Databases.clearGlobalCaches();
   }
 
-  @ParameterizedTest(name = "{0}: the split half is built canonically and the stream stays exact")
+  @ParameterizedTest(name = "{0}: commit folds the captured geometry and the stream stays exact")
   @EnumSource(VersioningType.class)
-  void splitHalfWhoseChildStraddlesADroppedColumnIsBuiltCanonically(final VersioningType versioningType) {
-    final long recanonicalizedBefore = AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_RECANONICALIZED.get();
+  void capturedFrontierStreamNormalizesBlocksAndKeepsExactPostings(final VersioningType versioningType) {
     final long deltaWritesBefore = HOTIndexWriter.postingDeltaWrites();
-    // Preserve the captured split geometry independently of the production fold policy.
-    replay(versioningType, 256, 64);
+    // Keep the captured posting-delta geometry. Commit now removes the inner blocks that made
+    // later transactions reach the old split-half path. Its mandatory primitive witness remains
+    // in HOTOrderingGuardTest.persistentFrontierSplitMustRecanonicalizeAHalfThatDropsAChildsBit.
+    final int normalizedBlocks = replay(versioningType, 256, 64);
 
     // Last, so that a broken writer is reported as the defect it is and not as a stream that no longer
     // reaches it.
     assertTrue(HOTIndexWriter.postingDeltaWrites() > deltaWritesBefore,
         "the stream must write posting deltas: it is the batched, delta-on load that failed");
-    assertTrue(AbstractHOTIndexWriter.FRONTIER_SPLIT_HALF_RECANONICALIZED.get() > recanonicalizedBefore,
-        "the stream must reach a persistent split whose half has to be built canonically; without one it no longer"
-            + " covers the frontier failure");
+    assertTrue(normalizedBlocks > 0, "commit must actually fold the captured inner geometry; "
+        + "the complete posting and historical-revision oracle above must still hold");
   }
 
   @ParameterizedTest(name = "{0}: the production fold policy preserves the complete frontier stream")
@@ -114,10 +120,11 @@ final class HOTFrontierSplitHalfCanonicalTest {
     return HOTValidTimeCorrectionStreamTest.deltaGeometries();
   }
 
-  private void replay(final VersioningType versioningType, final int hotChunkBytes, final int foldBound) {
+  private int replay(final VersioningType versioningType, final int hotChunkBytes, final int foldBound) {
     final List<List<String>> transactions = transactions();
     final Map<ValidTimeKey, Set<Long>> expected = new HashMap<>();
     final List<Map<ValidTimeKey, Set<Long>>> snapshots = new ArrayList<>();
+    int normalizedBlocks = 0;
 
     final Path databasePath = temporaryDirectory.resolve("db");
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(databasePath)));
@@ -127,12 +134,14 @@ final class HOTFrontierSplitHalfCanonicalTest {
       try (JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
         int publication = 0;
         for (final List<String> ops : transactions) {
+          final int innerPagesBeforeCommit;
           try (JsonNodeTrx wtx = session.beginNodeTrx()) {
             final HOTIndexWriter<ValidTimeKey> writer = HOTIndexWriter.create(wtx.getStorageEngineWriter(),
                 ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER, hotChunkBytes, foldBound);
             for (final String op : ops) {
               apply(writer, expected, op);
             }
+            innerPagesBeforeCommit = countInnerPages(writer.getRootReference(), wtx.getStorageEngineWriter());
             wtx.commit();
           }
           publication++;
@@ -143,6 +152,12 @@ final class HOTFrontierSplitHalfCanonicalTest {
             HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.VALIDTIME, INDEX_NUMBER)
                                  .assertOk();
             assertExact(rtx, expected, publication);
+            final HOTIndexReader<ValidTimeKey> reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
+                ValidTimeKeySerializer.INSTANCE, IndexType.VALIDTIME, INDEX_NUMBER);
+            final int innerPagesAfterCommit = countInnerPages(reader.getRootReference(), rtx.getStorageEngineReader());
+            assertTrue(innerPagesAfterCommit <= innerPagesBeforeCommit,
+                "reference-only normalization must not add inner blocks");
+            normalizedBlocks += innerPagesBeforeCommit - innerPagesAfterCommit;
           }
         }
         assertRevisions(session, snapshots);
@@ -153,6 +168,19 @@ final class HOTFrontierSplitHalfCanonicalTest {
         JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
       assertRevisions(session, snapshots);
     }
+    return normalizedBlocks;
+  }
+
+  private static int countInnerPages(final PageReference reference, final StorageEngineReader reader) {
+    final Page page = reader.loadHOTPage(reference);
+    if (!(page instanceof HOTIndirectPage indirect)) {
+      return 0;
+    }
+    int count = 1;
+    for (int slot = 0; slot < indirect.getNumChildren(); slot++) {
+      count += countInnerPages(indirect.getChildReference(slot), reader);
+    }
+    return count;
   }
 
   private static void assertRevisions(final JsonResourceSession session,

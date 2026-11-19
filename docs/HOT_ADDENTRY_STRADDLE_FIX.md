@@ -1,13 +1,14 @@
 > **⚠ SUPERSEDED by `docs/HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` (implemented 2026-05-19).**
 > The committed straddle guard produces *correct* trees but is a performance pessimization,
 > not a correctness fix: `HOTBulkBuilder` itself routinely produces off-path straddles and
-> still routes 100 %, so `addEntry`'s incremental fold is already invariant-clean and
-> minimum-height. The guard has been **removed** — the §2 I5 definition below is over-strict
+> still routes 100 %, so the guard is not needed for I5-route. The guard has been
+> **removed** — the §2 I5 definition below is over-strict
 > ("raw constancy"); the routing-relevant I5 is the one-sided
 > `(storedPartial & ~densePK) == 0` (what `HOTInvariantValidator` /
 > `HOTMalformedSubtreeDetector` actually check). Empirical proof:
 > `StraddleCanonicityProbe`. Read this document as the historical diagnosis;
-> the removal plan supersedes it.
+> the removal plan supersedes it. Current height requirements are owned by
+> [HOT Index Specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing).
 
 # HOT `addEntry` straddle fix — design plan
 

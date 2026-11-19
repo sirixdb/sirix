@@ -66,14 +66,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
- * On the way the stream meets each structural case that needed a fix, and that it still does is
- * asserted through the counter incremented at the source of each: a fold at a bit the parent's mask
- * already holds whose upper half would land past a sibling (the first publication of corrections —
- * where the load used to stop), a complete-frontier join that has to split a side a bit of its
- * block cuts through, and the decomposition of a full node one of whose halves would break the trie
- * condition against its own child (the twentieth — published unseen, committed, and fatal three
- * publications later). {@code HOTStraddlingLeafSpliceTest} pins the first two with a few
- * registrations each; the third needs the trie this stream builds.
+ * On the way the stream meets structural cases that needed a fix, asserted through their counters:
+ * a fold at a bit the parent's mask already holds whose upper half would land past a sibling (the
+ * first publication of corrections — where the load used to stop), a complete-frontier join that
+ * has to split a side a bit of its block cuts through, and the decomposition of a full node one of
+ * whose halves would break the trie condition against its own child (the twentieth — published
+ * unseen, committed, and fatal three publications later). {@code HOTStraddlingLeafSpliceTest} pins
+ * the first two with a few registrations each. Commit normalization now changes the geometry that
+ * reached the third;
+ * {@code HOTOrderingGuardTest.fullNodeWithStraddlingChildDeclinesSplitBeforePublication} retains
+ * its mandatory full-node guard witness independently of committed geometry.
  * </p>
  *
  * <p>
@@ -121,7 +123,6 @@ final class HOTValidTimeCorrectionStreamTest {
   void correctionStreamStaysSoundAndExact() {
     final long foldsDeclinedBefore = HOTIncrementalInsert.EXISTING_BIT_FOLD_NOT_ADJACENT.get();
     final long joinSplitsBefore = AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT.get();
-    final long nodeSplitsDeclinedBefore = AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.get();
     replayAndVerify(VersioningType.SLIDING_SNAPSHOT, false, RECORDS, PostingDeltas.HOT_CHUNK_BYTES,
         PostingDeltas.FOLD_BOUND);
 
@@ -131,9 +132,8 @@ final class HOTValidTimeCorrectionStreamTest {
         "the stream must reach a fold whose upper half would not land beside its slot");
     assertTrue(AbstractHOTIndexWriter.FRONTIER_JOIN_STRADDLE_SPLIT.get() > joinSplitsBefore,
         "the stream must reach a complete-frontier join that has to split a side");
-    assertTrue(AbstractHOTIndexWriter.FULL_NODE_SPLIT_BREAKS_TRIE_CONDITION.get() > nodeSplitsDeclinedBefore,
-        "the stream must reach the decomposition of a full node one of whose halves would break the trie "
-            + "condition against its own child; without one it no longer covers that split");
+    // The full-node split witness is constructed independently in HOTOrderingGuardTest: commit
+    // normalization removes the old geometry from this stream, whose complete oracle stays above.
   }
 
 

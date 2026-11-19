@@ -968,6 +968,170 @@ public final class HOTIncrementalInsert {
   }
 
   /**
+   * Fold one compatible compound child into its parent without changing the composed router. The
+   * child's first decision must follow every decision on the parent's path to that slot. Bits used on
+   * OTHER parent paths may overlap: they share columns in the merged mask. No leaf minima or
+   * descendant keys are inspected; work is bounded by two compound blocks. Returns null before page
+   * allocation when fanout, mask width, path order or sparse-partial order forbids the fold. All
+   * retained children/grandchildren must already be resolved and guarded by the caller.
+   */
+  static @Nullable HOTIndirectPage foldCompatibleChild(final HOTIndirectPage parent, final int slot,
+      final HOTIndirectPage child, final int revision, final long pageKey, final HOTCommitNormalizer.Scratch scratch) {
+    final int count = prepareCompatibleChild(parent, slot, child, scratch);
+    if (count == 0) {
+      return null;
+    }
+    int height = 1;
+    for (int retained = 0; retained < count; retained++) {
+      height = Math.max(height, heightOf(scratch.children[retained].getPage()) + 1);
+    }
+    return materializePreparedFold(revision, pageKey, count, height, scratch);
+  }
+
+  /** Compose into borrowed scratch; zero means refusal, before loading any clean boundary. */
+  static int prepareCompatibleChild(final HOTIndirectPage parent, final int slot, final HOTIndirectPage child,
+      final HOTCommitNormalizer.Scratch scratch) {
+    Objects.requireNonNull(parent, "parent");
+    Objects.requireNonNull(child, "child");
+    Objects.requireNonNull(scratch, "scratch");
+    Objects.checkIndex(slot, parent.getNumChildren());
+    final int childCount = child.getNumChildren();
+    final int count = parent.getNumChildren() + childCount - 1;
+    if (childCount < 2 || count > HOTIndirectPage.MAX_NODE_ENTRIES) {
+      return 0;
+    }
+    final int[] parentBits = scratch.parentBits;
+    final int[] childBits = scratch.childBits;
+    final int parentBitCount = parent.copyDiscriminativeBits(parentBits);
+    final int childBitCount = child.copyDiscriminativeBits(childBits);
+    final int[] parentPartials = parent.getPartialKeysRef();
+    if (!isChildBelowParentPath(parentPartials, parent.getNumChildren(), slot, parentBitCount, scratch)) {
+      return 0;
+    }
+    final int unionCount = mergeDiscriminativeBits(parentBitCount, childBitCount, scratch);
+    if (unionCount == 0) {
+      return 0;
+    }
+    final int[] bits = scratch.unionBits;
+    final int firstByte = bits[0] >>> 3;
+    final int lastByte = bits[unionCount - 1] >>> 3;
+    if (lastByte - firstByte >= Long.BYTES && lastByte > 255) {
+      return 0; // MultiMask has u8 byte positions; SingleMask has an int start position.
+    }
+    final int[] partials = scratch.partials;
+    final PageReference[] children = scratch.children;
+    int target = 0;
+    for (int source = 0; source < parent.getNumChildren(); source++) {
+      final int prefix = expandPartial(parentPartials[source], parentBits, parentBitCount, bits, unionCount);
+      if (source == slot) {
+        for (int c = 0; c < childCount; c++) {
+          partials[target] = prefix | expandPartial(child.getPartialKey(c), childBits, childBitCount, bits, unionCount);
+          children[target] = child.getChildReference(c);
+          target++;
+        }
+      } else {
+        partials[target] = prefix;
+        children[target] = parent.getChildReference(source);
+        target++;
+      }
+    }
+    // Sparse masks may carry extra requirements below a path's branching decision. OR-ing the
+    // prefix must not alias or reorder those entries: strict order preserves greatest-subset
+    // priority, while each OR-ed partial matches exactly when both original partials match.
+    for (int i = 1; i < count; i++) {
+      if (Integer.compareUnsigned(partials[i - 1], partials[i]) >= 0) {
+        return 0;
+      }
+    }
+    scratch.unionBitCount = unionCount;
+    return count;
+  }
+
+  /** Every decision above the selected slot must precede the child's first bit. */
+  private static boolean isChildBelowParentPath(final int[] parentPartials, final int parentChildCount, final int slot,
+      final int parentBitCount, final HOTCommitNormalizer.Scratch scratch) {
+    final int[] parentBits = scratch.parentBits;
+    final int[] childBits = scratch.childBits;
+    int lo = 0;
+    int hi = parentChildCount - 1;
+    while (lo < hi) {
+      final int splitBit = Integer.highestOneBit(parentPartials[lo] ^ parentPartials[hi]);
+      final int column = parentBitCount - 1 - Integer.numberOfTrailingZeros(splitBit);
+      if (childBits[0] <= parentBits[column]) {
+        return false;
+      }
+      int mid = lo + 1;
+      while ((parentPartials[mid] & splitBit) == 0) {
+        mid++;
+      }
+      if (slot < mid) {
+        hi = mid - 1;
+      } else {
+        lo = mid;
+      }
+    }
+    return true;
+  }
+
+  /** Merge ordered mask columns into borrowed scratch; zero means the union exceeds 32 bits. */
+  private static int mergeDiscriminativeBits(final int parentBitCount, final int childBitCount,
+      final HOTCommitNormalizer.Scratch scratch) {
+    final int[] parentBits = scratch.parentBits;
+    final int[] childBits = scratch.childBits;
+    int unionCount = parentBitCount;
+    for (int childBit = 0; childBit < childBitCount; childBit++) {
+      if (Arrays.binarySearch(parentBits, 0, parentBitCount, childBits[childBit]) < 0) {
+        unionCount++;
+      }
+    }
+    if (unionCount > Integer.SIZE) {
+      return 0;
+    }
+    final int[] bits = scratch.unionBits;
+    int pi = 0;
+    int ci = 0;
+    for (int i = 0; i < unionCount; i++) {
+      final int pb = pi < parentBitCount
+          ? parentBits[pi]
+          : Integer.MAX_VALUE;
+      final int cb = ci < childBitCount
+          ? childBits[ci]
+          : Integer.MAX_VALUE;
+      bits[i] = Math.min(pb, cb);
+      if (pb <= cb) {
+        pi++;
+      }
+      if (cb <= pb) {
+        ci++;
+      }
+    }
+    return unionCount;
+  }
+
+  /** Materialize using the height captured while each retained child was resolved. */
+  static HOTIndirectPage materializePreparedFold(final int revision, final long pageKey, final int count,
+      final int height, final HOTCommitNormalizer.Scratch scratch) {
+    return HOTIndirectPage.createFoldedNode(pageKey, revision, height, scratch.unionBits, scratch.unionBitCount,
+        scratch.partials, scratch.children, count, scratch.shuffleIndices);
+  }
+
+  /** Preserve sparse path decisions when extending a compound node's mask. */
+  private static int expandPartial(final int partial, final int[] oldBits, final int oldBitCount, final int[] newBits,
+      final int newBitCount) {
+    int result = 0;
+    int next = 0;
+    for (int old = 0; old < oldBitCount; old++) {
+      while (newBits[next] < oldBits[old]) {
+        next++;
+      }
+      if ((partial & (1 << (oldBitCount - 1 - old))) != 0) {
+        result |= 1 << (newBitCount - 1 - next);
+      }
+    }
+    return result;
+  }
+
+  /**
    * Materialize one exact complete flattened-BiNode child range as its own compressed subtree. Only
    * the parent block's reference/partial arrays are copied; descendant pages and entries stay
    * untouched. This is the extraction half of a bounded reference-only frontier splice.

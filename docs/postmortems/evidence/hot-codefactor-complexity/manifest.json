@@ -1,0 +1,34 @@
+{
+  "allocation.tar.gz": {
+    "bytes": 1022633,
+    "sha256": "930f5379e72dbf384539e9ec849cf8ced49f99f600157530812ad038e77b477e"
+  },
+  "compiled-shape.tar.gz": {
+    "bytes": 2235549,
+    "sha256": "331ba0fa5cf27bc23bf7a5e7e1a200dc9d99eb86a62e9d11869b464277da5497"
+  },
+  "replay-and-provenance.tar.gz": {
+    "bytes": 421336,
+    "sha256": "93acdbe375e7fedb1dcae9793ad68020b6279568d250af79144e5c8c416a7372"
+  },
+  "verification.tar.gz": {
+    "bytes": 122622,
+    "sha256": "cbe76f5d0c32783ebb74ebb29b70cee7b053c29884bcf99c4887918ad7bf12f0"
+  },
+  "timing.tar.gz": {
+    "bytes": 848977,
+    "sha256": "79284ae72456ff839d9005bb9e3154a6cb97fd493dc1b2ccadc4d7e93d9942eb"
+  },
+  "timing-24-blocks.tar.gz": {
+    "bytes": 2410073,
+    "sha256": "ba0050d8e3ce323eff887bd5c2e0f8024e7a78b230e701299b5e26f545cd33c9"
+  },
+  "timing-interrupted-029.tar.gz": {
+    "bytes": 1472069,
+    "sha256": "1dbd151b204469efe9cc92e4df741c23c1a898cf817ff4bcf6923527a4d566dd"
+  },
+  "local-verification-and-shape.tar.gz": {
+    "bytes": 1853527,
+    "sha256": "0489a3276e43b0f9207f4b052437a7d34f71acceb31abdb7406dfab1b968b49e"
+  }
+}
