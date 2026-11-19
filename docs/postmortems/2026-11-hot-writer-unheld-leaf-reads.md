@@ -51,9 +51,9 @@
   right interleaving cannot make a stale read visible, because the frame still holds the old bytes.
   And no test evicted at the points where the writer itself gives the cache a chance: its calls into
   the storage engine.
-- Regression test: `HOTIncrementalInsertLeafRetentionTest` (the consolidation primitive, with the
-  pair evicted from the page-key allocator, which runs between "settled on the pair" and "read the
-  pair"; released frames zero-filled, and in a second mode taken at once by foreign leaves),
+- Regression test: `HOTIncrementalInsertLeafRetentionTest` (the consolidation primitive, with all
+  four input leaves evicted from the page-key allocator before copying and recompression;
+  released frames zero-filled, and in a second mode taken at once by foreign leaves),
   `HOTIndexWriterLeafRetentionTest` (the writer on production storage: five puts, each repeated with
   every unguarded leaf evicted at one engine call after the other and at all of them, and the guard
   counts in the middle of a put) and `HOTStructuralPropertyTest.mutationsSurviveLeafEviction`
@@ -87,14 +87,16 @@
   closed the leaf before consolidation, so `PageReference.getPage()` cleared its swizzle and
   returned `null`; it skipped the pair without exercising the eligibility reads. Latency runs
   supplied explicit 60/60 overrides for the steady benchmark, hiding its inherited 120/60 annotations.
-- Regression test: `HOTIncrementalInsertLeafRetentionTest.consolidationSkipsAPairItCannotHold`
-  now retires either sibling after the real `PageReference.getPage()` captures its live leaf
-  but before returning that leaf to consolidation, with full and deferred retirement cases.
+- Regression test: `HOTIncrementalInsertLeafRetentionTest.consolidationDeclinesWhenAnyChildCannotBeHeld`
+  retires each direct child after the real `PageReference.getPage()` captures its live leaf
+  but before returning that leaf to consolidation, with full and deferred retirement cases,
+  and also covers children closed before resolution.
   The oracle is the standalone primitive's documented skip-without-allocation contract:
   the same parent retains all four children, no replacement is allocated, and every acquired
-  guard is released. Eligibility is decided under both guards; an unguardable sibling leaves
-  the pair for a later attempt. Restoring the pre-guard eligibility ordering makes both fully
-  retired cases throw `FrameReusedException` at `segmentRefCount()` instead.
+  guard is released. Eligibility is decided while every input leaf is guarded; an unguardable
+  child leaves consolidation for a later attempt. Before operation-wide retention, restoring
+  the pre-guard eligibility ordering made both fully retired pair cases throw
+  `FrameReusedException` at `segmentRefCount()` instead.
   `consolidationReleasesGuardsForIneligiblePairs` checks both side-reference exclusions and the
   count bound, including guard cleanup and unchanged inputs. The existing copy tests exercise
   successful and repeated merges under poisoned and recycled frames.
@@ -104,6 +106,33 @@
 - Lesson: guard eligibility reads as well as payload copies, exercise both sides after actual
   retirement, and verify benchmark schedules through the harness that consumes them. See
   [Lessons](../LESSONS.md).
+
+## Review follow-up: surviving children during recompression
+
+- Fix / issue: review finding R3 on the #1459 fix.
+- Symptom: standalone consolidation throws from `heightOf(null)` after eviction of a surviving
+  child, although its merged pair is guarded.
+- Trigger: in the four-leaf `[0, 1, 2, 4]` fixture, allocation of the first merged leaf closes the
+  third or fourth input leaf before `compressHalf` reads its height. A previously skipped,
+  unavailable child can also remain in the node when a later pair is recompressed.
+- Root cause: the retention scope followed the payload-copy pair, while recompression consumes
+  every child reference. The production writer's outer guards hid the standalone ownership gap.
+- Why tests missed it: allocation-time eviction targeted only the copied pair. The skip tests
+  covered that pair, so neither surviving children nor a missing swizzle blocked a later merge.
+- Regression test: `consolidationCopiesOnlyFromLeavesItHolds` now closes all four original leaves
+  at allocation and still requires both merges, all twelve copied entries and released guards.
+  `consolidationDeclinesWhenAnyChildCannotBeHeld` requires an unchanged node, unchanged child
+  references, no replacement allocation and no leaked guards for every child slot, with retirement
+  before resolution, after capture, and deferred by an existing guard. Allocation-time eviction
+  occurs after a merge has started, so that case must finish safely rather than claim no allocation.
+  `consolidationReleasesEveryChildOnFailure` fails each of the four allocations across the two
+  merges, both with and without a throwing input-frame releaser, and requires the original
+  exception, no retirement requests, no leaked guards and no live input or speculative frames.
+  Removing operation-wide retention restores the `heightOf(null)` failure in the allocation-time
+  eviction cases. Run the three cases through
+  `./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTIncrementalInsertLeafRetentionTest'`.
+- Lesson: derive retention scope from every downstream consumer, including recompression metadata,
+  rather than just the entries being copied. See [Lessons](../LESSONS.md).
 
 ## What the fix does
 
@@ -127,8 +156,10 @@ check after the read that the leaf's memory was not released, discarding the res
   if the leaf is not orphaned afterwards: a frame is released only after that flag is set and the
   flag is never cleared. A leaf evicted under the read fails the check and the comparison is
   repeated on a held leaf.
-- `consolidateNodeLeaves` guards each pair for exactly the copy and skips a pair it cannot guard. It
-  is a public primitive and must not depend on its caller holding its inputs.
+- `consolidateNodeLeaves` retains every direct leaf child before eligibility inspection and keeps
+  them held through all copies and recompressions. An unavailable or unguardable child declines
+  consolidation before allocating a replacement. The public primitive does not depend on its
+  caller holding its inputs.
 - `consolidateLeafParent` resolves every leaf child through the resolver. It used to skip children
   that were already swizzled, which left exactly those unheld.
 

@@ -1227,8 +1227,9 @@ public final class HOTIncrementalInsert {
    *
    * <p>
    * <b>Leaf lifetime.</b> A child leaf is read through its swizzled page, which the page cache may
-   * evict at any moment. Each pair is therefore guarded for exactly as long as it is copied, and a
-   * pair that cannot be guarded is not merged.
+   * evict at any moment. All direct leaf children are guarded before eligibility inspection and
+   * held through every copy and recompression. If a child is unavailable or cannot be guarded,
+   * consolidation returns the original node without allocating a replacement.
    *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
    * @return the consolidated node, or {@code node} itself when nothing was mergeable
@@ -1241,85 +1242,88 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
     Objects.requireNonNull(droppedLeavesOut, "droppedLeavesOut");
     HOTIndirectPage current = node;
+    final HOTLeafPage[] retainedLeaves = new HOTLeafPage[node.getNumChildren()];
+    int retainedCount = 0;
     final PageReference[] ownedSpeculativeRefs = new PageReference[HOTIndirectPage.MAX_NODE_ENTRIES];
     final HOTLeafPage[] ownedSpeculativeLeaves = new HOTLeafPage[HOTIndirectPage.MAX_NODE_ENTRIES];
     int ownedSpeculativeCount = 0;
     final List<PageReference> droppedOriginalLeaves = new ArrayList<>(HOTIndirectPage.MAX_NODE_ENTRIES);
     HOTLeafPage pendingSpeculativeLeaf = null;
     try {
-      boolean merged = true;
-      while (merged && current.getNumChildren() >= 3) {
-        merged = false;
-        final boolean[] pairs = biNodePairs(current);
-        for (int i = 0; i < pairs.length; i++) {
-          final PageReference leftRef = current.getChildReference(i);
-          final PageReference rightRef = current.getChildReference(i + 1);
-          if (!pairs[i] || !(leftRef.getPage() instanceof HOTLeafPage left)
-              || !(rightRef.getPage() instanceof HOTLeafPage right)) {
-            continue;
+      Throwable consolidationFailure = null;
+      try {
+        for (int i = 0; i < node.getNumChildren(); i++) {
+          final Page child = node.getChildReference(i).getPage();
+          if (child == null) {
+            return node;
           }
-          // Hold the pair across the copy. The merged leaf is allocated before the pair is read, and
-          // allocating may evict either sibling; an unheld one then reads back as whichever page took
-          // its frame, and those bytes would become entries of the merged leaf. A sibling that cannot
-          // be held was evicted already, so the pair is left for a later attempt.
-          final HOTLeafPage mergedLeaf;
-          boolean fits = true;
-          if (!left.acquireGuard()) {
-            continue;
+          if (child instanceof HOTLeafPage leaf) {
+            if (!leaf.acquireGuard()) {
+              return node;
+            }
+            retainedLeaves[retainedCount++] = leaf;
           }
-          try {
-            if (!right.acquireGuard()) {
+        }
+        boolean merged = true;
+        while (merged && current.getNumChildren() >= 3) {
+          merged = false;
+          final boolean[] pairs = biNodePairs(current);
+          for (int i = 0; i < pairs.length; i++) {
+            final PageReference leftRef = current.getChildReference(i);
+            final PageReference rightRef = current.getChildReference(i + 1);
+            if (!pairs[i] || !(leftRef.getPage() instanceof HOTLeafPage left)
+                || !(rightRef.getPage() instanceof HOTLeafPage right)) {
               continue;
             }
-            try {
-              if (left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
-                  || right.segmentRefCount() != 0) {
-                continue;
-              }
-              mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-              pendingSpeculativeLeaf = mergedLeaf;
-              for (int e = 0; e < left.getEntryCount() && fits; e++) {
-                fits = mergedLeaf.put(left.getKey(e), left.copyStoredValue(e));
-              }
-              for (int e = 0; e < right.getEntryCount() && fits; e++) {
-                fits = mergedLeaf.put(right.getKey(e), right.copyStoredValue(e));
-              }
-            } finally {
-              right.releaseGuard();
+            if (left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
+                || right.segmentRefCount() != 0) {
+              continue;
             }
-          } finally {
-            left.releaseGuard();
-          }
-          if (!fits) {
-            mergedLeaf.close();
+            final HOTLeafPage mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+            pendingSpeculativeLeaf = mergedLeaf;
+            boolean fits = true;
+            for (int e = 0; e < left.getEntryCount() && fits; e++) {
+              fits = mergedLeaf.put(left.getKey(e), left.copyStoredValue(e));
+            }
+            for (int e = 0; e < right.getEntryCount() && fits; e++) {
+              fits = mergedLeaf.put(right.getKey(e), right.copyStoredValue(e));
+            }
+            if (!fits) {
+              mergedLeaf.close();
+              pendingSpeculativeLeaf = null;
+              CONSOLIDATION_PAIR_DID_NOT_FIT.incrementAndGet();
+              continue;
+            }
+
+            final PageReference mergedNodeRef =
+                mergeBiNodePairedLeaves(current, i, mergedLeaf, revision, indexType, pageKeyAllocator);
+            final HOTIndirectPage next = (HOTIndirectPage) mergedNodeRef.getPage();
+            final PageReference mergedLeafRef = next.getChildReference(i);
+            if (mergedLeafRef == null || mergedLeafRef.getPage() != mergedLeaf) {
+              final IllegalStateException failure = new IllegalStateException(
+                  "HOT leaf consolidation lost ownership of its fresh replacement at slot " + i);
+              throw failure;
+            }
+
+            // Record the new leaf before retiring its inputs. If a close unexpectedly fails, the
+            // outer catch owns and retires every unpublished replacement, including this one.
+            ownedSpeculativeRefs[ownedSpeculativeCount] = mergedLeafRef;
+            ownedSpeculativeLeaves[ownedSpeculativeCount++] = mergedLeaf;
             pendingSpeculativeLeaf = null;
-            CONSOLIDATION_PAIR_DID_NOT_FIT.incrementAndGet();
-            continue;
+            retireConsolidationInput(leftRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
+                ownedSpeculativeCount);
+            retireConsolidationInput(rightRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
+                ownedSpeculativeCount);
+            current = next;
+            merged = true;
+            break;
           }
-
-          final PageReference mergedNodeRef =
-              mergeBiNodePairedLeaves(current, i, mergedLeaf, revision, indexType, pageKeyAllocator);
-          final HOTIndirectPage next = (HOTIndirectPage) mergedNodeRef.getPage();
-          final PageReference mergedLeafRef = next.getChildReference(i);
-          if (mergedLeafRef == null || mergedLeafRef.getPage() != mergedLeaf) {
-            final IllegalStateException failure = new IllegalStateException(
-                "HOT leaf consolidation lost ownership of its fresh replacement at slot " + i);
-            throw failure;
-          }
-
-          // Record the new leaf before retiring its inputs. If a close unexpectedly fails, the
-          // outer catch owns and retires every unpublished replacement, including this one.
-          ownedSpeculativeRefs[ownedSpeculativeCount] = mergedLeafRef;
-          ownedSpeculativeLeaves[ownedSpeculativeCount++] = mergedLeaf;
-          pendingSpeculativeLeaf = null;
-          retireConsolidationInput(leftRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
-              ownedSpeculativeCount);
-          retireConsolidationInput(rightRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
-              ownedSpeculativeCount);
-          current = next;
-          merged = true;
-          break;
         }
+      } catch (final RuntimeException | Error failure) {
+        consolidationFailure = failure;
+        throw failure;
+      } finally {
+        releaseConsolidationGuards(retainedLeaves, retainedCount, consolidationFailure);
       }
       droppedLeavesOut.addAll(droppedOriginalLeaves);
       return current;
@@ -1334,6 +1338,30 @@ public final class HOTIncrementalInsert {
         }
       }
       throw failure;
+    }
+  }
+
+  private static void releaseConsolidationGuards(final HOTLeafPage[] leaves, final int count,
+      final @Nullable Throwable failure) {
+    Throwable primary = failure;
+    for (int i = count - 1; i >= 0; i--) {
+      try {
+        leaves[i].releaseGuard();
+      } catch (final RuntimeException | Error releaseFailure) {
+        if (primary == null) {
+          primary = releaseFailure;
+        } else {
+          addSuppressedSafely(primary, releaseFailure);
+        }
+      }
+    }
+    if (failure == null) {
+      if (primary instanceof RuntimeException runtimeFailure) {
+        throw runtimeFailure;
+      }
+      if (primary instanceof Error error) {
+        throw error;
+      }
     }
   }
 

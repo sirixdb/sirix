@@ -1896,10 +1896,12 @@ on a held leaf. The check is sound
 because every path that releases a leaf's frame (`close`, `markOrphaned`, the last `releaseGuard`)
 sets the orphaned flag first and nothing clears it, so a leaf that is not orphaned after the read
 owned its frame during the read. It needs no stamp (§4.9.3): a committed leaf is never re-bound to
-another frame, and the flag sits in the leaf object the comparison has just read. `consolidateNodeLeaves`, being
-callable on its own, also guards both leaves before checking their entry counts or side references,
-keeps the guards through the copy, and leaves a pair it cannot guard unmerged. Every eligibility
-refusal releases the acquired guards without allocating a replacement or retiring either input.
+another frame, and the flag sits in the leaf object the comparison has just read. `consolidateNodeLeaves`,
+being callable on its own, guards every direct leaf child before checking eligibility and keeps
+those guards through all copies and recompressions, including surviving children whose heights
+recompression reads. If a child is unavailable or cannot be guarded, it returns the original node
+without allocating a replacement or retiring an input. Every exit releases all guards it acquired;
+new speculative leaves remain privately owned until returned or retired by the primitive.
 `HOTIndexWriterLeafRetentionTest`, `HOTIncrementalInsertLeafRetentionTest` and
 `HOTStructuralPropertyTest.mutationsSurviveLeafEviction` evict every unguarded leaf at the writer's
 calls into its storage engine; the
