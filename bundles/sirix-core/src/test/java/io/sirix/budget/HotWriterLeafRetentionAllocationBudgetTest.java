@@ -142,6 +142,9 @@ final class HotWriterLeafRetentionAllocationBudgetTest {
       assertFalse(anyHot(cache), "an ordinary put must not take a guard on a leaf of the page cache");
       assertEquals(0, committedNeighbour.getGuardCount(), "no guard may outlive a put");
       assertFalse(committedNeighbour.isClosed(), "the committed neighbour is still the one the puts read");
+      System.out.println("[hot-live] ordinary PATH puts after cold reopen: " + PUTS_PER_PASS
+          + " puts beside committed neighbour=" + besideCommitted + " allocated bytes; beside logged neighbour="
+          + besideLogged + " allocated bytes; cache leaves hot=false; committed neighbour guards=0 and still open");
       transaction.rollback();
     }
   }

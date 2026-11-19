@@ -1234,15 +1234,17 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Resolve {@code ref} for a descent that copies or guards the page before it reads it, and hold
-   * nothing.
+   * Resolve {@code ref} without mutation-wide retention. The caller must copy or guard a leaf before
+   * reading it, or validate the optimistic read afterwards.
    *
    * <p>
-   * Two descents qualify. {@link #prepareLeafOfTree} copies every page of the key's own path into the
-   * transaction log: an indirect page through {@link #prepareIndirectPage}, the leaf through
+   * {@link #prepareLeafOfTree} copies every page of the key's own path into the transaction log: an
+   * indirect page through {@link #prepareIndirectPage}, the leaf through
    * {@link #cowHOTLeafForModification}, which takes its own guard and resolves again when eviction
    * wins. {@link #navigateToLeafBeforeReadGuard} hands its leaf to the guard-retry loop of
    * {@link #acquireLeafForRead(byte[], int)}. Neither reads a leaf it has not secured.
+   * {@link #unheldExtremeLeafOfSubtree} also uses this resolver; its caller
+   * {@link #compareSubtreeExtreme} validates the read before trusting the comparison.
    * </p>
    *
    * <p>

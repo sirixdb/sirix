@@ -1916,7 +1916,9 @@ mutated, new pages get new offsets, and leaf history is a fragment chain (`set/V
 
 #### 4.9.3 Optimistic leaf reads (seqlock over frame-slot versions)
 
-Leaves are read without pins. The protocol (`hot/page/HOTLeafPage.java:4007-4105`):
+Query readers optimistically read leaves without pins; the writer's neighbour comparison uses
+the separate validation described in §4.9.2. The query-read protocol
+(`hot/page/HOTLeafPage.java:4007-4105`):
 
 ```
 binding = leaf.readStampBinding()     // even = stable binding; odd = rebind in flight or torn down

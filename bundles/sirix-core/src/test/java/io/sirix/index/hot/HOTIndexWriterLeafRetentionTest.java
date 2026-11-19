@@ -415,6 +415,7 @@ final class HOTIndexWriterLeafRetentionTest {
 
       assertEquals(List.of(1, 1, 1), committedGuards, "the put must have failed while it held its siblings");
       assertNoGuardIsHeld(fixture);
+      fixture.rollbackAndVerifyBaseline("migration failed after publication; all three sibling guards released");
     } finally {
       AbstractHOTIndexWriter.setTwoLeafMigrationAfterPublicationTestHook(null);
     }
@@ -508,6 +509,10 @@ final class HOTIndexWriterLeafRetentionTest {
         reached.accept(fixture);
         assertTrue(adversary[0].strikes() > 0 || strikePoint > adversary[0].points(), "the adversary must have struck");
         assertNoGuardIsHeld(fixture);
+        final int points = adversary[0].points();
+        final int evicted = adversary[0].evictedLeaves();
+        fixture.commitAndVerifyHistory(name + "; " + run + "; engine calls=" + points + "; evicted leaves=" + evicted
+            + "; no retained guards after put");
       } catch (final RuntimeException | AssertionError failure) {
         failures.add(run + ": " + firstLine(failure));
       } finally {

@@ -448,7 +448,8 @@ final class HOTStructuralPropertyTest {
         storedKeys += result.storedKeys;
         evictedLeaves += result.evictedLeaves;
         System.out.println("[hot-property] " + config.header() + ": " + stream.size() + " ops, " + result.applied
-            + " applied, final slots " + result.storedKeys + ", height " + result.height + (result.failure == null
+            + " applied, final slots " + result.storedKeys + ", evicted leaves " + result.evictedLeaves + ", height "
+            + result.height + (result.failure == null
                 ? ""
                 : ", FAILED " + signature(result.failure)));
         if (result.failure == null) {

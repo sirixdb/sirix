@@ -531,6 +531,21 @@ final class HOTConstructedShapeIntegrationTest {
           + " exact blobs; structural invariant valid in both revisions");
     }
 
+    void rollbackAndVerifyBaseline(final String scenario) {
+      final Map<Long, byte[]> baseline = Objects.requireNonNull(this.baseline);
+      Objects.requireNonNull(transaction).rollback();
+      close();
+      Databases.clearGlobalCaches();
+      try (Database<JsonResourceSession> reopened = Databases.openJsonDatabase(databasePath);
+          JsonResourceSession resource = reopened.beginResourceSession(RESOURCE);
+          JsonNodeReadOnlyTrx original = resource.beginNodeReadOnlyTrx(1)) {
+        assertEquals(1, resource.getMostRecentRevisionNumber(), "rollback must not publish a revision");
+        verify(original.getStorageEngineReader(), baseline);
+      }
+      System.out.println("[hot-live] " + scenario + "; rollback then cold reopen: revision 1=" + baseline.size()
+          + " exact blobs; no new revision; structural invariant valid");
+    }
+
     @Override
     public void close() {
       if (transaction != null) {
