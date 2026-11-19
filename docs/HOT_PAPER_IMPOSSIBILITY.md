@@ -10,6 +10,10 @@ locus of the cost.
 
 **Date:** 2026-05-20. **Branch:** `fix/hot-strict-binna-conformance`.
 
+Historical paper draft. Its implementation descriptions and measurements predate
+the lost-outer-spine repair. Current height and normalization requirements are owned by
+[HOT Index Specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing).
+
 ---
 
 ## §1. The Load-Bearing Assumption in Binna's HOT
@@ -1281,7 +1285,7 @@ correctness violations.
 **Sirix-HOT: a multi-value-leaf extension of Binna's HOT for disk-backed persistent
 storage.** Faithful to Binna's PEXT routing, sparse partial keys, SIMD subset
 match, and the `addEntry / splitIndirect / integrate / rebuildSubtree` algorithmic
-family. Sub-microsecond per-operation throughput; height-optimal trie; zero
+family. Historical measurements report sub-microsecond per-operation throughput and zero
 correctness violations under sliding-snapshot multi-revision isolation.
 
 ### §8.2 The structural-cost identification
@@ -1515,7 +1519,10 @@ exactly when one is needed — across merge, branch, integrate, and off-path-ove
 Validated: six-seed / 260-revision / ~3.1 M-insert soak with per-revision validation, the full HOT
 suite, and the default-config `sirix-core` suite all clean.
 
-### §8.4b Minimum height is not preserved — and a rebuild does not restore it
+### §8.4b Historical leaf-packing argument about minimum height
+
+This argument concerns leaf packing; it does not explain excess inner height for a
+fixed leaf partition. See the authoritative height contract linked above.
 
 Binna's height-optimality (SMHP, thesis §4.2; Lemmas 2–3) is stated over **single-TID
 leaves**: every leaf is trivially a complete subtree of size 1, so the eager

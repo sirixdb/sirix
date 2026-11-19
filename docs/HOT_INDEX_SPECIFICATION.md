@@ -444,9 +444,11 @@ code now explains (`hot/page/HOTIndirectPage.java:566-572`).
 #### 2.6.3 Partial-key width and fanout
 
 - Width by `|D|`: ≤ 8 bits → 1 byte, ≤ 16 → 2 bytes, otherwise 4 bytes
-  (`hot/page/HOTIndirectPage.java:296-304`). No guard against more than 32 bits was found in the page
-  class; `extractPartialKey` casts the compressed value to `int` (`hot/DiscriminativeBitComputer.java:440-449`),
-  so the implied invariant is `|D| ≤ 32`.
+  (`hot/page/HOTIndirectPage.java:296-304`). The invariant is `|D| ≤ 32`:
+  `extractPartialKey` casts the compressed value to `int`
+  (`hot/DiscriminativeBitComputer.java:440-449`). Compatible-child preparation refuses
+  unions above 32 bits, and `HOTIndirectPage.createFoldedNode` checks that bound again
+  before allocating a replacement.
 - Node types: `SPAN_NODE` (id 0) and `MULTI_NODE` (id 1), in both `SINGLE_MASK` and `MULTI_MASK`
   layouts. Span and multi nodes share the canonical PEXT route; their distinction is fanout, not
   lookup format. The legal fanout domain and its enforcement are specified in §2.8.
@@ -2163,8 +2165,8 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 | `docs/HOT_BULK_BUILD.md` | canonicity verdict, memory arithmetic, bulk vs incremental shape | historical probe shapes; current height contract is in §2.6; "zero-self-heal witness" and "Stage-3c machinery" (now `propagateStructuralSpliceUpSpine`) remain stale |
 | `docs/HOT_FORMAL_FOUNDATION.md` | formal model, Theorems 1-3 | theorems current; §8 detect-and-rebuild not implemented; "right-padded keys" model (`:34-36`) differs from unsigned-prefix order (§2.5); line references stale (`findChildIndex` at `:71`) |
 | `docs/HOT_INCREMENTAL_SPLIT_VERIFICATION.md` | Binna split proofs | archive note; design basis of `HOTIncrementalInsert`; does not cover SirixDB-specific handlers |
-| `docs/HOT_PAPER_IMPOSSIBILITY.md` | impossibility of local fixes | theorems stand; self-heal mechanism and figures stale; no archive note |
-| `docs/HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` | removal of the straddle guard | **implemented**; "Status: design, pending review" (`:3`) is wrong; line references (`:20-22`) invalid; says `rebuildSubtree` "stays" (`:111-119`, `:431`) — removed; cites the test-only `HOTInvariantValidator` as production (`:61`) |
+| `docs/HOT_PAPER_IMPOSSIBILITY.md` | impossibility of local fixes | historical paper draft; self-heal mechanism and figures stale; current height contract is in §2.6 |
+| `docs/HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` | removal of the straddle guard | historical design and review record; minimum-height arguments withdrawn; current height contract is in §2.6; rebuild descriptions and line references predate removal of `rebuildSubtree` |
 | `docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md` | β ∈ D cases without rebuild | **implemented**; status line (`:3`) and line references (`:18-28`) stale |
 | `docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md` | removal of rebuild fallbacks | implemented and exceeded; mentions `-Dhot.diag.healDump`, `detectAndHeal` and "heal machinery stays" (`:3-38`), all removed; `propagateRebuildUpSpine` is now `propagateStructuralSpliceUpSpine` |
 | `docs/HOT_ADDENTRY_STRADDLE_FIX.md` | straddle guard + `rebuildSubtree` | self-declared superseded; historical |
