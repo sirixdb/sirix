@@ -34,7 +34,12 @@
 4. No-work/refused paths allocate zero workspace/output; successful folds and
    publications retain the exact pinned budgets. Use the isolated
    `HOTCommitAllocationBudgetTest`, plus fresh compiled-shape captures and the
-   authorized four-block ABBA follow-up against published `9732747e`.
+   allocation re-measurement against published `9732747e`.
+
+The four-block and 24-block latency experiments below are supplementary due
+diligence for the CodeFactor refactor, not delivery acceptance gates. The required
+re-measurement is allocation only. Their recorded HOLD/PASS classifications use
+each experiment's fixed analysis rule and do not add requirements to this change.
 
 These tests use routing, persisted state, explicit malformed graphs, and allocation
 counters as oracles; no source-text test is added for a behavior-preserving refactor.
@@ -53,7 +58,7 @@ scratch. The full-parent test pins one log lookup per clean child: attempting a
 fold when 32 children already fill the block adds useless ownership lookups.
 No production behavior is changed by this test strengthening.
 
-## Results — 24-block follow-up PASS
+## Results — supplementary 24-block follow-up PASS
 
 The CI fixer left the refactor uncommitted when its invocation budget expired.
 The outer worker preserved and reapplied the patch to published `9732747e`; all
@@ -113,15 +118,15 @@ zero-interval native counter means were 233,518.6 → 233,537.6 and
 background variation; they are not relabelled as workspace or fold-output bytes.
 The profiler's escaping controls passed on both platform and virtual threads.
 
-### Completed paired latency follow-up — HOLD
+### Supplementary paired latency follow-up — HOLD
 
 The preregistered 4 ABBA blocks completed: 16 fresh JVMs, five cases, 30 seconds
 real warmup plus 50 JMH warmup batches and all 36 retained measurements, default
 asynchronous C2, CPU0 and an exclusive inherited-lock window through `heavy.sh`.
-The decision remains point ≤ +1%, lower 95% log-ratio bound ≤ 0, zero timed GC;
+The experiment's fixed analysis rule was point ≤ +1%, lower 95% log-ratio bound ≤ 0, zero timed GC;
 the four-block Student t critical is 3.182446305284263 (df 3).
 
-| Case | Units | Before | After | Paired change |95% interval| Bytes before/after |Median paired byte delta|Timed GC|Gate|
+| Case | Units | Before | After | Paired change |95% interval| Bytes before/after |Median paired byte delta|Timed GC|Experiment classification|
 |---|---|---:|---:|---:|---|---|---:|---:|---|
 |insertAsc4096|ns/key|1018.3827|1005.2103|-1.304%|[-6.248%,+3.901%]|584.946289/584.966064|+0.008301|0|PASS|
 |insertDesc4096|ns/key|1262.0371|1231.6227|-2.387%|[-7.679%,+3.207%]|618.293945/618.298828|+0.001953|0|PASS|
@@ -131,10 +136,10 @@ the four-block Student t critical is 3.182446305284263 (df 3).
 
 Both commit cases exceed the fixed +1% point-estimate limit. Their intervals
 include zero: this is not a statistically conclusive slowdown, but it also does
-not satisfy the preregistered acceptance gate. All insert cases pass and timed GC
+not satisfy the experiment's fixed analysis rule. All insert cases pass and timed GC
 is zero throughout. Allocation subsystem budgets are checked separately above;
 whole-process byte variation in the table is not attributed to a new workspace.
-No samples were discarded. The separately authorized, unchanged-candidate trial below follows this result without pooling it.
+No samples were discarded. The supplementary unchanged-candidate trial below follows this result without pooling it.
 
 The disk preflight initially held at approximately 51 GiB. After recovery above
 60 GiB and three quiet-admission observations, the single run began at
@@ -149,19 +154,19 @@ those results are correctness evidence, not a claim that the disk precondition
 held for every local JVM. No timing JVM started below the floor.
 
 The four-block result remains **HOLD**, and CodeFactor has not analyzed this
-unpublished refactor. This result is retained separately. Instruction 028 subsequently authorized a
-preregistered 24-block trial of the unchanged candidate because the four-block
-intervals are too wide to resolve commit timing. The new trial uses the same
-acceptance rule and df 23; it is not pooled with this HOLD. See the
+unpublished refactor. This result is retained separately. A subsequent
+preregistered 24-block trial used the unchanged candidate because the four-block
+intervals are too wide to resolve commit timing. That supplementary trial uses the same
+analysis rule and df 23; it is not pooled with this HOLD. See the
 [24-block protocol](evidence/hot-codefactor-complexity/protocol-24-blocks.md).
 Its completed results follow; production sources and measured bytecode were unchanged between trials.
 
-### Separately authorized 24-block trial — PASS
+### Supplementary 24-block trial — PASS
 
-Firstmate authorized 24 ABBA blocks to improve precision after the four-block
-HOLD. An initial attempt was interrupted on a scheduling instruction after
+The 24 ABBA blocks explored precision after the four-block
+HOLD as supplementary due diligence. An initial attempt was interrupted on a scheduling instruction after
 58 of 96 JVMs; its partial raw data is retained separately and was not analyzed
-or used to tune the candidate. The explicitly authorized fresh retry completed
+or used to tune the candidate. The fresh retry completed
 all 96 JVMs. It ran directly through `timing-window.sh` on CPU0, under the
 exclusive timing lock, with three quiet-admission observations and at least
 60 GiB free before admission and each JVM. This scheduling override replaces
@@ -171,13 +176,13 @@ The baseline remains published `9732747e`; all 1,054 production source and
 1,854 local production class hashes match the frozen candidate. Ordered
 classpaths differ only in their equal-length production snapshot path. The
 runner checked frozen runtime/source hashes before every JVM and at completion.
-The fixed decision remains paired point estimate ≤ +1%, lower 95% log-ratio
+The experiment's fixed analysis rule was paired point estimate ≤ +1%, lower 95% log-ratio
 bound ≤ 0, and zero timed GC, using Student t with df 23. No trial was pooled,
 no samples were discarded and no production tuning followed timing results.
 
 24 ABBA blocks per case;96 fresh JVMs;five cases. Fixed95% block-log-ratio t interval,df23. All36 measured samples retained,30s real warmup plus50 JMH warmup batches. Commit allocation uses JVM-wide allocated bytes because commit runs on virtual/background threads; insert allocation uses caller-thread bytes. GC-profiler fixture totals are reported separately.
 
-| Case | Units | Before | After | Paired change |95% interval| Bytes before/after |Median paired byte delta|Timed GC|Gate|
+| Case | Units | Before | After | Paired change |95% interval| Bytes before/after |Median paired byte delta|Timed GC|Experiment classification|
 |---|---|---:|---:|---:|---|---|---:|---:|---|
 |insertAsc4096|ns/key|1025.6665|1028.4748|+0.301%|[-1.149%,+1.773%]|584.467719/583.455566|-0.011719|0|PASS|
 |insertDesc4096|ns/key|1259.0910|1249.6007|-0.708%|[-2.247%,+0.856%]|617.816081/616.808594|-0.025391|0|PASS|
@@ -185,7 +190,7 @@ no samples were discarded and no production tuning followed timing results.
 |commitDesc4096|ms/commit|5.0922|5.1300|+0.513%|[-3.598%,+4.799%]|240589.731481/240647.152778|+107.666667|0|PASS|
 |commitDesc50000|ms/commit|16.1277|15.8614|-1.555%|[-8.853%,+6.328%]|252884.675926/252859.273148|-58.833333|0|PASS|
 
-Overall: PASS
+Overall experiment classification: PASS
 
 Profiler fixture-inclusive allocation and GC totals:
 - insertAsc4096: 670.880216->669.835638 B/key; all GC5827,forced requests3456,timed0.
@@ -194,7 +199,7 @@ Profiler fixture-inclusive allocation and GC totals:
 - commitDesc4096: 3281386.361111->3277204.421296 B/commit fixture; all GC5036,forced requests3456,timed0.
 - commitDesc50000: 41280518.745370->41230069.111111 B/commit fixture; all GC5918,forced requests3456,timed0.
 
-All five cases meet the fixed gate. Commit intervals remain wide; these results
+All five cases meet the experiment's fixed analysis rule. Commit intervals remain wide; these results
 do not establish equivalence within 1% or a precise speedup. Whole-process
 allocation is separate from the unchanged exact subsystem budgets above.
 

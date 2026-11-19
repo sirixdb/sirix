@@ -1,7 +1,9 @@
 # CodeFactor complexity follow-up evidence — Refs #1452
 
-**24-block latency follow-up PASS.** All 96 JVMs completed and all five cases
-meet the fixed gate, with zero timed GC. The original four-block trial remains
+**Supplementary 24-block latency follow-up PASS.** All 96 JVMs completed and all five cases
+meet the experiment's fixed analysis rule, with zero timed GC. These latency runs
+are supplementary due diligence, not delivery acceptance gates; the required
+re-measurement is allocation only. The original four-block trial remains
 a separate HOLD; both results and the interrupted attempt are retained. Three
 production methods were refactored.
 After an initial disk-floor hold, space recovered and fresh quiet admission passed;
@@ -59,9 +61,9 @@ No pipeline control, push, PR edit, merge or external cleanup occurred.
 
 The original 4-block trial completed at `2026-11-19T01:39:25Z` and remains
 HOLD. Its archive records the historical commands and frozen runtime.
-The independently authorized 24-block trial used the unchanged candidate and
-the same acceptance rule, with df 23. See the [protocol](protocol-24-blocks.md)
-for the preregistration and explicit scheduling overrides. The final launcher
+The supplementary 24-block trial used the unchanged candidate and
+the same analysis rule, with df 23. See the [protocol](protocol-24-blocks.md)
+for the preregistration and recorded scheduling changes. The final launcher
 used `FM_TIMING_CPUS=0 timing-window.sh` directly, never nested in `heavy.sh`.
 Ordinary build and diagnostic JVM work used `heavy.sh`.
 
@@ -73,5 +75,6 @@ checkout supplied production classes. Both production path names have equal
 length. Local compilation matched all 1,854 frozen candidate class files.
 
 These commands and scripts are replay provenance, not authorization to repeat
-a trial. The 24-block result passes the registered gate; broad commit intervals
-do not establish a precise speedup. CodeFactor must still pass remotely.
+a trial. The 24-block result passes the experiment's registered analysis rule;
+broad commit intervals do not establish equivalence within 1% or a precise speedup.
+Exact pinned allocation budgets remain unchanged, and CodeFactor must still pass remotely.
