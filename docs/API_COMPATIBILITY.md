@@ -59,8 +59,9 @@ additional compatibility exemptions.
   database listing — don't rely on it.
 * Empty and updating query response shapes: see the `executeQuery` responses
   in the [OpenAPI contract](../bundles/sirix-rest-api/src/main/resources/openapi.yaml).
-* Node-hash precondition behavior and its implementation gaps are recorded in
-  [REST-204](../spec/REST-api.md#rest-204--node-hash-optimistic-preconditions).
+* The current node-hash preconditions and their planned replacement are recorded in
+  [REST-204](../spec/REST-api.md#rest-204--conditional-write-token-preconditions);
+  the conditional-write token is not implemented yet.
 * XML diff rejection and the conflicting schema description are recorded in
   [REST-208](../spec/REST-api.md#rest-208--json-only-diff).
 * The `sirix_*` and `jvm_*` gauge set on `/metrics` — names follow Prometheus

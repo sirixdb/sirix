@@ -124,6 +124,12 @@ that suite's stated fixture, not to arbitrary datasets.
 Planned tooling adds these exact selectors to the maintained invocation/catalogue and
 checks drift. Existing budgets remain official as well; no bound is weakened here.
 
+One further budget is decided but not yet executable: TXN-311's conditional write check is bounded
+by its target, so `ConditionalWritePreconditionBudgetTest` must assert record-read counters of O(1)
+for a record-sized target and for an insertion point, and at most the head-revision subtree size for
+a subtree target, with no term in resource size, revision count or token age. It joins this inventory when it exists; naming it here does not make it
+a passing assertion.
+
 ## Deferred work
 
 No new choice is needed to preserve the adopted process. Tool delivery, annotation migration

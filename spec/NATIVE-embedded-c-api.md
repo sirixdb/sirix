@@ -796,7 +796,7 @@ survivor by location/mutation/reason in the implementing review. No Java library
 logic changes in I1, so PIT and engine work budgets are not I1 evidence.
 
 Read/load/query changes in later issues run the complete **Work budgets** block
-of [VERIFICATION](../docs/VERIFICATION.md#work-budgets), plus bridge allocation
+of [VERIFICATION](../docs/VERIFICATION.md#running-the-layers), plus bridge allocation
 checks. Never widen bounds or add wall-clock correctness assertions. Benchmarks
 run separately. Implementation bugs get the repository postmortem template,
 a regression and a lesson as required by [CONTRIBUTING](../CONTRIBUTING.md).
@@ -843,3 +843,8 @@ Open engineering questions (not optional release scope):
 
 No unresolved item permits shipping a partial stable JSON-only library, calling
 ABI 0 stable, omitting a language binding or moving functionality to 1.x.
+
+Open capability, not required for 1.0:
+
+- A native conditional-write entry point and SDK exposure are planned future capabilities.
+  When added, they will reuse the Java core check of JAPI-111 and the semantics of TXN-311.

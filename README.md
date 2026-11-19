@@ -471,8 +471,10 @@ var resourceConfig = ResourceConfiguration.newBuilder("employees")
 ```
 
 or with the `hashType` store option, or `?hashType=ROLLING` on REST resource creation. They buy
-`sdb:hash` change detection, the hash-optimized diff route and the REST `ETag`/`If-Match`
-mechanism, and they cost hash maintenance on every commit plus a stored hash and descendant count
+`sdb:hash` change detection and the hash-optimized diff route. The current REST `ETag`/`If-Match`
+mechanism also requires hashes; its planned replacement is the hash-independent
+[conditional-write token](spec/REST-api.md#rest-204--conditional-write-token-preconditions),
+which is not implemented yet. Hashes cost maintenance on every commit plus a stored hash and descendant count
 on every container record. They also leave a trace: an ancestor's hash depends on its
 descendants' values, so a deleted value stays confirmable from the revisions in which it existed —
 see [erasure preparation](docs/ERASURE_PREPARATION.md). These hashes do not provide cryptographic

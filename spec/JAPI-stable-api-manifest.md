@@ -1728,6 +1728,12 @@ current writer-returning commit signatures below must be reconciled with the rec
 contract before freezing. Exact fields/method descriptors remain implementation work.
 FMT-402/VER-205 also require queryable original timestamp metadata for adjusted imported
 revisions; the exact metadata field/accessor is pending and belongs to stable history APIs.
+JAPI-111/TXN-311 require one conditional-write check on the write transaction, a precondition
+value type carrying the unsigned 64-bit resource incarnation id and the token revision together with the subtree,
+insertion-point or resource target kind, and a distinct
+precondition-failure exception carrying the token's incarnation id and revision, the current
+incarnation id and head revision, the target and the failing kind. The check belongs to the stable transaction core; neither the method nor the
+types exist at this baseline, so no `io.sirix.api.NodeTrx` entry above covers them yet.
 The new commit-outcome API belongs to the stable transaction core; listener registration
 and callback signatures belong to the labelled expert extension tier.
 
