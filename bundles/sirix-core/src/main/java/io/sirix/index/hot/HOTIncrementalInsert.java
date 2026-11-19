@@ -1285,7 +1285,6 @@ public final class HOTIncrementalInsert {
         if (node.getNumChildren() < 3) {
           return node;
         }
-        final boolean[] nodePairs = biNodePairs(node);
         for (int i = 0; i < node.getNumChildren(); i++) {
           final Page child = node.getChildReference(i).getPage();
           if (child == null) {
@@ -1299,13 +1298,9 @@ public final class HOTIncrementalInsert {
           }
         }
         boolean merged = true;
-        boolean firstPass = true;
         while (merged && current.getNumChildren() >= 3) {
           merged = false;
-          final boolean[] pairs = firstPass
-              ? nodePairs
-              : biNodePairs(current);
-          firstPass = false;
+          final boolean[] pairs = biNodePairs(current);
           for (int i = 0; i < pairs.length; i++) {
             final PageReference leftRef = current.getChildReference(i);
             final PageReference rightRef = current.getChildReference(i + 1);
