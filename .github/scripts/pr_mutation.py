@@ -877,8 +877,10 @@ def judge_entry(entry, context):
                  else 'its class was not mutated in this run')
         return 'unconfirmed', (f'no reported mutant matches ({where}); a new entry must match a '
                                f'SURVIVED mutant of a class this PR changes')
-    if complete is not None or added:
+    if complete is not None:
         return 'not judged', 'no reported mutant matches and the class sample is incomplete'
+    if added:
+        return 'not judged', 'no reported mutant matches; its class was not mutated in this run'
     return 'out of scope', 'class not mutated in this run'
 
 
