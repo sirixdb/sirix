@@ -59,6 +59,22 @@ final class HOTLeafEvictionAdversary implements InvocationHandler {
   private int strikes;
   private int evictedLeaves;
 
+  /**
+   * Whether to keep retiring the leaf handed out inside the writer's guard-retry loops. Normally the
+   * eviction moves before the handoff there, so a retry gets a live leaf and succeeds, which is what
+   * production looks like. Set this to make a required acquisition unwinnable, which is how FMT-304's
+   * interim bound can be reached in a test.
+   */
+  private boolean starveGuardAcquisition;
+
+  /**
+   * The engine call from which to start starving guard acquisition. A put reads the slot it is about
+   * to overwrite before it enters its mutation, so starving from the first call always fails that
+   * read and never reaches the mutation; starting later lets the read through and makes the
+   * acquisition inside the mutation unwinnable instead.
+   */
+  private int starveFromPoint;
+
   HOTLeafEvictionAdversary(final StorageEngineWriter engine) {
     this.engine = engine;
     this.proxy = (StorageEngineWriter) Proxy.newProxyInstance(StorageEngineWriter.class.getClassLoader(),
@@ -75,6 +91,27 @@ final class HOTLeafEvictionAdversary implements InvocationHandler {
    *
    * @param strikePoint the one-based point to strike at, or {@link #EVERY_POINT}
    */
+  /**
+   * Keep retiring the handed-out leaf even while the writer retries, so no attempt can ever guard it.
+   *
+   * @param starve whether to starve guard acquisition
+   */
+  void starveGuardAcquisition(final boolean starve) {
+    starveGuardAcquisition = starve;
+    starveFromPoint = 0;
+  }
+
+  /**
+   * Starve guard acquisition only from the given engine call onwards, so earlier required reads
+   * succeed and the unwinnable acquisition falls inside the mutation.
+   *
+   * @param point the first engine call to starve from, counted like a strike point
+   */
+  void starveGuardAcquisitionFromPoint(final int point) {
+    starveGuardAcquisition = true;
+    starveFromPoint = point;
+  }
+
   void arm(final int strikePoint) {
     if (strikePoint < 0) {
       throw new IllegalArgumentException("strikePoint must not be negative: " + strikePoint);
@@ -112,7 +149,8 @@ final class HOTLeafEvictionAdversary implements InvocationHandler {
     }
     final int point = ++points;
     final boolean strike = strikePoint == EVERY_POINT || strikePoint == point;
-    final boolean afterHandoff = UNGUARDED_HANDOFF.equals(method.getName()) && !insideGuardRetryLoop();
+    final boolean afterHandoff = UNGUARDED_HANDOFF.equals(method.getName())
+        && ((starveGuardAcquisition && point >= starveFromPoint) || !insideGuardRetryLoop());
     if (strike && !afterHandoff) {
       strike();
     }

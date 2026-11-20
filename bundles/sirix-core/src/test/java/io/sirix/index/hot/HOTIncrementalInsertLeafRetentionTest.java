@@ -149,6 +149,11 @@ final class HOTIncrementalInsertLeafRetentionTest {
         new PageReference[] {swizzle(left), swizzle(right), swizzle(third), swizzle(fourth)}, 1, 1, IndexType.PATH,
         pageKeys::getAndIncrement);
     final List<HOTLeafPage> foreign = new ArrayList<>();
+    // The surviving children are this caller's to hold, so it holds them; the contract on
+    // consolidateNodeLeaves says why. The pair is consolidation's own business, and closing it
+    // under the allocation is what this test is about.
+    assertTrue(third.acquireGuard());
+    assertTrue(fourth.acquireGuard());
     final LongSupplier evictingAllocator = () -> {
       if (foreign.isEmpty()) {
         left.close();
@@ -177,10 +182,14 @@ final class HOTIncrementalInsertLeafRetentionTest {
           evictingAllocator, dropped);
 
       assertFalse(foreign.isEmpty(), "input eviction must run while the merge is under way");
-      // The merged leaf then absorbs the third leaf as well; the node keeps its fourth child.
-      assertEquals(2, consolidated.getNumChildren(), "the BiNode-paired leaves must have merged");
+      // One merge, and only one. The allocation asked for every input to be retired; the pair was
+      // held across its copy, so its entries are its own bytes rather than the foreign leaves that
+      // took the frames. The third leaf is a different matter: its retirement has been requested, so
+      // the next pass cannot take a guard on it and leaves it alone instead of copying from a leaf
+      // that is going away. A cascade would have been wrong here.
+      assertEquals(3, consolidated.getNumChildren(), "the BiNode-paired pair must have merged, and nothing else");
       final HOTLeafPage merged = assertInstanceOf(HOTLeafPage.class, consolidated.getChildReference(0).getPage());
-      assertEquals(12, merged.getEntryCount(), "the merged leaf holds every entry of the three siblings");
+      assertEquals(10, merged.getEntryCount(), "the merged leaf holds every entry of the pair");
       for (int i = 0; i < 6; i++) {
         assertArrayEquals(unitKey(0x00, i), merged.getKey(i), "left key " + i);
         assertArrayEquals(unitValue(0x00, i), merged.copyStoredValue(i), "left value " + i);
@@ -189,18 +198,16 @@ final class HOTIncrementalInsertLeafRetentionTest {
         assertArrayEquals(unitKey(0x20, i), merged.getKey(6 + i), "right key " + i);
         assertArrayEquals(unitValue(0x20, i), merged.copyStoredValue(6 + i), "right value " + i);
       }
-      for (int i = 0; i < 2; i++) {
-        assertArrayEquals(unitKey(0x40, i), merged.getKey(10 + i), "third key " + i);
-        assertArrayEquals(unitValue(0x40, i), merged.copyStoredValue(10 + i), "third value " + i);
-      }
-      assertEquals(3, dropped.size(), "every merged-away leaf is handed to retirement");
-      assertTrue(left.isClosed() && right.isClosed() && third.isClosed() && fourth.isClosed(),
-          "deferred eviction completes only after copying and recompression finish");
+      assertEquals(2, dropped.size(), "the pair it merged away is what goes to retirement");
+      assertTrue(left.isClosed() && right.isClosed(),
+          "the deferred retirement of the pair completes once consolidation releases it");
       assertEquals(0, left.getGuardCount(), "consolidation must release every guard it takes");
       assertEquals(0, right.getGuardCount(), "consolidation must release every guard it takes");
-      assertEquals(0, third.getGuardCount(), "consolidation must release every guard it takes");
-      assertEquals(0, fourth.getGuardCount(), "consolidation must release every guard it takes");
+      assertEquals(1, third.getGuardCount(), "the surviving children stay the caller's, untouched");
+      assertEquals(1, fourth.getGuardCount(), "the surviving children stay the caller's, untouched");
     } finally {
+      third.releaseGuard();
+      fourth.releaseGuard();
       closeLeaves(parent, consolidated);
       closeLeaf(left);
       closeLeaf(right);
@@ -211,10 +218,9 @@ final class HOTIncrementalInsertLeafRetentionTest {
   }
 
   @ParameterizedTest(name = "child: {0}, deferred retirement: {1}, closed before resolution: {2}")
-  @CsvSource({"0, false, false", "1, false, false", "2, false, false", "3, false, false", "0, true, false",
-      "1, true, false", "2, true, false", "3, true, false", "0, false, true", "1, false, true", "2, false, true",
-      "3, false, true"})
-  @DisplayName("consolidation declines without allocating when any child cannot be held")
+  @CsvSource({"0, false, false", "1, false, false", "0, true, false", "1, true, false", "0, false, true",
+      "1, false, true"})
+  @DisplayName("consolidation declines without allocating when a leaf of the pair cannot be held")
   void consolidationDeclinesWhenAnyChildCannotBeHeld(final int evictedChild, final boolean deferredRetirement,
       final boolean closedBeforeResolution) {
     final AtomicLong pageKeys = new AtomicLong(1);
@@ -280,20 +286,28 @@ final class HOTIncrementalInsertLeafRetentionTest {
       final int liveBefore = frames.liveSlotCount(frameClass);
       final AtomicLong pageKeys = new AtomicLong(1);
       final IllegalStateException retirementFailure = new IllegalStateException("retirement failed");
-      final HOTLeafPage fourth = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.PATH,
+      // The retirement that fails belongs to the pair, because this test is about consolidation's own
+      // cleanup: the pair is what consolidation holds, so the pair's deferred retirement is what its
+      // release completes. A survivor is the caller's, and its retirement would run in the caller.
+      final HOTLeafPage second = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.PATH,
           arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             if (failingRetirement) {
               throw retirementFailure;
             }
           }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
-      for (int i = 0; i < 2; i++) {
-        assertTrue(fourth.put(unitKey(0x80, i), unitValue(0x80, i)));
+      for (int i = 0; i < 4; i++) {
+        assertTrue(second.put(unitKey(0x20, i), unitValue(0x20, i)));
       }
       final HOTLeafPage[] leaves =
-          {unitLeaf(pageKeys, 0x00, 6), unitLeaf(pageKeys, 0x20, 4), unitLeaf(pageKeys, 0x40, 2), fourth};
+          {unitLeaf(pageKeys, 0x00, 6), second, unitLeaf(pageKeys, 0x40, 2), unitLeaf(pageKeys, 0x80, 2)};
+      final HOTLeafPage[] pair = {leaves[0], leaves[1]};
+      final HOTLeafPage[] survivors = {leaves[2], leaves[3]};
       final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
           new PageReference[] {swizzle(leaves[0]), swizzle(leaves[1]), swizzle(leaves[2]), swizzle(leaves[3])}, 1, 1,
           IndexType.PATH, pageKeys::getAndIncrement);
+      for (final HOTLeafPage survivor : survivors) {
+        assertTrue(survivor.acquireGuard(), "this caller holds the surviving children, as the contract requires");
+      }
       final AtomicInteger allocations = new AtomicInteger();
       final IllegalStateException failure = new IllegalStateException("allocation failed");
       final LongSupplier failingAllocator = () -> {
@@ -318,17 +332,26 @@ final class HOTIncrementalInsertLeafRetentionTest {
           assertSame(retirementFailure, failure.getSuppressed()[0], "retirement must preserve the allocation failure");
         }
         assertTrue(dropped.isEmpty(), "failed consolidation must not publish retirement requests");
-        for (final HOTLeafPage leaf : leaves) {
-          assertEquals(0, leaf.getGuardCount(), "exception cleanup must release every input guard");
-          assertTrue(leaf.isClosed(), "exception cleanup must finish deferred input retirement");
+        for (final HOTLeafPage leaf : pair) {
+          assertEquals(0, leaf.getGuardCount(), "exception cleanup must release every guard consolidation took");
+          assertTrue(leaf.isClosed(), "exception cleanup must finish the deferred retirement of what it held");
         }
-        assertEquals(liveBefore, frames.liveSlotCount(frameClass), "no speculative or input frame may remain live");
+        for (final HOTLeafPage survivor : survivors) {
+          assertEquals(1, survivor.getGuardCount(), "consolidation must neither take nor drop the caller's guard");
+        }
       } finally {
+        for (final HOTLeafPage survivor : survivors) {
+          survivor.releaseGuard();
+        }
         closeLeaves(parent);
         for (final HOTLeafPage leaf : leaves) {
           closeLeaf(leaf);
         }
       }
+      for (final HOTLeafPage survivor : survivors) {
+        assertTrue(survivor.isClosed(), "the caller's release must finish its own deferred retirement");
+      }
+      assertEquals(liveBefore, frames.liveSlotCount(frameClass), "no speculative or input frame may remain live");
     }
   }
 
@@ -374,6 +397,142 @@ final class HOTIncrementalInsertLeafRetentionTest {
   // ===== fixtures =====
 
   /** {@code entries} keys sharing the one-byte prefix {@code firstByte} and differing behind it. */
+  @Test
+  @DisplayName("a standalone caller that does not hold a surviving child is told so, not left to guess")
+  void consolidationAssertsItsCallerHoldsTheSurvivingChildren() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final HOTLeafPage left = unitLeaf(pageKeys, 0x00, 6);
+    final HOTLeafPage right = unitLeaf(pageKeys, 0x20, 4);
+    final HOTLeafPage third = unitLeaf(pageKeys, 0x40, 2);
+    final HOTLeafPage fourth = unitLeaf(pageKeys, 0x80, 2);
+    // A reference with a durable key and no transaction-log entry is one the page cache owns and can
+    // evict, which is exactly the child the contract says a caller must hold. This one is unheld.
+    final PageReference cacheBackedThird = swizzle(third).setKey(4242L);
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
+        new PageReference[] {swizzle(left), swizzle(right), cacheBackedThird, swizzle(fourth)}, 1, 1, IndexType.PATH,
+        pageKeys::getAndIncrement);
+    final List<PageReference> dropped = new ArrayList<>();
+    try {
+      final AssertionError broken = assertThrows(AssertionError.class,
+          () -> HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2, IndexType.PATH,
+              pageKeys::getAndIncrement, dropped),
+          "the precondition must be stated to the caller that breaks it, not discovered as a height failure");
+
+      assertTrue(broken.getMessage().contains("hold every"),
+          "the message must say what the caller owes: " + broken.getMessage());
+      assertEquals(0, left.getGuardCount(), "the pair's guards must not leak when the assertion fires");
+      assertEquals(0, right.getGuardCount(), "the pair's guards must not leak when the assertion fires");
+    } finally {
+      closeLeaves(parent);
+    }
+  }
+
+  @Test
+  @DisplayName("a standalone caller that holds the surviving children consolidates normally")
+  void consolidationAcceptsACallerThatHoldsTheSurvivingChildren() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final HOTLeafPage left = unitLeaf(pageKeys, 0x00, 6);
+    final HOTLeafPage right = unitLeaf(pageKeys, 0x20, 4);
+    final HOTLeafPage third = unitLeaf(pageKeys, 0x40, 2);
+    final HOTLeafPage fourth = unitLeaf(pageKeys, 0x80, 2);
+    final PageReference cacheBackedThird = swizzle(third).setKey(4242L);
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
+        new PageReference[] {swizzle(left), swizzle(right), cacheBackedThird, swizzle(fourth)}, 1, 1, IndexType.PATH,
+        pageKeys::getAndIncrement);
+    final List<PageReference> dropped = new ArrayList<>();
+    assertTrue(third.acquireGuard(), "this caller holds what the contract says it must");
+    try {
+      final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2,
+          IndexType.PATH, pageKeys::getAndIncrement, dropped);
+
+      assertNotSame(parent, consolidated, "the eligible pair must have merged");
+      // Both adjacent pairs are mergeable and the loop runs while three children remain, so four
+      // children become two.
+      assertEquals(2, consolidated.getNumChildren(), "every mergeable pair of this node must merge");
+      assertEquals(1, third.getGuardCount(), "consolidation must not take or drop the caller's guard");
+    } finally {
+      third.releaseGuard();
+      closeLeaves(parent);
+    }
+  }
+
+  /**
+   * The cases come from the documented precondition's own classes, not from the shape of the
+   * predicate that implements it. The contract names what the caller owes -- "at least every child
+   * the page cache can evict: a child with a durable key and no transaction-log entry" -- and then
+   * names what needs no guard: "a leaf the transaction log serves, and a leaf the writer built and
+   * has not published". With the pair, which the method holds itself, that is four classes, and one
+   * case each: the cache-backed survivor the caller must hold, the log-served child, the
+   * never-published child, and the pair in either slot.
+   */
+  @ParameterizedTest(name = "unheld child: key {0}, log key {1}, slot {2} -> assertion fires: {3}")
+  @CsvSource({"4242, -1, 2, true", "4242, 0, 2, false", "-1, -1, 2, false", "4242, -1, 1, false", "4242, -1, 0, false"})
+  @DisplayName("the precondition names exactly the children the page cache can take away")
+  void thePreconditionCoversExactlyTheCacheBackedSurvivors(final long durableKey, final int logKey, final int slot,
+      final boolean expectAssertion) {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final HOTLeafPage[] leaves = {unitLeaf(pageKeys, 0x00, 6), unitLeaf(pageKeys, 0x20, 4), unitLeaf(pageKeys, 0x40, 2),
+        unitLeaf(pageKeys, 0x80, 2)};
+    final PageReference[] children = new PageReference[4];
+    for (int i = 0; i < 4; i++) {
+      children[i] = swizzle(leaves[i]);
+    }
+    children[slot].setKey(durableKey);
+    if (logKey >= 0) {
+      children[slot].setLogKey(logKey);
+    }
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
+        children, 1, 1, IndexType.PATH, pageKeys::getAndIncrement);
+    final List<PageReference> dropped = new ArrayList<>();
+    try {
+      if (expectAssertion) {
+        assertThrows(AssertionError.class,
+            () -> HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2, IndexType.PATH,
+                pageKeys::getAndIncrement, dropped),
+            "an unheld child the cache can evict must be reported to the caller");
+      } else {
+        final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2,
+            IndexType.PATH, pageKeys::getAndIncrement, dropped);
+        assertNotSame(parent, consolidated, "this child needs no guard, so the merge must proceed");
+      }
+    } finally {
+      closeLeaves(parent);
+      for (final HOTLeafPage leaf : leaves) {
+        closeLeaf(leaf);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("a retention scratch too small for the fanout is refused before anything is held")
+  void consolidationRefusesAScratchSmallerThanTheFanout() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final HOTLeafPage left = unitLeaf(pageKeys, 0x00, 6);
+    final HOTLeafPage right = unitLeaf(pageKeys, 0x20, 4);
+    final HOTLeafPage third = unitLeaf(pageKeys, 0x40, 2);
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1}, new int[] {0, 1, 2},
+        new PageReference[] {swizzle(left), swizzle(right), swizzle(third)}, 1, 1, IndexType.PATH,
+        pageKeys::getAndIncrement);
+    final List<PageReference> dropped = new ArrayList<>();
+    try {
+      final IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
+          () -> HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2, IndexType.PATH,
+              pageKeys::getAndIncrement, dropped, new HOTLeafPage[HOTIndirectPage.MAX_NODE_ENTRIES - 1]),
+          "a scratch that cannot hold a full node's children is a programming error, not a decline");
+
+      assertTrue(refused.getMessage().contains(String.valueOf(HOTIndirectPage.MAX_NODE_ENTRIES)),
+          "the message must say what the scratch has to hold: " + refused.getMessage());
+      assertEquals(0, left.getGuardCount(), "nothing may be held when the arguments are refused");
+      assertEquals(0, right.getGuardCount(), "nothing may be held when the arguments are refused");
+      assertTrue(dropped.isEmpty(), "a refused call must not retire anything");
+    } finally {
+      closeLeaves(parent);
+      closeLeaf(left);
+      closeLeaf(right);
+      closeLeaf(third);
+    }
+  }
+
   private static HOTLeafPage unitLeaf(final AtomicLong pageKeys, final int firstByte, final int entries) {
     final HOTLeafPage leaf = new HOTLeafPage(pageKeys.getAndIncrement(), 1, IndexType.PATH);
     for (int i = 0; i < entries; i++) {
@@ -396,53 +555,6 @@ final class HOTIncrementalInsertLeafRetentionTest {
     return reference;
   }
 
-  @Test
-  @DisplayName("a survivor that goes away as it is held defers the merge instead of failing")
-  void consolidationDeclinesWhenASurvivorGoesAwayAfterThePairIsEligible() {
-    final AtomicLong pageKeys = new AtomicLong(1);
-    final HOTLeafPage left = unitLeaf(pageKeys, 0x00, 6);
-    final HOTLeafPage right = unitLeaf(pageKeys, 0x20, 4);
-    final HOTLeafPage third = unitLeaf(pageKeys, 0x40, 2);
-    final HOTLeafPage fourth = unitLeaf(pageKeys, 0x80, 2);
-    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
-        new PageReference[] {swizzle(left), swizzle(right), swizzle(third), swizzle(fourth)}, 1, 1, IndexType.PATH,
-        pageKeys::getAndIncrement);
-    // The pair 0x00/0x20 is eligible, so the survivors are resolved and held next. This spy retires
-    // the first survivor at exactly that resolution -- the one window this ordering has, after the
-    // pair is held and its eligibility read, and before anything is allocated or recompressed.
-    final PageReference retiringRef = spy(parent.getChildReference(2));
-    doAnswer(invocation -> {
-      final Page captured = (Page) invocation.callRealMethod();
-      third.close();
-      return captured;
-    }).when(retiringRef).getPage();
-    parent.setChildReference(2, retiringRef);
-    final PageReference[] originalChildren = {parent.getChildReference(0), parent.getChildReference(1),
-        parent.getChildReference(2), parent.getChildReference(3)};
-    final long allocatedBefore = pageKeys.get();
-    final long declinedBefore = HOTIncrementalInsert.CONSOLIDATION_SURVIVOR_UNAVAILABLE.get();
-    final List<PageReference> dropped = new ArrayList<>();
-    try {
-      final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2,
-          IndexType.PATH, pageKeys::getAndIncrement, dropped);
-
-      assertSame(parent, consolidated, "a merge whose survivor went away must leave the node alone");
-      assertEquals(declinedBefore + 1, HOTIncrementalInsert.CONSOLIDATION_SURVIVOR_UNAVAILABLE.get(),
-          "the decline must be the survivor path, not an earlier refusal");
-      assertEquals(allocatedBefore, pageKeys.get(), "a deferred merge must allocate no target");
-      assertEquals(4, consolidated.getNumChildren(), "every input child must remain in the parent");
-      for (int i = 0; i < originalChildren.length; i++) {
-        assertSame(originalChildren[i], consolidated.getChildReference(i), "child " + i + " must remain unchanged");
-      }
-      assertTrue(dropped.isEmpty(), "nothing merged, so nothing is handed to retirement");
-      assertTrue(third.isClosed(), "the survivor this test retired must really be gone");
-      assertEquals(0, left.getGuardCount(), "the pair's left guard must be given back");
-      assertEquals(0, right.getGuardCount(), "the pair's right guard must be given back");
-      assertEquals(0, fourth.getGuardCount(), "a survivor that was held must be given back");
-    } finally {
-      closeLeaves(parent);
-    }
-  }
 
   private static void closeLeaves(final HOTIndirectPage... nodes) {
     for (final HOTIndirectPage node : nodes) {

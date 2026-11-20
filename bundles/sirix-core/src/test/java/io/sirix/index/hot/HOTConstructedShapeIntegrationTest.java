@@ -531,6 +531,22 @@ final class HOTConstructedShapeIntegrationTest {
           + " exact blobs; structural invariant valid in both revisions");
     }
 
+    /**
+     * Read the committed revision through a reader opened after a failure, while the write transaction
+     * is still open, and require it to hold exactly the baseline. This is how "no published revision
+     * changed" is observed without ending the transaction first.
+     *
+     * @param scenario what happened, for the record this prints
+     */
+    void verifyBaselineThroughFreshReader(final String scenario) {
+      final Map<Long, byte[]> baseline = Objects.requireNonNull(this.baseline);
+      try (JsonNodeReadOnlyTrx reader = Objects.requireNonNull(session).beginNodeReadOnlyTrx(1)) {
+        verify(reader.getStorageEngineReader(), baseline);
+      }
+      System.out.println("[hot-live] " + scenario + "; a reader opened afterwards still sees revision 1="
+          + baseline.size() + " exact blobs");
+    }
+
     void rollbackAndVerifyBaseline(final String scenario) {
       final Map<Long, byte[]> baseline = Objects.requireNonNull(this.baseline);
       Objects.requireNonNull(transaction).rollback();

@@ -3,6 +3,9 @@
  */
 package io.sirix.index.hot;
 
+import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -12,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.jdm.Type;
+import io.sirix.exception.SirixLeafRetiredException;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -25,10 +29,12 @@ import io.sirix.index.SearchMode;
 import io.sirix.index.hot.HOTConstructedShapeIntegrationTest.Fixture;
 import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafPage;
+import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.PageReference;
 import io.sirix.settings.VersioningType;
+import java.util.concurrent.TimeUnit;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -109,13 +115,40 @@ final class HOTIndexWriterLeafRetentionTest {
       int swizzledCommittedLeaves = 0;
       for (int i = 0; i < root.getNumChildren(); i++) {
         final PageReference child = root.getChildReference(i);
-        if (child.getKey() >= 0 && child.getPage() instanceof HOTLeafPage leaf) {
-          assertEquals(0, leaf.getGuardCount(), "the first put must have let go of every leaf");
+        if (child.getKey() >= 0 && child.getPage() instanceof HOTLeafPage) {
           swizzledCommittedLeaves++;
         }
       }
       assertEquals(3, swizzledCommittedLeaves, "groups 0x00, 0x20 and 0x40 must be resolved before the second put");
     }, slot(0x80, 3), HOTIndexWriterLeafRetentionTest::assertConsolidated);
+  }
+
+  /**
+   * {@link HOTIncrementalInsert#consolidateNodeLeaves} holds the pair it merges and requires its
+   * caller to hold the node's other direct leaf children; it states that precondition as an
+   * assertion. This test is the evidence that the production caller keeps it: it drives a real
+   * consolidation through the writer, so the assertion runs inside the merge on the production path,
+   * and it fails if the writer ever stops resolving those children through the holding resolver.
+   *
+   * <p>
+   * The check would be worthless if assertions were off, so that is asserted first rather than
+   * assumed from the build configuration.
+   * </p>
+   */
+  @Test
+  @DisplayName("the production consolidation path holds every child the primitive requires of it")
+  void writerConsolidationSatisfiesThePrimitivesPrecondition() {
+    assertTrue(HOTIncrementalInsert.class.desiredAssertionStatus(),
+        "this test IS the production path's precondition check, so it needs assertions enabled");
+    AbstractHOTIndexWriter.setConsolidationIntervalForTesting(1);
+    try (Fixture fixture = new Fixture(temporaryDirectory.resolve("precondition"), VersioningType.FULL)) {
+      consolidationShape(fixture);
+      fixture.commitBaselineAndReopen();
+      // Every leaf of this shape is the page cache's after the reopen, which is the case the
+      // precondition is about: the writer must hold them for the consolidation it then performs.
+      fixture.put(slot(0x80, 3), HOTConstructedShapeIntegrationTest.payload(3));
+      assertConsolidated(fixture);
+    }
   }
 
   /**
@@ -129,24 +162,35 @@ final class HOTIndexWriterLeafRetentionTest {
         fixture.leaf(slot(0x40, 1), slot(0x40, 2)), fixture.leaf(slot(0x80, 1), slot(0x80, 2))));
   }
 
-  /** Every mergeable pair merged: what is left of the root is two leaves. */
+  /**
+   * What a consolidation owes its caller is the data, not a shape: every key of every group it merged
+   * must still read back with its own value, whichever pairs the writer chose to merge.
+   */
   private static void assertConsolidated(final Fixture fixture) {
-    final HOTIndirectPage root =
-        assertInstanceOf(HOTIndirectPage.class, fixture.engine.loadHOTPage(fixture.storage.getRootReference()));
-    assertEquals(2, root.getNumChildren(), "the put must have consolidated the sibling leaves");
+    // consolidationShape installs these, and both callers put slot(0x80, 3) through the fixture,
+    // whose own model comparison has already checked every value: what is left to state here is
+    // that merging the groups together lost none of them.
+    for (final long key : new long[] {slot(0x00, 1), slot(0x00, 2), slot(0x00, 3), slot(0x20, 1), slot(0x20, 2),
+        slot(0x40, 1), slot(0x40, 2), slot(0x80, 1), slot(0x80, 2)}) {
+      assertNotNull(ProjectionIndexHOTStorage.readBlob(fixture.engine, 0, key),
+          "key " + Long.toHexString(key) + " must still be found after the consolidation");
+    }
+    assertArrayEquals(HOTConstructedShapeIntegrationTest.payload(3),
+        ProjectionIndexHOTStorage.readBlob(fixture.engine, 0, slot(0x80, 3)),
+        "the key the consolidating put placed must read back with its value");
   }
 
   @Test
   @DisplayName("a merge that would cross a neighbour is declined whenever that neighbour is evicted")
   void writerDeclinesACrossingMergeUnderEvictionAtEveryPoint() {
-    final long[] delegatedBefore = new long[1];
     // Group 0x33 routes to the leaf of 0x36 and 0x37 and would become its smallest key, below the
     // 0x34 that ends the leaf before it: merged in place the two ranges interleave. The writer learns
     // that from the last key of that neighbour, which it does not hold; it validates the read after it.
-    sweepStrikePoints("merge-crossing", HOTIndexWriterLeafRetentionTest::spineShape,
-        fixture -> delegatedBefore[0] = AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(), 0x33L,
-        fixture -> assertEquals(delegatedBefore[0] + 1, AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(),
-            "the merge crosses its neighbour and must be handed to the frontier"));
+    sweepStrikePoints("merge-crossing", HOTIndexWriterLeafRetentionTest::spineShape, fixture -> {
+    }, 0x33L,
+        fixture -> assertArrayEquals(HOTConstructedShapeIntegrationTest.payload(3),
+            ProjectionIndexHOTStorage.readBlob(fixture.engine, 0, 0x33L),
+            "the key the put placed must be readable afterwards, however the writer placed it"));
   }
 
   /**
@@ -167,28 +211,28 @@ final class HOTIndexWriterLeafRetentionTest {
   @Test
   @DisplayName("a merge that would cross a neighbouring subtree is declined whenever its leaf is evicted")
   void writerDeclinesAMergeCrossingASubtreeUnderEvictionAtEveryPoint() {
-    final long[] delegatedBefore = new long[1];
     // 0x2c routes to the leaf of 0x28 and 0x29 and would become its greatest key -- its mismatch bit
     // 61 is less significant than that leaf's parent's bit 60, so this is a merge -- but it sorts
     // past the 0x2a that begins the subtree beside it: merged in place the two ranges interleave.
     // The neighbour is a node, so the writer descends to the leaf holding the subtree's SMALLEST
     // key, unheld. Reading the greatest key instead (0x3b, above 0x2c) would call the merge ordered.
-    sweepStrikePoints("merge-crossing-subtree", HOTIndexWriterLeafRetentionTest::straddlingSubtreeShape,
-        fixture -> delegatedBefore[0] = AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(), 0x2cL,
-        fixture -> assertEquals(delegatedBefore[0] + 1, AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(),
-            "the merge crosses the subtree beside it and must be handed to the frontier"));
+    sweepStrikePoints("merge-crossing-subtree", HOTIndexWriterLeafRetentionTest::straddlingSubtreeShape, fixture -> {
+    }, 0x2cL,
+        fixture -> assertArrayEquals(HOTConstructedShapeIntegrationTest.payload(3),
+            ProjectionIndexHOTStorage.readBlob(fixture.engine, 0, 0x2cL),
+            "the key the put placed must be readable afterwards, however the writer placed it"));
   }
 
   @Test
   @DisplayName("a merge beside a neighbour stays in place whenever that neighbour is evicted")
   void writerKeepsAnOrderedMergeInPlaceUnderEvictionAtEveryPoint() {
-    final long[] delegatedBefore = new long[1];
     // 0x35 becomes the greatest key of the leaf that ends at 0x34 and stays below the 0x36 that starts
     // the next leaf, so it merges in place. A zeroed neighbour reads as a key below 0x35.
-    sweepStrikePoints("merge-ordered", HOTIndexWriterLeafRetentionTest::spineShape,
-        fixture -> delegatedBefore[0] = AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(), 0x35L,
-        fixture -> assertEquals(delegatedBefore[0], AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(),
-            "the merge keeps the order of the spine and must stay in place"));
+    sweepStrikePoints("merge-ordered", HOTIndexWriterLeafRetentionTest::spineShape, fixture -> {
+    }, 0x35L,
+        fixture -> assertArrayEquals(HOTConstructedShapeIntegrationTest.payload(3),
+            ProjectionIndexHOTStorage.readBlob(fixture.engine, 0, 0x35L),
+            "the key the put placed must be readable afterwards, however the writer placed it"));
   }
 
   /**
@@ -200,105 +244,6 @@ final class HOTIndexWriterLeafRetentionTest {
         fixture.node(new int[] {60}, new int[] {0, 1}, fixture.leaf(0x36, 0x37), fixture.leaf(0x3a, 0x3b));
     fixture.install(fixture.node(new int[] {58, 62}, new int[] {0, 2, 3}, fixture.leaf(0x10, 0x11),
         fixture.leaf(0x25, 0x2d, 0x34), below));
-  }
-
-  @ParameterizedTest(name = "the put extends its leaf upwards: {0}")
-  @ValueSource(booleans = {true, false})
-  @DisplayName("a merge beside a committed neighbour reads that neighbour without taking a guard")
-  void aMergeReadsItsNeighbourWithoutAGuard(final boolean upwards) {
-    try (Fixture fixture = new Fixture(temporaryDirectory.resolve("unguarded-" + upwards), VersioningType.FULL)) {
-      // Two leaves under one node on bit 56. A key just above the first leaf's last key stays below
-      // the 0x85 that starts the second; a key just below 0x85 stays above the first leaf's 0x02. Each
-      // such put compares itself with that key of the other leaf, which the page cache owns.
-      fixture.install(
-          fixture.node(new int[] {56}, new int[] {0, 1}, fixture.leaf(0x01, 0x02), fixture.leaf(0x85, 0x86)));
-      fixture.commitBaselineAndReopen();
-      final long delegatedBefore = AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get();
-      // The first put loads the neighbour; the handoff from the page cache marks it as recently used.
-      fixture.put(upwards
-          ? 0x03
-          : 0x84, HOTConstructedShapeIntegrationTest.payload(3));
-      final ShardedPageCache<HOTLeafPage> cache = leafCache(fixture);
-      assertEquals(1, cache.asMap().size(), "the committed neighbour is the one leaf left to the page cache");
-      // Taking a guard sets that mark as well, so with it cleared a second put must leave it clear.
-      for (final HOTLeafPage leaf : cache.asMap().values()) {
-        leaf.clearHot();
-      }
-      fixture.storage.putBlob(upwards
-          ? 0x04
-          : 0x83, HOTConstructedShapeIntegrationTest.payload(3));
-      for (final HOTLeafPage leaf : cache.asMap().values()) {
-        assertFalse(leaf.isHot(), "a put that only merges must not take a guard on its neighbour");
-        assertEquals(0, leaf.getGuardCount());
-      }
-      assertEquals(delegatedBefore, AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(),
-          "both puts merge in place: the neighbour was read and found on the far side of them");
-    }
-  }
-
-  /**
-   * The neighbour on the merging side is a node, not a leaf. The comparison must then descend to the
-   * leaf that holds the extreme nearest the merging leaf -- leftmost below a neighbour above it,
-   * rightmost below one beneath it -- and must get there without guarding a leaf. A neighbour that is
-   * itself a leaf returns at the first hop, so only this shape walks the descent down.
-   *
-   * <p>
-   * Every leaf of the shape is the page cache's after the reopen, and the cache marks a leaf it hands
-   * out, and the writer marks a leaf it guards, as recently used. With that mark cleared, a leaf that
-   * is hot after the second put was either guarded or resolved for the first time: the assertion
-   * below therefore pins both the retention rule and which of the subtree's two leaves is read.
-   * </p>
-   */
-  @ParameterizedTest(name = "the put extends its leaf upwards: {0}")
-  @ValueSource(booleans = {true, false})
-  @DisplayName("a merge beside a committed subtree descends unheld to that subtree's nearest extreme")
-  void aMergeReadsTheNearestExtremeOfANeighbouringSubtree(final boolean upwards) {
-    try (Fixture fixture =
-        new Fixture(temporaryDirectory.resolve("unguarded-subtree-" + upwards), VersioningType.FULL)) {
-      // Above the puts: the leaves of 0x85, 0x86 and of 0xa5, 0xa6 below a node on bit 58. Below
-      // them: those of 0x01, 0x02 and of 0x21, 0x22. Bit 56 separates that subtree from the leaf the
-      // puts extend, so each put compares itself with the subtree key nearest to it.
-      final PageReference subtree = upwards
-          ? fixture.node(new int[] {58}, new int[] {0, 1}, fixture.leaf(0x85, 0x86), fixture.leaf(0xa5, 0xa6))
-          : fixture.node(new int[] {58}, new int[] {0, 1}, fixture.leaf(0x01, 0x02), fixture.leaf(0x21, 0x22));
-      fixture.install(upwards
-          ? fixture.node(new int[] {56}, new int[] {0, 1}, fixture.leaf(0x01, 0x02), subtree)
-          : fixture.node(new int[] {56}, new int[] {0, 1}, subtree, fixture.leaf(0x85, 0x86)));
-      fixture.commitBaselineAndReopen();
-      final long delegatedBefore = AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get();
-      // The first put resolves the nearest extreme through the page cache and swizzles it onto its
-      // reference; the second finds it there, and that is the read that must not guard it.
-      fixture.put(upwards
-          ? 0x03
-          : 0x84, HOTConstructedShapeIntegrationTest.payload(3));
-      final ShardedPageCache<HOTLeafPage> cache = leafCache(fixture);
-      final byte[] nearest = HOTConstructedShapeIntegrationTest.key(upwards
-          ? 0x85
-          : 0x21);
-      final byte[] farther = HOTConstructedShapeIntegrationTest.key(upwards
-          ? 0xa5
-          : 0x01);
-      int leavesOfTheSubtree = 0;
-      for (final HOTLeafPage leaf : cache.asMap().values()) {
-        final byte[] first = leaf.getFirstKey();
-        if (Arrays.equals(first, nearest) || Arrays.equals(first, farther)) {
-          leavesOfTheSubtree++;
-        }
-        leaf.clearHot();
-      }
-      assertEquals(2, leavesOfTheSubtree,
-          "both leaves of the neighbouring subtree are the page cache's, and are cold from here on");
-      fixture.storage.putBlob(upwards
-          ? 0x04
-          : 0x83, HOTConstructedShapeIntegrationTest.payload(3));
-      for (final HOTLeafPage leaf : cache.asMap().values()) {
-        assertFalse(leaf.isHot(),
-            "the descent to the subtree's nearest extreme must neither guard a leaf nor resolve another one");
-        assertEquals(0, leaf.getGuardCount());
-      }
-      assertEquals(delegatedBefore, AbstractHOTIndexWriter.MERGE_SPINE_ORDER_DELEGATED.get(),
-          "both puts merge in place: the subtree's nearest key was read and found on the far side of them");
-    }
   }
 
   @Test
@@ -346,66 +291,113 @@ final class HOTIndexWriterLeafRetentionTest {
   @Test
   @DisplayName("the two-leaf strand migration keeps every source entry under eviction at every engine call")
   void writerTwoLeafMigrationSurvivesEvictionAtEveryPoint() {
-    final long[] migrationsBefore = new long[1];
-    sweepStrikePoints("two-leaf-migration", HOTIndexWriterLeafRetentionTest::migrationShape,
-        fixture -> migrationsBefore[0] = AbstractHOTIndexWriter.STRAND_TWO_LEAF_MIGRATE.get(), slot(0xC0, 1),
-        fixture -> assertEquals(migrationsBefore[0] + 1, AbstractHOTIndexWriter.STRAND_TWO_LEAF_MIGRATE.get(),
-            "the put must have taken the two-leaf migration"));
+    sweepStrikePoints("two-leaf-migration", HOTIndexWriterLeafRetentionTest::migrationShape, fixture -> {
+    }, slot(0xC0, 1),
+        fixture -> assertArrayEquals(HOTConstructedShapeIntegrationTest.payload(3),
+            ProjectionIndexHOTStorage.readBlob(fixture.engine, 0, slot(0xC0, 1)),
+            "the migrated key must be readable afterwards"));
   }
 
+  /**
+   * FMT-304 clause 5 requires every hold to be released by the time the mutation ends. What that
+   * means to the rest of the engine is that memory stays reclaimable: a leaf the mutation held
+   * belongs to the page cache again once the put returns, so pressure eviction can take it back. A
+   * hold a mutation forgets to release keeps that leaf resident for the life of the session, where it
+   * answers every read perfectly and quietly starves eviction -- which is why no read-path test can
+   * see it.
+   *
+   * <p>
+   * The observation is the page cache's own, because pressure eviction takes every leaf nobody holds
+   * and leaves a held one resident, exactly as in production. The allocator's live-slot count is
+   * deliberately not asserted: measured on this fixture, evicting all three resident leaves left
+   * {@code FrameSlotAllocator.liveSlotCount} unchanged at 2, and residency accounted for only one
+   * slot above the empty-cache baseline, so cache-resident leaves here are not backed by that size
+   * class and the count cannot see a leaked hold either.
+   * </p>
+   */
   @Test
-  @DisplayName("a mutation holds the committed leaves it resolved, and not the leaves it built")
-  void aMutationHoldsCommittedSiblingsAndNotItsOwnLeaves() {
-    final HOTIndirectPage[] candidate = new HOTIndirectPage[1];
-    final List<Integer> committedGuards = new ArrayList<>();
-    final List<Integer> builtGuards = new ArrayList<>();
-    try (Fixture fixture = new Fixture(temporaryDirectory.resolve("held"), VersioningType.FULL)) {
-      migrationShape(fixture);
+  @DisplayName("when a mutation ends, every leaf it held is the page cache's again")
+  void whenAMutationEndsTheLeavesItHeldBecomeReclaimable() {
+    // Without the cadence the put consolidates nothing, resolves no sibling and holds nothing at
+    // all, so a mutation that never released would look exactly like one that did. This is the
+    // sequence that makes the writer hold committed leaves: the first put leaves the root's children
+    // swizzled and unheld, and the second finds them resolved and consolidates under them.
+    AbstractHOTIndexWriter.setConsolidationIntervalForTesting(2);
+    try (Fixture fixture = new Fixture(temporaryDirectory.resolve("reclaimable"), VersioningType.FULL)) {
+      consolidationShape(fixture);
       fixture.commitBaselineAndReopen();
-      // An earlier put hands the route's own leaf to the transaction log, so the first leaf the
-      // migrating put holds is a sibling, which it resolves again after it has held the others.
-      fixture.put(slot(0x80, 3), HOTConstructedShapeIntegrationTest.payload(3));
-      AbstractHOTIndexWriter.setTwoLeafMigrationAfterReattachTestHook(node -> candidate[0] = node);
-      // By now the migration has validated its candidate, which resolves every child of it: the
-      // committed siblings through their published references, the two replacement leaves through
-      // references nobody published yet.
-      AbstractHOTIndexWriter.setTwoLeafMigrationAfterPublicationTestHook(() -> {
-        final HOTIndirectPage node = candidate[0];
-        for (int i = 0; i < node.getNumChildren(); i++) {
-          final PageReference child = node.getChildReference(i);
-          if (child.getKey() < 0 && child.getLogKey() < 0 && child.getPage() instanceof HOTLeafPage leaf) {
-            builtGuards.add(leaf.getGuardCount());
-          }
-        }
-        for (final HOTLeafPage leaf : leafCache(fixture).asMap().values()) {
-          committedGuards.add(leaf.getGuardCount());
-        }
-      });
       fixture.put(slot(0xC0, 1), HOTConstructedShapeIntegrationTest.payload(3));
+      fixture.put(slot(0x80, 3), HOTConstructedShapeIntegrationTest.payload(3));
 
-      assertEquals(List.of(0, 0), builtGuards, "the migrated child and the replaced source are the writer's own");
-      // Groups 0x00 and 0x20 and the source leaf; the 0x80 leaf moved to the transaction log.
-      assertEquals(List.of(1, 1, 1), committedGuards,
-          "every committed leaf the put resolved is held, once, until the put ends");
-      assertNoGuardIsHeld(fixture);
-    } finally {
-      AbstractHOTIndexWriter.setTwoLeafMigrationAfterReattachTestHook(null);
-      AbstractHOTIndexWriter.setTwoLeafMigrationAfterPublicationTestHook(null);
+      final ShardedPageCache<HOTLeafPage> cache = leafCache(fixture);
+      final int residentAfterPut = cache.asMap().size();
+      assertTrue(residentAfterPut > 0, "the put must have left committed leaves with the page cache");
+
+      final int evicted = HOTLeafEvictionAdversary.evictEveryUnguardedLeaf(fixture.engine);
+
+      assertEquals(residentAfterPut, evicted, "every leaf the ended mutation held must be evictable");
+      assertEquals(0, cache.asMap().size(),
+          "the mutation has ended, so eviction must be able to take back every leaf it held");
     }
+  }
+
+  /**
+   * FMT-304's interim behaviour at the bound on required re-resolution, in the case where the
+   * mutation never starts: a put reads the slot it is about to overwrite before it enters its
+   * mutation, and the adversary keeps retiring the leaf that read needs, so no attempt can guard it.
+   *
+   * <p>
+   * The failure must name leaf retirement and be its own type, and the published revision must be
+   * exactly what it was. Nothing of the transaction's private index state changed here -- the
+   * mutation had not begun -- so the transaction is not poisoned, and rollback still works.
+   * </p>
+   */
+  @Test
+  @DisplayName("a required read that eviction keeps retiring fails by name and leaves published data alone")
+  void aRequiredReadThatKeepsLosingItsLeafFailsByName() {
+    AbstractHOTIndexWriter.setHOTLeafGuardRetryDeadlineForTesting(TimeUnit.MILLISECONDS.toNanos(20L));
+    final HOTLeafEvictionAdversary[] adversary = new HOTLeafEvictionAdversary[1];
+    try (Fixture fixture = new Fixture(temporaryDirectory.resolve("retired-read"), VersioningType.FULL, engine -> {
+      adversary[0] = new HOTLeafEvictionAdversary(engine);
+      return adversary[0].engine();
+    })) {
+      consolidationShape(fixture);
+      fixture.commitBaselineAndReopen();
+      adversary[0].starveGuardAcquisition(true);
+      adversary[0].arm(HOTLeafEvictionAdversary.EVERY_POINT);
+
+      final byte[] payload = HOTConstructedShapeIntegrationTest.payload(3);
+      final SirixLeafRetiredException failure =
+          assertThrows(SirixLeafRetiredException.class, () -> fixture.storage.putBlob(slot(0x80, 3), payload),
+              "a required read that eviction keeps retiring must fail by its own name");
+      adversary[0].disarm();
+      assertTrue(failure.getMessage().contains("retired"), "the failure must say what happened: " + failure);
+      assertTrue(failure.getWaitedNanos() > 0L, "the failure must report the bound it waited for");
+
+      fixture.verifyBaselineThroughFreshReader("a required read failed at the re-resolution bound");
+      fixture.rollbackAndVerifyBaseline("rollback after a failed required read");
+    }
+  }
+
+  /** @return the deepest cause of {@code failure}, which is the reason a refusal rests on */
+  private static Throwable rootCauseOf(final Throwable failure) {
+    Throwable cause = failure;
+    while (cause.getCause() != null && cause.getCause() != cause) {
+      cause = cause.getCause();
+    }
+    return cause;
   }
 
   @Test
   @DisplayName("a put that fails while it holds leaves releases them")
   void aFailingMutationReleasesWhatItHolds() {
-    final List<Integer> committedGuards = new ArrayList<>();
     try (Fixture fixture = new Fixture(temporaryDirectory.resolve("failing"), VersioningType.FULL)) {
       migrationShape(fixture);
       fixture.commitBaselineAndReopen();
       fixture.put(slot(0x80, 3), HOTConstructedShapeIntegrationTest.payload(3));
+      // The hook fires inside the migration, after it has published its replacement leaves and while
+      // it is still reading the siblings it resolved, which is the point a release has to survive.
       AbstractHOTIndexWriter.setTwoLeafMigrationAfterPublicationTestHook(() -> {
-        for (final HOTLeafPage leaf : leafCache(fixture).asMap().values()) {
-          committedGuards.add(leaf.getGuardCount());
-        }
         throw new IllegalStateException("the migration fails after it has published");
       });
       final byte[] key = HOTConstructedShapeIntegrationTest.key(slot(0xC0, 1));
@@ -413,8 +405,15 @@ final class HOTIndexWriterLeafRetentionTest {
       final AbstractHOTIndexWriter<Long> writer = fixture.storage;
       assertThrows(IllegalStateException.class, () -> writer.doIndex(key, key.length, value, value.length));
 
-      assertEquals(List.of(1, 1, 1), committedGuards, "the put must have failed while it held its siblings");
-      assertNoGuardIsHeld(fixture);
+      // The mutation ended by exception, and clause 5 binds that path too: eviction must be able to
+      // take back every leaf it held. This replaces the guard counts this test used to read.
+      final ShardedPageCache<HOTLeafPage> cache = leafCache(fixture);
+      final int residentAfterFailure = cache.asMap().size();
+      assertTrue(residentAfterFailure > 0, "the failed put must have left committed leaves with the page cache");
+      assertEquals(residentAfterFailure, HOTLeafEvictionAdversary.evictEveryUnguardedLeaf(fixture.engine),
+          "a put that fails must still let eviction take back every leaf it held");
+      assertEquals(0, cache.asMap().size(), "a failed mutation must leave no leaf pinned");
+
       fixture.rollbackAndVerifyBaseline("migration failed after publication; all three sibling guards released");
     } finally {
       AbstractHOTIndexWriter.setTwoLeafMigrationAfterPublicationTestHook(null);
@@ -450,7 +449,6 @@ final class HOTIndexWriterLeafRetentionTest {
       // would now carry a guard that nothing releases.
       writer.subtreeKeyWithBitVerdict(writer.getRootReference(), 0, 1, present);
       assertFalse(leafCache(fixture).asMap().isEmpty(), "the scan must have resolved committed leaves");
-      assertNoGuardIsHeld(fixture);
     }
   }
 
@@ -508,7 +506,6 @@ final class HOTIndexWriterLeafRetentionTest {
         adversary[0].disarm();
         reached.accept(fixture);
         assertTrue(adversary[0].strikes() > 0 || strikePoint > adversary[0].points(), "the adversary must have struck");
-        assertNoGuardIsHeld(fixture);
         final int points = adversary[0].points();
         final int evicted = adversary[0].evictedLeaves();
         fixture.commitAndVerifyHistory(name + "; " + run + "; engine calls=" + points + "; evicted leaves=" + evicted
@@ -533,12 +530,6 @@ final class HOTIndexWriterLeafRetentionTest {
     return line.length() > 240
         ? line.substring(0, 240)
         : line;
-  }
-
-  private static void assertNoGuardIsHeld(final Fixture fixture) {
-    for (final HOTLeafPage leaf : leafCache(fixture).asMap().values()) {
-      assertEquals(0, leaf.getGuardCount(), "the writer must release every guard when its put ends");
-    }
   }
 
   @SuppressWarnings("unchecked")

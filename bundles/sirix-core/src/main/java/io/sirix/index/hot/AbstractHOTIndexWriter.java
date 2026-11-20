@@ -31,6 +31,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.exception.SirixLeafRetiredException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
@@ -151,7 +152,15 @@ public abstract class AbstractHOTIndexWriter<K> {
    * that is genuinely still in flight.
    * </p>
    */
-  private static final long HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS = TimeUnit.SECONDS.toNanos(5L);
+  private static final long HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS_DEFAULT = TimeUnit.SECONDS.toNanos(5L);
+
+  /**
+   * The bound on required re-resolution, read only on the slow retry path. FMT-304's target is that
+   * eviction never makes a mutation fail; until epoch-deferred frame reuse lands, the retry is
+   * bounded and raises {@link SirixLeafRetiredException} at the bound. A test lowers it to reach that
+   * bound in milliseconds rather than seconds.
+   */
+  private static volatile long hotLeafGuardRetryDeadlineNanos = HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS_DEFAULT;
 
   /** Inserts between bounded, route-local leaf-consolidation attempts. */
   private static final int CONSOLIDATION_INTERVAL = 4096;
@@ -1185,7 +1194,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (leaf.acquireGuard()) {
         return leaf;
       }
-      retryDeadlineNanos = backOffBeforeHOTLeafGuardRetry(attempt, retryDeadlineNanos);
+      retryDeadlineNanos = backOffBeforeHOTLeafGuardRetry(attempt, retryDeadlineNanos, leaf.getPageKey());
     }
   }
 
@@ -1317,6 +1326,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       // Most mutations hold nothing; keep the release loop out of their exit.
       if (held != null && held.size != 0) {
         held.release(failure);
+      }
+      if (failure instanceof SirixLeafRetiredException) {
+        // FMT-304 interim behaviour: nothing a reader can see changed, but this transaction may
+        // already hold a partly built private index state, so commit is refused and rollback is the
+        // way out. The seam keeps the first cause authoritative.
+        storageEngineWriter.markTransactionRollbackOnly(failure);
       }
     }
   }
@@ -1858,7 +1873,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // resolved again. Back off before doing so: spinning first keeps the common single lost race
       // cheap, and yielding afterwards lets the evicting thread finish instead of burning the whole
       // budget against it.
-      retryDeadlineNanos = backOffBeforeHOTLeafGuardRetry(attempt, retryDeadlineNanos);
+      retryDeadlineNanos = backOffBeforeHOTLeafGuardRetry(attempt, retryDeadlineNanos, sourceLeaf.getPageKey());
 
       currentRef.clearPageIfSame(sourceLeaf);
       final Page reloaded = resolveHOTPageForTraversal(currentRef);
@@ -1896,18 +1911,17 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @return the armed deadline to carry into the next attempt
    * @throws IllegalStateException when the deadline passed without a single guarded attempt
    */
-  private static long backOffBeforeHOTLeafGuardRetry(final long attempt, final long deadlineNanos) {
+  private static long backOffBeforeHOTLeafGuardRetry(final long attempt, final long deadlineNanos, final long pageKey) {
     if (attempt < HOT_LEAF_GUARD_SPIN_ATTEMPTS) {
       Thread.onSpinWait();
       return deadlineNanos;
     }
     if (attempt == HOT_LEAF_GUARD_SPIN_ATTEMPTS) {
       Thread.yield();
-      return System.nanoTime() + HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS;
+      return System.nanoTime() + hotLeafGuardRetryDeadlineNanos;
     }
     if (System.nanoTime() - deadlineNanos >= 0L) {
-      throw new IllegalStateException("HOT leaf was retired before it could be guarded within "
-          + TimeUnit.NANOSECONDS.toMillis(HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS) + " ms and " + attempt + " attempts");
+      throw new SirixLeafRetiredException(pageKey, hotLeafGuardRetryDeadlineNanos);
     }
     if (attempt < HOT_LEAF_GUARD_YIELD_ATTEMPTS) {
       Thread.yield();
@@ -4171,11 +4185,21 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Diagnostic: neighbour comparisons that fell back to a held leaf, because the unheld walk could
+   * not hand one out or its read did not survive validation. It is counted here, on the cold path,
+   * and never on the comparison every put makes: a test can then assert that the unheld walk answered
+   * by itself, which is what makes a change that quietly forces this fallback visible instead of
+   * looking harmless because the answer stayed correct.
+   */
+  public static final AtomicLong NEIGHBOUR_COMPARISON_HELD_FALLBACK = new AtomicLong();
+
+  /**
    * {@link #compareSubtreeExtreme} on a leaf the mutation holds. Kept out of line: no ordinary put
    * comes here, and the holding resolver inlined into the comparison would be most of its code.
    */
   private int compareHeldSubtreeExtreme(final @Nullable PageReference ref, final int side, final byte[] keyBuf,
       final int keyLen) {
+    NEIGHBOUR_COMPARISON_HELD_FALLBACK.incrementAndGet();
     final HOTLeafPage held = extremeLeafOfSubtree(ref, side);
     return held == null
         ? NO_EXTREME
@@ -8210,6 +8234,18 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   static void setStructuralPublicationTestHook(final @Nullable Runnable hook) {
     structuralPublicationTestHook = hook;
+  }
+
+  /**
+   * Lower the bound on required re-resolution so a test reaches it in milliseconds. Pass a
+   * non-positive value to restore the shipped bound.
+   *
+   * @param nanos the bound in nanoseconds, or zero or less to restore the default
+   */
+  static void setHOTLeafGuardRetryDeadlineForTesting(final long nanos) {
+    hotLeafGuardRetryDeadlineNanos = nanos > 0L
+        ? nanos
+        : HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS_DEFAULT;
   }
 
   static void setTwoLeafMigrationAfterPublicationTestHook(final @Nullable Runnable hook) {

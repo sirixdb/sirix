@@ -1233,20 +1233,38 @@ public final class HOTIncrementalInsert {
    * copying only their key/value slots would orphan projection segments or referenced posting pages.
    *
    * <p>
-   * <b>Leaf lifetime.</b> A child leaf is read through its swizzled page, which the page cache may
-   * evict at any moment. Each pair's original leaves are guarded before its eligibility inspection;
-   * once eligible, every surviving original leaf child is retained before allocating the replacement
-   * or recompressing the parent. Guards from a successful merge remain until this call exits, because
-   * later merges can read the same children. An unavailable or unguardable pair is skipped; an
-   * unavailable survivor returns the original node before allocating a replacement. Allocation and
-   * other failures still propagate after cleanup.
+   * <b>Leaf lifetime, and what the caller owes.</b> A child leaf is read through its swizzled page,
+   * which the page cache may evict at any moment, so somebody has to hold every leaf this reads for
+   * as long as it reads it. The work is split:
+   *
+   * <ul>
+   * <li>This method holds the pair it inspects. Its eligibility test is already a read of both leaves
+   * -- {@code segmentRefCount} throws once a frame is retired -- and the copy that follows reads
+   * every entry, so the guards come first and are given back at the end of an attempt that skips the
+   * pair. A pair that cannot be held is left for a later attempt rather than failing.</li>
+   * <li><b>The caller must hold the node's direct leaf children</b> for the duration of this call, at
+   * least every child the page cache can evict: a child with a durable key and no transaction-log
+   * entry. The merge of a pair recompresses the parent, which resolves each surviving child's
+   * reference again and asks {@code heightOf} for its height; a reference whose swizzle the cache
+   * cleared meanwhile can no longer answer, and this method cannot recover from that because it has
+   * no storage engine to resolve through. An assertion states the precondition where assertions are
+   * enabled, which costs the production path nothing.</li>
+   * </ul>
    *
    * <p>
-   * The guards exist for what a merge reads: the pair's own entries, which are copied, and the
-   * surviving children, whose swizzled pages the recompression of the parent resolves again.
-   * {@code heightOf} asks a leaf for nothing but its type, so a survivor is held for its page
-   * identity rather than for its bytes: without the guard its reference is cleared when the cache
-   * evicts it, and the recompression would have no height for a child that still exists.
+   * The production caller satisfies it by construction, and not by accident:
+   * {@code AbstractHOTIndexWriter.consolidateLeafParent} resolves every direct child through
+   * {@code resolveHOTPageForTraversal} before calling this, which is the resolver that retains a
+   * cache-backed leaf in the mutation's guard set -- as its own comment there says, resolution is
+   * what holds such a leaf for the mutation. Those guards are released when the mutation ends, so
+   * they span this whole call. Children the resolver does not guard are the ones that need no guard:
+   * a leaf the transaction log serves, and a leaf the writer built and has not published.
+   * </p>
+   *
+   * <p>
+   * A standalone caller -- a test, or any future caller outside a mutation -- must do the same, and
+   * it may not simply resolve them: it has to keep them held until this returns.
+   * </p>
    *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
    * @return the consolidated node, or {@code node} itself when nothing was mergeable
@@ -1334,20 +1352,14 @@ public final class HOTIncrementalInsert {
               retainedCount = releaseConsolidationGuards(retainedLeaves, retainedCount, heldBeforePair, null);
               continue;
             }
-            // The pair is eligible, so this merge is going ahead and the survivors are held now --
-            // before the merge target is allocated, because allocating a frame is itself what may
-            // evict them, and before the parent's recompression resolves each of their references
-            // again and asks heightOf for a height a cleared swizzle can no longer answer. A
-            // survivor that is gone or cannot be held defers this maintenance, without allocating
-            // anything: the caller gets another chance.
-            final int afterSurvivors = retainSurvivingLeaves(current, i, retainedLeaves, retainedCount,
-                ownedSpeculativeLeaves, ownedSpeculativeCount);
-            if (afterSurvivors < 0) {
-              retainedCount = releaseConsolidationGuards(retainedLeaves, retainedCount, heldBeforePair, null);
-              CONSOLIDATION_SURVIVOR_UNAVAILABLE.incrementAndGet();
-              return node;
-            }
-            retainedCount = afterSurvivors;
+            // The surviving children are the caller's to hold; see this method's contract. The
+            // parent's recompression below resolves each of their references again, so a caller that
+            // let one of them go leaves this with no height for a child that still exists. Stated as
+            // an assertion rather than assumed: it costs the production path nothing, and a
+            // standalone caller that breaks the contract learns where.
+            assert survivingChildrenAreHeld(current, i) : "HOT consolidation requires its caller to hold every "
+                + "direct leaf child of the node it consolidates; a cache-backed child of the node beside the "
+                + "pair at slot " + i + " is unheld";
             final HOTLeafPage mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
             pendingSpeculativeLeaf = mergedLeaf;
             boolean fits = true;
@@ -1481,37 +1493,30 @@ public final class HOTIncrementalInsert {
   }
 
   /**
-   * Hold every leaf child of {@code node} except the pair at {@code leftIndex}, for the parent
-   * recompression a merge of that pair performs: it resolves each surviving child's reference again
-   * and asks {@code heightOf} for its height, which a reference whose swizzle the cache has cleared
-   * can no longer answer. Answers the new held count, or {@code -1} when a survivor is unavailable or
-   * cannot be held, with everything this call took already released.
+   * Whether every surviving leaf child of {@code node} -- every one but the pair at {@code leftIndex}
+   * -- is held by somebody: the assertion that states this method's precondition.
+   *
+   * <p>
+   * Only a child the page cache can take away needs a guard. One the transaction log serves and one
+   * that was never published cannot be evicted under the call, and are exactly the children
+   * {@code AbstractHOTIndexWriter}'s resolver does not guard either, so they are exempt here as well.
+   * A child with a durable key and no log entry is the cache's, and must be held.
+   * </p>
    */
-  private static int retainSurvivingLeaves(final HOTIndirectPage node, final int leftIndex, final HOTLeafPage[] leaves,
-      final int count, final HOTLeafPage[] ownedSpeculativeLeaves, final int ownedSpeculativeCount) {
-    int held = count;
+  private static boolean survivingChildrenAreHeld(final HOTIndirectPage node, final int leftIndex) {
     for (int i = 0; i < node.getNumChildren(); i++) {
       if (i == leftIndex || i == leftIndex + 1) {
         continue;
       }
       final PageReference childRef = node.getChildReference(i);
-      final Page child = childRef == null
-          ? null
-          : childRef.getPage();
-      if (child == null) {
-        releaseConsolidationGuards(leaves, held, count, null);
-        return -1;
+      if (childRef == null || !(childRef.getPage() instanceof HOTLeafPage leaf)) {
+        continue;
       }
-      if (child instanceof HOTLeafPage leaf) {
-        final int afterLeaf = holdOriginalLeafOnce(leaves, held, leaf, ownedSpeculativeLeaves, ownedSpeculativeCount);
-        if (afterLeaf < 0) {
-          releaseConsolidationGuards(leaves, held, count, null);
-          return -1;
-        }
-        held = afterLeaf;
+      if (childRef.getKey() >= 0 && childRef.getLogKey() < 0 && leaf.getGuardCount() == 0) {
+        return false;
       }
     }
-    return held;
+    return true;
   }
 
   private static void retireConsolidationInput(final PageReference inputRef,
