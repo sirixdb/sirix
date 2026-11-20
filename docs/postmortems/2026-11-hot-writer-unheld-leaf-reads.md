@@ -94,9 +94,10 @@
   and also covers children closed before resolution.
   The oracle is the standalone primitive's documented skip-without-allocation contract:
   the same parent retains all four children, no replacement is allocated, and every acquired
-  guard is released. Eligibility is decided while every input leaf is guarded; an unguardable
-  child leaves consolidation for a later attempt. Before operation-wide retention, restoring
-  the pre-guard eligibility ordering made both fully retired pair cases throw
+  guard is released. The retention windows are documented on
+  [`consolidateNodeLeaves`](../../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTIncrementalInsert.java).
+  Before operation-wide retention, restoring the pre-guard eligibility ordering made both fully
+  retired pair cases throw
   `FrameReusedException` at `segmentRefCount()` instead.
   `consolidationReleasesGuardsForIneligiblePairs` checks both side-reference exclusions and the
   count bound, including guard cleanup and unchanged inputs. The existing copy tests exercise
@@ -241,8 +242,8 @@ shots and it measured 12 of them after 3: in 14 of 24 pairs a fork changed level
 -- one ran four shots at about 15 ms and then seven at about 25 ms while its paired fork went from
 25 ms down to 14.4 ms -- which put its interval at +-4.9 %, five times the bound it was tested
 against, while its two fork-median distributions were indistinguishable. Two keys per group per shot
-in a four times larger index leave room for 127 shots, so that arm now measures 60 after 60 like the
-others; its dispersion fell from 11.6 % to 7.2 % and its answer from +2.7 % to +0.6 %. The lesson
+in a four times larger index leave room for 127 shots, so that arm now measures 60 after 60;
+its dispersion fell from 11.6 % to 7.2 % and its answer from +2.7 % to +0.6 %. The lesson
 for the next benchmark is in `docs/LESSONS.md`: a benchmark whose fork cannot hold enough shots to
 reach past the runtime's level changes cannot test a one-percent bound, and the fix is the shot
 schedule, not the bound.

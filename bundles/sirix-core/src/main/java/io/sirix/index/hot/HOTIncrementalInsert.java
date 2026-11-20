@@ -1234,10 +1234,12 @@ public final class HOTIncrementalInsert {
    *
    * <p>
    * <b>Leaf lifetime.</b> A child leaf is read through its swizzled page, which the page cache may
-   * evict at any moment. Every direct leaf child is guarded before any eligibility inspection and
-   * held through every copy and recompression; a child that is unavailable or cannot be guarded makes
-   * this return the original node without allocating a replacement. Unavailable children defer this
-   * optional maintenance; allocation and other failures still propagate after cleanup.
+   * evict at any moment. Each pair's original leaves are guarded before its eligibility inspection;
+   * once eligible, every surviving original leaf child is retained before allocating the replacement
+   * or recompressing the parent. Guards from a successful merge remain until this call exits, because
+   * later merges can read the same children. An unavailable or unguardable pair is skipped; an
+   * unavailable survivor returns the original node before allocating a replacement. Allocation and
+   * other failures still propagate after cleanup.
    *
    * <p>
    * The guards exist for what a merge reads: the pair's own entries, which are copied, and the
@@ -1262,6 +1264,12 @@ public final class HOTIncrementalInsert {
    * array is written within the call and every slot used for retention is cleared on success or
    * failure, so one instance serves every consolidation of a writer without allocating a retention
    * array per attempt. It must hold {@link HOTIndirectPage#MAX_NODE_ENTRIES} leaves.
+   *
+   * <p>
+   * Only original leaf children enter retention. Unpublished replacements remain privately owned by
+   * this call and are excluded at both pair and survivor acquisition, so repeated merges cannot
+   * exhaust the original-child bound or defer retirement of consumed replacements. Capacity is
+   * checked before acquiring a guard, so an exhausted bound cannot leave a guard unrecorded.
    *
    * @param retentionScratch caller-owned space for the leaves this call holds; its contents are not
    *        read on entry, and slots used for retention are cleared on every exit
@@ -1413,9 +1421,9 @@ public final class HOTIncrementalInsert {
 
   /**
    * Release and clear the guards this call holds above {@code floor}, and answer the count that is
-   * left. The merge loop holds a pair, and the survivors of a merge, only for as long as it reads
-   * them, so it gives the guards back at the end of every attempt rather than at the end of the call;
-   * {@code floor} is where that attempt began.
+   * left. A declined or ineligible attempt releases only the guards it added, with {@code floor}
+   * marking where that attempt began. Guards retained by successful merges survive later attempts and
+   * are released together at call exit, when {@code floor} is zero.
    */
   private static int releaseConsolidationGuards(final HOTLeafPage[] leaves, final int count, final int floor,
       final @Nullable Throwable failure) {
@@ -1445,8 +1453,9 @@ public final class HOTIncrementalInsert {
   }
 
   /**
-   * Take one guard on {@code leaf} unless this call already holds it, and answer the new held count,
-   * or {@code -1} when the leaf is already gone. One guard per leaf however often the passes meet it
+   * Take one guard on an original {@code leaf} unless this call already holds it, and answer the new
+   * held count, or {@code -1} when the leaf is already gone. Private replacements need no guard (see
+   * {@link #consolidateNodeLeaves}). One guard per original leaf however often the passes meet it
    * again: a leaf held by an earlier merge of this same call must not be counted, or its guard would
    * be released while the walk still needs it. The held set is one node's children, so the scan is
    * short and goes newest first, where a repeat usually is.
