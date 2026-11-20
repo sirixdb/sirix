@@ -2,6 +2,16 @@
 
 ## 1.0.0 (unreleased)
 
+- Add CONV-201 to CONV-203: reviewed equivalence dispositions for the PR mutation lane.
+  An entry in `.github/mutation-dispositions.toml` names one mutant by PIT's identity (class,
+  method, descriptor, mutator, instruction indexes, description; no line number, no pattern)
+  with classification `equivalent`, the inspected commit and a contract-based justification.
+  A changed-line `SURVIVED`/`NO_COVERAGE` mutant passes only with an entry added or re-confirmed
+  in the PR; added entries must match a non-killed changed-line mutant, entries matching a killed
+  mutant or no longer present fail, and the summary lists every added claim. CONV-103 now names
+  the three resolutions of a surviving mutant and drops "unreachable" justifications: code a
+  mutant shows to have no observable effect is removed. Nothing here is implemented yet.
+
 - Replace the retired node-hash REST precondition with an opaque conditional-write token.
   The ETag is `<incarnation-hex>.<revision>` for the revision a response serves in every hash mode;
   the id is a 16-digit lowercase hexadecimal, cryptographically secure random 64-bit value,

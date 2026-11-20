@@ -7,7 +7,7 @@ Existing test links are evidence inventories, not assertions that tests passed i
 
 ## Scope
 
-P0 document conventions, traceability rollout and the accepted work-budget classification. This does not implement the proposed trace tool or change CI. Code fields for process requirements point to the authoritative workflow artifacts; no product method enforces them.
+P0 document conventions, traceability rollout, mutation dispositions for the PR mutation lane (CONV-201 to CONV-203) and the accepted work-budget classification. This does not implement the proposed trace tool or change CI. Code fields for process requirements point to the authoritative workflow artifacts; no product method enforces them.
 
 ## Requirements
 
@@ -45,7 +45,7 @@ Conformance to an adopted chapter MUST satisfy every decided MUST, including req
 - **Evidence class:** doc-only (unverified automation); decided target has unverified implementation gaps
 - **Gap/note:** Process contract anchored in ../CONTRIBUTING.md and ../docs/VERIFICATION.md; no product behavior changes here.
 
-A feature or behavioral fix MUST state behavior, invariants and errors and derive tests from those requirements before product implementation. Each test oracle MUST distinguish at least one plausible violation independently of implementation details. Changed logic MUST receive mutation testing; each surviving or uncovered mutant needs either a stronger test or an explicit equivalent/unreachable justification. Bug fixes MUST include the postmortem template, regression and lesson required by CONTRIBUTING.
+A feature or behavioral fix MUST state behavior, invariants and errors and derive tests from those requirements before product implementation. Each test oracle MUST distinguish at least one plausible violation independently of implementation details. Changed logic MUST receive mutation testing. Each surviving or uncovered mutant MUST be resolved in exactly one of three ways: (1) a behavior test, derived from the requirements, that detects it through observable behavior; (2) an equivalence disposition under CONV-201 to CONV-203; or (3) removal of the mutated code, when the mutant shows that code has no observable effect. A test that detects a mutant only by inspecting private state, internal call counts or other implementation details that no requirement specifies MUST NOT count as resolution (1). Bug fixes MUST include the postmortem template, regression and lesson required by CONTRIBUTING.
 
 ### CONV-104 — Traceability rollout
 
@@ -70,6 +70,69 @@ The traceability tool MUST report unmapped MUSTs, unknown or retired test IDs, s
 - **Gap/note:** This is pre-freeze specification work, not a declaration that the current development bytes or every public class are already frozen.
 
 Spec 1.0 MUST accompany product 1.0.0. A frozen requirement change that removes a guarantee or rejects previously valid use MUST be classified as breaking and require a major release; additive compatible behavior is minor and editorial repair is patch. Each behavioral change MUST update its requirement and CHANGELOG in the same change.
+
+### CONV-201 — Mutation disposition record
+
+- **Level:** MUST
+- **Status:** proposed
+- **Since:** 1.0
+- **Code:** [pr_mutation.py](../.github/scripts/pr_mutation.py) (planned); `.github/mutation-dispositions.toml` (planned)
+- **Verified by:** No existing test mapped. **Planned:** `test_pr_mutation.py` disposition-file fixtures written from this requirement: a valid entry; each missing, unknown, empty or mistyped field; a glob or pattern character in every identity field; a duplicate identity; a classification other than `equivalent`; a short or placeholder justification; a malformed revision.
+- **Evidence class:** doc-only (unverified automation); decided target has unverified implementation gaps
+- **Gap/note:** Today the PR lane has no disposition input: only resolutions (1) and (3) of CONV-103 can make it clean. The identity fields are PIT 1.25.5 `mutations.xml` elements; across 170 saved Sirix PIT reports (40,054 mutants) the six-field identity had no collision, dropping the instruction indexes caused 23,853 collisions and replacing them by the line number 4,640, and 399 of 512 identities shared by two revisions of one change kept their identity while their line moved.
+
+An equivalence disposition MUST be an entry in the repository file `.github/mutation-dispositions.toml`, a TOML document whose only top-level key is `mutant`, an array of tables; an absent file MUST mean no entries. Each entry MUST have exactly the fields below, each non-empty; an unknown, missing, empty or mistyped field MUST make the whole file invalid.
+
+| Field | Content | Role |
+|---|---|---|
+| `class` | `<mutatedClass>`: the JVM binary name, e.g. `io.sirix.Foo$Bar` | identity |
+| `method` | `<mutatedMethod>`, e.g. `put`, `<init>`, `lambda$put$0` | identity |
+| `descriptor` | `<methodDescription>`: the JVM method descriptor | identity |
+| `mutator` | `<mutator>`: PIT's fully qualified mutator id | identity |
+| `indexes` | the integers of `<indexes>`, in report order: PIT's instruction ordinals within the method | identity |
+| `description` | `<description>`, compared as exact text | identity |
+| `classification` | the string `equivalent` | review |
+| `checked_at` | full 40- or 64-hex commit ID whose PIT report the author inspected | review |
+| `justification` | the equivalence argument | review |
+
+The six identity fields form the mutant's identity, PIT's own mutation identifier (class, method, descriptor, instruction indexes, mutator) plus its description. An entry MUST match a mutant only when all six are equal as exact strings and integer lists. Fields MUST NOT be interpreted as patterns. A value not well formed for its field MUST make the file invalid: `class` and `mutator` MUST be dot-separated Java identifiers (`$` allowed), `method` a JVM unqualified method name (`<init>`, `<clinit>` or a name without `.`, `;`, `[`, `/`, `<`, `>`), `descriptor` a JVM method descriptor, and `indexes` non-negative integers; a glob, regular-expression or wildcard character (`*`, `?`, `[`, `]`, `{`, `}`, `|`, `\`) MUST make the file invalid in every identity field except where the descriptor grammar requires `[` for an array type. Line numbers MUST NOT be part of the identity, so an entry survives edits that only move the mutant's line; an edit of the same method that changes the mutant's instruction ordinal or description deliberately makes the entry stale (CONV-202). Two entries with the same identity MUST make the file invalid.
+
+`classification` MUST be `equivalent`; no other value, including "hard to test", "slow", "flaky", "covered elsewhere" or "pre-existing", is a disposition. `justification` MUST argue, from the specification, the public contract or a documented invariant, that no observable behavior differs between the original and the mutated program for any input the contract admits; observable behavior includes results, errors, persisted state and the bounds of official work budgets (CONV-301). It MUST NOT argue from test difficulty or test selection. The reporter MUST reject a justification shorter than 60 characters after whitespace normalization or containing, case-insensitively, `hard to test`, `difficult to test`, `untestable`, `not testable`, `TODO`, `TBD` or `FIXME`; these checks are a floor, and review (CONV-203) judges the argument. A mutant that shows the mutated code has no observable effect at all MUST be resolved by removing that code (CONV-103 resolution (3)), not by an entry. `checked_at` records evidence provenance only; the reporter MUST validate its form, not its ancestry, because merge strategies may make it unreachable.
+
+### CONV-202 — PR mutation verdict with dispositions
+
+- **Level:** MUST
+- **Status:** proposed
+- **Since:** 1.0
+- **Code:** [pr_mutation.py](../.github/scripts/pr_mutation.py) (planned); [gradle.yml](../.github/workflows/gradle.yml)
+- **Verified by:** No existing test mapped. **Planned:** `test_pr_mutation.py` CLI tests over fixture `mutations.xml` files and disposition files written from this requirement, observing exit status, `results.json` and `summary.md`: all changed-line mutants killed; a changed-line `SURVIVED` and a `NO_COVERAGE` mutant with and without an added entry; an entry matching a line-shifted mutant; an added entry on an unchanged line, on an unmutated class and on a `KILLED` mutant; a pre-existing entry matched on a changed line; stale entries by absent class, absent method and, under an unbound sample, absent mutant; an invalid file; incomplete runs with valid entries.
+- **Evidence class:** doc-only (unverified automation); decided target has unverified implementation gaps
+- **Gap/note:** Extends the existing [blocking criterion](../docs/VERIFICATION.md#blocking-criterion-the-prs-own-lines), whose changed-line attribution, incomplete-analysis rules and use of PIT's `detected` attribute (`TIMED_OUT`, `MEMORY_ERROR` and `RUN_ERROR` count as detected) are unchanged. Applies to the PR lane only; the weekly curated core PIT task reads no dispositions. Under per-class sampling an absent mutant cannot be told from an unsampled one, so mutant-level staleness is judged only where the sample is provably complete.
+
+Definitions for one lane run. A *changed-line mutant* is a reported mutant attributed to a line the PR changed, as defined by the existing blocking criterion. An entry is *added* when the dispositions file at the merge base of the PR's base and checked-out revisions contains no entry equal to it in all nine fields; an entry is *pre-existing* otherwise. If the merge-base file is absent or invalid, every entry MUST be treated as added. A *mutated class* is a class in the `targetClasses` of a module whose run completed. A mutated class's sample is *complete* when the report holds fewer of its mutants than that module's per-class limit, or when no limit was applied.
+
+The run MUST be clean only if the existing blocking criterion's completeness conditions hold, the dispositions file is valid (CONV-201), and every one of the following holds:
+
+1. Every changed-line mutant is detected, or has status `SURVIVED` or `NO_COVERAGE` and is matched by an **added** entry. A changed-line mutant matched only by a pre-existing entry MUST fail as *needs re-review*: a change to a line carrying an equivalence argument MUST re-confirm it, which the author does by re-reviewing the justification and updating `checked_at`. Undetected statuses other than `SURVIVED` and `NO_COVERAGE` MUST fail even when matched.
+2. Every added entry matches a changed-line mutant of this run whose status is not `KILLED`. An added entry that matches nothing, or matches only a mutant on an unchanged line, MUST fail as *unconfirmed*; entries therefore cannot be added for code the PR did not change.
+3. No entry matches a `KILLED` mutant. Such an entry MUST fail as *contradicted*: a detecting test refutes the equivalence claim, and the entry MUST be removed. A match to another detected status (`TIMED_OUT`, `MEMORY_ERROR`, `RUN_ERROR`) MUST be reported, not failed, because those statuses can arise from timing or infrastructure.
+4. No entry is *stale*. An entry MUST be stale when its class is absent from every module's compiled main classes, or its method name and descriptor are absent from that class, checked for every entry in every run; or when its class is a mutated class with a complete sample and no reported mutant matches it.
+
+An entry whose class is mutated but whose sample is incomplete and which matches no reported mutant MUST be reported as *not judged*, without failing. Pre-existing entries matching undetected mutants on unchanged lines MUST be reported as advisory dispositions and MUST NOT change the outcome; they reduce the advisory debt shown for those classes.
+
+The job summary and `results.json` MUST list, per module: the changed-line mutants killed, otherwise detected, dispositioned and failing; each dispositioned mutant with its matching entry's `checked_at` and justification (the summary MAY truncate the justification; `results.json` MUST NOT); each failing mutant with its reason (no entry, needs re-review, status not dispositionable); and every entry in a failing or reported state (unconfirmed, contradicted, stale, not judged, detected-other) with its identity. Validation errors MUST name the entry's position in the file and the violated rule. All file-derived text MUST be escaped as existing summary text is.
+
+### CONV-203 — Disposition review and abuse limits
+
+- **Level:** MUST
+- **Status:** proposed
+- **Since:** 1.0
+- **Code:** [pr_mutation.py](../.github/scripts/pr_mutation.py) (planned); [gradle.yml](../.github/workflows/gradle.yml); [VERIFICATION.md](../docs/VERIFICATION.md)
+- **Verified by:** No existing test mapped. **Planned:** `test_pr_mutation.py`: the summary's added-entry section lists every added entry with its full justification; the CI invocation carries no flag, environment variable or input that adds, ignores or relaxes dispositions; removing an entry never turns a failing changed-line mutant into an accepted one. Review acceptance for the reviewer obligation.
+- **Evidence class:** doc-only (unverified automation); decided target has unverified implementation gaps
+- **Gap/note:** Precedents compared: PIT `excludedMethods`/`excludedClasses`/`avoidCallsTo` and its `@Generated`/`@DoNotMutate` filter remove whole methods or classes before mutation, invisibly in results; Stryker's `// Stryker disable next-line <mutators>: <reason>` comments keep an optional reason in the diff but cover a source line and a mutator list, not one mutant; mutmut's and cosmic-ray's `# pragma: no mutate` cover whole lines, and cosmic-ray's operator filter covers operators by regular expression. This requirement keeps their visibility in review and rejects their breadth: exact per-mutant identity, a mandatory reason, re-confirmation on change, and no numeric cap or label, for the reasons stated in the requirement.
+
+A disposition MUST apply to one mutant identity; class-, method-, mutator-, line- or file-wide waivers MUST NOT exist in the file, the reporter or the workflow. Dispositions MUST come only from the dispositions file of the checked-out revision and of the merge base; the reporter MUST NOT accept dispositions or a relaxation of CONV-202 from command-line flags, environment variables, PR labels, comments or artifacts. The job summary MUST open its disposition section with the number of added and removed entries and MUST list every added entry with its identity and full justification, so a reviewer sees each claim beside the diff. A reviewer approving a PR that adds or changes entries MUST check each justification against CONV-201's standard. No per-PR numeric cap and no approval label applies: a cap would push authors toward internal-peeking tests that CONV-103 forbids, and a label would need a re-run on every label event. Removing an entry MUST always be permitted; it can only withdraw dispositions and MUST NOT turn any undetected changed-line mutant from failing into accepted.
 
 ### CONV-301 — Official work budgets
 
@@ -144,4 +207,7 @@ and a weekly/RC crash lane are required follow-up work, not completed by Markdow
 | CONV-103 | No existing test mapped. **Planned:** Review acceptance: requirement-to-test-to-change mapping, PIT artifact with survivor dispositions; for docs-only changes, links, IDs, traceability and evidence audit instead of artificial application tests. | proposed |
 | CONV-104 | No existing test mapped. **Planned:** SpecTraceContractTest plus fixtures for each failure, annotation discovery, default-lane versus opt-in evidence and PIT selection by requirement. | proposed |
 | CONV-105 | No existing test mapped. **Planned:** SpecChangeCompatibilityTest and release review: compare the frozen requirement corpus and API/format baselines, reject an unclassified incompatible change. | proposed |
+| CONV-201 | No existing test mapped. **Planned:** `test_pr_mutation.py` disposition-file fixtures: valid entry, missing/unknown/empty/mistyped fields, pattern characters, duplicate identity, wrong classification, short or placeholder justification, malformed revision. | proposed |
+| CONV-202 | No existing test mapped. **Planned:** `test_pr_mutation.py` CLI fixtures: killed, dispositioned and failing changed-line mutants, line-shifted identity, unconfirmed/contradicted/stale/not-judged entries, re-review, invalid file, incomplete runs. | proposed |
+| CONV-203 | No existing test mapped. **Planned:** `test_pr_mutation.py` added-entry summary, no out-of-band relaxation, removal never accepts a mutant; review acceptance. | proposed |
 | CONV-301 | No existing test mapped. **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes. | proposed |
