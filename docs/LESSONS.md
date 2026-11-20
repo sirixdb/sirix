@@ -137,7 +137,11 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
 - **Verify mutation coverage with CI's automatic test selection.** An exact-name
   test match takes precedence over package fallback. Keep renderer unit regressions
   in its matching test class; a broader focused run can otherwise hide surviving
-  mutants in the default lane. Evidence: [word-buffer mutation scope](postmortems/shell-pit-word-buffer-scope.md).
+  mutants in the default lane. Public exception diagnostics also need boundary and
+  accessor coverage: a positive-wait integration failure cannot reject a constructor
+  that wrongly refuses zero or an accessor that loses the page key. Evidence:
+  [word-buffer mutation scope](postmortems/shell-pit-word-buffer-scope.md) and
+  [HOT retirement diagnostics](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#ci-follow-up-retirement-diagnostic-coverage).
 
 - **Check semantic state beyond scratch-capacity boundaries.** A lossless streaming
   renderer can still lose container context and style keys as values. Exercise

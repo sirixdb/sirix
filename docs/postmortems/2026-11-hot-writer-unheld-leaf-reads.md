@@ -213,6 +213,51 @@
 - Lesson: serialize adversarial conditions with the failing input, and assert their observable
   effects during replay. See [Lessons](../LESSONS.md).
 
+## CI follow-up: retirement diagnostic coverage
+
+- Fix / issue: [#1462 PIT run 44793643611](https://github.com/sirixdb/sirix/actions/runs/44793643611/job/136489524910).
+- Symptom: the changed-source lane completed but reported two surviving mutants and one uncovered
+  mutant on changed lines. No contract test mapped directly to the exception.
+- Trigger: mutate `SirixLeafRetiredException`'s negative-duration boundary from `< 0` to `<= 0`,
+  or replace `getPageKey()` with zero. The writer starvation test only supplies a positive wait
+  and checks the failure type, message and elapsed wait, so neither change fails it.
+- Root cause: the new public diagnostic contract had only integration coverage for its ordinary
+  failure path. The invariant is that zero and positive waits are accepted, negative waits are
+  rejected, and the failure preserves its supplied page key and elapsed nanoseconds. It applies
+  to the constructor and both accessors; both read acquisition and copy-on-write retry expiry
+  construct this same exception. No runtime change is needed.
+- Regression test: `SirixLeafRetiredExceptionTest` executes that public contract using literal
+  page key `73`, waits `0`, `1`, `2_000_000`, `Long.MAX_VALUE`, `-1` and `Long.MIN_VALUE`, and a
+  worked millisecond diagnostic (`2_500_000` ns reports `2` ms). The PR resolver selects its
+  declared class name automatically as a related test for the exception. Run with
+  `./gradlew :sirix-core:test --tests 'io.sirix.index.hot.SirixLeafRetiredExceptionTest'`.
+- Lesson: test the diagnostic boundary as well as the failure path, using the automatic CI test
+  selection. See [Lessons](../LESSONS.md).
+
+Verification: all seven contract cases and `:sirix-core:spotlessJavaCheck` passed. A fresh
+`pr_mutation.py select` against base `ec746e7861589e19733c9ae17e16cc0e5415dc67` and head
+`13f696f6afe07f8f24774c952f7000123f3fc0c4`, followed by `run --seconds 1320 --blocking`,
+completed with the same 24 target classes and 12-mutant class cap as CI. The exception now maps
+to a test, and all four of its mutants are killed by the new class, including the two reported
+gaps. Changed-line detection improved from 5/8 to 7/8, with zero uncovered changed-line mutants.
+The blocking reporter exits 1 for the survivor below; PIT itself completed successfully.
+Local logs, XML and summaries are under `build/ci-diagnostics/`.
+
+The remaining reported survivor is `AbstractHOTIndexWriter$ChildPageGuards.retain`, line 8839,
+`CONDITIONALS_BOUNDARY`: the reverse scan changes `i >= 0` to `i > 0`. It skips duplicate
+detection for the oldest leaf and may acquire and register another guard. Successful acquisitions
+are still released on normal and exceptional exits; failed acquisitions still request resolution.
+This is mechanism/efficiency coverage debt, not a claim of universal equivalence: an additional
+entry can also cause scratch-array growth at capacity. The captain deliberately removed tests
+that assert guard counts and dispositioned mechanism-only mutants. No such test or mutation
+allowlist is reintroduced here. The blocking reporter still rejects this survivor; documenting
+it does not make that check green.
+
+CodeFactor's status for commit `13f696f6afe07f8f24774c952f7000123f3fc0c4` says "3 issues found."
+Its linked PR page returns HTTP 403 through both the browser and direct HTTP access. GitHub
+provides no file-level CodeFactor annotations, so those three diagnostics remain unverified;
+this follow-up does not guess at their cause or waive the remote check.
+
 ## What the fix does
 
 [FMT-304](../../spec/FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime) owns the leaf-lifetime
