@@ -598,6 +598,17 @@ class RefactorHelperTest(unittest.TestCase):
                  patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
                 self.assertEqual(mutation.main(), 1)
 
+    def test_remap_lists_the_candidate_with_unchanged_instruction_indexes_first(self):
+        """A rename keeps instruction ordinals, so the true counterpart is marked and listed first."""
+        with lane() as work:
+            (work.root / mutation.DISPOSITIONS_FILE).write_text(entry(method='old', indexes=[9]))
+            report = self.report(work.root, [mutant('SURVIVED', 11, indexes=(4,)),
+                                             mutant('SURVIVED', 12, indexes=(9,))])
+            text = mutation.remap_dispositions(work.root, [report])
+            candidates = [line for line in text.splitlines() if line.strip().startswith('indexes')]
+            self.assertEqual(candidates, ['  indexes = [9]', '  indexes = [4]'])
+            self.assertEqual(text.count('same instruction indexes'), 1)
+
     def test_remap_reports_invalid_files_and_entries_without_candidates(self):
         with lane() as work:
             (work.root / mutation.DISPOSITIONS_FILE).write_text(

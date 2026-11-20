@@ -1369,6 +1369,8 @@ def remap_candidates(entry, records):
     for label, accepts in tiers:
         matches = [record for record in alike if accepts(record['identity'])]
         if matches:
+            # A rename or move keeps the instruction ordinals: list those candidates first.
+            matches.sort(key=lambda record: record['identity'][4] != identity[4])
             return label, matches
     return None, []
 
@@ -1388,7 +1390,8 @@ def remap_dispositions(root, reports):
                      + (f'{len(matches)} candidate(s), {label}:' if label else 'no candidate'))
         for record in matches:
             name, method, descriptor, mutator, indexes, description = record['identity']
-            lines.extend([f"  # line {record['line']}, {record['status']}; re-review the "
+            same = ', same instruction indexes' if indexes == identity_of(entry)[4] else ''
+            lines.extend([f"  # line {record['line']}, {record['status']}{same}; re-review the "
                           f'argument and update checked_at before using it',
                           f'  class = {json.dumps(name)}', f'  method = {json.dumps(method)}',
                           f'  descriptor = {json.dumps(descriptor)}',
