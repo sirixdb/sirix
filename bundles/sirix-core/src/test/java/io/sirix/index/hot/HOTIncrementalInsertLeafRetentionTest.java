@@ -28,6 +28,7 @@ import java.util.function.LongSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -330,6 +331,54 @@ final class HOTIncrementalInsertLeafRetentionTest {
     final PageReference reference = new PageReference();
     reference.setPage(leaf);
     return reference;
+  }
+
+  @Test
+  @DisplayName("a survivor that goes away as it is held defers the merge instead of failing")
+  void consolidationDeclinesWhenASurvivorGoesAwayAfterThePairIsEligible() {
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final HOTLeafPage left = unitLeaf(pageKeys, 0x00, 6);
+    final HOTLeafPage right = unitLeaf(pageKeys, 0x20, 4);
+    final HOTLeafPage third = unitLeaf(pageKeys, 0x40, 2);
+    final HOTLeafPage fourth = unitLeaf(pageKeys, 0x80, 2);
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2}, new int[] {0, 1, 2, 4},
+        new PageReference[] {swizzle(left), swizzle(right), swizzle(third), swizzle(fourth)}, 1, 1, IndexType.PATH,
+        pageKeys::getAndIncrement);
+    // The pair 0x00/0x20 is eligible, so the survivors are resolved and held next. This spy retires
+    // the first survivor at exactly that resolution -- the one window this ordering has, after the
+    // pair is held and its eligibility read, and before anything is allocated or recompressed.
+    final PageReference retiringRef = spy(parent.getChildReference(2));
+    doAnswer(invocation -> {
+      final Page captured = (Page) invocation.callRealMethod();
+      third.close();
+      return captured;
+    }).when(retiringRef).getPage();
+    parent.setChildReference(2, retiringRef);
+    final PageReference[] originalChildren = {parent.getChildReference(0), parent.getChildReference(1),
+        parent.getChildReference(2), parent.getChildReference(3)};
+    final long allocatedBefore = pageKeys.get();
+    final long declinedBefore = HOTIncrementalInsert.CONSOLIDATION_SURVIVOR_UNAVAILABLE.get();
+    final List<PageReference> dropped = new ArrayList<>();
+    try {
+      final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2,
+          IndexType.PATH, pageKeys::getAndIncrement, dropped);
+
+      assertSame(parent, consolidated, "a merge whose survivor went away must leave the node alone");
+      assertEquals(declinedBefore + 1, HOTIncrementalInsert.CONSOLIDATION_SURVIVOR_UNAVAILABLE.get(),
+          "the decline must be the survivor path, not an earlier refusal");
+      assertEquals(allocatedBefore, pageKeys.get(), "a deferred merge must allocate no target");
+      assertEquals(4, consolidated.getNumChildren(), "every input child must remain in the parent");
+      for (int i = 0; i < originalChildren.length; i++) {
+        assertSame(originalChildren[i], consolidated.getChildReference(i), "child " + i + " must remain unchanged");
+      }
+      assertTrue(dropped.isEmpty(), "nothing merged, so nothing is handed to retirement");
+      assertTrue(third.isClosed(), "the survivor this test retired must really be gone");
+      assertEquals(0, left.getGuardCount(), "the pair's left guard must be given back");
+      assertEquals(0, right.getGuardCount(), "the pair's right guard must be given back");
+      assertEquals(0, fourth.getGuardCount(), "a survivor that was held must be given back");
+    } finally {
+      closeLeaves(parent);
+    }
   }
 
   private static void closeLeaves(final HOTIndirectPage... nodes) {

@@ -63,6 +63,13 @@ public final class HOTIncrementalInsert {
   public static final AtomicLong CONSOLIDATION_PAIR_DID_NOT_FIT = new AtomicLong();
 
   /**
+   * Diagnostic: merges {@link #consolidateNodeLeaves} gave up on because a surviving child of the
+   * node was unavailable or could not be held once the pair was known eligible. A test asserts it
+   * reaches this path rather than inferring it from the returned node.
+   */
+  public static final AtomicLong CONSOLIDATION_SURVIVOR_UNAVAILABLE = new AtomicLong();
+
+  /**
    * Diagnostic: the placement condition of {@link #canMergeBiNodeAtExistingDiscBit} found false — a
    * sibling's partial sorts between the split child's slot and the partial its other half would take.
    * Counts that refusal alone, not a C2 collision and not the unexpected straddle orientation.
@@ -1285,18 +1292,6 @@ public final class HOTIncrementalInsert {
         if (node.getNumChildren() < 3) {
           return node;
         }
-        for (int i = 0; i < node.getNumChildren(); i++) {
-          final Page child = node.getChildReference(i).getPage();
-          if (child == null) {
-            return node;
-          }
-          if (child instanceof HOTLeafPage leaf) {
-            if (!leaf.acquireGuard()) {
-              return node;
-            }
-            retainedLeaves[retainedCount++] = leaf;
-          }
-        }
         boolean merged = true;
         while (merged && current.getNumChildren() >= 3) {
           merged = false;
@@ -1308,10 +1303,40 @@ public final class HOTIncrementalInsert {
                 || !(rightRef.getPage() instanceof HOTLeafPage right)) {
               continue;
             }
-            if (left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
-                || right.segmentRefCount() != 0) {
+            // Hold the pair before anything reads it. The eligibility test below is already a read of
+            // both leaves -- segmentRefCount throws once a frame is retired -- and the copy that
+            // follows reads every entry. A leaf that cannot be held was evicted already, so the pair
+            // is left for a later attempt.
+            final int heldBeforePair = retainedCount;
+            retainedCount = holdLeafOnce(retainedLeaves, retainedCount, left);
+            if (retainedCount < 0) {
+              retainedCount = heldBeforePair;
               continue;
             }
+            final int afterLeft = retainedCount;
+            retainedCount = holdLeafOnce(retainedLeaves, retainedCount, right);
+            if (retainedCount < 0) {
+              retainedCount = releaseConsolidationGuards(retainedLeaves, afterLeft, heldBeforePair, null);
+              continue;
+            }
+            if (left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
+                || right.segmentRefCount() != 0) {
+              retainedCount = releaseConsolidationGuards(retainedLeaves, retainedCount, heldBeforePair, null);
+              continue;
+            }
+            // The pair is eligible, so this merge is going ahead and the survivors are held now --
+            // before the merge target is allocated, because allocating a frame is itself what may
+            // evict them, and before the parent's recompression resolves each of their references
+            // again and asks heightOf for a height a cleared swizzle can no longer answer. A
+            // survivor that is gone or cannot be held defers this maintenance, without allocating
+            // anything: the caller gets another chance.
+            final int afterSurvivors = retainSurvivingLeaves(current, i, retainedLeaves, retainedCount);
+            if (afterSurvivors < 0) {
+              retainedCount = releaseConsolidationGuards(retainedLeaves, retainedCount, heldBeforePair, null);
+              CONSOLIDATION_SURVIVOR_UNAVAILABLE.incrementAndGet();
+              return node;
+            }
+            retainedCount = afterSurvivors;
             final HOTLeafPage mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
             pendingSpeculativeLeaf = mergedLeaf;
             boolean fits = true;
@@ -1324,6 +1349,7 @@ public final class HOTIncrementalInsert {
             if (!fits) {
               mergedLeaf.close();
               pendingSpeculativeLeaf = null;
+              retainedCount = releaseConsolidationGuards(retainedLeaves, retainedCount, heldBeforePair, null);
               CONSOLIDATION_PAIR_DID_NOT_FIT.incrementAndGet();
               continue;
             }
@@ -1347,6 +1373,9 @@ public final class HOTIncrementalInsert {
                 ownedSpeculativeCount);
             retireConsolidationInput(rightRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
                 ownedSpeculativeCount);
+            // Nothing is released here. A close that arrived while this attempt held a leaf is
+            // deferred until its last guard goes, so giving the guards back now would retire a leaf
+            // the next pass over the new node still has to read. The exit releases them.
             current = next;
             merged = true;
             break;
@@ -1376,8 +1405,19 @@ public final class HOTIncrementalInsert {
 
   private static void releaseConsolidationGuards(final HOTLeafPage[] leaves, final int count,
       final @Nullable Throwable failure) {
+    releaseConsolidationGuards(leaves, count, 0, failure);
+  }
+
+  /**
+   * Release and clear the guards this call holds above {@code floor}, and answer the count that is
+   * left. The merge loop holds a pair, and the survivors of a merge, only for as long as it reads
+   * them, so it gives the guards back at the end of every attempt rather than at the end of the call;
+   * {@code floor} is where that attempt began.
+   */
+  private static int releaseConsolidationGuards(final HOTLeafPage[] leaves, final int count, final int floor,
+      final @Nullable Throwable failure) {
     Throwable primary = failure;
-    for (int i = count - 1; i >= 0; i--) {
+    for (int i = count - 1; i >= floor; i--) {
       final HOTLeafPage leaf = leaves[i];
       leaves[i] = null; // the array outlives the call; never leave it pointing at a released leaf
       try {
@@ -1398,6 +1438,61 @@ public final class HOTIncrementalInsert {
         throw error;
       }
     }
+    return floor;
+  }
+
+  /**
+   * Take one guard on {@code leaf} unless this call already holds it, and answer the new held count,
+   * or {@code -1} when the leaf is already gone. One guard per leaf however often the passes meet it
+   * again: a leaf held by an earlier merge of this same call must not be counted, or its guard would
+   * be released while the walk still needs it. The held set is one node's children, so the scan is
+   * short and goes newest first, where a repeat usually is.
+   */
+  private static int holdLeafOnce(final HOTLeafPage[] leaves, final int count, final HOTLeafPage leaf) {
+    for (int i = count - 1; i >= 0; i--) {
+      if (leaves[i] == leaf) {
+        return count;
+      }
+    }
+    if (!leaf.acquireGuard()) {
+      return -1;
+    }
+    leaves[count] = leaf;
+    return count + 1;
+  }
+
+  /**
+   * Hold every leaf child of {@code node} except the pair at {@code leftIndex}, for the parent
+   * recompression a merge of that pair performs: it resolves each surviving child's reference again
+   * and asks {@code heightOf} for its height, which a reference whose swizzle the cache has cleared
+   * can no longer answer. Answers the new held count, or {@code -1} when a survivor is unavailable or
+   * cannot be held, with everything this call took already released.
+   */
+  private static int retainSurvivingLeaves(final HOTIndirectPage node, final int leftIndex, final HOTLeafPage[] leaves,
+      final int count) {
+    int held = count;
+    for (int i = 0; i < node.getNumChildren(); i++) {
+      if (i == leftIndex || i == leftIndex + 1) {
+        continue;
+      }
+      final PageReference childRef = node.getChildReference(i);
+      final Page child = childRef == null
+          ? null
+          : childRef.getPage();
+      if (child == null) {
+        releaseConsolidationGuards(leaves, held, count, null);
+        return -1;
+      }
+      if (child instanceof HOTLeafPage leaf) {
+        final int afterLeaf = holdLeafOnce(leaves, held, leaf);
+        if (afterLeaf < 0) {
+          releaseConsolidationGuards(leaves, held, count, null);
+          return -1;
+        }
+        held = afterLeaf;
+      }
+    }
+    return held;
   }
 
   private static void retireConsolidationInput(final PageReference inputRef,
