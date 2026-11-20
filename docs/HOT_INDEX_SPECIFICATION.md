@@ -1899,9 +1899,9 @@ because every path that releases a leaf's frame (`close`, `markOrphaned`, the la
 sets the orphaned flag first and nothing clears it, so a leaf that is not orphaned after the read
 owned its frame during the read. It needs no stamp (§4.9.3): a committed leaf is never re-bound to
 another frame, and the flag sits in the leaf object the comparison has just read. Standalone
-consolidation has its own retention scope, documented in
+consolidation splits leaf-lifetime responsibility with its caller, as documented in
 [`consolidateNodeLeaves`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTIncrementalInsert.java),
-which owns the pair and survivor retention windows and the scratch-array ownership bound.
+which owns the retention preconditions and the scratch-array ownership bound.
 The [postmortem](postmortems/2026-11-hot-writer-unheld-leaf-reads.md) records the regression
 coverage and the writer's earlier failures.
 

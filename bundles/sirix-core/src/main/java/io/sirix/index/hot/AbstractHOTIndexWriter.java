@@ -1908,8 +1908,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    *        unbounded storm can never wrap the counter back into the spin budget
    * @param deadlineNanos the deadline armed on the first attempt past the spin budget; unread until
    *        then
+   * @param pageKey the leaf whose guard could not be acquired
    * @return the armed deadline to carry into the next attempt
-   * @throws IllegalStateException when the deadline passed without a single guarded attempt
+   * @throws SirixLeafRetiredException when the deadline passed without a single guarded attempt
    */
   private static long backOffBeforeHOTLeafGuardRetry(final long attempt, final long deadlineNanos, final long pageKey) {
     if (attempt < HOT_LEAF_GUARD_SPIN_ATTEMPTS) {

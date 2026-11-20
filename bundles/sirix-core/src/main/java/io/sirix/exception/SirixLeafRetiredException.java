@@ -16,9 +16,10 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>
  * Published revisions are unaffected: the mutation that failed published nothing a reader can see,
- * and a fresh reader observes the contents it observed before. The transaction, however, may
- * already hold a partially built private index state, so it is marked rollback-only: commit is
- * refused and {@code rollback} is the way out.
+ * and a fresh reader observes the contents it observed before. If this failure occurs inside a
+ * mutation, the transaction may already hold a partially built private index state, so it is marked
+ * rollback-only and commit is refused. A read that fails before entering the mutation does not mark
+ * the transaction rollback-only. Explicit {@code rollback} remains available in either case.
  * </p>
  */
 public final class SirixLeafRetiredException extends SirixRuntimeException {

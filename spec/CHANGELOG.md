@@ -26,22 +26,9 @@
   states its gap.
 
 - Add the [FMT-304 leaf-lifetime contract](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime)
-  for HOT mutations. A mutation never fails because the page cache evicted a leaf it needs: reuse of
-  a frame is deferred while any reader or writer may still read it, a leaf that may still be read is
-  cooled rather than reclaimed, and a read taken without a hold is validated against the frame's
-  version. Deferred reclamation is a separate task, so the requirement is `partial`: in the interim a
-  required re-resolution is bounded and raises a distinctly typed leaf-retirement failure at the
-  bound, leaving published revisions unchanged and rollback available. Stated as six clauses. The first three are observable and carry the acceptance
-  evidence: a mutation never reads memory eviction can reclaim under the read, eviction changes
-  neither what a mutation reads nor what it writes (a committed revision is identical in content
-  either way), and a leaf that cannot be made safe to read makes optional maintenance decline rather
-  than fail the transaction or report the index malformed. The remaining clauses constrain the
-  mechanism: a direct caller of the consolidation primitive holds the node's direct leaf children for
-  the call, a hold is never released while the mutation may still read that leaf unheld and every
-  hold is released by the time the mutation ends (per-attempt release allowed), and a mutation that
-  reads no cached leaf neither allocates nor holds for this rule. Verified by poisoned-frame eviction
-  sweeps that strike at every engine call and compare the whole index with a model, a clean-JVM
-  allocation budget, and a planned concurrent-evictor conformance case.
+  for HOT mutations. That requirement owns the normative clauses, interim retirement failure,
+  evidence and remaining deferred-reclamation gap; the consolidation method contract owns its
+  caller's retention duty.
 
 - Resolve imported timestamp ordering: preserve increasing source timestamps, adjust
   ties/regressions to the preceding effective timestamp plus 1 microsecond, and keep

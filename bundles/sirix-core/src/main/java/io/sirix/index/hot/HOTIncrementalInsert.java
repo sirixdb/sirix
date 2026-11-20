@@ -1278,9 +1278,9 @@ public final class HOTIncrementalInsert {
    *
    * <p>
    * Only original leaf children enter retention. Unpublished replacements remain privately owned by
-   * this call and are excluded at both pair and survivor acquisition, so repeated merges cannot
-   * exhaust the original-child bound or defer retirement of consumed replacements. Capacity is
-   * checked before acquiring a guard, so an exhausted bound cannot leave a guard unrecorded.
+   * this call and are excluded at pair acquisition, so repeated merges cannot exhaust the
+   * original-child bound or defer retirement of consumed replacements. Capacity is checked before
+   * acquiring a guard, so an exhausted bound cannot leave a guard unrecorded.
    *
    * @param retentionScratch caller-owned space for the leaves this call holds; its contents are not
    *        read on entry, and slots used for retention are cleared on every exit
@@ -1389,9 +1389,6 @@ public final class HOTIncrementalInsert {
                 ownedSpeculativeCount);
             retireConsolidationInput(rightRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
                 ownedSpeculativeCount);
-            // Nothing is released here. A close that arrived while this attempt held a leaf is
-            // deferred until its last guard goes, so giving the guards back now would retire a leaf
-            // the next pass over the new node still has to read. The exit releases them.
             current = next;
             merged = true;
             break;

@@ -55,8 +55,9 @@
   four input leaves evicted from the page-key allocator before copying and recompression;
   released frames zero-filled, and in a second mode taken at once by foreign leaves),
   `HOTIndexWriterLeafRetentionTest` (the writer on production storage: six puts, each repeated with
-  every unguarded leaf evicted at one engine call after the other and at all of them, and the guard
-  counts in the middle of a put) and `HOTStructuralPropertyTest.mutationsSurviveLeafEviction`
+  every unguarded leaf evicted at one engine call after the other and at all of them, plus
+  reclaimability after normal and exceptional mutation exits) and
+  `HOTStructuralPropertyTest.mutationsSurviveLeafEviction`
   (generated CAS, PATH and NAME streams under all four versioning types, with every unguarded leaf
   evicted at every engine call of every mutation). In the recorded baseline run with the two
   production files as on `main`, ten tests failed: the primitive skips the merge on zeroed frames,
@@ -64,7 +65,9 @@
   and merges a pair it could not hold; the writer holds none of three committed leaves in the middle
   of a put; the crossing merge is accepted at 2 of 318 eviction points and the ordered merge
   mishandled at 2 of 24; 11 of 42, 4 of 108 and 5 of 31 eviction points of the other three puts
-  fail as described above; and all 12 generated cases fail. With the fix all pass.
+  fail as described above; and all 12 generated cases fail. Those baseline observations include
+  guard-count tests since removed in favor of logical-result and reclaimability checks; they are
+  historical evidence, not the current test inventory.
   `HotWriterLeafRetentionAllocationBudgetTest` guards the cost instead and passes on both. Run them
   with `./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOT*LeafRetention*' --tests
   'io.sirix.index.hot.HOTStructuralPropertyTest.mutationsSurviveLeafEviction'` and `./gradlew
@@ -112,16 +115,15 @@
   returned `null`; it skipped the pair without exercising the eligibility reads. Latency runs
   supplied explicit 60/60 overrides for the steady benchmark, hiding its inherited 120/60 annotations.
 - Regression test: `HOTIncrementalInsertLeafRetentionTest.consolidationDeclinesWhenAnyChildCannotBeHeld`
-  retires each direct child after the real `PageReference.getPage()` captures its live leaf
+  retires either member of the pair after the real `PageReference.getPage()` captures its live leaf
   but before returning that leaf to consolidation, with full and deferred retirement cases,
   and also covers children closed before resolution.
-  The oracle is the standalone primitive's documented skip-without-allocation contract:
+  The oracle is the primitive's pair-decline behavior:
   the same parent retains all four children, no replacement is allocated, and every acquired
   guard is released. The retention windows are documented on
   [`consolidateNodeLeaves`](../../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTIncrementalInsert.java).
-  Before operation-wide retention, restoring the pre-guard eligibility ordering made both fully
-  retired pair cases throw
-  `FrameReusedException` at `segmentRefCount()` instead.
+  Restoring the pre-guard eligibility ordering made both fully retired pair cases throw
+  `FrameReusedException` at `segmentRefCount()` instead of declining.
   `consolidationReleasesGuardsForIneligiblePairs` checks both side-reference exclusions and the
   count bound, including guard cleanup and unchanged inputs. The existing copy tests exercise
   successful and repeated merges under poisoned and recycled frames.
@@ -144,17 +146,21 @@
   every child reference. The production writer's outer guards hid the standalone ownership gap.
 - Why tests missed it: allocation-time eviction targeted only the copied pair. The skip tests
   covered that pair, so neither surviving children nor a missing swizzle blocked a later merge.
-- Regression test: `consolidationCopiesOnlyFromLeavesItHolds` now closes all four original leaves
-  at allocation and still requires both merges, all twelve copied entries and released guards.
-  `consolidationDeclinesWhenAnyChildCannotBeHeld` requires an unchanged node, unchanged child
-  references, no replacement allocation and no leaked guards for every child slot, with retirement
-  before resolution, after capture, and deferred by an existing guard. Allocation-time eviction
-  occurs after a merge has started, so that case must finish safely rather than claim no allocation.
+- Resolution: operation-wide retention in the primitive was later narrowed for the paired latency
+  gate. The final division of responsibility is owned by the
+  [`consolidateNodeLeaves` contract](../../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTIncrementalInsert.java).
+- Regression test: `consolidationCopiesOnlyFromLeavesItHolds` closes all four original leaves
+  at allocation while its caller holds the surviving children. It requires one merge with all ten
+  entries of the copied pair intact; the next attempt declines when it cannot guard a child whose
+  retirement was requested. `consolidationAssertsItsCallerHoldsTheSurvivingChildren` and
+  `consolidationAcceptsACallerThatHoldsTheSurvivingChildren` exercise the method precondition.
+  The pair-decline cases are described in the eligibility follow-up above.
   `consolidationReleasesEveryChildOnFailure` fails each of the four allocations across the two
-  merges, both with and without a throwing input-frame releaser, and requires the original
-  exception, no retirement requests, no leaked guards and no live input or speculative frames.
-  Removing operation-wide retention restores the `heightOf(null)` failure in the allocation-time
-  eviction cases. Run the three cases through
+  merges, both with and without a throwing pair-frame releaser, and requires the original
+  exception, no retirement requests and no leaked pair guards. The caller's survivor guards remain
+  held until its own cleanup; after that, no input or speculative frames remain live. The earlier
+  operation-wide implementation caught the `heightOf(null)` failure; the current tests enforce
+  the narrowed caller contract. Run these cases through
   `./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTIncrementalInsertLeafRetentionTest'`.
 - Lesson: derive retention scope from every downstream consumer, including recompression metadata,
   rather than just the entries being copied. See [Lessons](../LESSONS.md).
@@ -169,8 +175,9 @@
   privately owned replacements absent from that set.
 - Root cause: the retention bound counts original children, but retention also admitted new leaves
   that consolidation owns. Guard acquisition preceded the array-slot check, so the failing write
-  left a guard unrecorded. Both pair and survivor acquisition now share an ownership exclusion and
-  check slot capacity before acquiring a new guard; the retention windows remain unchanged.
+  left a guard unrecorded. The current acquisition boundary, `holdOriginalLeafOnce`, excludes owned
+  replacements and checks slot capacity before acquiring a guard. Survivor ownership follows the
+  method contract linked above.
 - Why tests missed it: the four-child fixture had spare retention slots even after repeated merges.
 - Regression test: `HOTIncrementalInsertLeafRetentionTest.fullFanoutConsolidationDoesNotRetainPrivateReplacements`
   exercises both public overloads. The specification's greedy merge and no-collapse rules require
@@ -218,21 +225,22 @@ consolidation. The regressions above cover their failure modes.
 - Allocation: `HotWriterLeafRetentionAllocationBudgetTest` holds a put beside a committed neighbour
   to exactly the bytes of a put beside a logged one. The guard set's allocation lifetime is described
   in [§4.9.2](../HOT_INDEX_SPECIFICATION.md#492-writers-copy-on-write-through-the-intent-log).
-- Compiled shape: 222 of the 240 methods of `AbstractHOTIndexWriter` are byte-identical to `main`,
-  among them `doMutation`, `dispatchInsert` and `mergeIntoLeaf`. Nine changed and nine are new, and
-  the new ones are small enough to inline: `resolveUnheld` 7 bytes, `enterMutation` 20,
+- Earlier compiled-shape snapshot: 222 of the 240 methods of `AbstractHOTIndexWriter` were
+  byte-identical to `main`, among them `doMutation`, `dispatchInsert` and `mergeIntoLeaf`. Nine
+  changed and nine were new, and the new ones were small enough to inline: `resolveUnheld` 7 bytes,
+  `enterMutation` 20,
   `isUnpublished` 22, `exitMutation` 31, `compareSubtreeExtreme` 81, `unheldExtremeLeafOfSubtree`
   122. `doReplacePostingChunk` went from 295 bytes to 41 by moving its body to
-  `replacePostingChunk`, so the bracketing entry point stays inlinable. `prepareLeafOfTree`, the
-  descent every put makes, is the same size as before.
-- Instructions per put, measured on the steady workload under deterministic compilation (two forks
-  per arm, reproducible to 0.1 %): the two methods this change rewrote are cheaper than the ones
-  they replace -- `mergeKeepsSpineOrder` 381 against 451, `resolveOneHopForTraversal` 433 against
-  523. The whole put reads 6,414 against 6,136, and that difference is not in the changed code: it
-  is a different inlining tree for the same work (`analyzeDescentInto` 0 -> 1,352 and
-  `serializeValueInto` 926 -> 0 are the same work in another frame), and it costs 1.5 % more cycles
+  `replacePostingChunk`, keeping the bracketing entry point inlinable. `prepareLeafOfTree`, the
+  descent every put makes, was the same size as before.
+- Earlier instructions-per-put snapshot, measured on the steady workload under deterministic
+  compilation (two forks per arm, reproducible to 0.1 %): the two rewritten methods were cheaper
+  than the ones they replaced -- `mergeKeepsSpineOrder` 381 against 451, `resolveOneHopForTraversal`
+  433 against 523. The whole put read 6,414 against 6,136, with the difference in a different
+  inlining tree for the same work (`analyzeDescentInto` 0 -> 1,352 and
+  `serializeValueInto` 926 -> 0 represented the same work in another frame), and cost 1.5 % more cycles
   with fewer L1, LLC and branch misses.
-- Latency: at parity on all four benchmarks of `HotWriterSiblingReadBenchmark`. 24 fresh-fork pairs
+- Earlier latency measurements for `HotWriterSiblingReadBenchmark`: 24 fresh-fork pairs
   per benchmark in alternating order, 60 measured shots after 120 warm-up ones (the steady benchmark
   60 after 60), median of shots per fork, paired Student interval on the log ratio, every fork under
   a quiet-machine criterion, contaminated pairs discarded before their shots were read and run again:
@@ -244,8 +252,12 @@ consolidation. The regressions above cover their failure modes.
   | `appendsBesideCommittedLeavesThenCommit` | 19.42 ms | 19.61 ms | +0.2 % | -1.9 to +2.3 |
   | `steadyAppendsBesideCommittedLeaves` | 12.84 ms | 12.74 ms | +0.6 % | -2.4 to +3.8 |
 
-  Allocation per put is unchanged in all four, and 0 B per put on the steady benchmark, whose shots
+  Allocation per put was unchanged in all four, and 0 B per put on the steady benchmark, whose shots
   contain nothing but puts.
+
+  These recorded snapshots do not establish that the final change meets the preregistered
+  +1 percent upper bound. The paired insert/commit latency gate must be rerun against
+  then-current `main` (gate 11); meeting that bar is required before merge.
 
 The first version of the fix guarded the neighbouring leaf in every put that extends its leaf's
 range, three interlocked instructions on a page other threads read, and measured about six points
