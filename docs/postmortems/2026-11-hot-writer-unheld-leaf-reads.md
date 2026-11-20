@@ -73,6 +73,29 @@
   out of a stale read; and a guard has a price that belongs on the scale before it goes into a path
   every put takes. See [Lessons](../LESSONS.md).
 
+## Review follow-up: retry-deadline test isolation
+
+- Fix / issue: review finding R1 on the #1459 fix.
+- Symptom: a later copy-on-write test can report leaf retirement while its replacement is still
+  becoming available, although the production retry budget accommodates that retirement.
+- Trigger: run `HOTIndexWriterLeafRetentionTest.aRequiredReadThatKeepsLosingItsLeafFailsByName`
+  before `HOTLeafWriterGuardTest.abstractIndexWriterYieldsTheCoreToTheThreadRetiringTheLeaf`
+  in the same JVM.
+- Root cause: the starvation test lowers a JVM-wide retry deadline to 20 ms, but its shared
+  teardown restores only the poison flag and consolidation cadence. The later test's deliberate
+  300 ms retirement then exceeds the leaked deadline rather than the shipped five-second bound.
+- Why tests missed it: each class passes alone; the failure requires their ordered execution
+  in one process.
+- Regression test: execute the two tests above with
+  `JAVA_TOOL_OPTIONS='-Djunit.jupiter.testclass.order.default=org.junit.jupiter.api.ClassOrderer$ClassName'`
+  and `./gradlew :sirix-core:test`, selecting both methods with `--tests`. JUnit's class-name
+  order puts the deadline override before the retirement. The existing oracle requires the
+  copy-on-write to return the replacement after retirement; it rejects a premature timeout
+  without adding a wall-clock assertion. The common `@AfterEach` must restore the retry deadline
+  after both successful and failed tests.
+- Lesson: isolation from concurrent tests does not restore static settings between sequential
+  tests; reset every override in common teardown. See [Lessons](../LESSONS.md).
+
 ## Review follow-up: eligibility reads and benchmark schedules
 
 - Fix / issue: review findings R1 and R2 on the #1459 fix.

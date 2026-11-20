@@ -4185,21 +4185,11 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Diagnostic: neighbour comparisons that fell back to a held leaf, because the unheld walk could
-   * not hand one out or its read did not survive validation. It is counted here, on the cold path,
-   * and never on the comparison every put makes: a test can then assert that the unheld walk answered
-   * by itself, which is what makes a change that quietly forces this fallback visible instead of
-   * looking harmless because the answer stayed correct.
-   */
-  public static final AtomicLong NEIGHBOUR_COMPARISON_HELD_FALLBACK = new AtomicLong();
-
-  /**
    * {@link #compareSubtreeExtreme} on a leaf the mutation holds. Kept out of line: no ordinary put
    * comes here, and the holding resolver inlined into the comparison would be most of its code.
    */
   private int compareHeldSubtreeExtreme(final @Nullable PageReference ref, final int side, final byte[] keyBuf,
       final int keyLen) {
-    NEIGHBOUR_COMPARISON_HELD_FALLBACK.incrementAndGet();
     final HOTLeafPage held = extremeLeafOfSubtree(ref, side);
     return held == null
         ? NO_EXTREME

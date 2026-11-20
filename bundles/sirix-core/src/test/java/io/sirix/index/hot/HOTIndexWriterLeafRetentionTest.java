@@ -89,6 +89,7 @@ final class HOTIndexWriterLeafRetentionTest {
   void restore() {
     FrameSlotAllocator.setPoisonOnReleaseForTesting(false);
     AbstractHOTIndexWriter.setConsolidationIntervalForTesting(0);
+    AbstractHOTIndexWriter.setHOTLeafGuardRetryDeadlineForTesting(0L);
     Databases.clearGlobalCaches();
   }
 

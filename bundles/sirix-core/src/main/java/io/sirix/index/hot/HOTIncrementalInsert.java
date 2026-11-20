@@ -63,13 +63,6 @@ public final class HOTIncrementalInsert {
   public static final AtomicLong CONSOLIDATION_PAIR_DID_NOT_FIT = new AtomicLong();
 
   /**
-   * Diagnostic: merges {@link #consolidateNodeLeaves} gave up on because a surviving child of the
-   * node was unavailable or could not be held once the pair was known eligible. A test asserts it
-   * reaches this path rather than inferring it from the returned node.
-   */
-  public static final AtomicLong CONSOLIDATION_SURVIVOR_UNAVAILABLE = new AtomicLong();
-
-  /**
    * Diagnostic: the placement condition of {@link #canMergeBiNodeAtExistingDiscBit} found false — a
    * sibling's partial sorts between the split child's slot and the partial its other half would take.
    * Counts that refusal alone, not a C2 collision and not the unexpected straddle orientation.
