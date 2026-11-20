@@ -90,8 +90,8 @@ final class HOTIncrementalInsertLeafRetentionTest {
       children[i] = swizzle(originals[i]);
       partials[i] = i;
     }
-    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2, 3, 4}, partials,
-        children, 1, 1, IndexType.PATH, pageKeys::getAndIncrement);
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2, 3, 4}, partials, children, 1, 1,
+        IndexType.PATH, pageKeys::getAndIncrement);
     final int liveWithOriginals = frames.liveSlotCount(frameClass);
     final HOTLeafPage[] scratch = new HOTLeafPage[fanout];
     final List<PageReference> dropped = new ArrayList<>();

@@ -783,8 +783,8 @@ final class HOTStructuralPropertyTest {
 
     String header() {
       return "kind=" + kind + " versioning=" + versioning + " seed=" + seed + " consolidationInterval="
-          + consolidationInterval + " exhaustive=" + exhaustive + " leafEviction=" + leafEviction
-          + " framePoisoning=" + framePoisoning;
+          + consolidationInterval + " exhaustive=" + exhaustive + " leafEviction=" + leafEviction + " framePoisoning="
+          + framePoisoning;
     }
 
     static CaseConfig parseHeader(final String header) {
