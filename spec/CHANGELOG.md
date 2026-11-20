@@ -2,15 +2,18 @@
 
 ## 1.0.0 (unreleased)
 
-- Add CONV-201 to CONV-203: reviewed equivalence dispositions for the PR mutation lane.
-  An entry in `.github/mutation-dispositions.toml` names one mutant by PIT's identity (class,
-  method, descriptor, mutator, instruction indexes, description; no line number, no pattern)
-  with classification `equivalent`, the inspected commit and a contract-based justification.
-  A changed-line `SURVIVED`/`NO_COVERAGE` mutant passes only with an entry added or re-confirmed
-  in the PR; added entries must match a non-killed changed-line mutant, entries matching a killed
-  mutant or no longer present fail, and the summary lists every added claim. CONV-103 now names
-  the three resolutions of a surviving mutant and drops "unreachable" justifications: code a
-  mutant shows to have no observable effect is removed. Nothing here is implemented yet.
+- Add CONV-201 to CONV-204: reviewed mutation dispositions and test associations for the PR
+  mutation lane. An entry in `.github/mutation-dispositions.toml` names one mutant by PIT's identity
+  (class, method, descriptor, mutator, instruction indexes, description; no line number, no pattern),
+  the inspected commit and a justification, as either `equivalent` (no observable difference,
+  where cost counts as observable) or `killed-out-of-lane` (a named clean-JVM allocation, budget or
+  latency test with counterfactual evidence). A changed-line `SURVIVED` mutant passes only with an
+  added entry; `NO_COVERAGE` is never dispositioned; entries of a changed method need
+  re-confirmation; contradicted, superseded, unconfirmed and stale entries fail. Local check, remap
+  and counterfactual helpers keep refactors cheap. `.github/mutation-test-associations.toml` lists
+  existing behavior tests the lane must run for a changed class, replacing `CONTRACT_TESTS`.
+  CONV-103 names four resolutions of a surviving mutant, forbids line-targeted tests and drops
+  "unreachable" justifications: code without observable effect is removed.
 
 - Replace the retired node-hash REST precondition with an opaque conditional-write token.
   The ETag is `<incarnation-hex>.<revision>` for the revision a response serves in every hash mode;
