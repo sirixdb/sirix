@@ -8836,8 +8836,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       // One guard holds a leaf, however often a walk resolves it: its page, its first key, its last
       // key. Newest first, because a repeat usually follows at once; the set is one node's children
       // or a bounded scan, so the walk is short.
-      for (int i = size - 1; i >= 0; i--) {
-        if (leaves[i] == leaf) {
+      for (int remaining = size; remaining > 0;) {
+        if (leaves[--remaining] == leaf) {
           return true;
         }
       }

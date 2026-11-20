@@ -1464,13 +1464,13 @@ public final class HOTIncrementalInsert {
    */
   private static int holdOriginalLeafOnce(final HOTLeafPage[] leaves, final int count, final HOTLeafPage leaf,
       final HOTLeafPage[] ownedSpeculativeLeaves, final int ownedSpeculativeCount) {
-    for (int i = ownedSpeculativeCount - 1; i >= 0; i--) {
-      if (ownedSpeculativeLeaves[i] == leaf) {
+    for (int remaining = ownedSpeculativeCount; remaining > 0;) {
+      if (ownedSpeculativeLeaves[--remaining] == leaf) {
         return count;
       }
     }
-    for (int i = count - 1; i >= 0; i--) {
-      if (leaves[i] == leaf) {
+    for (int remaining = count; remaining > 0;) {
+      if (leaves[--remaining] == leaf) {
         return count;
       }
     }

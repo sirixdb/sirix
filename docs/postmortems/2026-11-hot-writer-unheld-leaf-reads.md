@@ -243,20 +243,81 @@ gaps. Changed-line detection improved from 5/8 to 7/8, with zero uncovered chang
 The blocking reporter exits 1 for the survivor below; PIT itself completed successfully.
 Local logs, XML and summaries are under `build/ci-diagnostics/`.
 
-The remaining reported survivor is `AbstractHOTIndexWriter$ChildPageGuards.retain`, line 8839,
+At that snapshot, the remaining reported survivor was
+`AbstractHOTIndexWriter$ChildPageGuards.retain`, line 8839,
 `CONDITIONALS_BOUNDARY`: the reverse scan changes `i >= 0` to `i > 0`. It skips duplicate
 detection for the oldest leaf and may acquire and register another guard. Successful acquisitions
 are still released on normal and exceptional exits; failed acquisitions still request resolution.
 This is mechanism/efficiency coverage debt, not a claim of universal equivalence: an additional
 entry can also cause scratch-array growth at capacity. The captain deliberately removed tests
 that assert guard counts and dispositioned mechanism-only mutants. No such test or mutation
-allowlist is reintroduced here. The blocking reporter still rejects this survivor; documenting
-it does not make that check green.
+allowlist is reintroduced here. The blocking reporter still rejected this survivor; documenting
+it did not make that check green. The next follow-up resolves that gate failure.
 
 CodeFactor's status for commit `13f696f6afe07f8f24774c952f7000123f3fc0c4` says "3 issues found."
 Its linked PR page returns HTTP 403 through both the browser and direct HTTP access. GitHub
 provides no file-level CodeFactor annotations, so those three diagnostics remain unverified;
 this follow-up does not guess at their cause or waive the remote check.
+
+## CI follow-up: reverse-scan boundary and unused imports
+
+- Fix / issue: [#1462 PIT run 44803037523](https://github.com/sirixdb/sirix/actions/runs/44803037523/job/136523044507).
+- Symptom: before this follow-up, the blocking lane rejected the duplicate-detection boundary
+  mutant described above. The runtime behavior is correct; the sampled mutation can merely acquire
+  an extra, balanced guard, which the intentionally behavioral tests need not observe.
+- Required invariant: inspect every occupied slot, newest first, before acquiring another guard
+  or treating a speculative replacement as an original leaf. This applies to
+  `ChildPageGuards.retain` (both mutation resolution and structural child loading) and both scans
+  in `holdOriginalLeafOnce` (private replacements and retained original children).
+- Small correction: express each scan as a positive remaining-slot count, decrementing before
+  indexing. This preserves the same sequence of array accesses, including slot zero, and the
+  empty-set path without adding allocation, state, or an extra branch. The boundary mutation now
+  enters an empty scan and indexes outside the occupied range instead of only losing deduplication.
+- Derived verification: the existing writer eviction sweeps and consolidation regressions use
+  the FMT-304 data-preservation and reclaimability contracts as independent oracles. They cover
+  empty and populated guard sets, repeated merges, full fanout, successful puts and exceptional
+  cleanup. Run these before the bounded changed-source PIT lane; do not add guard-count tests or
+  weaken the mutation criterion.
+- Import invariant: every import in a changed Java file must be used, including test imports.
+  Checkstyle 10.21.4 with the committed `checkstyle.xml` found exactly three violations across all
+  11 changed Java files: unused imports of `fail`, `assertSame` and `Arrays`, all in
+  `HOTIndexWriterLeafRetentionTest`. They remained after the earlier behavioral-test rewrite.
+  Removing only those imports makes the same audit pass. Hosted CodeFactor diagnostics remain
+  inaccessible (HTTP 403), so this is local analyzer evidence, not a confirmed hosted result.
+- Lesson: when an inclusive-index boundary produces a mechanism-only mutation, a remaining-count
+  loop can express the same traversal without a special zero-index boundary. Preserve the
+  behavioral oracle and verify the new executable mutants rather than exempting them.
+
+Verification: the 52 focused writer, consolidation and retirement-diagnostic cases passed,
+as did Spotless and Checkstyle over all 11 changed Java files. The unchanged bounded CI command
+(`pr_mutation.py select` against base `ec746e7861589e19733c9ae17e16cc0e5415dc67` and head
+`c6a2170c59be9072ed10816ad8472f4c129e2763`, then `run --seconds 1320 --blocking`) exited zero:
+**8/8 sampled changed-line mutants killed, zero survivors or uncovered changed-line mutants**.
+The same 24 target classes, three test patterns and 12-mutant class cap were used. Unchanged-line
+debt remains advisory: 11 survivors and 27 uncovered mutants; the full sampled report has 66
+mutants. No threshold, test-selection rule or allowlist changed.
+
+An additional uncapped PIT pass targeted only `ChildPageGuards.retain` and
+`holdOriginalLeafOnce`: **20/25 mutants killed**, including all three changed boundary mutants
+at lines 8839, 1467 and 1472. `whenAMutationEndsTheLeavesItHeldBecomeReclaimable` kills the writer
+boundary; `consolidationReleasesGuardsForIneligiblePairs` kills both consolidation boundaries.
+The five residuals below are individually dispositioned, not waived from the blocking lane:
+
+| Class / method | Line / mutation | Disposition |
+| --- | --- | --- |
+| `AbstractHOTIndexWriter$ChildPageGuards.retain` | 8834, false return, survived | Rejecting a non-leaf requests another resolution; no leaf guard was acquired. Extra resolution is mechanism/work debt, not universal equivalence under I/O failure. |
+| `AbstractHOTIndexWriter$ChildPageGuards.retain` | 8841, false return, survived | An already held leaf is resolved again. The original hold remains valid and all additional holds are released. Extra resolution/growth is the previously dispositioned mechanism debt. |
+| `AbstractHOTIndexWriter$ChildPageGuards.retain` | 8848, false return, survived | Acquisition was already registered; false requests re-resolution and another balanced hold. The data/reclaimability oracle does not observe that extra work. |
+| `AbstractHOTIndexWriter$ChildPageGuards.retain` | 8845, true return, uncovered | Real pre-existing concurrency coverage gap: retirement after swizzle capture but before acquisition must request re-resolution. The new countdown does not change this branch; the planned concurrent-evictor conformance case remains necessary. |
+| `HOTIncrementalInsert.holdOriginalLeafOnce` | 1474, zero return, uncovered | No valid fixture revisits a retained original: successful pairs remove their originals from the current node, skipped pairs release their new holds, and private replacements use the ownership scan. The unmatched scan and both of its boundary mutations are covered; this duplicate-return arm remains unexercised. |
+
+The complete *Work budgets* block in `docs/VERIFICATION.md` passed: main reports contain 326
+core, 327 query (five skips) and three MCP cases with no failures/errors. The auxiliary isolated
+tasks also passed, including `HotWriterLeafRetentionAllocationBudgetTest`: both sets of 32 puts
+allocated 21,248 bytes, preserving the zero incremental allocation bound for a committed
+neighbour. Logs, XML, selection and the local Checkstyle invocation are under
+`build/ci-diagnostics/round3/`. A hosted CodeFactor rerun remains necessary; HTTP 403 prevents
+claiming a new provider result locally.
 
 ## What the fix does
 

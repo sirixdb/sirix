@@ -3,8 +3,6 @@
  */
 package io.sirix.index.hot;
 
-import static org.junit.jupiter.api.Assertions.fail;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -37,7 +35,6 @@ import io.sirix.settings.VersioningType;
 import java.util.concurrent.TimeUnit;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
