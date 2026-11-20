@@ -216,11 +216,20 @@ in package `p` the first matching step wins:
    most `PACKAGE_TEST_LIMIT` of them.
 4. Otherwise the source is **unmapped**.
 
-The exact compiler/refusal associations in `CONTRACT_TESTS` additionally select
-`VectorizedReleaseCorrectnessTest` for the compile chain, both pipeline strategies and the
-refusal exception. This integration contract exercises refused and admitted grouping through
-every public compiler factory, including cold reopen. Associations augment the heuristic
-matches and share the same module cap; absent test classes are never selected.
+The reviewed file [`.github/mutation-test-associations.toml`](../.github/mutation-test-associations.toml)
+states which existing behaviour tests the lane must also run for a changed class whose tests do
+not match its name ([CONV-204](../spec/CONV-conventions.md#conv-204--lane-test-associations)),
+and nothing more. Today it selects `VectorizedReleaseCorrectnessTest` for the compile chain, both
+pipeline strategies and the refusal exception: this integration contract exercises refused and
+admitted grouping through every public compiler factory, including cold reopen. Associations
+augment the heuristic matches and share the same module cap. Each entry is an exact top-level
+`class` and a list of `tests` declared in the same module; a pattern, an unknown field, a
+duplicate class, a missing class or an undeclared test makes the file invalid and the run not
+clean, with a message naming the entry. Tests excluded from PIT's baseline by the Gradle
+configuration (isolated allocation suites, soak and random property tests) do not run even when
+associated; their effects use the `killed-out-of-lane` disposition below. Selecting tests by
+measured coverage of the changed classes would make associations unnecessary; it is recorded
+follow-up work.
 
 PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
 `[MIN_MUTANTS_PER_CLASS, MAX_MUTANTS_PER_CLASS]`, so a module's work scales with the size of the
@@ -256,8 +265,10 @@ unmapped sources, the changed-line counts that decide the outcome (changed lines
 killed, survived, no coverage), the whole-report killed/total separately from PIT's detected/total
 score (which includes timed-out mutants), status counts, up to 100 undetected changed-line mutants
 and - separately, marked advisory - the unchanged-line totals with the classes carrying the most
-undetected mutants; the artifact retains the full list. `results.json` keeps that split per module
-under `changed` and `unchanged`, with `unattributed` counting any mutant whose source file never
+undetected mutants; the artifact retains the full list. `results.json` holds `modules` (one
+result per module, with that split under `changed` and `unchanged`), `dispositions` and
+`associations`; each module's `changed` lists its `failing`, `dispositioned_equivalent` and
+`dispositioned_out_of_lane` mutants, with `unattributed` counting any mutant whose source file never
 mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
 Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
 
@@ -269,8 +280,9 @@ package of its `<mutatedClass>` match a changed source and its `<lineNumber>` is
 changed-line set; nested, anonymous and extra top-level classes and Kotlin file facades are
 therefore attributed to the file they were compiled from. On changed lines both `SURVIVED` and
 `NO_COVERAGE` fail, including a result whose changed-line mutants are all uncovered - untested new
-code is a finding, not the absence of one. Inspect them; kill them or justify each with evidence
-in the PR.
+code is a finding, not the absence of one. A `SURVIVED` changed-line mutant passes only when a
+reviewed disposition added in this PR accepts it ([below](#reviewed-dispositions)); a
+`NO_COVERAGE` mutant is never dispositioned.
 
 Mutants on **unchanged** lines of the same classes are advisory: the summary and `results.json`
 report their counts and the classes carrying the most of them, and they never fail the job. They
@@ -294,6 +306,77 @@ so `0` mutants judged out of many changed lines is visible rather than silent; a
 without `prMutationMaxMutations` (below) includes every PIT-generated mutant of the changed
 classes, including those on unchanged lines.
 
+### Reviewed dispositions
+
+Normative rules: [CONV-201 to CONV-203](../spec/CONV-conventions.md#conv-201--mutation-disposition-record).
+Dispositions are rare exceptions. Tests are derived from the specification and are never written
+to cover lines or to kill mutants for their own sake. A surviving or uncovered changed-line mutant
+is a signal, resolved in exactly one way:
+
+1. the specified behaviour that needs the code gets a behaviour test (derived from its
+   requirement, not aimed at the line), or the lane is made to run the existing behaviour tests
+   that cover it (an association, above);
+2. the mutant is `equivalent`: no observable behaviour differs for any input the contract admits.
+   Cost (allocation, work, latency) is observable, so a cost-only mutant is never equivalent;
+3. the mutant is `killed-out-of-lane`: only a test that cannot run under PIT instrumentation
+   (a clean-JVM allocation budget, a latency gate) observes it, and counterfactual evidence shows
+   that test failing with exactly this mutant injected;
+4. the code has no observable effect and is removed. A cost no test bounds gets a budget
+   (CONV-301) or its code is removed.
+
+`NO_COVERAGE` is never dispositioned: a mutant that never executed has shown nothing.
+
+An entry in [`.github/mutation-dispositions.toml`](../.github/mutation-dispositions.toml) names one
+mutant by six fields copied exactly from `mutations.xml` (`class`, `method`, `descriptor`,
+`mutator`, `indexes`, `description`; PIT's own mutation identifier plus its description, no line
+number, no pattern), its `kind`, the commit whose report was inspected (`checked_at`) and a
+`justification` argued from the contract (at least 60 characters; "hard to test", TODO, TBD and
+FIXME are rejected). A `killed-out-of-lane` entry adds `test` (`<class>#<method>`) and the
+`[mutant.evidence]` table. Across 170 saved Sirix PIT reports (40,054 mutants) this identity had no
+collision, while dropping `indexes` caused 23,853 and using the line instead 4,640.
+
+The lane, per run:
+
+- accepts a changed-line `SURVIVED` mutant only through an entry **added** in this PR (absent from
+  the merge-base file in every field);
+- fails a pre-existing entry whose own method has a changed line (per the compiled
+  line-number table) as *needs re-confirmation*: re-review it and update at least `checked_at`.
+  Entries of other methods in the same file need nothing;
+- fails a new entry that matches no `SURVIVED` mutant of this run (*unconfirmed*), an
+  `equivalent` entry that a test kills (*contradicted*), a `killed-out-of-lane` entry an in-lane
+  test now detects (*superseded*), and a *stale* entry whose class, method or named test no
+  longer exists - checked from the build on every run - or whose mutant PIT no longer generates
+  in a run without a per-class limit;
+- reports, without failing, entries it cannot judge in a sampled class, `TIMED_OUT`/`RUN_ERROR`
+  matches and pre-existing entries of unchanged methods.
+
+PIT applies its per-class limit before later equivalence filters, so a sampled class may report
+fewer mutants than the limit; the lane therefore never treats a sampled class's missing mutant as
+stale. The job summary opens its disposition section with the added and removed counts and every
+added entry's full justification; module sections list killed, otherwise detected, dispositioned
+(per kind) and failing mutants with their reasons. Dispositions come only from the two files: no
+flag, environment variable, label or comment adds or relaxes one.
+
+Local helpers keep a refactor cheap; CI never runs them and none writes the file:
+
+```bash
+# Judge entries against local PIT reports as the lane would (stale, re-confirmation, unconfirmed).
+python3 .github/scripts/pr_mutation.py dispositions --check --base "$(git rev-parse origin/main)" \
+  --report /tmp/pr-mutation/sirix-core/report/mutations.xml
+# Propose new identities for entries a rename, move or edit left stale; review before using.
+python3 .github/scripts/pr_mutation.py dispositions --remap \
+  --report /tmp/pr-mutation/sirix-core/report/mutations.xml
+# Evidence for killed-out-of-lane: the test passes, fails with the injected mutant, and the
+# sources are restored byte-identically (SHA-256 checked). Prints the [mutant.evidence] table.
+python3 .github/scripts/pr_mutation.py counterfactual --patch mutant.patch -- \
+  ./gradlew :sirix-core:test --tests 'io.sirix.SomeAllocationBudgetTest'
+```
+
+Pass `--limit <n>` to `--check` when the reports came from a sampled run. Remap proposes, in
+order, the same method with other instruction indexes, a renamed method of the same class, then
+the same method name and descriptor in another class, always with the same mutator and
+description.
+
 The job runs on normal `pull_request` events, including forks and Dependabot, with only
 `contents: read`, no secrets, no persisted checkout credentials and read-only Gradle caches.
 Never use `pull_request_target` or add credentials to run untrusted PR code. Reports are artifacts
@@ -308,14 +391,14 @@ PRs have no unresolved undetected changed-line mutants or incomplete runs, maint
 repository Actions variable
 **`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing` in branch
 protection. That single switch removes job-level tolerance; the reporter already rejects
-undetected changed-line mutants and incomplete runs. Review documented equivalent/unreachable-mutant justifications
-before enabling; there is no silent survivor allowlist. Revert the variable to restore
+undetected changed-line mutants and incomplete runs. Dispositions are per-mutant entries reviewed
+in the PR diff and listed in full in the job summary; there is no silent survivor allowlist. Revert the variable to restore
 informational rollout while investigating an infrastructure failure.
 
 Local reproduction (JDK 25; compile the selected modules' `classes testClasses` first):
 
 ```bash
-python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation.py'
+python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'
 python3 .github/scripts/pr_mutation.py select \
   --base "$(git rev-parse origin/main)" --head "$(git rev-parse HEAD)" --output /tmp/pr-mutation
 python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1320

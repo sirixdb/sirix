@@ -75,11 +75,12 @@ derive tests from that spec **before writing implementation code**. Map each req
 its test in the PR template. For documentation or CI changes, name the observable acceptance
 checks instead of inventing application tests.
 
-Mutation-test changed logic: inspect the PIT artifact, kill surviving/uncovered mutants with
-meaningful assertions or justify each equivalent/unreachable mutant in the PR (class, method,
-line, mutation and reason). The PR lane's acceptance criterion, advisory debt, scope, local
-commands and blocking switch are documented in
-[Verification](docs/VERIFICATION.md#pr-mutation-testing).
+Mutation-test changed logic: inspect the PIT artifact and resolve each surviving or uncovered
+changed-line mutant with a behaviour test derived from the spec, a test association, a reviewed
+disposition in `.github/mutation-dispositions.toml` (`equivalent` or `killed-out-of-lane`), or
+removal of code without observable effect; never with a test aimed at a line or an internal
+detail. The PR lane's acceptance criterion, dispositions, advisory debt, scope, local commands
+and blocking switch are documented in [Verification](docs/VERIFICATION.md#pr-mutation-testing).
 
 Explore beyond the happy path using adversarial inputs, property-based tests or an independent
 differential oracle. Record the cases, seeds and outcomes in the PR; promote any discovered

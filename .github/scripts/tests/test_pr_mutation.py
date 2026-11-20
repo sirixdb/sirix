@@ -71,6 +71,12 @@ def module_tree(sources, tests):
         yield root
 
 
+# The reviewed association file that replaced the hard-coded release-contract pairs (CONV-204).
+REPOSITORY = SCRIPT.parents[2]
+ASSOCIATIONS, ASSOCIATION_ERRORS = mutation.parse_associations(
+    (REPOSITORY / mutation.ASSOCIATIONS_FILE).read_text())
+
+
 class SelectionTest(unittest.TestCase):
     def test_diff_uses_merge_base_and_validates_literal_tree_paths(self):
         source = b'bundles/sirix-core/src/main/java/io/sirix/Foo.java'
@@ -329,23 +335,23 @@ class SelectionTest(unittest.TestCase):
                 result = {}
                 with patch.object(mutation, 'resolve_targets', return_value=(['changed.Entry'], [])):
                     command = mutation.prepare_analysis(root.parent.parent, root, 'sirix-core',
-                                                        [source], result)
+                                                        [source], result, ASSOCIATIONS)
                 self.assertIn('-PprMutationTests=' + contract + '*', command)
                 self.assertEqual(result['unmapped'], [])
                 # The same associations must obey the module cap, never silently drop it.
                 with patch.object(mutation, 'MODULE_TEST_LIMIT', 0):
-                    self.assertEqual(mutation.test_scope(root, [source]),
+                    self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                                      ([], [source], {source: 'over-limit'}))
 
     def test_release_associations_do_not_select_absent_tests_or_similarly_named_sources(self):
         source = 'src/main/java/io/sirix/query/SirixCompileChain.java'
         with module_tree({'io/sirix/query/SirixCompileChain.java': 'io.sirix.query'}, []) as root:
-            self.assertEqual(mutation.test_scope(root, [source]),
+            self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                              ([], [source], {source: 'unmapped'}))
         with module_tree({'other/SirixCompileChain.java': 'other'},
                          ['io/sirix/query/scan/VectorizedReleaseCorrectnessTest.java']) as root:
             source = 'src/main/java/other/SirixCompileChain.java'
-            self.assertEqual(mutation.test_scope(root, [source]),
+            self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                              ([], [source], {source: 'unmapped'}))
 
     def test_release_associations_retain_heuristic_matches_and_share_their_cap(self):
@@ -359,10 +365,10 @@ class SelectionTest(unittest.TestCase):
                     {owner + 'SirixBlockPipelineStrategy.java': 'io.sirix.query.compiler.translator'},
                     [owner + simple + '.java', contract.replace('.', '/') + '.java']) as root:
                 expected = sorted(['io.sirix.query.compiler.translator.' + simple + '*', contract + '*'])
-                self.assertEqual(mutation.test_scope(root, [source]),
+                self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                                  (expected, [], {source: kind}))
                 with patch.object(mutation, 'MODULE_TEST_LIMIT', 1):
-                    self.assertEqual(mutation.test_scope(root, [source]),
+                    self.assertEqual(mutation.test_scope(root, [source], ASSOCIATIONS),
                                      ([], [source], {source: 'over-limit'}))
 
     def test_scope_caps_stay_small_enough_to_collect_baseline_coverage(self):
@@ -572,7 +578,7 @@ class ReportingTest(unittest.TestCase):
                  patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
                  patch.object(mutation, 'execute', side_effect=execute):
                 self.assertEqual(mutation.run(Path(temp), output, 10, blocking=True), 0)
-                result = json.loads((output / 'results.json').read_text())[0]
+                result = json.loads((output / 'results.json').read_text())['modules'][0]
                 self.assertEqual(result['targets'], ['a.Foo'])
                 self.assertEqual(result['state'], 'complete')
                 self.assertEqual(result['changed_line_count'], 1)
@@ -586,13 +592,13 @@ class ReportingTest(unittest.TestCase):
                  patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
                  patch.object(mutation, 'execute', side_effect=timed_out):
                 self.assertEqual(mutation.run(Path(temp), output, 10, blocking=True), 1)
-                result = json.loads((output / 'results.json').read_text())[0]
+                result = json.loads((output / 'results.json').read_text())['modules'][0]
                 self.assertEqual(result['state'], 'timed out')
                 self.assertEqual(result['killed'], 1)
 
             with patch.object(mutation, 'resolve_targets', return_value=([], ['missing.java'])):
                 self.assertEqual(mutation.run(Path(temp), output, 10, blocking=True), 1)
-                result = json.loads((output / 'results.json').read_text())[0]
+                result = json.loads((output / 'results.json').read_text())['modules'][0]
                 self.assertNotIn('killed', result)  # stale XML was removed before source mapping
 
     def test_each_module_gets_a_fair_share_so_one_cannot_starve_the_next(self):
@@ -678,12 +684,18 @@ class ReportingTest(unittest.TestCase):
                               return_value={('', 'Unused.java'): {1}}):
                 self.assertEqual(mutation.run(output, output, 10, blocking=True), 1)
                 self.assertEqual(mutation.run(output, output, 10, blocking=False), 0)
-            result = json.loads((output / 'results.json').read_text())[0]
+            result = json.loads((output / 'results.json').read_text())['modules'][0]
             self.assertEqual(result['state'], 'complete')
             self.assertEqual((result['total'], result['detected'], result['no_coverage']), (1, 0, 1))
-            self.assertEqual(result['changed'], {'total': 1, 'killed': 0, 'survived': 0,
-                                                 'no_coverage': 1, 'detected': 0,
-                                                 'survivors': ['NO_COVERAGE | Unused | ? | 1 | ?']})
+            changed = result['changed']
+            self.assertEqual({key: changed[key] for key in
+                              ('total', 'killed', 'survived', 'no_coverage', 'detected', 'survivors')},
+                             {'total': 1, 'killed': 0, 'survived': 0, 'no_coverage': 1,
+                              'detected': 0, 'survivors': ['NO_COVERAGE | Unused | ? | 1 | ?']})
+            # An uncovered changed line is failing, never dispositionable (CONV-202).
+            self.assertEqual([value['mutant'] for value in changed['failing']],
+                             ['NO_COVERAGE | Unused | ? | 1 | ?'])
+            self.assertIn('never dispositioned', changed['failing'][0]['reason'])
             self.assertIn('No coverage: 1.', (output / 'summary.md').read_text())
 
     def test_report_counts_survived_and_uncovered_statuses(self):
@@ -806,10 +818,13 @@ class CommandLineTest(unittest.TestCase):
             lines = {'sirix-core': {'src/main/java/Foo.java': [3, 4]}}
             with patch.object(sys, 'argv', args), \
                  patch.object(mutation, 'changed_sources', return_value=(selected, lines)), \
+                 patch.object(mutation, 'merge_base_file', return_value='# base\n') as base, \
                  patch.object(sys, 'stdout', new_callable=io.StringIO):
                 self.assertEqual(mutation.main(), 0)
             self.assertEqual(json.loads((Path(temp) / 'selection.json').read_text()),
-                             {'modules': selected, 'changed_lines': lines})
+                             {'modules': selected, 'changed_lines': lines,
+                              'dispositions_base': '# base\n'})
+            self.assertEqual(base.call_args.args[1:], ('a' * 40, mutation.DISPOSITIONS_FILE))
 
     def test_run_cli_skips_empty_selection_and_module_entrypoint_exits_zero(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1004,7 +1019,7 @@ class ChangedLineVerdictTest(unittest.TestCase):
                 self.mutant('SURVIVED', 'Pure.java', 'a.Pure', 1),       # mapped, no changed line
                 self.mutant('SURVIVED', 'Other.java', 'a.Other', 42)])   # file never mapped
         self.assertEqual(report['changed'], {'total': 3, 'killed': 3, 'survived': 0,
-                                             'no_coverage': 0, 'detected': 3, 'survivors': []})
+                                             'no_coverage': 0, 'detected': 3, 'survivors': [], 'failing': []})
         # A mutant whose file never mapped is advisory too, and counted as unattributed.
         self.assertEqual(report['unchanged']['total'], 4)
         self.assertEqual(report['unchanged']['survived'], 3)
@@ -1044,7 +1059,7 @@ class ChangedLineVerdictTest(unittest.TestCase):
                                  + [self.mutant('SURVIVED', 'Foo.java', 'a.Foo', 7)] * 348
                                  + [self.mutant('NO_COVERAGE', 'Foo.java', 'a.Foo', 8)] * 2828)
         self.assertEqual(report['changed'], {'total': 1, 'killed': 1, 'survived': 0,
-                                            'no_coverage': 0, 'detected': 1, 'survivors': []})
+                                            'no_coverage': 0, 'detected': 1, 'survivors': [], 'failing': []})
         self.assertEqual((report['unchanged']['survived'], report['unchanged']['no_coverage']),
                          (348, 2828))
         self.assertTrue(mutation.is_clean([{'state': 'complete', **report}]))
@@ -1075,7 +1090,7 @@ class ChangedLineVerdictTest(unittest.TestCase):
                       'Mutants: 8. Killed: 0. Survived: 3. No coverage: 5.', text)
         self.assertIn('- a.Foo: 5', text)
         self.assertIn('- a.KotKt: 2', text)
-        self.assertIn('Undetected mutants on changed lines', text)
+        self.assertIn('Failing mutants on changed lines', text)
         self.assertIn('Mutants whose source file did not map to a changed source: 1.', text)
         # The blocking list holds the changed-line mutant only, not the advisory ones.
         self.assertEqual(text.count('| a.Other |'), 0)
@@ -1137,7 +1152,7 @@ class ChangedLineVerdictTest(unittest.TestCase):
                  patch.object(mutation, 'test_scope', return_value=(['a.FooTest*'], [], {})), \
                  patch.object(mutation, 'execute', side_effect=execute):
                 self.assertEqual(mutation.run(root, output, 10, blocking=True), 0)
-                result = json.loads((output / 'results.json').read_text())[0]
+                result = json.loads((output / 'results.json').read_text())['modules'][0]
                 self.assertEqual(result['changed_line_count'], 1)
                 self.assertEqual(result['changed']['killed'], 1)
                 self.assertEqual(result['unchanged']['survived'], 1)

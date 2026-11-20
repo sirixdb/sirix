@@ -2,6 +2,7 @@
 """Bounded, secret-free PR mutation analysis. See docs/VERIFICATION.md."""
 import argparse
 from collections import Counter
+import hashlib
 import html
 import json
 import os
@@ -10,7 +11,9 @@ import re
 import signal
 import struct
 import subprocess
+import sys
 import time
+import tomllib
 import xml.etree.ElementTree as ET
 
 MODULES = {name: name for name in ('sirix-core', 'sirix-query', 'sirix-rest-api',
@@ -27,13 +30,10 @@ MODULE_TEST_LIMIT = 60
 # Best first: an exactly named test, then a name-related one, then the source's own package.
 KIND_ORDER = ('named', 'related', 'package')
 UNRESOLVED_KINDS = ('unmapped', 'over-limit')
-# These entry points share an executable release contract whose name spans several classes.
-# Augment the heuristic matches; the ordinary module cap still applies to their union.
-CONTRACT_TESTS = {name: ('io.sirix.query.scan.VectorizedReleaseCorrectnessTest',) for name in (
-    'io.sirix.query.SirixCompileChain',
-    'io.sirix.query.compiler.translator.SirixBlockPipelineStrategy',
-    'io.sirix.query.compiler.translator.SirixPipelineStrategy',
-    'io.sirix.query.scan.VectorizedRouteRefusedException')}
+# Reviewed repository files (spec/CONV-conventions.md, CONV-201 to CONV-204). Fixed paths: no flag,
+# environment variable or other input may add, ignore or relax a disposition (CONV-203).
+DISPOSITIONS_FILE = '.github/mutation-dispositions.toml'
+ASSOCIATIONS_FILE = '.github/mutation-test-associations.toml'
 # Execution time reserved for each module still waiting, so none is starved by an earlier one.
 MIN_MODULE_SECONDS = 120
 # A large diff cannot afford every mutant of every changed class. A mutant whose covering test
@@ -190,7 +190,24 @@ class ClassReader:
                 self.take(self.u4())
 
 
-def class_source(data):
+def code_lines(code, pool):
+    """Source lines of one method's `Code` attribute, from its LineNumberTable (JVMS 4.7.3, 4.7.12)."""
+    reader = ClassReader(code)
+    reader.take(4)  # max_stack, max_locals
+    reader.take(reader.u4())  # bytecode
+    reader.take(8 * reader.u2())  # exception table
+    lines = set()
+    for attribute, value in reader.attributes(pool):
+        if attribute == 'LineNumberTable':
+            table = ClassReader(value)
+            for _ in range(table.u2()):
+                table.take(2)  # start_pc
+                lines.add(table.u2())
+    return lines
+
+
+def read_class(data):
+    """The binary name, `SourceFile` and every method's source lines, keyed by name and descriptor."""
     reader = ClassReader(data)
     if reader.take(4) != b'\xca\xfe\xba\xbe':
         raise ValueError('Invalid class magic')
@@ -201,11 +218,25 @@ def class_source(data):
     reader.take(2)  # superclass
     reader.take(2 * reader.u2())  # interfaces
     reader.skip_members()  # fields
-    reader.skip_members()  # methods
+    methods = {}
+    for _ in range(reader.u2()):
+        reader.take(2)  # access flags
+        method, descriptor = pool[reader.u2()], pool[reader.u2()]
+        lines = set()
+        for attribute, value in reader.attributes(pool):
+            if attribute == 'Code':
+                lines |= code_lines(value, pool)
+        methods[(method, descriptor)] = frozenset(lines)
+    source = None
     for attribute, value in reader.attributes(pool):
         if attribute == 'SourceFile':
-            return name, pool[struct.unpack('>H', value)[0]]
-    return name, None
+            source = pool[struct.unpack('>H', value)[0]]
+    return name, source, methods
+
+
+def class_source(data):
+    name, source, _ = read_class(data)
+    return name, source
 
 
 def source_path(module_root, source):
@@ -345,16 +376,21 @@ def mutants_per_class(targets):
                min(MAX_MUTANTS_PER_CLASS, MUTANT_BUDGET // max(1, len(targets))))
 
 
-def test_scope(module_root, sources):
-    """Bounded per-source test selection. No input may widen the scope to the module suite."""
+def test_scope(module_root, sources, associations=None):
+    """Bounded per-source test selection. No input may widen the scope to the module suite.
+
+    `associations` maps a changed top-level class to the existing behaviour tests the lane must
+    also run for it (CONV-204); they augment the name-based matches and share the module cap.
+    """
+    associations = associations or {}
     candidates = []
     tests = module_test_classes(module_root)
     for source in sources:
         stem, package = Path(source).stem, source_package(module_root, source)
         patterns, kind = resolve_tests(stem, package, tests)
-        contracts = set(CONTRACT_TESTS.get(f'{package}.{stem}', ())) & tests.keys()
-        if contracts:
-            patterns = sorted(set(patterns) | contracts)
+        associated = set(associations.get(f'{package}.{stem}' if package else stem, ())) & tests.keys()
+        if associated:
+            patterns = sorted(set(patterns) | associated)
             if kind == 'unmapped':
                 kind = 'related'
         candidates.append({'source': source, 'kind': kind, 'patterns': patterns})
@@ -417,12 +453,17 @@ def read_report(path, index):
         raise ValueError('PIT produced no mutations; no score is available')
     groups = {'changed': [], 'unchanged': []}
     unattributed = 0
+    records = []
     for element in mutations:
         kind, attributed = classify_mutant(element, index)
         groups[kind].append(element)
         unattributed += not attributed
+        records.append(mutant_record(element, kind == 'changed'))
     changed = tally(groups['changed'])
     changed['survivors'] = [describe_mutant(element) for element in undetected(groups['changed'])]
+    # Until dispositions are applied, every undetected changed-line mutant fails (CONV-202).
+    changed['failing'] = [{'mutant': value, 'reason': 'no disposition entry'}
+                          for value in changed['survivors']]
     advisory = tally(groups['unchanged'])
     debt = Counter(element.findtext('mutatedClass', '?')
                    for element in undetected(groups['unchanged']))
@@ -431,12 +472,13 @@ def read_report(path, index):
     report.update(statuses=dict(sorted(Counter(element.get('status', 'UNKNOWN')
                                                for element in mutations).items())),
                   survivors=[describe_mutant(element) for element in undetected(mutations)],
-                  changed=changed, unchanged=advisory, unattributed=unattributed)
+                  changed=changed, unchanged=advisory, unattributed=unattributed,
+                  _mutants=records)
     return report
 
 
 def is_clean(results):
-    """Only undetected mutants on the PR's changed lines, and incomplete analysis, fail a run."""
+    """Only failing changed-line mutants and incomplete analysis fail a module (CONV-202)."""
     for result in results:
         if result['state'] != 'complete' or result.get('total', 0) <= 0:
             return False
@@ -445,9 +487,468 @@ def is_clean(results):
             return False
         changed = result.get('changed')
         # A complete report without a changed-line verdict is incomplete, never clean.
-        if not changed or changed['detected'] != changed['total']:
+        if not changed:
+            return False
+        if 'failing' in changed:
+            accepted = (len(changed.get('dispositioned_equivalent', ()))
+                        + len(changed.get('dispositioned_out_of_lane', ())))
+            # Accepted and failing mutants must account for every undetected one.
+            if changed['failing'] or changed['detected'] + accepted != changed['total']:
+                return False
+        elif changed['detected'] != changed['total']:
             return False
     return True
+
+
+# ---------------------------------------------------------------------------------------------
+# Reviewed dispositions (CONV-201 to CONV-203) and test associations (CONV-204).
+
+KINDS = ('equivalent', 'killed-out-of-lane')
+IDENTITY_FIELDS = ('class', 'method', 'descriptor', 'mutator', 'indexes', 'description')
+COMMON_FIELDS = IDENTITY_FIELDS + ('kind', 'checked_at', 'justification')
+KIND_FIELDS = {'equivalent': frozenset(COMMON_FIELDS),
+               'killed-out-of-lane': frozenset(COMMON_FIELDS + ('test', 'evidence'))}
+EVIDENCE_FIELDS = frozenset(('patch', 'command', 'baseline_exit', 'injected_exit', 'failure',
+                             'sources'))
+JUSTIFICATION_MINIMUM = 60
+PLACEHOLDERS = re.compile(r'hard to test|difficult to test|untestable|not testable'
+                          r'|\b(?:todo|tbd|fixme)\b', re.IGNORECASE)
+# Identity fields are compared as exact text; a pattern character is a sign of a waiver attempt.
+PATTERN_CHARACTERS = frozenset('*?[]{}|\\')
+IDENTIFIER = r'[A-Za-z_$][A-Za-z0-9_$]*'
+QUALIFIED_NAME = re.compile(rf'{IDENTIFIER}(?:\.{IDENTIFIER})*')
+TOP_LEVEL_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*')
+METHOD_NAME = re.compile(r'<init>|<clinit>|[^.;\[\]/<>\s*?{}|\\]+')
+FIELD_TYPE = r'(?:[BCDFIJSZ]|L[^;.\[\]<>\s*?{}|\\]+;)'
+METHOD_DESCRIPTOR = re.compile(rf'\((?:\[*{FIELD_TYPE})*\)(?:V|\[*{FIELD_TYPE})')
+TEST_NAME = re.compile(rf'({IDENTIFIER}(?:\.{IDENTIFIER})*)#({IDENTIFIER})')
+SHA256 = re.compile(r'[0-9a-f]{64}')
+# Entry states that fail the run (CONV-202); every other state is reported only.
+FAILING_STATES = ('stale', 'contradicted', 'superseded', 'needs re-confirmation', 'unconfirmed')
+SUMMARY_JUSTIFICATION_LIMIT = 300
+REMAP_HINT = ('run `python3 .github/scripts/pr_mutation.py dispositions --remap --report '
+              '<mutations.xml>` locally, review the candidates and update the entry, or delete it')
+
+
+def identity_of(entry):
+    return (entry['class'], entry['method'], entry['descriptor'], entry['mutator'],
+            tuple(entry['indexes']), entry['description'])
+
+
+def entry_key(entry):
+    """Every field but the file position: equal keys mean an unchanged, already reviewed entry."""
+    return json.dumps({name: value for name, value in entry.items() if name != 'position'},
+                      sort_keys=True)
+
+
+def is_integer(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def nonempty_text(entry, name, problems):
+    value = entry.get(name)
+    if not isinstance(value, str) or not value.strip():
+        problems.append(f'`{name}` must be a non-empty string')
+        return None
+    return value
+
+
+def patch_paths(patch):
+    """Repository paths a unified diff writes; a header is a `+++` line right after `---`."""
+    paths, previous = [], ''
+    for line in patch.splitlines():
+        if line.startswith('+++ ') and previous.startswith('--- '):
+            target = line[len('+++ '):].split('\t')[0]
+            if target != '/dev/null':
+                if not target.startswith('b/'):
+                    raise ValueError(f'patch target {target!r} lacks the `b/` prefix')
+                paths.append(repository_path(target[len('b/'):]))
+        previous = line
+    if not paths or not any(line.startswith('@@') for line in patch.splitlines()):
+        raise ValueError('patch is not a unified diff with a file header and a hunk')
+    return paths
+
+
+def evidence_problems(evidence):
+    if not isinstance(evidence, dict):
+        return ['`evidence` must be a table']
+    problems = []
+    if evidence.keys() != EVIDENCE_FIELDS:
+        problems.append('`evidence` must have exactly the fields '
+                        + ', '.join(sorted(EVIDENCE_FIELDS)))
+        return problems
+    touched = []
+    patch = nonempty_text(evidence, 'patch', problems)
+    if patch is not None:
+        try:
+            touched = patch_paths(patch)
+        except ValueError as error:
+            problems.append(f'`evidence.patch`: {error}')
+    command = evidence['command']
+    if (not isinstance(command, list) or not command
+            or not all(isinstance(part, str) and part for part in command)):
+        problems.append('`evidence.command` must be a non-empty list of non-empty strings')
+    if not is_integer(evidence['baseline_exit']) or evidence['baseline_exit'] != 0:
+        problems.append('`evidence.baseline_exit` must be 0: the test passes without the mutant')
+    if not is_integer(evidence['injected_exit']) or evidence['injected_exit'] == 0:
+        problems.append('`evidence.injected_exit` must be a non-zero integer: the mutant fails the test')
+    nonempty_text(evidence, 'failure', problems)
+    sources = evidence['sources']
+    if not isinstance(sources, list) or not sources:
+        problems.append('`evidence.sources` must be a non-empty array of tables')
+        return problems
+    hashed = []
+    for source in sources:
+        if (not isinstance(source, dict) or source.keys() != {'path', 'sha256'}
+                or not isinstance(source['path'], str) or not isinstance(source['sha256'], str)
+                or not SHA256.fullmatch(source['sha256'])):
+            problems.append('each `evidence.sources` entry needs exactly `path` and a lowercase '
+                            'hexadecimal SHA-256 `sha256`')
+            return problems
+        try:
+            hashed.append(repository_path(source['path']))
+        except ValueError as error:
+            problems.append(f'`evidence.sources`: {error}')
+            return problems
+    if len(set(hashed)) != len(hashed) or (touched and set(hashed) != set(touched)):
+        problems.append('`evidence.sources` must hash each file the patch touches exactly once')
+    return problems
+
+
+def entry_problems(entry):
+    """Every CONV-201 rule an entry violates; an empty list means the entry is well formed."""
+    kind = entry.get('kind')
+    if kind not in KINDS:
+        return [f'`kind` must be one of {", ".join(KINDS)}, not {kind!r}']
+    problems = []
+    missing, unknown = KIND_FIELDS[kind] - entry.keys(), entry.keys() - KIND_FIELDS[kind]
+    if missing:
+        problems.append('missing field(s): ' + ', '.join(sorted(missing)))
+    if unknown:
+        problems.append('unknown field(s): ' + ', '.join(sorted(unknown)))
+    if problems:
+        return problems
+    grammar = {'class': QUALIFIED_NAME, 'mutator': QUALIFIED_NAME, 'method': METHOD_NAME,
+               'descriptor': METHOD_DESCRIPTOR}
+    for name, pattern in grammar.items():
+        value = nonempty_text(entry, name, problems)
+        if value is not None and not pattern.fullmatch(value):
+            problems.append(f'`{name}` is not an exact, well-formed value: {value!r}')
+    description = nonempty_text(entry, 'description', problems)
+    if description is not None and (PATTERN_CHARACTERS & set(description)
+                                    or any(ord(character) < 32 for character in description)):
+        problems.append('`description` must be exact text without pattern or control characters')
+    indexes = entry['indexes']
+    if (not isinstance(indexes, list) or not indexes
+            or not all(is_integer(index) and index >= 0 for index in indexes)):
+        problems.append('`indexes` must be a non-empty list of non-negative integers')
+    checked = nonempty_text(entry, 'checked_at', problems)
+    if checked is not None and not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', checked):
+        problems.append('`checked_at` must be a full lowercase hexadecimal commit ID')
+    justification = nonempty_text(entry, 'justification', problems)
+    if justification is not None:
+        if len(' '.join(justification.split())) < JUSTIFICATION_MINIMUM:
+            problems.append(f'`justification` must argue the claim in at least '
+                            f'{JUSTIFICATION_MINIMUM} characters')
+        placeholder = PLACEHOLDERS.search(justification)
+        if placeholder:
+            problems.append(f'`justification` contains the placeholder {placeholder[0]!r}')
+    if kind == 'killed-out-of-lane':
+        test = nonempty_text(entry, 'test', problems)
+        if test is not None and not TEST_NAME.fullmatch(test):
+            problems.append('`test` must be `<binary test class name>#<method name>`')
+        problems.extend(evidence_problems(entry['evidence']))
+    return problems
+
+
+def parse_dispositions(text):
+    """(entries, errors) of a dispositions file; `None` text is an absent file with no entries."""
+    if text is None:
+        return [], []
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        return [], [f'{DISPOSITIONS_FILE} is not valid TOML: {error}']
+    if document.keys() - {'mutant'}:
+        return [], [f'{DISPOSITIONS_FILE}: the only top-level key is `mutant`, found '
+                    + ', '.join(sorted(document.keys() - {'mutant'}))]
+    mutants = document.get('mutant', [])
+    if not isinstance(mutants, list) or not all(isinstance(entry, dict) for entry in mutants):
+        return [], [f'{DISPOSITIONS_FILE}: `mutant` must be an array of tables ([[mutant]])']
+    entries, errors, seen = [], [], {}
+    for position, entry in enumerate(mutants, 1):
+        problems = entry_problems(entry)
+        if problems:
+            errors.extend(f'entry {position}: {problem}' for problem in problems)
+            continue
+        identity = identity_of(entry)
+        if identity in seen:
+            errors.append(f'entry {position}: repeats the identity of entry {seen[identity]}')
+            continue
+        seen[identity] = position
+        entries.append({**entry, 'position': position})
+    return entries, errors
+
+
+def parse_associations(text):
+    """(class -> tests, errors) of an associations file; structure and names only (CONV-204)."""
+    if text is None:
+        return {}, []
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        return {}, [f'{ASSOCIATIONS_FILE} is not valid TOML: {error}']
+    rows = document.get('association', [])
+    if document.keys() - {'association'} or not isinstance(rows, list):
+        return {}, [f'{ASSOCIATIONS_FILE}: the only top-level key is `association`, '
+                    f'an array of tables']
+    associations, errors = {}, []
+    for position, row in enumerate(rows, 1):
+        if not isinstance(row, dict) or row.keys() != {'class', 'tests'}:
+            errors.append(f'association {position}: needs exactly the fields `class` and `tests`')
+            continue
+        name, tests = row['class'], row['tests']
+        if not isinstance(name, str) or not TOP_LEVEL_NAME.fullmatch(name):
+            errors.append(f'association {position}: `class` must be an exact top-level binary '
+                          f'class name, not {name!r}')
+            continue
+        if (not isinstance(tests, list) or not tests or len(set(map(str, tests))) != len(tests)
+                or not all(isinstance(test, str) and TOP_LEVEL_NAME.fullmatch(test)
+                           for test in tests)):
+            errors.append(f'association {position}: `tests` must be a non-empty list of distinct, '
+                          f'exact top-level test class names')
+            continue
+        if name in associations:
+            errors.append(f'association {position}: repeats the class {name}')
+            continue
+        associations[name] = tuple(tests)
+    return associations, errors
+
+
+def declaring_module(root, name):
+    """The module whose main sources declare top-level class `name`, if any."""
+    package, _, simple = name.rpartition('.')
+    for directory, module in sorted(MODULES.items()):
+        for language, suffix in (('java', '.java'), ('kotlin', '.kt')):
+            path = (root / 'bundles' / directory / 'src/main' / language
+                    / Path(*package.split('.')) / (simple + suffix)) if package else (
+                root / 'bundles' / directory / 'src/main' / language / (simple + suffix))
+            if path.is_file() and declared_package(path.read_text()) == package:
+                return module
+    return None
+
+
+def load_associations(root):
+    """The validated associations; any invalid entry voids the file and fails the run."""
+    path = root / ASSOCIATIONS_FILE
+    associations, errors = parse_associations(path.read_text() if path.is_file() else None)
+    declared = {}
+    for name, tests in associations.items():
+        module = declaring_module(root, name)
+        if module is None:
+            errors.append(f'association {name}: no main source of a lane module declares it; '
+                          f'update or delete the association')
+            continue
+        if module not in declared:
+            declared[module] = module_test_classes(root / 'bundles' / DIRECTORIES[module])
+        absent = [test for test in tests if test not in declared[module]]
+        if absent:
+            errors.append(f'association {name}: {", ".join(absent)} not declared in the tests of '
+                          f'{module}; update or delete the association')
+    return ({} if errors else associations), errors
+
+
+class CompiledClasses:
+    """Read compiled main classes of every lane module on demand, by exact binary name."""
+
+    def __init__(self, root):
+        self.root = root
+        self.cache = {}
+
+    def find(self, name):
+        if name not in self.cache:
+            self.cache[name] = None
+            relative = Path(*name.split('.'))
+            for directory in sorted(MODULES):
+                for language in ('java', 'kotlin'):
+                    path = (self.root / 'bundles' / directory / f'build/classes/{language}/main'
+                            / relative.parent / (relative.name + '.class'))
+                    if path.is_file():
+                        self.cache[name] = read_class(path.read_bytes())
+                        break
+                if self.cache[name] is not None:
+                    break
+        return self.cache[name]
+
+
+def declared_tests(root):
+    """Top-level test class names declared anywhere in the lane modules."""
+    names = set()
+    for directory in sorted(MODULES):
+        module_root = root / 'bundles' / directory
+        if module_root.is_dir():
+            names.update(module_test_classes(module_root))
+    return names
+
+
+def mutant_identity(element):
+    indexes = []
+    for index in element.findall('indexes/index'):
+        try:
+            indexes.append(int(index.text))
+        except (TypeError, ValueError):
+            indexes.append(-1)  # never equal to a validated entry index
+    return (element.findtext('mutatedClass', ''), element.findtext('mutatedMethod', ''),
+            element.findtext('methodDescription', ''), element.findtext('mutator', ''),
+            tuple(indexes), element.findtext('description', ''))
+
+
+def mutant_record(element, changed):
+    return {'identity': mutant_identity(element), 'status': element.get('status', 'UNKNOWN'),
+            'detected': element.get('detected') == 'true', 'line': mutant_line(element),
+            'changed': changed, 'text': describe_mutant(element),
+            'killing_test': element.findtext('killingTest', '')}
+
+
+def method_changed(compiled, entry, changed_index):
+    """Whether a line of the entry's method, per its line-number table, is a changed line."""
+    found = compiled.find(entry['class'])
+    if found is None:
+        return False
+    name, source, methods = found
+    lines = methods.get((entry['method'], entry['descriptor']), frozenset())
+    return bool(lines & changed_index.get((name.rpartition('.')[0], source), set()))
+
+
+def static_staleness(compiled, entry, tests):
+    """A reason the entry is stale from the build alone, independent of PIT's sample."""
+    found = compiled.find(entry['class'])
+    if found is None:
+        return (f"class {entry['class']} is in no module's compiled main classes; if it was "
+                f'renamed or moved, {REMAP_HINT}')
+    if (entry['method'], entry['descriptor']) not in found[2]:
+        return (f"method {entry['method']}{entry['descriptor']} no longer exists in "
+                f"{entry['class']}; {REMAP_HINT}")
+    if entry['kind'] == 'killed-out-of-lane':
+        test_class = entry['test'].partition('#')[0].partition('$')[0]
+        if test_class not in tests():
+            return (f'test class {test_class} is no longer declared; name the test that now '
+                    f'observes the effect and re-run the counterfactual, or delete the entry')
+    return None
+
+
+def judge_entry(entry, context):
+    """(state, action) of one valid entry under CONV-202's rules, first matching rule wins."""
+    identity = identity_of(entry)
+    added = entry_key(entry) not in context['base_keys']
+    new = added and identity not in context['base_identities']
+    stale = static_staleness(context['compiled'], entry, context['tests'])
+    if stale:
+        return 'stale', stale
+    mutant = context['mutants'].get(identity)
+    if mutant and entry['kind'] == 'equivalent' and mutant['status'] == 'KILLED':
+        return 'contradicted', (f"{mutant['killing_test'] or 'a test'} detects this mutant, so "
+                                f'it is not equivalent; delete the entry')
+    if mutant and entry['kind'] == 'killed-out-of-lane' and mutant['detected']:
+        return 'superseded', 'an in-lane test now detects this mutant; delete the entry'
+    if not added and (method_changed(context['compiled'], entry, context['changed_index'])
+                      or (mutant and mutant['changed'])):
+        return 'needs re-confirmation', (
+            f"this PR changes method {entry['method']}; re-review the argument"
+            + (' and re-run the counterfactual' if entry['kind'] == 'killed-out-of-lane' else '')
+            + ', then update the entry, at least `checked_at`')
+    if mutant and mutant['detected']:
+        return 'detected-other', f"matches a {mutant['status']} mutant; reported, not failed"
+    if mutant and mutant['status'] == 'SURVIVED':
+        if added:
+            return 'accepted', ('on a changed line' if mutant['changed']
+                                else 'on an unchanged line of a changed file')
+        return 'advisory', 'disposes of an unchanged-line survivor; advisory only'
+    if mutant:
+        if added:
+            return 'unconfirmed', (f"matches a {mutant['status']} mutant; only SURVIVED mutants "
+                                   f'can be dispositioned (NO_COVERAGE: see CONV-202)')
+        return 'inactive', f"matches a {mutant['status']} mutant of an unchanged method"
+    complete = context['mutated'].get(entry['class'])
+    if complete:
+        return 'stale', f'PIT no longer generates this mutant for its class; {REMAP_HINT}'
+    if new:
+        where = ("not in this run's sample of its class" if complete is not None
+                 else 'its class was not mutated in this run')
+        return 'unconfirmed', (f'no reported mutant matches ({where}); a new entry must match a '
+                               f'SURVIVED mutant of a class this PR changes')
+    if complete is not None or added:
+        return 'not judged', 'no reported mutant matches and the class sample is incomplete'
+    return 'out of scope', 'class not mutated in this run'
+
+
+def judge_dispositions(entries, errors, base_text, context):
+    """Judge every entry; `context` holds the run's mutants, classes and changed lines."""
+    base_entries, base_errors = parse_dispositions(base_text)
+    if base_errors:
+        base_entries = []  # an invalid base makes every entry new: stricter, never laxer
+    context = {**context, 'base_keys': {entry_key(entry) for entry in base_entries},
+               'base_identities': {identity_of(entry) for entry in base_entries}}
+    head_keys = {entry_key(entry) for entry in entries}
+    judged, accepted = [], {}
+    for entry in entries:
+        state, action = judge_entry(entry, context)
+        added = entry_key(entry) not in context['base_keys']
+        record = {name: entry[name] for name in COMMON_FIELDS}
+        record.update(indexes=list(entry['indexes']), position=entry['position'], state=state,
+                      action=action, failing=state in FAILING_STATES,
+                      added=('re-confirmation' if added and identity_of(entry)
+                             in context['base_identities'] else 'new') if added else None)
+        if entry['kind'] == 'killed-out-of-lane':
+            record['test'] = entry['test']
+        if state == 'accepted':
+            accepted[identity_of(entry)] = record
+        judged.append(record)
+    added = [record for record in judged if record['added']]
+    return {'file': DISPOSITIONS_FILE, 'errors': errors,
+            'base': 'absent' if base_text is None else ('invalid' if base_errors else 'valid'),
+            'added': len(added), 'new': sum(record['added'] == 'new' for record in added),
+            're_confirmed': sum(record['added'] == 're-confirmation' for record in added),
+            'removed': sum(entry_key(entry) not in head_keys for entry in base_entries)
+                       - sum(record['added'] == 're-confirmation' for record in added),
+            'entries': judged, 'failing': sum(record['failing'] for record in judged),
+            'clean': not errors and not any(record['failing'] for record in judged)}, accepted
+
+
+def apply_dispositions(result, accepted, judged):
+    """Decide each undetected changed-line mutant of one module: dispositioned or failing."""
+    changed = result.get('changed')
+    if not changed:
+        return
+    by_identity = {}
+    for record in judged:
+        by_identity.setdefault(tuple(record[name] if name != 'indexes' else tuple(record[name])
+                                     for name in IDENTITY_FIELDS), record)
+    equivalent, out_of_lane, failing = [], [], []
+    for mutant in result.get('_mutants', []):
+        if not mutant['changed'] or mutant['detected']:
+            continue
+        entry = accepted.get(mutant['identity'])
+        if mutant['status'] == 'SURVIVED' and entry:
+            target = equivalent if entry['kind'] == 'equivalent' else out_of_lane
+            target.append({'mutant': mutant['text'], 'entry': entry['position'],
+                           'checked_at': entry['checked_at'], 'test': entry.get('test'),
+                           'justification': entry['justification']})
+            continue
+        matched = by_identity.get(mutant['identity'])
+        if mutant['status'] == 'NO_COVERAGE':
+            reason = ('NO_COVERAGE is never dispositioned: test the specified behaviour that '
+                      'needs this code, remove code with no specified behaviour, or associate '
+                      'the existing tests that cover it (CONV-202, CONV-204)')
+        elif mutant['status'] != 'SURVIVED':
+            reason = f"{mutant['status']} is not a dispositionable status"
+        elif matched:
+            reason = f"entry {matched['position']} is {matched['state']}: {matched['action']}"
+        else:
+            reason = 'no disposition entry'
+        failing.append({'mutant': mutant['text'], 'reason': reason})
+    changed.update(dispositioned_equivalent=equivalent, dispositioned_out_of_lane=out_of_lane,
+                   failing=failing)
 
 
 def escape(value):
@@ -463,16 +964,37 @@ def format_verdict(result):
     # The changed-line count beside the mutant count keeps a sampled-away verdict visible.
     counted = (f"Changed lines: {result['changed_line_count']}. "
                if 'changed_line_count' in result else '')
+    equivalent = changed.get('dispositioned_equivalent', [])
+    out_of_lane = changed.get('dispositioned_out_of_lane', [])
+    failing = changed.get('failing', [{'mutant': value, 'reason': 'undetected'}
+                                      for value in changed['survivors']])
     lines = [f"{counted}Mutants on changed lines: {changed['total']}. "
              f"Killed: {changed['killed']}. Survived: {changed['survived']}. "
-             f"No coverage: {changed['no_coverage']}.", '']
-    if changed['survivors']:
-        lines.extend(['Undetected mutants on changed lines (these decide the outcome; '
-                      'every undetected mutant is in `results.json`):', ''])
-        lines.extend('- ' + escape(value) for value in changed['survivors'][:SUMMARY_MUTANT_LIMIT])
-        if len(changed['survivors']) > SUMMARY_MUTANT_LIMIT:
+             f"No coverage: {changed['no_coverage']}.",
+             '', f"Otherwise detected: {changed['detected'] - changed['killed']}. "
+             f"Dispositioned as equivalent: {len(equivalent)}. "
+             f"Dispositioned as killed out of lane: {len(out_of_lane)}. "
+             f"Failing: {len(failing)}.", '']
+    if failing:
+        lines.extend(['Failing mutants on changed lines (these decide the outcome; '
+                      'every one is in `results.json`):', ''])
+        lines.extend(f"- {escape(value['mutant'])} | {escape(value['reason'])}"
+                     for value in failing[:SUMMARY_MUTANT_LIMIT])
+        if len(failing) > SUMMARY_MUTANT_LIMIT:
             lines.append('- Remaining entries: see `results.json`.')
         lines.append('')
+    for title, values in (('Dispositioned as equivalent', equivalent),
+                          ('Dispositioned as killed by an out-of-lane test', out_of_lane)):
+        if values:
+            lines.extend([f'{title}:', ''])
+            lines.extend(f"- {escape(value['mutant'])} | entry {value['entry']}"
+                         + (f" | test {escape(value['test'])}" if value.get('test') else '')
+                         + f" | checked at {escape(value['checked_at'])} | "
+                         + escape(value['justification'][:SUMMARY_JUSTIFICATION_LIMIT])
+                         + ('...' if len(value['justification']) > SUMMARY_JUSTIFICATION_LIMIT
+                            else '')
+                         for value in values[:SUMMARY_MUTANT_LIMIT])
+            lines.append('')
     return lines
 
 
@@ -507,12 +1029,63 @@ def format_advisory(result):
     return lines
 
 
-def format_summary(results):
+def entry_label(record):
+    return escape(f"entry {record['position']} [{record['kind']}] {record['class']}."
+                  f"{record['method']}{record['descriptor']} | {record['mutator']} | "
+                  f"indexes {record['indexes']} | {record['description']}")
+
+
+def format_dispositions(dispositions, associations):
+    """The disposition section: counts first, then every added claim and every entry to act on."""
+    if dispositions is None:
+        return []
+    lines = ['## Mutation dispositions', '',
+             f"Entries added: {dispositions['added']} (new: {dispositions['new']}, "
+             f"re-confirmed: {dispositions['re_confirmed']}). Removed: {dispositions['removed']}. "
+             f"Failing entries: {dispositions['failing']}. Merge-base file: {dispositions['base']}.",
+             '']
+    if dispositions['errors']:
+        lines.extend([f"`{dispositions['file']}` is invalid; no entry applies:", ''])
+        lines.extend('- ' + escape(error) for error in dispositions['errors'])
+        lines.append('')
+    added = [record for record in dispositions['entries'] if record['added']]
+    if added:
+        lines.extend(['### Added entries: review each claim (CONV-203)', ''])
+        for record in added:
+            test = f" | test {escape(record['test'])}" if record.get('test') else ''
+            lines.append(f"- {entry_label(record)}{test} | {escape(record['added'])} | state "
+                         f"{escape(record['state'])} | checked at {escape(record['checked_at'])}"
+                         f" | {escape(record['justification'])}")
+        lines.append('')
+    acting = [record for record in dispositions['entries'] if record['failing']]
+    if acting:
+        lines.extend(['### Entries that fail this run', ''])
+        lines.extend(f"- {entry_label(record)} | {escape(record['state'])}: "
+                     f"{escape(record['action'])}" for record in acting)
+        lines.append('')
+    reported = [record for record in dispositions['entries']
+                if not record['failing'] and record['state'] in
+                ('not judged', 'detected-other', 'inactive', 'advisory')]
+    if reported:
+        lines.extend(['### Reported entries (not failing)', ''])
+        lines.extend(f"- {entry_label(record)} | {escape(record['state'])}: "
+                     f"{escape(record['action'])}" for record in reported)
+        lines.append('')
+    if associations and associations['errors']:
+        lines.extend([f"`{ASSOCIATIONS_FILE}` is invalid; no association applies:", ''])
+        lines.extend('- ' + escape(error) for error in associations['errors'])
+        lines.append('')
+    return lines
+
+
+def format_summary(results, dispositions=None, associations=None):
     lines = ['# Changed-source mutation testing', '',
-             'Blocking criterion: undetected mutants on the lines this pull request changed. '
+             'Blocking criterion: undetected mutants on the lines this pull request changed, '
+             'unless a reviewed disposition accepts them (CONV-202). '
              'Mutants on unchanged lines of the same classes are advisory pre-existing debt. '
              'Informational unless `MUTATION_BLOCKING` is enabled. Full reports, targets and logs '
              'are in the `pr-mutation` artifact.', '']
+    lines.extend(format_dispositions(dispositions, associations))
     if not results:
         return '\n'.join(lines + ['No changed main Java/Kotlin sources; PIT skipped.', ''])
     for result in results:
@@ -547,14 +1120,14 @@ def execute(command, root, log, timeout):
             raise
 
 
-def prepare_analysis(root, directory, module, sources, result):
+def prepare_analysis(root, directory, module, sources, result, associations=None):
     module_root = root / 'bundles' / DIRECTORIES[module]
     targets, missing = resolve_targets(module_root, sources)
     if missing:
         raise ValueError('No compiled classes for changed sources: ' + ', '.join(missing))
     if not targets:
         raise ValueError('Empty target selection; refusing whole-module mutation')
-    tests, unmapped, mapping = test_scope(module_root, sources)
+    tests, unmapped, mapping = test_scope(module_root, sources, associations)
     mutants = mutants_per_class(targets)
     result.update(targets=targets, tests=tests, unmapped=unmapped, resolution=mapping,
                   mutants_per_class=mutants)
@@ -577,7 +1150,7 @@ def attach_report(result, report, index):
             result.update(state='error', error=str(error))
 
 
-def analyze_module(root, output, module, sources, lines, deadline, seconds):
+def analyze_module(root, output, module, sources, lines, deadline, seconds, associations=None):
     result = {'module': module, 'sources': sources, 'state': 'error'}
     if module not in DIRECTORIES:
         return {**result, 'error': 'Unknown module; refusing to execute PIT'}
@@ -591,7 +1164,7 @@ def analyze_module(root, output, module, sources, lines, deadline, seconds):
             report.unlink()
         index = changed_line_index(root / 'bundles' / DIRECTORIES[module], lines)
         result['changed_line_count'] = sum(len(numbers) for numbers in index.values())
-        command = prepare_analysis(root, directory, module, sources, result)
+        command = prepare_analysis(root, directory, module, sources, result, associations)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired('PIT module execution share', seconds)
@@ -609,9 +1182,75 @@ def analyze_module(root, output, module, sources, lines, deadline, seconds):
     return result
 
 
-def write_results(output, results):
-    (output / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
-    (output / 'summary.md').write_text(format_summary(results))
+def write_results(output, results, dispositions=None, associations=None):
+    modules = [{key: value for key, value in result.items() if not key.startswith('_')}
+               for result in results]
+    document = {'modules': modules, 'dispositions': dispositions, 'associations': associations}
+    (output / 'results.json').write_text(json.dumps(document, indent=2) + '\n')
+    (output / 'summary.md').write_text(format_summary(results, dispositions, associations))
+
+
+def merge_base_file(root, base, path):
+    """`path` at the merge base of `base` and the checked-out revision, or None when absent."""
+    merge_base = subprocess.check_output(['git', '-C', str(root), 'merge-base', commit_id(base),
+                                          'HEAD'], shell=False).decode().strip()
+    listed = subprocess.check_output(['git', '--literal-pathspecs', '-C', str(root), 'ls-tree',
+                                      '--name-only', commit_id(merge_base), '--', path],
+                                     shell=False)
+    if not listed.strip():
+        return None
+    return subprocess.check_output(['git', '-C', str(root), 'show', f'{merge_base}:{path}'],
+                                   shell=False).decode('utf-8')
+
+
+def global_changed_index(root, changed):
+    index = {}
+    for module, lines in changed.items():
+        if module in DIRECTORIES:
+            for key, numbers in changed_line_index(root / 'bundles' / DIRECTORIES[module],
+                                                   lines).items():
+                index.setdefault(key, set()).update(numbers)
+    return index
+
+
+def mutated_classes(results):
+    """Classes mutated by a completed module, mapped to whether PIT's sample of them is complete.
+
+    Only a run without a per-class limit proves a complete sample: PIT applies CLASSLIMIT before
+    later equivalence filters, so a count below the limit may still be a sample (CONV-202).
+    """
+    mutated = {}
+    for result in results:
+        if result['state'] != 'complete':
+            continue
+        for target in result.get('targets', ()):
+            mutated[target] = result.get('mutants_per_class') is None
+    return mutated
+
+
+def judge_run(root, results, changed, base_text):
+    """Judge the dispositions file against this run and decide each module's changed mutants."""
+    path = root / DISPOSITIONS_FILE
+    entries, errors = parse_dispositions(path.read_text() if path.is_file() else None)
+    if errors:
+        entries = []  # an invalid file disposes of nothing (CONV-201)
+    tests = []
+
+    def test_names():
+        if not tests:
+            tests.append(declared_tests(root))
+        return tests[0]
+    mutants = {}
+    for result in results:
+        for mutant in result.get('_mutants', ()):
+            mutants.setdefault(mutant['identity'], mutant)
+    context = {'compiled': CompiledClasses(root), 'tests': test_names, 'mutants': mutants,
+               'changed_index': global_changed_index(root, changed),
+               'mutated': mutated_classes(results)}
+    verdict, accepted = judge_dispositions(entries, errors, base_text, context)
+    for result in results:
+        apply_dispositions(result, accepted, verdict['entries'])
+    return verdict
 
 
 def read_selection(output):
@@ -620,6 +1259,9 @@ def read_selection(output):
     if not isinstance(manifest, dict) or not {'modules', 'changed_lines'} <= set(manifest):
         raise ValueError('selection.json carries no changed-line map; rerun the select command')
     selected, lines = manifest['modules'], manifest['changed_lines']
+    base_text = manifest.get('dispositions_base')
+    if base_text is not None and not isinstance(base_text, str):
+        raise ValueError('selection.json carries a malformed dispositions_base')
     missing = []
     for module, sources in selected.items():
         mapped = lines.get(module)
@@ -629,11 +1271,14 @@ def read_selection(output):
         missing.extend(f'{module}/{source}' for source in sorted(set(sources) - set(mapped)))
     if missing:
         raise ValueError('Selection manifest has no changed lines for: ' + ', '.join(missing))
-    return selected, lines
+    return selected, lines, base_text
 
 
 def run(root, output, seconds, blocking):
-    selected, changed = read_selection(output)
+    selected, changed, base_text = read_selection(output)
+    associations, association_errors = load_associations(root)
+    association_verdict = {'file': ASSOCIATIONS_FILE, 'errors': association_errors,
+                           'count': len(associations)}
     deadline = time.monotonic() + seconds
     results = []
     pending = len(selected)
@@ -644,37 +1289,249 @@ def run(root, output, seconds, blocking):
         reserve = min(MIN_MODULE_SECONDS, remaining / pending)
         share = remaining - reserve * (pending - 1)
         results.append(analyze_module(root, output, module, sources, changed[module],
-                                      time.monotonic() + share, round(share)))
+                                      time.monotonic() + share, round(share), associations))
         pending -= 1
-        write_results(output, results)
-    if not results:
-        write_results(output, results)
-    return int(blocking and not is_clean(results))
+        write_results(output, results, associations=association_verdict)
+    dispositions = judge_run(root, results, changed, base_text)
+    write_results(output, results, dispositions, association_verdict)
+    clean = is_clean(results) and dispositions['clean'] and not association_errors
+    return int(blocking and not clean)
+
+
+# ---------------------------------------------------------------------------------------------
+# Local, read-only helpers that keep a refactor cheap (CONV-203). CI never runs them.
+
+FAILURE_EXCERPT_LINES = 40
+
+
+class CounterfactualError(Exception):
+    """The counterfactual run produced no valid evidence; the message says why."""
+
+
+def report_records(paths, index):
+    records = []
+    for path in paths:
+        for element in ET.parse(path).getroot().findall('mutation'):
+            kind, _ = classify_mutant(element, index)
+            records.append(mutant_record(element, kind == 'changed'))
+    return records
+
+
+def current_commit(root):
+    return subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'],
+                                   shell=False).decode().strip()
+
+
+def read_dispositions(root):
+    path = root / DISPOSITIONS_FILE
+    return parse_dispositions(path.read_text() if path.is_file() else None)
+
+
+def check_dispositions(root, reports, base, limit):
+    """Judge the working tree's entries against local reports, as the lane would."""
+    _, lines = changed_sources(root, base, current_commit(root))
+    records = report_records(reports, global_changed_index(root, lines))
+    classes = {record['identity'][0] for record in records}
+    entries, errors = read_dispositions(root)
+    context = {'compiled': CompiledClasses(root), 'tests': lambda: declared_tests(root),
+               'mutants': {record['identity']: record for record in records},
+               'changed_index': global_changed_index(root, lines),
+               'mutated': dict.fromkeys(classes, limit is None)}
+    verdict, accepted = judge_dispositions([] if errors else entries, errors,
+                                           merge_base_file(root, base, DISPOSITIONS_FILE), context)
+    module = {'changed': {'total': len(records)}, '_mutants': records}
+    apply_dispositions(module, accepted, verdict['entries'])
+    lines_out = [f'{DISPOSITIONS_FILE}: {len(entries)} valid entries, {len(errors)} errors']
+    lines_out.extend(f'error: {error}' for error in errors)
+    for record in verdict['entries']:
+        if record['state'] != 'out of scope':
+            marker = 'FAIL' if record['failing'] else 'ok'
+            lines_out.append(f"{marker} entry {record['position']} [{record['state']}] "
+                             f"{record['class']}.{record['method']}: {record['action']}")
+    lines_out.extend(f"FAIL mutant {value['mutant']}: {value['reason']}"
+                     for value in module['changed']['failing'])
+    failing = bool(errors or verdict['failing'] or module['changed']['failing'])
+    return failing, '\n'.join(lines_out)
+
+
+def remap_candidates(entry, records):
+    """The first non-empty tier of report mutants that may be this entry's mutant after a refactor."""
+    identity = identity_of(entry)
+    alike = [record for record in records if record['identity'] != identity
+             and record['identity'][3] == identity[3] and record['identity'][5] == identity[5]]
+    tiers = (('same method, other instruction indexes',
+              lambda candidate: candidate[:3] == identity[:3]),
+             ('renamed method of the same class', lambda candidate: candidate[0] == identity[0]),
+             ('same method name and descriptor in another class',
+              lambda candidate: candidate[1:3] == identity[1:3]))
+    for label, accepts in tiers:
+        matches = [record for record in alike if accepts(record['identity'])]
+        if matches:
+            return label, matches
+    return None, []
+
+
+def remap_dispositions(root, reports):
+    """Propose identities for every entry no report mutant matches; never writes the file."""
+    records = report_records(reports, {})
+    present = {record['identity'] for record in records}
+    entries, errors = read_dispositions(root)
+    lines = [f'error: {error}' for error in errors]
+    for entry in entries:
+        if identity_of(entry) in present:
+            continue
+        label, matches = remap_candidates(entry, records)
+        lines.append(f"entry {entry['position']} ({entry['class']}.{entry['method']}"
+                     f"{entry['descriptor']}): no report mutant matches; "
+                     + (f'{len(matches)} candidate(s), {label}:' if label else 'no candidate'))
+        for record in matches:
+            name, method, descriptor, mutator, indexes, description = record['identity']
+            lines.extend([f"  # line {record['line']}, {record['status']}; re-review the "
+                          f'argument and update checked_at before using it',
+                          f'  class = {json.dumps(name)}', f'  method = {json.dumps(method)}',
+                          f'  descriptor = {json.dumps(descriptor)}',
+                          f'  mutator = {json.dumps(mutator)}', f'  indexes = {list(indexes)}',
+                          f'  description = {json.dumps(description)}'])
+    return '\n'.join(lines) if lines else 'Every entry matches a mutant of the given reports.'
+
+
+def toml_string(value):
+    """A TOML string that loads back to `value`: multi-line literal when safe, else basic."""
+    if ('\n' in value and "'''" not in value and not value.endswith("'")
+            and not any((ord(character) < 32 and character not in '\n\t') or ord(character) == 127
+                        for character in value)):
+        return "'''\n" + value + "'''"
+    return json.dumps(value, ensure_ascii=False).replace('\x7f', '\\u007f')
+
+
+def render_evidence(evidence):
+    lines = ['[mutant.evidence]', f"patch = {toml_string(evidence['patch'])}",
+             'command = [' + ', '.join(toml_string(part) for part in evidence['command']) + ']',
+             f"baseline_exit = {evidence['baseline_exit']}",
+             f"injected_exit = {evidence['injected_exit']}",
+             f"failure = {toml_string(evidence['failure'])}"]
+    for source in evidence['sources']:
+        lines.extend(['', '[[mutant.evidence.sources]]', f"path = {toml_string(source['path'])}",
+                      f"sha256 = {toml_string(source['sha256'])}"])
+    return '\n'.join(lines) + '\n'
+
+
+def run_test_command(command, root):
+    return subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          shell=False, check=False)
+
+
+def counterfactual(root, patch_file, command):
+    """Inject the mutant patch, run the test in its own process, restore and hash-check sources."""
+    if not command:
+        raise CounterfactualError('no test command given after `--`')
+    patch_file = Path(patch_file).resolve()
+    patch = patch_file.read_text()
+    try:
+        paths = patch_paths(patch)
+    except ValueError as error:
+        raise CounterfactualError(str(error)) from error
+
+    def hashes():
+        return {path: hashlib.sha256((root / path).read_bytes()).hexdigest() for path in paths}
+    before = hashes()
+    baseline = run_test_command(command, root)
+    if baseline.returncode != 0:
+        raise CounterfactualError(f'the test fails without the mutant (exit {baseline.returncode})'
+                                  f'; fix the baseline first')
+    git = ['git', '-C', str(root), 'apply']
+    if subprocess.run(git + ['--check', str(patch_file)], shell=False, check=False).returncode:
+        raise CounterfactualError('the patch does not apply to the working tree')
+    subprocess.run(git + [str(patch_file)], shell=False, check=True)
+    try:
+        injected = run_test_command(command, root)
+    finally:
+        reversed_cleanly = subprocess.run(git + ['-R', str(patch_file)], shell=False,
+                                          check=False).returncode == 0
+        if not reversed_cleanly or hashes() != before:
+            raise CounterfactualError('sources differ after reversing the patch; restore '
+                                      + ', '.join(paths) + ' from version control before '
+                                      'continuing')
+    if injected.returncode == 0:
+        raise CounterfactualError('the test passes with the mutant injected; it does not detect '
+                                  'this mutant')
+    output = os.fsdecode(injected.stdout or b'').splitlines()
+    return {'patch': patch, 'command': list(command), 'baseline_exit': 0,
+            'injected_exit': injected.returncode,
+            'failure': '\n'.join(output[-FAILURE_EXCERPT_LINES:]) or '(no output)',
+            'sources': [{'path': path, 'sha256': digest} for path, digest in before.items()]}
+
+
+def build_parser():
+    """The CLI. `select` and `run` are the CI commands and take no disposition input (CONV-203)."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='command', required=True)
+    select = commands.add_parser('select', help='record changed sources and lines (CI)')
+    analysis = commands.add_parser('run', help='run bounded PIT and judge the result (CI)')
+    for command in (select, analysis):
+        command.add_argument('--output', type=Path, required=True)
+    select.add_argument('--base')
+    select.add_argument('--head')
+    analysis.add_argument('--seconds', type=int, default=1320)
+    analysis.add_argument('--blocking', action='store_true')
+    dispositions = commands.add_parser(
+        'dispositions', help='local: check entries or propose identities after a refactor')
+    dispositions.add_argument('--report', type=Path, action='append', required=True,
+                              help='a PIT mutations.xml; repeatable')
+    dispositions.add_argument('--check', action='store_true')
+    dispositions.add_argument('--remap', action='store_true')
+    dispositions.add_argument('--base', help='commit the change is judged against (--check)')
+    dispositions.add_argument('--limit', type=int,
+                              help="the run's per-class mutant limit, if one was applied")
+    evidence = commands.add_parser(
+        'counterfactual', help='local: produce killed-out-of-lane evidence for one mutant')
+    evidence.add_argument('--patch', type=Path, required=True,
+                          help='unified diff injecting exactly the mutant')
+    evidence.add_argument('test_command', nargs=argparse.REMAINDER,
+                          help='after `--`: the command that runs the test in its own process')
+    for command in (select, analysis, dispositions, evidence):
+        command.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
+    return parser
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['select', 'run'])
-    parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[2])
-    parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--base')
-    parser.add_argument('--head')
-    parser.add_argument('--seconds', type=int, default=1320)
-    parser.add_argument('--blocking', action='store_true')
+    parser = build_parser()
     args = parser.parse_args()
+    root = args.root.resolve()
+    if args.command == 'dispositions':
+        if not args.check and not args.remap:
+            parser.error('dispositions requires --check, --remap or both')
+        if args.check and not args.base:
+            parser.error('dispositions --check requires --base')
+        failing = False
+        if args.check:
+            failing, text = check_dispositions(root, args.report, args.base, args.limit)
+            print(text)
+        if args.remap:
+            print(remap_dispositions(root, args.report))
+        return int(failing)
+    if args.command == 'counterfactual':
+        command = args.test_command[1:] if args.test_command[:1] == ['--'] else args.test_command
+        try:
+            print(render_evidence(counterfactual(root, args.patch, command)), end='')
+        except CounterfactualError as error:
+            print(f'No evidence: {error}', file=sys.stderr)
+            return 1
+        return 0
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     if args.command == 'select':
         if not args.base or not args.head:
             parser.error('select requires --base and --head')
-        selected, lines = changed_sources(args.root.resolve(), args.base, args.head)
-        manifest = {'modules': selected, 'changed_lines': lines}
+        selected, lines = changed_sources(root, args.base, args.head)
+        manifest = {'modules': selected, 'changed_lines': lines,
+                    'dispositions_base': merge_base_file(root, args.base, DISPOSITIONS_FILE)}
         (output / 'selection.json').write_text(json.dumps(manifest, indent=2) + '\n')
         print(json.dumps(manifest, indent=2))
         return 0
     if args.seconds <= 0:
         parser.error('--seconds must be positive')
-    return run(args.root.resolve(), output, args.seconds, args.blocking)
+    return run(root, output, args.seconds, args.blocking)
 
 
 if __name__ == '__main__':
