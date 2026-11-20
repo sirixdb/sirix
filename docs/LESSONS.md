@@ -160,3 +160,7 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   helper extraction changes bytecode, so retain pinned allocation budgets and
   recapture compiled shape before claiming latency neutrality. Evidence:
   [HOT complexity follow-up](postmortems/hot-codefactor-complexity.md).
+- **Bound retained pages by ownership.** A full-fanout node can produce additional private leaves
+  during repeated merges. Exclude those replacements at the shared acquisition boundary and
+  check capacity before taking a guard. Exercise full fanout and count live frames to catch guards
+  leaked on consumed replacements. Evidence: [HOT retention follow-up](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#review-follow-up-private-replacements-exceeded-the-retention-bound).

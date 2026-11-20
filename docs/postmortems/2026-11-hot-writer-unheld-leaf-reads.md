@@ -135,6 +135,29 @@
 - Lesson: derive retention scope from every downstream consumer, including recompression metadata,
   rather than just the entries being copied. See [Lessons](../LESSONS.md).
 
+## Review follow-up: private replacements exceeded the retention bound
+
+- Fix / issue: review finding R1 on the #1459 fix.
+- Symptom: repeated consolidation at full fanout throws `ArrayIndexOutOfBoundsException`, leaks
+  an acquired replacement guard and frame, and makes a production writer's transaction rollback-only.
+- Trigger: a parent with 32 leaf children, partials 0 through 31 and one entry per leaf. The first
+  merge retains all 32 original leaves; later pair acquisition or survivor traversal encounters
+  privately owned replacements absent from that set.
+- Root cause: the retention bound counts original children, but retention also admitted new leaves
+  that consolidation owns. Guard acquisition preceded the array-slot check, so the failing write
+  left a guard unrecorded. Both pair and survivor acquisition now share an ownership exclusion and
+  check slot capacity before acquiring a new guard; the retention windows remain unchanged.
+- Why tests missed it: the four-child fixture had spare retention slots even after repeated merges.
+- Regression test: `HOTIncrementalInsertLeafRetentionTest.fullFanoutConsolidationDoesNotRetainPrivateReplacements`
+  exercises both public overloads. The specification's greedy merge and no-collapse rules require
+  two 16-entry leaves containing exactly the 32 known input key/value pairs. It checks unchanged
+  inputs, retirement of every original reference, zero original and final replacement guards,
+  cleared scratch storage, and live-frame counts proving consumed replacements were freed rather
+  than left guarded. With the old retention logic the second merge attempts slot 32 and throws.
+  Run with `./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTIncrementalInsertLeafRetentionTest'`.
+- Lesson: size a bounded lifetime set by ownership, and exclude private replacements consistently
+  at every acquisition site. See [Lessons](../LESSONS.md).
+
 ## What the fix does
 
 [FMT-304](../../spec/FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime) owns the leaf-lifetime

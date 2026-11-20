@@ -1903,6 +1903,12 @@ consolidation has its own retention scope, documented in
 [`consolidateNodeLeaves`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTIncrementalInsert.java),
 which also covers surviving children needed by recompression. Its scratch-array overload lets the
 writer reuse retention storage across attempts.
+That storage holds at most `MAX_NODE_ENTRIES` original leaf children. Consolidation's unpublished
+replacement leaves remain privately owned and are excluded from retention in both pair acquisition
+and survivor traversal; the page cache cannot evict them. Guard registration must check capacity
+before acquisition, so an exhausted bound cannot leave an acquired guard unrecorded. Repeated merges
+at full fanout must preserve every input entry, release all original guards, and retire consumed
+private replacements without retaining their frames.
 The [postmortem](postmortems/2026-11-hot-writer-unheld-leaf-reads.md) records the regression
 coverage and the writer's earlier failures.
 

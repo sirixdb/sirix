@@ -1308,13 +1308,15 @@ public final class HOTIncrementalInsert {
             // follows reads every entry. A leaf that cannot be held was evicted already, so the pair
             // is left for a later attempt.
             final int heldBeforePair = retainedCount;
-            retainedCount = holdLeafOnce(retainedLeaves, retainedCount, left);
+            retainedCount = holdOriginalLeafOnce(retainedLeaves, retainedCount, left, ownedSpeculativeLeaves,
+                ownedSpeculativeCount);
             if (retainedCount < 0) {
               retainedCount = heldBeforePair;
               continue;
             }
             final int afterLeft = retainedCount;
-            retainedCount = holdLeafOnce(retainedLeaves, retainedCount, right);
+            retainedCount = holdOriginalLeafOnce(retainedLeaves, retainedCount, right, ownedSpeculativeLeaves,
+                ownedSpeculativeCount);
             if (retainedCount < 0) {
               retainedCount = releaseConsolidationGuards(retainedLeaves, afterLeft, heldBeforePair, null);
               continue;
@@ -1330,7 +1332,8 @@ public final class HOTIncrementalInsert {
             // again and asks heightOf for a height a cleared swizzle can no longer answer. A
             // survivor that is gone or cannot be held defers this maintenance, without allocating
             // anything: the caller gets another chance.
-            final int afterSurvivors = retainSurvivingLeaves(current, i, retainedLeaves, retainedCount);
+            final int afterSurvivors = retainSurvivingLeaves(current, i, retainedLeaves, retainedCount,
+                ownedSpeculativeLeaves, ownedSpeculativeCount);
             if (afterSurvivors < 0) {
               retainedCount = releaseConsolidationGuards(retainedLeaves, retainedCount, heldBeforePair, null);
               CONSOLIDATION_SURVIVOR_UNAVAILABLE.incrementAndGet();
@@ -1448,12 +1451,19 @@ public final class HOTIncrementalInsert {
    * be released while the walk still needs it. The held set is one node's children, so the scan is
    * short and goes newest first, where a repeat usually is.
    */
-  private static int holdLeafOnce(final HOTLeafPage[] leaves, final int count, final HOTLeafPage leaf) {
+  private static int holdOriginalLeafOnce(final HOTLeafPage[] leaves, final int count, final HOTLeafPage leaf,
+      final HOTLeafPage[] ownedSpeculativeLeaves, final int ownedSpeculativeCount) {
+    for (int i = ownedSpeculativeCount - 1; i >= 0; i--) {
+      if (ownedSpeculativeLeaves[i] == leaf) {
+        return count;
+      }
+    }
     for (int i = count - 1; i >= 0; i--) {
       if (leaves[i] == leaf) {
         return count;
       }
     }
+    Objects.checkIndex(count, leaves.length);
     if (!leaf.acquireGuard()) {
       return -1;
     }
@@ -1469,7 +1479,7 @@ public final class HOTIncrementalInsert {
    * cannot be held, with everything this call took already released.
    */
   private static int retainSurvivingLeaves(final HOTIndirectPage node, final int leftIndex, final HOTLeafPage[] leaves,
-      final int count) {
+      final int count, final HOTLeafPage[] ownedSpeculativeLeaves, final int ownedSpeculativeCount) {
     int held = count;
     for (int i = 0; i < node.getNumChildren(); i++) {
       if (i == leftIndex || i == leftIndex + 1) {
@@ -1484,7 +1494,7 @@ public final class HOTIncrementalInsert {
         return -1;
       }
       if (child instanceof HOTLeafPage leaf) {
-        final int afterLeaf = holdLeafOnce(leaves, held, leaf);
+        final int afterLeaf = holdOriginalLeafOnce(leaves, held, leaf, ownedSpeculativeLeaves, ownedSpeculativeCount);
         if (afterLeaf < 0) {
           releaseConsolidationGuards(leaves, held, count, null);
           return -1;

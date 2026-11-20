@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -70,6 +72,67 @@ final class HOTIncrementalInsertLeafRetentionTest {
   @AfterEach
   void restore() {
     FrameSlotAllocator.setPoisonOnReleaseForTesting(false);
+  }
+
+  @ParameterizedTest(name = "caller-owned retention scratch: {0}")
+  @ValueSource(booleans = {false, true})
+  @DisplayName("full-fanout repeated consolidation retains only original leaves and releases every frame")
+  void fullFanoutConsolidationDoesNotRetainPrivateReplacements(final boolean callerOwnedScratch) {
+    final FrameSlotAllocator frames = FrameSlotAllocator.getInstance();
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int fanout = HOTIndirectPage.MAX_NODE_ENTRIES;
+    final AtomicLong pageKeys = new AtomicLong(1);
+    final HOTLeafPage[] originals = new HOTLeafPage[fanout];
+    final PageReference[] children = new PageReference[fanout];
+    final int[] partials = new int[fanout];
+    for (int i = 0; i < fanout; i++) {
+      originals[i] = unitLeaf(pageKeys, i << 3, 1);
+      children[i] = swizzle(originals[i]);
+      partials[i] = i;
+    }
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2, 3, 4}, partials,
+        children, 1, 1, IndexType.PATH, pageKeys::getAndIncrement);
+    final int liveWithOriginals = frames.liveSlotCount(frameClass);
+    final HOTLeafPage[] scratch = new HOTLeafPage[fanout];
+    final List<PageReference> dropped = new ArrayList<>();
+    HOTIndirectPage consolidated = null;
+    try {
+      consolidated = callerOwnedScratch
+          ? HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2, IndexType.PATH,
+              pageKeys::getAndIncrement, dropped, scratch)
+          : HOTIncrementalInsert.consolidateNodeLeaves(parent, CONSOLIDATION_TARGET, 2, IndexType.PATH,
+              pageKeys::getAndIncrement, dropped);
+
+      assertNotSame(parent, consolidated, "mergeable full-fanout input must consolidate");
+      assertEquals(2, consolidated.getNumChildren(), "consolidation stops before collapsing the parent");
+      assertEquals(1, consolidated.getHeight());
+      for (int half = 0; half < 2; half++) {
+        final HOTLeafPage replacement =
+            assertInstanceOf(HOTLeafPage.class, consolidated.getChildReference(half).getPage());
+        assertEquals(fanout / 2, replacement.getEntryCount());
+        assertEquals(0, replacement.getGuardCount(), "private replacements must not retain guards");
+        for (int entry = 0; entry < fanout / 2; entry++) {
+          final int firstByte = (half * (fanout / 2) + entry) << 3;
+          assertArrayEquals(unitKey(firstByte, 0), replacement.getKey(entry));
+          assertArrayEquals(unitValue(firstByte, 0), replacement.copyStoredValue(entry));
+        }
+      }
+      assertEquals(fanout, dropped.size(), "only original leaves are handed to the caller for retirement");
+      assertEquals(fanout, parent.getNumChildren(), "consolidation must preserve its input");
+      for (int i = 0; i < fanout; i++) {
+        assertSame(children[i], parent.getChildReference(i));
+        assertTrue(dropped.contains(children[i]), "every original leaf must be handed to retirement");
+        assertEquals(0, originals[i].getGuardCount(), "every original guard must be released");
+        assertArrayEquals(unitKey(i << 3, 0), originals[i].getKey(0));
+        assertNull(scratch[i], "reusable retention slots must be cleared");
+      }
+      assertEquals(liveWithOriginals + 2, frames.liveSlotCount(frameClass),
+          "consumed private replacements must release their frames without deferred guards");
+    } finally {
+      closeLeaves(parent, consolidated);
+    }
+    assertEquals(liveWithOriginals - fanout, frames.liveSlotCount(frameClass),
+        "no original or replacement frame may leak");
   }
 
   @ParameterizedTest(name = "released frames recycled into foreign leaves: {0}")
