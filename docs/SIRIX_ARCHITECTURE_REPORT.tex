@@ -1663,8 +1663,9 @@ writes}, so it inherits exactly the dual-beacon commit; its one subtlety is gene
 management, when a commit grows the file a new mapping generation is created and the old one is unmapped
 only once every reader still holding it has released its reference count (on HotSpot via
 \code{Arena.ofShared}, on GraalVM via \code{Arena.ofAuto}). \code{IN\_MEMORY} (\code{RAMStorage}) keeps
-pages and revision roots in two \code{ConcurrentHashMap}s and is for tests and ephemeral resources only,
-it persists nothing.
+each page's encoded payload and the revision-root records in a per-resource heap store that outlives
+sessions until the resource is removed, and decodes a fresh page on every read; it is for tests and
+ephemeral resources only, it persists nothing beyond the process.
 
 \dcap{The built-in backends, by durability and copy behaviour}
 \begin{diagramS}
@@ -1674,7 +1675,7 @@ FILE_CHANNEL   pread → pooled 128KiB buffer     3 channels (data buf,     fsyn
                                                  beacon O_DSYNC)
 MEMORY_MAPPED  slice mapped MemorySegment       FileChannelWriter         same as FILE_CHANNEL
                (zero-copy) + madvise SEQUENTIAL  (reused verbatim)         (writes go via FileChannel)
-IN_MEMORY      ConcurrentHashMap get            ConcurrentHashMap put     NONE (tests / ephemeral)
+IN_MEMORY      decode stored payload            encode + append payload   NONE (tests / ephemeral)
 \end{diagramS}
 
 \textbf{The shared read contract.} Whatever the backend, \code{AbstractReader} enforces one integrity

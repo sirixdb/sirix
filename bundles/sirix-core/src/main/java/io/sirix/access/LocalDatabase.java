@@ -34,6 +34,7 @@ import io.sirix.io.SuperblockValidator;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.Encryptor;
+import io.sirix.io.ram.RAMStorage;
 import io.sirix.utils.SirixFiles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -497,6 +498,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       // The resource's files are deleted below — a recreated resource at this path must get its
       // fresh superblock validated again.
       SuperblockValidator.invalidateUnder(resourceFile);
+      // An in-memory resource's committed revisions live in the process, not in those files.
+      RAMStorage.discardUnder(resourceFile);
 
       // Projection decode cache is keyed by resource path — a recreated
       // resource must never be served the removed store's decoded columns.
