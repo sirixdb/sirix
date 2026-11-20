@@ -164,3 +164,7 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   during repeated merges. Exclude those replacements at the shared acquisition boundary and
   check capacity before taking a guard. Exercise full fanout and count live frames to catch guards
   leaked on consumed replacements. Evidence: [HOT retention follow-up](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#review-follow-up-private-replacements-exceeded-the-retention-bound).
+- **Replay the failure's environment as well as its operations.** Store eviction and frame-poisoning
+  settings in the case configuration shared by generation, shrinking and replay. Check actual
+  eviction and released bytes, including cleanup after failure, rather than accepting a green replay
+  with its trigger disabled. Evidence: [HOT replay follow-up](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#review-follow-up-replay-lost-the-eviction-trigger).

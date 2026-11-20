@@ -158,6 +158,30 @@
 - Lesson: size a bounded lifetime set by ownership, and exclude private replacements consistently
   at every acquisition site. See [Lessons](../LESSONS.md).
 
+## Review follow-up: replay lost the eviction trigger
+
+- Fix / issue: review finding R1 on recorded property failures.
+- Symptom: a saved eviction-only regression could replay successfully without exercising eviction
+  or poisoning the frames whose stale reads caused the original failure.
+- Trigger: record a failure from `mutationsSurviveLeafEviction`, then replay its saved stream.
+- Root cause: eviction lived on the test instance, poisoning was enabled outside case execution,
+  and neither setting belonged to the serialized case. Shrinking inherited the instance's mode,
+  while replay explicitly constructed a non-evicting runner.
+- Required invariant: generation, shrinking and replay consume the same case configuration,
+  including explicit `leafEviction` and `framePoisoning` header fields. Runner execution enables
+  the recorded poisoning setting and clears it on normal and exceptional exits. Headers predating
+  these fields retain their ordinary, non-evicting and non-poisoning semantics.
+- Why tests missed it: live adversarial runs asserted eviction, but saved-case replay did not.
+- Regression tests: the `recordedFailure*` tests in `HOTStructuralPropertyTest` check the emitted
+  header against a literal replay-format contract, parse both new and legacy headers, replay a
+  committed multi-leaf stream with and without eviction, and observe released frame bytes during
+  case execution and after normal or exceptional exits. A replay that disables eviction rejects
+  the required positive eviction count; missing poisoning reads the original sentinel byte instead
+  of zero. Run with `./gradlew :sirix-core:test --tests
+  'io.sirix.index.hot.HOTStructuralPropertyTest.recordedFailure*'`.
+- Lesson: serialize adversarial conditions with the failing input, and assert their observable
+  effects during replay. See [Lessons](../LESSONS.md).
+
 ## What the fix does
 
 [FMT-304](../../spec/FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime) owns the leaf-lifetime
