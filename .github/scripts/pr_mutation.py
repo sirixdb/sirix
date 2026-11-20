@@ -856,7 +856,8 @@ def judge_entry(entry, context):
         return 'needs re-confirmation', (
             f"this PR changes method {entry['method']}; re-review the argument"
             + (' and re-run the counterfactual' if entry['kind'] == 'killed-out-of-lane' else '')
-            + ', then update the entry, at least `checked_at`')
+            + ', then update the entry, at least `checked_at`'
+            + ('' if mutant else '; no reported mutant matches it any more, so ' + REMAP_HINT))
     if mutant and mutant['detected']:
         return 'detected-other', f"matches a {mutant['status']} mutant; reported, not failed"
     if mutant and mutant['status'] == 'SURVIVED':

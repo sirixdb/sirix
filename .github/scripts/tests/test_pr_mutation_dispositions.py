@@ -355,6 +355,11 @@ class VerdictTest(unittest.TestCase):
                                         changed=(11,))
             self.assertEqual((code, states(results)), (1, ['needs re-confirmation']))
             self.assertIn('checked_at', results['dispositions']['entries'][0]['action'])
+            # An edit that also moved the mutant's identity points the author to remap.
+            code, results, _ = work.run([mutant('SURVIVED', 10, indexes=(12,))], head=entry(),
+                                        base=entry(), changed=(11,))
+            self.assertEqual((code, states(results)), (1, ['needs re-confirmation']))
+            self.assertIn('--remap', results['dispositions']['entries'][0]['action'])
             # Re-reviewed and updated: the same identity with a new checked_at passes.
             code, results, _ = work.run(unchanged_line, head=entry(checked_at='d' * 40),
                                         base=entry(), changed=(11,))
