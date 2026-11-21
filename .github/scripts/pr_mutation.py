@@ -307,6 +307,7 @@ def source_classes(path, file_facade=False):
     text = re.sub(r'@file:(?:kotlin\.jvm\.)?JvmName\s*\(\s*"([\w$]+)"\s*\)'
                   r'|//[^\n]*|/\*.*?\*/|""".*?"""|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',
                   strip, path.read_text(), flags=re.S)
+    text = re.sub(r'(?:::|\.)\s*(?:class|object)\b', ' ', text)
     package = declared_package(text)
     keywords = 'class|interface|enum|record' if path.suffix == '.java' else 'class|interface|object'
     depth, members = 0, False
@@ -567,6 +568,11 @@ def patch_paths(patch):
     """Repository paths a unified diff writes; a header is a `+++` line right after `---`."""
     paths, previous = [], ''
     for line in patch.splitlines():
+        if line.startswith(('old mode ', 'new mode ', 'deleted file mode ', 'new file mode ',
+                            'similarity index ', 'dissimilarity index ', 'rename from ',
+                            'rename to ', 'copy from ', 'copy to ', 'GIT binary patch',
+                            'Binary files ')):
+            raise ValueError('patch must modify existing files in place')
         if line.startswith('+++ ') and previous.startswith('--- '):
             original = previous[len('--- '):].split('\t')[0]
             target = line[len('+++ '):].split('\t')[0]

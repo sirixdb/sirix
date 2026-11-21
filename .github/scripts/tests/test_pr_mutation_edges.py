@@ -4,6 +4,7 @@ Each test states a specified behaviour that an earlier test left unobserved; non
 implementation detail. Fixtures and oracles are shared with test_pr_mutation_dispositions.
 """
 import contextlib
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -606,6 +607,60 @@ class SecondRoundTest(unittest.TestCase):
         empty = {**EVIDENCE, 'patch': ''}
         self.assertIn('`patch` must be a non-empty string',
                       '\n'.join(errors_of(entry('killed-out-of-lane', evidence=empty))))
+
+    def test_header_only_git_operations_are_rejected_by_every_consumer(self):
+        """CONV-201: Git metadata cannot add untracked patch effects to an injection."""
+        operations = (
+            'similarity index 100%\nrename from Old.java\nrename to New.java\n',
+            'similarity index 100%\ncopy from Old.java\ncopy to New.java\n',
+            'new file mode 100644\nindex 0000000..e69de29\n',
+            'deleted file mode 100644\nindex e69de29..0000000\n',
+            'old mode 100644\nnew mode 100755\n',
+            'GIT binary patch\nliteral 1\nIc${MZ000310RR91\n',
+            'Binary files a/Old.java and b/New.java differ\n',
+            'dissimilarity index 100%\n',
+        )
+        for operation in operations:
+            for first in (True, False):
+                with self.subTest(operation=operation, first=first):
+                    section = 'diff --git a/Old.java b/New.java\n' + operation
+                    patch_text = (section + EVIDENCE['patch'] if first
+                                  else EVIDENCE['patch'] + section)
+                    evidence = {**EVIDENCE, 'patch': patch_text}
+                    self.assertIn('patch must modify existing files in place',
+                                  '\n'.join(errors_of(entry('killed-out-of-lane',
+                                                           evidence=evidence))))
+                    with tempfile.TemporaryDirectory() as temp:
+                        root = Path(temp)
+                        patch_file = root / 'mutant.patch'
+                        patch_file.write_text(patch_text)
+                        command = [sys.executable, '-c',
+                                   'from pathlib import Path; Path("ran-test").touch()']
+                        with self.assertRaises(mutation.CounterfactualError) as error:
+                            mutation.counterfactual(root, patch_file, command)
+                        self.assertIn('patch must modify existing files in place',
+                                      str(error.exception))
+                        self.assertFalse((root / 'ran-test').exists())
+
+    def test_git_text_injection_keeps_complete_source_hashes_and_restores_bytes(self):
+        """CONV-201: ordinary Git text patches still produce reversible evidence."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'Foo.java'
+            original = b'class Foo {}\n'
+            source.write_bytes(original)
+            patch_file = root / 'mutant.patch'
+            patch_file.write_text('diff --git a/Foo.java b/Foo.java\n'
+                                  'index e69de29..1234567 100644\n'
+                                  '--- a/Foo.java\n+++ b/Foo.java\n@@ -1 +1 @@\n'
+                                  '-class Foo {}\n+class Foo { int bound; }\n')
+            command = [sys.executable, '-c', 'from pathlib import Path; import sys; '
+                       'sys.exit(7 if b"bound" in Path("Foo.java").read_bytes() else 0)']
+            evidence = mutation.counterfactual(root, patch_file, command)
+            self.assertEqual((evidence['baseline_exit'], evidence['injected_exit']), (0, 7))
+            self.assertEqual(evidence['sources'], [{'path': 'Foo.java',
+                              'sha256': hashlib.sha256(original).hexdigest()}])
+            self.assertEqual(source.read_bytes(), original)
 
     def test_every_invalid_association_is_reported_in_order(self):
         text = ('[[association]]\nclass = "a.Foo"\n'

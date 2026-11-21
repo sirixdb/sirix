@@ -471,6 +471,18 @@ class VerdictTest(unittest.TestCase):
                 self.assertIn(f"{mutant_text} | entry {value['entry']} | test "
                               'a.FooAllocationTest#allocatesNothing', reported)
 
+    def test_class_literal_does_not_make_an_existing_out_of_lane_test_stale(self):
+        """CONV-202: named-test staleness follows declarations, including Kotlin tests."""
+        with lane() as work:
+            tests = work.root / 'bundles/sirix-core/src/test'
+            (tests / 'java/a/FooAllocationTest.java').unlink()
+            kotlin = tests / 'kotlin/a/Contracts.kt'
+            kotlin.parent.mkdir(parents=True)
+            kotlin.write_text('package a\nval token = String::class\nclass FooAllocationTest\n')
+            code, results, _ = work.run([mutant('SURVIVED', 11)],
+                                        head=entry('killed-out-of-lane'))
+            self.assertEqual((code, states(results)), (0, ['accepted']))
+
     def test_incomplete_runs_stay_failing_whatever_the_entries(self):
         with lane() as work:
             code, results, _ = work.run([mutant('SURVIVED', 11)], head=entry(), exit_code=3)
@@ -857,6 +869,31 @@ class AssociationTest(unittest.TestCase):
                     associations, errors = mutation.load_associations(root)
                     self.assertEqual(associations, {})
                     self.assertIn(f'association {owner}: no main source', errors[0])
+
+    def test_kotlin_class_literals_preserve_association_ownership_and_test_discovery(self):
+        """CONV-204: references before declarations cannot change their binary identities."""
+        references = ('String::class', 'String :: class', 'String::class.java',
+                      'object : Any() {}')
+        for reference in references:
+            for declaration in ('class Foo', 'object Foo {}'):
+                with self.subTest(reference=reference, declaration=declaration), \
+                     self.module() as (root, module):
+                    source = 'src/main/kotlin/a/Different.kt'
+                    main = module / source
+                    main.parent.mkdir(parents=True)
+                    main.write_text(f'package a\nval token = {reference}\n{declaration}\n')
+                    test = module / 'src/test/kotlin/b/Contracts.kt'
+                    test.parent.mkdir(parents=True)
+                    test.write_text(f'package b\nval token = {reference}\nclass ContractTest\n')
+                    (root / mutation.ASSOCIATIONS_FILE).write_text(
+                        '[[association]]\nclass = "a.Foo"\ntests = ["b.ContractTest"]\n')
+                    associations, errors = mutation.load_associations(root)
+                    self.assertEqual((associations, errors), ({'a.Foo': ('b.ContractTest',)}, []))
+                    self.assertEqual(mutation.test_scope(module, [source], associations),
+                                     (['b.ContractTest*'], [], {source: 'related'}))
+                    expected = {'b.AllocationBudgetTest', 'b.ContractTest'}
+                    self.assertEqual(set(mutation.module_test_classes(module)), expected)
+                    self.assertEqual(mutation.declared_tests(root), expected)
 
     def test_invalid_associations_fail_the_run_with_a_named_entry(self):
         valid = '[[association]]\nclass = "a.Foo"\ntests = ["b.AllocationBudgetTest"]\n'

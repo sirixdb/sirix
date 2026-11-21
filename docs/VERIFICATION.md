@@ -364,7 +364,8 @@ Remap lists deduplicated candidates from every eligible tier in preference order
 method with other indexes, a renamed method of the same class, then the same name and descriptor
 in another class. Each candidate carries its tier and a marker when instruction indexes match.
 Counterfactual patches must edit existing files in place, with matching old/new paths; creations,
-deletions and renames are rejected before hashing or test execution.
+deletions, renames, copies, binary patches and file-mode operations (including header-only Git
+sections) are rejected before hashing or test execution.
 
 Local helpers keep a refactor cheap; CI never runs them and none writes the file:
 

@@ -819,21 +819,34 @@ class ReportingTest(unittest.TestCase):
 
 
 class CommandLineTest(unittest.TestCase):
-    def test_select_cli_writes_manifest(self):
+    def test_select_cli_writes_manifest_from_divergent_merge_base(self):
+        """CONV-202: selection persists the common ancestor's reviewed dispositions."""
         with tempfile.TemporaryDirectory() as temp:
-            args = ['pr_mutation.py', 'select', '--base', 'a' * 40, '--head', 'b' * 40,
-                    '--output', temp]
-            selected = {'sirix-core': ['src/main/java/Foo.java']}
-            lines = {'sirix-core': {'src/main/java/Foo.java': [3, 4]}}
+            root = Path(temp)
+            git = git_repository(root)
+            disposition = root / '.github/mutation-dispositions.toml'
+            disposition.parent.mkdir()
+            disposition.write_text('# common ancestor\n')
+            git('add', '.')
+            git('commit', '-qm', 'common ancestor')
+            common = git('rev-parse', 'HEAD')
+            git('checkout', '-qb', 'base-tip')
+            disposition.write_text('# base branch tip\n')
+            git('commit', '-qam', 'base advances')
+            base_tip = git('rev-parse', 'HEAD')
+            git('checkout', '-qb', 'pr', common)
+            disposition.write_text('# PR head\n')
+            git('commit', '-qam', 'PR changes dispositions')
+            head = git('rev-parse', 'HEAD')
+            output = root / 'out'
+            args = ['pr_mutation.py', 'select', '--root', str(root), '--base', base_tip,
+                    '--head', head, '--output', str(output)]
             with patch.object(sys, 'argv', args), \
-                 patch.object(mutation, 'changed_sources', return_value=(selected, lines)), \
-                 patch.object(mutation, 'merge_base_file', return_value='# base\n') as base, \
                  patch.object(sys, 'stdout', new_callable=io.StringIO):
                 self.assertEqual(mutation.main(), 0)
-            self.assertEqual(json.loads((Path(temp) / 'selection.json').read_text()),
-                             {'modules': selected, 'changed_lines': lines,
-                              'dispositions_base': '# base\n'})
-            self.assertEqual(base.call_args.args[1:], ('a' * 40, mutation.DISPOSITIONS_FILE))
+            self.assertEqual(json.loads((output / 'selection.json').read_text()),
+                             {'modules': {}, 'changed_lines': {},
+                              'dispositions_base': '# common ancestor\n'})
 
     def test_run_cli_skips_empty_selection_and_module_entrypoint_exits_zero(self):
         with tempfile.TemporaryDirectory() as temp:

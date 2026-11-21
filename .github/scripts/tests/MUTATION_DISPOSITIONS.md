@@ -26,6 +26,11 @@ helper call count. That assertion has been withdrawn and replaced by exit status
 survivor disposition cites that assertion. Any historical kill that depended solely on the
 call-count assertion is **unresolved**, not a behavioral kill or an equivalence proof;
 the historical aggregate cannot establish that classification without replaying its mutants.
+The private `merge_base_file` call-argument assertion in the select CLI test has also been
+withdrawn. Its replacement reads the emitted manifest from a real divergent Git history,
+where the common ancestor, base tip and PR head contain different dispositions. Any kill
+supported solely by the former call-argument assertion is likewise **unresolved**; none of
+the listed survivor dispositions cites it.
 
 The review regressions also enforce declared Java/Kotlin main-class ownership (including
 file facades), candidates from every remap tier, and rejection of creation, deletion and
