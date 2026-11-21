@@ -372,7 +372,7 @@ python3 .github/scripts/pr_mutation.py counterfactual --patch mutant.patch -- \
   ./gradlew :sirix-core:test --tests 'io.sirix.SomeAllocationBudgetTest'
 ```
 
-Pass `--limit <n>` to `--check` when the reports came from a sampled run. Remap proposes, in
+Pass `--sampled` to `--check` when the reports came from a run with a per-class limit. Remap proposes, in
 order, the same method with other instruction indexes, a renamed method of the same class, then
 the same method name and descriptor in another class, always with the same mutator and
 description.

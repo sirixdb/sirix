@@ -32,7 +32,7 @@ def class_bytes(name, source):
 
 # A complete module result whose changed lines were all killed.
 CLEAN_CHANGED = {'total': 1, 'killed': 1, 'survived': 0, 'no_coverage': 0, 'detected': 1,
-                 'survivors': []}
+                 'survivors': [], 'failing': []}
 
 
 def write_manifest(output, modules, lines=None):
@@ -644,12 +644,17 @@ class ReportingTest(unittest.TestCase):
         complete = {'module': 'sirix-core', 'state': 'complete', 'total': 4, 'killed': 2,
                     'survived': 0, 'no_coverage': 0, 'detected': 4, 'statuses': {},
                     'survivors': [], 'changed': {'total': 2, 'killed': 2, 'survived': 0,
-                                                 'no_coverage': 0, 'detected': 2, 'survivors': []}}
+                                                 'no_coverage': 0, 'detected': 2, 'survivors': [],
+                                                 'failing': []}}
+        undetected = [{'mutant': 'SURVIVED | a.Foo | run | 3 | x', 'reason': 'no disposition entry'}]
         self.assertTrue(mutation.is_clean([complete]))
         self.assertTrue(mutation.is_clean([]))  # a docs-only PR skips cleanly
-        for broken in ({'changed': {**complete['changed'], 'survived': 1, 'detected': 1}},
-                       {'changed': {**complete['changed'], 'no_coverage': 1, 'detected': 1}},
-                       {'changed': {**complete['changed'], 'no_coverage': 2, 'detected': 0}},
+        for broken in ({'changed': {**complete['changed'], 'survived': 1, 'detected': 1,
+                                    'failing': undetected}},
+                       {'changed': {**complete['changed'], 'no_coverage': 1, 'detected': 1,
+                                    'failing': undetected}},
+                       {'changed': {**complete['changed'], 'no_coverage': 2, 'detected': 0,
+                                    'failing': undetected * 2}},
                        {'state': 'timed out'}, {'state': 'unmapped'}, {'state': 'error'},
                        {'total': 0, 'detected': 0}, {'changed': None},
                        {'unattributed': 4}):  # nothing mapped, so nothing was judged

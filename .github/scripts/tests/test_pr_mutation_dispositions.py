@@ -28,6 +28,7 @@ REPOSITORY = SCRIPT.parents[2]
 MUTATOR = 'org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator'
 DESCRIPTION = 'changed conditional boundary'
 SOURCE = 'src/main/java/a/Foo.java'
+BAZ = 'src/main/java/a/b/Baz.java'
 SOURCE_PATH = 'bundles/sirix-core/' + SOURCE
 JUSTIFICATION = ('The contract admits only even inputs here (REQ-1), so x < 4 and x <= 4 select '
                  'the same branch for every admitted input and return the same result.')
@@ -125,20 +126,27 @@ class Lane:
         classes = module / 'build/classes/java/main/a'
         classes.mkdir(parents=True)
         (classes / 'Foo.class').write_bytes(class_file('a.Foo', 'Foo.java', METHODS))
+        # Compiled but never mutated by the faked run, and a class in a two-segment package.
+        (classes / 'Bar.class').write_bytes(class_file('a.Bar', 'Bar.java', METHODS))
+        (module / BAZ).parent.mkdir(parents=True)
+        (module / BAZ).write_text('package a.b;\nclass Baz {}\n')
+        (classes / 'b').mkdir()
+        (classes / 'b/Baz.class').write_bytes(class_file('a.b.Baz', 'Baz.java',
+                                                         {('go', '()V'): (5, 6)}))
         test = module / 'src/test/java/a/FooAllocationTest.java'
         test.parent.mkdir(parents=True)
         test.write_text('package a;\nclass FooAllocationTest {}\n')
         (root / '.github').mkdir()
 
-    def run(self, mutants, head=None, base=None, changed=(11,), exit_code=0):
+    def run(self, mutants, head=None, base=None, changed=(11,), exit_code=0, baz_changed=()):
         dispositions = self.root / mutation.DISPOSITIONS_FILE
         if head is None:
             dispositions.unlink(missing_ok=True)
         else:
             dispositions.write_text(head)
         (self.output / 'selection.json').write_text(json.dumps({
-            'modules': {'sirix-core': [SOURCE]},
-            'changed_lines': {'sirix-core': {SOURCE: list(changed)}},
+            'modules': {'sirix-core': [SOURCE, BAZ]},
+            'changed_lines': {'sirix-core': {SOURCE: list(changed), BAZ: list(baz_changed)}},
             'dispositions_base': base}))
 
         def execute(command, root, log, timeout):
@@ -565,7 +573,7 @@ class RefactorHelperTest(unittest.TestCase):
             with patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
                  patch.object(mutation, 'current_commit', return_value='e' * 40), \
                  patch.object(mutation, 'merge_base_file', return_value=entry()):
-                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, None)
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
             self.assertTrue(failing)
             self.assertIn('FAIL entry 1 [needs re-confirmation]', text)
             self.assertIn('FAIL entry 2 [stale]', text)
@@ -576,9 +584,9 @@ class RefactorHelperTest(unittest.TestCase):
             with patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
                  patch.object(mutation, 'current_commit', return_value='e' * 40), \
                  patch.object(mutation, 'merge_base_file', return_value=entry(indexes=[42])):
-                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, None)
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, False)
                 self.assertIn('[stale] a.Foo.run: PIT no longer generates', text)
-                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, 40)
+                failing, text = mutation.check_dispositions(work.root, [report], 'f' * 40, True)
                 self.assertIn('[not judged]', text)
 
     def test_dispositions_cli_runs_check_and_remap_and_reports_failure(self):

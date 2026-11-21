@@ -486,16 +486,9 @@ def is_clean(results):
         if result['total'] - result.get('unattributed', 0) <= 0:
             return False
         changed = result.get('changed')
-        # A complete report without a changed-line verdict is incomplete, never clean.
-        if not changed:
-            return False
-        if 'failing' in changed:
-            accepted = (len(changed.get('dispositioned_equivalent', ()))
-                        + len(changed.get('dispositioned_out_of_lane', ())))
-            # Accepted and failing mutants must account for every undetected one.
-            if changed['failing'] or changed['detected'] + accepted != changed['total']:
-                return False
-        elif changed['detected'] != changed['total']:
+        # A complete report without a changed-line verdict is incomplete, never clean. Every
+        # undetected changed-line mutant is either failing or accepted by a disposition.
+        if not changed or changed['failing']:
             return False
     return True
 
@@ -730,9 +723,9 @@ def declaring_module(root, name):
     package, _, simple = name.rpartition('.')
     for directory, module in sorted(MODULES.items()):
         for language, suffix in (('java', '.java'), ('kotlin', '.kt')):
+            # An empty package yields Path(''), which pathlib drops: one form serves both.
             path = (root / 'bundles' / directory / 'src/main' / language
-                    / Path(*package.split('.')) / (simple + suffix)) if package else (
-                root / 'bundles' / directory / 'src/main' / language / (simple + suffix))
+                    / Path(*package.split('.')) / (simple + suffix))
             if path.is_file() and declared_package(path.read_text()) == package:
                 return module
     return None
@@ -798,25 +791,26 @@ def mutant_identity(element):
             indexes.append(int(index.text))
         except (TypeError, ValueError):
             indexes.append(-1)  # never equal to a validated entry index
-    return (element.findtext('mutatedClass', ''), element.findtext('mutatedMethod', ''),
-            element.findtext('methodDescription', ''), element.findtext('mutator', ''),
-            tuple(indexes), element.findtext('description', ''))
+    # A missing field reads as None, which no validated entry field equals.
+    return (element.findtext('mutatedClass'), element.findtext('mutatedMethod'),
+            element.findtext('methodDescription'), element.findtext('mutator'),
+            tuple(indexes), element.findtext('description'))
 
 
 def mutant_record(element, changed):
     return {'identity': mutant_identity(element), 'status': element.get('status', 'UNKNOWN'),
             'detected': element.get('detected') == 'true', 'line': mutant_line(element),
             'changed': changed, 'text': describe_mutant(element),
-            'killing_test': element.findtext('killingTest', '')}
+            'killing_test': element.findtext('killingTest')}
 
 
-def method_changed(compiled, entry, changed_index):
-    """Whether a line of the entry's method, per its line-number table, is a changed line."""
-    found = compiled.find(entry['class'])
-    if found is None:
-        return False
+def method_changed(found, entry, changed_index):
+    """Whether a line of the entry's method, per its line-number table, is a changed line.
+
+    `found` is the entry's compiled class, which `static_staleness` proved holds the method.
+    """
     name, source, methods = found
-    lines = methods.get((entry['method'], entry['descriptor']), frozenset())
+    lines = methods[(entry['method'], entry['descriptor'])]
     return bool(lines & changed_index.get((name.rpartition('.')[0], source), set()))
 
 
@@ -851,7 +845,8 @@ def judge_entry(entry, context):
                                 f'it is not equivalent; delete the entry')
     if mutant and entry['kind'] == 'killed-out-of-lane' and mutant['detected']:
         return 'superseded', 'an in-lane test now detects this mutant; delete the entry'
-    if not added and (method_changed(context['compiled'], entry, context['changed_index'])
+    if not added and (method_changed(context['compiled'].find(entry['class']), entry,
+                                     context['changed_index'])
                       or (mutant and mutant['changed'])):
         return 'needs re-confirmation', (
             f"this PR changes method {entry['method']}; re-review the argument"
@@ -898,8 +893,8 @@ def judge_dispositions(entries, errors, base_text, context):
         state, action = judge_entry(entry, context)
         added = entry_key(entry) not in context['base_keys']
         record = {name: entry[name] for name in COMMON_FIELDS}
-        record.update(indexes=list(entry['indexes']), position=entry['position'], state=state,
-                      action=action, failing=state in FAILING_STATES,
+        record.update(position=entry['position'], state=state, action=action,
+                      failing=state in FAILING_STATES,
                       added=('re-confirmation' if added and identity_of(entry)
                              in context['base_identities'] else 'new') if added else None)
         if entry['kind'] == 'killed-out-of-lane':
@@ -928,7 +923,7 @@ def apply_dispositions(result, accepted, judged):
         by_identity.setdefault(tuple(record[name] if name != 'indexes' else tuple(record[name])
                                      for name in IDENTITY_FIELDS), record)
     equivalent, out_of_lane, failing = [], [], []
-    for mutant in result.get('_mutants', []):
+    for mutant in result['_mutants']:
         if not mutant['changed'] or mutant['detected']:
             continue
         entry = accepted.get(mutant['identity'])
@@ -1330,7 +1325,7 @@ def read_dispositions(root):
     return parse_dispositions(path.read_text() if path.is_file() else None)
 
 
-def check_dispositions(root, reports, base, limit):
+def check_dispositions(root, reports, base, sampled):
     """Judge the working tree's entries against local reports, as the lane would."""
     _, lines = changed_sources(root, base, current_commit(root))
     records = report_records(reports, global_changed_index(root, lines))
@@ -1339,7 +1334,7 @@ def check_dispositions(root, reports, base, limit):
     context = {'compiled': CompiledClasses(root), 'tests': lambda: declared_tests(root),
                'mutants': {record['identity']: record for record in records},
                'changed_index': global_changed_index(root, lines),
-               'mutated': dict.fromkeys(classes, limit is None)}
+               'mutated': dict.fromkeys(classes, not sampled)}
     verdict, accepted = judge_dispositions([] if errors else entries, errors,
                                            merge_base_file(root, base, DISPOSITIONS_FILE), context)
     module = {'changed': {'total': len(records)}, '_mutants': records}
@@ -1424,7 +1419,7 @@ def render_evidence(evidence):
 
 def run_test_command(command, root):
     return subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          shell=False, check=False)
+                          shell=False)
 
 
 def counterfactual(root, patch_file, command):
@@ -1446,14 +1441,14 @@ def counterfactual(root, patch_file, command):
         raise CounterfactualError(f'the test fails without the mutant (exit {baseline.returncode})'
                                   f'; fix the baseline first')
     git = ['git', '-C', str(root), 'apply']
-    if subprocess.run(git + ['--check', str(patch_file)], shell=False, check=False).returncode:
+    # `git apply` is atomic: a patch that does not apply changes nothing.
+    if subprocess.run(git + [str(patch_file)], shell=False).returncode:
         raise CounterfactualError('the patch does not apply to the working tree')
-    subprocess.run(git + [str(patch_file)], shell=False, check=True)
     try:
         injected = run_test_command(command, root)
     finally:
-        reversed_cleanly = subprocess.run(git + ['-R', str(patch_file)], shell=False,
-                                          check=False).returncode == 0
+        reversed_cleanly = subprocess.run(git + ['-R', str(patch_file)],
+                                          shell=False).returncode == 0
         if not reversed_cleanly or hashes() != before:
             raise CounterfactualError('sources differ after reversing the patch; restore '
                                       + ', '.join(paths) + ' from version control before '
@@ -1482,16 +1477,16 @@ def build_parser():
     analysis.add_argument('--blocking', action='store_true')
     dispositions = commands.add_parser(
         'dispositions', help='local: check entries or propose identities after a refactor')
-    dispositions.add_argument('--report', type=Path, action='append', required=True,
+    dispositions.add_argument('--report', action='append', required=True,
                               help='a PIT mutations.xml; repeatable')
     dispositions.add_argument('--check', action='store_true')
     dispositions.add_argument('--remap', action='store_true')
     dispositions.add_argument('--base', help='commit the change is judged against (--check)')
-    dispositions.add_argument('--limit', type=int,
-                              help="the run's per-class mutant limit, if one was applied")
+    dispositions.add_argument('--sampled', action='store_true',
+                              help='the reports come from a run with a per-class mutant limit')
     evidence = commands.add_parser(
         'counterfactual', help='local: produce killed-out-of-lane evidence for one mutant')
-    evidence.add_argument('--patch', type=Path, required=True,
+    evidence.add_argument('--patch', required=True,
                           help='unified diff injecting exactly the mutant')
     evidence.add_argument('test_command', nargs=argparse.REMAINDER,
                           help='after `--`: the command that runs the test in its own process')
@@ -1511,7 +1506,7 @@ def main():
             parser.error('dispositions --check requires --base')
         failing = False
         if args.check:
-            failing, text = check_dispositions(root, args.report, args.base, args.limit)
+            failing, text = check_dispositions(root, args.report, args.base, args.sampled)
             print(text)
         if args.remap:
             print(remap_dispositions(root, args.report))
