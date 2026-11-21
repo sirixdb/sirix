@@ -92,3 +92,32 @@
   gates remain with the outer executor.
 - Lesson: distinguish name release from garbage deletion, probe only actual resources, and use the
   allocator's bounded scratch for hot decoding; see [LESSONS.md](../LESSONS.md).
+
+## Review follow-up: failed cleanup admission and proof
+
+- Trigger and symptoms: forced database removal after denied tombstone deletion left a closed
+  instance registered and its lock held; source removal or hidden-name creation could release
+  settings before retiring a derived sibling; a denied initial directory listing exposed old RAM
+  resources once permissions returned; retaining source settings on derived-rename failure also
+  retained decoded source caches.
+- Root causes: forced close bypassed the ended-instance ownership-release boundary; derived
+  ordering and cache discard were enforced only on some retirement paths; a failed scan was logged
+  without preserving the fact that resource admission had not yet been established.
+- Fix: forced removal uses the same ownership release as final-handle close when the instance has
+  ended. Shared retirement retires the derived sibling before releasing its source name. Shared
+  state discard clears caches and RAM even while proof is retained. A pending-scan flag gates the
+  four resource-admission paths until scanning succeeds, without rescanning live state thereafter.
+- Regression oracles: TXN-615 clauses 7/8 and AC9/AC12 require reopen and empty recreation after
+  failed forced removal; clause 6 requires old RAM names to remain absent on each admission path
+  after an unreadable initial scan. Clauses 7/8 require a derived original name to be retired before
+  source-name reuse, even after a previous failed rename. Tests use public API results, committed
+  content, POSIX permissions and persisted directory fixtures; the latter model the reserved derived
+  namespace and its readable source settings, not implementation text.
+- Why tests missed it: tests exercised final-handle close and successful initial scans, without
+  crossing forced removal, source/derived deletion order or scan-permission transitions.
+- Test limitation: no new public-only test directly measures decoded-cache retention while source
+  settings remain. That guarantee is checked at the shared discard boundary; internal counters or
+  cache object assertions would not satisfy the requested public-behavior constraint. Mutation and
+  broader verification remain assigned to the outer executor.
+- Lesson: every lifecycle exit must release ended ownership, preserve proof until its dependents
+  retire, and treat incomplete discovery as pending admission; see [LESSONS.md](../LESSONS.md).

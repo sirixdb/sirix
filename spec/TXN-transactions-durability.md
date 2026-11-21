@@ -529,7 +529,16 @@ At backup start, backup MUST pin the set of resources and each resource’s curr
   - Leftovers are removed at close and at the next open. A resource directory is retired by renaming it to `$retired-<uuid>` before deleting it, so a failure never leaves an unprovable half-deleted directory. The tombstone length is independent of the original name. A successful rename frees the name even if deletion fails; final close still reports the remaining tombstone. Resource names containing `$retired-` are therefore reserved.
   - A failed session teardown keeps the instance for a retry; a failure only in removing leftovers ends it.
   - Backups skip IN_MEMORY resources and list them.
-  - Not covered by a test: derived resources of an IN_MEMORY source (clause 8); the cleanup handles them, but no acceptance criterion builds one.
+  - A failed initial directory scan remains pending. Resource admission retries it before opening,
+    listing, existence checks or creation; no new RAM state is admitted before the scan succeeds.
+  - Source settings remain proof until the derived sibling leaves its original name, including
+    removal and hidden-name creation retries. Retaining settings never retains cached source content.
+  - Review regressions: `failedForcedRemovalReleasesAdmission` covers AC9/AC12's ended-instance
+    release; `failedInitialScanIsRetriedBeforeResourceAdmission` covers clause 6 on each admission
+    path; `derivedLeftoversAreRetiredBeforeSourceNameReuse` covers clauses 7/8 using persisted
+    source/derived directory fixtures with denied deletion. Missing cache-release behavior on the
+    retained-proof branch has no direct public cache-inspection oracle and is reviewed at the shared
+    discard boundary; this round adds no internal-cache test.
   - REST opens and closes a handle per request, and its delete route closes every handle in the process. Either can perform the final close of IN_MEMORY state an embedded user created.
 
 Storage type is chosen per resource, so one database MAY hold IN_MEMORY resources alongside

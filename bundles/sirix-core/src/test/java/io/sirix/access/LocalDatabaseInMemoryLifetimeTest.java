@@ -12,8 +12,11 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.io.StorageType;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -45,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * TXN-615 acceptance criteria on one database instance and its reopen: AC2 (handles), AC3
@@ -386,6 +390,66 @@ final class LocalDatabaseInMemoryLifetimeTest {
       }
     } finally {
       Databases.removeDatabase(otherPath);
+    }
+  }
+
+  @ParameterizedTest
+  @MethodSource("modelsAndCloseOrders")
+  void derivedLeftoversAreRetiredBeforeSourceNameReuse(final Model model, final boolean retryHiddenCreation)
+      throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final Path resources = resourceDirectory(VOLATILE).getParent();
+    final Path derived = resourceDirectory(VOLATILE + "$derived");
+    final Set<PosixFilePermission> parentPermissions = Files.getPosixFilePermissions(resources);
+    try (Database<? extends ResourceSession<?, ?>> database = open(model, databasePath())) {
+      createResource(database, VOLATILE, StorageType.IN_MEMORY);
+      createResource(database, "derived-fixture", StorageType.FILE_CHANNEL);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        commitFirstValue(session, model, "discarded");
+      }
+      try (ResourceSession<?, ?> session = database.beginResourceSession("derived-fixture")) {
+        commitFirstValue(session, model, "derived");
+      }
+      Files.move(resourceDirectory("derived-fixture"), derived);
+      final Set<PosixFilePermission> childPermissions = Files.getPosixFilePermissions(derived);
+      Files.setPosixFilePermissions(derived, PosixFilePermissions.fromString("r-xr-xr-x"));
+      try {
+        assumeTrue(!Files.isWritable(derived), "running as a user who ignores permissions");
+        if (retryHiddenCreation) {
+          Files.setPosixFilePermissions(resources, PosixFilePermissions.fromString("r-xr-xr-x"));
+          database.removeResource(VOLATILE);
+          assertTrue(Files.exists(resourceDirectory(VOLATILE)
+              .resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath())));
+          assertTrue(Files.exists(derived));
+          assertFalse(database.existsResource(VOLATILE));
+          Files.setPosixFilePermissions(resources, parentPermissions);
+        } else {
+          database.removeResource(VOLATILE);
+          assertFalse(Files.exists(resourceDirectory(VOLATILE)));
+        }
+        createResource(database, VOLATILE, StorageType.IN_MEMORY);
+        assertFalse(Files.exists(derived));
+        try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+          assertEquals(0, session.getMostRecentRevisionNumber());
+          assertFalse(hasContent(session));
+        }
+      } finally {
+        Files.setPosixFilePermissions(resources, parentPermissions);
+        try (var paths = Files.list(resources)) {
+          for (final Path path : paths.toList()) {
+            if (Files.isDirectory(path)) {
+              Files.setPosixFilePermissions(path, childPermissions);
+            }
+          }
+        }
+      }
+    }
+    try (Database<? extends ResourceSession<?, ?>> reopened = open(model, databasePath())) {
+      assertTrue(resourceNames(reopened).isEmpty());
+    }
+    try (var paths = Files.list(resources)) {
+      assertTrue(paths.toList().isEmpty());
     }
   }
 

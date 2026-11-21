@@ -122,6 +122,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    */
   private final Set<String> hiddenInMemoryLeftovers = ConcurrentHashMap.newKeySet();
 
+  private volatile boolean retirementScanPending;
+
   /**
    * Constructor.
    *
@@ -166,6 +168,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private T beginResourceSession(final String resourceName, final @Nullable UberPage openingUberPage) {
     assertNotClosed();
+    ensureInMemoryLeftoversRetired();
     final String canonicalName = canonicalResourceName(resourceName);
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
     final Path resourcePath = dataDir.resolve(canonicalName);
@@ -347,6 +350,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   synchronized boolean createResource(final ResourceConfiguration resourceConfig,
       final @Nullable ResourceStore<? extends ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx>> userStore) {
     assertNotClosed();
+    ensureInMemoryLeftoversRetired();
     ResourceAccessScope.checkResource(dbConfig.getDatabaseFile(), requireNonNull(resourceConfig).getName(), true);
 
     boolean returnVal = true;
@@ -504,6 +508,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         || (Files.isDirectory(resourceFile) && InMemoryResources.isInMemoryOwned(resourceFile))) {
       // TXN-615 clause 8: an IN_MEMORY resource's state and footprint go the retirement way.
       retireInMemoryResource(resourceFile, canonicalName);
+      return this;
     } else if (Files.exists(resourceFile) && (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)
         || ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0)) {
       // If file is existing and folder is a Sirix-dataplace, delete it.
@@ -620,12 +625,19 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * @return the original directory or tombstone that remains, or {@code null} if neither remains
    */
   private @Nullable Path retireInMemoryResource(final Path resourceFile, final String name) {
-    try {
-      discardResourceState(resourceFile);
-    } finally {
-      // Whatever happens on disk, the committed state of the resource is gone.
-      RAMStorage.discardUnder(resourceFile);
+    if (!DerivedIndexMaintainer.isDerivedResourceName(name)) {
+      final String derivedName = name + DerivedIndexMaintainer.SUFFIX;
+      final Path derived = resourceFile.resolveSibling(derivedName);
+      if (Files.exists(derived)) {
+        removeResourceInternal(derivedName);
+        if (Files.exists(derived)) {
+          discardInMemoryResourceState(resourceFile);
+          hiddenInMemoryLeftovers.add(name);
+          return resourceFile;
+        }
+      }
     }
+    discardInMemoryResourceState(resourceFile);
     // Rename first: either the whole directory leaves the name at once, or nothing changed and the
     // settings that prove it in-memory state are still there for the next attempt. A plain
     // recursive delete could empty the directory and then fail to remove it, leaving an unprovable
@@ -641,6 +653,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     forgetResource(resourceFile, name);
     hiddenInMemoryLeftovers.remove(name);
     return removeTombstone(tombstone) ? null : tombstone;
+  }
+
+  private void discardInMemoryResourceState(final Path resourceFile) {
+    try {
+      discardResourceState(resourceFile);
+    } finally {
+      RAMStorage.discardUnder(resourceFile);
+    }
   }
 
   /**
@@ -669,8 +689,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    */
   private synchronized @Nullable SirixIOException retireInMemoryResources() {
     final Path resources = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
-    if (!Files.isDirectory(resources)) {
-      return null; // No resources folder, so no resource of any kind.
+    if (Files.notExists(resources)) {
+      retirementScanPending = false;
+      return null;
     }
     final List<Path> derived = new ArrayList<>();
     final List<Path> sources = new ArrayList<>();
@@ -689,7 +710,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
           }
         }
       }
-    } catch (final IOException | UncheckedIOException e) {
+    } catch (final IOException | UncheckedIOException | SecurityException e) {
+      retirementScanPending = true;
       return new SirixIOException("Could not list the resources of " + dbConfig.getDatabaseFile(), e);
     }
     final Set<String> keptSources = new HashSet<>();
@@ -707,7 +729,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       final String name = resource.getFileName().toString();
       if (keptSources.contains(name)) {
         // Keep the proof on disk for the derived leftover; the state itself goes now.
-        RAMStorage.discardUnder(resource);
+        discardInMemoryResourceState(resource);
         hiddenInMemoryLeftovers.add(name);
         remaining.add(resource);
       } else {
@@ -717,6 +739,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         }
       }
     }
+    retirementScanPending = false;
     return remaining.isEmpty()
         ? null
         : new SirixIOException("Could not remove the leftovers of in-memory resources " + remaining);
@@ -731,6 +754,19 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final SirixIOException failure = retireInMemoryResources();
     if (failure != null) {
       logger.warn("In-memory resource leftovers stay hidden in {}", dbConfig.getDatabaseFile(), failure);
+    }
+  }
+
+  private void ensureInMemoryLeftoversRetired() {
+    if (retirementScanPending) {
+      synchronized (this) {
+        if (retirementScanPending) {
+          final SirixIOException failure = retireInMemoryResources();
+          if (retirementScanPending) {
+            throw requireNonNull(failure);
+          }
+        }
+      }
     }
   }
 
@@ -794,6 +830,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized boolean existsResource(final String resourceName) {
     assertNotClosed();
+    ensureInMemoryLeftoversRetired();
     final String canonicalName = canonicalResourceName(resourceName);
     final Path resourceFile =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
@@ -804,6 +841,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public List<Path> listResources() {
     assertNotClosed();
+    ensureInMemoryLeftoversRetired();
     try (final Stream<Path> stream =
         Files.list(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
       return stream.filter(path -> {

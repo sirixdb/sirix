@@ -11,6 +11,7 @@ import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixUsageException;
 import io.sirix.io.StorageType;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -31,10 +32,13 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import static io.sirix.access.InMemoryLifetimeFixture.commitFirstValue;
 import static io.sirix.access.InMemoryLifetimeFixture.commitNextValue;
@@ -270,6 +274,102 @@ final class DatabasesInMemoryLifetimeTest {
       if (database.isOpen()) {
         database.close();
       }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void failedForcedRemovalReleasesAdmission(final Model model) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final Path resources = databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Database<? extends ResourceSession<?, ?>> database = open(model, databasePath());
+    createResource(database, VOLATILE, StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+      commitFirstValue(session, model, "0");
+    }
+    final Path resource = resources.resolve(VOLATILE);
+    final Set<PosixFilePermission> writable = Files.getPosixFilePermissions(resource);
+    Files.setPosixFilePermissions(resource, PosixFilePermissions.fromString("r-xr-xr-x"));
+    try {
+      assumeTrue(!Files.isWritable(resource), "running as a user who ignores permissions");
+      assertThrows(SirixIOException.class, () -> Databases.removeDatabase(databasePath()));
+      assertFalse(database.isOpen());
+    } finally {
+      try (var paths = Files.list(resources)) {
+        for (final Path path : paths.toList()) {
+          if (Files.isDirectory(path)) {
+            Files.setPosixFilePermissions(path, writable);
+          }
+        }
+      }
+      if (database.isOpen()) {
+        database.close();
+      }
+    }
+    try (Database<? extends ResourceSession<?, ?>> reopened = open(model, databasePath())) {
+      assertTrue(resourceNames(reopened).isEmpty());
+    }
+    Databases.removeDatabase(databasePath());
+    createDatabase(model, databasePath());
+    try (Database<? extends ResourceSession<?, ?>> recreated = open(model, databasePath())) {
+      assertTrue(resourceNames(recreated).isEmpty());
+    }
+  }
+
+  static Stream<Arguments> modelsAndResourceAdmissions() {
+    return Stream.of(Model.values()).flatMap(model -> Stream.of("exists", "list", "open", "create")
+                                                           .map(admission -> Arguments.of(model, admission)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("modelsAndResourceAdmissions")
+  void failedInitialScanIsRetriedBeforeResourceAdmission(final Model model, final String admission) throws Exception {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    final Process process = child("-Xmx256m", AbruptExitChild.class, databasePath().toString(), model.name());
+    try {
+      assertEquals("HALTING", childResult(process));
+      assertTrue(process.waitFor(60, TimeUnit.SECONDS));
+      assertEquals(0, process.exitValue());
+    } finally {
+      process.destroyForcibly();
+    }
+    final Path resources = databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Set<PosixFilePermission> readable = Files.getPosixFilePermissions(resources);
+    Files.setPosixFilePermissions(resources, PosixFilePermissions.fromString("--x--x--x"));
+    try {
+      assumeTrue(!Files.isReadable(resources), "running as a user who ignores permissions");
+      try (Database<? extends ResourceSession<?, ?>> database = open(model, databasePath())) {
+        try {
+          assertThrows(SirixIOException.class, () -> database.existsResource(VOLATILE));
+        } finally {
+          Files.setPosixFilePermissions(resources, readable);
+        }
+        switch (admission) {
+          case "exists" -> assertFalse(database.existsResource(VOLATILE));
+          case "list" -> assertEquals(Set.of(DURABLE), resourceNames(database));
+          case "open" -> assertThrows(SirixUsageException.class, () -> database.beginResourceSession(VOLATILE));
+          case "create" -> createResource(database, VOLATILE, StorageType.IN_MEMORY);
+          default -> throw new IllegalArgumentException(admission);
+        }
+        if (!admission.equals("create")) {
+          createResource(database, VOLATILE, StorageType.IN_MEMORY);
+        }
+        try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+          assertEquals(0, session.getMostRecentRevisionNumber());
+          assertFalse(hasContent(session));
+          final long key = commitFirstValue(session, model, "fresh");
+          assertEquals("fresh", valueAt(session, model, 1, key));
+        }
+        assertTrue(database.existsResource(VOLATILE));
+        assertEquals(Set.of(DURABLE, VOLATILE), resourceNames(database));
+        try (ResourceSession<?, ?> session = database.beginResourceSession(DURABLE)) {
+          assertEquals(2, session.getMostRecentRevisionNumber());
+          assertTrue(hasContent(session));
+        }
+      }
+    } finally {
+      Files.setPosixFilePermissions(resources, readable);
     }
   }
 

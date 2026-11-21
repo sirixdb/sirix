@@ -111,11 +111,11 @@ public final class Databases {
         // owned for a retry; one that failed only removing IN_MEMORY leftovers has ended it, and a
         // later open must create a new instance.
         if (!owner.database.isOpen()) {
-          releaseOwnership(owner, handle, failure);
+          releaseOwnership(owner, failure);
         }
         throw failure;
       }
-      releaseOwnership(owner, handle, null);
+      releaseOwnership(owner, null);
     } finally {
       synchronized (Databases.class) {
         owner.closing = false;
@@ -127,8 +127,7 @@ public final class Databases {
   /**
    * Drop a closed instance's ownership; a lock-release failure joins {@code primary} if there is one.
    */
-  private static void releaseOwnership(final OpenDatabase<?> owner, final Database<?> handle,
-      final @Nullable Throwable primary) {
+  private static void releaseOwnership(final OpenDatabase<?> owner, final @Nullable Throwable primary) {
     synchronized (Databases.class) {
       if (primary == null) {
         owner.lock.close();
@@ -140,8 +139,13 @@ public final class Databases {
         }
       }
       OPEN_DATABASES.remove(owner.path);
-      owner.references--;
-      MANAGER.sessions().removeObject(owner.path, handle);
+      owner.references = 0;
+      final Set<Database<?>> handles = MANAGER.sessions().asMap().get(owner.path);
+      if (handles != null) {
+        for (final Database<?> handle : Set.copyOf(handles)) {
+          MANAGER.sessions().removeObject(owner.path, handle);
+        }
+      }
     }
   }
 
@@ -429,7 +433,14 @@ public final class Databases {
         if (failure instanceof Error error) {
           throw error;
         }
-        owner.database.close();
+        try {
+          owner.database.close();
+        } catch (final RuntimeException | Error closeFailure) {
+          if (!owner.database.isOpen()) {
+            releaseOwnership(owner, closeFailure);
+          }
+          throw closeFailure;
+        }
       }
       try (lock) {
         if (DatabaseConfiguration.DatabasePaths.compareStructure(path) == 0) {
