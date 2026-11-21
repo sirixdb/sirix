@@ -20,7 +20,7 @@ import unittest
 from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'pr_mutation.py'
-SPEC = importlib.util.spec_from_file_location('pr_mutation_dispositions_subject', SCRIPT)
+SPEC = importlib.util.spec_from_file_location('pr_mutation', SCRIPT)
 mutation = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(mutation)
 REPOSITORY = SCRIPT.parents[2]
