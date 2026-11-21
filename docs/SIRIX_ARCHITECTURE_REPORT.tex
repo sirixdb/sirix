@@ -6360,7 +6360,7 @@ The pitch is the cost shape, the capability set, and embedding.
 \section{History-path improvements (different machine; shape, not absolutes)}
 \label{sec:histpath}
 
-A reworked history read path (\code{getHistoryTimestamps()} from the resident in-memory
+A reworked history read path (\code{getHistoryTimestampsMicros()} from the resident in-memory
 \code{RevisionIndex}, a \code{long[]} {+} one \code{arraycopy}) serves all 5\,001 timestamps in
 \textbf{$\sim$0.05\,ms, $\sim$40$\times$ faster} than the PostgreSQL heap scan and the prior
 SirixDB path. For a field that changes \emph{rarely} (the common real shape),

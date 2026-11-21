@@ -83,7 +83,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * <p>
    * Loading commit authors and messages requires readable revision roots and fails for pruned
-   * revisions. Use {@link #getHistoryTimestamps()} to query timestamps across pruned history.
+   * revisions. Use {@link #getHistoryTimestampsMicros()} to query timestamps across pruned history.
    *
    * @return the history
    */
@@ -121,23 +121,23 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * {@code [1, mostRecentRevision]} (revision {@code 0} is the empty bootstrap, mirroring
    * {@link #getHistory()}). Pruned revisions retain their original timestamps in this result.
    *
-   * @return the commit timestamps as epoch milliseconds, ordered most-recent revision first (empty if
-   *         the resource has no committed revisions yet)
+   * @return the commit timestamps as epoch microseconds, the stored unit of VER-201, ordered
+   *         most-recent revision first (empty if the resource has no committed revisions yet)
    */
-  long[] getHistoryTimestamps();
+  long[] getHistoryTimestampsMicros();
 
   /**
-   * Get the commit timestamps (epoch milliseconds) for an inclusive revision range, newest-first.
+   * Get the commit timestamps (epoch microseconds) for an inclusive revision range, newest-first.
    *
    * <p>
    * The bounds are inclusive and may be passed in either order (and may be equal). Like
-   * {@link #getHistoryTimestamps()} this reads only from the in-memory revision index.
+   * {@link #getHistoryTimestampsMicros()} this reads only from the in-memory revision index.
    *
    * @param fromRevision one bound of the revision range (must be positive)
    * @param toRevision the other bound of the revision range (must be positive)
-   * @return the commit timestamps as epoch milliseconds, ordered most-recent revision first
+   * @return the commit timestamps as epoch microseconds, ordered most-recent revision first
    */
-  long[] getHistoryTimestamps(int fromRevision, int toRevision);
+  long[] getHistoryTimestampsMicros(int fromRevision, int toRevision);
 
   /**
    * Get the ascending list of revisions in which the record with the given {@code nodeKey} was

@@ -4564,6 +4564,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (commitTimestamp != null) {
       newRevisionRootPage.setCommitTimestamp(commitTimestamp);
     }
+
+    // Resolve the effective epoch-microsecond timestamp of TXN-310 once, before any page of this
+    // revision is serialized, so the revision-root bytes, the revision-directory record and the
+    // in-memory revision index all carry the same value.
+    newRevisionRootPage.ensureCommitTimestampMicros();
   }
 
   private void serializeIndexDefinitions(int revision) {

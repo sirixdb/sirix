@@ -69,7 +69,7 @@ Database/resource path parameters MUST be validated before filesystem access and
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Current parameter precedence and missing-node IllegalStateException mapping need route-level coverage; the intended failure requirement is not claimed fully implemented.
 
-GET without a query MUST serialize the requested committed revision/subtree, defaulting to the most recent revision. Numeric/timestamp single selection and start/end ranges MUST follow the schema; multiple revisions MUST use the documented JSON/XML revision envelope. Missing node/revision requests MUST fail rather than serialize another cursor position. Conflicting selection groups MUST NOT be silently interpreted as an arbitrary revision.
+GET without a query MUST serialize the requested committed revision/subtree, defaulting to the most recent revision. Numeric/timestamp single selection and start/end ranges MUST follow the schema; a timestamp selector MUST resolve at the microsecond precision of VER-201/204, so two commits inside one millisecond are separately addressable; multiple revisions MUST use the documented JSON/XML revision envelope. Missing node/revision requests MUST fail rather than serialize another cursor position. Conflicting selection groups MUST NOT be silently interpreted as an arbitrary revision.
 
 ### REST-204 — Conditional-write token preconditions
 
@@ -117,7 +117,7 @@ POST /{database}/{resource}/revert MUST accept only targetRevision, optional exp
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Current handler prefers revisions when both forms are supplied; mutual-exclusion enforcement is an implementation gap. The schema is the intended input contract.
 
-History MUST return newest-first revision metadata in a history array with revision, revisionTimestamp, author and commitMessage. Limit and explicit range parameters MUST obey the documented input contract; malformed values MUST be client errors. Supplying conflicting limit/range selectors MUST be rejected before reading an arbitrary subset.
+History MUST return newest-first revision metadata in a history array with revision, revisionTimestamp, author and commitMessage. revisionTimestamp MUST carry the effective commit timestamp at the microsecond precision of VER-201, so revisions committed inside one millisecond are distinguishable in the response. Limit and explicit range parameters MUST obey the documented input contract; malformed values MUST be client errors. Supplying conflicting limit/range selectors MUST be rejected before reading an arbitrary subset.
 
 ### REST-208 — JSON-only diff
 

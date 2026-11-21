@@ -5,6 +5,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixRevisionPrunedException;
@@ -13,6 +14,7 @@ import io.sirix.io.memorymapped.MMStorage;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import net.openhft.hashing.LongHashFunction;
+import io.sirix.utils.CommitTimestamps;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -52,14 +54,16 @@ final class SparseRevisionHistoryTest {
   void codecDistinguishesTombstonesFromCorruption() {
     final ByteBuffer buffer = ByteBuffer.allocate(40);
     buffer.position(8);
-    IOStorage.writePrunedRevisionRecord(buffer, FIRST.toEpochMilli());
+    IOStorage.writePrunedRevisionRecord(buffer, CommitTimestamps.toEpochMicros(FIRST));
     assertEquals(40, buffer.position());
     assertEquals(ByteOrder.BIG_ENDIAN, buffer.order());
     buffer.order(ByteOrder.LITTLE_ENDIAN);
     assertEquals(Long.MIN_VALUE, buffer.getLong(8));
     assertEquals(0x5052554E45440001L, buffer.getLong(32));
     final ByteBuffer checksumInput = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN);
-    checksumInput.putLong(Long.MIN_VALUE).putLong(FIRST.toEpochMilli()).putLong(0x5052554E45440001L);
+    checksumInput.putLong(Long.MIN_VALUE)
+                 .putLong(CommitTimestamps.toEpochMicros(FIRST))
+                 .putLong(0x5052554E45440001L);
     assertEquals(LongHashFunction.xx3().hashBytes(checksumInput.array()), buffer.getLong(24));
     final RevisionFileData data = IOStorage.decodeRevisionRecord(2, buffer.getLong(8), buffer.getLong(16),
         buffer.getLong(24), buffer.getLong(32));
@@ -97,7 +101,7 @@ final class SparseRevisionHistoryTest {
     assertTrue(index.isPruned(1));
     assertTrue(index.getRevisionFileData(1).isPruned());
     assertEquals(IOStorage.PRUNED_REVISION_TAG, index.getRevisionFileData(1).pageHash());
-    assertArrayEquals(new long[] {0, 10, 20, 30}, index.timestampsMillis(0, 3));
+    assertArrayEquals(new long[] {0, 10, 20, 30}, index.timestampsMicros(0, 3));
     assertThrows(SirixRevisionPrunedException.class, () -> index.getOffset(1));
     assertThrows(SirixRevisionPrunedException.class, () -> index.truncateTo(2));
     assertThrows(IndexOutOfBoundsException.class, () -> index.isPruned(-1));
@@ -147,8 +151,8 @@ final class SparseRevisionHistoryTest {
         assertEquals(2, session.getRevisionNumber(FIRST.plusSeconds(50), 2));
         assertEquals(2, session.getRevisionNumber(FIRST.plusMillis(2500), 4));
         assertEquals(0, session.getRevisionNumber(Instant.EPOCH.minusSeconds(1), 4));
-        assertArrayEquals(new long[] {FIRST.plusSeconds(3).toEpochMilli(), FIRST.plusSeconds(2).toEpochMilli()},
-            session.getHistoryTimestamps(2, 3));
+        assertArrayEquals(new long[] {CommitTimestamps.toEpochMicros(FIRST.plusSeconds(3)),
+            CommitTimestamps.toEpochMicros(FIRST.plusSeconds(2))}, session.getHistoryTimestampsMicros(2, 3));
         try (final var before = session.beginNodeReadOnlyTrx(Instant.EPOCH.minusSeconds(1));
             final var preceding = session.beginNodeReadOnlyTrx(FIRST.plusMillis(1500));
             final var after = session.beginNodeReadOnlyTrx(FIRST.plusSeconds(50))) {
@@ -194,27 +198,40 @@ final class SparseRevisionHistoryTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void duplicateTimestampSelectionIsUnchangedByPruning(final VersioningType versioning) throws Exception {
+  void adjustedTieSelectionIsUnchangedByPruning(final VersioningType versioning) throws Exception {
     for (final StorageType type : STORAGE_TYPES) {
       final Path databasePath = directory.resolve(type.name());
+      // Revision 3 supplies revision 2's instant; TXN-310 adjusts it to one microsecond later, so
+      // the timeline has no tie for a lookup to resolve arbitrarily.
       final ResourceConfiguration config = createHistory(databasePath, type, versioning, true);
-      final int selected;
+      final Instant adjusted = FIRST.plusSeconds(2).plusNanos(1_000);
       try (final var database = Databases.openJsonDatabase(databasePath);
           final var session = database.beginResourceSession("history")) {
-        selected = session.getRevisionNumber(FIRST.plusSeconds(2));
-        assertEquals(3, session.getRevisionNumber(FIRST.plusSeconds(2), 4));
+        assertArrayEquals(new long[] {CommitTimestamps.toEpochMicros(FIRST.plusSeconds(2)) + 1,
+            CommitTimestamps.toEpochMicros(FIRST.plusSeconds(2))}, session.getHistoryTimestampsMicros(2, 3));
+        assertSelectionAroundTheAdjustedMicrosecond(session, adjusted);
       }
-      writeTombstone(revisionsPath(config), selected, FIRST.plusSeconds(2));
-      // Both equal-time records are pruned, preventing a live-preference tie from hiding a bug.
-      writeTombstone(revisionsPath(config), 3, FIRST.plusSeconds(2));
+      writeTombstone(revisionsPath(config), 2, FIRST.plusSeconds(2));
+      // Both neighbours are pruned, preventing a live-preference bias from hiding a bug.
+      writeTombstone(revisionsPath(config), 3, adjusted);
       Databases.clearGlobalCaches();
       try (final var database = Databases.openJsonDatabase(databasePath);
           final var session = database.beginResourceSession("history")) {
-        assertEquals(selected, session.getRevisionNumber(FIRST.plusSeconds(2)));
-        assertEquals(3, session.getRevisionNumber(FIRST.plusSeconds(2), 4));
+        assertSelectionAroundTheAdjustedMicrosecond(session, adjusted);
         assertThrows(SirixRevisionPrunedException.class, () -> session.beginNodeReadOnlyTrx(FIRST.plusSeconds(2)));
+        assertThrows(SirixRevisionPrunedException.class, () -> session.beginNodeReadOnlyTrx(adjusted));
       }
     }
+  }
+
+  private static void assertSelectionAroundTheAdjustedMicrosecond(final JsonResourceSession session,
+      final Instant adjusted) {
+    assertEquals(2, session.getRevisionNumber(FIRST.plusSeconds(2)));
+    assertEquals(2, session.getRevisionNumber(FIRST.plusSeconds(2).plusNanos(999)));
+    assertEquals(3, session.getRevisionNumber(adjusted));
+    assertEquals(2, session.getRevisionNumber(FIRST.plusSeconds(2), 4));
+    assertEquals(3, session.getRevisionNumber(adjusted, 4));
+    assertEquals(2, session.getRevisionNumber(adjusted, 2));
   }
 
   @ParameterizedTest
@@ -244,7 +261,7 @@ final class SparseRevisionHistoryTest {
               final long offset = scenario == 3
                   ? IOStorage.PRUNED_REVISION_OFFSET
                   : -1;
-              final long timestamp = FIRST.plusSeconds(revision).toEpochMilli();
+              final long timestamp = CommitTimestamps.toEpochMicros(FIRST.plusSeconds(revision));
               final ByteBuffer invalid = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN);
               invalid.putLong(offset)
                      .putLong(timestamp)
@@ -310,7 +327,7 @@ final class SparseRevisionHistoryTest {
 
   private static void writeTombstone(final Path path, final int revision, final Instant timestamp) throws Exception {
     final ByteBuffer buffer = ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE);
-    IOStorage.writePrunedRevisionRecord(buffer, timestamp.toEpochMilli());
+    IOStorage.writePrunedRevisionRecord(buffer, CommitTimestamps.toEpochMicros(timestamp));
     buffer.flip();
     try (final FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
       long offset = IOStorage.revisionsFileOffset(revision);

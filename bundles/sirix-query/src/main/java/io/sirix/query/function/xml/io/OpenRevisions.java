@@ -14,6 +14,7 @@ import io.brackit.query.sequence.ItemSequence;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBCollection;
 import io.sirix.query.node.XmlDBNode;
+import io.sirix.utils.CommitTimestamps;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
@@ -47,11 +48,14 @@ public final class OpenRevisions extends AbstractFunction {
     }
 
     final var expResName = ((Str) args[1]).stringValue();
-    final var millis = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))
-                                           .divide(new DTD(false, (byte) 0, (byte) 0, (byte) 0, 1000))
+    // VER-201 stores commit timestamps in microseconds, so the start bound keeps microsecond
+    // precision: DTD's last component is microseconds, and dividing by one microsecond yields the
+    // epoch-microsecond count instead of truncating the bound to a millisecond.
+    final var micros = ((DateTime) args[2]).subtract(new DateTime("1970-01-01T00:00:00-00:00"))
+                                           .divide(new DTD(false, (byte) 0, (byte) 0, (byte) 0, 1))
                                            .longValue();
 
-    final var startPointInTime = Instant.ofEpochMilli(millis);
+    final var startPointInTime = CommitTimestamps.toInstant(micros);
     final var endDateTime = ((DateTime) args[3]).stringValue();
     final var endPointInTime = Instant.parse(endDateTime);
 

@@ -22,6 +22,7 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.utils.CommitTimestamps;
 import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
@@ -160,7 +161,7 @@ public final class RAMStorage implements IOStorage {
    * One committed revision's root page: where its payload is stored, when it was committed and the
    * hash of its payload.
    */
-  private record RevisionRecord(long key, long timestampMillis, long pageHash) {
+  private record RevisionRecord(long key, long timestampMicros, long pageHash) {
   }
 
   /**
@@ -267,7 +268,7 @@ public final class RAMStorage implements IOStorage {
         if (revision != currentIndex.size()) {
           throw new SirixIOException("Cannot publish noncontiguous in-memory revision " + revision);
         }
-        publishedIndex = currentIndex.withNewRevision(staged.key(), staged.timestampMillis());
+        publishedIndex = currentIndex.withNewRevision(staged.key(), staged.timestampMicros());
         RevisionRecord[] current = revisions;
         if (revision >= current.length) {
           current = Arrays.copyOf(current, Math.max(revision + 1, current.length << 1));
@@ -386,7 +387,7 @@ public final class RAMStorage implements IOStorage {
       pageReference.setKey(key);
       pageReference.setHash(pageHash);
       if (page instanceof RevisionRootPage revisionRootPage) {
-        final long timestamp = revisionRootPage.getRevisionTimestamp();
+        final long timestamp = revisionRootPage.getRevisionTimestampMicros();
         store.stageRevision(revisionRootPage.getRevision(), new RevisionRecord(key, timestamp, pageHash));
       }
       return this;
@@ -503,13 +504,13 @@ public final class RAMStorage implements IOStorage {
 
     @Override
     public Instant readRevisionRootPageCommitTimestamp(final int revision) {
-      return Instant.ofEpochMilli(store.revision(revision).timestampMillis());
+      return CommitTimestamps.toInstant(store.revision(revision).timestampMicros());
     }
 
     @Override
     public RevisionFileData getRevisionFileData(final int revision) {
       final RevisionRecord revisionRecord = store.revision(revision);
-      return new RevisionFileData(revisionRecord.key(), Instant.ofEpochMilli(revisionRecord.timestampMillis()),
+      return new RevisionFileData(revisionRecord.key(), CommitTimestamps.toInstant(revisionRecord.timestampMicros()),
           revisionRecord.pageHash());
     }
 

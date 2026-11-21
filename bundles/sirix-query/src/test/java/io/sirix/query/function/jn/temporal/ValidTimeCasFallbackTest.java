@@ -64,7 +64,7 @@ final class ValidTimeCasFallbackTest {
     try (var database = Databases.openJsonDatabase(directory.resolve("coverage"));
         var session = database.beginResourceSession("rows")) {
       assertEquals(2, session.getMostRecentRevisionNumber());
-      history = session.getHistoryTimestamps();
+      history = session.getHistoryTimestampsMicros();
     }
 
     final List<String> sources = new ArrayList<>();
@@ -115,7 +115,7 @@ final class ValidTimeCasFallbackTest {
           }
         }
         assertEquals(2, session.getMostRecentRevisionNumber());
-        assertArrayEquals(history, session.getHistoryTimestamps());
+        assertArrayEquals(history, session.getHistoryTimestampsMicros());
         assertArrayEquals(firstCatalogue, Files.readAllBytes(resource.catalogues().resolve("1.xml")));
         assertFalse(Files.exists(resource.catalogues().resolve("2.xml")));
         assertFalse(Files.exists(resource.catalogues().resolve("3.xml")));

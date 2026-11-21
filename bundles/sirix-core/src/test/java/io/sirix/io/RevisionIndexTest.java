@@ -1,5 +1,6 @@
 package io.sirix.io;
 
+import io.sirix.utils.CommitTimestamps;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -57,10 +58,10 @@ class RevisionIndexTest {
     final RevisionIndex surviving = original.truncateTo(1);
     final RevisionIndex replacement = surviving.withNewRevision(500, 15);
     assertEquals(3, replacement.size());
-    assertEquals(15, replacement.getTimestampMillis(2));
+    assertEquals(15, replacement.getTimestampMicros(2));
     assertEquals(500, replacement.getOffset(2));
     assertEquals(4, original.size());
-    assertEquals(20, original.getTimestampMillis(2));
+    assertEquals(20, original.getTimestampMicros(2));
     assertEquals(300, original.getOffset(2));
     assertThrows(IllegalArgumentException.class, () -> original.truncateTo(-1));
   }
@@ -441,9 +442,9 @@ class RevisionIndexTest {
       long[] offsets = {1000L, 2000L, 3000L};
       RevisionIndex index = RevisionIndex.create(timestamps, offsets);
 
-      assertEquals(Instant.ofEpochMilli(100L), index.getTimestamp(0));
-      assertEquals(Instant.ofEpochMilli(200L), index.getTimestamp(1));
-      assertEquals(Instant.ofEpochMilli(300L), index.getTimestamp(2));
+      assertEquals(CommitTimestamps.toInstant(100L), index.getTimestamp(0));
+      assertEquals(CommitTimestamps.toInstant(200L), index.getTimestamp(1));
+      assertEquals(CommitTimestamps.toInstant(300L), index.getTimestamp(2));
     }
 
     @Test
@@ -456,7 +457,7 @@ class RevisionIndexTest {
       RevisionFileData data = index.getRevisionFileData(1);
       assertNotNull(data);
       assertEquals(2000L, data.offset());
-      assertEquals(Instant.ofEpochMilli(200L), data.timestamp());
+      assertEquals(CommitTimestamps.toInstant(200L), data.timestamp());
     }
   }
 
@@ -491,7 +492,7 @@ class RevisionIndexTest {
   }
 
   @Nested
-  @DisplayName("Bulk timestamp range (timestampsMillis)")
+  @DisplayName("Bulk timestamp range (timestampsMicros)")
   class BulkTimestamps {
 
     private RevisionIndex newIndex() {
@@ -504,21 +505,21 @@ class RevisionIndexTest {
     @DisplayName("returns the full range in ascending revision order")
     void testFullRange() {
       final RevisionIndex index = newIndex();
-      assertArrayEquals(new long[] {100L, 200L, 300L, 400L, 500L}, index.timestampsMillis(0, 4));
+      assertArrayEquals(new long[] {100L, 200L, 300L, 400L, 500L}, index.timestampsMicros(0, 4));
     }
 
     @Test
     @DisplayName("returns an inclusive sub-range")
     void testSubRange() {
       final RevisionIndex index = newIndex();
-      assertArrayEquals(new long[] {200L, 300L, 400L}, index.timestampsMillis(1, 3));
+      assertArrayEquals(new long[] {200L, 300L, 400L}, index.timestampsMicros(1, 3));
     }
 
     @Test
     @DisplayName("single-revision range returns one element")
     void testSingleElementRange() {
       final RevisionIndex index = newIndex();
-      assertArrayEquals(new long[] {300L}, index.timestampsMillis(2, 2));
+      assertArrayEquals(new long[] {300L}, index.timestampsMicros(2, 2));
     }
 
     @Test
@@ -528,26 +529,26 @@ class RevisionIndexTest {
       // be bounded by `size`, never by the (larger) backing array length.
       final RevisionIndex appended = newIndex().withNewRevision(6000L, 600L);
       assertEquals(6, appended.size());
-      assertArrayEquals(new long[] {500L, 600L}, appended.timestampsMillis(4, 5));
-      assertArrayEquals(new long[] {100L, 200L, 300L, 400L, 500L, 600L}, appended.timestampsMillis(0, 5));
+      assertArrayEquals(new long[] {500L, 600L}, appended.timestampsMicros(4, 5));
+      assertArrayEquals(new long[] {100L, 200L, 300L, 400L, 500L, 600L}, appended.timestampsMicros(0, 5));
     }
 
     @Test
     @DisplayName("rejects out-of-bounds and inverted ranges")
     void testInvalidRanges() {
       final RevisionIndex index = newIndex();
-      assertThrows(IndexOutOfBoundsException.class, () -> index.timestampsMillis(-1, 2));
-      assertThrows(IndexOutOfBoundsException.class, () -> index.timestampsMillis(0, 5));
-      assertThrows(IndexOutOfBoundsException.class, () -> index.timestampsMillis(3, 1));
+      assertThrows(IndexOutOfBoundsException.class, () -> index.timestampsMicros(-1, 2));
+      assertThrows(IndexOutOfBoundsException.class, () -> index.timestampsMicros(0, 5));
+      assertThrows(IndexOutOfBoundsException.class, () -> index.timestampsMicros(3, 1));
     }
 
     @Test
     @DisplayName("returned array is an independent copy (mutating it does not corrupt the index)")
     void testReturnedArrayIsCopy() {
       final RevisionIndex index = newIndex();
-      final long[] first = index.timestampsMillis(0, 4);
+      final long[] first = index.timestampsMicros(0, 4);
       first[0] = -1L;
-      assertArrayEquals(new long[] {100L, 200L, 300L, 400L, 500L}, index.timestampsMillis(0, 4));
+      assertArrayEquals(new long[] {100L, 200L, 300L, 400L, 500L}, index.timestampsMicros(0, 4));
     }
   }
 }

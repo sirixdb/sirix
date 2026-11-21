@@ -11,6 +11,7 @@ import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.utils.CommitTimestamps;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -449,27 +450,28 @@ public final class JsonMultiRevisionTest {
       }
 
       final List<RevisionInfo> history = session.getHistory();
-      final long[] timestamps = session.getHistoryTimestamps();
+      final long[] timestamps = session.getHistoryTimestampsMicros();
 
       // Same count, same newest-first order, same timestamps as the full history.
       assertEquals(history.size(), timestamps.length);
       assertEquals(5, timestamps.length);
       for (int i = 0; i < history.size(); i++) {
-        assertEquals(history.get(i).getRevisionTimestamp().toEpochMilli(), timestamps[i],
+        assertEquals(CommitTimestamps.toEpochMicros(history.get(i).getRevisionTimestamp()), timestamps[i],
             "Timestamp mismatch at index " + i);
       }
-      // Strictly newest-first ⇒ non-increasing epoch millis.
+      // Newest-first over strictly increasing commit timestamps (TXN-310) ⇒ strictly decreasing
+      // epoch microseconds, even for commits that fall inside one millisecond.
       for (int i = 1; i < timestamps.length; i++) {
-        assertTrue(timestamps[i] <= timestamps[i - 1], "History timestamps must be newest-first");
+        assertTrue(timestamps[i] < timestamps[i - 1], "History timestamps must be strictly newest-first");
       }
 
       // Range overload matches getHistory(from, to) (inclusive, either argument order).
       final List<RevisionInfo> subset = session.getHistory(4, 2);
-      final long[] subsetTimestamps = session.getHistoryTimestamps(2, 4);
+      final long[] subsetTimestamps = session.getHistoryTimestampsMicros(2, 4);
       assertEquals(subset.size(), subsetTimestamps.length);
       assertEquals(3, subsetTimestamps.length);
       for (int i = 0; i < subset.size(); i++) {
-        assertEquals(subset.get(i).getRevisionTimestamp().toEpochMilli(), subsetTimestamps[i]);
+        assertEquals(CommitTimestamps.toEpochMicros(subset.get(i).getRevisionTimestamp()), subsetTimestamps[i]);
       }
     }
   }

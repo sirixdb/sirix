@@ -15,6 +15,7 @@ import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.json.serialize.JsonSerializer;
+import io.sirix.utils.CommitTimestamps;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.math.BigDecimal;
@@ -271,7 +272,7 @@ class McpContractTest {
     assertThat(h.revert(null, request(Map.of("revision", 1, "snapshot", "baseline"))).isError()).isTrue();
     assertThat(h.createSnapshot(null, request(Map.of("name", "pruned", "revision", 1))).isError()).isFalse();
     final ByteBuffer record = ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE);
-    IOStorage.writePrunedRevisionRecord(record, FIRST.toEpochMilli());
+    IOStorage.writePrunedRevisionRecord(record, CommitTimestamps.toEpochMicros(FIRST));
     record.flip();
     final Path revisions = directory.resolve("db/resources/public/data").resolve(IOStorage.REVISIONS_FILENAME);
     try (final FileChannel channel = FileChannel.open(revisions, StandardOpenOption.WRITE)) {

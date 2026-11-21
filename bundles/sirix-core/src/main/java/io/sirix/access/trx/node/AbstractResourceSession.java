@@ -9,6 +9,7 @@ import java.util.function.IntConsumer;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.ObjectPool;
 import io.brackit.query.jdm.DocumentException;
 import io.sirix.access.DatabaseConfiguration;
@@ -945,7 +946,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public long[] getHistoryTimestamps() {
+  public long[] getHistoryTimestampsMicros() {
     assertNotClosed();
     final int newest = getMostRecentRevisionNumber();
     if (newest < 1) {
@@ -955,7 +956,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public long[] getHistoryTimestamps(final int fromRevision, final int toRevision) {
+  public long[] getHistoryTimestampsMicros(final int fromRevision, final int toRevision) {
     assertRevisionExists(fromRevision);
     assertRevisionExists(toRevision);
 
@@ -969,7 +970,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Read the commit timestamps (epoch millis) for the inclusive revision range
+   * Read the commit timestamps (epoch micros) for the inclusive revision range
    * {@code [oldest, newest]} from the in-memory {@link RevisionIndex} and return them newest-first.
    * No {@link StorageEngineReader} is opened and no {@code RevisionRootPage} is read — the timestamps
    * are already resident.
@@ -993,7 +994,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     // RevisionIndex stores timestamps in ascending revision order; reverse in place to honour
     // the newest-first contract shared by all history queries.
-    final long[] timestamps = index.timestampsMillis(oldest, newest);
+    final long[] timestamps = index.timestampsMicros(oldest, newest);
     for (int lo = 0, hi = timestamps.length - 1; lo < hi; lo++, hi--) {
       final long tmp = timestamps[lo];
       timestamps[lo] = timestamps[hi];
@@ -1065,7 +1066,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     try (final StorageEngineReader reader = createStorageEngineReader(revision)) {
       final CommitCredentials commitCredentials = reader.getCommitCredentials();
       return new RevisionInfo(commitCredentials.getUser(), revision,
-          Instant.ofEpochMilli(reader.getActualRevisionRootPage().getRevisionTimestamp()),
+          CommitTimestamps.toInstant(reader.getActualRevisionRootPage().getRevisionTimestampMicros()),
           commitCredentials.getMessage());
     }
   }
@@ -1849,7 +1850,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * Optimized revision search using SIMD/Eytzinger layout. Uses cache-friendly data structures for
    * better performance.
    * 
-   * @param timestamp the timestamp to search for (epoch millis)
+   * @param timestamp the timestamp to search for (epoch micros)
    * @return revision index if exact match, or -(insertionPoint + 1) if not found
    */
   private int binarySearchOptimized(final long timestamp) {
@@ -1861,7 +1862,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Legacy binary search implementation. Kept for rollback purposes if optimized search has issues.
    * 
-   * @param timestamp the timestamp to search for (epoch millis)
+   * @param timestamp the timestamp to search for (epoch micros)
    * @return revision index if exact match, or -(insertionPoint + 1) if not found
    */
   private int binarySearchLegacy(final long timestamp) {
@@ -1872,8 +1873,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       while (low <= high) {
         final int mid = (low + high) >>> 1;
 
-        final Instant midVal = reader.readRevisionRootPageCommitTimestamp(mid);
-        final int cmp = midVal.compareTo(Instant.ofEpochMilli(timestamp));
+        final long midVal = CommitTimestamps.toEpochMicros(reader.readRevisionRootPageCommitTimestamp(mid));
+        final int cmp = Long.compare(midVal, timestamp);
 
         if (cmp < 0)
           low = mid + 1;
@@ -1895,7 +1896,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     requireNonNull(pointInTime);
     assertNotClosed();
 
-    final long timestamp = pointInTime.toEpochMilli();
+    // VER-202: compare at microsecond resolution with the probe truncated toward the past, which
+    // leaves the floor result unchanged. Primitive conversion, so the probe allocates nothing.
+    final long timestamp = CommitTimestamps.toEpochMicros(pointInTime);
     final int mostRecentRevision = getMostRecentRevisionNumber();
 
     int revision = binarySearch(timestamp);
@@ -1927,8 +1930,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertRevisionExists(revisionCeiling);
 
     final RevisionIndex index = storage.getRevisionIndexHolder().get();
-    final long timestamp = pointInTime.toEpochMilli();
-    if (timestamp >= index.getTimestampMillis(revisionCeiling)) {
+    final long timestamp = CommitTimestamps.toEpochMicros(pointInTime);
+    if (timestamp >= index.getTimestampMicros(revisionCeiling)) {
       return revisionCeiling;
     }
 
@@ -1936,7 +1939,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     int high = revisionCeiling - 1;
     while (low <= high) {
       final int mid = (low + high) >>> 1;
-      if (index.getTimestampMillis(mid) <= timestamp) {
+      if (index.getTimestampMicros(mid) <= timestamp) {
         low = mid + 1;
       } else {
         high = mid - 1;

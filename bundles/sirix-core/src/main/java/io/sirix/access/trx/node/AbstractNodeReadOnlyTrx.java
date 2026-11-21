@@ -1,5 +1,6 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
@@ -501,7 +502,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public Instant getRevisionTimestamp() {
     assertNotClosed();
-    return Instant.ofEpochMilli(storageEngineReader.getActualRevisionRootPage().getRevisionTimestamp());
+    return CommitTimestamps.toInstant(storageEngineReader.getActualRevisionRootPage().getRevisionTimestampMicros());
   }
 
   @Override

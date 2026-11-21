@@ -28,6 +28,7 @@
 
 package io.sirix.page;
 
+import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.ToStringHelper;
 
 import io.sirix.access.DatabaseType;
@@ -133,9 +134,26 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   private long maxNodeKeyInRecordToRevisionsIndex;
 
   /**
-   * Timestamp of revision.
+   * Effective commit timestamp of the revision, as the epoch microseconds of VER-201. Before the
+   * revision's own timestamp is assigned, a page cloned for a new revision carries the predecessor's
+   * effective value, which is the strictly-increasing predecessor of TXN-310.
    */
-  private long revisionTimestamp;
+  private long revisionTimestampMicros;
+
+  /**
+   * Whether {@link #revisionTimestampMicros} already holds this revision's own effective commit
+   * timestamp. Cloning for a new revision copies the predecessor's value but not this flag, so the
+   * first {@link #ensureCommitTimestampMicros()} of a commit assigns and every later call repeats
+   * that one value.
+   */
+  private boolean commitTimestampAssigned;
+
+  /**
+   * Whether {@link #revisionTimestampMicros} holds a predecessor timestamp this revision must stay
+   * strictly above under TXN-310. The bootstrap revision has no predecessor, so its commit timestamp
+   * is the supplied or clock value itself.
+   */
+  private boolean hasPredecessorTimestamp;
 
   /**
    * The references page instance.
@@ -204,7 +222,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param maxNodeKeyInDocumentIndex Last allocated node key.
    * @param maxNodeKeyInChangedNodesIndex Last allocated node key.
    * @param maxNodeKeyInRecordToRevisionsIndex Last allocated node key.
-   * @param revisionTimestamp Timestamp of revision.
+   * @param revisionTimestampMicros Effective commit timestamp of the revision, in epoch microseconds.
    * @param commitMessage Optional commit message.
    * @param currentMaxLevelOfDocumentIndexIndirectPages Current maximum level of indirect pages in the
    *        document index tree.
@@ -216,7 +234,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   RevisionRootPage(final Page delegate, final int revision, final long maxNodeKeyInDocumentIndex,
       final long maxNodeKeyInChangedNodesIndex, final long maxNodeKeyInRecordToRevisionsIndex,
-      final long revisionTimestamp, final String commitMessage, final int currentMaxLevelOfDocumentIndexIndirectPages,
+      final long revisionTimestampMicros, final String commitMessage,
+      final int currentMaxLevelOfDocumentIndexIndirectPages,
       final int currentMaxLevelOfChangedNodesIndirectPages, final int currentMaxLevelOfRecordToRevisionsIndirectPages,
       final User user) {
     this.delegate = delegate;
@@ -224,7 +243,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     this.maxNodeKeyInDocumentIndex = maxNodeKeyInDocumentIndex;
     this.maxNodeKeyInChangedNodesIndex = maxNodeKeyInChangedNodesIndex;
     this.maxNodeKeyInRecordToRevisionsIndex = maxNodeKeyInRecordToRevisionsIndex;
-    this.revisionTimestamp = revisionTimestamp;
+    this.revisionTimestampMicros = revisionTimestampMicros;
+    // A deserialized page carries the timestamp the revision committed with.
+    this.commitTimestampAssigned = true;
     this.commitMessage = commitMessage;
     this.currentMaxLevelOfDocumentIndexIndirectPages = currentMaxLevelOfDocumentIndexIndirectPages;
     this.currentMaxLevelOfChangedNodesIndirectPages = currentMaxLevelOfChangedNodesIndirectPages;
@@ -246,7 +267,10 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     maxNodeKeyInDocumentIndex = committedRevisionRootPage.maxNodeKeyInDocumentIndex;
     maxNodeKeyInChangedNodesIndex = committedRevisionRootPage.maxNodeKeyInChangedNodesIndex;
     maxNodeKeyInRecordToRevisionsIndex = committedRevisionRootPage.maxNodeKeyInRecordToRevisionsIndex;
-    revisionTimestamp = committedRevisionRootPage.revisionTimestamp;
+    // The clone keeps the source timestamp as its predecessor value; commitTimestampAssigned
+    // stays false so this revision assigns its own effective timestamp at commit.
+    revisionTimestampMicros = committedRevisionRootPage.revisionTimestampMicros;
+    hasPredecessorTimestamp = true;
     commitMessage = committedRevisionRootPage.commitMessage;
     currentMaxLevelOfDocumentIndexIndirectPages = committedRevisionRootPage.currentMaxLevelOfDocumentIndexIndirectPages;
     currentMaxLevelOfChangedNodesIndirectPages = committedRevisionRootPage.currentMaxLevelOfChangedNodesIndirectPages;
@@ -376,8 +400,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    *
    * @return Revision timestamp.
    */
-  public long getRevisionTimestamp() {
-    return revisionTimestamp;
+  public long getRevisionTimestampMicros() {
+    return revisionTimestampMicros;
   }
 
   /**
@@ -497,18 +521,67 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     return commitTimestamp;
   }
 
-  public void setCommitTimestamp(final Instant revisionTimestamp) {
-    requireNonNull(revisionTimestamp);
-    final long revisionTimestampToSet = revisionTimestamp.toEpochMilli();
-    if (this.revisionTimestamp > revisionTimestampToSet || revisionTimestamp.isAfter(Instant.now())) {
-      throw new IllegalStateException(
-          "Revision timestamp must be bigger than previous revision timestamp, but not bigger than current time.");
+  /**
+   * Set the commit timestamp supplied by the caller. The value is validated here and resolved
+   * against the predecessor by {@link #ensureCommitTimestampMicros()} when the revision commits: a
+   * timestamp that ties with or precedes the predecessor is adjusted there under TXN-310, rather
+   * than rejected. A timestamp in the future is rejected, and so is one outside the representable
+   * epoch-microsecond range of VER-201.
+   *
+   * @param commitTimestamp the commit timestamp to use
+   * @throws NullPointerException if {@code commitTimestamp} is {@code null}
+   * @throws IllegalArgumentException if {@code commitTimestamp} is not representable in microseconds
+   * @throws IllegalStateException if {@code commitTimestamp} is in the future
+   */
+  public void setCommitTimestamp(final Instant commitTimestamp) {
+    requireNonNull(commitTimestamp);
+    // Rejects an unrepresentable instant before it can reach the stored field.
+    CommitTimestamps.toEpochMicros(commitTimestamp);
+    if (commitTimestamp.isAfter(Instant.now())) {
+      throw new IllegalStateException("Revision timestamp must not be bigger than current time.");
     }
-    this.commitTimestamp = revisionTimestamp;
+    this.commitTimestamp = commitTimestamp;
   }
 
-  public void setRevisionTimestamp(final long revisionTimestamp) {
-    this.revisionTimestamp = revisionTimestamp;
+  /**
+   * Assign this revision's effective commit timestamp under TXN-310 and return it, in the epoch
+   * microseconds of VER-201. The effective value is
+   * {@code max(supplied or wall clock, predecessor + 1 microsecond)}, so commit timestamps strictly
+   * increase even when two commits fall inside one millisecond or the wall clock repeats or moves
+   * backwards. The first call of a commit assigns; every later call on the same page repeats that
+   * one value, so serializing a revision twice yields the same bytes.
+   *
+   * @return the effective commit timestamp in epoch microseconds
+   */
+  public long ensureCommitTimestampMicros() {
+    if (!commitTimestampAssigned) {
+      final long candidate = commitTimestamp == null
+          ? CommitTimestamps.nowEpochMicros()
+          : CommitTimestamps.toEpochMicros(commitTimestamp);
+      // revisionTimestampMicros still holds the predecessor's effective timestamp here. The
+      // bootstrap revision has no predecessor and keeps the supplied or clock value as it is.
+      revisionTimestampMicros = hasPredecessorTimestamp
+          ? Math.max(candidate, revisionTimestampMicros + 1)
+          : candidate;
+      commitTimestampAssigned = true;
+    }
+    return revisionTimestampMicros;
+  }
+
+  /**
+   * Seed the effective commit timestamp of the predecessor this revision must strictly exceed under
+   * TXN-310, in the epoch microseconds of VER-201. The predecessor is the last committed revision of
+   * the same timeline, which is not the revision a reverting writer represents.
+   *
+   * @param predecessorTimestampMicros the predecessor's effective commit timestamp
+   * @throws IllegalStateException if this revision's own commit timestamp was already assigned
+   */
+  public void seedPredecessorCommitTimestampMicros(final long predecessorTimestampMicros) {
+    if (commitTimestampAssigned) {
+      throw new IllegalStateException("Commit timestamp of revision " + revision + " is already assigned.");
+    }
+    this.revisionTimestampMicros = predecessorTimestampMicros;
+    this.hasPredecessorTimestamp = true;
   }
 
   public int getCurrentMaxLevelOfDocumentIndexIndirectPages() {
@@ -538,7 +611,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                         .add("revisionTimestamp", revisionTimestamp)
+                         .add("revisionTimestampMicros", revisionTimestampMicros)
                          .add("maxNodeKey", maxNodeKeyInDocumentIndex)
                          .add("delegate", delegate)
                          .add("nodePage", getOrCreateReference(INDIRECT_DOCUMENT_INDEX_REFERENCE_OFFSET))

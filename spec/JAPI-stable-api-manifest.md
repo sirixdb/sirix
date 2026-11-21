@@ -359,8 +359,8 @@ Source: [ResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/api/
 [stable] List<RevisionInfo> getHistory();
 [stable] List<RevisionInfo> getHistory(int revisions);
 [stable] List<RevisionInfo> getHistory(int fromRevision, int toRevision);
-[stable] long[] getHistoryTimestamps();
-[stable] long[] getHistoryTimestamps(int fromRevision, int toRevision);
+[stable] long[] getHistoryTimestampsMicros();
+[stable] long[] getHistoryTimestampsMicros(int fromRevision, int toRevision);
 [stable] int[] getRecordChangeRevisions(long nodeKey);
 [expert] void scanRecordHistory(long nodeKey, RecordHistoryVisitor visitor);
 [expert] void scanValueRuns(long nodeKey, RecordRunVisitor visitor);
