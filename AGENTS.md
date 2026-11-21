@@ -1,11 +1,15 @@
 ## Development standard
 
-- Spec first: write behaviour, invariants and error cases, then derive tests before code.
-- Mutation-test changed logic; kill surviving mutants or record each reviewed disposition
-  (`docs/VERIFICATION.md#reviewed-dispositions`).
-- Explore beyond happy paths with adversarial, property-based or differential tests.
+How and why this project develops, tests, measures and reviews: `docs/DEVELOPMENT.md`.
+Workflow: `CONTRIBUTING.md`.
+
+- Spec first: write behaviour, invariants and error cases, then derive tests before code
+  (`spec/CONV-conventions.md#conv-103--specification-before-implementation`).
+- Mutation-test changed logic; kill each surviving mutant with a behaviour test or record a
+  reviewed disposition (`docs/VERIFICATION.md#reviewed-dispositions`). Never write a test to
+  kill a mutant.
 - Every bug needs a root-cause write-up, a regression test and a lesson; use
-  `docs/postmortems/TEMPLATE.md` and `docs/LESSONS.md`. Workflow: `CONTRIBUTING.md`.
+  `docs/postmortems/TEMPLATE.md` and `docs/LESSONS.md`.
 
 ## Code Style
 

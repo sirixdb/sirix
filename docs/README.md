@@ -24,6 +24,8 @@ list of files.
 
 | Doc | What it covers |
 |-----|----------------|
+| [DEVELOPMENT.md](DEVELOPMENT.md) | How SirixDB is developed and why: the specification as the source of truth, tests derived from requirements, behaviour-only tests, mutation testing, coverage as a diagnostic, work budgets and the benchmark protocol, review against the written intent, and one on-disk format. |
+| [VERIFICATION.md](VERIFICATION.md) | Every verification layer, the bug class it catches and how to run it — property tests, model-based oracles, invariant harnesses, crash injection, work budgets, mutation testing and static analysis — plus the PR mutation lane. |
 | [formal-verification.md](formal-verification.md) | The invariant catalog: load-bearing invariants of the engine stated as pre/post-conditions, each with a proof sketch and a pointer to the CI test that discharges it. |
 | [cost-based-optimizer-design.md](cost-based-optimizer-design.md) | Design of the cost-based query optimizer (PathSummary statistics, selectivity/cardinality estimation, predicate pushdown, join ordering). |
 | [QUERY_MEMBERSHIP_OPTIMIZATION.md](QUERY_MEMBERSHIP_OPTIMIZATION.md) | The equality membership rule that plans single-equality semi/anti-joins as a hash lookup: admission conditions, value-comparison semantics it preserves, its amortised work bound, and the SH1 Q12 evidence. |
