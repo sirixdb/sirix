@@ -4842,7 +4842,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           }
           if (rawHead != null) {
             try {
-              loadedPage = rawHead.copyForRead();
+              loadedPage = rawHead.copyForCache();
             } finally {
               rawHead.releaseGuard();
             }

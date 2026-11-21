@@ -221,6 +221,13 @@ public final class NodeReferencesSerializer {
     if (isTombstone(leaf, ref)) {
       return -1;
     }
+    if (leaf.isPostingFrame(ref)) {
+      final int start = (int) (ref >>> Integer.SIZE);
+      if (HOTPostingFrame.count(leaf.slots(), start) != 1) {
+        throw new IllegalArgumentException("a posting delta must contain exactly one packed chunk bit");
+      }
+      return HOTPostingFrame.ordinalAt(leaf.slots(), start, 0);
+    }
     if (HOTLeafPage.refLength(ref) != 2 + Long.BYTES || leaf.refByteAt(ref, 0) != PACKED_FORMAT
         || leaf.refByteAt(ref, 1) != 1) {
       throw new IllegalArgumentException("a posting delta must contain exactly one packed chunk bit");
@@ -912,6 +919,16 @@ public final class NodeReferencesSerializer {
           }
           add(high | bit16);
           previousBit16 = bit16;
+        }
+        return true;
+      }
+      if (format == HOTPostingFrame.TAG && leaf.isPostingFrame(ref)) {
+        final MemorySegment bytes = leaf.slots();
+        final int start = (int) (ref >>> Integer.SIZE);
+        final int chunkCount = HOTPostingFrame.count(bytes, start);
+        final int shape = HOTPostingFrame.shape(bytes, start);
+        for (int i = 0; i < chunkCount; i++) {
+          add(high | HOTPostingFrame.ordinalAt(bytes, start, shape, i));
         }
         return true;
       }

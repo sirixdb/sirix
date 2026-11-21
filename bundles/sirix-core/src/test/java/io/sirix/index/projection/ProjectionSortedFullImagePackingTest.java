@@ -17,7 +17,10 @@ import io.sirix.io.PageHasher;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.page.PageReference;
-import io.sirix.page.HOTLeafPayloadCodec;
+import io.sirix.index.hot.page.HOTLeafBody;
+import io.sirix.index.hot.page.HOTLeafPage;
+import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.Utils;
 import io.sirix.settings.VersioningType;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.io.TempDir;
@@ -53,7 +56,8 @@ final class ProjectionSortedFullImagePackingTest {
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)
-  void streamingImagesArePackedAndEveryHistoricalRevisionIsExact(final VersioningType type) throws IOException {
+  void streamingImagesUseNarrowDirectoriesAndEveryHistoricalRevisionIsExact(final VersioningType type)
+      throws IOException {
     for (final int window : new int[] {3, 32}) {
       final Path path = directory.resolve(type.name() + window);
       final TreeMap<byte[], byte[]> expected = new TreeMap<>(Arrays::compareUnsigned);
@@ -92,7 +96,7 @@ final class ProjectionSortedFullImagePackingTest {
             writer.commit();
           }
           try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(1)) {
-            assertPackedBody(reader.getStorageEngineReader(), 20_190);
+            assertNarrowDirectoryImage(reader.getStorageEngineReader(), 20_190);
           }
           for (int operation = 0; operation < 129; operation++) {
             try (JsonNodeTrx writer = session.beginNodeTrx()) {
@@ -103,7 +107,7 @@ final class ProjectionSortedFullImagePackingTest {
           }
           if (type == VersioningType.FULL) {
             try (JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(130)) {
-              assertPackedBody(reader.getStorageEngineReader(), 27_933);
+              assertNarrowDirectoryImage(reader.getStorageEngineReader(), 27_933);
             }
           }
         }
@@ -185,7 +189,8 @@ final class ProjectionSortedFullImagePackingTest {
     }
   }
 
-  private static void assertPackedBody(final StorageEngineReader reader, final int expectedSize) throws IOException {
+  private static void assertNarrowDirectoryImage(final StorageEngineReader reader, final int expectedSize)
+      throws IOException {
     final PageReference root = ProjectionIndexHOTStorage.rootReference(reader, 0);
     assertNotNull(root);
     assertTrue(root.hasHash());
@@ -198,9 +203,16 @@ final class ProjectionSortedFullImagePackingTest {
       final byte[] body = new byte[storedSize];
       read(channel, ByteBuffer.wrap(body), root.getKey() + Integer.BYTES);
       assertEquals(root.getHashAsLong(), PageHasher.computeLong(body));
-      assertEquals(expectedSize, (body[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) == 0
-          ? body.length
-          : HOTLeafPayloadCodec.expandImage(body, 1).length);
+      assertEquals(HOTLeafPage.FLAG_NARROW_SLOT_OFFSETS, body[2] & HOTLeafPage.FLAG_NARROW_SLOT_OFFSETS);
+      final ByteArrayBytesIn input = new ByteArrayBytesIn(body);
+      input.position(3);
+      final int mode = HOTLeafBody.readMode(input, body[2]);
+      Utils.getVarLong(input);
+      input.skip(Integer.BYTES + 1);
+      input.skip(Short.toUnsignedInt(input.readShort()));
+      final int entries = input.readInt() & Integer.MAX_VALUE;
+      assertTrue(body.length <= expectedSize - entries * Short.BYTES);
+      assertEquals(0, mode, "fixed-width projection images use ordinary slot lengths");
     }
   }
 

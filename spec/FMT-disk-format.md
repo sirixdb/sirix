@@ -163,7 +163,7 @@ The uber page MUST publish three unsigned u32 feature words atomically with the 
 - **Code:** [UberPageFormat.java](../bundles/sirix-core/src/main/java/io/sirix/page/UberPageFormat.java):`read`; [UberPageFormat.java](../bundles/sirix-core/src/main/java/io/sirix/page/UberPageFormat.java):`write`; [StoreFeatures.java](../bundles/sirix-core/src/main/java/io/sirix/page/StoreFeatures.java):`union`
 - **Verified by:** [StoreFeaturesTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/StoreFeaturesTest.java)
 - **Evidence class:** code+test (source inspection)
-- **Gap/note:** Feature-bit assignment registry remains empty. Future features need a named bit and compatibility test before emission.
+- **Gap/note:** No feature bits are implemented at this baseline. The planned FMT-209 assignment is in the wire table below; emission still requires implementation and compatibility tests.
 
 An empty feature set MUST retain the original seven-byte uber image (kind, V0, zero flags, revision count). A nonempty set MUST use flag 0x80 and required kind-local tag 0xC1 with exactly 12 little-endian payload bytes in incompat/readOnlyCompat/compat order, preceding the revision count. Malformed lengths, unordered tags, unsupported required tags and trailing bytes MUST fail. Cloning and truncation MUST preserve feature requirements; staging MUST NOT mutate a committed uber page.
 
@@ -202,6 +202,478 @@ Readers MUST reject malformed persisted references, unknown reference tags, impo
 - **Gap/note:** Current GoldenFormatTest/GoldenCompositePageTest pin development vectors. They are not a frozen complete 1.0-created store corpus; corpus production, inventory and CI enforcement are pending implementation.
 
 The repository MUST keep an immutable frozen corpus of stores created by the 1.0 release, covering every supported feature, index and persisted configuration, including JSON/XML, storage backends, versioning strategies, compression, feature/extension handling and representative revision histories. Every later release MUST read this corpus correctly, enforced in default CI; unsupported-format refusal MUST NOT substitute for reading a supported 1.0 corpus member. Corpus bytes MUST NOT be regenerated to hide a regression. Composite-page and primitive encoding pins MUST cover record/HOT pages, index containers, revision references, delta varints, roaring64 values and supported codecs; new codecs require an explicit wire ID and unsupported-reader behavior before emission.
+
+### FMT-209 — Conditional-write resource metadata
+
+- **Level:** MUST
+- **Status:** proposed
+- **Since:** 1.0
+- **Code:** [PageExtensions.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageExtensions.java):`readOrRefuse`; [PageExtensions.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageExtensions.java):`Builder`; [RevisionRootPage.java](../bundles/sirix-core/src/main/java/io/sirix/page/RevisionRootPage.java); [StoreFeatures.java](../bundles/sirix-core/src/main/java/io/sirix/page/StoreFeatures.java):`requireWritable`; [AbstractNodeTrxImpl.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractNodeTrxImpl.java):`revertTo`; [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`truncateTo`
+- **Verified by:** No existing test mapped. **Planned:** ConditionalWriteMetadataFormatConformance: a resource that never reverted has byte-identical revision-root images; the entry appears in the revert-publishing revision and in every later revision root; both fields survive cold reopen, every versioning strategy and both persistent backends; backup retains copied metadata, restore preserves last-revert metadata but draws a fresh incarnation id before exposure; truncate publishes the new id before removing data and a crash between the two retains that published id; controlled RNG draws demonstrate generation at creation, database recreation, replacement, truncate and repeated restore of an older backup, and tokens from the prior id fail even when revision numbers coincide; a store carrying the feature bit refuses writes from an engine that does not know the bit while still reading it; a malformed, truncated, duplicated or misordered entry is refused under FMT-203.
+- **Evidence class:** doc-only (unverified); decided target has unverified implementation gaps
+- **Gap/note:** Neither field, the extension tag nor the feature bit is implemented at this baseline; the planned assignments are in the wire table below. `RevisionRootPage`'s clone constructor is the carry-forward seam, and it currently copies only the node-key frontiers, timestamp, message and user. Implementing the bit and the tag before the format freeze is required because TXN-311 cannot be made safe by a later additive change: a writer that does not maintain these fields silently destroys the guarantee rather than failing. The split placement below is a Firstmate best-practice choice: the incarnation id changes only at resource creation, truncate, whole-resource replacement and backup restore, so paying revision-root bytes for it on every commit would be waste.
+
+A resource MUST persist two pieces of conditional-write metadata (TXN-311): its incarnation id, identifying the resource incarnation and timeline the revision numbers belong to, and its last-revert revision, the revision number of the most recent commit that published a revert, 0 when none.
+
+The last-revert revision MUST be published atomically with the commit that changes it and MUST be carried forward unchanged by every later revision root, so reading it at the head costs no additional page read. It MUST be encoded as the optional kind-local revision-root page-extension entry defined in the wire table below, under FMT-203 framing, and MUST be omitted entirely by a resource that has never reverted, keeping its revision-root images unchanged; absence MUST read as 0. A store that carries the entry MUST set the named `readOnlyCompat` feature bit in the wire table, so an engine that does not know the field may still read the store but MUST NOT write it: FMT-203 requires unknown optional entries to be skipped and discarded on rewrite, which would silently drop the evidence TXN-311 depends on. A maintenance tool that rewrites revision roots MUST preserve the value or refuse (FMT-204).
+
+The incarnation id MUST be an independent uniform unsigned 64-bit value drawn from a cryptographically secure RNG and persisted in the resource settings as `incarnationId` (CONF-102), rather than per revision. A fresh draw MUST occur at resource creation (including recreation after resource or database deletion), truncate (TXN-404), whole-resource replacement (REST-210), and backup restore (TXN-613/614). Restore MUST regenerate the id for each restored resource before exposing it, while preserving copied history, last-revert metadata and derived state. Truncate MUST durably publish the new id before removing data (TXN-404). Ordinary commits, reopen and settings rewrites MUST preserve the id. No database-level counter or global allocator state is required. For any particular old token, a new draw reproduces its incarnation id with probability 2^-64; recreating or restoring a resource can therefore reproduce that old token only with this probability bound, rather than a guarantee of absolute uniqueness. Every 1.0 resource MUST contain the member; absence MUST NOT default to a reusable sentinel identity.
+
+### FMT-210 — HOT leaf envelope and page-local modes
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [PageKind.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java):`deserializeHOTLeaf`; [HOTLeafBody.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBody.java)
+- **Verified by:** [HOTLeafDirectoryEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafDirectoryEncodingTest.java); [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java) **Planned:** MixedLeafFormatConformance across backends and revision reconstruction, including standard extensions.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Mixed persisted stores and the complete envelope rejection matrix need default-lane evidence.
+
+A HOT leaf image MUST start with `[kind=0x0c][V0=0x00][flags:u8]`.
+Only the following flag bits are assigned.
+
+| Flag | Meaning |
+|---|---|
+| `0x01` | The complete side-reference map follows the slot region (FMT-211). |
+| `0x04` | The slot directory uses unsigned 16-bit offsets (FMT-211). |
+| `0x08` | A body-mode byte follows the standard extensions, when present. |
+| `0x80` | Standard page extensions immediately follow the flags (FMT-203). |
+
+Kind 12 MUST NOT carry a kind-local codec. Flag `0x02` and all other
+unassigned flags MUST fail at the FMT-201 envelope. The configured
+resource byte pipeline (CONF) applies to the whole stored image.
+Readers MUST reverse it before interpreting the kind-12 envelope.
+With flag `0x08` clear, the body mode is zero and occupies no byte.
+With it set, the mode byte MUST be nonzero, contain only assigned
+bits, and be accompanied by flag `0x04`. Readers MUST reject a
+missing or invalid mode byte at the FMT-201 envelope.
+
+| Body-mode bit | Meaning |
+|---|---|
+| `0x01` | u8 key suffix lengths (FMT-212). |
+| `0x02` | u8 value lengths (FMT-212). |
+| `0x04` | A bitmap marks same-frame value aliases (FMT-215). |
+| `0x08` | Groups of up to 16 slots share key prefixes (FMT-213). |
+| `0x10` | CAS or VALIDTIME slots may use frame-of-reference postings (FMT-214). |
+
+Every 1.0 reader MUST read all defined modes of kinds 12 and 9,
+independent of writer policy. Mode-zero and packed frames MUST be
+able to coexist in the same 1.0 store, index and revision history. These modes MUST use no store-feature negotiation or
+feature bit (FMT-204, FMT-205, CONF-107). Store identity and beta
+refusal still follow FMT-401. Stored-image framing and checksums
+follow FMT-202.
+
+**Acceptance criteria.** Pin the empty, mode-zero and packed vectors
+in FMT-211 and FMT-212. Reopen a store with a mode-zero ancestor and
+packed descendants. Compare point reads, ordered ranges and historical
+reconstruction against independently recorded keys and values. Repeat
+across both persistent backends, with identity and compression resource
+pipelines and with writer settings changed on reopen. Test the mode byte
+with and without a standard extension. Reject flag `0x02`, a missing
+mode byte, a zero mode byte and each unassigned mode bit.
+
+### FMT-211 — HOT leaf directory and slot framing
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [PageKind.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java):`deserializeHOTLeaf`; [HOTLeafBody.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBody.java)
+- **Verified by:** [HOTLeafDirectoryEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafDirectoryEncodingTest.java); [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java) **Planned:** LeafSlotFrameConformance at each input boundary and across materialized and selective readers.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Local test and work-budget runs cover the u16-only directory, bounded stop-bit fields, strict trailer order and trailing-byte refusal. The suite preserves relocated mode-zero slots and tests that the retired wide directory is rejected. Default-lane evidence on the proposed baseline is pending.
+
+After the envelope, the header MUST contain the page key as a
+stop-bit integer, the revision as i32 LE, the index type as u8, the
+common-prefix length as u16 LE followed by its bytes, the entry-count
+word as u32 LE, and the physical slot-region length as i32 LE. A
+stop-bit integer uses seven payload bits per byte, least significant
+group first. Bit 7 is set when another byte follows. A stop-bit u32
+MUST terminate within five bytes and a stop-bit u64 within ten.
+Readers MUST reject overflow and unterminated fields. The page key
+uses the u64 encoding. The low 31 bits of the entry-count word MUST
+hold a slot count from 0 to 512. When the high bit is set, the
+fragment contains every leaf entry at that revision. Reconstruction
+MUST stop merging older fragments at that complete dump (VER-301).
+A sparse fragment MAY set this bit if it already contains every
+entry. The physical byte length MUST be in `0..65536` inclusive.
+Readers MUST reject a nonzero mode unless the count and physical
+length are both nonzero.
+
+The directory MUST contain one u16 LE offset per slot, in key order,
+relative to the first byte of the slot region. Flag `0x04` MUST be
+set exactly when the slot count is nonzero. Readers MUST reject
+a nonempty leaf with the flag clear and an empty leaf with it set.
+The empty leaf has no directory bytes. In mode zero the slot region
+immediately follows the directory. Mode-zero slot starts MAY leave
+physical gaps or be out of physical order. Readers MUST accept both
+when the slots are otherwise valid. A nonzero mode MUST lay out the
+directory, optional sharing bitmap, optional group table and its prefix bytes,
+then the slot region, in that order. Packed slot starts MUST begin at
+zero and strictly increase. Each packed slot MUST consume exactly the
+span up to the next offset or, for the last slot, the physical
+slot-region length. The sum of `2 + ordinarySuffixLength + 2 +
+expandedValueLength` across the packed slots MUST be at most 65,536.
+The ordinary suffix includes the slot's restored group prefix and
+stored suffix. The total excludes the common page prefix and
+directory. It counts each aliased value in full and expands each
+frame-of-reference posting to its ordinary stored value length.
+
+When flag `0x01` is set, the complete map MUST follow the slot region.
+Its stop-bit u32 count MUST be at most `512 × 65536` and is followed
+by that many pairs of i64 LE composite key and i64 LE persisted
+page offset. Writers MUST emit strictly ascending signed composite
+keys. Readers MUST reject duplicate or nonascending composite keys
+and negative page offsets. Each fragment carries the entire current
+map, including a sparse fragment. A clear flag represents an empty
+map. Reconstruction MUST preserve this meaning under VER-301.
+Readers MUST bound each directory, metadata, slot and trailer region
+against the frame before allocating for it. Bytes after the last
+defined section MUST be rejected.
+Complete materialization MUST validate the packed slots and expanded
+capacity. Selective readers MUST validate the frame regions and the
+spans they visit, including any selected alias owner, before returning
+a value.
+
+**Acceptance criteria.** These page images omit only the FMT-202
+outer framing. Both use page key 7, revision 3, PROJECTION
+(index ID `0x0a`) and an empty common prefix. The nonempty leaf
+holds entries `(07, 2a)` and `(09, 33)`.
+
+```text
+empty     0c 00 00 07 03 00 00 00 0a 00 00 00 00 00 00 00 00 00 00
+mode-zero 0c 00 04 07 03 00 00 00 0a 00 00 02 00 00 00 0c 00 00 00 00 00 06 00 01 00 07 01 00 2a 01 00 09 01 00 33
+```
+
+Exercise unsigned starts above 32,767 and a valid physical region of
+65,536 bytes. Preserve a relocated mode-zero slot fixture. Reject
+either mismatch of the directory flag and count, out-of-region
+starts, gaps and equal or descending starts in packed slots,
+mismatched final spans, expanded-size overflow, truncation and
+trailing bytes in both modes. Verify that a complete dump ends fragment
+merging and an empty current side map replaces an older nonempty map.
+Reject negative offsets, duplicate or descending trailer keys, and
+truncated, oversized or unterminated stop-bit fields.
+
+### FMT-212 — Independent HOT slot length widths
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [HOTLeafBody.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBody.java); [HOTLeafBodyWriter.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBodyWriter.java)
+- **Verified by:** [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java) **Planned:** SlotLengthWidthConformance through independent fixtures for both mixed-width modes and both boundaries.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** The width boundary and malformed-frame matrix requires a default-lane record.
+
+A slot MUST store its key suffix length, key suffix bytes, then
+value length followed by either its inline bytes or an alias
+pointer. Lengths default to u16 LE. Body-mode bit `0x01` changes
+only the key suffix length to u8. Bit `0x02` changes only the
+value length to u8. These choices apply to every slot in the frame.
+The key length counts just the bytes stored in that slot. The value
+length counts the value in its selected posting encoding, if any,
+even when an alias occupies two physical bytes. A length MUST fit
+the available bytes of the corresponding slot under FMT-211 and
+FMT-215.
+
+**Acceptance criteria.** The following kind-12 image represents the
+same entries as FMT-211 with both length fields narrowed.
+
+```text
+0c 00 0c 03 07 03 00 00 00 0a 00 00 02 00 00 00 08 00 00 00 00 00 04 00 01 07 01 2a 01 09 01 33
+```
+
+Hold one field at 256 and vary the other at 255 and 256 to pin the
+independent choices. Decode values and keys containing high-bit
+bytes, empty suffixes and empty values. Reject truncated length
+fields and suffixes or inline values that cross a slot boundary.
+
+### FMT-213 — Grouped HOT key prefixes
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [HOTLeafBody.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBody.java); [HOTLeafBodyWriter.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBodyWriter.java)
+- **Verified by:** [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java) **Planned:** GroupPrefixConformance with independent complete frames at group boundaries and malformed metadata.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** The complete golden boundary and malformed metadata matrix is pending.
+
+With body-mode bit `0x08` set, the group table MUST consist of
+`ceil(entryCount / 16)` consecutive `[length:u8][offset:u16 LE]`
+pairs, followed by the prefix bytes in group order. Slot `i`
+belongs to group `floor(i / 16)`. The final group MAY hold fewer than
+16 slots.
+Offsets MUST be relative to the start of the prefix bytes. The
+first offset MUST be zero and every later offset MUST be the
+previous offset plus its length. Empty prefixes are valid. The last
+offset plus its length gives the prefix region size. At most 32
+groups of at most 255 bytes imply a maximum of 8,160 prefix bytes. The full key MUST be the common page prefix,
+then the group prefix, then the stored slot suffix. Its length MUST
+fit in u16. Exact, range and prefix lookup MUST compare the
+resulting unsigned byte sequences, including their length when one
+is a prefix of the other.
+
+**Acceptance criteria.** With mode `0b`, common page prefix `aa`, two
+slots and eight physical slot bytes, pin this directory, group
+table, prefix region and slot region in order. The logical pairs
+are `(aa 07 01, 2a)` and `(aa 07 02, 2b)`.
+
+```text
+00 00 04 00 | 01 00 00 | 07 | 01 01 01 2a 01 02 01 2b
+```
+
+Compare indexed exact and range results with the sorted logical
+keys for lengths and counts crossing 15, 16 and 17 and for a final
+partial group. Reject missing metadata, noncontiguous offsets,
+prefix bytes crossing their region and an overlong reconstructed
+key.
+
+### FMT-214 — HOT posting frames of reference
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [HOTPostingFrame.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTPostingFrame.java); [HOTLeafBody.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBody.java)
+- **Verified by:** [HOTPostingFrameTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTPostingFrameTest.java); [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java) **Planned:** HOTPostingConformance across both index types, range queries and revision reconstruction.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Selected decoder and query cases have fixtures. Default-lane coverage of all width, index and fragment combinations is pending.
+
+Body-mode bit `0x10` MUST be valid only for CAS (index ID `0x06`)
+and VALIDTIME (index ID `0x0b`). Readers MUST reject the frame if
+this bit is set for any other index type. In these posting domains,
+tag `0x01` MUST require that bit. The posting MUST encode
+`[tag:u8=01][count:u8][base:u16 BE][width:u8][count-1 deltas]`.
+Count MUST be 1 through 64. The first ordinal is the chunk-local
+base. Each remaining ordinal is base plus its unsigned big-endian
+delta. Deltas MUST be strictly increasing and positive, and
+base plus the final delta MUST be at most 65,535. A singleton MUST
+use width zero. Longer postings MUST use width one when the largest
+delta is at most 255, and width two otherwise. The slot value
+length MUST be exactly `5 + (count - 1) × width`.
+
+Posting values in the CAS and VALIDTIME domains MUST use one of
+these tags. Readers MUST reject every unassigned posting tag.
+
+| Tag | Posting representation |
+|---|---|
+| `00` | Ordinary packed posting with one eight-byte ordinal per entry. |
+| `01` | Frame-of-reference posting defined above. |
+| `fd` | Reference to a posting stored on a side page. |
+| `fe` | Tombstone. |
+| `ff` | Roaring64 bitmap. |
+
+Referenced side-page payloads keep their existing encoding. Ordinal
+search and sorted intersection MUST preserve the results of the
+ordinary postings. Explicitly requested results MAY be materialized.
+
+**Acceptance criteria.** Pin the exact encoded values below.
+Compare ordinal search and sorted intersections against independently
+constructed ordinary lists in both index domains.
+
+```text
+[65535]     01 01 ff ff 00
+[256, 511]  01 02 01 00 01 ff
+[256, 512]  01 02 01 00 02 01 00
+```
+
+Exercise counts 1 and 64, base zero, the maximum ordinal, and
+ordinary or special values alongside postings. Reject incorrect
+count or width, zero or descending deltas, an ordinal above 65,535,
+length mismatch, an undeclared posting tag in the posting domains
+and a declared posting mode on another index type. Reject an
+unassigned posting tag. **Planned:** `HOTPostingReadAllocationTest`
+uses the CONV-301 allocation budget for warmed packed ordinal search
+and sorted intersection with preallocated input and result storage.
+The measured operations allocate zero bytes.
+
+### FMT-215 — Same-frame HOT value sharing
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [HOTLeafBody.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBody.java); [HOTLeafBodyWriter.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBodyWriter.java); [HOTLeafPage.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafPage.java)
+- **Verified by:** [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java) **Planned:** SameFrameAliasConformance on materialized, cached, selective and reconstructed reads.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Alias and fragment cases are mapped. Complete cross-path default-lane evidence is pending.
+
+When body-mode bit `0x04` is set, the bitmap MUST occupy
+`ceil(entryCount / 8)` bytes. Bit `i % 8` of byte `floor(i / 8)`
+selects alias form for slot `i`. Unused high bits MUST be zero.
+An alias MUST write the encoded value length and exactly two
+pointer bytes in place of inline value bytes. The pointer MUST
+be a u16 LE offset relative to the start of the slot directory,
+and MUST name an earlier inline owner's two-byte directory entry.
+It MUST be even and strictly less than `2 × i`. The encoded
+value length MUST exceed two bytes and match the owner's value
+length exactly. The owner's value span MUST fit within its own
+slot and end at or before the start of the alias slot.
+The owner MUST be in the same emitted frame, including for a
+sparse fragment. Writers MUST compare complete encoded value byte
+ranges after choosing the posting representation before sharing.
+
+A reader MAY use a view of owner bytes while it holds the frame
+live or under a protocol that keeps the memory safe to read and
+validates frame identity and integrity before exposing the result.
+On failed validation the reader MUST discard the tentative result.
+A mutable page and a mutable reconstruction MUST own independent
+slot values. Releasing or replacing one fragment MUST preserve
+values in every other fragment.
+
+**Acceptance criteria.** With mode `07` and two one-byte keys
+`07` and `09`, pin the image below. The second slot reuses the
+eight bytes `01 02 03 04 05 06 07 08` from the inline first slot.
+
+```text
+0c 00 0c 07 07 03 00 00 00 0a 00 00 02 00 00 00 10 00 00 00 00 00 0b 00 02 01 07 08 01 02 03 04 05 06 07 08 01 09 08 00 00
+```
+
+Use a second fixture with a nonzero owner entry offset to distinguish
+it from a slot-region offset. Reject unused bitmap bits, pointers
+that are odd, self-referential, forward or target another alias,
+short or mismatched values, and overlapping or truncated owner
+spans. Compare exact value bytes across mixed revision reconstruction
+and verify that edits to a mutable copy preserve its former owner's
+value and other immutable fragments. Evict and replace a frame
+during a read. A valid result corresponds to the held or successfully
+validated frame. A failed validation exposes no tentative value.
+
+### FMT-216 — Projection overflow envelope and codecs
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [PageKind.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java):`OVERFLOWPAGE`; [ZeroRunByteCodec.java](../bundles/sirix-core/src/main/java/io/sirix/page/ZeroRunByteCodec.java); [ByteRunCodec.java](../bundles/sirix-core/src/main/java/io/sirix/page/ByteRunCodec.java); [SirixLZ77Codec.java](../bundles/sirix-core/src/main/java/io/sirix/page/SirixLZ77Codec.java)
+- **Verified by:** [ProjectionOverflowEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/ProjectionOverflowEncodingTest.java) **Planned:** ProjectionOverflowFormatConformance for every codec and raw/compressed projection and ordinary frame.
+- **Evidence class:** code+test (source inspection of envelope and selected length checks)
+- **Gap/note:** Current fixtures attest to selected envelope and length checks. Byte-run and LZ77 decoders do not bound all reads by the declared stored length. Byte-run also accepts some invalid counts and repeat bytes. The overflow reader allocates from the outer decoded length before validating the codec size and tokens. These are implementation gaps, and the full rejection matrix needs default-lane evidence.
+
+Kind 9 MUST start with `[kind=0x09][V0=0x00][flags:u8]`.
+Flag `0x01` selects an outer codec. Flag `0x02` marks a typed
+projection payload. These two flags are independent. Flag
+`0x80` follows FMT-203. All other flag bits MUST fail at the
+FMT-201 envelope. After any extensions, the body MUST start with
+a nonnegative i32 LE decoded length. With `0x01` clear, the
+writer MUST append exactly that many payload bytes. With the
+compression flag set, the writer MUST append
+`[storedLength:i32 LE][codec:u8][stored bytes]`. The stored length
+MUST be positive and within the remaining frame. For compressed
+projection frames it MUST equal the remaining frame length.
+
+| Codec ID | Codec and initial frame marker |
+|---|---|
+| `0` | Zero-run (`ff`) |
+| `2` | Byte-run (`fe`) |
+| `3` | Sirix LZ77 (`fd`) |
+
+The codec assignments are local to kind 9. Readers MUST reject
+ID `1` and IDs `4..255` at the kind-9 codec header. Record-body
+codec IDs and resource compression settings are separate registries.
+The codec frame MUST start with its marker and a stop-bit u32
+decoded size using the bit order in FMT-211. For the run codecs, opcodes
+`00..7f` MUST encode a literal run of opcode plus one bytes.
+The remaining opcodes MUST follow this table.
+
+| Codec | Opcode | Meaning |
+|---|---|---|
+| Zero-run | `80..fe` | Opcode minus `80` plus two zero bytes. |
+| Zero-run | `ff` | Stop-bit zero count, two or more. |
+| Byte-run | `80..bf` | Opcode minus `80` plus two zero bytes. |
+| Byte-run | `c0..fc` | Opcode minus `c0` plus two copies of the following nonzero byte. |
+| Byte-run | `fd` | Stop-bit zero count, two or more. |
+| Byte-run | `fe` | Stop-bit repeat count, two or more, followed by the nonzero byte. |
+| Byte-run | `ff` | Unassigned. |
+
+Readers MUST reject Byte-run long counts below two and zero
+repeat bytes in nonzero repeat runs. An LZ77 token MUST use its
+upper nibble for the literal length and, when a match follows,
+its lower nibble for the match length minus four. A nibble
+of 15 extends its length using successive bytes summed until a
+byte below 255, included in that sum. The literal length
+extension, when present, precedes the literal bytes. When
+decoded bytes are still needed after the literals, a u16 LE
+distance precedes any match length extension. The distance
+MUST be positive and refer into previously decoded bytes. A
+match copies from that distance behind the current output
+position and MAY overlap the bytes it is producing. Decoding
+MUST produce exactly the declared number of decoded bytes.
+
+Readers MUST reject a truncated or invalid outer length before
+allocating for decoding. On compressed frames, the codec size
+MUST equal the outer decoded length. The reader MUST validate
+both lengths and their agreement before allocating decoded bytes.
+Before reserving a destination based on the decoded length,
+the reader MUST verify that the token stream within the stored
+region can produce that exact length. A reader MAY instead
+grow storage as it validates tokens, bounded by the output
+validated so far. In both cases the reader MUST enforce any
+limit specified by the owning payload format, and MUST reject
+malformed or truncated tokens and decoded-length mismatches
+before exposing payload bytes.
+
+**Acceptance criteria.** Pin the kind-9 envelope and decoding
+with independently supplied payload bytes. The following are
+projection-typed page images with no standard extension.
+
+```text
+raw          09 00 02 04 00 00 00 01 02 03 04
+zero-run     09 00 03 40 00 00 00 03 00 00 00 00 ff 40 be
+byte-run     09 00 03 40 00 00 00 05 00 00 00 02 fe 40 fe 40 2a
+Sirix LZ77  09 00 03 40 00 00 00 07 00 00 00 03 fd 40 1f 2a 01 00 2c
+```
+
+The zero-run fixture produces 64 zero bytes. The other encoded
+fixtures produce 64 copies of `2a`. Exercise the ordinary
+flag combinations and reopen with writer compression disabled.
+Reject unknown flags or codecs, disagreement between codec and
+outer lengths, invalid repeat bytes or counts, malformed or
+truncated tokens, and extra bytes beyond the stored length of a
+compressed projection frame. Check the same malformed spans
+with heap and segment inputs, including after scratch reuse.
+Allocation evidence checks that an impossible decoded size is
+rejected without reserving a destination of the declared size.
+
+### FMT-217 — HOT and projection writer conformance
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [HOTLeafBodyWriter.java](../bundles/sirix-core/src/main/java/io/sirix/index/hot/page/HOTLeafBodyWriter.java):`select`; [PageKind.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java):`serializeHOTLeaf`; [PageKind.java](../bundles/sirix-core/src/main/java/io/sirix/page/PageKind.java):`keepsProjectionOverflowCodec`
+- **Verified by:** [HOTLeafBodyEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/HOTLeafBodyEncodingTest.java); [ProjectionOverflowEncodingTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/ProjectionOverflowEncodingTest.java); [ProjectionSortedFullImagePackingTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/projection/ProjectionSortedFullImagePackingTest.java) **Planned:** FrameSelectionConformance and paired latency, allocation and equivalent-workload size gates.
+- **Evidence class:** code+test (source inspection)
+- **Gap/note:** Projection outer compression inherits the existing default-on overflow setting. Its reads-first evidence is pending, including the scored leaf run, native-image allocation checks and comparison store measurements. Default eligibility for this change is therefore unverified.
+
+A writer MUST emit only frames valid under FMT-210 through FMT-216.
+An empty leaf MUST use mode zero.
+
+**Writer policy for this change.** Evaluate candidates independently
+for each full or sparse frame and check selected source slots and
+live bytes against the used region. Prefer one-byte lengths where
+all corresponding lengths fit. Use grouping or sharing only if each
+saves bytes after its own metadata, and use a frame-of-reference
+posting only if smaller than the ordinary posting. Prefer mode zero
+for projection keys of eight bytes including the common prefix, or
+when the packed candidate fails to save bytes after the mode byte and
+metadata compared with the same slots in mode zero.
+
+For projection kind 9, consider outer compression after producing
+the typed payload. This change's eligibility rule is an inclusive
+20% saving after counting five bytes for stored length and codec ID.
+The size comparison is `5 × (storedLength + 5) ≤ 4 × encodedLength`
+using wide arithmetic. Apply the rule to the projection writer,
+with the reads-first evidence below. Ordinary overflow keeps its
+own selection policy. Readers accept valid frames regardless of
+writer policy.
+
+**Acceptance criteria.** Compare writer output against independent
+mode-zero and packed fixtures. Include an eight-byte projection key
+with a shared page prefix and a packed candidate whose savings equal
+its metadata costs. Exercise one-byte boundaries, fragment selection
+and an invalid source slot beyond the used region. With encoded
+length 100, stored lengths 74 and 75 pass the policy's size
+comparison and 76 fails. Verify that readers accept valid frames
+produced under other policies. Mutation-test decoding and selection
+and disposition each survivor under CONV-103. Record the
+[read, allocation and size evidence](../docs/VERIFICATION.md#hot-leaf-encoding-release-acceptance)
+before approving the default writer policy.
 
 ### FMT-301 — HOT fanout legality
 
@@ -263,7 +735,7 @@ Version 1.0 MUST be the on-disk compatibility baseline. The 1.0 engine MUST NOT 
 
 Beta migration MUST export all resource revisions with their committed content, commit timestamps, authors and messages and import them into a newly created 1.0 store in source revision order without dropping revisions. The first imported timestamp MUST retain its source value. For each later revision, if its source timestamp is greater than the preceding imported effective timestamp, import MUST preserve it unchanged; if it would tie or go backwards, import MUST set its effective commit timestamp to the preceding imported timestamp plus 1 microsecond. For every adjusted revision, its original timestamp MUST be preserved as queryable revision metadata. Only necessary timestamp adjustments are permitted; content, authors, messages and revision order MUST be preserved. Open-by-time MUST use the effective strictly increasing timestamps, not the original metadata values (VER-204). An exporter capable of reading the beta version MUST produce the interchange; the 1.0 engine MUST consume it rather than open the beta store directly. The source MUST remain unchanged. Unavailable history MUST be reported rather than claiming a complete conversion.
 
-## Wire tables (FMT-102, FMT-104, FMT-106)
+## Wire tables (FMT-102, FMT-104, FMT-106, FMT-209)
 
 | Superblock offset | Width | Meaning |
 |---|---|---|
@@ -278,6 +750,19 @@ Beta migration MUST export all resource revisions with their committed content, 
 | 40 | 16 | resource UUID, most-significant then least-significant 64-bit words |
 | 56 | 8 | XXH3-64 of bytes [0,56) |
 
+The last-revert revision (FMT-209) is one page-extension entry on the revision root page.
+Its tag is kind-local and optional: bit 0x40 set, required bit 0x80 clear.
+
+| Field | Width | Meaning |
+|---|---|---|
+| tag | 1 | 0x41, kind-local optional revision-root entry |
+| length | stop-bit | 4 |
+| payload[0..4) | 4 | last-revert revision, little-endian u32 |
+
+| Feature word | Bit | Name | Meaning |
+|---|---|---|---|
+| readOnlyCompat | 0 (0x00000001) | conditional-write metadata | the store carries the FMT-209 last-revert entry; an engine that does not maintain it may read but MUST NOT write |
+
 The revision ring occupies the last 768 bytes of each beacon slot. Its entry layout is
 revision u32, reserved-zero u32, root offset i64, timestamp i64, revision-record checksum i64,
 root hash i64, then tail-entry checksum i64. IOStorage's `tailLogEntryChecksum` and numeric constants
@@ -287,8 +772,9 @@ are the current encoder evidence; the ring is bounded to 16 recent records.
 
 - FMT-102/401/402: beta refusal, removal of zero UUID/stride exceptions and history-preserving export/import are decided. Implement the 1.0 discriminator and migration tooling, including the decided conditional timestamp adjustment and queryable original metadata in TXN-310/VER-204.
 - FMT-302: the numeric bound and indirect-level height convention are decided. Enforcing the key-derived bound and rejecting undefined discriminative positions remain implementation/test gaps, not open product choices.
-- FMT-208: produce and check in the immutable 1.0-created feature/index/config corpus and CI coverage manifest; the compatibility policy is decided.
-- Node hash default: the accepted 1.0 design targets NONE; current ResourceConfiguration still falls back to ROLLING. CONF-104 records this implementation gap explicitly.
+- FMT-208: produce and check in the immutable 1.0-created feature/index/config corpus and CI coverage manifest; the compatibility policy is decided. The corpus MUST include a resource carrying the FMT-209 last-revert entry and one without it, and a resource whose incarnation id was regenerated by a truncate.
+- FMT-209: the extension tag, the feature bit, the carry-forward in the revision-root clone, the settings member and cryptographically secure id generation at the four lifecycle boundaries are unimplemented. The tag and bit assignments above are the first entries in the otherwise empty FMT-203 tag and FMT-205 feature registries and must be reviewed before the format freeze; TXN-311 cannot be retrofitted compatibly afterwards.
+- Node hash defaults are owned by [CONF-104](CONF-configuration.md#conf-104--current-creation-defaults).
 
 ## Traceability
 
@@ -310,6 +796,15 @@ are the current encoder evidence; the ring is bounded to 16 recent records.
 | FMT-206 | [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java):`deterministicRecordPageSaltIsPinned`; [RecordPageSaltSourceTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/RecordPageSaltSourceTest.java); [RecordPageSaltAllocationTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/RecordPageSaltAllocationTest.java) | partial |
 | FMT-207 | [StrictReferenceFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/page/StrictReferenceFormatTest.java) **Planned:** StrictReaderFuzzTest: fixed-seed byte mutations, all prefix truncations and differential heap/segment decoders; no unbounded allocation from counts. | partial |
 | FMT-208 | [GoldenCompositePageTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenCompositePageTest.java); [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java) **Planned:** FrozenStoreCorpusConformance: immutable hashes plus a feature/index/config coverage manifest, read every store with independent content/history/index expectations in default CI; deliberately incompatible reader fixture fails without changing corpus bytes. | designed |
+| FMT-209 | No existing test mapped. **Planned:** ConditionalWriteMetadataFormatConformance: absent-entry byte identity, publication on revert, carry-forward, survival across reopen/backup/strategies/backends, regenerated ids on restore before exposure, id published before truncate removes data, controlled fresh draws across creation, database recreation, replacement, truncate and repeated restore, and stale-token refusal for coincident revision numbers, read-only refusal for an engine without the bit, and malformed-entry refusal. | proposed |
+| FMT-210 | HOTLeafDirectoryEncodingTest and HOTLeafBodyEncodingTest. **Planned:** MixedLeafFormatConformance across backends, revisions, extensions and rejection cases. | partial |
+| FMT-211 | HOTLeafDirectoryEncodingTest and HOTLeafBodyEncodingTest. **Planned:** LeafSlotFrameConformance for u16-only directories, complete-dump reconstruction, strict trailers, stop-bit bounds and exact consumption. | partial |
+| FMT-212 | HOTLeafBodyEncodingTest. **Planned:** SlotLengthWidthConformance for mixed widths, byte boundaries and malformed slots. | partial |
+| FMT-213 | HOTLeafBodyEncodingTest. **Planned:** GroupPrefixConformance for group boundaries, logical key order and malformed offsets. | partial |
+| FMT-214 | HOTPostingFrameTest and HOTLeafBodyEncodingTest. **Planned:** HOTPostingConformance for tag and width rejection, intersections and reconstruction, plus HOTPostingReadAllocationTest. | partial |
+| FMT-215 | HOTLeafBodyEncodingTest. **Planned:** SameFrameAliasConformance across read paths, eviction and fragment reconstruction. | partial |
+| FMT-216 | ProjectionOverflowEncodingTest. **Planned:** ProjectionOverflowFormatConformance for every codec, bounded decoding, allocation guards and corrupt frames. | partial |
+| FMT-217 | HOTLeafBodyEncodingTest, ProjectionOverflowEncodingTest and ProjectionSortedFullImagePackingTest. **Planned:** FrameSelectionConformance and paired latency, allocation and size gates. | partial |
 | FMT-301 | [HOTInvariantValidator.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidator.java); [HOTInvariantValidatorChecksTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorChecksTest.java); [HOTHeightOptimalTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTHeightOptimalTest.java) **Planned:** HOTFanoutConformance: inject one-child nodes at every production constructor/decoder/publish boundary; delete down to one child, cold reopen, then scan and point lookup. | designed |
 | FMT-302 | [HOTInvariantValidatorChecksTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorChecksTest.java); [HOTHeightOptimalTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTHeightOptimalTest.java); [HOTStructuralPropertyTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTStructuralPropertyTest.java) **Planned:** HOTHeightBoundConformance: independent encoded-key discriminative-position oracle; empty/leaf-only/one-indirect conventions; ascending, descending, shuffled, long common-prefix and variable-length/prefix keys; valid boundaries and malformed repeated/decreasing/undefined/out-of-range leading positions; assert h <= D and D <= 8*L after mutation and cold reopen, across node types; compare lookup/scan with an ordered-map oracle. | designed |
 | FMT-303 | [GoldenFormatTest.java](../bundles/sirix-core/src/test/java/io/sirix/format/GoldenFormatTest.java):`indexTypeIdsArePinned` | partial |

@@ -247,11 +247,11 @@ final class HOTHeapCacheBudgetTest {
    */
   private static HOTLeafPage sparseDeltaFragment(final int ordinal) {
     final int entries = 3;
-    final int[] offsets = new int[entries];
+    final char[] offsets = new char[entries];
     final byte[] packed = new byte[entries * 8];
     for (int entry = 0; entry < entries; entry++) {
       final int offset = entry * 8;
-      offsets[entry] = offset;
+      offsets[entry] = (char) offset;
       packed[offset] = 2; // suffix length, little endian
       packed[offset + 2] = (byte) ordinal;
       packed[offset + 3] = (byte) entry;

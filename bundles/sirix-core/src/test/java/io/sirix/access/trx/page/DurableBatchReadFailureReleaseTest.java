@@ -215,6 +215,6 @@ final class DurableBatchReadFailureReleaseTest {
 
   private HOTLeafPage leaf(final long pageKey, final AtomicInteger releases) {
     return new HOTLeafPage(pageKey, 1, IndexType.PATH, arena.allocate(HOTLeafPage.DEFAULT_SIZE),
-        releases::incrementAndGet, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+        releases::incrementAndGet, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
   }
 }

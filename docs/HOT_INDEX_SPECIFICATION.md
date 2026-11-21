@@ -3,10 +3,11 @@
 Status: **specification based on the code on `main` after PR
 [#1214](https://github.com/sirixdb/sirix/pull/1214)** (merged 2026-09-19), with subsequent branch-split
 candidate handling reflected in §4.5.4 case 4, and current posting-delta and referenced-chunk
-behavior reflected in §§2.2–2.5, 4.2, 4.4–4.6 and 6.2. First written 2026-09-17
+behavior reflected in §§2.2–2.5, 4.2, 4.4–4.6 and 6.2, and height maintenance and dirty commit
+normalization specified in §2.6. First written 2026-09-17
 against commit `739e46288` and revised 2026-09-20 against the merged tree, by reading the code only;
-nothing in this document was verified by running code. Where a statement could only be settled by
-execution it says so.
+that original survey did not run code. Later regression and measurement evidence is identified
+where used.
 
 PR #1214 is a projection-index and read-path change; it touches HOT in three places, each noted where
 it belongs: a range cursor's `close()` now ends its reader's walk and so releases a guarded leaf
@@ -443,21 +444,113 @@ code now explains (`hot/page/HOTIndirectPage.java:566-572`).
 #### 2.6.3 Partial-key width and fanout
 
 - Width by `|D|`: ≤ 8 bits → 1 byte, ≤ 16 → 2 bytes, otherwise 4 bytes
-  (`hot/page/HOTIndirectPage.java:296-304`). No guard against more than 32 bits was found in the page
-  class; `extractPartialKey` casts the compressed value to `int` (`hot/DiscriminativeBitComputer.java:440-449`),
-  so the implied invariant is `|D| ≤ 32`.
+  (`hot/page/HOTIndirectPage.java:296-304`). The invariant is `|D| ≤ 32`:
+  `extractPartialKey` casts the compressed value to `int`
+  (`hot/DiscriminativeBitComputer.java:440-449`). Compatible-child preparation refuses
+  unions above 32 bits, and `HOTIndirectPage.createFoldedNode` checks that bound again
+  before allocating a replacement.
 - Node types: `SPAN_NODE` (id 0) and `MULTI_NODE` (id 1), in both `SINGLE_MASK` and `MULTI_MASK`
   layouts. Span and multi nodes share the canonical PEXT route; their distinction is fanout, not
   lookup format. The legal fanout domain and its enforcement are specified in §2.8.
 - There is no BiNode page type. `createBiNode` builds a 2-child `SINGLE_MASK` `SPAN_NODE` with partial
   keys {0, 1} and mask bit `1L << (63 − bitInWindow)` (`hot/page/HOTIndirectPage.java:378-399`).
-- `height` is the distance from the leaves (a node whose children are leaves has height 1); u8 on
-  disk (`hot/page/HOTIndirectPage.java:212`; `page/PageKind.java:6109`, `:5998`).
+- Structural height H is the maximum number of indirect pages on a root-to-leaf path:
+  a leaf has H=0 and an indirect page has H=1+max(child H). Every stored `height`
+  MUST equal this structural height, including after a subtree-local insertion, commit,
+  and cold reopen; the field is u8 on disk. A direct successful descent visits at most
+  H+1 logical pages. Under discriminative-bit progress, H is at most 8L for maximum
+  serialized stored-key length L (including chunk suffixes). Leaf packing and inner shape
+  may depend on insertion order; minimum height, minimum average lookup cost, and equality
+  to Binna's canonical partition are not guaranteed.
+
+A subtree-local structural insert MUST propagate exact height changes through the original
+ancestor spine before returning, including for in-transaction readers. It may retain a local
+root until commit. Commit MUST normalize compatible compound children along the dirty HOT
+spine, before serializing it; only pages already owned by the transaction log may be replaced
+or folded. Clean subtrees are opaque boundaries: their root height may be read, but they MUST
+NOT be recursively normalized or rewritten. Folding is reference-only and MUST NOT unpack,
+repack or reserialize leaf entries. Incompatible masks/fanout retain the existing structure.
+Normalizing a dirty subtree must not change its routing function or its leaf references.
+Ancestors receive exact height changes using bounded child resolution. Existing full-key routing,
+sibling ordering, copy-on-write revision isolation and page-guard ownership MUST hold.
+Exactness is required at successful mutation boundaries and in committed snapshots, starting
+from a revision with valid metadata. This dirty-only operation does not backfill already-invalid
+heights in older clean subtrees or historical revisions.
+A boundary-child collision MUST NOT publish a new local root at or above the containing
+child's leading discriminator. Unless a direct leaf can certainly accept the mutation
+without splitting, use the existing outer structural-frontier fallback before publication.
+Commit normalization may remove redundant valid levels; it cannot defer routing invariants.
+For a compatible compound-child fold, composed sparse partials MUST remain strictly ordered
+and unique; acceptance MUST preserve the original two-stage router for every key, including
+absent keys. Reject a fold whose combined sparse requirements alias or reorder slots.
+The merged mask MUST fit the existing wire layout: a SingleMask may start beyond byte 255,
+but MultiMask extraction positions are u8, so a union whose last and first byte positions
+differ by at least eight MUST be refused if its last byte exceeds 255.
+A refused fold preflight MUST NOT publish that fold. Commit normalization MUST reject
+unresolved/non-HOT children, stale transaction ownership, cycles and dirty recursion beyond
+the writer's 64-level spine limit. Any normalization failure MUST make the transaction
+rollback-only because earlier dirty descendants may already have been normalized.
+
+Commit normalization MUST have a constant-time no-work guard before transaction-log lookup,
+workspace initialization/reset, child resolution or child iteration. A height-one block has
+no compound child to fold. A previously normalized or deserialized block with no later
+structural mutation also needs no normalization, including after a value-only CoW update.
+A transient per-page pending hint records structural opportunity; it is not serialized.
+Fresh compound blocks start pending; structural publication marks the already-owned outer
+spine, including subtree-local handoffs and periodic leaf consolidation even if their height
+is unchanged. Consolidation can free fanout for a later dirty-child fold, so its outer
+ancestors MUST remain eligible for normalization and resulting height repair. Copy-on-write
+preserves a pending hint without changing the source. Successful normalization clears it;
+a later structural change re-arms it. Existing writer/decoder invariants remain responsible
+for input validity on skipped blocks. Defensive normalization checks apply to visited blocks.
+Blocks skipped by the no-work guard MUST NOT set up per-page traversal state.
+Repeated normalization of unchanged output must not rescan it. A completed child remains
+eligible for absorption by a changed parent; the hint skips descending into the child, not
+parent-child composition. Fold traversal must not repeatedly reconsider earlier slots when
+fanout/mask growth cannot make them eligible. Stored heights and all routing/history
+invariants above remain mandatory. An error after publication still poisons the transaction.
+
+Commit normalization is a per-page hot path. Its bounded traversal and fold scratch MUST
+be resource-session-owned, initialized lazily, and reused across storage-writer replacement,
+commit, rollback and later transactions in that session. It MUST NOT be held by a global
+ThreadLocal. Only the exclusive writer uses it, after pending writes have completed; each
+normalization releases all page references in a finally block and resets its active counts.
+Closing the session releases the workspace. No transaction may observe a prior transaction's
+scratch state. Steady-state workspace allocation MUST be zero; a clean-root no-op and an
+already-resident dirty traversal that accepts no fold MUST allocate zero bytes.
+Refused folds MUST allocate zero bytes, including when masks have not been cached.
+A no-fold traversal MUST NOT load clean child pages solely to reconfirm unchanged valid
+height metadata. Resolve clean boundaries only after accepting a fold or when a descendant
+fold changed the parent's possible height maximum. A missing non-durable child reference
+still fails closed before publication.
+An accepted fold may create one replacement page and its exact-sized owned routing arrays
+and search state; temporary union/partial/reference arrays, capturing key suppliers and
+boxed mask assembly are forbidden. The pinned publication allowance is one PageContainer (32 bytes) plus the existing cache
+retirement path (at most 152 bytes) per published replacement, only when a replacement is
+published. Thus the bound is the exact owned graph bytes per successful fold plus 184 bytes
+per publication, with zero additional workspace or no-fold allocation. These byte counts
+assume the allocation test's 64-bit JVM with compressed references and 8-byte alignment;
+no unrelated allocation is charged to this allowance.
+Normalization MUST NOT increase the number of reachable pages written at commit.
+Allocation tests pin the owned graph sizes and publication bound independently, compare
+folds with direct construction of their required output, and retain a positive allocating control; both SingleMask and MultiMask layouts are covered.
+
+Regression acceptance: ascending and descending 2,048/4,096 sequential 16-byte keys retain
+four/eight 512-entry leaves and reach H=1 after commit; live height may be greater, but stored
+metadata MUST already equal the live structure. Every key routes to its actual leaf before
+and after commit. Descending skewed
+50,000-key seeds 5 and 6 exercise deeper ancestors and fanout overflow; their regression bound
+is H<=3 after commit (live H=9), with the attainable H=2 remaining a known gap under issue #1452.
+All stored heights must equal independently walked child-reference heights. Check live and cold-reopened
+snapshots and historical revisions. These checks do not establish global minimality.
+Bulk SMHP construction and rebuilding from leaf minima are separate follow-ups; minima alone
+are insufficient to establish routing equivalence for multi-entry leaves.
 
 ### 2.7 The split criterion as implemented
 
 Binna's height-optimal insertion keeps the trie a binary Patricia trie over the keys, grouped into
-nodes of at most 32 children so that height is minimal. SirixDB implements this in three places.
+nodes of at most 32 children so that height is minimal. SirixDB uses related structural
+primitives in three places, without promising that minimality for multi-entry leaves.
 **`HeightOptimalSplitter`, `PartialKeyMapping`, `NodeUpgradeManager` and `SiblingMerger` are not
 among them**: they have no production callers (only each other, tests, and a Javadoc mention in
 `bundles/sirix-query/src/main/java/io/sirix/query/compiler/optimizer/stats/JsonCostModel.java:55`).
@@ -518,7 +611,7 @@ publication/preflight guards enforce the same I10 rule as `HOTInvariantValidator
 ## 3. Node and page formats
 
 `docs/DISK_FORMAT.md` specifies the file layout, the page envelope, the page kind ids and the index
-container pages and the leaf payload codec. This section specifies the HOT body fields.
+container pages and the leaf body modes. This section specifies the HOT body fields.
 
 ### 3.1 Common framing
 
@@ -528,10 +621,9 @@ container pages and the leaf payload codec. This section specifies the HOT body 
   (`page/PageKind.java:5804`, `:5989`, `:6800-6801`; `docs/DISK_FORMAT.md:185-188`).
 - The serialized page then passes through the resource's byte-handler pipeline (compression,
   optional encryption) as a whole (`io/filechannel/FileChannelWriter.java:990`, `:1013-1033`).
-  Kind 12 also supports opt-in slot payload compression behind envelope flag `0x02`, off by default; the
-  [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0) defines its framing.
-  The outer reader decompresses into a `DecompressionResult` that a
-  leaf may adopt without copying (§3.2.3).
+  The [leaf format contract](DISK_FORMAT.md#hot-leaves-kind-12-v0) defines the
+  directory width and the packed body modes selected by the envelope. The byte-handler reader passes a
+  `DecompressionResult` that a leaf may adopt without copying (§3.2.3).
 
 ### 3.2 HOTLeafPage
 
@@ -613,9 +705,9 @@ dirtyBitmap[8 longs]         bit i = entry i changed since this page was copied
 
 #### 3.2.3 Serialized layout (`PageKind.HOT_LEAF_PAGE`)
 
-Writer `PageKind.serializeHOTLeaf` (raw layout in `serializeRawHOTLeaf`);
+Writer `PageKind.serializeHOTLeaf`;
 reader `PageKind.deserializeHOTLeaf`.
-Body fields below follow the shared envelope and any extension block.
+Body fields below follow the shared envelope, any extension block and the mode byte when present.
 
 | # | Width | Field | Notes |
 |---|---|---|---|
@@ -627,31 +719,33 @@ Body fields below follow the shared envelope and any extension block.
 | 6 | u8 | index type id | stable ids defined by `IndexType`, pinned by `GoldenFormatTest.indexTypeIdsArePinned` |
 | 7 | u16 LE | commonPrefixLen | |
 | 8 | bytes | commonPrefix | |
-| 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`PageKind.serializeRawHOTLeaf`) |
+| 9 | i32 LE | `entryCount \| (completeDump ? 0x80000000 : 0)` | in a sparse image: the dirty-entry count (`PageKind.serializeHOTLeaf`) |
 | 10 | i32 LE | usedSlotMemorySize | full image: sum of live slot sizes, excluding retired bytes; sparse image: size of the packed dirty entries |
-| 11 | count × i32 LE | slotOffsets | full: original offsets when already dense, otherwise offsets into live entries packed in key order; sparse: offsets into the packed dirty entries |
-| 12 | raw bytes or codec frame | heap | representation defined by the [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0). Full images contain live entries only; sparse images contain packed dirty entries. |
-| 13 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`PageKind.serializeSegmentRefs`) |
+| 11 | count × i32 LE or u16 LE | slotOffsets | width from flag `0x04`; full: original offsets when already dense, otherwise offsets into live entries packed in key order; sparse: offsets into the packed dirty entries |
+| 12 | optional bitmap, table and prefix bytes | packing metadata | Body mode bits select these regions. Value aliases and prefixes belong to this fragment. |
+| 13 | slot bytes | heap | The body mode selects slot lengths, group prefixes, aliases and frame-of-reference postings. Full images contain live entries only. Sparse images contain packed dirty entries. |
+| 14 | if flag bit 0: varlong count, then count × (i64 compositeKey, i64 diskKey) | side map | composite keys signed-ascending; **every image carries the complete map**; an unresolved (−1) disk key throws (`PageKind.serializeSegmentRefs`) |
 
 - Full-image packing changes only the serialized offsets and payload; the source leaf's offsets,
   dirty state and native ownership remain unchanged (`PageKind.HOT_LEAF_PAGE.serializePage`).
 - **Sparse vs. full image**: `sparse = versioningType != FULL && completePageRef != null && hasDirty()`
-  (`PageKind.serializeRawHOTLeaf`). A sparse image holds only the entries changed since the page was
+  (`PageKind.serializeHOTLeaf`). A sparse image holds only the entries changed since the page was
   copied from its previous image. Fresh pages from splits and structural rewrites are full images
   with `completeDump = true` (`hot/AbstractHOTIndexWriter.java:6871-6875`; `hot/page/HOTLeafPage.java:3010-3018`).
 - `PageKind.deserializeHOTLeaf` rejects entry counts above 512 and packed byte counts outside
   `[0, 65536]`. Ordinary decoding reserves the full writable offset directory; compact raw decoding
   follows the [projection slot-read contract](PROJECTION_READ_PERFORMANCE.md#versioned-hot-projection-slot-reads).
-- **Decoded-read ownership and mutation promotion** follow the
-  [payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0),
-  including raw zero-copy adoption and compact allocations for encoded ordinary reads.
+- The materializer widens the directory into its ordinary in-memory array. Packed read images
+  retain their own metadata and slots under the same frame lifetime. A writable copy restores
+  ordinary slots with individually owned values.
 - There is no checksum in the body; see §3.6 for what is and is not hashed.
 
 ### 3.3 HOTIndirectPage
 
 #### 3.3.1 In-memory fields
 
-`pageKey`, `revision`, `height`, `nodeType` (final); `layoutType`, `numChildren`, the mask fields of
+`pageKey`, `revision`, `nodeType` (final); exact structural `height` (writer-owned mutation only),
+transient `normalizationPending`, `layoutType`, `numChildren`, the mask fields of
 §2.6.1, `mostSignificantBitIndex`, `int[] partialKeys`, `SparsePartialKeys`, `PageReference[]
 childReferences` (`hot/page/HOTIndirectPage.java:210-239`). A per-child first-key memo
 (`childFirstKeyCache`, 32 entries, lazily created, never serialized) is used only by readers without
@@ -660,7 +754,7 @@ an intent log and is cleared by every `setChildReference` (`:849-898`).
 #### 3.3.2 Serialized layout (`PageKind.HOT_INDIRECT_PAGE`)
 
 Writer `page/PageKind.java:6099-6158`; reader `:5991-6096`.
-Body fields below follow the shared envelope and any extension block.
+Body fields below follow the shared envelope, any extension block and the mode byte when present.
 
 | # | Width | Field |
 |---|---|---|
@@ -1288,6 +1382,9 @@ never splits the node. The other branch-path decomposition of a full node, `bran
 checks the constructed halves before publication; its candidate handling is specified in §4.5.4
 case 4. At both sites, `splitHalvesKeepKeyApart` separately proves `K` on its own side of the
 boundary between the halves (§4.5.4 cases 2 and 4).
+`HOTOrderingGuardTest.fullNodeWithStraddlingChildDeclinesSplitBeforePublication` pins the
+full-node refusal independently of the correction stream, whose committed geometry changes
+under §2.6 normalization.
 
 **The measurement is taken before the insert, and one arm re-splits after it.** The
 `splitKeepsTrieCondition` pre-checks read the node's children as they are when the handler starts.
@@ -1321,9 +1418,9 @@ generic leaf pair or the complete frontier places `K` instead, counted by
 `HOTOrderingGuardTest` pins both overflows that reach the decline, by count and by bytes, and each
 publishes a malformed path without it.
 
-Evidence, for exactly what it covers: the decline is exercised only from an assembled state. The
-100,000-record stream takes this arm four times (`FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT` reads 4
-after `HOTValidTimeCorrectionStreamTest`) without reaching the shape, and a bounded search with the
+Evidence, for exactly what it covers: the decline is exercised only from an assembled state.
+`HOTValidTimeCorrectionStreamTest` does not establish reachability of this shape; historical
+handler counts predate commit normalization. A bounded pre-normalization search with the
 property generator — 36 seeded heavy streams of 8,000 work units each over PATH, CAS and NAME, plus
 longer 25,000-unit ones — produced no put stream that reaches it either, so **reachability from an
 ordinary stream remains unproven**: it is a shape derived from the code, refused because the decline
@@ -1774,9 +1871,11 @@ node and all built pages are resident until the splice (`docs/HOT_BULK_BUILD.md:
    forwards (`:280`, `:1165-1188`).
 6. `TransactionIntentLog.put` resets the reference's disk key, so every staged page gets a new location
    (`cache/TransactionIntentLog.java:794-823`).
-7. Commit recurses `page.commit(writer)` (indirect → staged children; leaf → side-map overflow pages),
+7. Before recursion, a pending dirty HOT subtree is normalized according to §2.6 by
+   `HOTCommitNormalizer`, using `InternalResourceSession.getHOTCommitScratch`. Commit then recurses
+   `page.commit(writer)` (indirect → staged children; leaf → side-map overflow pages),
    writes the page, propagates the disk key to copies sharing the log key, and closes both pages of the
-   container (`trx/NodeStorageEngineWriter.java:3797-3885`).
+   container (`NodeStorageEngineWriter.commit(PageReference)`).
 
 Before a structural split, integration or recompression reads child heights, the writer resolves
 every required direct child and retains guards on cache-backed leaves through the operation,
@@ -1913,7 +2012,7 @@ Test paths are under `test/` unless noted. Counts are `@Test`-style annotations,
 | Full-node branch split | `HOTBranchSplitOverlapTest` | seeds validated sparse paths and retained leaf endpoints, then reaches §4.5.4 case 4 through public writer puts in either split half under every `VersioningType`; checks rejection before publication, ordered exact physical scans, postings and structural invariants after inserts and commits, all historical revisions, and cold reopen |
 | Detector and validator | `HOTMalformedSubtreeDetectorTest` (11), `HOTIndirectCardinalityTest`, `HOTInvariantValidatorChecksTest` (6), [`HOTInvariantValidatorWorkTest`](../bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTInvariantValidatorWorkTest.java) | detector: no false positives on bulk tries, detects synthetic I3, I4, I5, I7, I8, I11 defects; cardinality: factory, decode, detector and writer-preflight enforcement of I10 in both layouts; validator: I1, I4, I6, I11, leaf-insert precondition and unreadable slots; reuse scope is specified in [Verification](VERIFICATION.md#running-the-layers) |
 | Versioning | `HOTVersionedLeafStressTest` (19; soak gated by `-Dhot.soak.run`, `:1200-1204`), `HOTMultiVersionInvariantsTest` (12), `HOTDifferentialVersioningFragmentChainTest` (2), `HOTMultiRevisionFragmentChainTest` (3), `index/hot/page/HOTCompleteDumpMergeTest` (5), `index/hot/page/HOTLeafPageCowTest` (15), `index/hot/page/HOTTombstoneEvictionTest` (3) | per-revision readability, fragment chains under all versioning types, complete-dump boundary, sparse images, tombstones across eviction and split, strict validation every revision for 3 seeds × 15 revisions × 2000 inserts (`:241-250`) |
-| Writer mechanics | `HOTRebuildFootprintTest`, `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` (14) | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
+| Writer mechanics | `HOTRebuildFootprintTest`, `HOTTwoLeafMigrationTest` (9), `HOTStructuralPublicationAtomicityTest` (1), `HOTDirectionOneSplitHalfAtomicityTest` (2), `HOTIncrementalHeightResolutionTest` (2), `HOTProjectionPropagationFallbackTest` (2), `HOTLoneHalfFoldPublicationTest` (5, 4 of them over every `VersioningType`), `HOTDeclinedOverflowFrontierRouteTest` (4), `HOTMergeOverflowPreIntegrateRollbackTest` (1), `HOTOrderingGuardTest` | bounded footprints, fail-closed refusal, poisoning after a failed publication; a key folded into a split's lone indirect half is readable and survives the commit under all four versioning types (§4.5.4 case 2), and a structural put the transaction log cannot produce is refused rather than committed (§4.8); a leaf overflow whose integrate cascade either merge entry's pre-check refuses is routed through the complete frontier instead of failing, each scenario pinning the counter of the entry it claims (§4.5.2 step 7), and a merge-path overflow failing *before* the integration still leaves the transaction unable to commit (§4.5.6); over constructed tries, a pair, a branch placement, a split-half sub-insert and a strand discharge whose new extreme would cross a neighbour decline to the complete frontier instead of publishing an unordered path, a boundary slice whose plain compression would drop a child's more significant bit is rebuilt as a canonical block, and a slice with no canonical block declines its candidate inside the retry loop rather than aborting the insert (§4.5.4) — most fixtures call the predicate or the handler directly and do not claim that an ordinary insertion reaches that candidate for these small tries |
 | Concurrency and lifetime | `HOTLeafWriterGuardTest` (10), `HOTLeafUseAfterCloseTest` (1), `HOTReaderEvictionProgressTest` (4), `HOTPostingDeleteEvictionTest` (1), `index/hot/page/HOTLeafPageStampTest` (10), `access/trx/page/HOTLeafCacheCanonicalizationTest` (11), `index/hot/cache/HOTLookupCache*Test` (34) | stamps, guards, eviction progress, cache canonicalization, lookup-cache key exactness and invalidation |
 | Reader | `HOTTrieReaderPextSeekTest` (5), `HOTRangeScanOrderTest` (2), `HOTTrieReaderBoundContractTest`, `HOTTrieReaderBoundPropertyTest`, `HOTTrieReaderCasRangeRegressionTest` | PEXT seek against an unsigned-lex oracle after cold reopen; each key in range exactly once, ascending; the lower- and upper-bound contract of §4.3.1: on hand-built tries for every probe of their key universe, including search keys routed below or above their leaf and keys no bit separates from a stored key; on bulk-built and writer-built tries against a sorted reference for fixed seeds (fresh seeds in `test/property/HotBoundSeekOracleRandomTest`); and end to end through CAS range filters with absent lower bounds. Each suite asserts that its probes reach the geometry it claims |
 | Index builds | `index/JsonCASIndexBuildTest`, `JsonPathAndNameIndexBuildTest`, `JsonIndexDropRecreateVersioningTest` | `STRUCTURAL_VALIDATION_FAILURE` stays zero during real index builds (`JsonCASIndexBuildTest.java:170-176`) |
@@ -2054,9 +2153,8 @@ Read by no `src/main` code, though documents or tests still mention them: `hot.s
    higher layer does was not traced.
 3. **Thread-safety of one index reader** across threads: the walk-state pool suggests yes, the storage
    reader contract says no (§4.9.5).
-4. **Stale heights on descending inserts** (`docs/HOT_BULK_BUILD.md:63-66`): `integrate` consumes heights
-   and `heightOf` now fails closed on unresolved children (`hot/HOTIncrementalInsert.java:2175-2178`);
-   whether the reported issue still occurs was not established.
+4. **Remaining excess height on skewed descending inserts**: see §2.6 for the normalization
+   contract, regression bounds and remaining frontier-shape follow-up under issue #1452.
 5. **I5 coverage for oversized mutation scopes** (§5.3 item 2).
 6. **`short` MSB index** for keys longer than 4 095 bytes (NAME keys are not bounded) (§2.6.1).
 7. **Integrity of HOT subtrees**: indirect children and leaf fragments are unhashed (§3.6), so a torn or
@@ -2079,11 +2177,11 @@ the cited file. Several are already wrong (the §6.2 counter tally's
 | Document | Covers | Verdict on the merged tree |
 |---|---|---|
 | `docs/DISK_FORMAT.md` | file layout, envelope, kind ids, index container pages, projection slot layout, CAS/VALIDTIME posting layout | owns posting key and marker formats; HOT page-body details and integrity limits remain in §3.6 |
-| `docs/HOT_BULK_BUILD.md` | canonicity verdict, memory arithmetic, bulk vs incremental shape | mostly current; "zero-self-heal witness" (`:57-58`) and "Stage-3c machinery" (`:125`, now `propagateStructuralSpliceUpSpine`) are stale; the stale-heights open item is unverified |
+| `docs/HOT_BULK_BUILD.md` | canonicity verdict, memory arithmetic, bulk vs incremental shape | historical probe shapes; current height contract is in §2.6; "zero-self-heal witness" and "Stage-3c machinery" (now `propagateStructuralSpliceUpSpine`) remain stale |
 | `docs/HOT_FORMAL_FOUNDATION.md` | formal model, Theorems 1-3 | theorems current; §8 detect-and-rebuild not implemented; "right-padded keys" model (`:34-36`) differs from unsigned-prefix order (§2.5); line references stale (`findChildIndex` at `:71`) |
 | `docs/HOT_INCREMENTAL_SPLIT_VERIFICATION.md` | Binna split proofs | archive note; design basis of `HOTIncrementalInsert`; does not cover SirixDB-specific handlers |
-| `docs/HOT_PAPER_IMPOSSIBILITY.md` | impossibility of local fixes | theorems stand; self-heal mechanism and figures stale; no archive note |
-| `docs/HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` | removal of the straddle guard | **implemented**; "Status: design, pending review" (`:3`) is wrong; line references (`:20-22`) invalid; says `rebuildSubtree` "stays" (`:111-119`, `:431`) — removed; cites the test-only `HOTInvariantValidator` as production (`:61`) |
+| `docs/HOT_PAPER_IMPOSSIBILITY.md` | impossibility of local fixes | historical paper draft; self-heal mechanism and figures stale; current height contract is in §2.6 |
+| `docs/HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` | removal of the straddle guard | historical design and review record; minimum-height arguments withdrawn; current height contract is in §2.6; rebuild descriptions and line references predate removal of `rebuildSubtree` |
 | `docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md` | β ∈ D cases without rebuild | **implemented**; status line (`:3`) and line references (`:18-28`) stale |
 | `docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md` | removal of rebuild fallbacks | implemented and exceeded; mentions `-Dhot.diag.healDump`, `detectAndHeal` and "heal machinery stays" (`:3-38`), all removed; `propagateRebuildUpSpine` is now `propagateStructuralSpliceUpSpine` |
 | `docs/HOT_ADDENTRY_STRADDLE_FIX.md` | straddle guard + `rebuildSubtree` | self-declared superseded; historical |

@@ -75,6 +75,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
 import io.sirix.page.CASPage;
+import io.sirix.index.hot.HOTCommitNormalizer;
 import io.sirix.index.hot.page.HOTIndirectPage;
 import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
@@ -133,6 +134,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -297,6 +299,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * writer; rollback replaces the writer instead of clearing the cause in place.
    */
   private volatile @Nullable Throwable transactionRollbackOnlyCause;
+
+  /** A dirty HOT root is normalized once, before this recursive serialization enters its children. */
+  private boolean committingHotSubtree;
 
   /**
    * State captured for leak diagnostics. Static class with no reference to the enclosing writer —
@@ -836,10 +841,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
      * copy/view failure therefore leaves the live reference heap-backed and unstaged.
      */
     private OverflowPage copyToNative(final OverflowPage page) {
-      final int payloadLength = page.dataLength();
       final long payloadOffset = payloadBytes;
       page.copyDataTo(payloadStorage, payloadOffset);
-      return new OverflowPage(readOnlyPayloadStorage, payloadOffset, payloadLength);
+      return page.stagedView(readOnlyPayloadStorage, payloadOffset);
     }
 
     private void addReserved(final PageReference reference, final int payloadLength, final long localityGroup) {
@@ -3794,6 +3798,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
+  static void shutdownSharedExecutors() {
+    SnapshotExecutorShutdown.drain(SNAPSHOT_APPEND_EXECUTOR, SNAPSHOT_FLUSH_POOL);
+  }
+
   private static SnapshotAppendExecutor createSnapshotAppendExecutor() {
     final int processors = Runtime.getRuntime().availableProcessors();
     final int parallelism =
@@ -4242,46 +4250,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     PageContainer container = log.get(reference);
 
     if (container == null) {
-      // Overflow pages (#1076) are created in-memory by KeyValueLeafPage#processEntries and
-      // hang off the owning leaf's references map WITHOUT a TransactionIntentLog entry (their
-      // logKey stays NULL, so the stale-claim guard below never applies to them). The leaf's
-      // Page#commit recursion lands here for them — write the page and record its disk key so
-      // the leaf serializes a resolvable key instead of NULL (the read path requires
-      // reference.getKey() != NULL_ID_LONG to load the overflow record).
-      // Side-map overflow pages follow the identical discipline (they hang off a HOTLeafPage's
-      // side map without a TIL entry — HOTLeafPage#commit recursion lands here, exactly like
-      // OverflowPage refs off a KeyValueLeafPage): write the page, record its offset key so the
-      // owning leaf serializes a resolvable reference. A reference that already carries a disk
-      // key with no in-memory page is an unchanged segment shared from a prior revision — it
-      // falls through to the no-op return below by design.
-      final var sideMapPage = reference.getPage();
-      if (sideMapPage instanceof OverflowPage && reference.getKey() == Constants.NULL_ID_LONG) {
-        if (reference.hasPendingPageWrite()) {
-          throw new SirixIOException("Recursive commit reached an immutable side page whose background write is "
-              + "still pending — awaitPendingAsyncFlush must drain every active side-page batch before root "
-              + "serialization");
-        }
-        writeUncommittedPage(getResourceSession().getResourceConfig(), reference, sideMapPage, bufferBytes);
-        reference.setPage(null);
-        return;
-      }
-      // Fail loudly on an unresolvable TIL claim (#1077): a reference that still carries a
-      // logKey after all three TIL layers missed — with no disk offset either — is a stale
-      // CoW copy whose backing entry is gone. Returning silently here serialized the parent
-      // with child key -1, making the flushed subtree vanish from the committed revision
-      // without any error. (A Layer-3 resolution resets the logKey and assigns the disk key,
-      // so a resolved stale copy never trips this guard.)
-      if (reference.getLogKey() >= 0 && reference.getKey() == Constants.NULL_ID_LONG) {
-        throw new SirixIOException("Commit traversal hit an unresolvable stale page reference (logKey="
-            + reference.getLogKey() + ", generation=" + reference.getActiveTilGeneration()
-            + "): the referenced page is in no TIL layer and has no disk offset — refusing to"
-            + " serialize a dangling child pointer (data would silently be lost).");
-      }
-      materializeSpilledPage(reference);
+      commitUnloggedReference(reference);
       return;
     }
 
-    final var page = container.getModified();
+    Page page = container.getModified();
 
     // Guard against double-commit: when a HOTIndirectPage is COW'd, its child
     // references are copied via new PageReference(original). The copy shares the
@@ -4289,46 +4262,100 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // committed (and its off-heap memory freed) through the original reference,
     // skip re-serialization and copy the disk key from the original reference.
     if (page.isClosed()) {
-      final int logKey = reference.getLogKey();
-      if (logKey >= 0) {
-        final PageReference originalRef = log.getOriginalRef(reference);
-        if (originalRef != null && originalRef != reference) {
-          if (originalRef.getKey() >= 0) {
-            reference.setKey(originalRef.getKey());
-            reference.copyHashFrom(originalRef);
-          }
-        }
-      }
-      materializeSpilledPage(reference);
+      resolveClosedCommitReference(reference);
       return;
     }
 
-    // Recursively commit indirectly referenced pages and then write self.
-    page.commit(this);
-    requireNoSpillKeys(reference, page);
-    final PageReference.TransactionLogReference logReference = reference.transactionLogReference();
-    writeUncommittedPage(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
-    PageReference.completeTransactionLogReference(logReference, reference.getKey(), reference.getHashAsLong(),
-        reference.hasHash());
+    final boolean alreadyCommittingHot = committingHotSubtree;
+    try {
+      if (!alreadyCommittingHot && page instanceof HOTIndirectPage indirect && indirect.needsNormalization()) {
+        committingHotSubtree = true;
+        page = HOTCommitNormalizer.normalize(reference, indirect, this,
+            storageEngineReader.resourceSession.getHOTCommitScratch());
+        container = Objects.requireNonNull(log.get(reference));
+      }
+      // Recursively commit indirectly referenced pages and then write self.
+      page.commit(this);
+      requireNoSpillKeys(reference, page);
+      final PageReference.TransactionLogReference logReference = reference.transactionLogReference();
+      writeUncommittedPage(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
+      PageReference.completeTransactionLogReference(logReference, reference.getKey(), reference.getHashAsLong(),
+          reference.hasHash());
 
-    // Propagate disk offset to TIL back-reference so other PageReference copies
-    // (from CoW'd indirect pages sharing the same logKey) can resolve the disk key
-    // when they hit the isClosed() guard in a subsequent commit(ref) call.
-    final int refLogKey = reference.getLogKey();
-    if (refLogKey >= 0) {
-      final PageReference backRef = log.getOriginalRef(reference);
-      if (backRef != null && backRef != reference && backRef.getKey() < 0) {
-        backRef.setKey(reference.getKey());
-        backRef.copyHashFrom(reference);
+      // Propagate disk offset to TIL back-reference so other PageReference copies
+      // (from CoW'd indirect pages sharing the same logKey) can resolve the disk key
+      // when they hit the isClosed() guard in a subsequent commit(ref) call.
+      final int refLogKey = reference.getLogKey();
+      if (refLogKey >= 0) {
+        final PageReference backRef = log.getOriginalRef(reference);
+        if (backRef != null && backRef != reference && backRef.getKey() < 0) {
+          backRef.setKey(reference.getKey());
+          backRef.copyHashFrom(reference);
+        }
+      }
+      reference.refreshTransactionLogReference();
+
+      container.getComplete().close();
+      page.close();
+
+      // Remove page reference.
+      reference.setPage(null);
+    } finally {
+      committingHotSubtree = alreadyCommittingHot;
+    }
+  }
+
+  private void commitUnloggedReference(final PageReference reference) {
+    // Overflow pages (#1076) are created in-memory by KeyValueLeafPage#processEntries and
+    // hang off the owning leaf's references map WITHOUT a TransactionIntentLog entry (their
+    // logKey stays NULL, so the stale-claim guard below never applies to them). The leaf's
+    // Page#commit recursion lands here for them — write the page and record its disk key so
+    // the leaf serializes a resolvable key instead of NULL (the read path requires
+    // reference.getKey() != NULL_ID_LONG to load the overflow record).
+    // Side-map overflow pages follow the identical discipline (they hang off a HOTLeafPage's
+    // side map without a TIL entry — HOTLeafPage#commit recursion lands here, exactly like
+    // OverflowPage refs off a KeyValueLeafPage): write the page, record its offset key so the
+    // owning leaf serializes a resolvable reference. A reference that already carries a disk
+    // key with no in-memory page is an unchanged segment shared from a prior revision — it
+    // falls through to the no-op return below by design.
+    final var sideMapPage = reference.getPage();
+    if (sideMapPage instanceof OverflowPage && reference.getKey() == Constants.NULL_ID_LONG) {
+      if (reference.hasPendingPageWrite()) {
+        throw new SirixIOException("Recursive commit reached an immutable side page whose background write is "
+            + "still pending — awaitPendingAsyncFlush must drain every active side-page batch before root "
+            + "serialization");
+      }
+      writeUncommittedPage(getResourceSession().getResourceConfig(), reference, sideMapPage, bufferBytes);
+      reference.setPage(null);
+      return;
+    }
+    // Fail loudly on an unresolvable TIL claim (#1077): a reference that still carries a
+    // logKey after all three TIL layers missed — with no disk offset either — is a stale
+    // CoW copy whose backing entry is gone. Returning silently here serialized the parent
+    // with child key -1, making the flushed subtree vanish from the committed revision
+    // without any error. (A Layer-3 resolution resets the logKey and assigns the disk key,
+    // so a resolved stale copy never trips this guard.)
+    if (reference.getLogKey() >= 0 && reference.getKey() == Constants.NULL_ID_LONG) {
+      throw new SirixIOException("Commit traversal hit an unresolvable stale page reference (logKey="
+          + reference.getLogKey() + ", generation=" + reference.getActiveTilGeneration()
+          + "): the referenced page is in no TIL layer and has no disk offset — refusing to"
+          + " serialize a dangling child pointer (data would silently be lost).");
+    }
+    materializeSpilledPage(reference);
+  }
+
+  private void resolveClosedCommitReference(final PageReference reference) {
+    final int logKey = reference.getLogKey();
+    if (logKey >= 0) {
+      final PageReference originalRef = log.getOriginalRef(reference);
+      if (originalRef != null && originalRef != reference) {
+        if (originalRef.getKey() >= 0) {
+          reference.setKey(originalRef.getKey());
+          reference.copyHashFrom(originalRef);
+        }
       }
     }
-    reference.refreshTransactionLogReference();
-
-    container.getComplete().close();
-    page.close();
-
-    // Remove page reference.
-    reference.setPage(null);
+    materializeSpilledPage(reference);
   }
 
   @Override

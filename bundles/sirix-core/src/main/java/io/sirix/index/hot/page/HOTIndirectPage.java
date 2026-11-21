@@ -210,7 +210,10 @@ public final class HOTIndirectPage implements Page {
   // ===== Page identity =====
   private final long pageKey;
   private final int revision;
-  private final int height; // Distance from leaves
+  private int height; // Exact distance from leaves; changes only on a transaction-owned CoW page.
+
+  /** Transient writer hint; cleared after normalization and on durable decode. */
+  private boolean normalizationPending;
 
   // ===== Node structure =====
   private final NodeType nodeType;
@@ -441,9 +444,15 @@ public final class HOTIndirectPage implements Page {
    */
   private HOTIndirectPage(long pageKey, int revision, int height, NodeType nodeType, int numChildren,
       byte @Nullable [] extractionPositions, int numExtractionBytes) {
+    this(pageKey, revision, height, nodeType, numChildren, extractionPositions, numExtractionBytes, null);
+  }
+
+  private HOTIndirectPage(long pageKey, int revision, int height, NodeType nodeType, int numChildren,
+      byte @Nullable [] extractionPositions, int numExtractionBytes, int @Nullable [] shuffleScratch) {
     this.pageKey = pageKey;
     this.revision = revision;
     this.height = height;
+    this.normalizationPending = height > 1;
     this.nodeType = nodeType;
     this.numChildren = numChildren;
     this.childReferences = new PageReference[numChildren];
@@ -476,7 +485,10 @@ public final class HOTIndirectPage implements Page {
     }
     // Build shuffle indices: lane i → offset of extractionPositions[i] within load window.
     // Unused lanes (>= numExtractionBytes) point to byte 0 (don't-care value, avoids out-of-range).
-    final int[] shuffleIndices = new int[vectorLen];
+    final int[] shuffleIndices = shuffleScratch == null
+        ? new int[vectorLen]
+        : shuffleScratch;
+    Arrays.fill(shuffleIndices, 0, vectorLen, 0);
     for (int i = 0; i < numExtractionBytes; i++) {
       shuffleIndices[i] = (extractionPositions[i] & 0xFF) - minPos;
     }
@@ -503,6 +515,7 @@ public final class HOTIndirectPage implements Page {
     this.pageKey = pageKey;
     this.revision = revision;
     this.height = other.height;
+    this.normalizationPending = other.normalizationPending;
     this.nodeType = other.nodeType;
     this.layoutType = other.layoutType;
     this.numChildren = other.numChildren;
@@ -543,6 +556,7 @@ public final class HOTIndirectPage implements Page {
   public HOTIndirectPage copyWithUpdatedChild(int childIndex, PageReference newChildRef) {
     HOTIndirectPage copy = new HOTIndirectPage(this);
     copy.childReferences[childIndex] = newChildRef;
+    copy.markNormalizationNeeded();
     return copy;
   }
 
@@ -878,6 +892,7 @@ public final class HOTIndirectPage implements Page {
   public void setChildReference(int index, PageReference ref) {
     Objects.checkIndex(index, numChildren);
     childReferences[index] = ref;
+    markNormalizationNeeded();
     // UNCONDITIONAL volatile store, deliberately not guarded by a `!= null` pre-check. The guard
     // would be a check-then-act on a field a concurrent reader publishes: a reader inside
     // cacheChildFirstKey can observe null, this writer can then observe null and skip the clear,
@@ -1023,6 +1038,35 @@ public final class HOTIndirectPage implements Page {
    */
   public int getHeight() {
     return height;
+  }
+
+  /** Constant-time guard: a leaf-level block cannot contain a foldable compound child. */
+  public boolean needsNormalization() {
+    return height > 1 && normalizationPending;
+  }
+
+  /** Mark this transaction-owned spine after structural publication, even without height growth. */
+  public void markNormalizationNeeded() {
+    normalizationPending = true;
+  }
+
+  /** No structural opportunity remains until a later writer mutation; never serialized. */
+  public void markNormalized() {
+    normalizationPending = false;
+  }
+
+  /**
+   * Maintain exact structural height on an exclusively transaction-owned copy. Callers must never
+   * modify a committed/cache-shared page; routing fields and leaf contents are unchanged.
+   */
+  public void setHeightForWrite(final int height) {
+    if (height < 1 || height > 255) {
+      throw new IllegalArgumentException("HOT indirect height must fit the nonzero u8 wire field");
+    }
+    if (this.height != height) {
+      markNormalizationNeeded();
+      this.height = height;
+    }
   }
 
   /**
@@ -1181,11 +1225,17 @@ public final class HOTIndirectPage implements Page {
   }
 
   private int[] computeDiscriminativeBits() {
+    final int[] bits = new int[getTotalDiscBits()];
+    copyDiscriminativeBits(bits);
+    return bits;
+  }
+
+  /** Copy mask positions into caller-owned scratch without populating the allocating lazy cache. */
+  public int copyDiscriminativeBits(final int[] bits) {
+    final int count = getTotalDiscBits();
+    Objects.checkFromIndexSize(0, count, bits.length);
+    int idx = 0;
     if (layoutType == LayoutType.MULTI_MASK) {
-      final int[] bits = new int[getTotalDiscBits()];
-      int idx = 0;
-      // Extraction bytes are in ascending key-byte order; within a byte, mask bit 1 << (7 - b)
-      // is MSB-first bit-in-byte b — iterate b ascending for sorted output.
       for (int o = 0; o < numExtractionBytes; o++) {
         final int bytePos = extractionPositions[o] & 0xFF;
         final int byteMask = (int) ((extractionMasks[o / 8] >>> ((7 - o % 8) * 8)) & 0xFFL);
@@ -1195,16 +1245,14 @@ public final class HOTIndirectPage implements Page {
           }
         }
       }
-      return bits;
-    }
-    final int[] bits = new int[Long.bitCount(bitMask)];
-    int idx = 0;
-    for (int longBit = 63; longBit >= 0; longBit--) { // long bit 63 = most significant
-      if ((bitMask & (1L << longBit)) != 0) {
-        bits[idx++] = initialBytePos * 8 + (63 - longBit);
+    } else {
+      for (int longBit = 63; longBit >= 0; longBit--) {
+        if ((bitMask & (1L << longBit)) != 0) {
+          bits[idx++] = initialBytePos * 8 + (63 - longBit);
+        }
       }
     }
-    return bits;
+    return count;
   }
 
   /**
@@ -1325,6 +1373,7 @@ public final class HOTIndirectPage implements Page {
 
     // Update the specified child reference
     copy.childReferences[childIndex] = newChildRef;
+    copy.markNormalizationNeeded();
     return copy;
   }
 
@@ -1381,6 +1430,82 @@ public final class HOTIndirectPage implements Page {
     page.partialKeys = partialKeys.clone();
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length, determinePartialKeyWidth(bitMask));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
+    return page;
+  }
+
+  /**
+   * Assemble one accepted commit fold from sorted primitive scratch. Only the page and its owned
+   * routing storage are allocated; no borrowed arrays escape. The caller supplies reusable shuffle
+   * construction scratch, so even a MultiMask needs no boxed map or temporary extraction arrays.
+   */
+  public static HOTIndirectPage createFoldedNode(final long pageKey, final int revision, final int height,
+      final int[] bits, final int bitCount, final int[] partials, final PageReference[] children, final int count,
+      final int[] shuffleScratch) {
+    if (bitCount < 1 || bitCount > Integer.SIZE || count < 2 || count > MAX_NODE_ENTRIES || height < 1
+        || height > 255) {
+      throw new IllegalArgumentException("Invalid HOT folded page dimensions");
+    }
+    Objects.checkFromIndexSize(0, bitCount, bits.length);
+    Objects.checkFromIndexSize(0, count, partials.length);
+    Objects.checkFromIndexSize(0, count, children.length);
+    Objects.checkFromIndexSize(0, BYTE_SPECIES.length(), shuffleScratch.length);
+    int previous = -1;
+    int extractionCount = 0;
+    for (int i = 0; i < bitCount; i++) {
+      if (bits[i] <= previous) {
+        throw new IllegalArgumentException("Folded discriminators must be nonnegative and strictly ordered");
+      }
+      if ((bits[i] >>> 3) != (previous >>> 3)) {
+        extractionCount++;
+      }
+      previous = bits[i];
+    }
+    final int firstByte = bits[0] >>> 3;
+    final int lastByte = bits[bitCount - 1] >>> 3;
+    final boolean multiMask = lastByte - firstByte >= Long.BYTES;
+    if (multiMask && lastByte > 255) {
+      throw new IllegalArgumentException("Folded MultiMask byte positions exceed u8");
+    }
+    final byte[] positions;
+    final long[] masks;
+    long singleMask = 0;
+    if (multiMask) {
+      positions = new byte[extractionCount];
+      masks = new long[(extractionCount + 7) / 8];
+      int extraction = -1;
+      int previousByte = -1;
+      for (int i = 0; i < bitCount; i++) {
+        final int bytePos = bits[i] >>> 3;
+        if (bytePos != previousByte) {
+          positions[++extraction] = (byte) bytePos;
+          previousByte = bytePos;
+        }
+        masks[extraction / 8] |= (long) (1 << (7 - (bits[i] & 7))) << ((7 - extraction % 8) * 8);
+      }
+    } else {
+      positions = null;
+      masks = null;
+      for (int i = 0; i < bitCount; i++) {
+        singleMask |= 1L << (63 - (bits[i] - firstByte * 8));
+      }
+    }
+    final NodeType type = count <= 16
+        ? NodeType.SPAN_NODE
+        : NodeType.MULTI_NODE;
+    final HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, type, count, positions, multiMask
+        ? extractionCount
+        : 0, shuffleScratch);
+    page.layoutType = multiMask
+        ? LayoutType.MULTI_MASK
+        : LayoutType.SINGLE_MASK;
+    page.initialBytePos = firstByte;
+    page.bitMask = singleMask;
+    page.extractionMasks = masks;
+    page.mostSignificantBitIndex = (short) bits[0];
+    page.partialKeys = Arrays.copyOf(partials, count);
+    page.sparsePartialKeys =
+        createSparsePartialKeys(page.partialKeys, count, determinePartialKeyWidthFromBitCount(bitCount));
+    System.arraycopy(children, 0, page.childReferences, 0, count);
     return page;
   }
 

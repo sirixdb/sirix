@@ -146,7 +146,7 @@ final class NativeCodecLibraryTest {
   }
 
   @Test
-  void bundledAdaptersShareOneProcessLifetimeLibrary() {
+  void bundledLibraryLoadsOncePerProcess() {
     assumeTrue(System.getProperty("os.name").contains("Linux"));
     assumeTrue(System.getProperty("os.arch").equals("amd64"));
     assumeTrue(getClass().getResource("/native/linux-x86_64/libsirix_lz77.so") != null);
@@ -154,6 +154,5 @@ final class NativeCodecLibraryTest {
     assertNotNull(library);
     assertSame(library, NativeCodecLibrary.lookup());
     assertTrue(library.find("sirix_lz77_decode").isPresent());
-    assertTrue(library.find("sirix_lz4_decode_range").isPresent());
   }
 }

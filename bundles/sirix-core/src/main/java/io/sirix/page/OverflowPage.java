@@ -57,6 +57,7 @@ public final class OverflowPage implements Page {
 
   /** Exact payload length for either representation. */
   private final int dataLength;
+  private final boolean projectionPayload;
 
   /** Native views are valid only while their append batch owns them. */
   private volatile boolean closed;
@@ -79,6 +80,15 @@ public final class OverflowPage implements Page {
    * @throws IllegalArgumentException if {@code data} is null
    */
   public OverflowPage(final byte[] data) {
+    this(data, false);
+  }
+
+  /** The producer's typed projection payload, before applying an outer codec. */
+  public static OverflowPage forProjectionPayload(final byte[] data) {
+    return new OverflowPage(data, true);
+  }
+
+  private OverflowPage(final byte[] data, final boolean projectionPayload) {
     if (data == null) {
       throw new IllegalArgumentException("overflow page data must not be null");
     }
@@ -86,6 +96,7 @@ public final class OverflowPage implements Page {
     nativeData = null;
     nativeOffset = 0L;
     dataLength = data.length;
+    this.projectionPayload = projectionPayload;
   }
 
   /**
@@ -103,6 +114,10 @@ public final class OverflowPage implements Page {
    * @param length exact payload length
    */
   public OverflowPage(final MemorySegment data, final long offset, final int length) {
+    this(data, offset, length, false);
+  }
+
+  private OverflowPage(final MemorySegment data, final long offset, final int length, final boolean projectionPayload) {
     if (data == null) {
       throw new IllegalArgumentException("overflow page data segment must not be null");
     }
@@ -121,6 +136,16 @@ public final class OverflowPage implements Page {
     nativeData = data;
     nativeOffset = offset;
     dataLength = length;
+    this.projectionPayload = projectionPayload;
+  }
+
+  public boolean isProjectionPayload() {
+    return projectionPayload;
+  }
+
+  /** Preserve the payload mode when the append batch takes ownership of its bytes. */
+  public OverflowPage stagedView(final MemorySegment data, final long offset) {
+    return new OverflowPage(data, offset, dataLength, projectionPayload);
   }
 
 

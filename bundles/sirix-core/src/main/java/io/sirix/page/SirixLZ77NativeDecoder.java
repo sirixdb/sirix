@@ -26,9 +26,9 @@ import java.lang.invoke.MethodHandle;
  * heaps vs ~2.2 GB/s for {@code LZ4_decompress_safe} on the same data (LZ4 is our reference
  * baseline).
  *
- * <h2>Loading</h2> {@link NativeCodecLibrary} shares the process-lifetime library with the LZ4
- * range adapter. If loading fails we fall back to the pure-Java decoder transparently. Staging and
- * platform requirements are documented in {@code docs/operations.md}.
+ * <h2>Loading</h2> {@link NativeCodecLibrary} loads the bundled library once per process. If loading
+ * fails we fall back to the pure-Java decoder transparently. Staging and platform requirements are
+ * documented in {@code docs/operations.md}.
  *
  * <h2>HFT constraints</h2>
  * <ul>

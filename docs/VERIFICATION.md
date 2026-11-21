@@ -340,6 +340,31 @@ late native-image properties and values containing commas or whitespace. The
 [Gradle configuration](../gradle/pr-mutation.gradle) owns the encoding for PIT's comma-separated
 CLI and Java launcher argument file; those arguments remain intact across both transports.
 
+## HOT leaf encoding release acceptance
+
+Use the [paired read and allocation gate](../bundles/sirix-benchmarks/scripts/HOT_LEAF_CODEC_GATE.md)
+for the FMT-210 through FMT-217 change. Score the 12 leaf endpoints
+individually against main. Apply the zero-allocation criterion on the
+JVM and native image. Record which paths the allocation counters cover.
+Run the existing [work budgets](#running-the-layers) with their existing
+bounds. Include a warmed allocation budget for packed ordinal search and
+sorted intersection with preallocated inputs and results.
+
+Once the leaf endpoints pass, run the SH1 t250k and t1M read legs
+with warm reads, a fresh process with a warm OS cache, and device-cold
+reads. Follow with JSONBench and ClickBench read legs at 10M. Assess
+each projection payload category proposed for default outer compression.
+Record the category, its paired result and the writer setting in the
+change review before enabling the policy. On equivalent datasets and
+revision histories, total stored bytes must fall below main. Report
+bytes and percentage changes for the whole store and by page kind.
+
+Include the packed leaf modes in the HOT eviction reconstruction
+sweeps when both changes are present. Exercise grouped keys, alias
+owners and framed postings under frame replacement. Compare stable
+historical reads and reconstructed keys, values and postings with
+an independent non-evicting oracle.
+
 ## Running the layers
 
 The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a separate JVM with
@@ -347,11 +372,13 @@ The normal core test task also runs `ValidTimeDisabledLookupCacheTest` in a sepa
 It checks fresh interval roots and all companion postings after truncation reuses a revision number,
 and the surviving historical revision, under all four versioning types. Run it alone with
 `./gradlew :sirix-core:validTimeDisabledLookupCacheTest`; enabled-cache tests retain their usual settings.
-The normal core task also runs `GlobalValueDictionaryReadViewMissPathTest`,
-`InlineSlotCopyAllocationBudgetTest`, `HOTLeafCodecAllocationTest`,
-`HOTLeafLookupAllocationTest` and `JavaLz4BlockDecoderAllocationTest` in a separate JVM so
-inline Mockito mocks in other suites cannot affect their allocation measurements. Run this normal-width fork alone
-with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`.
+The normal core task also runs the allocation suites selected by
+[`dictionaryReadViewAllocationTest`](../bundles/sirix-core/build.gradle) in a separate JVM so
+inline Mockito mocks in other suites cannot affect their allocation measurements. Run that fork
+alone with `./gradlew :sirix-core:dictionaryReadViewAllocationTest`. For only the HOT commit
+allocation checks, add `--tests 'io.sirix.index.hot.HOTCommitAllocationBudgetTest'`; the
+[HOT specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing) owns their allocation contract.
+
 The normal core task also runs `:sirix-core:hotLeafNarrowVectorAllocationTest`, a clean
 HotSpot C2 fork with `-XX:MaxVectorSize=16`. Its JVM arguments unlock experimental
 options before disabling JVMCI; verify this fork on the CI Temurin JDK as well as
@@ -360,11 +387,6 @@ It retains the strict raw/encoded codec
 allocation gate and checks both cached lookup overloads against unsigned key ordering
 and zero allocation for byte, short and int partial keys. The normal-width clean fork
 also runs those lookup cases, so narrower-vector coverage does not replace wider-vector coverage.
-Leaf compression is opt-in and read once per process, so the standard test JVM writes raw leaves.
-`:sirix-core:hotLeafCompressionEnabledTest` and `:sirix-query:hotLeafCompressionEnabledTest` set
-`sirix.page.hotLeaf.compress=true` and rerun the leaf, HOT storage and index round-trip suites and the
-bitemporal storage-epoch suites, so the encoded writer keeps end-to-end coverage. The normal test tasks
-run both forks; the core one is skipped in the `hot-property` lane.
 
 The normal core task also runs `StorageEpochStoreIdentityTest`,
 `StorageEpochDifferentialTest` and `StorageEpochFsstInlineDecisionTest` in a separate JVM

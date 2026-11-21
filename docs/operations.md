@@ -201,10 +201,9 @@ operator-owned configuration path, for example `io.sirix.rest.SirixVerticle -con
 
 ### `libsirix_lz77.so`
 
-The bundled Linux x86_64 library contains the native LZ77 decoder and the LZ4
-range adapter. It is embedded as a JAR resource at
-`/native/linux-x86_64/libsirix_lz77.so`. `NativeCodecLibrary` loads it once per
-process when either codec initializes. Staging uses a content-addressed filename
+The bundled Linux x86_64 library contains the native LZ77 decoder. It is
+embedded at `/native/linux-x86_64/libsirix_lz77.so`. `NativeCodecLibrary`
+loads it once per process when the native decoder initializes. Staging uses a content-addressed filename
 under `${java.io.tmpdir}/sirix-native-${user.name}`, trying the same directory
 under `${user.home}` if staging in the temp directory fails. Publication never
 rewrites a library already mapped by another process.

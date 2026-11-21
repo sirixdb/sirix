@@ -1912,19 +1912,13 @@ public enum VersioningType {
     final boolean projectionValues = oldest.getIndexType().hasOpaqueValues();
     final int oldestEntryCount = oldest.getEntryCount();
     for (int j = 0; j < oldestEntryCount; j++) {
-      // Classify off the off-heap slice: getValue would copy the ENTIRE payload (a serialized
-      // bitmap, or a projection descriptor up to the slot-value limit) out of off-heap memory just
-      // to read one byte, once per entry of the aging fragment, on the default commit path.
-      final MemorySegment value = oldest.getValueSlice(j);
-      // Tombstones aging out need no preservation: anything they shadowed is already gone from the
-      // window (older than the oldest fragment), so re-emitting them would only leak dead markers.
-      // Projection values are opaque bytes and use the zero-length payload as their tombstone.
-      // In particular, a live one-byte projection value may legitimately equal the posting
-      // index's 0xFE wire marker and must still be carried forward when this fragment ages out.
-      // Keep the classification allocation-free: both predicates inspect the resident slice.
+      // An aging entry only needs classification. The slot handle avoids unpacking a posting
+      // or wrapping a projection value slice.
+      final long value = oldest.valueRef(j);
+      // Opaque projection values use an empty payload as their tombstone.
       final boolean tombstone = projectionValues
-          ? value.byteSize() == 0
-          : NodeReferencesSerializer.isTombstone(value);
+          ? HOTLeafPage.refLength(value) == 0
+          : NodeReferencesSerializer.isTombstone(oldest, value);
       if (tombstone) {
         continue;
       }

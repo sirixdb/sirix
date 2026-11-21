@@ -118,7 +118,8 @@ final class HOTCompactFragmentReadTest {
     try (FileChannelReader reader = reader(new AtomicReference<>(frame(wire)), new ByteHandlerPipeline());
         HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG))) {
       assertTrue(compact.isCompactImage(), "this charge is only interesting for a compact image");
-      final long packed = compact.slots().byteSize();
+      final long packed = compact.slots().byteSize() + 64L * Short.BYTES;
+      assertEquals(packed, compact.getActualMemorySize(), "charge the retained narrow directory");
       final long perPageHeap = compact.estimatedCanonicalCacheRetainedHeapBytes();
       final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1L << 20);
       final PageReference key = new PageReference().setKey(123).setDatabaseId(0).setResourceId(0);
@@ -234,7 +235,7 @@ final class HOTCompactFragmentReadTest {
     }
     try (FileChannelReader reader = reader(new AtomicReference<>(frame(wire)), new ByteHandlerPipeline());
         HOTLeafPage compact = assertInstanceOf(HOTLeafPage.class, reader.readHOTLeafFragment(reference(), CONFIG))) {
-      assertEquals(17, offsetDirectoryLength(compact));
+      assertEquals(0, offsetDirectoryLength(compact), "the compact leaf reads its directory in place");
       try (HOTLeafPage copy = compact.copy()) {
         assertEquals(HOTLeafPage.MAX_ENTRIES, offsetDirectoryLength(copy));
         for (int row = 17; row < HOTLeafPage.MAX_ENTRIES; row++) {
@@ -243,7 +244,7 @@ final class HOTCompactFragmentReadTest {
         assertEquals(HOTLeafPage.MAX_ENTRIES, copy.size());
         assertFalse(copy.put(key(HOTLeafPage.MAX_ENTRIES), value(1)));
       }
-      assertEquals(17, offsetDirectoryLength(compact));
+      assertEquals(0, offsetDirectoryLength(compact), "the compact leaf reads its directory in place");
       final Class<? extends Throwable> rejection = HOTLeafPage.class.desiredAssertionStatus()
           ? AssertionError.class
           : IllegalStateException.class;
@@ -265,7 +266,7 @@ final class HOTCompactFragmentReadTest {
         }
         assertEquals(1, compact.getGuardCount());
         assertEquals(17, compact.size());
-        assertEquals(17, offsetDirectoryLength(compact));
+        assertEquals(0, offsetDirectoryLength(compact), "the compact leaf reads its directory in place");
         assertTrue(compact.isCompactImage());
         assertArrayEquals(wire, serialize(compact));
         try (HOTLeafPage copy = compact.copyForRead()) {
@@ -467,7 +468,7 @@ final class HOTCompactFragmentReadTest {
   private static int offsetDirectoryLength(final HOTLeafPage page) throws Exception {
     final Field directory = HOTLeafPage.class.getDeclaredField("slotOffsets");
     directory.setAccessible(true);
-    return ((int[]) directory.get(page)).length;
+    return ((char[]) directory.get(page)).length;
   }
 
   private static HOTLeafPage leaf(final int count) {

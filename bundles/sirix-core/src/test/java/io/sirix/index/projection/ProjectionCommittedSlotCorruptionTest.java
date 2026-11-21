@@ -73,7 +73,7 @@ final class ProjectionCommittedSlotCorruptionTest {
       packedEntry.set(LE.SHORT, 10, (short) declaredValueLength);
 
       final HOTLeafPage leaf =
-          new HOTLeafPage(1, 1, IndexType.PROJECTION, packedEntry, null, new int[] {0}, 1, 12, new byte[0], 0);
+          new HOTLeafPage(1, 1, IndexType.PROJECTION, packedEntry, null, new char[] {0}, 1, 12, new byte[0], 0);
       final ProjectionIndexPage projectionPage = new ProjectionIndexPage();
       final PageReference rootReference = projectionPage.getOrCreateReference(0);
       rootReference.setPage(leaf);

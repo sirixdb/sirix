@@ -902,7 +902,7 @@ final class HOTProjectionEntryReadTest {
 
     private HOTLeafPage add(final int revision) {
       final HOTLeafPage leaf = spy(new HOTLeafPage(revision, revision, IndexType.PROJECTION,
-          arena.allocate(HOTLeafPage.DEFAULT_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0));
+          arena.allocate(HOTLeafPage.DEFAULT_SIZE), null, new char[HOTLeafPage.MAX_ENTRIES], 0, 0));
       images.put((long) revision, leaf);
       leaves.add(leaf);
       return leaf;

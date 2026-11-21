@@ -42,6 +42,7 @@ import io.sirix.cache.Allocators;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.ByteLaneSearch;
 import io.sirix.index.hot.HOTIncrementalInsert;
+import io.sirix.index.hot.HOTPostingFrame;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.index.hot.PostingDeltas;
@@ -119,6 +120,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /** Immutable read-fragment policy: never lazily publish a routing index on a shared image. */
   private final boolean binarySearchOnly;
+  private final @Nullable HOTLeafBody packedBody;
 
   /** Default page size for off-heap allocation (64KB). */
   public static final int DEFAULT_SIZE = 64 * 1024;
@@ -129,6 +131,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * generic leaf-page facility used by projection segments and referenced posting chunks).
    */
   public static final byte FLAG_OVERFLOW_PAGE_REFS = 0x01;
+  public static final byte FLAG_NARROW_SLOT_OFFSETS = 0x04;
+  public static final byte SLOT_DIRECTORY_FLAGS =
+      FLAG_OVERFLOW_PAGE_REFS | FLAG_NARROW_SLOT_OFFSETS | HOTLeafBody.FLAG_BODY_MODE;
 
   /** Maximum sub-id in a side-map composite key (occupies the low 16 bits). */
   public static final int MAX_OVERFLOW_PAGE_REF_SUB_ID = 0xFFFF;
@@ -195,6 +200,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /** Empty prefix constant. */
   private static final byte[] EMPTY_PREFIX = new byte[0];
+  private static final char[] NO_SLOT_OFFSETS = new char[0];
+
+  /**
+   * Narrow a slot start to the in-memory u16 directory. Slot memory never exceeds
+   * {@link #DEFAULT_SIZE} bytes and every slot holds at least its two length headers, so every valid
+   * start fits; refuse anything else loudly instead of truncating it.
+   */
+  static char slotStart(final int offset) {
+    if ((offset & ~0xFFFF) != 0) {
+      throw new IllegalStateException("HOT slot start " + offset + " does not fit the u16 directory");
+    }
+    return (char) offset;
+  }
 
   /**
    * Unaligned short layout for zero-copy deserialization. When slotMemory is a slice, it may not be
@@ -213,6 +231,18 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public static long suffixProbeReads() {
     return SUFFIX_PROBE_READS.sum();
+  }
+
+  static void countSuffixProbe() {
+    if (READ_WORK_DIAG) {
+      SUFFIX_PROBE_READS.increment();
+    }
+  }
+
+  static void countSuffixProbes(final int probes) {
+    if (READ_WORK_DIAG) {
+      SUFFIX_PROBE_READS.add(probes);
+    }
   }
 
   /** Overflow-reference map probes, including misses. */
@@ -263,7 +293,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /**
    * Stages relocated slot offsets until a compacting replacement has copied every byte successfully.
    */
-  private static final ThreadLocal<int[]> COMPACT_OFFSETS_SCRATCH = ThreadLocal.withInitial(() -> new int[MAX_ENTRIES]);
+  private static final ThreadLocal<char[]> COMPACT_OFFSETS_SCRATCH =
+      ThreadLocal.withInitial(() -> new char[MAX_ENTRIES]);
 
   // ===== SIMD species for PEXT equality search =====
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
@@ -287,7 +318,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * Per-entry packed offsets: MAX_ENTRIES long for every writable leaf. An immutable compact image
    * owns exactly {@code entryCount} offsets; every copy restores full writable capacity.
    */
-  private final int[] slotOffsets;
+  private final char[] slotOffsets;
   private int entryCount;
   private int usedSlotMemorySize;
 
@@ -559,10 +590,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   HOTLeafPage(long recordPageKey, int revision, IndexType indexType,
       @Nullable MemorySegmentAllocator allocatorForTesting, @Nullable Runnable afterFrameAcquireForTesting) {
     this.binarySearchOnly = false;
+    this.packedBody = null;
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = Objects.requireNonNull(indexType);
-    this.slotOffsets = new int[MAX_ENTRIES];
+    this.slotOffsets = new char[MAX_ENTRIES];
     this.entryCount = 0;
     this.usedSlotMemorySize = 0;
     this.commonPrefix = EMPTY_PREFIX;
@@ -605,7 +637,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @param commonPrefixLen the length of the common prefix
    */
   public HOTLeafPage(long recordPageKey, int revision, IndexType indexType, MemorySegment slotMemory,
-      @Nullable Runnable releaser, int[] slotOffsets, int entryCount, int usedSlotMemorySize, byte[] commonPrefix,
+      @Nullable Runnable releaser, char[] slotOffsets, int entryCount, int usedSlotMemorySize, byte[] commonPrefix,
       int commonPrefixLen) {
     this(recordPageKey, revision, indexType, slotMemory, releaser, slotOffsets, entryCount, usedSlotMemorySize,
         commonPrefix, commonPrefixLen, false);
@@ -613,14 +645,24 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /** Decoder-only compact image. Copies made for reconstruction/writing restore normal routing. */
   public HOTLeafPage(long recordPageKey, int revision, IndexType indexType, MemorySegment slotMemory,
-      @Nullable Runnable releaser, int[] slotOffsets, int entryCount, int usedSlotMemorySize, byte[] commonPrefix,
+      @Nullable Runnable releaser, char[] slotOffsets, int entryCount, int usedSlotMemorySize, byte[] commonPrefix,
       int commonPrefixLen, boolean binarySearchOnly) {
+    this(recordPageKey, revision, indexType, slotMemory, releaser, slotOffsets, entryCount, usedSlotMemorySize,
+        commonPrefix, commonPrefixLen, binarySearchOnly, null);
+  }
+
+  public HOTLeafPage(long recordPageKey, int revision, IndexType indexType, MemorySegment slotMemory,
+      @Nullable Runnable releaser, char[] slotOffsets, int entryCount, int usedSlotMemorySize, byte[] commonPrefix,
+      int commonPrefixLen, boolean binarySearchOnly, @Nullable HOTLeafBody packedBody) {
     this.binarySearchOnly = binarySearchOnly;
+    this.packedBody = packedBody;
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = Objects.requireNonNull(indexType);
     this.releaser = releaser;
-    this.slotOffsets = Objects.requireNonNull(slotOffsets);
+    this.slotOffsets = packedBody == null
+        ? Objects.requireNonNull(slotOffsets)
+        : NO_SLOT_OFFSETS;
     this.entryCount = entryCount;
     this.usedSlotMemorySize = usedSlotMemorySize;
     this.commonPrefix = commonPrefix != null
@@ -648,7 +690,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * Legacy deserialization constructor (no prefix — for backward compatibility with V1 format).
    */
   public HOTLeafPage(long recordPageKey, int revision, IndexType indexType, MemorySegment slotMemory,
-      @Nullable Runnable releaser, int[] slotOffsets, int entryCount, int usedSlotMemorySize) {
+      @Nullable Runnable releaser, char[] slotOffsets, int entryCount, int usedSlotMemorySize) {
     this(recordPageKey, revision, indexType, slotMemory, releaser, slotOffsets, entryCount, usedSlotMemorySize,
         EMPTY_PREFIX, 0);
   }
@@ -709,18 +751,23 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     int minBytePos = Integer.MAX_VALUE;
     int maxBytePos = 0;
     final int[] diffBits = new int[entryCount - 1];
-    final int[] offsets = slotOffsets;
+    final char[] offsets = slotOffsets;
     boolean hasDiffBits = false;
 
     for (int i = 0; i < entryCount - 1; i++) {
       // Zero-alloc: pass both suffix regions (offset+length) within slotMemory directly to
       // DiscriminativeBitComputer instead of materializing two NativeMemorySegmentImpl views
       // via asSlice. The slot table already validated these offsets at deserialization.
-      final int off1 = offsets[i];
-      final int len1 = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, off1));
-      final int off2 = offsets[i + 1];
-      final int len2 = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, off2));
-      final int diffBit = DiscriminativeBitComputer.computeDifferingBit(slotMemory, off1 + 2L, len1, off2 + 2L, len2);
+      final int diffBit;
+      if (packedBody == null) {
+        final int off1 = offsets[i];
+        final int len1 = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, off1));
+        final int off2 = offsets[i + 1];
+        final int len2 = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, off2));
+        diffBit = DiscriminativeBitComputer.computeDifferingBit(slotMemory, off1 + 2L, len1, off2 + 2L, len2);
+      } else {
+        diffBit = packedBody.differingBit(i, i + 1);
+      }
       diffBits[i] = diffBit;
       if (diffBit >= 0) {
         hasDiffBits = true;
@@ -807,6 +854,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * </p>
    */
   private int computeSuffixPartialKey(int index) {
+    if (packedBody != null) {
+      return (int) Long.compress(packedBody.keyTailWord(index, discBytePos), discBitMask);
+    }
     final int offset = slotOffsets[index];
     final int suffixLen = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, offset));
     return computePartialKeyFromSegmentRegion(slotMemory, offset + 2L, suffixLen, discBytePos, discBitMask);
@@ -959,7 +1009,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       return pextSearch(key, keyLen);
     }
 
-    return binarySearchSuffix(key, keyLen);
+    return packedBody == null
+        ? binarySearchSuffix(key, keyLen)
+        : packedBinarySearch(key, keyLen);
   }
 
   /**
@@ -1004,13 +1056,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     if (valueLength < 0) {
       throw new IllegalStateException("HOT leaf " + older.recordPageKey + " has an unreadable value at slot " + row);
     }
-    if (!handlePrefixForInsert(key, key.length, valueLength)) {
+    final int from = (int) (value >>> Integer.SIZE);
+    final boolean postingFrame = older.isPostingFrame(value);
+    final int length = postingFrame
+        ? HOTPostingFrame.ordinaryLength(older.slotMemory, from)
+        : valueLength;
+    if (!handlePrefixForInsert(key, key.length, length)) {
       return false;
     }
-    // The caller guards the immutable older image throughout reconstruction. Copy straight into
-    // the private result rather than materializing every older value as an intermediate byte[].
+    // The caller guards the older image. Emit each value directly into the private result.
     return insertAtSuffixSegmentRange(-position - 1, key, commonPrefixLen, key.length - commonPrefixLen,
-        older.slotMemory, value >>> 32, valueLength);
+        older.slotMemory, from, length, postingFrame);
   }
 
   /**
@@ -1058,7 +1114,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
 
     // Not found — compute insertion point via binary search
-    return binarySearchSuffix(key, keyLen);
+    return packedBody == null
+        ? binarySearchSuffix(key, keyLen)
+        : packedBinarySearch(key, keyLen);
   }
 
   /**
@@ -1146,6 +1204,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * commonPrefixLen.
    */
   private boolean suffixMatchesKey(int index, byte[] key, int keyLen) {
+    if (packedBody != null) {
+      return packedCompareSuffixWithKey(index, key, keyLen) == 0;
+    }
     final int offset = slotOffsets[index];
     final int suffixLen = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, offset));
     final int keySuffixLen = keyLen - commonPrefixLen;
@@ -1162,6 +1223,42 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       }
     }
     return true;
+  }
+
+  /**
+   * Binary search over a packed body. Kept apart from {@link #binarySearchSuffix} and
+   * {@link #compareSuffixWithKey} so the raw leaf's search compiles exactly as before packed bodies:
+   * with the packed arm inside those methods, C2 settled on a slower layout of the raw warm lookup in
+   * most forks of the leaf gate (8-byte keys, +2.5 %).
+   */
+  private int packedBinarySearch(final byte[] key, final int keyLen) {
+    if (keyLen == Long.BYTES && commonPrefixLen < Long.BYTES) {
+      return packedBody.findLongSuffix(key, commonPrefixLen);
+    }
+    int low = 0;
+    int high = entryCount;
+    while (low < high) {
+      final int mid = (low + high) >>> 1;
+      final int cmp = packedCompareSuffixWithKey(mid, key, keyLen);
+      if (cmp < 0) {
+        low = mid + 1;
+      } else if (cmp > 0) {
+        high = mid;
+      } else {
+        return mid;
+      }
+    }
+    return -(low + 1);
+  }
+
+  /** {@link #compareSuffixWithKey} for a packed body: key tail against the key's bytes after the prefix. */
+  private int packedCompareSuffixWithKey(final int index, final byte[] key, final int keyLen) {
+    final int tailLength = packedBody.keyTailLength(index);
+    final int probeLength = keyLen - commonPrefixLen;
+    final int comparison = packedBody.compareKeyTail(index, key, commonPrefixLen, Math.min(tailLength, probeLength));
+    return comparison == 0
+        ? tailLength - probeLength
+        : comparison;
   }
 
   /**
@@ -1206,7 +1303,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     final int shift = commonPrefixLen << 3;
     final long probe = (long) BYTE_ARRAY_LONG_BE.get(key, 0) & (-1L >>> shift);
     final long lastWordStart = slots.byteSize() - Long.BYTES;
-    final int[] offsets = slotOffsets;
+    final char[] offsets = slotOffsets;
     int low = 0;
     int high = entryCount;
     while (low < high) {
@@ -1321,6 +1418,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public long valueRef(int index) {
     Objects.checkIndex(index, entryCount);
+    if (packedBody != null) {
+      return packedBody.valueRef(index);
+    }
     final int offset = slotOffsets[index];
     final long segSize = slotMemory.byteSize();
     if (offset < 0 || offset + 2 > segSize) {
@@ -1405,8 +1505,20 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
   }
 
+  /**
+   * Return the ordinary value representation. Opaque values and ordinary postings can stay on the
+   * slot segment. A frame-of-reference posting is exported as the ordinary byte representation.
+   * Posting readers that can consume its encoded representation use {@link #valueRef(int)}.
+   */
   public MemorySegment getValueSlice(int index) {
     Objects.checkIndex(index, entryCount);
+    if (packedBody != null) {
+      final long value = packedBody.valueRef(index);
+      if (isPostingFrame(value)) {
+        return MemorySegment.ofArray(copyStoredValue(index));
+      }
+      return slotMemory.asSlice(value >>> Integer.SIZE, refLength(value));
+    }
     final int offset = slotOffsets[index];
     final long segSize = slotMemory.byteSize();
     if (offset < 0 || offset + 2 > segSize) {
@@ -1432,6 +1544,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public byte[] getKey(int index) {
     Objects.checkIndex(index, entryCount);
+    if (packedBody != null) {
+      final byte[] key = Arrays.copyOf(commonPrefix, commonPrefixLen + packedBody.keyTailLength(index));
+      packedBody.copyKeyTail(index, MemorySegment.ofArray(key), commonPrefixLen);
+      return key;
+    }
     final int offset = slotOffsets[index];
     if (offset < 0 || offset + 2 > slotMemory.byteSize()) {
       return null;
@@ -1482,7 +1599,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     Objects.checkIndex(index, entryCount);
     Objects.requireNonNull(bound, "bound");
     Objects.checkFromIndexSize(0, boundLen, bound.length);
-    final int keyLen = commonPrefixLen + Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, slotOffsets[index]));
+    final int keyLen = keyLength(index);
     final int cmp = compareKeyBytes(index, bound, Math.min(keyLen, boundLen));
     // Length tie-breaker: longer wins (unsigned lex).
     return cmp != 0
@@ -1519,6 +1636,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     if (commonMin == cmpLen) {
       return 0;
     }
+    if (packedBody != null) {
+      return packedBody.compareKeyTail(index, probe, commonPrefixLen, cmpLen - commonPrefixLen);
+    }
     final long suffixStart = slotOffsets[index] + 2L - commonPrefixLen;
     int p = commonMin;
     for (final int wordEnd = cmpLen - 8; p <= wordEnd; p += 8) {
@@ -1550,7 +1670,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public int getKeyLength(final int index) {
     Objects.checkIndex(index, entryCount);
-    return commonPrefixLen + Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, slotOffsets[index]));
+    return keyLength(index);
+  }
+
+  private int keyLength(final int index) {
+    return commonPrefixLen + (packedBody == null
+        ? Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, slotOffsets[index]))
+        : packedBody.keyTailLength(index));
+  }
+
+  private int packedKeyByte(final int index, final int pos) {
+    return pos < commonPrefixLen
+        ? Byte.toUnsignedInt(commonPrefix[pos])
+        : packedBody.keyTailByte(index, pos - commonPrefixLen);
   }
 
   /**
@@ -1570,7 +1702,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public int compareKeyPrefix(final int index, final byte[] prefix, final int prefixLen) {
     Objects.checkIndex(index, entryCount);
-    final int keyLen = commonPrefixLen + Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, slotOffsets[index]));
+    final int keyLen = keyLength(index);
     final int cmp = compareKeyBytes(index, prefix, Math.min(keyLen, prefixLen));
     if (cmp != 0) {
       return cmp;
@@ -1596,7 +1728,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public int compareKeyPrefixPart(final int index, final int trailerBytes, final byte[] other, final int otherLen) {
     Objects.checkIndex(index, entryCount);
-    final int keyLen = commonPrefixLen + Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, slotOffsets[index]));
+    final int keyLen = keyLength(index);
     final int partLen = Math.max(0, keyLen - Math.max(0, trailerBytes));
     final int cmp = compareKeyBytes(index, other, Math.min(partLen, otherLen));
     return cmp != 0
@@ -1616,6 +1748,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public int readKeyIntBE(final int index, final int pos) {
     Objects.checkIndex(index, entryCount);
+    if (packedBody != null) {
+      Objects.checkFromIndexSize(pos, Integer.BYTES, keyLength(index));
+      if (pos >= commonPrefixLen) {
+        return packedBody.keyTailInt(index, pos - commonPrefixLen);
+      }
+      return (packedKeyByte(index, pos) << 24) | (packedKeyByte(index, pos + 1) << 16)
+          | (packedKeyByte(index, pos + 2) << 8) | packedKeyByte(index, pos + 3);
+    }
     final int offset = slotOffsets[index];
     final int suffixLen = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, offset));
     final int keyLen = commonPrefixLen + suffixLen;
@@ -1659,6 +1799,21 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     Objects.checkIndex(index, entryCount);
     Objects.requireNonNull(other, "other");
     Objects.checkFromIndexSize(0, otherLen, other.length);
+    if (packedBody != null) {
+      final int keyLength = keyLength(index);
+      for (int i = 0, end = Math.max(keyLength, otherLen); i < end; i++) {
+        final int difference = (i < keyLength
+            ? packedKeyByte(index, i)
+            : 0)
+            ^ (i < otherLen
+                ? Byte.toUnsignedInt(other[i])
+                : 0);
+        if (difference != 0) {
+          return i * Byte.SIZE + Integer.numberOfLeadingZeros(difference) - 24;
+        }
+      }
+      throw new IllegalStateException("msdb of equal keys at index " + index);
+    }
     final int offset = slotOffsets[index];
     final int suffixLen = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, offset));
     final int keyLen = commonPrefixLen + suffixLen;
@@ -1698,6 +1853,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public long decodeKey8BE(final int index) {
     Objects.checkIndex(index, entryCount);
+    if (packedBody != null) {
+      if (keyLength(index) != Long.BYTES) {
+        throw new IllegalStateException("decodeKey8BE requires eight-byte keys");
+      }
+      long prefix = 0;
+      for (int i = 0; i < commonPrefixLen; i++) {
+        prefix = (prefix << Byte.SIZE) | Byte.toUnsignedLong(commonPrefix[i]);
+      }
+      return commonPrefixLen == Long.BYTES
+          ? prefix
+          : (prefix << ((Long.BYTES - commonPrefixLen) * Byte.SIZE))
+              | (packedBody.keyTailWord(index, 0) >>> (commonPrefixLen * Byte.SIZE));
+    }
     final int offset = slotOffsets[index];
     final int suffixLen = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, offset));
     final int keyLen = commonPrefixLen + suffixLen;
@@ -1757,6 +1925,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public byte[] getValue(int index) {
     Objects.checkIndex(index, entryCount);
+    if (packedBody != null) {
+      final long ref = packedBody.valueRef(index);
+      return refLength(ref) == 0
+          ? null
+          : copyStoredValue(index, ref);
+    }
     final int offset = slotOffsets[index];
     final long segSize = slotMemory.byteSize();
     if (offset < 0 || offset + 2 > segSize) {
@@ -1796,16 +1970,58 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public byte[] copyStoredValue(final int index) {
     Objects.checkIndex(index, entryCount);
-    final long ref = valueRef(index);
+    return copyStoredValue(index, valueRef(index));
+  }
+
+  private byte[] copyStoredValue(final int index, final long ref) {
     final int length = refLength(ref);
     if (length < 0) {
       throw new IllegalStateException("HOT leaf " + recordPageKey + " has an unreadable value at slot " + index);
+    }
+    if (isPostingFrame(ref)) {
+      final int start = (int) (ref >>> Integer.SIZE);
+      final byte[] ordinary = new byte[HOTPostingFrame.ordinaryLength(slotMemory, start)];
+      HOTPostingFrame.copyOrdinary(slotMemory, start, MemorySegment.ofArray(ordinary), 0);
+      return ordinary;
     }
     final byte[] value = new byte[length];
     if (length > 0) {
       copyRefInto(ref, 0, value, 0, length);
     }
     return value;
+  }
+
+  public boolean hasPackedBody() {
+    return packedBody != null;
+  }
+
+  public boolean isPostingFrame(final long ref) {
+    return packedBody != null && packedBody.hasPostingFrames() && refLength(ref) > 0
+        && refByteAt(ref, 0) == HOTPostingFrame.TAG;
+  }
+
+  /**
+   * Byte length of a value in its ordinary representation. A frame-of-reference posting (FMT-214)
+   * counts as its expanded posting, so size-dependent decisions such as posting-delta hotness do not
+   * change when a leaf is stored packed.
+   */
+  public int ordinaryValueLength(final long ref) {
+    return isPostingFrame(ref)
+        ? HOTPostingFrame.ordinaryLength(slotMemory, (int) (ref >>> Integer.SIZE))
+        : refLength(ref);
+  }
+
+  /**
+   * Copy a value's ordinary representation, {@link #ordinaryValueLength(long)} bytes, into
+   * {@code dst}; a frame-of-reference posting is expanded.
+   */
+  public void copyOrdinaryValueInto(final long ref, final MemorySegment dst, final long dstOffset) {
+    if (isPostingFrame(ref)) {
+      HOTPostingFrame.copyOrdinary(slotMemory, (int) (ref >>> Integer.SIZE), dst, Math.toIntExact(dstOffset));
+    } else {
+      // The ref is this leaf's own value ref; MemorySegment.copy bounds-checks both ranges.
+      MemorySegment.copy(slotMemory, ref >>> 32, dst, dstOffset, refLength(ref));
+    }
   }
 
   // ===== Insert/Update operations =====
@@ -1911,7 +2127,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
 
     int offset = usedSlotMemorySize;
-    slotOffsets[pos] = offset;
+    slotOffsets[pos] = slotStart(offset);
 
     slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) suffixLen);
     offset += 2;
@@ -1969,6 +2185,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   private boolean insertAtSuffixSegmentRange(int pos, byte[] keyBuf, int suffixOffset, int suffixLen,
       MemorySegment valueSrc, long valueOff, int valueLen) {
+    return insertAtSuffixSegmentRange(pos, keyBuf, suffixOffset, suffixLen, valueSrc, valueOff, valueLen, false);
+  }
+
+  private boolean insertAtSuffixSegmentRange(int pos, byte[] keyBuf, int suffixOffset, int suffixLen,
+      MemorySegment valueSrc, long valueOff, int valueLen, final boolean postingFrame) {
     requireStorableLengths(suffixLen, valueLen);
     if (entryCount >= MAX_ENTRIES) {
       return false;
@@ -1991,7 +2212,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
 
     int offset = usedSlotMemorySize;
-    slotOffsets[pos] = offset;
+    slotOffsets[pos] = slotStart(offset);
 
     slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) suffixLen);
     offset += 2;
@@ -2001,9 +2222,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     offset += suffixLen;
     slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) valueLen);
     offset += 2;
-    if (valueLen > 0) {
-      // Pure off-heap → off-heap copy. On Linux this is a single
-      // memcpy call — no per-element bounds check, no heap touch.
+    if (postingFrame) {
+      HOTPostingFrame.copyOrdinary(valueSrc, (int) valueOff, slotMemory, offset);
+    } else if (valueLen > 0) {
       MemorySegment.copy(valueSrc, valueOff, slotMemory, offset, valueLen);
     }
 
@@ -2108,7 +2329,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       final int newValueLenOffset = newEntryOffset + 2 + suffixLen;
       slotMemory.set(JAVA_SHORT_UNALIGNED, newValueLenOffset, (short) valueLen);
       MemorySegment.copy(valueBuf, valueOff, slotMemory, ValueLayout.JAVA_BYTE, newValueLenOffset + 2, valueLen);
-      slotOffsets[index] = newEntryOffset;
+      slotOffsets[index] = slotStart(newEntryOffset);
       usedSlotMemorySize += newEntrySize;
       markEntryDirty(index);
       return true;
@@ -2162,11 +2383,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         COMPACT_SCRATCH.set(compacted);
       }
     }
-    final int[] relocatedOffsets = COMPACT_OFFSETS_SCRATCH.get();
+    final char[] relocatedOffsets = COMPACT_OFFSETS_SCRATCH.get();
 
     int newOffset = 0;
     for (int i = 0; i < entryCount; i++) {
-      relocatedOffsets[i] = newOffset;
+      relocatedOffsets[i] = slotStart(newOffset);
       final int oldOffset = slotOffsets[i];
       final int oldSuffixLen = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, oldOffset));
       final int oldValueLenOffset = oldOffset + 2 + oldSuffixLen;
@@ -2244,7 +2465,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    *         exceeds {@link #MAX_KEY_VALUE_LENGTH}
    */
   private boolean handlePrefixForInsert(final byte[] key, final int keyLen, final int valueLen) {
-    if (binarySearchOnly) {
+    if (binarySearchOnly || packedBody != null) {
       ensureMutableSlotMemorySlow();
     }
     if (entryCount == 0) {
@@ -2368,7 +2589,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
 
     // Pass 2: stage the rebuilt entries. Use scratch buffers to avoid per-entry allocation.
-    final int[] relocatedOffsets = COMPACT_OFFSETS_SCRATCH.get();
+    final char[] relocatedOffsets = COMPACT_OFFSETS_SCRATCH.get();
     int newOffset = 0;
 
     for (int i = 0; i < entryCount; i++) {
@@ -2390,7 +2611,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, valueOffset, scratch, newOffset + 2 + newSuffixLen,
           2 + valueLen);
 
-      relocatedOffsets[i] = newOffset;
+      relocatedOffsets[i] = slotStart(newOffset);
       newOffset += newEntrySize;
     }
     if (newOffset != rebuiltSize) {
@@ -2482,7 +2703,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
     // Write entry to slotMemory
     int offset = usedSlotMemorySize;
-    slotOffsets[pos] = offset;
+    slotOffsets[pos] = slotStart(offset);
 
     slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) suffixLen);
     offset += 2;
@@ -2578,7 +2799,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * becomes mutable.
    */
   private void ensureMutableSlotMemory() {
-    if (!binarySearchOnly && slotMemory.byteSize() >= DEFAULT_SIZE) {
+    if (!binarySearchOnly && packedBody == null && slotMemory.byteSize() >= DEFAULT_SIZE) {
       return;
     }
     ensureMutableSlotMemorySlow();
@@ -2587,8 +2808,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /** Cold first-mutation path; the monitor never touches an already-mutable leaf's hot write path. */
   private synchronized void ensureMutableSlotMemorySlow() {
     assert !binarySearchOnly : "Compact HOT fragments are immutable; mutate a copy";
-    if (binarySearchOnly) {
-      throw new IllegalStateException("Compact HOT fragments are immutable; mutate a copy");
+    if (binarySearchOnly || packedBody != null) {
+      throw new IllegalStateException("Encoded or compact HOT images are immutable; mutate a copy");
     }
     if (slotMemory.byteSize() >= DEFAULT_SIZE) {
       return;
@@ -2645,7 +2866,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @return the amount of space reclaimed
    */
   public int compact() {
-    if (binarySearchOnly) {
+    if (binarySearchOnly || packedBody != null) {
       ensureMutableSlotMemorySlow();
     }
     if (entryCount == 0) {
@@ -2665,7 +2886,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // Copy all entries into scratch in sorted (slot) order, staging new offsets separately. Never
     // publish slotOffsets while validation/copying can still fail: a partially rewritten offset table
     // would point at the old native bytes with a mixture of old and new coordinates.
-    final int[] relocatedOffsets = COMPACT_OFFSETS_SCRATCH.get();
+    final char[] relocatedOffsets = COMPACT_OFFSETS_SCRATCH.get();
     int newOffset = 0;
     for (int i = 0; i < entryCount; i++) {
       final int oldOffset = slotOffsets[i];
@@ -2691,7 +2912,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
       // Bulk-copy the raw entry bytes [u16 suffixLen][suffix][u16 valueLen][value]
       MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, oldOffset, scratch, newOffset, entrySize);
-      relocatedOffsets[i] = newOffset;
+      relocatedOffsets[i] = slotStart(newOffset);
       newOffset = nextOffset;
     }
 
@@ -2946,7 +3167,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @return true if updated, false if there wasn't enough space
    */
   public boolean updateValue(int index, byte[] newValue) {
-    if (binarySearchOnly) {
+    if (binarySearchOnly || packedBody != null) {
       ensureMutableSlotMemorySlow();
     }
     Objects.checkIndex(index, entryCount);
@@ -2993,7 +3214,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     slotMemory.set(JAVA_SHORT_UNALIGNED, newOffset + 2 + suffixLen, (short) newValue.length);
     MemorySegment.copy(newValue, 0, slotMemory, ValueLayout.JAVA_BYTE, newOffset + 2 + suffixLen + 2, newValue.length);
 
-    slotOffsets[index] = newOffset;
+    slotOffsets[index] = slotStart(newOffset);
     usedSlotMemorySize += newEntrySize;
     markEntryDirty(index);
 
@@ -3185,12 +3406,18 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Independently own a cached raw image for the ordinary complete read loader. Preserve its exact
-   * completeness boundary without retaining a CoW dependency on the cache-owned source. This copy is
-   * read-path scratch, not a newly emitted snapshot or a change to versioning policy.
+   * Copy an image into ordinary writable slots and preserve its completeness boundary. The copy owns
+   * its values and keeps no deferred CoW dependency on the source.
    */
   public HOTLeafPage copyForRead() {
     final HOTLeafPage copy = copyInternal(recordPageKey, revision, false);
+    copy.completeDump = completeDump;
+    return copy;
+  }
+
+  /** Publish an independently owned complete read image with routing, preserving packed bodies. */
+  public HOTLeafPage copyForCache() {
+    final HOTLeafPage copy = copyInternal(recordPageKey, revision, false, true);
     copy.completeDump = completeDump;
     return copy;
   }
@@ -3238,9 +3465,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   private HOTLeafPage copyInternal(final long targetPageKey, final int targetRevision, final boolean cowCopy) {
-    // Allocate new off-heap memory
+    return copyInternal(targetPageKey, targetRevision, cowCopy, false);
+  }
+
+  private HOTLeafPage copyInternal(final long targetPageKey, final int targetRevision, final boolean cowCopy,
+      final boolean preservePackedBody) {
     final MemorySegmentAllocator allocator = Allocators.getInstance();
-    final MemorySegment newSlotMemory = allocator.allocate(DEFAULT_SIZE);
+    final boolean keepBody = preservePackedBody && packedBody != null;
+    final int capacity = keepBody
+        ? packedBody.byteSize()
+        : DEFAULT_SIZE;
+    final MemorySegment newSlotMemory = Objects.requireNonNull(allocator.allocate(capacity));
     HOTLeafPage copy = null;
     try {
       final Runnable newReleaser = () -> allocator.release(newSlotMemory);
@@ -3249,11 +3484,26 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       // shadow leaf needs an independent slot heap. The dirty bitmap (cleared below) tracks
       // which entry indices the writer subsequently mutates; serialize-time logic (Phase 4)
       // can emit only those entries plus rely on completePageRef for the rest.
-      MemorySegment.copy(slotMemory, 0, newSlotMemory, 0, usedSlotMemorySize);
-
-      // Deep copy on-heap arrays
-      // Full capacity even when the source is a compact raw image with an exact-size directory.
-      final int[] newSlotOffsets = Arrays.copyOf(slotOffsets, MAX_ENTRIES);
+      final char[] newSlotOffsets = keepBody
+          ? NO_SLOT_OFFSETS
+          : Arrays.copyOf(slotOffsets, MAX_ENTRIES);
+      final HOTLeafBody copiedBody;
+      final int used;
+      final MemorySegment copiedSlots;
+      if (packedBody == null) {
+        MemorySegment.copy(slotMemory, 0, newSlotMemory, 0, usedSlotMemorySize);
+        copiedBody = null;
+        copiedSlots = newSlotMemory;
+        used = usedSlotMemorySize;
+      } else if (keepBody) {
+        copiedBody = packedBody.copyTo(newSlotMemory);
+        copiedSlots = copiedBody.slots();
+        used = usedSlotMemorySize;
+      } else {
+        used = writeOrdinarySlots(newSlotMemory, newSlotOffsets);
+        copiedBody = null;
+        copiedSlots = newSlotMemory;
+      }
 
       // Deep copy prefix
       final byte[] newPrefix = commonPrefixLen > 0
@@ -3262,8 +3512,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
       // Create new page with copied data. Until this returns, this method still owns the raw frame
       // and must release it directly if construction fails.
-      copy = new HOTLeafPage(targetPageKey, targetRevision, indexType, newSlotMemory, newReleaser, newSlotOffsets,
-          entryCount, usedSlotMemorySize, newPrefix, commonPrefixLen);
+      copy = new HOTLeafPage(targetPageKey, targetRevision, indexType, copiedSlots, newReleaser, newSlotOffsets,
+          entryCount, used, newPrefix, commonPrefixLen, false, copiedBody);
+      if (keepBody) {
+        copy.setStampBaseSegment(newSlotMemory);
+      }
 
       // Deep copy resolved projection segment refs so a commit through one page copy never mutates a
       // historical page's view. The one exception is a fresh immutable ref currently owned by the
@@ -3319,6 +3572,33 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     }
   }
 
+  private int writeOrdinarySlots(final MemorySegment destination, final char[] offsets) {
+    int used = 0;
+    for (int index = 0; index < entryCount; index++) {
+      offsets[index] = slotStart(used);
+      used += writeOrdinarySlot(index, destination, used);
+    }
+    return used;
+  }
+
+  private int writeOrdinarySlot(final int index, final MemorySegment destination, final int start) {
+    final int keyLength = packedBody.keyTailLength(index);
+    destination.set(JAVA_SHORT_UNALIGNED, start, (short) keyLength);
+    packedBody.copyKeyTail(index, destination, start + Short.BYTES);
+    final long value = packedBody.valueRef(index);
+    final int to = start + 2 * Short.BYTES + keyLength;
+    final int from = (int) (value >>> Integer.SIZE);
+    final int length;
+    if (isPostingFrame(value)) {
+      length = HOTPostingFrame.copyOrdinary(slotMemory, from, destination, to);
+    } else {
+      length = refLength(value);
+      MemorySegment.copy(slotMemory, from, destination, to, length);
+    }
+    destination.set(JAVA_SHORT_UNALIGNED, to - Short.BYTES, (short) length);
+    return to + length - start;
+  }
+
   /**
    * Split this page, moving the right half of entries to another page.
    *
@@ -3341,11 +3621,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    *         the page cannot be split (e.g., only 1 entry)
    */
   public @Nullable byte[] splitTo(HOTLeafPage target) {
-    if (binarySearchOnly) {
+    if (binarySearchOnly || packedBody != null) {
       ensureMutableSlotMemorySlow();
     }
     Objects.requireNonNull(target);
-    if (target.binarySearchOnly) {
+    if (target.binarySearchOnly || target.packedBody != null) {
       target.ensureMutableSlotMemorySlow();
     }
 
@@ -3517,11 +3797,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   public int splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen, byte[] value, int valueLen,
       int @Nullable [] newSideOut, boolean keepSplitWhenValueDoesNotFit) {
-    if (binarySearchOnly) {
+    if (binarySearchOnly || packedBody != null) {
       ensureMutableSlotMemorySlow();
     }
     Objects.requireNonNull(target);
-    if (target.binarySearchOnly) {
+    if (target.binarySearchOnly || target.packedBody != null) {
       target.ensureMutableSlotMemorySlow();
     }
 
@@ -3598,7 +3878,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     final int savedPrefixLen = commonPrefixLen;
     final long[] savedDirtyBitmap = new long[DIRTY_BITMAP_WORDS];
     snapshotDirtyBitmap(savedDirtyBitmap);
-    final int[] savedSlotOffsets = Arrays.copyOf(slotOffsets, savedEntryCount);
+    final char[] savedSlotOffsets = Arrays.copyOf(slotOffsets, savedEntryCount);
     final byte[] savedSlotMemory = new byte[savedUsedMemory];
     MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, 0, savedSlotMemory, 0, savedUsedMemory);
 
@@ -3853,7 +4133,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * </p>
    */
   private void recomputePrefix() {
-    if (binarySearchOnly) {
+    if (binarySearchOnly || packedBody != null) {
       ensureMutableSlotMemorySlow();
     }
     if (entryCount == 0) {
@@ -3921,7 +4201,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, valueOffset, scratch, newOffset + 2 + newSuffixLen,
             2 + valueLen);
 
-        slotOffsets[i] = newOffset;
+        slotOffsets[i] = slotStart(newOffset);
         newOffset += newEntrySize;
       }
 
@@ -4187,8 +4467,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * {@code base + offset}, so binding from it misses, yields
    * {@link FrameSlotAllocator#NO_SLOT_COORDINATES}, and silently degrades {@link #validateStamp} to a
    * bare closed-flag test for the whole page lifetime. The deserializer therefore hands the base
-   * segment over via {@link #setStampBaseSegment}. Encoded reads use a zero-offset view, which
-   * retains the allocation's address and needs no base override.
+   * segment over via {@link #setStampBaseSegment}. A packed body also needs the override because its
+   * directory and any mode metadata precede the slots in the same allocation.
    * </p>
    */
   private volatile MemorySegment stampBaseSegment;
@@ -4335,7 +4615,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * potential multi-gigabyte allocation into a small failed read that stamp validation resolves.
    */
   public long slotCapacity() {
-    return slotMemory.byteSize();
+    return packedBody == null
+        ? slotMemory.byteSize()
+        : DEFAULT_SIZE;
   }
 
   /**
@@ -4697,11 +4979,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Whether this leaf is an immutable compact read image: exactly its packed slot bytes on GC-owned
-   * native memory, no allocator frame, no routing index, never mutated in place (writers copy it).
-   * The fragment cache keeps such images in the half allocator pressure cannot reclaim, with the
-   * heap-resident ones: every decoded HOT leaf image is native now, so that the segment accessors
-   * shared by all pages only ever see native receivers (see
+   * Whether this leaf is an immutable compact read image. The slot bytes and any retained wire
+   * metadata live on GC-owned native memory. Writers take an independent writable copy. The fragment
+   * cache keeps such images in the half allocator pressure cannot reclaim, with the heap-resident
+   * ones: every decoded HOT leaf image is native now, so that the segment accessors shared by all
+   * pages only ever see native receivers (see
    * {@link io.sirix.page.PageLayout#getBitmapWord(byte[], int)}).
    */
   public boolean isCompactImage() {
@@ -4718,6 +5000,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     if (slotNumber < 0 || slotNumber >= entryCount) {
       return null;
     }
+    if (packedBody != null) {
+      final MemorySegment ordinary = MemorySegment.ofArray(new byte[getSlotSize(slotNumber)]);
+      writeOrdinarySlot(slotNumber, ordinary, 0);
+      return ordinary;
+    }
     final int offset = slotOffsets[slotNumber];
     return slotMemory.asSlice(offset, getSlotSize(slotNumber));
   }
@@ -4725,6 +5012,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /** Exact encoded size of one slot without materialising a {@link MemorySegment} slice. */
   public int getSlotSize(final int slotNumber) {
     Objects.checkIndex(slotNumber, entryCount);
+    if (packedBody != null) {
+      return 2 * Short.BYTES + packedBody.keyTailLength(slotNumber)
+          + ordinaryValueLength(packedBody.valueRef(slotNumber));
+    }
     final int offset = slotOffsets[slotNumber];
     final int suffixLen = Short.toUnsignedInt(SegmentAccess.getShortLE(slotMemory, offset));
     final int valueOffset = offset + 2 + suffixLen;
@@ -4986,7 +5277,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /** Caller must hold one side-reference read critical section. */
   private long estimatedRetainedHeapBytesUnderSideReferenceRead() {
-    long bytes = ESTIMATED_FIXED_HEAP_BYTES;
+    long bytes = ESTIMATED_FIXED_HEAP_BYTES + (packedBody == null
+        ? 0
+        : 128);
     bytes += estimatedArrayHeapBytes(commonPrefix.length, Byte.BYTES);
     bytes += estimatedArrayHeapBytes(ancestorOwnedBits.length, Integer.BYTES);
     bytes += estimatedArrayHeapBytes(ancestorOwnedValues.length, Byte.BYTES);
@@ -5167,13 +5460,18 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * @return the offset into slotMemory
    */
   public int getSlotOffset(int index) {
-    return slotOffsets[index];
+    return packedBody == null
+        ? slotOffsets[index]
+        : packedBody.slotOffset(index);
   }
 
   // ===== Utility methods =====
 
   @Override
   public long getActualMemorySize() {
+    if (packedBody != null && slotMemory != null) {
+      return packedBody.byteSize();
+    }
     return slotMemory != null
         ? slotMemory.byteSize()
         : 0;

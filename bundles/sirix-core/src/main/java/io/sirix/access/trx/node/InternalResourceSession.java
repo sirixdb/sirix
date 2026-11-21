@@ -8,6 +8,7 @@ import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.Indexes;
+import io.sirix.index.hot.HOTCommitNormalizer;
 import io.sirix.io.Reader;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
@@ -34,6 +35,13 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
   }
 
   Reader createReader();
+
+  /**
+   * Lazily acquire this session's bounded normalization workspace. Only the exclusive writer may use
+   * it, after pending writes finish; normalization clears references before returning. Storage writer
+   * replacement across commits/rollbacks does not replace this workspace.
+   */
+  HOTCommitNormalizer.Scratch getHOTCommitScratch();
 
   /**
    * Report that a writer of this session made the index catalogue of {@code revision} durable

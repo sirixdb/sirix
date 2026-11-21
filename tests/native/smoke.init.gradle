@@ -1,0 +1,15 @@
+// Test-only classpath export; does not alter any native executable target.
+gradle.projectsEvaluated {
+    ['core', 'query'].each { profile ->
+        def module = gradle.rootProject.project(":sirix-${profile}")
+        module.tasks.register('nativeLibrarySmokeClasspath') {
+            dependsOn module.tasks.named('classes')
+            dependsOn module.sourceSets.main.runtimeClasspath
+            doLast {
+                def output = new File(System.getProperty('sirix.smoke.output'))
+                output.mkdirs()
+                new File(output, "${profile}.classpath").text = module.sourceSets.main.runtimeClasspath.asPath
+            }
+        }
+    }
+}

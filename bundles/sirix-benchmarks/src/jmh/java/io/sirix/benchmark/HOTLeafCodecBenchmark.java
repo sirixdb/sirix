@@ -41,10 +41,14 @@ import org.openjdk.jmh.annotations.Warmup;
 @Warmup(iterations = 5, time = 1)
 @Measurement(iterations = 5, time = 1)
 public class HOTLeafCodecBenchmark {
-  @Param({"RAW", "ENCODED"})
+  // The paired runner requests RAW explicitly on the pre-u16 baseline.
+  @Param({"ENCODED"})
   public String encoding;
   @Param({"ZERO", "REPEATED"})
   public String content;
+  @Param({"1", "8"})
+  public int keyBytes;
+
   private final ResourceConfiguration config =
       new ResourceConfiguration.Builder("codec-benchmark").versioningApproach(VersioningType.FULL).build();
   private final MMFileReader reader = new MMFileReader(MemorySegment.NULL, MemorySegment.NULL,
@@ -54,6 +58,7 @@ public class HOTLeafCodecBenchmark {
   private MemorySegment wire;
   private HOTLeafPage cached;
   private HOTProjectionImage image;
+  private HOTProjectionImage uncachedImage;
   private int cursor;
 
   @Setup(Level.Trial)
@@ -69,7 +74,9 @@ public class HOTLeafCodecBenchmark {
     }
     try (MemorySegmentBytesOut sink = new MemorySegmentBytesOut()) {
       for (int i = 0; i < keys.length; i++) {
-        keys[i] = new byte[] {(byte) i};
+        keys[i] = keyBytes == 1
+            ? new byte[] {(byte) i}
+            : new byte[] {(byte) (i >>> 4), 23, 1, 90, 16, 45, 10, (byte) i};
         if (!original.put(keys[i], value)) {
           throw new IllegalStateException("Benchmark leaf overflow");
         }
@@ -103,6 +110,9 @@ public class HOTLeafCodecBenchmark {
       imageInput.readByte();
       image = HOTProjectionImage.copyIfFits(imageInput);
       image.prepareForCache();
+      final ByteArrayBytesIn uncachedInput = new ByteArrayBytesIn(bytes);
+      uncachedInput.readByte();
+      uncachedImage = HOTProjectionImage.copyIfFits(uncachedInput);
     } finally {
       original.close();
     }
@@ -121,8 +131,21 @@ public class HOTLeafCodecBenchmark {
   }
 
   @Benchmark
+  public int warmLeafValueRef() {
+    final int slot = cached.findEntry(keys[cursor++ & 127]);
+    final long value = cached.valueRef(slot);
+    return HOTLeafPage.refLength(value) + cached.refByteAt(value, 0);
+  }
+
+  @Benchmark
   public byte[] warmImageLookup() {
     return image.select(keys[cursor++ & 127], 0).value();
+  }
+
+  /** A retained image answers its first selections before cache preparation (uncached selection). */
+  @Benchmark
+  public byte[] uncachedImageLookup() {
+    return uncachedImage.select(keys[cursor++ & 127], 0).value();
   }
 
   @TearDown(Level.Trial)

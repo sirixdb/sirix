@@ -286,172 +286,165 @@ not a blanket rule for opaque overflow payloads or bounded record/HOT-leaf reads
 `PageEnvelopeContractTest` pins the skip/refuse, boundary and rewrite rules;
 `LegacyEnvelopeImagesTest` uses immutable base-writer images for every active page kind.
 
-### HOT leaf payload codecs (kind 12, V0)
+### HOT leaves (kind 12, V0)
 
-Kind 12 assigns required envelope bit `0x02` to a compressed slot payload. Bit
-`0x01` still selects the complete side-reference trailer; both bits may coexist
-with the shared extension block. The page key, revision, index type, common
-prefix, signed entry-count/complete-dump word, decoded slot-byte count and slot
-offset directory retain their raw V0 layout. With `0x02` clear, the slot bytes
-are unchanged. With it set, replace only those bytes with:
+The envelope starts with `[kind=12][version=0][flags]`. Bit `0x01`
+selects the complete side-reference trailer, bit `0x04` marks the
+unsigned 16-bit slot directory, and bit `0x08` inserts a one-byte body
+mode immediately after the standard extensions. Other kind-specific
+flags, including experimental bit `0x02`, fail at the envelope. Kind 12
+uses no kind-local compressor. A configured resource byte pipeline
+still applies to the stored image and is reversed before reading the
+envelope. The normative format is [FMT-210 through FMT-215](../spec/FMT-disk-format.md#fmt-210--hot-leaf-envelope-and-page-local-modes).
 
+The mode is zero when the mode byte is absent. A present mode byte must
+contain at least one assigned bit and requires the narrow directory.
+Unknown bits fail at the envelope before reading the page key. The
+assigned bits can be combined:
+
+| Body mode bit | Meaning |
+| --- | --- |
+| `0x01` | Slot key suffix lengths are u8 instead of u16. |
+| `0x02` | Slot value lengths are u8 instead of u16. |
+| `0x04` | A bitmap identifies slots that share their values. |
+| `0x08` | Each group of up to 16 consecutive slots has a shared key prefix. |
+| `0x10` | CAS or VALIDTIME slots may contain byte-width frame-of-reference postings. |
+
+The page key, revision, index type, common prefix, signed entry-count
+word, and physical slot-byte count follow the envelope. The low 31 bits
+of the entry-count word give the number of entries. Its high bit marks a
+complete dump. The physical slot-byte count stays wide and can equal
+65,536. The directory holds one little-endian offset per entry relative
+to the slot region. Every nonempty leaf, including a sparse fragment,
+uses unsigned 16-bit offsets and sets flag `0x04`. An empty leaf clears
+that flag and has no directory or mode byte.
+
+In mode zero the slot region follows the directory. A nonzero mode packs
+slots in directory order without gaps, starting at offset zero. Any
+sharing bitmap and group table precede the slot region, in that order.
+The optional side-reference trailer follows the slot region in every
+mode. A slot always starts with the key suffix length and bytes, then the
+value length. Multi-byte lengths are little-endian. A shared slot stores
+a two-byte pointer after its value length. All other slots store that many
+bytes inline.
+
+With sharing enabled, the bitmap occupies `ceil(entryCount / 8)` bytes.
+Bit `i % 8` of byte `i / 8` selects the shared form for slot `i`.
+Unused high bits of the last byte must be zero. The pointer is a u16 LE
+byte offset from the start of the slot directory to an earlier inline
+slot's two-byte directory entry. The offset is even and less than twice
+the sharing slot's index. Readers get the owning slot offset with one
+directory load. The owning slot must have the same value length, which
+must exceed the two-byte pointer length. Odd offsets, pointers to the
+same or a later directory entry, pointers to another shared slot, and
+overlapping inline spans are invalid. Writers compare the complete
+candidate byte ranges after posting encoding before sharing. A writer
+uses the narrow directory and mode zero when every emitted projection
+key is eight bytes, including the common prefix. Readers accept the
+defined body modes on projection frames with eight-byte keys. Sharing
+applies only within the emitted frame, even if it is sparse. A mutable
+page owns its slot bytes and never contains value aliases. Opening an
+immutable image for modification or applying it to a reconstructed
+page copies each logical value to its own mutable slot. Closing or
+replacing a fragment cannot invalidate another fragment's values.
+
+With group prefixes enabled, the table holds one `[length:u8][offset:u16
+LE]` entry per group of up to 16 directory entries, followed by the
+prefix bytes in group order. Offsets are relative to the first prefix
+byte and must be contiguous, beginning at zero. The last offset plus
+length gives the size of the prefix region and may not exceed 65,535.
+Group zero covers slots 0 through 15, group one covers slots 16 through
+31, and the last group can be shorter. A slot key is the concatenation
+of the page prefix, its group prefix, and its stored suffix. The suffix
+length excludes both prefixes. Key comparison, prefix matching, and
+range traversal read the three ranges directly. The reconstructed key
+must fit the ordinary HOT slot key limit.
+
+A CAS or VALIDTIME packed posting can use `[tag=01][count:u8]
+[base:u16 BE][width:u8][offsets]` when mode bit `0x10` is set.
+Count is 1 through 64. The base is the first chunk-local document
+ordinal. Subsequent offsets are unsigned big-endian integers relative
+to that base. Their width is zero for a singleton, one for a maximum
+offset of 255 or less, and two otherwise. Offsets exclude the implicit
+zero at ordinal zero, must strictly increase, and must sum with the
+base to at most 65,535. The length is exactly `5 + (count - 1) * width`.
+Tag 01 is rejected outside this mode. The ordinary long-per-ordinal
+form and existing tombstone, Roaring, and side-page reference values
+retain their meanings. The encoded-value length is the slot value
+length, including for sharing. Readers search by ordinal and intersect
+two postings with ascending cursors over their bytes. They can write the explicitly requested result directly from the encoded inputs. Referenced side-page payloads keep their own
+existing format.
+
+Writers evaluate each emitted frame independently. Every selected source slot
+must lie inside the leaf's used region, and the total live bytes must fit that region.
+They use one-byte
+lengths only when all corresponding stored lengths fit. They select group
+prefixes and sharing only when their savings exceed their metadata costs.
+Projection leaves with eight-byte keys keep a contiguous suffix for the
+native one-word-per-probe search. Group prefixes remain available for
+variable-width projection keys and other index types.
+They select a FOR posting only when its exact size is smaller than its
+ordinary form. The final candidate must save bytes including the mode
+byte against the same frame with ordinary slots. Equality preserves the
+ordinary form. A zero-copy immutable image owns or borrows the entire
+region containing its metadata and slots under the existing frame
+lifetime and stamp rules.
+
+Readers bound the directory and metadata regions before acquiring
+storage. Nonzero modes validate their framing, exact packed slot spans,
+sharing targets and posting dimensions. The ordinary slot representation of the complete
+frame must fit 65,536 bytes, including expanded aliases and postings. Unknown modes, truncated
+directory, metadata, value, or side-reference frames, and invalid
+lengths, offsets, or posting ordinals fail cleanly. Selective readers
+validate the metadata and each slot they visit. With no group prefix, a
+one-byte probe compares only the first suffix byte and uses the suffix
+length to break a prefix tie. Mode-zero and packed pages can coexist in
+the same store. Readers reject trailing bytes and require strictly
+ascending signed side-reference keys and nonnegative disk offsets.
+The page key and side-reference count use stop-bit u64 and u32
+respectively, with a maximum of ten and five bytes.
+
+These page images have page key 7, revision 3, PROJECTION index type
+`0a`, and an empty common prefix. Both nonempty images hold
+`(07, 2a)` and `(09, 33)`.
+
+```text
+empty     0c 00 00 07 03 00 00 00 0a 00 00 00 00 00 00 00 00 00 00
+mode-zero 0c 00 04 07 03 00 00 00 0a 00 00 02 00 00 00 0c 00 00 00 00 00 06 00 01 00 07 01 00 2a 01 00 09 01 00 33
+u8        0c 00 0c 03 07 03 00 00 00 0a 00 00 02 00 00 00 08 00 00 00 00 00 04 00 01 07 01 2a 01 09 01 33
 ```
-[storedLength i32 LE][codec u8][encoded bytes: storedLength]
+
+Posting vectors below use big-endian unsigned base and offset fields.
+
+```text
+[65535]         01 01 ff ff 00
+[256, 511]      01 02 01 00 01 ff
+[256, 512]      01 02 01 00 02 01 00
 ```
 
-Codec 0 is the existing ZeroRunByteCodec frame (including its `ff` marker and
-unsigned decoded-size varint). Codec 1 is the existing LZ4 block format, without
-an additional size header. The optional side-reference trailer follows the
-encoded bytes and is never part of the codec frame. Offsets refer to decoded
-slots. Full, packed and sparse fragments have identical codec semantics.
+### Projection overflow payloads (kind 9, V0)
 
-**Writer rule.** Leaf compression is opt-in. By default a writer stores every payload
-raw with the flag clear. With `-Dsirix.page.hotLeaf.compress=true`, read once per
-process, it stores a payload raw or as LZ4. It never writes codec 0; readers accept
-codec 0 because an earlier writer of this format produced it. An LZ4 block of
-`storedLength` bytes is kept only when
+The kind-9 envelope identifies an encoded projection payload with bit
+`0x02` and an outer compressed payload with bit `0x01`. The two choices
+are independent. The standard extension flag is also supported.
+Other flags fail at the envelope. The payload's typed representation
+describes its own slots and columns.
 
-```
-3 × (decodedLength − storedLength − 5) ≥ decodedLength
-```
+After the envelope, a 32-bit little-endian length gives the number of
+bytes before any outer compression. When bit `0x01` is clear, those
+bytes follow immediately. With it set the length is followed by
+`[storedLength:i32 LE][codec:u8][stored bytes]`. Codec IDs 0, 2 and 3
+identify the existing zero-run, byte-run and Sirix LZ77 outer codecs
+for kind 9. On a compressed frame, unknown codecs and inconsistent
+frame lengths fail before allocation. Decompression reproduces the
+declared encoded payload length exactly.
 
-that is, when it saves at least a third of the payload after its own five bytes of
-framing (`HOTLeafPayloadCodec.LZ4_MIN_SAVING_DIVISOR`, `FRAME_OVERHEAD`). Anything
-less is written raw with the flag clear: for 300 payload bytes a block of 195 bytes
-is kept and one of 196 is not. Empty payloads are raw. A host without native LZ4
-cannot write codec 1 and writes every leaf raw. Reading does not depend on the
-setting: every reader accepts raw, LZ4 and zero-run pages, and the Java LZ4 decoder
-keeps codec-1 pages portable. No mutable source-page state changes during
-serialization. A store may hold raw and LZ4 leaves side by side, and zero-run leaves
-from an earlier writer, so the setting can change between runs of one store. Older
-readers refuse the newly assigned required flag rather than interpreting compressed
-bytes as slots; new readers retain compatibility with old raw pages.
-
-**Why it is off by default.** Compression pays where leaf bytes come from the
-device and costs where they come from the page cache. Measured on 2026-11-18:
-
-| | Writer off (default) | Writer on |
-| --- | --- | --- |
-| Store bytes, t100k comparison store | 468.9 MB | 320.3 MB (−31.7 %); leaf slot bytes −59 % |
-| Leaf read from the device, page cache dropped, per leaf | 78.5 µs | 68.2 µs (−13 %) |
-| Leaf decode in memory, per leaf | 1.4 µs (copy) | 4.8 µs native LZ4, 10.6 µs Java |
-| Fresh process on a warm page cache, short query (SH1 Q7, t250k) | 1.9 ms | 3.3 ms: about 1.4 ms once per process |
-| Fresh process on a warm page cache, leaf-heavy query (SH1 Q8, t250k) | 298 ms | 377 ms (+26 %) |
-| Load and commit (t250k, two loads per arm) | | load +2.6 %, commit total +4.3 % |
-
-A process that has just started reads its leaves from the page cache far more often
-than from the device, and there the smaller pages save nothing while every loaded
-leaf is decoded. Three quarters of the extra time of the leaf-heavy query is inside
-the LZ4 decoder, so it is not an implementation detail that can be tuned away. Warm
-queries are unaffected either way: cached leaves are decoded once. Switch the writer
-on for stores that are read from slow storage or whose size matters more than the
-first queries after a start. The fresh-process figures are diagnostics on one build
-and one tier, not gate results.
-
-**Why a third, and why not zero-run.** A cold leaf read pays for the decode and is
-repaid by the bytes it does not read. Both costs were measured on 2026-11-18 on the
-8,192 leaves of the t100k comparison store's cold probe (58.74 MB of slot payload,
-mean 7,169 bytes). Each leaf was re-framed under a forced codec and decoded through
-the ordinary reader in memory: ten fresh JVMs per decoder, each in an exclusive
-timing window on one core (Oracle GraalVM 25.0.3). The table gives the median of
-the ten forks; no fork was excluded.
-
-| Decoder | ns per leaf | Fastest and slowest fork | ns per payload byte, 32–64 KiB leaves |
-| --- | --- | --- | --- |
-| raw copy | 1,433 | 1,409 – 1,462 | 0.10 |
-| LZ4, native range decoder | 4,814 | 4,802 – 4,829 | 0.59 |
-| LZ4, Java decoder (no bundled native library) | 10,632 | 10,523 – 11,088 | 1.56 |
-| zero-run | 16,003 | 15,887 – 16,099 | 2.01 |
-
-The paired cold probe of the raw and the encoded store (five rounds, the same device)
-read 38.5 MB less in 60 ms less read time: 640 MB/s, or 1.56 ns for a byte not read.
-
-- Native LZ4 breaks even when it saves `(0.59 − 0.10) / 1.56` = 32 % of the payload. A
-  third is the nearest rule that costs one multiplication.
-- The 1.56 ns is the least certain number here. The five rounds of that probe span 1.4 to
-  2.3 ns, and two later runs over stores that were all more than two hours old gave 1.9 and
-  2.1 ns, which puts the break-even nearer a quarter. One third is on the safe side of
-  every value but the lowest round. The same runs showed that a file written minutes ago
-  reads faster from this device than the same bytes written hours ago, so compare stores
-  cold only when both are old.
-- On these leaves the rule keeps LZ4 for 5,407 and writes 2,785 raw, saving 34.96 MB. Keeping
-  every block that beats its framing would save 35.68 MB: 2 % of the gain is given up so that
-  no encoded leaf reads slower cold than its raw form where the native decoder exists.
-- Zero-run decodes 3.3 times slower than native LZ4 and 1.5 times slower than the Java LZ4
-  decoder, in every size class and in every fork. It saves 37 % of this payload where LZ4
-  saves 61 %, and offering it next to LZ4 adds less than 0.01 MB. Its decode adds 1.9 ns
-  per payload byte, so it would have to save nine tenths of a payload or more to repay it
-  on this device. The plan for this format called zero-run the cheap codec; the measurement
-  says otherwise, so writers no longer use it.
-- A reader without the bundled native library decodes LZ4 in Java at 1.56 ns per byte. For
-  it an LZ4 leaf still costs more to read cold than a raw one on this device (modelled mean
-  14.6 µs against 12.6 µs per leaf under this rule). The rule is set for readers that have
-  the native decoder.
-- One third is this device's break-even. Slower storage lowers it and faster storage raises
-  it. Re-measure before changing the constant; the protocol is in
-  [`HOT_LEAF_CODEC_GATE.md`](../bundles/sirix-benchmarks/scripts/HOT_LEAF_CODEC_GATE.md#decode-cost-behind-the-writer-rule).
-
-Readers bound decoded slots to 65,536 bytes and entries to 512 before allocation.
-An encoded frame must have a positive stored length within the remaining input,
-a stored length no larger than the maximum zero-run frame for 65,536 bytes,
-a known codec, consume exactly its declared bytes and produce exactly the
-header's decoded length. Truncated headers/frames, invalid runs or match offsets,
-trailing codec bytes and decoded-length mismatches are errors; an unpublished
-leaf's native allocation is released on failure. The following side trailer or
-page must not be consumed by a malformed codec frame. Checksums retain their
-existing responsibility for detecting otherwise valid payload modifications.
-
-Decoded leaf memory and cached projection images retain their existing raw
-layout: warm lookup performs no codec work. Ordinary encoded reads allocate
-only the decoded slot length (at least one byte for an empty payload), rounded
-by the existing allocator size classes, rather than reserving writable 64 KiB
-capacity. The leaf exposes exactly the decoded slot length for the same cache
-charge as raw input and keeps the allocation base for release. The zero-offset
-view retains the same allocation-era stamp identity.
-An empty outer byte-handler pipeline borrows encoded HOT input for the duration
-of decode, avoiding an unused owned copy; raw HOT input still needs transferable
-owned storage. Other pipelines release their outer decompression input after
-decode. The leaf owns its separate decoded allocation and lazily promotes it
-on mutation. Decode, construction or side
-trailer failure releases any unpublished decoded allocation.
-Projection images are expanded once
-before cache publication and charged by their actual retained bytes, bounded by
-the existing stored-image limit plus the maximum decoded slot payload.
-After per-thread scratch initialization, codec selection and decoding into an existing
-destination must allocate no additional heap objects per page. LZ4 selection uses
-separately borrowed native input/output scratch and passes primitive lengths with
-their base segments; no per-page segment slices are required. Cold projection
-expansion may allocate the retained raw image required by either encoding, but
-must reuse the compressed input buffer and parsing cursor. Uncached selection
-reuses its decoded slots and cursor; only the same owned value/reference result
-as a raw page may escape. A shorter frame following a longer frame must never
-read stale scratch bytes. Allocation tests compare raw and encoded owned results per key and per page;
-the standing GC-profiled gate compares encoded owned results with unchanged main.
-See the [allocation gate](../bundles/sirix-benchmarks/scripts/HOT_LEAF_CODEC_GATE.md) for the reproducible
-comparison and the diagnostic discard-only allocator case.
-
-LZ4 range decoding must not construct per-call segment views. A native adapter
-passes the existing LZ4 decoder's function pointer, the original source/destination
-segments and primitive offsets/lengths; pointer adjustment happens inside that
-adapter. The original segments remain FFM address arguments, retaining scope and
-thread-access checks throughout the downcall. The adapter adds no codec and makes
-no allocation. Without the adapter, the existing bounds-safe Java decoder handles
-the same ranges. Negative/out-of-bounds ranges, closed segments and read-only
-destinations are rejected before native writes. Nonzero offsets and sentinel bytes
-on both sides of the destination are pinned by tests. Escape-analysis-off allocation
-profiles must show no codec-only allocation sites; the linked allocation gate owns
-the fork counts and profiler-noise allowance.
-
-Reader payload fixtures (hex; directory and page header omitted): eight zero slot
-bytes can be represented as `03 00 00 00 00 ff 08 86`; the corresponding raw payload is eight
-`00` bytes. An LZ4 literal-only frame for bytes `01 02 03 04` is
-`05 00 00 00 01 40 01 02 03 04`. Both are readable, but a writer stores both payloads raw,
-because neither saves a third.
-Tests must independently pin these bytes, the writer rule one byte under, on and over its
-boundary, that no writer emits codec 0, raw output without native LZ4, readers of both codecs
-on frames the test builds, both byte-array and native input, mixed raw/encoded streams, sparse
-and packed full images, side references, compact fragments, cached and uncached
-projection lookup, scratch reuse, and corrupt/truncated boundaries.
+The projection producer identifies the payload mode. The writer keeps
+outer compression for a measured read-safe projection payload class
+only when `5 × (storedLength + 5) ≤ 4 × encodedLength`. This accounts
+for the five-byte outer frame. An encoded payload of 100 bytes keeps a
+75-byte stored body at the boundary. Existing ordinary overflow values
+continue to use their current storage policy.
 
 **Format evolution mechanism:** unreleased node-record/page-body layouts currently evolve in
 place under V0. The hook for a future released-format version decision is `BinaryEncodingVersion`:

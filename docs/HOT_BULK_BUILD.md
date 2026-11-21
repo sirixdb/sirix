@@ -33,8 +33,9 @@ This is the finding that determines what a bulk-construction gate is allowed to 
   two-phase recursion whose only inputs are the sorted arrays. With a fixed page-key allocator
   start, page keys are deterministic too (allocation order is the DFS order of construction).
   **Byte-identity between two bulk builds of the same entries is therefore a valid gate.**
-- **The live incremental trie is neither canonical nor order-independent.** The same 20 000-key
-  set through the production `doIndex` in ascending vs descending order: 40 leaves / 3 indirects
+- **The live incremental trie is neither canonical nor order-independent.** Before commit
+  normalization was introduced, the same 20 000-key set through the production `doIndex` in
+  ascending vs descending order produced: 40 leaves / 3 indirects
   / height 2 vs 40 leaves / 20 indirects (a 6-deep chain); every shape pair unequal except
   asc == shuffled, a post-consolidation coincidence. The code says so itself — the periodic
   consolidation sweep exists because incremental insertion over-partitions into under-full frozen
@@ -60,10 +61,9 @@ This is the finding that determines what a bulk-construction gate is allowed to 
 - **All four construction routes are read-equivalent** (20 000 keys × 2 key patterns × point
   lookups — identical postings). That is the property the gates encode.
 
-**Open, predating this campaign:** the incremental path in descending order leaves **stale
-`height` fields** (nested indirects all claiming `h=1`). Harmless while readers route by
-invariants, but `HOTIncrementalInsert.integrate`'s `parent.height > B.height` decision consumes
-heights, so any future "bulk-build the tail, integrate incrementally" hybrid must fix this first.
+The probe shapes above are historical measurements. The current height-maintenance and
+commit-normalization contract, including its limits for old revisions and the remaining
+shape gap, is owned by [HOT Index Specification §2.6](HOT_INDEX_SPECIFICATION.md#26-partial-keys-and-routing).
 
 ---
 

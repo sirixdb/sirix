@@ -504,7 +504,7 @@ final class HOTTrieReaderBoundContractTest {
    */
   private static HOTLeafPage leafCopy(final Arena arena, final List<HOTLeafPage> copies, final int... oneByteKeys) {
     final HOTLeafPage leaf = spy(new HOTLeafPage(100L, 1, IndexType.CAS, arena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
-        new int[HOTLeafPage.MAX_ENTRIES], 0, 0));
+        new char[HOTLeafPage.MAX_ENTRIES], 0, 0));
     for (final int oneByteKey : oneByteKeys) {
       assertTrue(leaf.put(key(oneByteKey), VALUE), "fixture key must fit its leaf");
     }

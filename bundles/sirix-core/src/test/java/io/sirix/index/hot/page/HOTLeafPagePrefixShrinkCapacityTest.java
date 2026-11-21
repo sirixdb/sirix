@@ -89,7 +89,7 @@ class HOTLeafPagePrefixShrinkCapacityTest {
   void setUp() {
     arena = Arena.ofConfined();
     leaf = new HOTLeafPage(1L, 1, IndexType.VALIDTIME, arena.allocate(PAGE_SIZE), null,
-        new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+        new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
   }
 
   @AfterEach

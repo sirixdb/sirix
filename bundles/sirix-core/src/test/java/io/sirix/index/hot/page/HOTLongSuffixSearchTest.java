@@ -29,12 +29,12 @@ final class HOTLongSuffixSearchTest {
       final int slotSize = Short.BYTES + suffixLength + Short.BYTES;
       final byte[] prefix = new byte[prefixLength];
       Arrays.fill(prefix, (byte) 0xa3);
-      final int[] offsets = new int[ENTRIES];
+      final char[] offsets = new char[ENTRIES];
       final byte[] slots = new byte[ENTRIES * slotSize + padding];
       Arrays.fill(slots, (byte) 0xe7);
       for (int row = 0; row < ENTRIES; row++) {
         final int offset = row * slotSize;
-        offsets[row] = offset;
+        offsets[row] = (char) offset;
         slots[offset] = (byte) suffixLength;
         slots[offset + 1] = 0;
         Arrays.fill(slots, offset + Short.BYTES, offset + Short.BYTES + suffixLength, (byte) 0x91);

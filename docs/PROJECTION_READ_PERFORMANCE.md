@@ -19,10 +19,9 @@ retain their page-copy path. Checksum views have independent positions and exact
 
 With an empty byte pipeline and input borrowing enabled, overflow decoding borrows its serialized
 input directly: both raw and compressed overflow decoders finish with independently owned payload arrays. This removes a
-temporary native-frame allocation, copy, and release. Ordinary record and raw HOT page decoding
-uses the owned-buffer pipeline because those pages can retain that storage. Encoded HOT input
-ownership follows the [leaf payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0).
-Compact HOT fragment decoding is described below. Configured byte handlers always run.
+temporary native-frame allocation, copy, and release. Ordinary record and HOT page decoding
+uses the owned-buffer pipeline because those pages can retain that storage. Packed HOT leaves
+retain their metadata and slots under the same frame's lifetime. Configured byte handlers always run.
 
 Batches with multiple page references can submit Linux `POSIX_FADV_WILLNEED` hints for upcoming
 requested offsets before reading and decoding the current run: one hint per coalesced run, covering
@@ -67,9 +66,9 @@ extent. Complete reconstruction retains coalesced batch I/O and copies older pro
 straight into its private result. Compact images are immutable; copies restore full writable capacity.
 A decoder-only image is never published as a canonical complete leaf: the complete-leaf cache only
 ever receives a fully built leaf, with its routing index, its off-heap frame accounting and its
-ordinary stamp binding. Raw and encoded persisted payloads follow the
-[leaf payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0);
-all four versioning policies retain the same fragment semantics.
+ordinary stamp binding. The compact reader handles the persisted
+[leaf body modes](DISK_FORMAT.md#hot-leaves-kind-12-v0)
+under all four versioning policies.
 
 Segment-backed binary searches for eight-byte keys with a nonempty suffix prepare one masked
 probe word per search. When the stored suffix has the expected length and at least eight bytes
@@ -120,13 +119,11 @@ Group-tree reads use selective slot resolution and the same bounded retention.
 
 For self-contained HOT images, the file-channel backend can select the requested projection entry
 from the verified wire bytes without constructing or adopting a native leaf or a side-reference map.
-The complete frame still passes its normal checksum/decompression checks. For bounded frames without
-outer compression, the copied wire bytes feed checksum verification before any payload expansion.
-Selection uses the owned decoded image. The immutable envelope
-and ordered side-reference trailer are validated once; each selection checks every slot header it
-visits. One read scope may own one bounded image, shared by that query's related logical reads;
-the [leaf payload codec contract](DISK_FORMAT.md#hot-leaf-payload-codecs-kind-12-v0)
-defines the expanded-image bound and retained-byte accounting. Database, resource, revision, durable offset/hash and
+The complete frame passes its normal checksum and byte-handler checks. Selection uses
+the owned wire image and its directory, group prefixes and value references. The immutable envelope and ordered
+side-reference trailer are validated once; each selection checks every slot header it
+visits. One read scope may own one bounded image shared by related logical reads.
+Retained-byte accounting uses the owned image's actual length. Database, resource, revision, durable offset/hash and
 invalidation generation fence reuse, including snapshots restored from an admitted routing entry.
 No transaction, mutable page reference or guard is retained with that snapshot. Scope completion
 releases its ownership; cached routing remains under its entry's byte charge. Larger images are

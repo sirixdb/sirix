@@ -57,6 +57,19 @@ import org.jspecify.annotations.Nullable;
  */
 public final class StorageEngineWriterFactory {
 
+  /**
+   * Terminal shutdown of the shared snapshot append and serialization workers for this engine.
+   *
+   * <p>
+   * The runtime owner must first stop writer admission and close every write transaction. This hook
+   * waits for append work before retiring its serialization pool. It is not ordinary database close,
+   * does not release global caches/allocators, and cannot be followed by opening new writers in the
+   * same JVM/native isolate. The native runtime owner supplies the remaining lifecycle gates.
+   */
+  public static void shutdownSharedExecutors() {
+    NodeStorageEngineWriter.shutdownSharedExecutors();
+  }
+
   private final DatabaseType databaseType;
 
   public StorageEngineWriterFactory(final DatabaseType databaseType) {

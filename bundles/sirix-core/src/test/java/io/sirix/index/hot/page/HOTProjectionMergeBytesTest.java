@@ -36,7 +36,7 @@ final class HOTProjectionMergeBytesTest {
           final HOTLeafPage page = (fragment & 1) == 0
               ? new HOTLeafPage(71, 32 - fragment, IndexType.PROJECTION)
               : new HOTLeafPage(71, 32 - fragment, IndexType.PROJECTION,
-                  MemorySegment.ofArray(new byte[HOTLeafPage.DEFAULT_SIZE]), null, new int[HOTLeafPage.MAX_ENTRIES], 0,
+                  MemorySegment.ofArray(new byte[HOTLeafPage.DEFAULT_SIZE]), null, new char[HOTLeafPage.MAX_ENTRIES], 0,
                   0);
           fragments.add(page);
           for (int entry = 0; entry < 7; entry++) {

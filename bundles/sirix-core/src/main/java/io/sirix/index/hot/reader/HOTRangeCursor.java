@@ -519,10 +519,10 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   }
 
   /**
-   * iter#08 zero-alloc — value slice for the current positioned entry (already zero-copy via
-   * {@link HOTLeafPage#getValueSlice}). The slice views UNPINNED slot memory: consume it, then
-   * confirm via {@link #validateLeaf()} (retrying through {@link #refreshLeaf()} on failure) before
-   * trusting what was read.
+   * Ordinary value representation for the positioned entry. For frame-of-reference postings, read the
+   * encoded value through the leaf's {@link HOTLeafPage#valueRef(int)} to avoid a copy. Consume the
+   * result and confirm it via {@link #validateLeaf()}, retrying through {@link #refreshLeaf()} on
+   * failure.
    */
   public MemorySegment currentValueSlice() {
     if (!positionedValid) {

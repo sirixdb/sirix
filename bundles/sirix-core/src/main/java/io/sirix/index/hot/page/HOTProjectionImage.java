@@ -4,7 +4,6 @@
 package io.sirix.index.hot.page;
 
 import io.sirix.page.PageKind;
-import io.sirix.page.HOTLeafPayloadCodec;
 import io.sirix.page.PageReference;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixCorruptionException;
@@ -13,7 +12,6 @@ import io.sirix.io.HashAlgorithm;
 import io.sirix.io.PageHasher;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
-import io.sirix.node.Utils;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.invoke.MethodHandles;
@@ -31,7 +29,6 @@ import java.util.Objects;
  */
 public final class HOTProjectionImage {
   public static final int MAX_BYTES = 64 * 1024;
-  private static final VarHandle INTS = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
   private static final VarHandle LONGS = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
   private final byte[] bytes;
   private final int prefixStart;
@@ -42,21 +39,21 @@ public final class HOTProjectionImage {
   private final int used;
   private final int references;
   private final int referencesStart;
-  // Encoded input is borrowed only during a synchronous copy; only the expanded owned image escapes.
-  // Keep this fixed 64 KiB buffer until thread termination; removing it per read adds allocation.
-  @SuppressWarnings("java:S5164")
-  private static final ThreadLocal<byte[]> ENCODED_INPUT = ThreadLocal.withInitial(() -> new byte[MAX_BYTES]);
+  private final @Nullable HOTLeafBody packedBody;
   private static final long[] NO_WORD_SLOTS = new long[0];
   private static final VarHandle WORD_SLOTS = wordSlotsHandle();
   private volatile long @Nullable [] wordSlots;
+  private int indexedKeyLength = Long.BYTES;
 
   private HOTProjectionImage(final byte[] bytes, final int start) {
     this.bytes = bytes;
     final ByteArrayBytesIn source = new ByteArrayBytesIn(bytes);
     source.position(start);
     try {
-      final byte flags = PageKind.readVersionAndFlagsAllowing(source, HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
-      final long pageKey = Utils.getVarLong(source);
+      final byte flags = PageKind.readVersionAndFlagsAllowing(source, HOTLeafPage.SLOT_DIRECTORY_FLAGS);
+      final int mode = HOTLeafBody.readMode(source, flags);
+      HOTLeafBody.requireIndexMode(mode, IndexType.PROJECTION);
+      final long pageKey = HOTLeafBody.readPageKey(source);
       final int revision = source.readInt();
       if (pageKey < 0 || revision < 0 || IndexType.getType(source.readByte()) != IndexType.PROJECTION) {
         throw new IllegalStateException("Invalid projection leaf header");
@@ -69,23 +66,21 @@ public final class HOTProjectionImage {
       source.skip(prefixLength);
       count = source.readInt() & Integer.MAX_VALUE;
       used = source.readInt();
-      if (count > HOTLeafPage.MAX_ENTRIES || used < 0 || used > HOTLeafPage.DEFAULT_SIZE
-          || (long) count * Integer.BYTES + used > source.remaining()) {
-        throw new IllegalStateException("Invalid projection leaf dimensions");
-      }
+      HOTLeafBody.requireDirectory(flags, count, used, source.remaining());
       offsets = (int) source.position();
-      slots = offsets + count * Integer.BYTES;
-      source.position(slots + used);
-      final long sideCount = (flags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) == 0
-          ? 0
-          : Utils.getVarLong(source);
-      // The bounded image is stricter than the format's MAX_ENTRIES * 65536 reference ceiling.
-      if (sideCount < 0 || sideCount > source.remaining() / (2 * Long.BYTES)) {
-        throw new IllegalStateException("Invalid projection side-reference count");
+      if (mode == 0) {
+        packedBody = null;
+        slots = offsets + count * Short.BYTES;
+        source.position(slots + used);
+      } else {
+        packedBody = HOTLeafBody.read(source, mode, count, used);
+        slots = (int) source.position() - used;
       }
-      references = (int) sideCount;
+      references = (flags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) == 0
+          ? 0
+          : HOTLeafBody.readSideReferenceCount(source);
       referencesStart = (int) source.position();
-      if (source.remaining() != sideCount * 2 * Long.BYTES) {
+      if (source.remaining() != references * (2L * Long.BYTES)) {
         throw new IllegalStateException("Trailing projection leaf bytes");
       }
       long previous = 0;
@@ -107,26 +102,15 @@ public final class HOTProjectionImage {
     if (length > MAX_BYTES) {
       return null;
     }
-    final long start = source.position();
-    boolean encoded = false;
-    if (length > 1) {
-      source.position(start + 1);
-      encoded = (source.readByte() & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0;
-      source.position(start);
-    }
-    final byte[] bytes = encoded
-        ? ENCODED_INPUT.get()
-        : new byte[(int) length];
-    source.read(bytes, 0, (int) length);
-    return new HOTProjectionImage(encoded
-        ? HOTLeafPayloadCodec.expandImage(bytes, 0, (int) length)
-        : bytes, 0);
+    final byte[] bytes = new byte[(int) length];
+    source.read(bytes);
+    return new HOTProjectionImage(bytes, 0);
   }
 
   /**
-   * Copy and verify a frame without outer byte-handler compression, including its kind byte. Hash the
-   * wire bytes before expanding any encoded slot payload into the retained image. Neither the
-   * supplied buffer's position nor any alias of its storage is retained.
+   * Copy and verify an uncompressed frame once, including its kind byte. Hashing the owned bytes
+   * avoids checked native-memory accesses before making this same copy. Neither the supplied buffer's
+   * position nor any alias of its storage is retained.
    */
   public static HOTProjectionImage copyVerifiedFrame(final ByteBuffer source, final PageReference reference,
       final ResourceConfiguration configuration) {
@@ -136,15 +120,10 @@ public final class HOTProjectionImage {
     if (source.remaining() < 1 || source.remaining() > MAX_BYTES) {
       throw new IllegalArgumentException("Complete projection image exceeds its bounded frame size");
     }
-    final int length = source.remaining();
-    final boolean encoded =
-        length > 2 && (source.get(source.position() + 2) & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0;
-    final byte[] bytes = encoded
-        ? ENCODED_INPUT.get()
-        : new byte[length];
-    source.get(source.position(), bytes, 0, length);
+    final byte[] bytes = new byte[source.remaining()];
+    source.get(source.position(), bytes);
     if (configuration.verifyChecksumsOnRead && reference.hasHash()) {
-      final long actual = PageHasher.computeLong(bytes, 0, length, configuration.hashAlgorithm);
+      final long actual = PageHasher.computeLong(bytes, configuration.hashAlgorithm);
       final long expected = reference.getHashAsLong();
       if (actual != expected) {
         throw new SirixCorruptionException(reference.getKey(), "compressed", HashAlgorithm.longToBytes(expected),
@@ -154,20 +133,18 @@ public final class HOTProjectionImage {
     if (PageKind.getKind(bytes[0]) != PageKind.HOT_LEAF_PAGE) {
       throw new IllegalStateException("Complete projection image is not a HOT leaf");
     }
-    return new HOTProjectionImage(encoded
-        ? HOTLeafPayloadCodec.expandImage(bytes, 1, length)
-        : bytes, 1);
+    return new HOTProjectionImage(bytes, 1);
   }
 
   public @Nullable HOTLeafEntry select(final byte[] key, final long sideReferenceKey) {
     Objects.requireNonNull(key);
-    if (key.length < prefixLength
-        || !Arrays.equals(bytes, prefixStart, prefixStart + prefixLength, key, 0, prefixLength)) {
+    if (prefixLength != 0 && (key.length < prefixLength
+        || !Arrays.equals(bytes, prefixStart, prefixStart + prefixLength, key, 0, prefixLength))) {
       return null;
     }
     final long[] indexed = wordSlots;
-    if (indexed != null && indexed.length != 0 && key.length == Long.BYTES) {
-      final long encoded = Long.reverseBytes((long) LONGS.get(key, 0));
+    if (indexed != null && indexed.length != 0 && key.length == indexedKeyLength) {
+      final long encoded = orderedKey(key);
       int low = 0;
       int high = count - 1;
       while (low <= high) {
@@ -187,11 +164,19 @@ public final class HOTProjectionImage {
       }
       return null;
     }
+    if (packedBody != null) {
+      final long ref = indexed == null
+          ? packedBody.findValueRef(key, prefixLength)
+          : packedBody.findValidatedValueRef(key, prefixLength);
+      return ref == HOTLeafPage.NO_VALUE_REF
+          ? null
+          : new HOTLeafEntry(packedBody.copyValue(ref), sideReference(sideReferenceKey));
+    }
     int low = 0;
     int high = count - 1;
     while (low <= high) {
       final int middle = (low + high) >>> 1;
-      final int offset = (int) INTS.get(bytes, offsets + middle * Integer.BYTES);
+      final int offset = slotOffset(middle);
       if (offset < 0 || offset > used - 2 * Short.BYTES) {
         throw new IllegalStateException("Invalid projection slot offset");
       }
@@ -240,16 +225,34 @@ public final class HOTProjectionImage {
     }
   }
 
+  private static long orderedKey(final byte[] key) {
+    if (key.length == Long.BYTES) {
+      return Long.reverseBytes((long) LONGS.get(key, 0));
+    }
+    if (key.length == 1) {
+      return Byte.toUnsignedInt(key[0]);
+    }
+    long encoded = 0;
+    for (final byte value : key) {
+      encoded = (encoded << Byte.SIZE) | Byte.toUnsignedInt(value);
+    }
+    return encoded;
+  }
+
   /**
    * Projection slot keys normally fit one word. Decode their immutable bounds once, storing adjacent
    * key/range lanes for cache locality. Variable keys or malformed slots keep the checked selector;
    * an invalid record cannot enter the prevalidated directory.
    */
   private long @Nullable [] indexWordSlots() {
+    if (packedBody != null) {
+      packedBody.validate(prefixLength, IndexType.PROJECTION);
+      return indexPackedWordSlots();
+    }
     if (prefixLength > Long.BYTES || count == 0) {
       return null;
     }
-    final int firstOffset = (int) INTS.get(bytes, offsets);
+    final int firstOffset = slotOffset(0);
     if (firstOffset < 0 || firstOffset > used - 2 * Short.BYTES
         || shortAt(slots + firstOffset) != Long.BYTES - prefixLength) {
       return null;
@@ -261,7 +264,7 @@ public final class HOTProjectionImage {
     final long[] indexed = new long[count * 2];
     long previous = 0;
     for (int i = 0; i < count; i++) {
-      final int offset = (int) INTS.get(bytes, offsets + i * Integer.BYTES);
+      final int offset = slotOffset(i);
       if (offset < 0 || offset > used - 2 * Short.BYTES) {
         return null;
       }
@@ -289,6 +292,35 @@ public final class HOTProjectionImage {
     return indexed;
   }
 
+  private long @Nullable [] indexPackedWordSlots() {
+    final int suffixLength = packedBody.uniformSuffixLength();
+    final int keyLength = prefixLength + suffixLength;
+    if (suffixLength < 0 || keyLength <= 0 || keyLength > Long.BYTES) {
+      return null;
+    }
+    long prefix = 0;
+    for (int i = 0; i < prefixLength; i++) {
+      prefix = (prefix << Byte.SIZE) | (bytes[prefixStart + i] & 255L);
+    }
+    final long[] indexed = new long[count * 2];
+    long previous = 0;
+    for (int i = 0; i < count; i++) {
+      final long encoded = suffixLength == 0
+          ? prefix
+          : (prefix << (suffixLength * Byte.SIZE))
+              | (packedBody.keyTailWord(i, 0) >>> ((Long.BYTES - suffixLength) * Byte.SIZE));
+      if (i > 0 && Long.compareUnsigned(previous, encoded) >= 0) {
+        throw new IllegalStateException("Unordered packed projection slot keys");
+      }
+      final long ref = packedBody.valueRef(i);
+      indexed[i * 2] = encoded;
+      indexed[i * 2 + 1] = ref + ((long) slots << Integer.SIZE);
+      previous = encoded;
+    }
+    indexedKeyLength = keyLength;
+    return indexed;
+  }
+
   private @Nullable PageReference sideReference(final long key) {
     int low = 0;
     int high = references - 1;
@@ -307,6 +339,10 @@ public final class HOTProjectionImage {
     return null;
   }
 
+  private int slotOffset(final int entry) {
+    return shortAt(offsets + entry * Short.BYTES);
+  }
+
   private int shortAt(final int at) {
     return (bytes[at] & 255) | (bytes[at + 1] & 255) << Byte.SIZE;
   }
@@ -317,8 +353,11 @@ public final class HOTProjectionImage {
 
   public long retainedSizeBytes() {
     final long[] indexed = wordSlots;
-    return 72 + ((16L + bytes.length + 7) & ~7L) + (indexed == null || indexed.length == 0
+    return 72 + (packedBody == null
         ? 0
-        : 16L + (long) indexed.length * Long.BYTES);
+        : 128) + ((16L + bytes.length + 7) & ~7L)
+        + (indexed == null || indexed.length == 0
+            ? 0
+            : 16L + (long) indexed.length * Long.BYTES);
   }
 }

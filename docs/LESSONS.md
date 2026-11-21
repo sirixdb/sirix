@@ -6,7 +6,12 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 
 | Failure / broken assumption | Apply next time | Repository evidence |
 | --- | --- | --- |
+| A conditional-write draft used inconsistent definitions of insert context, semantic modification, incarnation, mutation scope and response identity. | Trace each predicate through every insert direction, hash mode, lifecycle reset, indirect mutation boundary and response shape, including XML's separately stored attribute/namespace membership and records. Shared semantics do not imply mandatory exposure in every binding; preserve the approved release scope and honest planned evidence. | [Specification boundary write-up](postmortems/conditional-write-spec-boundaries.md) |
+| Real-method static mocks can execute destructive lifecycle calls while registering a stub. | Default terminal-boundary mocks to no-op, opt in only test-owned resources to real calls, and assert shared resources still work after the mock closes. | [Native CI isolation regression](postmortems/native-ci-contracts.md#ci-follow-up-test-isolation-and-fixture-layout) |
+| A package declaration alone does not satisfy the Java package/directory contract. | Keep standalone fixture directories aligned with packages and update every compiler input path when moving them. | [Native fixture layout](postmortems/native-ci-contracts.md#ci-follow-up-test-isolation-and-fixture-layout) |
+| A native C smoke reached terminal shutdown, but the JVM regression bypassed its public adapters, leaving a removable delegation uncovered. | Exercise the public lifecycle path in the automatically selected JVM suite; substitute terminal process-owned resources at the drain boundary and assert real work and termination. Keep standalone fixtures packaged and workflow dependencies pinned. Rerun Spotless after the final test edit, including CI repairs. | [Native CI contracts](postmortems/native-ci-contracts.md), `StorageEngineWriterFactoryTest` |
 | An isolated opening-work test counted independent derived-index rewind reads through a process-global counter. | Scope work observers to the operation's owning thread when opening starts background maintenance; use joined real reads on another thread and corrupt-primary recovery to verify isolation without weakening bounds. Document bounded primitive thread-lifetime ownership at a field-scoped analyzer suppression rather than resetting cumulative diagnostics per read. | [Beacon counter write-up](postmortems/beacon-opening-work-counter.md), `AbstractReaderBeaconWorkTest`, unchanged `derivedOpenReadsOneBeacon` |
+| A subtree-local insertion treated its local root as the publication root, retaining redundant inner pages and stale ancestor heights while lookups stayed correct. | Propagate live height changes through the original spine; normalize only dirty blocks at commit when per-insert folding costs latency. Commit is still a per-page hot path: skip unchanged blocks before visitor setup, re-arm transient hints at every structural publication (including periodic consolidation after value-only dispatch), retain scratch across the actual writer-replacement lifecycle, and pin owned output plus publication costs separately. Audit paired classpaths as well as timing windows. Check routing, structural heights, insert/page allocation and commit cost independently; re-establish constructed path witnesses after normalization boundaries. | [Lost-spine write-up](postmortems/hot-lost-outer-spine.md), `HOTSubInsertSpineTest`, `HOTConstructedShapeIntegrationTest` |
 | PR mutation selection assumed filenames were JVM class names; a timeout repair also allowed uncovered mutants to pass. | Resolve declared test identities before compilation at the shared discovery boundary; keep scope bounds separate from the [acceptance criterion](VERIFICATION.md#blocking-criterion-the-prs-own-lines). Test mismatched filenames across every lookup path and execute blocking/advisory report handling. | [Mutation scope write-up](postmortems/pr-mutation-test-identity.md), `SelectionTest` and `ReportingTest` in `test_pr_mutation.py` |
 | JSON serialization assumed every result item matched a supported branch; unsupported items could leave the iterator on the same item. | Specify iterator progress and unsupported-type errors; test unsupported items alone and mixed into sequences. | [c9efc3a7b158](https://github.com/sirixdb/sirix/commit/c9efc3a7b158a12af7fc544c03b6113081ffe077), `JsonDBSerializerTest` and `QueryJsonSerializationTest` |
 | Query mutation authorization relied on an updating-expression flag; ordinary function calls could mutate too. Assertions comparing absent aggregate headers also became vacuous after storage moved. | Guard the actual mutation boundary; require the witness to exist, assert persisted state is unchanged on refusal, and include an authorized control. Verify the relevant JVM tests actually run in CI. | [36ee410f1f8d](https://github.com/sirixdb/sirix/commit/36ee410f1f8d0ff201bcb80170781f8d86b47550), `QueryMutationAuthorizationTest`, `PermissionCheckingQueryTest` |
@@ -51,6 +56,9 @@ lesson here. Extend an existing lesson when the same failure mode recurs.
 | HOT runtime regressions passed while large validation/seek methods and opaque assertion helpers failed Sonar's maintainability gate. | Extract cold validation stages without changing failure priority, work or allocation; never split a hot seek or per-insert kernel for the analyzer, keep its measured shape under a narrow reasoned S3776 suppression; isolate throwing operations and name delegated assertion helpers explicitly. Verify with the analyzer as well as behavioral oracles; count-source-only changes can expose the same inherited query traversal complexity. | [CI write-up](postmortems/2026-11-hot-sonar-maintainability.md), [query follow-up](postmortems/hash-default-consumers.md#ci-follow-up-unchanged-traversal-complexity), HOT cardinality/footprint/detector/bound suites and MCP integration tests |
 | A dangerous option was safe only because every caller happened to disable it: `DiffFactory.Builder.hashKind` hard-coded `ROLLING` regardless of the diffed resource, and the hash shortcut was avoided only because each caller separately derived `DiffOptimized` from the resource's hash kind. Changing the hash default would have made the unsafe combination the common case. | Put the gate on the state that makes the option valid, not on each caller's discipline: derive the default from the resource and refuse the shortcut when the resource stores no hashes. Test the direction a caller must not be able to force, not only the happy path. | [Write-up](postmortems/hash-default-consumers.md), `DiffFactoryHashKindTest`, `JsonDiffHashEquivalenceTest`, `XmlDiffHashEquivalenceTest` |
 | A field that exists only under one configuration was read as if it were always maintained: stored descendant counts are gated on `hashType != NONE`, and four planner size heuristics read `getDescendantCount()` as a document-size signal, so a hashless resource looked empty and lost its index route, its parallel axis and every cost-based annotation. | When a planner heuristic reads a stored statistic, check whether that statistic is configuration-gated and give it an unconditional fallback. Guard it with a test that asserts the decision input, since a plan change leaves results exact and no result test notices. | [Write-up](postmortems/hash-default-consumers.md), `DocumentNodeCountTest`, `DocumentNodeCount` |
+| Query/REST metadata concealed core Caffeine node constructors missing from a shared image. | Test the smallest supported classpath from C; distinguish node constructors from cache factory fields and exercise weighted/async variants. | [Core metadata write-up](postmortems/native-core-caffeine-metadata.md), `tests/native/run-smoke.sh` and constructor omissions |
+| A persisted serializer class name was loadable on the JVM but unreachable in a core-only native image. | Round-trip resource creation and reopen with only core metadata; keep built-in serializer/handler registrations in core. | [Resource configuration write-up](postmortems/native-core-resource-configuration.md), `CoreSmoke` |
+| Daemon status and interruption did not terminate custom snapshot workers during isolate teardown. | Use actual teardown laggard diagnostics; explicitly drain coordinators before their serialization pool, with running and queued dependency work in the regression. | [Snapshot executor write-up](postmortems/native-snapshot-executor-teardown.md), `SnapshotExecutorShutdownTest` and native shutdown omission |
 
 - Inspect the final changed-source mutation inventory after documentation edits: Java comment cleanup can add unrelated whole-class baselines to a bounded gate. Defer that cleanup instead of weakening mutation scope or deadlines. [Evidence](postmortems/pr-fastpath-comment-scope.md).
 - **Drain lexical state at EOF:** streaming presentation adapters must preserve the last token
@@ -146,6 +154,12 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   no-index cases cannot detect a broken NAME lookup. Use persisted definitions as
   the oracle for NAME/PATH/CAS priority, unmatched and empty paths, revisions and
   cached lookups. Evidence: [statistics mutation coverage](postmortems/hash-default-consumers.md#ci-follow-up-name-index-selection-lacked-assertions).
+
+- Consume resolved HOT boundary heights during each load: a later load may clear an earlier PageReference. Allocation comparison factories may retain temporary arrays on another JVM; keep exact production output budgets independent of that control (postmortems/hot-ci-boundary-heights.md).
+- Extract complete cold HOT decisions at shared boundaries when complexity grows;
+  helper extraction changes bytecode, so retain pinned allocation budgets and
+  recapture compiled shape before claiming latency neutrality. Evidence:
+  [HOT complexity follow-up](postmortems/hot-codefactor-complexity.md).
 
 ### Logical codec bounds
 
@@ -270,3 +284,75 @@ test thread. See the
   feature on and off would have shown this before the microbenchmarks, the device probe and the
   image builds. A device-cold probe and an in-memory decode comparison answer different questions.
 - See [`2026-11-18-leaf-codec-default-cold-cost.md`](postmortems/2026-11-18-leaf-codec-default-cold-cost.md).
+
+### Corrupt wire fixtures must pin their layout
+
+Build ordinary and packed golden controls independently of the writer's
+selection policy. Use the declared directory width for both the stride and
+the offset load. After editing a valid fixture, assert at the reader
+boundary so a failure in fixture construction cannot stand in for a
+decoder refusal. See the
+[projection directory fixture postmortem](postmortems/2026-11-19-hot-leaf-directory-fixture-width.md).
+
+### Check logical bounds before packing
+
+Source slots carry a logical high-water mark separate from allocator capacity.
+Before choosing or emitting a packed layout, check each selected header and
+value against the used byte range. Exercise retirement and sparse emission
+with a real backing allocation larger than the logical range. See the
+[packed HOT writer postmortem](postmortems/2026-11-19-hot-leaf-packed-source-bounds.md).
+
+### Reuse unpublished packed wire views
+
+Borrowed slot selection keeps only a synchronous descriptor with its backing
+cleared on every exit. A copying reader can rebase its unpublished descriptor
+to the destination. Count the descriptor, backing wrapper and slices in the
+clean allocation fork, including formats that save enough wire bytes to hide
+the object costs in other read paths. See the
+[packed HOT allocation postmortem](postmortems/2026-11-19-hot-leaf-packed-read-allocations.md).
+
+### Preserve contiguous keys for fixed-word probes
+
+Select grouped prefixes only where the read path can afford two key
+ranges. Preserve the bounded native word lookup for eight-byte projection
+keys, including the last slot where an otherwise safe forward word load
+can cross the slot region. Keep the suffix-work counter active on packed
+paths. See the [projection probe postmortem](postmortems/2026-11-19-hot-leaf-projection-suffix-budget.md).
+
+### Distinguish writable copies from cache images
+
+Preserve the mutable-copy contract when a cache starts retaining encoded
+pages. Give the cache an explicit read-only copy path and charge all
+retained wire metadata. Check that independent copies can grow and
+mutate while the guarded source retains the same values. See the
+[packed copy postmortem](postmortems/2026-11-19-hot-leaf-packed-copy-contract.md).
+
+### Let pointers name the directory entry
+
+When a slot owns shared bytes, make every alias identify that slot with
+one directory load. The validator can then check earlier ownership and
+reuse proved bounds without an additional search. Prove the current
+slot's span before reading its alias. Reuse an earlier alias proof only
+when both the target and its declared length match. Measure complete
+and compact materialization, borrowed selection and retained hits
+separately. Check the compiled borrowed loop when replacing a typed
+load with narrower loads. When writer eligibility changes, keep
+ownership fixtures on eligible pages and assert the resulting wire mode.
+See the [packed read postmortem](postmortems/2026-11-20-packed-hot-leaf-read-cost.md).
+
+### Keep the HOT leaf frame contract across read paths
+
+Exercise a format boundary on full materialization, borrowed point
+lookup and cached images. Share the directory and trailer bounds,
+then apply the same exact-consumption and trailer-order rules even
+when a path skips slot materialization. Pin valid layouts independently
+of writer selection. See the [HOT leaf framing postmortem](postmortems/2026-11-20-hot-leaf-framing.md).
+
+### Make size decisions on the logical value
+
+When a stored value gains a compact representation, every decision that
+reads its size or bytes must use the logical value: thresholds, hotness,
+fold triggers and buffer sizing. Read the logical length and the expanded
+bytes through one accessor, and run the full suite, including other
+branches' stream tests, before trusting a targeted subset. See the
+[packed posting hotness postmortem](postmortems/2026-11-21-hot-packed-posting-delta-hotness.md).

@@ -3,8 +3,8 @@ package io.sirix.page;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
+import io.sirix.settings.VersioningType;
 import io.sirix.index.hot.page.HOTLeafPage;
-import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -19,7 +19,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.HexFormat;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -37,44 +36,7 @@ final class PageKindTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void hotWriterModesPreserveTheLegacyTinyLeaf(final boolean compress) {
-    // Independent V0 disk-format vector: a single key 7 with value 42 needs no codec framing.
-    Allocators.getInstance().init(1L << 30);
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("raw-leaf").build();
-    try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION);
-        BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
-      assertTrue(page.put(new byte[] {7}, new byte[] {42}));
-      PageKind.serializeHOTLeaf(config, sink, page, compress);
-      assertArrayEquals(HexFormat.of().parseHex("0c000001010000000a010007010000000500000000000000000001002a"),
-          sink.toByteArray());
-    }
-  }
-
-  @Test
-  void thePageWriterStoresLeavesRawUnlessCompressionIsSwitchedOn() {
-    Allocators.getInstance().init(1L << 30);
-    final ResourceConfiguration config = ResourceConfiguration.newBuilder("writer-default").build();
-    // Read the way the writer reads it: once per process, absent means off.
-    final boolean switchedOn = Boolean.getBoolean("sirix.page.hotLeaf.compress");
-    try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION);
-        BytesOut<?> sink = Bytes.elasticHeapByteBuffer();
-        BytesOut<?> raw = Bytes.elasticHeapByteBuffer()) {
-      // 256 zero bytes: LZ4 would save far more than a third, so only the setting keeps this page raw.
-      assertTrue(page.put(new byte[] {7}, new byte[256]));
-      PageKind.HOT_LEAF_PAGE.serializePage(config, sink, page, SerializationType.DATA);
-      final byte[] wire = sink.toByteArray();
-      assertEquals(switchedOn && FFILz4Compressor.isNativeAvailable(),
-          (wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
-      if (!switchedOn) {
-        PageKind.serializeHOTLeaf(config, raw, page, false);
-        assertArrayEquals(raw.toByteArray(), wire, "the default writer is the raw writer, byte for byte");
-      }
-    }
-  }
-
-  @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void aSlotThatRunsPastTheUsedBytesIsRefusedNotWritten(final boolean compress) {
+  void aSlotThatRunsPastTheUsedBytesIsRefusedNotWritten(final boolean allowPackedBody) {
     Allocators.getInstance().init(1L << 30);
     final ResourceConfiguration config = ResourceConfiguration.newBuilder("corrupt-directory").build();
     try (Arena arena = Arena.ofConfined(); BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
@@ -82,12 +44,27 @@ final class PageKindTest {
       // Two six-byte slots at offsets 0 and 8, so the second one ends at byte 14.
       writeSixByteSlot(slots, 0, (byte) 1, (byte) 42);
       writeSixByteSlot(slots, 8, (byte) 2, (byte) 43);
-      final int[] offsets = new int[HOTLeafPage.MAX_ENTRIES];
+      final char[] offsets = new char[HOTLeafPage.MAX_ENTRIES];
       offsets[1] = 8;
       // The leaf claims twelve used bytes, exactly the sum of both slots. Writing "twelve bytes, already
       // dense" would publish a page whose second entry points two bytes past its own payload.
       try (HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION, slots, null, offsets, 2, 12)) {
-        assertThrows(IllegalStateException.class, () -> PageKind.serializeHOTLeaf(config, sink, page, compress));
+        assertThrows(IllegalStateException.class, () -> PageKind.serializeHOTLeaf(config, sink, page, allowPackedBody));
+        final long position = sink.position();
+        try (HOTLeafPage older = new HOTLeafPage(1, 0, IndexType.PROJECTION)) {
+          page.setCompletePageRef(older);
+          page.markEntryDirty(1);
+          final ResourceConfiguration sliding =
+              ResourceConfiguration.newBuilder("corrupt-sparse-directory")
+                                   .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                   .build();
+          assertThrows(IllegalStateException.class,
+              () -> PageKind.serializeHOTLeaf(sliding, sink, page, allowPackedBody));
+          if (allowPackedBody) {
+            assertEquals(0, position, "packed selection must reject the source before writing its envelope");
+            assertEquals(0, sink.position());
+          }
+        }
       }
     }
   }
@@ -108,7 +85,7 @@ final class PageKindTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void hotWriterModesPreservePayloadAndSideReferences(final boolean compress) {
+  void hotWriterModesPreservePayloadAndSideReferences(final boolean allowPackedBody) {
     Allocators.getInstance().init(1L << 30);
     final ResourceConfiguration config = ResourceConfiguration.newBuilder("writer-modes").build();
     final byte[] value = new byte[256];
@@ -116,12 +93,9 @@ final class PageKindTest {
         BytesOut<?> sink = Bytes.elasticHeapByteBuffer()) {
       assertTrue(page.put(new byte[] {7}, value));
       page.setPageReference(7, new PageReference().setKey(123));
-      PageKind.serializeHOTLeaf(config, sink, page, compress);
+      PageKind.serializeHOTLeaf(config, sink, page, allowPackedBody);
       final byte[] wire = sink.toByteArray();
-      // 256 zero bytes save far more than a third as LZ4. Only the enabled mode sets bit 1, and
-      // only on a host that can write LZ4.
-      assertEquals(compress && FFILz4Compressor.isNativeAvailable(),
-          (wire[2] & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0);
+      assertEquals(HOTLeafPage.FLAG_NARROW_SLOT_OFFSETS, wire[2] & HOTLeafPage.FLAG_NARROW_SLOT_OFFSETS);
       assertEquals(HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS, wire[2] & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS);
       final ByteArrayBytesIn source = new ByteArrayBytesIn(wire);
       source.position(1);

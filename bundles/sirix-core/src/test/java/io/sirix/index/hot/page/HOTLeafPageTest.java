@@ -71,7 +71,7 @@ class HOTLeafPageTest {
 
     // Use the constructor that accepts pre-allocated memory
     hotLeafPage = new HOTLeafPage(1L, 1, IndexType.PATH, slotMemory, null, // null releaser - Arena will handle cleanup
-        new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+        new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
   }
 
   @AfterEach
@@ -114,9 +114,9 @@ class HOTLeafPageTest {
     for (int slot = 0; slot < values.length; slot++) {
       assertTrue(hotLeafPage.put(new byte[] {7, (byte) slot}, values[slot]));
     }
-    final int[] offsets = new int[values.length];
+    final char[] offsets = new char[values.length];
     for (int slot = 0; slot < offsets.length; slot++) {
-      offsets[slot] = hotLeafPage.getSlotOffset(slot);
+      offsets[slot] = (char) hotLeafPage.getSlotOffset(slot);
     }
     final byte[] bytes = hotLeafPage.slots().asSlice(0, hotLeafPage.getUsedSlotsSize()).toArray(ValueLayout.JAVA_BYTE);
     try (HOTLeafPage compact = new HOTLeafPage(1, 1, IndexType.PATH, MemorySegment.ofArray(bytes), null, offsets,
@@ -319,7 +319,7 @@ class HOTLeafPageTest {
     final AtomicReference<PageReference> releaserObservation = new AtomicReference<>();
     final HOTLeafPage[] pageHolder = new HOTLeafPage[1];
     final HOTLeafPage orderedPage = new HOTLeafPage(2L, 1, IndexType.PATH, arena.allocate(PAGE_SIZE),
-        () -> releaserObservation.set(pageHolder[0].getPageReference(7L)), new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+        () -> releaserObservation.set(pageHolder[0].getPageReference(7L)), new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
     pageHolder[0] = orderedPage;
     final PageReference reference = new PageReference().setKey(42L);
     orderedPage.setPageReference(7L, reference);
@@ -352,8 +352,8 @@ class HOTLeafPageTest {
     hotLeafPage.setPageReference(7L, reference);
     assertEquals(hotLeafPage.estimatedRetainedHeapBytes(), hotLeafPage.estimatedCanonicalCacheRetainedHeapBytes());
 
-    final HOTLeafPage completePage =
-        new HOTLeafPage(2L, 1, IndexType.PATH, arena.allocate(PAGE_SIZE), null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    final HOTLeafPage completePage = new HOTLeafPage(2L, 1, IndexType.PATH, arena.allocate(PAGE_SIZE), null,
+        new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
     hotLeafPage.setCompletePageRef(completePage);
     assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
     hotLeafPage.setCompletePageRef(null);

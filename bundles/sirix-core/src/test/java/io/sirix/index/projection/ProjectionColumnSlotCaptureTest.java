@@ -113,11 +113,11 @@ final class ProjectionColumnSlotCaptureTest {
       bytes += 12 + value.length;
     }
     final byte[] packed = new byte[bytes];
-    final int[] offsets = new int[slots.size()];
+    final char[] offsets = new char[slots.size()];
     int index = 0;
     int offset = 0;
     for (final Map.Entry<Long, byte[]> entry : slots.entrySet()) {
-      offsets[index++] = offset;
+      offsets[index++] = (char) offset;
       packed[offset] = 8;
       PathKeySerializer.INSTANCE.serialize(entry.getKey(), packed, offset + 2);
       final int declared = unreadable && entry.getKey() == FIRST
@@ -151,7 +151,7 @@ final class ProjectionColumnSlotCaptureTest {
   }
 
   private record Fixture(HOTLeafPage leaf, StorageEngineReader reader, PageReference root, byte[] packed,
-      int[] offsets) implements AutoCloseable {
+      char[] offsets) implements AutoCloseable {
     HOTLeafPage replacement() {
       return new HOTLeafPage(1, 1, IndexType.PROJECTION, MemorySegment.ofArray(packed.clone()), null, offsets.clone(),
           offsets.length, packed.length, new byte[0], 0);

@@ -31,7 +31,7 @@ final class HOTLeafLookupAllocationTest {
     final byte[] value = {1};
     try (Arena arena = Arena.ofConfined();
         HOTLeafPage page = new HOTLeafPage(1, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
-            new int[HOTLeafPage.MAX_ENTRIES], 0, 0)) {
+            new char[HOTLeafPage.MAX_ENTRIES], 0, 0)) {
       for (int i = 0; i < count; i++) {
         // Zero plus single-bit words require a distinct discriminative bit per adjacent pair.
         keys[i] = key(discriminativeBits == 0

@@ -41,6 +41,7 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
+import io.sirix.index.hot.HOTCommitNormalizer;
 import io.sirix.index.interval.ValidTimeReadCache;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.io.IOStorage;
@@ -91,6 +92,18 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     implements ResourceSession<R, W>, InternalResourceSession<R, W> {
 
   private volatile @Nullable ValidTimeReadCache validTimeReadCache;
+
+  /** Confined to the exclusive writer; survives its per-commit storage-writer replacement. */
+  private HOTCommitNormalizer.@Nullable Scratch hotCommitScratch;
+
+  @Override
+  public final HOTCommitNormalizer.Scratch getHOTCommitScratch() {
+    assertNotClosed();
+    if (hotCommitScratch == null) {
+      hotCommitScratch = new HOTCommitNormalizer.Scratch();
+    }
+    return hotCommitScratch;
+  }
 
   @Override
   public final ValidTimeReadCache getValidTimeReadCache() {
@@ -1456,6 +1469,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       nodeTrxMap.clear();
       storageEngineReaderMap.clear();
       storageEngineWriterMap.clear();
+      hotCommitScratch = null;
       if (pool.get() != null) {
         pool.get().close();
       }

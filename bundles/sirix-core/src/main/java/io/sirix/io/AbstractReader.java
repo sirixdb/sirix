@@ -10,7 +10,6 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.Bytes;
 import io.sirix.node.MemorySegmentBytesIn;
-import io.sirix.page.HOTLeafPayloadCodec;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageLayout;
 import io.sirix.page.PagePersister;
@@ -355,17 +354,6 @@ public abstract class AbstractReader implements Reader {
         && compressedPage.get(ValueLayout.JAVA_BYTE, 0L) == PageKind.OVERFLOWPAGE.getID()) {
       return pagePersister.deserializePage(resourceConfiguration, new MemorySegmentBytesIn(compressedPage), type);
     }
-    if (byteHandler instanceof ByteHandlerPipeline pipeline && pipeline.isEmpty() && compressedPage.byteSize() > 2
-        && compressedPage.get(ValueLayout.JAVA_BYTE, 0L) == PageKind.HOT_LEAF_PAGE.getID()
-        && (compressedPage.get(ValueLayout.JAVA_BYTE, 2L) & HOTLeafPayloadCodec.FLAG_COMPRESSED) != 0) {
-      final Page page =
-          pagePersister.deserializePage(resourceConfiguration, new MemorySegmentBytesIn(compressedPage), type);
-      if (resourceConfiguration != null) {
-        fixupPageReferenceIds(page, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
-      }
-      return page;
-    }
-
     // Decompress - ownership may be transferred to page for zero-copy
     var decompressionResult = byteHandler.decompressScoped(compressedPage);
 

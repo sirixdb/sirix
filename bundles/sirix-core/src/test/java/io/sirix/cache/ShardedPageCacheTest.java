@@ -57,7 +57,7 @@ class ShardedPageCacheTest {
 
   private static HOTLeafPage hotLeaf(Arena arena, long pageKey, int sideReferenceCount) {
     final HOTLeafPage leaf = new HOTLeafPage(pageKey, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE),
-        null, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+        null, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
     for (int index = 0; index < sideReferenceCount; index++) {
       leaf.setPageReference(index, new PageReference().setKey(index + 1L));
     }
@@ -92,7 +92,7 @@ class ShardedPageCacheTest {
       final PageReference key = keyFor(103);
       final byte[] commonPrefix = new byte[257];
       final HOTLeafPage leaf = new HOTLeafPage(103, 1, IndexType.CAS, arena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
-          new int[HOTLeafPage.MAX_ENTRIES], 0, 0, commonPrefix, commonPrefix.length);
+          new char[HOTLeafPage.MAX_ENTRIES], 0, 0, commonPrefix, commonPrefix.length);
 
       cache.put(key, leaf);
 
@@ -595,7 +595,7 @@ class ShardedPageCacheTest {
       final HOTLeafPage page =
           new HOTLeafPage(304, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw new AssertionError("expected release failure");
-          }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+          }, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
       cache.put(key, page);
       key.setPage(page);
 
@@ -622,7 +622,7 @@ class ShardedPageCacheTest {
       final HOTLeafPage failing =
           new HOTLeafPage(305, 1, IndexType.PROJECTION, arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
             throw new AssertionError("expected clear release failure");
-          }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+          }, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
       final HOTLeafPage succeeding = hotLeaf(arena, 306, 1);
       cache.put(keyFor(305), failing);
       cache.put(keyFor(306), succeeding);

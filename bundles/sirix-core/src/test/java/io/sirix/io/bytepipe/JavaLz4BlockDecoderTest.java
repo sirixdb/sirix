@@ -356,7 +356,7 @@ final class JavaLz4BlockDecoderTest {
         for (final int size : sizes) {
           final byte[] original = mixedContent(random, size, round);
           MemorySegment.copy(original, 0, plain, ValueLayout.JAVA_BYTE, 0, size);
-          final int packedLength = lz4.compressSegmentBounded(plain, size, packed, (int) packed.byteSize());
+          final int packedLength = lz4.compressSegmentFast(plain.asSlice(0, size), packed, 1);
           assertTrue(packedLength > 0, "native LZ4 must compress " + size + " bytes");
           final byte[] block = new byte[packedLength];
           MemorySegment.copy(packed, ValueLayout.JAVA_BYTE, 0, block, 0, packedLength);
@@ -397,7 +397,7 @@ final class JavaLz4BlockDecoderTest {
       final byte[] payload = new byte[used];
       MemorySegment.copy(leaf.slots(), ValueLayout.JAVA_BYTE, 0, payload, 0, used);
       final MemorySegment packed = arena.allocate(lz4.compressBound(used));
-      final int packedLength = lz4.compressSegmentBounded(leaf.slots(), used, packed, (int) packed.byteSize());
+      final int packedLength = lz4.compressSegmentFast(leaf.slots().asSlice(0, used), packed, 1);
       assertTrue(packedLength > 0 && packedLength < used, "the payload must compress: " + packedLength + " of " + used);
       final byte[] block = new byte[packedLength];
       MemorySegment.copy(packed, ValueLayout.JAVA_BYTE, 0, block, 0, packedLength);

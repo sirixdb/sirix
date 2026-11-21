@@ -18,7 +18,10 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-/** Store written by unchanged 7cd676bcd, with five indexes and three revisions. */
+/**
+ * Store written by the 1.0 format writer (u16 HOT leaf directories), with five indexes and three
+ * revisions.
+ */
 public final class LegacyPageReadersFixtureTest {
   @Rule
   public final TemporaryFolder temporary = new TemporaryFolder();
@@ -26,7 +29,7 @@ public final class LegacyPageReadersFixtureTest {
   @Test
   public void baseStoreReadsEveryRevisionAndAppendsWithoutRewritingOldPages() throws Exception {
     final Path directory = temporary.getRoot().toPath().resolve("database");
-    try (final InputStream resource = getClass().getResourceAsStream("/format/readers-base-7cd676bcd.zip");
+    try (final InputStream resource = getClass().getResourceAsStream("/format/readers-1-0-format.zip");
         final ZipInputStream archive = new ZipInputStream(resource)) {
       ZipEntry entry;
       while ((entry = archive.getNextEntry()) != null) {
