@@ -47,10 +47,6 @@ jobs:
               *)                    TAG="$GITHUB_REF_NAME" ;;
             esac
           fi
-          if ! printf '%s' "$TAG" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
-            echo "::error::release tag contains characters outside [A-Za-z0-9._/-] or is empty"
-            exit 1
-          fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Validate release tag against gradle.properties
