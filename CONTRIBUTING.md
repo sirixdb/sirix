@@ -30,7 +30,12 @@ property, artifacts in `~/.m2` are not considered.
 
 - Java 25+ (with `--enable-preview`)
 - Gradle 9.1+ (or use the included wrapper)
-- GraalVM (optional, for native image builds)
+- Oracle GraalVM 25i5 GA (`GRAALVM_VERSION` 25.5.5.0.3, `JAVA_VERSION` 25.0.5.0.3) —
+  optional, for native image builds. The native build follows the GraalVM innovation
+  line rather than the 25.0.x LTS line, because Native Image on the LTS line cannot
+  build build-time-initialized, address-less FFM downcall handles
+  ([oracle/graal#14860](https://github.com/oracle/graal/issues/14860)); see
+  [`docs/NATIVE_IMAGE.md`](docs/NATIVE_IMAGE.md).
 
 ### Common tasks
 

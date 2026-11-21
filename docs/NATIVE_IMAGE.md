@@ -3,6 +3,21 @@
 The `:sirix-query:nativeCompile` task builds a Graal native image for
 `io.sirix.query.bench.ScaleBenchMain` → `bundles/sirix-query/build/native/nativeCompile/sirix-bench`.
 
+## Toolchain
+
+The native build is pinned to **Oracle GraalVM 25i5 GA** (`GRAALVM_VERSION` 25.5.5.0.3,
+`JAVA_VERSION` 25.0.5.0.3) in `.github/workflows/gradle.yml` and
+`.github/workflows/native-library-smoke.yml`. It therefore follows the GraalVM **innovation**
+line, not the 25.0.x LTS line: Native Image on the LTS line cannot build
+build-time-initialized, address-less FFM downcall handles
+([oracle/graal#14860](https://github.com/oracle/graal/issues/14860)), which costs the io_uring
+reader microseconds per Java-to-native call instead of nanoseconds. The innovation line has a
+shorter support window, so this pin has to move forward with each innovation release.
+
+Local native builds need the same toolchain: install Oracle GraalVM 25i5 GA and point
+`JAVA_HOME`/`GRAALVM_HOME` at it — or pass `-Dorg.gradle.java.home=<graalvm>`, because a Gradle
+daemon that is already running supplies its own JDK.
+
 ## Build modes
 
 - `./gradlew :sirix-query:nativeCompile`
@@ -256,9 +271,10 @@ The portable configuration initializes FFM downcall adapters at run time, becaus
 25.0.x LTS line rejects build-time adapters with a `linkToNative` compilation error. Build-time
 downcall handles need a GraalVM 25 **innovation** release 25.1.3 or later, which carries upstream
 [oracle/graal PR 13309](https://github.com/oracle/graal/pull/13309), "Support build-time
-initialization of downcall handles". Keep the run-time default for every other toolchain, and do
-not add the adapters to the shared `native-image.properties` build-time list: CI resolves
-`java-version: '25'` to the LTS line, which would fail the build.
+initialization of downcall handles". CI now pins the innovation release named under
+[Toolchain](#toolchain) and accepts the opt-in, but keep the run-time default for every other
+toolchain, and do not add the adapters to the shared `native-image.properties` build-time list:
+that list is also used by builds on the LTS line, where it would fail the build.
 
 An optimized main image can opt in with `-Pnative.preinitializeDowncalls=true`. This adds:
 

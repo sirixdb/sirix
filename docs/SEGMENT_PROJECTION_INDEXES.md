@@ -1347,7 +1347,7 @@ loaders now read all cache misses together (`trx/NodeStorageEngineReader.java`):
 - **FFM downcall initialization.** `.../sirix-core/native-image.properties:5` build-time-initializes **only**
   `io.sirix.node.LE` and `io.sirix.node.SegmentAccess`. The two downcall-handle holders
   `SirixLZ77NativeDecoder$DecodeCall` and `PosixFadvise$AdviceCall` are **run-time initialized by default**: the
-  GraalVM 25.0.x LTS line that CI resolves aborts image analysis with `linkToNative` when a downcall handle is
+  GraalVM 25.0.x LTS line that CI resolved at the time aborts image analysis with `linkToNative` when a downcall handle is
   created at build time, so listing them there made every native image fail to build. An optimized image can opt in
   with `-Pnative.preinitializeDowncalls=true`, which adds
   `--initialize-at-build-time=io.sirix.page.SirixLZ77NativeDecoder$DecodeCall,io.sirix.io.filechannel.PosixFadvise$AdviceCall`

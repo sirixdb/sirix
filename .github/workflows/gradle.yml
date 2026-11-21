@@ -525,8 +525,16 @@ jobs:
           # Full history so Spotless can resolve the origin/main ratchet ref.
           fetch-depth: 0
       - name: Install GraalVM
-        uses: graalvm/setup-graalvm@v1
+        # Pinned to the same action commit as native-library-smoke.yml. An
+        # innovation-release `version` is resolved through the action's GDS path, so a
+        # floating tag could change how this pin is read.
+        uses: graalvm/setup-graalvm@60e76998d25690099182b796e99b8804da582d90 # v1.6.10
         with:
+          # Oracle GraalVM 25i5 GA: GRAALVM_VERSION 25.5.5.0.3, JAVA_VERSION 25.0.5.0.3.
+          # The native build follows the GraalVM innovation line because Native Image on
+          # the 25.0.x LTS line cannot build build-time-initialized, address-less FFM
+          # downcall handles (oracle/graal#14860). See docs/NATIVE_IMAGE.md, "Toolchain".
+          version: '25.5.5.0.3'
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}

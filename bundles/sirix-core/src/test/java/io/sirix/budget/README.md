@@ -182,7 +182,7 @@ to the main image, and hands the test what Gradle itself evaluated. So it checks
 produces exactly one argument naming the two holders and the default produces none; that the main
 image really initializes the two holders early when, and only when, the build asked for it (run the
 suite with `-Pnative.preinitializeDowncalls=true` to check the other state); that the smoke-test
-image, which CI builds on the LTS toolchain, never does; that the documented `-P` switch is the
+image, which keeps the portable run-time configuration on every toolchain, never does; that the documented `-P` switch is the
 property the build really consults, so a rename cannot leave it silently doing nothing; that the
 argument names two classes that exist and still hold nothing but their call signature, so
 initializing them at build time is legal; and that no shared `native-image.properties` initializes a
