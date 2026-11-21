@@ -17,7 +17,7 @@ public final class InMemoryResources {
 
   /**
    * Reserved part of a resource directory name: an IN_MEMORY resource is retired by renaming its
-   * directory to {@code <name>$retired-<uuid>} before deleting it, so the name is free at once and a
+   * directory to {@code $retired-<uuid>} before deleting it, so the name is free at once and a
    * failed deletion leaves only an unlisted tombstone.
    */
   public static final String RETIRED_MARKER = "$retired-";

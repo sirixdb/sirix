@@ -3,6 +3,7 @@ package io.sirix.io;
 import org.jspecify.annotations.Nullable;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.sirix.access.InMemoryResources;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.exception.SirixIOException;
@@ -188,7 +189,7 @@ public final class InterruptedFirstCommitRecovery {
     }
     try (final DirectoryStream<Path> paths = Files.newDirectoryStream(resources)) {
       for (final Path path : paths) {
-        if (!Files.isDirectory(path)) {
+        if (!Files.isDirectory(path) || InMemoryResources.isRetiredResourceName(path.getFileName().toString())) {
           continue;
         }
         probeFeatures(ResourceConfiguration.deserialize(path)).requireToolCompatible();

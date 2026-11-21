@@ -363,7 +363,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     // A leftover of a former IN_MEMORY resource holds nothing: retry its removal (TXN-615 clause 7).
     final String name = path.getFileName().toString();
-    if (hiddenInMemoryLeftovers.contains(name) && !retireInMemoryResource(path, name)) {
+    if (hiddenInMemoryLeftovers.contains(name) && path.equals(retireInMemoryResource(path, name))) {
       return false;
     }
 
@@ -614,11 +614,12 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   /**
    * Discard the committed state and on-disk footprint of one resource proven to be IN_MEMORY
    * (TXN-615). The state is dropped even when the directory cannot be removed; such a directory stays
-   * hidden from this instance.
+   * hidden from this instance. Retirement renames it to {@code $retired-<uuid>}, independently of
+   * the original name length.
    *
-   * @return {@code true} if the directory is gone
+   * @return the original directory or tombstone that remains, or {@code null} if neither remains
    */
-  private boolean retireInMemoryResource(final Path resourceFile, final String name) {
+  private @Nullable Path retireInMemoryResource(final Path resourceFile, final String name) {
     try {
       discardResourceState(resourceFile);
     } finally {
@@ -629,18 +630,17 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     // settings that prove it in-memory state are still there for the next attempt. A plain
     // recursive delete could empty the directory and then fail to remove it, leaving an unprovable
     // leftover that TXN-615 clause 6 would have to treat as persistent.
-    final Path tombstone = resourceFile.resolveSibling(name + InMemoryResources.RETIRED_MARKER + UUID.randomUUID());
+    final Path tombstone = resourceFile.resolveSibling(InMemoryResources.RETIRED_MARKER + UUID.randomUUID());
     try {
       Files.move(resourceFile, tombstone, StandardCopyOption.ATOMIC_MOVE);
     } catch (final IOException | UnsupportedOperationException | SecurityException renameFailure) {
       logger.warn("Could not remove the leftovers of in-memory resource {}", resourceFile, renameFailure);
       hiddenInMemoryLeftovers.add(name);
-      return false;
+      return resourceFile;
     }
     forgetResource(resourceFile, name);
     hiddenInMemoryLeftovers.remove(name);
-    removeTombstone(tombstone);
-    return true;
+    return removeTombstone(tombstone) ? null : tombstone;
   }
 
   /**
@@ -695,9 +695,12 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final Set<String> keptSources = new HashSet<>();
     for (final Path resource : derived) {
       final String name = resource.getFileName().toString();
-      if (!retireInMemoryResource(resource, name)) {
-        remaining.add(resource);
-        keptSources.add(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length()));
+      final Path leftover = retireInMemoryResource(resource, name);
+      if (leftover != null) {
+        remaining.add(leftover);
+        if (leftover.equals(resource)) {
+          keptSources.add(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length()));
+        }
       }
     }
     for (final Path resource : sources) {
@@ -707,8 +710,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         RAMStorage.discardUnder(resource);
         hiddenInMemoryLeftovers.add(name);
         remaining.add(resource);
-      } else if (!retireInMemoryResource(resource, name)) {
-        remaining.add(resource);
+      } else {
+        final Path leftover = retireInMemoryResource(resource, name);
+        if (leftover != null) {
+          remaining.add(leftover);
+        }
       }
     }
     return remaining.isEmpty()

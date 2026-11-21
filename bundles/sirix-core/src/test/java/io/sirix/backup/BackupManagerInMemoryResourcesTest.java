@@ -17,6 +17,8 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.io.StorageType;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -104,6 +106,45 @@ final class BackupManagerInMemoryResourcesTest {
         assertEquals("d0", value(durable, model, 1, durableKeys[0]));
         assertEquals("d1", value(durable, model, 2, durableKeys[1]));
         assertNull(value(durable, model, 1, durableKeys[1]));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void incompleteTombstonesDoNotBlockBackupOrRestore(final Model model) throws IOException {
+    final Path source = directory.resolve("source");
+    final Path backup = directory.resolve("backup");
+    final Path restored = directory.resolve("restored");
+    if (model == Model.JSON) {
+      Databases.createJsonDatabase(new DatabaseConfiguration(source));
+    } else {
+      Databases.createXmlDatabase(new DatabaseConfiguration(source));
+    }
+    final long key;
+    try (Database<? extends ResourceSession<?, ?>> database = open(model, source)) {
+      create(database, DURABLE, StorageType.FILE_CHANNEL);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(DURABLE)) {
+        key = commit(session, model, -1L, "kept");
+      }
+      Files.createDirectory(source.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                                  .resolve("$retired-incomplete"));
+      final BackupManager.BackupSummary summary = BackupManager.backupDatabase(source, backup);
+      assertTrue(summary.notBackedUp().isEmpty());
+      assertEquals(List.of(DURABLE),
+          summary.resources().stream().map(BackupManager.ResourceSummary::resourceName).toList());
+    }
+    Files.createDirectory(backup.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                                .resolve("$retired-incomplete"));
+    final BackupManager.BackupSummary summary = BackupManager.restoreDatabase(backup, restored);
+    assertTrue(summary.notBackedUp().isEmpty());
+    assertEquals(List.of(DURABLE),
+        summary.resources().stream().map(BackupManager.ResourceSummary::resourceName).toList());
+    try (Database<? extends ResourceSession<?, ?>> database = open(model, restored)) {
+      assertEquals(List.of(DURABLE),
+          database.listResources().stream().map(path -> path.getFileName().toString()).toList());
+      try (ResourceSession<?, ?> session = database.beginResourceSession(DURABLE)) {
+        assertEquals("kept", value(session, model, 1, key));
       }
     }
   }

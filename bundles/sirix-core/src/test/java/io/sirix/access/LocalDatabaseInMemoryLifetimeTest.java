@@ -179,6 +179,30 @@ final class LocalDatabaseInMemoryLifetimeTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void longResourceNamesAreRetiredAndReusable(final Model model) {
+    final String name = "v".repeat(220);
+    createDatabase(model, databasePath());
+    try (Database<? extends ResourceSession<?, ?>> database = open(model, databasePath())) {
+      createResource(database, name, StorageType.IN_MEMORY);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(name)) {
+        commitFirstValue(session, model, "0");
+      }
+    }
+    assertFalse(Files.exists(resourceDirectory(name)));
+    try (Database<? extends ResourceSession<?, ?>> reopened = open(model, databasePath())) {
+      assertFalse(reopened.existsResource(name));
+      assertFalse(resourceNames(reopened).contains(name));
+      createResource(reopened, name, StorageType.IN_MEMORY);
+      try (ResourceSession<?, ?> session = reopened.beginResourceSession(name)) {
+        assertEquals(0, session.getMostRecentRevisionNumber());
+        assertFalse(hasContent(session));
+      }
+    }
+    assertFalse(Files.exists(resourceDirectory(name)));
+  }
+
   /** AC5, clause 3 and 5: in a mixed database only the IN_MEMORY resource vanishes. */
   @ParameterizedTest
   @EnumSource(Model.class)

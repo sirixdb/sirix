@@ -1,6 +1,8 @@
 package io.sirix.io.ram;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.cache.ScratchLease;
+import io.sirix.cache.ScratchUse;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
@@ -295,6 +297,13 @@ public final class RAMStorage implements IOStorage {
           : store.payload(key);
       verifyChecksumIfNeeded(payload, reference, resourceConfiguration);
       try {
+        if (pipeline.supportsMemorySegments()) {
+          try (final ScratchLease lease = ScratchLease.of(payload.length, ScratchUse.READ)) {
+            final MemorySegment segment = lease.segment().asSlice(0, payload.length);
+            MemorySegment.copy(payload, 0, segment, ValueLayout.JAVA_BYTE, 0, payload.length);
+            return deserializeFromSegment(resourceConfiguration, segment, reference);
+          }
+        }
         return deserialize(resourceConfiguration, payload, reference);
       } catch (final IOException e) {
         throw new SirixIOException(e);

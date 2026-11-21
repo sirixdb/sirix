@@ -30,7 +30,9 @@
   persistent. FMT-101's IN_MEMORY sentence now cites TXN-615. Backups skip IN_MEMORY
   resources, list them as not backed up, and restores never create them. Captain decisions of 20 November 2026; implemented except
   the token check, which waits for FMT-209/TXN-311. Resource names containing `$retired-` are
-  reserved for retiring IN_MEMORY directories.
+  reserved for retiring IN_MEMORY directories to bounded `$retired-<uuid>` names. Failed tombstone
+  deletion is reported by final close without holding the original name; backup and restore
+  preflights ignore tombstones, which are not resources.
 
 - Add reviewed mutation dispositions, test associations and local refactoring helpers for the
   PR mutation lane in [CONV-201 to CONV-204](CONV-conventions.md#conv-201--mutation-disposition-record).

@@ -217,6 +217,62 @@ final class DatabasesInMemoryLifetimeTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void failedTombstoneDeletionStillEndsTheInstance(final Model model) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final Path resources = databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Path resource = resources.resolve(VOLATILE);
+    final Database<? extends ResourceSession<?, ?>> database = open(model, databasePath());
+    createResource(database, VOLATILE, StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+      commitFirstValue(session, model, "0");
+    }
+    final Set<PosixFilePermission> writable = Files.getPosixFilePermissions(resource);
+    Files.setPosixFilePermissions(resource, PosixFilePermissions.fromString("r-xr-xr-x"));
+    try {
+      assumeTrue(!Files.isWritable(resource), "running as a user who ignores permissions");
+      assertTrue(Files.isWritable(resources));
+      assertThrows(SirixIOException.class, database::close);
+      assertFalse(database.isOpen());
+      assertFalse(Files.exists(resource));
+      final Path tombstone;
+      try (var paths = Files.list(resources)) {
+        final List<Path> remaining = paths.toList();
+        assertEquals(1, remaining.size());
+        tombstone = remaining.getFirst();
+      }
+      try (Database<? extends ResourceSession<?, ?>> reopened = open(model, databasePath())) {
+        try {
+          assertFalse(reopened.existsResource(VOLATILE));
+          assertTrue(resourceNames(reopened).isEmpty());
+          createResource(reopened, VOLATILE, StorageType.IN_MEMORY);
+          try (ResourceSession<?, ?> session = reopened.beginResourceSession(VOLATILE)) {
+            assertEquals(0, session.getMostRecentRevisionNumber());
+            assertFalse(hasContent(session));
+          }
+        } finally {
+          Files.setPosixFilePermissions(tombstone, writable);
+        }
+      }
+      try (var paths = Files.list(resources)) {
+        assertTrue(paths.toList().isEmpty());
+      }
+    } finally {
+      try (var paths = Files.list(resources)) {
+        for (final Path path : paths.toList()) {
+          if (Files.isDirectory(path)) {
+            Files.setPosixFilePermissions(path, writable);
+          }
+        }
+      }
+      if (database.isOpen()) {
+        database.close();
+      }
+    }
+  }
+
   /**
    * AC15, clause 7: when session teardown fails, the close throws and discards nothing. The instance
    * stays open, owned and complete, an open rejoins it with every committed revision, and a retry

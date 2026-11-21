@@ -67,3 +67,28 @@
   value) through the public API, not by its own methods returning without error. A "shared pages"
   exception in an ownership contract needs the *writer's* side checked too. Cleanup that must stay
   retryable has to keep its own proof until the last step; see [LESSONS.md](../LESSONS.md).
+
+## Review follow-up: retirement and read scratch
+
+- Symptoms and triggers: a valid 220-character resource name could not be renamed on a filesystem
+  with 255-byte filenames; a successful rename followed by permission-denied deletion incorrectly
+  let final close succeed; a partially deleted tombstone without settings blocked backup/restore;
+  each RAM page read through the byte-array decoder allocated automatic native staging memory.
+- Root causes: retirement tied garbage names to user-name length and represented both name release
+  and footprint removal as one boolean; tool preflight treated retired garbage as a resource;
+  RAM decoding used the cold byte-array bridge rather than the allocator scratch boundary.
+- Fix: use bounded `$retired-<uuid>` names and return the actual remaining path. Creation can
+  proceed after a rename, cleanup reports the tombstone, and only a failed derived rename keeps
+  its source proof. Skip tombstones at shared tool preflight and backup reporting. Decode RAM
+  payloads inside a READ scratch lease, retaining the byte-handler fallback and page ownership.
+- Why tests missed it: ordinary names, failed renames and complete settings did not exercise these
+  independent failure boundaries. Value assertions alone also cannot expose native staging churn.
+- Regression oracles: TXN-615 clauses 3/5 require removal and empty recreation even with long names;
+  clause 7 requires a failed final close after successful rename and failed deletion, with admission
+  released and cleanup retryable; clause 10 requires persistent content to survive backup/restore
+  despite incomplete tombstones. Tests are named in TXN-615's review-regressions entry. Existing
+  RAMStorageContractTest and RAMStorageCommittedRevisionTest retain their ownership/value oracles
+  unchanged. Focused verification is recorded by the review phase; mutation and broader budget
+  gates remain with the outer executor.
+- Lesson: distinguish name release from garbage deletion, probe only actual resources, and use the
+  allocator's bounded scratch for hot decoding; see [LESSONS.md](../LESSONS.md).
