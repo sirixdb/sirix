@@ -50,8 +50,8 @@ public final class SuperblockValidator {
 
   /**
    * Validates like {@link #validateOnce(Path, byte)} and additionally cross-checks the superblock's
-   * resource UUID against the resource-settings identity (zero expected UUID = legacy config,
-   * cross-check skipped).
+   * resource UUID against the resource-settings identity. A zero EXPECTED UUID means the caller
+   * does not know that identity yet and skips only the cross-check; a zero STORED UUID is refused.
    */
   public static void validateOnce(final Path path, final byte role, final long expectedUuidMsb,
       final long expectedUuidLsb) {

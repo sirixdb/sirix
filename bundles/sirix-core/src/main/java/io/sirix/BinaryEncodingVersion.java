@@ -32,9 +32,9 @@ package io.sirix;
  * Determines the binary encoding version.
  *
  * <p>
- * The version byte in each page header rejects future incompatible record layouts before their
- * fields can be misparsed. The current format reuses the original zero value because no earlier
- * database using an intermediate development layout needs migration.
+ * The version byte in each page header rejects foreign record layouts before their fields can be
+ * misparsed. {@link #V0} is the only format version this engine reads or writes (FMT-401); there is
+ * no compatibility or conversion path for any other value.
  *
  * @author Johannes Lichtenberger
  */
@@ -91,6 +91,6 @@ public enum BinaryEncodingVersion {
     if (version == V0.versionAsAByte) {
       return V0;
     }
-    throw new IllegalStateException(version + " not known.");
+    throw new IllegalStateException("unsupported format version " + version);
   }
 }

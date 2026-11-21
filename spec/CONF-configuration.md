@@ -162,7 +162,7 @@ Prefix fields appear in this order. Names are exact, including legacy spelling.
 | validTimeConfig | object with string validFromPath and validToPath | absent/disabled |
 | pathStatistics | boolean | false |
 | repairBulkInsertHashes | boolean | false |
-| resourceUuid | nonzero UUID string | required for 1.0; current absent/null beta fallback is rejected by FMT-102/401 |
+| resourceUuid | nonzero UUID string | required for 1.0; an absent or zero value is refused under FMT-102/401, with no read default |
 | regionCompression | enum name | LZ77 |
 | aggregateKernel | boolean | false |
 | saltRecordPages | boolean | true |

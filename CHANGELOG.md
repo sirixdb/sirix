@@ -124,6 +124,16 @@ A pull request does not write its entry here: it adds one fragment file under
 
 ### Changed
 
+- **1.0 is the only on-disk format.** A store whose format version is not 1.0's — the superblock
+  layout version, a page-envelope version byte or the persisted `binaryEncoding` setting — is
+  refused before any mutation with a plain unsupported-format-version error. Nothing detects,
+  names or special-cases a pre-1.0 development format, and no compatibility or conversion path
+  exists; moving data between stores is export and import. The development-era acceptances are
+  gone with it: a resource settings file must carry a nonzero `resourceUuid`, a superblock must
+  carry that same nonzero UUID, and the revisions record stride must be 32. See
+  [FMT-401](spec/FMT-disk-format.md#fmt-401--10-format-baseline) and
+  [FMT-402](spec/FMT-disk-format.md#fmt-402--history-preserving-export-and-import).
+
 - **Node hashes are off by default.** Newly created Java, query-store and CLI resources now
   match REST's `NONE` default. Existing resources retain their persisted hash kind and need no
   migration. Callers relying on subtree hashes, stored descendant counts, hash-optimized diffs or

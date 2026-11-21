@@ -7,8 +7,9 @@ is pinned by golden tests
 (`io.sirix.format.GoldenFormatTest`, `io.sirix.format.GoldenCompositePageTest`): an accidental
 change to any pinned structure fails CI. Intentional layout changes update the golden constants
 and this contract. SirixDB has no released consumers: unreleased layouts evolve in place using
-the original V0 value, without a migration reader. The 1.0 compatibility baseline and migration
-policy are owned by [FMT-401–402](../spec/FMT-disk-format.md#fmt-401--10-compatibility-baseline-and-beta-refusal);
+the original V0 value, without a migration reader. The single-format baseline and the
+export/import path are owned by
+[FMT-401–402](../spec/FMT-disk-format.md#fmt-401--10-format-baseline);
 that chapter records the remaining release implementation gaps. This guide describes current V0
 bytes. Format-version mechanisms include `BinaryEncodingVersion` (page bodies/records), the page-envelope
 flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-structure version
@@ -38,7 +39,8 @@ identity — compression pipeline, hash-function id, binary encoding version —
 whose settings contract is described below. It is
 cross-linked to the binary files by the **resource UUID**: the JSON persists it, both
 superblocks embed it, and opening a data file with a different resource's settings (wrong-backup
-restore) fails fast. A zero UUID on either side (legacy dev files) skips the cross-check.
+restore) fails fast. A stored zero UUID is refused outright; the cross-check itself is skipped only
+on recovery paths that run before the settings identity is known.
 
 The resource settings file (`ressetting.obj`) requires the fields through `storeChildCount` in
 writer order. Later optional fields are dispatched by name: they may be omitted or reordered
@@ -648,8 +650,8 @@ explicitly decided; **nothing remains open**:
 
 - **Resource UUID** — implemented. Generated per resource, persisted in `ressetting.obj`
   (`resourceUuid`), embedded in both superblocks (bytes [40, 56), checksum-covered), validated
-  at storage open in both backends; zero on either side = legacy, cross-check skipped
-  (`SuperblockResourceUuidTest`).
+  at storage open in both backends; a stored zero UUID is refused, and the cross-check is skipped
+  only where the settings identity is not yet known (`SuperblockResourceUuidTest`).
 - **fsync-order/write-loss validation** — covered. `PowerLossSimulationTest` (opt-in
   `-Dsirix.crash.run=true`) records every channel write and `force()` barrier of real commits,
   then materializes post-power-loss states where unforced writes are lost, applied, or torn in

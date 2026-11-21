@@ -223,12 +223,8 @@ public final class FileChannelStorage implements IOStorage {
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
-    resourceUuidMsb = resourceConfig.resourceUuid != null
-        ? resourceConfig.resourceUuid.getMostSignificantBits()
-        : 0L;
-    resourceUuidLsb = resourceConfig.resourceUuid != null
-        ? resourceConfig.resourceUuid.getLeastSignificantBits()
-        : 0L;
+    resourceUuidMsb = resourceConfig.resourceUuid.getMostSignificantBits();
+    resourceUuidLsb = resourceConfig.resourceUuid.getLeastSignificantBits();
     if (this.openingUberPage.isBootstrap() && exists()) {
       throw new SirixIOException("No committed uber-page beacon exists for " + resourceConfig.resourcePath);
     }
@@ -245,7 +241,7 @@ public final class FileChannelStorage implements IOStorage {
     this(resourceConfig, cache, new RevisionIndexHolder());
   }
 
-  /** Resource identity UUID halves from the configuration (0/0 = legacy, no cross-check). */
+  /** Resource identity UUID halves from the configuration; always nonzero (FMT-102). */
   private final long resourceUuidMsb;
   private final long resourceUuidLsb;
 

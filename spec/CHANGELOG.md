@@ -86,6 +86,13 @@
   [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier) the nightly trend tier that reports
   cumulative drift above 2%. The development strategy states the reasons in
   [The benchmark protocol](../docs/DEVELOPMENT.md#the-benchmark-protocol).
+- Make 1.0 the only on-disk format. FMT-401 becomes the 1.0 format baseline: a store carrying any
+  other format version is rejected before any mutation with a plain unsupported-format-version
+  error, and no pre-1.0 development format is detected, named or special-cased. FMT-102 drops the
+  zero-UUID and zero-revision-stride acceptances, so a stored resource UUID must be nonzero and the
+  stride must be 32; CONF-102 refuses an absent `resourceUuid`. FMT-402 becomes history-preserving
+  export and import of 1.0 resources, keeping the captain-decision-010 timestamp rule unchanged and
+  no longer framed as beta migration.
 
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
   [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).

@@ -385,8 +385,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    *        the lazy-revision-record profile (see {@link #lazyRevisionRecords}); must be {@code false}
    *        when that channel is write-through. Only honored together with the preallocated profile
    * @param revisionsFilePath path of the revisions file, identity key for the durability state
-   * @param resourceUuidMsb most significant resource-UUID half ({@code 0} = legacy, no UUID)
-   * @param resourceUuidLsb least significant resource-UUID half ({@code 0} = legacy)
+   * @param resourceUuidMsb most significant resource-UUID half; nonzero for a 1.0 resource
+   * @param resourceUuidLsb least significant resource-UUID half; nonzero for a 1.0 resource
    * @param releaseAction callback for a writer borrowing the storage's SHARED channel triple:
    *        {@link #close()} runs it INSTEAD of closing the channels, so the storage can close the
    *        pool once the last borrower is gone. {@code null} means this writer owns its channels and
@@ -1540,12 +1540,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // because both files may already have grown PAST the header via sparse positioned writes
       // (the revision record lands at REVISIONS_RECORDS_START before this runs), presence is
       // probed via the magic bytes, not the file size.
-      final long uuidMsb = resourceConfiguration.resourceUuid != null
-          ? resourceConfiguration.resourceUuid.getMostSignificantBits()
-          : 0L;
-      final long uuidLsb = resourceConfiguration.resourceUuid != null
-          ? resourceConfiguration.resourceUuid.getLeastSignificantBits()
-          : 0L;
+      // Never zero: 1.0 settings identify their resource (FMT-102), and a zero-UUID superblock
+      // would be refused on the next open.
+      final long uuidMsb = resourceConfiguration.resourceUuid.getMostSignificantBits();
+      final long uuidLsb = resourceConfiguration.resourceUuid.getLeastSignificantBits();
       if (writeRevisionsSuperblockIfMissing(resourceConfiguration) && lazyRevisionRecords) {
         // One-time: the revisions channel is BUFFERED in this profile, and the superblock (file
         // identity) must be durable before the first beacon acknowledges anything — the tail-log
@@ -1939,12 +1937,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     if (!superblockMissing(revisionsFileChannel)) {
       return false;
     }
-    final long uuidMsb = resourceConfiguration.resourceUuid != null
-        ? resourceConfiguration.resourceUuid.getMostSignificantBits()
-        : 0L;
-    final long uuidLsb = resourceConfiguration.resourceUuid != null
-        ? resourceConfiguration.resourceUuid.getLeastSignificantBits()
-        : 0L;
+    final long uuidMsb = resourceConfiguration.resourceUuid.getMostSignificantBits();
+    final long uuidLsb = resourceConfiguration.resourceUuid.getLeastSignificantBits();
     final ByteBuffer sb = Superblock.build(Superblock.ROLE_REVISIONS, uuidMsb, uuidLsb);
     writeFully(revisionsFileChannel, sb, 0L);
     return true;

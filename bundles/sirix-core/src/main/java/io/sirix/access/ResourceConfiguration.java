@@ -432,8 +432,8 @@ public final class ResourceConfiguration {
    * Per-resource identity UUID, generated at resource creation and written into both files'
    * superblocks (reserved bytes [40, 56)). Cross-links the binary files to this settings file:
    * opening a data file with a different resource's settings — the classic "restored the JSON from
-   * the wrong backup" corruption — fails fast instead of misreading. {@code null} for resources
-   * created before the field existed (their superblock UUID is zero, accepted as legacy).
+   * the wrong backup" corruption — fails fast instead of misreading. Never {@code null} and never
+   * the all-zero UUID: 1.0 settings must identify their resource (FMT-102).
    */
   public final UUID resourceUuid;
 
@@ -736,10 +736,8 @@ public final class ResourceConfiguration {
       jsonWriter.name(JSONNAMES[24]).value(config.withPathStatistics);
       // Retained bulk-loader tuning request.
       jsonWriter.name(JSONNAMES[25]).value(config.repairBulkInsertHashes);
-      // Resource identity UUID (cross-linked to both superblocks).
-      if (config.resourceUuid != null) {
-        jsonWriter.name(JSONNAMES[26]).value(config.resourceUuid.toString());
-      }
+      // Resource identity UUID (cross-linked to both superblocks); always written (FMT-102).
+      jsonWriter.name(JSONNAMES[26]).value(config.resourceUuid.toString());
       // Region wire compression (speed/size dial).
       jsonWriter.name(JSONNAMES[27]).value(config.regionCompressionType.name());
       jsonWriter.name(JSONNAMES[28]).value(config.aggregateKernel);
@@ -783,7 +781,8 @@ public final class ResourceConfiguration {
       jsonReader.beginObject();
       // Binary encoding version.
       expectField(jsonReader, JSONNAMES[0], configFile);
-      final BinaryEncodingVersion binaryEncodingVersion = BinaryEncodingVersion.valueOf(jsonReader.nextString());
+      final BinaryEncodingVersion binaryEncodingVersion =
+          parseBinaryEncodingVersion(jsonReader.nextString(), configFile);
       // Versioning.
       expectField(jsonReader, JSONNAMES[1], configFile);
       jsonReader.beginObject();
@@ -916,6 +915,8 @@ public final class ResourceConfiguration {
 
       jsonReader.endObject();
 
+      requireResourceIdentity(resourceUuid, configFile);
+
       // Deserialize database config.
       final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(file.getParent().getParent());
 
@@ -954,6 +955,29 @@ public final class ResourceConfiguration {
     } catch (IOException | ClassNotFoundException | IllegalArgumentException | InstantiationException
         | IllegalAccessException | InvocationTargetException e) {
       throw new SirixIOException(e);
+    }
+  }
+
+  /**
+   * Resolves the persisted format version. 1.0 is the only on-disk format (FMT-401), so any other
+   * name is refused with a plain message instead of the raw enum lookup failure.
+   */
+  private static BinaryEncodingVersion parseBinaryEncodingVersion(final String name, final Path configFile) {
+    for (final BinaryEncodingVersion version : BinaryEncodingVersion.values()) {
+      if (version.name().equals(name)) {
+        return version;
+      }
+    }
+    throw new SirixIOException(configFile + ": unsupported format version '" + name + "'");
+  }
+
+  /** 1.0 settings MUST identify their resource with a nonzero UUID (FMT-102); there is no default. */
+  private static void requireResourceIdentity(final UUID resourceUuid, final Path configFile) {
+    if (resourceUuid == null) {
+      throw new SirixIOException(configFile + ": missing required resource settings field '" + JSONNAMES[26] + "'");
+    }
+    if (resourceUuid.getMostSignificantBits() == 0 && resourceUuid.getLeastSignificantBits() == 0) {
+      throw new SirixIOException(configFile + ": zero resource UUID in settings field '" + JSONNAMES[26] + "'");
     }
   }
 
@@ -1095,8 +1119,7 @@ public final class ResourceConfiguration {
 
     /**
      * Per-resource identity UUID. A fresh random UUID for new resources; overwritten with the persisted
-     * value when deserializing an existing configuration ({@code null} = legacy config without the
-     * field).
+     * value when deserializing an existing configuration, which must carry a nonzero one (FMT-102).
      */
     private UUID resourceUuid = UUID.randomUUID();
 
@@ -1463,14 +1486,18 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Sets the resource identity UUID. Deserialization passes the persisted value ({@code null} for
-     * legacy configs, which disables the superblock cross-check); new resources keep the generated
-     * random default.
+     * Sets the resource identity UUID. Deserialization passes the persisted value; new resources
+     * keep the generated random default. The all-zero UUID is not an identity (FMT-102).
      *
-     * @param resourceUuid the persisted UUID, or {@code null} for a legacy configuration
+     * @param resourceUuid the persisted nonzero UUID
      * @return reference to the builder object
+     * @throws NullPointerException if {@code resourceUuid} is {@code null}
+     * @throws IllegalArgumentException if {@code resourceUuid} is the all-zero UUID
      */
     public Builder resourceUuid(final UUID resourceUuid) {
+      requireNonNull(resourceUuid);
+      checkArgument(resourceUuid.getMostSignificantBits() != 0 || resourceUuid.getLeastSignificantBits() != 0,
+          "The resource identity UUID must not be the all-zero UUID.");
       this.resourceUuid = resourceUuid;
       return this;
     }

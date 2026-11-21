@@ -11,10 +11,13 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public final class SuperblockSpareBytesTest {
+  private static final long MSB = 0x0011223344556677L;
+  private static final long LSB = 0x8899AABBCCDDEEFFL;
+
   @Test
   public void checksummedUnknownSpareBytesAreNotSilentlyIgnored() {
     for (int offset = 13; offset < 16; offset++) {
-      final ByteBuffer bytes = Superblock.build(Superblock.ROLE_DATA).order(ByteOrder.LITTLE_ENDIAN);
+      final ByteBuffer bytes = Superblock.build(Superblock.ROLE_DATA, MSB, LSB).order(ByteOrder.LITTLE_ENDIAN);
       bytes.put(offset, (byte) 1);
       final byte[] prefix = new byte[56];
       bytes.duplicate().get(prefix);

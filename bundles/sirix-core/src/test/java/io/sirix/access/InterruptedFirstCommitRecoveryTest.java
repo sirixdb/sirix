@@ -30,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -135,7 +136,12 @@ final class InterruptedFirstCommitRecoveryTest {
     try (final FileChannel ch = FileChannel.open(dataFile, StandardOpenOption.WRITE, StandardOpenOption.SPARSE)) {
       ch.truncate(0);
       if (withValidSuperblock) {
-        final ByteBuffer superblock = Superblock.build(Superblock.ROLE_DATA);
+        // A real crash image carries the resource's own identity: the writer stamps it into the
+        // superblock, and a zero UUID would be refused outright (FMT-102).
+        final UUID identity = resourceIdentity(dbPath);
+        final ByteBuffer superblock =
+            Superblock.build(Superblock.ROLE_DATA, identity.getMostSignificantBits(),
+                identity.getLeastSignificantBits());
         while (superblock.hasRemaining()) {
           ch.write(superblock, superblock.position());
         }
@@ -152,6 +158,12 @@ final class InterruptedFirstCommitRecoveryTest {
     try (final FileChannel ch = FileChannel.open(revisionsFile, StandardOpenOption.WRITE)) {
       ch.truncate(0);
     }
+  }
+
+  /** The resource's persisted identity UUID, as the writer would have stamped it. */
+  private static UUID resourceIdentity(final Path dbPath) {
+    return ResourceConfiguration.deserialize(dbPath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                                                   .resolve(RESOURCE)).resourceUuid;
   }
 
   private static String messageChain(final Throwable throwable) {
