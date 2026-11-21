@@ -25,6 +25,11 @@
   REST reuses the shared Java core check. Nothing here is implemented: every requirement
   states its gap.
 
+- Add the [FMT-304 leaf-lifetime contract](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime)
+  for HOT mutations. That requirement owns the normative clauses, interim retirement failure,
+  evidence and remaining deferred-reclamation gap; the consolidation method contract owns its
+  caller's retention duty.
+
 - Resolve imported timestamp ordering: preserve increasing source timestamps, adjust
   ties/regressions to the preceding effective timestamp plus 1 microsecond, and keep
   each adjusted original timestamp as queryable metadata. Preserve revision order;

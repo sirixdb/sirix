@@ -28,6 +28,6 @@ migration, response validation, compiled API checking and the crash CI lane as p
 work. This slice implements no product or CI behavior.
 Full MODEL/IDX/QRY/DIFF/LIM/SEC chapters and broader valid-time semantics remain P1;
 MCP/OPS and formal models remain later work. Required cross-cutting decisions already
-have stable owners here: HOT rules FMT-301–303, defaults CONF-106, budgets CONV-301,
+have stable owners here: HOT rules FMT-301–304, defaults CONF-106, budgets CONV-301,
 JSON replacement JAPI-301–302, derived backup TXN-613, conditional writes TXN-311 with
 REST-204/205 and JAPI-111.

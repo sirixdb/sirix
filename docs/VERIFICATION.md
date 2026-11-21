@@ -403,13 +403,14 @@ adds one exploratory seed. The identity suite inherits the JVM hash default, so 
 # can repeat). Every 8th commit requests exhaustive new-revision values and its logical iterator,
 # where provided; other revision checks sample values. A cold reopen checks structure and
 # slot order for every revision, all values for the newest, and sampled values for older revisions.
-# Records each shrunk failure as a replayable stream whose header names the versioning, cadence and
-# lane it failed under (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
+# Records each shrunk failure with its case configuration, including eviction and frame poisoning
+# (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.extendedBudgetAcrossEveryKind' \
                            -Dsirix.hot.property.collect=true -Dsirix.hot.property.heavy.seeds=8 \
                            -Dsirix.hot.property.heavy.ops=15000 -Dsirix.hot.property.failureDir=/tmp/hot-property
-# Replay one recorded failure under the checks its header records; -Dhot.diag.validationDump=true
-# makes the writer's own post-publication validator describe the offending node on stderr
+# Replay one recorded failure under its recorded checks and adversarial settings. The CaseConfig
+# header parser in HOTStructuralPropertyTest owns the format and legacy defaults.
+# -Dhot.diag.validationDump=true makes the writer's post-publication validator describe the node
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.replayRecordedFailure' \
                            -Dsirix.hot.property.replayFile=/tmp/hot-property/hot-property-failures/failure-cas-1-full.txt \
                            -Dhot.diag.validationDump=true

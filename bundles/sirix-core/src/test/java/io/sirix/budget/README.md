@@ -97,6 +97,7 @@ failure table and tells the reader where the work went.
 | `sirix-core` `SparseRevisionIndexWorkBudgetTest` | cold and warm dense revision-index loading with 16/4096 mostly pruned slots | the production FILE_CHANNEL decoder issues more than one metadata read or reads more than one history pass; warm index loading rereads any records |
 | `sirix-core` `ChangeLogWorkBudgetTest` | 20 projected row changes beside 256/4096 rows, all versioning types | slab bytes or slots grow with untouched rows; first old cells or represented base revisions disappear across page flushes, explicit barriers, cold reopening or revert; unchanged writer reads rebuild, encode or replay an already-applied batch |
 | `sirix-core` `RefusedOverflowLeafTableTest` | eight unused writer tables, then an actual overflow refusal | unused tables allocate 8 KiB or more; the positive witness fails to allocate the real 1 MiB backing array; concurrent first refusals lose an identity |
+| `sirix-core` `HotWriterLeafRetentionAllocationBudgetTest` | HOT puts that extend a leaf beside a committed neighbour and beside a logged one | reading the committed neighbour allocates, or an ordinary put takes a guard on a leaf of the page cache instead of validating the unheld read |
 | `sirix-core` `InlineSlotCopyAllocationBudgetTest` | inline slot reconstruction and empty overflow-reference lookups | empty-map operations allocate boxed keys, or copying an inline slot fails to retire its stale overflow reference while preserving unrelated references |
 | `sirix-core` `DerivedMaintainerWorkBudgetTest` | 20-row publication beside 256/4096 rows with the daemon deterministically paused | source writes any aggregate slots; derived replay rereads slab chunks or untouched groups, opens projection row groups, folds old parts during catch-up, or writes document pages/catalogue files |
 | `sirix-core` `TemporalAggregateMaintenanceWorkBudgetTest` | explicit internal aggregate-kernel mode: 20-row publication, 528 one-row publications/barriers beside 256/4096 rows, and 4096 publications through the large fixture's checkpoint cascade | first-delta chunk/page work exceeds changed-record bounds or opens a reader; cumulative tier-fold chunk/endpoint/node work exceeds changed-record bounds; tiers carry or checkpoints cascade more than once per boundary; historical summaries change |
@@ -331,6 +332,13 @@ task and included in coverage, so sibling Mockito mocks cannot contaminate the m
 Mutation evidence (2026-11-02): restoring either unconditional empty-map lookup or removal in an
 interpreted JVM failed at 393,216 bytes (24 bytes per copy), against zero with the guards. The source
 was restored afterwards.
+
+`HotWriterLeafRetentionAllocationBudgetTest` compares two kinds of put in one loop: one that reads a
+committed neighbour, which the page cache owns, and one that reads a neighbour the transaction log
+owns. Their allocation must be equal, and neither may take a guard on a leaf of the page cache. It
+runs in the same `dictionaryReadViewAllocationTest` fork: in the shared core JVM the first kind read
+24 bytes per put higher (2026-11-18), because it asks the transaction log two more questions and a
+sibling suite's inline mock of `TransactionIntentLog` had instrumented that class.
 
 ## Adding a budget test
 
