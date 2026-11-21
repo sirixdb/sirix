@@ -372,7 +372,19 @@ python3 .github/scripts/pr_mutation.py counterfactual --patch mutant.patch -- \
   ./gradlew :sirix-core:test --tests 'io.sirix.SomeAllocationBudgetTest'
 ```
 
-Pass `--sampled` to `--check` when the reports came from a run with a per-class limit. Remap proposes, in
+Pass `--sampled` to `--check` when the reports came from a run with a per-class limit.
+
+Measured churn of pure refactors (PIT 1.25.5 on a four-method sample class whose six surviving
+mutants were taken as reviewed entries): a line shift, an extract-method and a method reorder
+touch no entry; a rename leaves two entries stale, each remapped to one candidate marked as
+keeping its instruction indexes; an instance-to-static move leaves two stale with two
+same-mutator candidates each, chosen by line; an edit inside a method requires re-confirming
+that method's three entries, and remap re-identifies them. After applying the proposals no
+entry fails in any of the six cases.
+
+The reporter itself is mutation-tested with mutmut under the same rules; its per-mutant record
+of equivalent survivors is
+[`.github/scripts/tests/MUTATION_DISPOSITIONS.md`](../.github/scripts/tests/MUTATION_DISPOSITIONS.md). Remap proposes, in
 order, the same method with other instruction indexes, a renamed method of the same class, then
 the same method name and descriptor in another class, always with the same mutator and
 description.
