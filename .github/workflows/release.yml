@@ -34,22 +34,32 @@ jobs:
 
       - name: Resolve release tag
         id: tag
+        env:
+          # Untrusted input: reaches the shell only as a quoted variable, never as template text.
+          INPUT_TAG_NAME: ${{ inputs.tag_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag_name }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG_NAME"
           else
             case "$GITHUB_REF" in
               refs/heads/release/*) TAG="${GITHUB_REF_NAME#release/}" ;;
               *)                    TAG="$GITHUB_REF_NAME" ;;
             esac
           fi
+          if ! printf '%s' "$TAG" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
+            echo "::error::release tag contains characters outside [A-Za-z0-9._/-] or is empty"
+            exit 1
+          fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Validate release tag against gradle.properties
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           VERSION="$(grep '^version=' gradle.properties | cut -d= -f2)"
-          if [ "${{ steps.tag.outputs.tag }}" != "sirix-${VERSION}" ]; then
-            echo "::error::release tag '${{ steps.tag.outputs.tag }}' does not match gradle.properties version 'sirix-${VERSION}'"
+          if [ "$RELEASE_TAG" != "sirix-${VERSION}" ]; then
+            echo "::error::release tag '${RELEASE_TAG}' does not match gradle.properties version 'sirix-${VERSION}'"
             exit 1
           fi
 
