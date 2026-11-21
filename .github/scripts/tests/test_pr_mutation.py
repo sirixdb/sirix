@@ -726,7 +726,9 @@ class ReportingTest(unittest.TestCase):
                   'survivors': ['SURVIVED | a.Foo | run | 7 | negated conditional'],
                   'changed': {'total': 2, 'killed': 1, 'survived': 1, 'no_coverage': 0,
                               'detected': 1,
-                              'survivors': ['SURVIVED | a.Foo | run | 7 | negated conditional']},
+                              'survivors': ['SURVIVED | a.Foo | run | 7 | negated conditional'],
+                              'failing': [{'mutant': 'SURVIVED | a.Foo | run | 7 | negated conditional',
+                                           'reason': 'no disposition entry'}]},
                   'unchanged': {'total': 2, 'killed': 1, 'survived': 0, 'no_coverage': 1,
                                 'detected': 1, 'classes': [['a.Baz', 1]]}}
         text = mutation.format_summary([result])
@@ -794,7 +796,9 @@ class ReportingTest(unittest.TestCase):
         result = {'module': 'sirix-core', 'state': 'complete', 'total': 101, 'killed': 0,
                   'detected': 0, 'statuses': {'SURVIVED': 101}, 'survivors': survivors,
                   'changed': {'total': 101, 'killed': 0, 'survived': 101, 'no_coverage': 0,
-                              'detected': 0, 'survivors': survivors}}
+                              'detected': 0, 'survivors': survivors,
+                              'failing': [{'mutant': value, 'reason': 'no disposition entry'}
+                                          for value in survivors]}}
         text = mutation.format_summary([result])
         self.assertIn('Remaining entries', text)
         self.assertNotIn('- mutant-100', text)

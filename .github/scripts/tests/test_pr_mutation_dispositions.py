@@ -45,8 +45,12 @@ OUT_OF_LANE = ('The mutant only allocates a boxed bound on each call; results ar
 METHODS = {('run', '(I)Z'): (10, 11, 12), ('other', '()V'): (20, 21)}
 
 
-def class_file(name, source, methods):
-    """A class image with a SourceFile and, per method, a Code attribute with a LineNumberTable."""
+def class_file(name, source, methods, handlers=0, padding=0):
+    """A class image with a SourceFile and, per method, a Code attribute with a LineNumberTable.
+
+    `handlers` adds exception-table entries to each Code attribute; `padding` adds constant-pool
+    entries before the SourceFile name, so its index can exceed a signed 16-bit value.
+    """
     pool = []
 
     def utf8(value):
@@ -57,6 +61,8 @@ def class_file(name, source, methods):
     pool.append(b'\x07' + struct.pack('>H', this_name))
     this_class = len(pool)
     code_name, table_name = utf8('Code'), utf8('LineNumberTable')
+    for index in range(padding):
+        utf8(f'p{index}')
     source_name, source_value = utf8('SourceFile'), utf8(source)
     encoded_methods = b''
     for (method, descriptor), lines in methods.items():
@@ -64,7 +70,8 @@ def class_file(name, source, methods):
         table = struct.pack('>H', len(lines)) + b''.join(
             struct.pack('>HH', pc, line) for pc, line in enumerate(lines))
         bytecode = b'\xb1'  # return
-        code = (struct.pack('>HHI', 1, 1, len(bytecode)) + bytecode + struct.pack('>H', 0)
+        exceptions = struct.pack('>H', handlers) + struct.pack('>HHHH', 0, 1, 0, 0) * handlers
+        code = (struct.pack('>HHI', 1, 1, len(bytecode)) + bytecode + exceptions
                 + struct.pack('>H', 1) + struct.pack('>HI', table_name, len(table)) + table)
         encoded_methods += (struct.pack('>HHHH', 0, method_name, method_descriptor, 1)
                             + struct.pack('>HI', code_name, len(code)) + code)

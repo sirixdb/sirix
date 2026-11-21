@@ -559,5 +559,162 @@ class RealRepositoryTest(unittest.TestCase):
             self.assertNotIn('FAIL mutant', text)
 
 
+class SecondRoundTest(unittest.TestCase):
+    """Behaviours the second mutmut round showed unobserved (CONV-201 to CONV-204)."""
+
+    def test_class_reader_skips_exception_tables_and_reads_wide_constant_pools(self):
+        methods = {('run', '(I)Z'): (10, 11)}
+        for image in (class_file('a.Foo', 'Foo.java', methods, handlers=2),
+                      class_file('a.Foo', 'Foo.java', methods, padding=33000)):
+            with self.subTest(size=len(image)):
+                self.assertEqual(mutation.read_class(image),
+                                 ('a.Foo', 'Foo.java', {('run', '(I)Z'): frozenset((10, 11))}))
+
+    def test_a_patch_may_delete_one_file_while_injecting_into_another(self):
+        deleted = 'bundles/sirix-core/src/main/java/a/Old.java'
+        patch_text = (f'--- a/{deleted}\n+++ /dev/null\n@@ -1 +0,0 @@\n-class Old {{}}\n'
+                      + EVIDENCE['patch'])
+        evidence = {**EVIDENCE, 'patch': patch_text}
+        self.assertEqual(errors_of(entry('killed-out-of-lane', evidence=evidence)), [])
+        empty = {**EVIDENCE, 'patch': ''}
+        self.assertIn('`patch` must be a non-empty string',
+                      '\n'.join(errors_of(entry('killed-out-of-lane', evidence=empty))))
+
+    def test_every_invalid_association_is_reported_in_order(self):
+        text = ('[[association]]\nclass = "a.Foo"\n'
+                '[[association]]\nclass = 3\ntests = ["b.T"]\n'
+                '[[association]]\nclass = "a.Foo"\ntests = ["b.T"]\n'
+                '[[association]]\nclass = "a.Foo"\ntests = ["b.U"]\n'
+                '[[association]]\nclass = "a.Bar"\ntests = []\n')
+        errors = mutation.parse_associations(text)[1]
+        self.assertEqual([error.split(':')[0] for error in errors],
+                         ['association 1', 'association 2', 'association 4', 'association 5'])
+
+    def test_kotlin_sources_and_classes_are_found(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            module = root / 'bundles/sirix-core'
+            for path, text in {'src/main/kotlin/a/K.kt': 'package a\nclass K\n',
+                               'src/test/java/b/AllocationBudgetTest.java':
+                                   'package b;\nclass AllocationBudgetTest {}\n'}.items():
+                (module / path).parent.mkdir(parents=True, exist_ok=True)
+                (module / path).write_text(text)
+            (root / '.github').mkdir()
+            (root / mutation.ASSOCIATIONS_FILE).write_text(
+                '[[association]]\nclass = "a.K"\ntests = ["b.AllocationBudgetTest"]\n')
+            self.assertEqual(mutation.load_associations(root),
+                             ({'a.K': ('b.AllocationBudgetTest',)}, []))
+        with lane() as work:
+            kotlin = work.root / 'bundles/sirix-core/build/classes/kotlin/main/a'
+            kotlin.mkdir(parents=True)
+            (kotlin / 'K.class').write_bytes(class_file('a.K', 'K.kt', {('run', '(I)Z'): (4,)}))
+            code, results, _ = work.run([mutant('KILLED', 11)], head=entry(**{'class': 'a.K'}),
+                                        base=entry(**{'class': 'a.K'}))
+            self.assertEqual((code, states(results)), (0, ['out of scope']))
+
+    def test_a_nested_test_class_is_found_by_its_top_level_declaration(self):
+        with lane() as work:
+            code, results, _ = work.run([mutant('SURVIVED', 11)], head=entry(
+                'killed-out-of-lane', test='a.FooAllocationTest$Nested#allocatesNothing'))
+            self.assertEqual((code, states(results)), (0, ['accepted']))
+
+    def test_summary_labels_entries_and_lists_only_non_failing_reported_states(self):
+        with lane() as work:
+            _, _, summary = work.run([mutant('KILLED', 11)], head=entry())
+            self.assertIn('- entry 1 [equivalent] a.Foo.run(I)Z &#124; ' + MUTATOR_TEXT, summary)
+            self.assertNotIn('Reported entries', summary)
+            _, _, summary = work.run([mutant('SURVIVED', 11), mutant('SURVIVED', 12, indexes=(9,))],
+                                     head=entry() + entry('killed-out-of-lane', indexes=[9]),
+                                     changed=(11, 12))
+            added = summary[summary.index('### Added entries'):].splitlines()
+            first = next(line for line in added if line.startswith('- entry 1 '))
+            second = next(line for line in added if line.startswith('- entry 2 '))
+            self.assertNotIn('| test', first)
+            self.assertNotIn('None', first)
+            self.assertIn('| test a.FooAllocationTest#allocatesNothing | new |', second)
+            other = {'method': 'other', 'descriptor': '()V'}
+            for status, state in (('TIMED_OUT', 'detected-other'), ('NO_COVERAGE', 'inactive'),
+                                  ('SURVIVED', 'advisory')):
+                with self.subTest(state=state):
+                    _, results, summary = work.run([mutant(status, 21, **other)],
+                                                   head=entry(**other), base=entry(**other))
+                    self.assertEqual(states(results), [state])
+                    reported = summary[summary.index('### Reported entries (not failing)'):]
+                    self.assertIn(f'| {state}: ', reported)
+
+    def test_results_omit_private_records_and_show_association_errors(self):
+        with lane() as work:
+            (work.root / mutation.ASSOCIATIONS_FILE).write_text('[[association]]\nclass = "a.Foo"\n')
+            _, results, summary = work.run([mutant('SURVIVED', 11)])
+            self.assertFalse([key for key in results['modules'][0] if key.startswith('_')])
+            self.assertIn('- association 1: needs exactly the fields', summary)
+
+    def test_a_malformed_manifest_base_is_named(self):
+        with lane() as work:
+            (work.output / 'selection.json').write_text(json.dumps(
+                {'modules': {}, 'changed_lines': {}, 'dispositions_base': ['x']}))
+            with self.assertRaises(ValueError) as error:
+                mutation.run(work.root, work.output, 10, blocking=True)
+            self.assertIn('malformed dispositions_base', str(error.exception))
+
+    def test_check_hides_out_of_scope_entries_and_disposes_nothing_from_an_invalid_file(self):
+        with lane() as work:
+            report = work.root / 'mutations.xml'
+            report.write_text('<mutations>' + mutant('SURVIVED', 11) + '</mutations>')
+            lines = {'sirix-core': {SOURCE: [11]}}
+            bar = entry(**{'class': 'a.Bar'})
+            for head, base, absent in ((bar, bar, 'entry 1 ['),
+                                       (entry() + entry(kind='flaky', indexes=[3]), None,
+                                        '[accepted]')):
+                with self.subTest(absent=absent):
+                    (work.root / mutation.DISPOSITIONS_FILE).write_text(head)
+                    with patch.object(mutation, 'changed_sources', return_value=({}, lines)), \
+                         patch.object(mutation, 'current_commit', return_value='e' * 40), \
+                         patch.object(mutation, 'merge_base_file', return_value=base):
+                        _, text = mutation.check_dispositions(work.root, [str(report)], 'f' * 40,
+                                                              False)
+                    self.assertNotIn(absent, text)
+
+    def test_the_failure_excerpt_keeps_every_output_line(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'repo'
+            root.mkdir()
+            (root / 'Foo.java').write_text('class Foo {\n  int bound = 4;\n}\n')
+            patch_file = Path(temp) / 'mutant.patch'
+            patch_file.write_text('--- a/Foo.java\n+++ b/Foo.java\n@@ -1,3 +1,3 @@\n class Foo {\n'
+                                  '-  int bound = 4;\n+  int bound = 5;\n }\n')
+            check = [sys.executable, '-c', 'import sys; text = open("Foo.java").read(); '
+                     'print("first"); print("second"); sys.exit(0 if "bound = 4" in text else 7)']
+            evidence = mutation.counterfactual(root, patch_file, check)
+            self.assertEqual(evidence['failure'], 'first\nsecond')
+
+    def test_check_cli_against_a_real_history(self):
+        with repository() as (root, base, _):
+            report = root / 'mutations.xml'
+            report.write_text('<mutations>' + mutant('SURVIVED', 11) + '</mutations>')
+            (root / mutation.DISPOSITIONS_FILE).write_text(entry())
+            args = ['pr_mutation.py', 'dispositions', '--root', str(root), '--report', str(report),
+                    '--check', '--base', base]
+            with patch.object(sys, 'argv', args), \
+                 patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
+                self.assertEqual(mutation.main(), 0)
+            self.assertIn('ok entry 1 [accepted] a.Foo.run: on a changed line', out.getvalue())
+
+    def test_a_default_package_class_reaches_its_associated_tests(self):
+        with tempfile.TemporaryDirectory() as temp:
+            module = Path(temp) / 'bundles/sirix-core'
+            for path, text in {'src/main/java/Plain.java': 'class Plain {}\n',
+                               'src/test/java/b/AllocationBudgetTest.java':
+                                   'package b;\nclass AllocationBudgetTest {}\n'}.items():
+                (module / path).parent.mkdir(parents=True, exist_ok=True)
+                (module / path).write_text(text)
+            patterns, unmapped, kinds = mutation.test_scope(
+                module, ['src/main/java/Plain.java'], {'Plain': ('b.AllocationBudgetTest',)})
+            self.assertEqual((patterns, unmapped), (['b.AllocationBudgetTest*'], []))
+
+
+MUTATOR_TEXT = 'org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator'
+
+
 if __name__ == '__main__':
     unittest.main()

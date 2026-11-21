@@ -222,10 +222,10 @@ def read_class(data):
     for _ in range(reader.u2()):
         reader.take(2)  # access flags
         method, descriptor = pool[reader.u2()], pool[reader.u2()]
-        lines = set()
+        lines = set()  # abstract and native methods have no Code attribute
         for attribute, value in reader.attributes(pool):
-            if attribute == 'Code':
-                lines |= code_lines(value, pool)
+            if attribute == 'Code':  # at most one per method (JVMS 4.7.3)
+                lines = code_lines(value, pool)
         methods[(method, descriptor)] = frozenset(lines)
     source = None
     for attribute, value in reader.attributes(pool):
@@ -916,7 +916,7 @@ def judge_dispositions(entries, errors, base_text, context):
 def apply_dispositions(result, accepted, judged):
     """Decide each undetected changed-line mutant of one module: dispositioned or failing."""
     changed = result.get('changed')
-    if not changed:
+    if changed is None:
         return
     by_identity = {}
     for record in judged:
@@ -964,8 +964,7 @@ def format_verdict(result):
                if 'changed_line_count' in result else '')
     equivalent = changed.get('dispositioned_equivalent', [])
     out_of_lane = changed.get('dispositioned_out_of_lane', [])
-    failing = changed.get('failing', [{'mutant': value, 'reason': 'undetected'}
-                                      for value in changed['survivors']])
+    failing = changed['failing']  # interim summaries, before judgment, have no dispositions
     lines = [f"{counted}Mutants on changed lines: {changed['total']}. "
              f"Killed: {changed['killed']}. Survived: {changed['survived']}. "
              f"No coverage: {changed['no_coverage']}.",
@@ -1337,7 +1336,7 @@ def check_dispositions(root, reports, base, sampled):
                'mutated': dict.fromkeys(classes, not sampled)}
     verdict, accepted = judge_dispositions([] if errors else entries, errors,
                                            merge_base_file(root, base, DISPOSITIONS_FILE), context)
-    module = {'changed': {'total': len(records)}, '_mutants': records}
+    module = {'changed': {}, '_mutants': records}
     apply_dispositions(module, accepted, verdict['entries'])
     lines_out = [f'{DISPOSITIONS_FILE}: {len(entries)} valid entries, {len(errors)} errors']
     lines_out.extend(f'error: {error}' for error in errors)
@@ -1398,7 +1397,8 @@ def remap_dispositions(root, reports):
 
 def toml_string(value):
     """A TOML string that loads back to `value`: multi-line literal when safe, else basic."""
-    if ('\n' in value and "'''" not in value and not value.endswith("'")
+    # TOML 1.0 allows one or two quotes before the closing delimiter, so a value may end in '.
+    if ('\n' in value and "'''" not in value
             and not any((ord(character) < 32 and character not in '\n\t') or ord(character) == 127
                         for character in value)):
         return "'''\n" + value + "'''"
@@ -1456,7 +1456,7 @@ def counterfactual(root, patch_file, command):
     if injected.returncode == 0:
         raise CounterfactualError('the test passes with the mutant injected; it does not detect '
                                   'this mutant')
-    output = os.fsdecode(injected.stdout or b'').splitlines()
+    output = os.fsdecode(injected.stdout).splitlines()  # stdout=PIPE: always bytes
     return {'patch': patch, 'command': list(command), 'baseline_exit': 0,
             'injected_exit': injected.returncode,
             'failure': '\n'.join(output[-FAILURE_EXCERPT_LINES:]) or '(no output)',
