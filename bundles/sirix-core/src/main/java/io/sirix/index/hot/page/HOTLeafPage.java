@@ -1227,9 +1227,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /**
    * Binary search over a packed body. Kept apart from {@link #binarySearchSuffix} and
-   * {@link #compareSuffixWithKey} so the raw leaf's search compiles exactly as before packed bodies:
-   * with the packed arm inside those methods, C2 settled on a slower layout of the raw warm lookup in
-   * most forks of the leaf gate (8-byte keys, +2.5 %).
+   * {@link #compareSuffixWithKey} so a raw leaf runs main's search code unchanged. With the packed
+   * arm inside those methods, C2 chose the slower register allocation of the raw warm lookup (8-byte
+   * keys) in 8 of 10 forks of the leaf gate, against 3 of 10 for main.
    */
   private int packedBinarySearch(final byte[] key, final int keyLen) {
     if (keyLen == Long.BYTES && commonPrefixLen < Long.BYTES) {
