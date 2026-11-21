@@ -56,7 +56,7 @@ second argument, e.g. `just bench JsonWritePathBenchmark compressionPipeline=NON
    ```bash
    git checkout -b feature/your-feature-name
    ```
-2. Write the spec and derive tests before implementing the change (see below)
+2. Follow the [development strategy](docs/DEVELOPMENT.md) for the spec-first workflow and tests
 3. Run tests:
    ```bash
    ./gradlew test
@@ -78,10 +78,10 @@ change. What it asks of every pull request:
 
 - State behaviour, invariants and error cases and cite the specification's requirement IDs in the
   issue, then in the PR, following the
-  [spec-first workflow](docs/DEVELOPMENT.md#1-the-specification-is-the-source-of-truth). Derive the
-  tests from those requirements **before writing implementation code**. Map each requirement to its
-  test in the PR template; for documentation or CI changes, name the observable acceptance checks
-  instead of inventing application tests.
+  [spec-first workflow](docs/DEVELOPMENT.md#1-the-specification-is-the-source-of-truth). Follow the
+  [test derivation policy](docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code)
+  and map each requirement to its test in the PR template; for documentation or CI changes, name
+  the observable acceptance checks instead of inventing application tests.
 - Mutation-test changed logic: inspect the PIT artifact and resolve every surviving or uncovered
   changed-line mutant under
   [CONV-103](spec/CONV-conventions.md#conv-103--specification-before-implementation) — a behaviour

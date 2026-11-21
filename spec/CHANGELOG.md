@@ -2,6 +2,9 @@
 
 ## 1.0.0 (unreleased)
 
+- Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
+  [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).
+
 - Allow one narrow exception to [CONV-201](CONV-conventions.md#conv-201--mutation-disposition-record)'s
   cost rule: a mutant that produces the same result and differs only at a single boundary input, by
   at most one extra constant-time step, may be recorded as equivalent with that reason. Every other
