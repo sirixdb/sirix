@@ -650,9 +650,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     if (!DerivedIndexMaintainer.isDerivedResourceName(name)) {
       final String derivedName = name + DerivedIndexMaintainer.SUFFIX;
       final Path derived = resourceFile.resolveSibling(derivedName);
-      if (!Files.notExists(derived)) {
+      if (!resourceDoesNotExist(derived)) {
         removeResourceInternal(derivedName);
-        if (!Files.notExists(derived)) {
+        if (!resourceDoesNotExist(derived)) {
           discardInMemoryResourceState(resourceFile);
           hiddenInMemoryLeftovers.add(name);
           return resourceFile;
@@ -671,6 +671,19 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       hiddenInMemoryLeftovers.add(name);
     }
     return remaining;
+  }
+
+  /** Confirm absence even when an overlong derived name makes an attribute lookup inconclusive. */
+  private static boolean resourceDoesNotExist(final Path resourceFile) {
+    if (Files.notExists(resourceFile)) {
+      return true;
+    }
+    try (final Stream<Path> siblings = Files.list(resourceFile.getParent())) {
+      return siblings.noneMatch(resourceFile::equals);
+    } catch (final IOException | UncheckedIOException | SecurityException failure) {
+      // An inaccessible parent supplies no proof of absence: retain the source for a retry.
+      return false;
+    }
   }
 
   private @Nullable Path retireDirectory(final Path resourceFile) {

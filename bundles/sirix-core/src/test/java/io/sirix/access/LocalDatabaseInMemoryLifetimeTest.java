@@ -12,6 +12,7 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.io.StorageType;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystemException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -184,14 +185,19 @@ final class LocalDatabaseInMemoryLifetimeTest {
   }
 
   @ParameterizedTest
-  @EnumSource(Model.class)
-  void longResourceNamesAreRetiredAndReusable(final Model model) {
-    final String name = "v".repeat(220);
+  @MethodSource("modelsAndCloseOrders")
+  void longResourceNamesAreRetiredAndReusable(final Model model, final boolean removeBeforeClose) throws IOException {
+    final String name = longestSupportedResourceName();
     createDatabase(model, databasePath());
     try (Database<? extends ResourceSession<?, ?>> database = open(model, databasePath())) {
       createResource(database, name, StorageType.IN_MEMORY);
       try (ResourceSession<?, ?> session = database.beginResourceSession(name)) {
         commitFirstValue(session, model, "0");
+      }
+      if (removeBeforeClose) {
+        database.removeResource(name);
+        assertFalse(Files.exists(resourceDirectory(name)), "removal must release the original name immediately");
+        assertFalse(database.existsResource(name));
       }
     }
     assertFalse(Files.exists(resourceDirectory(name)));
@@ -205,6 +211,25 @@ final class LocalDatabaseInMemoryLifetimeTest {
       }
     }
     assertFalse(Files.exists(resourceDirectory(name)));
+  }
+
+  /** Keep suffix-growth coverage on filesystems with a smaller filename limit (for example 143). */
+  private String longestSupportedResourceName() throws IOException {
+    int length = 220;
+    while (true) {
+      final String name = "v".repeat(length);
+      final Path probe = directory.resolve(name);
+      try {
+        Files.createDirectory(probe);
+      } catch (final FileSystemException failure) {
+        if (--length < 64) {
+          throw failure;
+        }
+        continue;
+      }
+      Files.delete(probe);
+      return name;
+    }
   }
 
   /** AC5, clause 3 and 5: in a mixed database only the IN_MEMORY resource vanishes. */
@@ -482,6 +507,39 @@ final class LocalDatabaseInMemoryLifetimeTest {
       }
       createResource(database, VOLATILE, StorageType.IN_MEMORY);
       assertTrue(database.getResourceID(VOLATILE) != id);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        assertEquals(0, session.getMostRecentRevisionNumber());
+        assertFalse(hasContent(session));
+      }
+    }
+  }
+
+  /** An unlistable parent cannot prove a real derived sibling absent (TXN-615 clauses 7/8). */
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void removalRetiresDerivedSiblingWhenParentCannotBeListed(final Model model) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    try (Database<? extends ResourceSession<?, ?>> database = open(model, databasePath())) {
+      createResource(database, VOLATILE, StorageType.IN_MEMORY);
+      createResource(database, "derived-fixture", StorageType.FILE_CHANNEL);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        commitFirstValue(session, model, "old");
+      }
+      final Path derived = resourceDirectory(VOLATILE + "$derived");
+      Files.move(resourceDirectory("derived-fixture"), derived);
+      final Path resources = derived.getParent();
+      final Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(resources);
+      Files.setPosixFilePermissions(resources, PosixFilePermissions.fromString("-wx-wx-wx"));
+      try {
+        assumeTrue(!Files.isReadable(resources), "running as a user who ignores permissions");
+        database.removeResource(VOLATILE);
+        assertTrue(Files.notExists(derived), "derived state must retire before its source proof is deleted");
+        assertTrue(Files.notExists(resourceDirectory(VOLATILE)));
+      } finally {
+        Files.setPosixFilePermissions(resources, permissions);
+      }
+      createResource(database, VOLATILE, StorageType.IN_MEMORY);
       try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
         assertEquals(0, session.getMostRecentRevisionNumber());
         assertFalse(hasContent(session));

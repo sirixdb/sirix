@@ -182,3 +182,7 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   settings in the case configuration shared by generation, shrinking and replay. Check actual
   eviction and released bytes, including cleanup after failure, rather than accepting a green replay
   with its trigger disabled. Evidence: [HOT replay follow-up](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#review-follow-up-replay-lost-the-eviction-trigger).
+
+- **Probe filename limits in boundary fixtures.** A valid long resource name must be accepted by the test filesystem before retirement is exercised. Keep the original case on ordinary filesystems and use the longest accepted name on restricted ones, so suffix-growth regressions still fail. Evidence: [RAM long-name fixture](postmortems/ram-long-name-test-filesystem-limit.md).
+
+- **Prove absence after inconclusive filename lookups.** `Files.notExists` returns false for both present and unresolvable paths, including an overlong derived name. A successful parent-directory enumeration can prove absence; a failed enumeration cannot. Keep actual derived siblings and denied traversal covered alongside maximum-length names. Evidence: [RAM derived-name cleanup](postmortems/ram-long-name-derived-cleanup.md).
