@@ -574,12 +574,35 @@ class SecondRoundTest(unittest.TestCase):
         image = class_file('a.Foo', 'Foo.java', methods, abstract=[('size', '()I')])
         self.assertEqual(mutation.read_class(image)[2][('size', '()I')], frozenset())
 
-    def test_a_patch_may_delete_one_file_while_injecting_into_another(self):
-        deleted = 'bundles/sirix-core/src/main/java/a/Old.java'
-        patch_text = (f'--- a/{deleted}\n+++ /dev/null\n@@ -1 +0,0 @@\n-class Old {{}}\n'
-                      + EVIDENCE['patch'])
-        evidence = {**EVIDENCE, 'patch': patch_text}
-        self.assertEqual(errors_of(entry('killed-out-of-lane', evidence=evidence)), [])
+    def test_patch_creation_deletion_and_rename_are_rejected_by_every_consumer(self):
+        """CONV-201: evidence hashes must cover every touched file before and after injection."""
+        original = 'bundles/sirix-core/src/main/java/a/Old.java'
+        target = 'bundles/sirix-core/src/main/java/a/New.java'
+        headers = [(f'a/{original}', '/dev/null'),
+                   ('/dev/null', f'b/{target}'),
+                   (f'a/{original}', f'b/{target}')]
+        for old, new in headers:
+            for first in (True, False):
+                with self.subTest(old=old, new=new, first=first):
+                    extra = f'--- {old}\n+++ {new}\n@@ -1 +1 @@\n-old\n+new\n'
+                    patch_text = (extra + EVIDENCE['patch'] if first
+                                  else EVIDENCE['patch'] + extra)
+                    evidence = {**EVIDENCE, 'patch': patch_text}
+                    self.assertIn('patch must modify existing files in place',
+                                  '\n'.join(errors_of(entry('killed-out-of-lane',
+                                                           evidence=evidence))))
+                    with tempfile.TemporaryDirectory() as temp:
+                        root = Path(temp)
+                        patch_file = root / 'mutant.patch'
+                        patch_file.write_text(patch_text)
+                        marker = root / 'ran-test'
+                        command = [sys.executable, '-c',
+                                   'from pathlib import Path; Path("ran-test").touch()']
+                        with self.assertRaises(mutation.CounterfactualError) as error:
+                            mutation.counterfactual(root, patch_file, command)
+                        self.assertIn('patch must modify existing files in place',
+                                      str(error.exception))
+                        self.assertFalse(marker.exists())
         empty = {**EVIDENCE, 'patch': ''}
         self.assertIn('`patch` must be a non-empty string',
                       '\n'.join(errors_of(entry('killed-out-of-lane', evidence=empty))))

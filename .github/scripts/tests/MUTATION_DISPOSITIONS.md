@@ -17,6 +17,21 @@ Reproduce: copy `pr_mutation.py` and `tests/` into a scratch project with
 above the copied script (the tests read the repository files from there), and run
 `mutmut run`.
 
+## Review correction: behavioral evidence only
+
+The totals above describe the historical run, not verification of the reviewed revision.
+The former `test_two_out_of_lane_entries_resolve_declared_tests_once` asserted an internal
+helper call count. That assertion has been withdrawn and replaced by exit status, both
+`accepted` states, both emitted disposition records and both summary entries. No listed
+survivor disposition cites that assertion. Any historical kill that depended solely on the
+call-count assertion is **unresolved**, not a behavioral kill or an equivalence proof;
+the historical aggregate cannot establish that classification without replaying its mutants.
+
+The review regressions also enforce declared Java/Kotlin main-class ownership (including
+file facades), candidates from every remap tier, and rejection of creation, deletion and
+rename patches by both the evidence validator and the counterfactual runner. Targeted
+mutations and pre-fix replay are recorded in the [review write-up](../../../docs/postmortems/pr-mutation-disposition-review.md).
+
 ## equivalent (wording): 142
 
 CONV-202 and CONV-203 fix what this text must carry (entry position, violated rule, resolving action, counts, kind, helper command); headings, help texts and helper output layout are not specified. The mutant changes only wording, letter case, blank lines or adds an `XX` decoration, keeping every specified element, so no specified behaviour differs.

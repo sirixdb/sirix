@@ -295,31 +295,51 @@ def resolve_targets(module_root, sources):
     return sorted(targets), sorted(set(sources) - found)
 
 
-def module_test_classes(module_root):
-    """Discover declared top-level test types and packages without requiring compilation."""
+def source_classes(path, file_facade=False):
+    facade = path.stem[:1].upper() + path.stem[1:] + 'Kt'
+
+    def strip(match):
+        nonlocal facade
+        if match[1] is not None:
+            facade = match[1]
+        return ' '
+
+    text = re.sub(r'@file:(?:kotlin\.jvm\.)?JvmName\s*\(\s*"([\w$]+)"\s*\)'
+                  r'|//[^\n]*|/\*.*?\*/|""".*?"""|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',
+                  strip, path.read_text(), flags=re.S)
+    package = declared_package(text)
+    keywords = 'class|interface|enum|record' if path.suffix == '.java' else 'class|interface|object'
+    depth, members = 0, False
+    names = set()
+    for token in re.finditer(r'\b(?:' + keywords + r')\s+([\w$]+)'
+                             r'|\b(?:fun(?!\s+interface\b)|val|var)\b|[{}()\[\]]', text):
+        if token[0] in ('{', '(', '['):
+            depth += 1
+        elif token[0] in ('}', ')', ']'):
+            depth -= 1
+        elif depth == 0:
+            if token[1] is not None:
+                names.add(token[1])
+            else:
+                members = True
+    if file_facade and path.suffix == '.kt' and members:
+        names.add(facade)
+    return {f'{package}.{name}' if package else name: package for name in names}
+
+
+def module_classes(module_root, source_set):
     classes = {}
     for language, suffix in (('java', '.java'), ('kotlin', '.kt')):
-        root = module_root / 'src/test' / language
-        if not root.is_dir():
-            continue
+        root = module_root / 'src' / source_set / language
         for path in root.rglob('*' + suffix):
-            if path.name in ('package-info.java', 'module-info.java'):
-                continue
-            text = re.sub(r'//[^\n]*|/\*.*?\*/|""".*?"""|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',
-                          ' ', path.read_text(), flags=re.S)
-            declaration = re.search(r'^\s*package\s+([\w.]+)', text, re.M)
-            package = declaration.group(1) if declaration else ''
-            keywords = 'class|interface|enum|record' if language == 'java' else 'class|interface|object'
-            depth = 0
-            for token in re.finditer(r'\b(?:' + keywords + r')\s+([\w$]+)|[{}]', text):
-                if token[0] == '{':
-                    depth += 1
-                elif token[0] == '}':
-                    depth -= 1
-                elif depth == 0:
-                    name = token[1]
-                    classes[f'{package}.{name}' if package else name] = package
+            if path.name not in ('package-info.java', 'module-info.java'):
+                classes.update(source_classes(path, file_facade=source_set == 'main'))
     return classes
+
+
+def module_test_classes(module_root):
+    """Discover declared top-level test types and packages without requiring compilation."""
+    return module_classes(module_root, 'test')
 
 
 def is_test_name(simple):
@@ -343,10 +363,6 @@ def is_related_test_name(simple, base):
     # Every entry in TEST_SUFFIXES starts a new word, so one uppercase test covers both
     # `FooTest` (the remainder is the suffix) and `FooSlotTest` (the remainder adds a word).
     return simple[len(base):][:1].isupper()
-
-
-def source_package(module_root, source):
-    return declared_package(source_path(module_root, source).read_text())
 
 
 def resolve_tests(stem, package, tests):
@@ -386,9 +402,10 @@ def test_scope(module_root, sources, associations=None):
     candidates = []
     tests = module_test_classes(module_root)
     for source in sources:
-        stem, package = Path(source).stem, source_package(module_root, source)
-        patterns, kind = resolve_tests(stem, package, tests)
-        associated = set(associations.get(f'{package}.{stem}' if package else stem, ())) & tests.keys()
+        path = source_path(module_root, source)
+        classes = source_classes(path, file_facade=True)
+        patterns, kind = resolve_tests(path.stem, declared_package(path.read_text()), tests)
+        associated = {test for name in classes for test in associations.get(name, ())} & tests.keys()
         if associated:
             patterns = sorted(set(patterns) | associated)
             if kind == 'unmapped':
@@ -551,11 +568,19 @@ def patch_paths(patch):
     paths, previous = [], ''
     for line in patch.splitlines():
         if line.startswith('+++ ') and previous.startswith('--- '):
+            original = previous[len('--- '):].split('\t')[0]
             target = line[len('+++ '):].split('\t')[0]
-            if target != '/dev/null':
-                if not target.startswith('b/'):
-                    raise ValueError(f'patch target {target!r} lacks the `b/` prefix')
-                paths.append(repository_path(target[len('b/'):]))
+            if original == '/dev/null' or target == '/dev/null':
+                raise ValueError('patch must modify existing files in place')
+            if not original.startswith('a/'):
+                raise ValueError(f'patch source {original!r} lacks the `a/` prefix')
+            if not target.startswith('b/'):
+                raise ValueError(f'patch target {target!r} lacks the `b/` prefix')
+            original = repository_path(original[len('a/'):])
+            target = repository_path(target[len('b/'):])
+            if original != target:
+                raise ValueError('patch must modify existing files in place')
+            paths.append(target)
         previous = line
     if not paths or not any(line.startswith('@@') for line in patch.splitlines()):
         raise ValueError('patch is not a unified diff with a file header and a hunk')
@@ -718,26 +743,18 @@ def parse_associations(text):
     return associations, errors
 
 
-def declaring_module(root, name):
-    """The module whose main sources declare top-level class `name`, if any."""
-    package, _, simple = name.rpartition('.')
-    for directory, module in sorted(MODULES.items()):
-        for language, suffix in (('java', '.java'), ('kotlin', '.kt')):
-            # An empty package yields Path(''), which pathlib drops: one form serves both.
-            path = (root / 'bundles' / directory / 'src/main' / language
-                    / Path(*package.split('.')) / (simple + suffix))
-            if path.is_file() and declared_package(path.read_text()) == package:
-                return module
-    return None
-
-
 def load_associations(root):
     """The validated associations; any invalid entry voids the file and fails the run."""
     path = root / ASSOCIATIONS_FILE
     associations, errors = parse_associations(path.read_text() if path.is_file() else None)
+    owners = {}
+    if associations:
+        for directory, module in sorted(MODULES.items()):
+            for name in module_classes(root / 'bundles' / directory, 'main'):
+                owners.setdefault(name, module)
     declared = {}
     for name, tests in associations.items():
-        module = declaring_module(root, name)
+        module = owners.get(name)
         if module is None:
             errors.append(f'association {name}: no main source of a lane module declares it; '
                           f'update or delete the association')
@@ -1351,7 +1368,7 @@ def check_dispositions(root, reports, base, sampled):
 
 
 def remap_candidates(entry, records):
-    """The first non-empty tier of report mutants that may be this entry's mutant after a refactor."""
+    """Report mutants in preference order, each identity labelled with its first eligible tier."""
     identity = identity_of(entry)
     alike = [record for record in records if record['identity'] != identity
              and record['identity'][3] == identity[3] and record['identity'][5] == identity[5]]
@@ -1360,13 +1377,15 @@ def remap_candidates(entry, records):
              ('renamed method of the same class', lambda candidate: candidate[0] == identity[0]),
              ('same method name and descriptor in another class',
               lambda candidate: candidate[1:3] == identity[1:3]))
+    candidates, seen = [], set()
     for label, accepts in tiers:
         matches = [record for record in alike if accepts(record['identity'])]
-        if matches:
-            # A rename or move keeps the instruction ordinals: list those candidates first.
-            matches.sort(key=lambda record: record['identity'][4] != identity[4])
-            return label, matches
-    return None, []
+        matches.sort(key=lambda record: record['identity'][4] != identity[4])
+        for record in matches:
+            if record['identity'] not in seen:
+                seen.add(record['identity'])
+                candidates.append((label, record))
+    return candidates
 
 
 def remap_dispositions(root, reports):
@@ -1378,14 +1397,14 @@ def remap_dispositions(root, reports):
     for entry in entries:
         if identity_of(entry) in present:
             continue
-        label, matches = remap_candidates(entry, records)
+        matches = remap_candidates(entry, records)
         lines.append(f"entry {entry['position']} ({entry['class']}.{entry['method']}"
                      f"{entry['descriptor']}): no report mutant matches; "
-                     + (f'{len(matches)} candidate(s), {label}:' if label else 'no candidate'))
-        for record in matches:
+                     + (f'{len(matches)} candidate(s):' if matches else 'no candidate'))
+        for label, record in matches:
             name, method, descriptor, mutator, indexes, description = record['identity']
             same = ', same instruction indexes' if indexes == identity_of(entry)[4] else ''
-            lines.extend([f"  # line {record['line']}, {record['status']}{same}; re-review the "
+            lines.extend([f"  # line {record['line']}, {record['status']}, {label}{same}; re-review the "
                           f'argument and update checked_at before using it',
                           f'  class = {json.dumps(name)}', f'  method = {json.dumps(method)}',
                           f'  descriptor = {json.dumps(descriptor)}',

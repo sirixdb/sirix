@@ -223,7 +223,10 @@ and nothing more. Today it selects `VectorizedReleaseCorrectnessTest` for the co
 pipeline strategies and the refusal exception: this integration contract exercises refused and
 admitted grouping through every public compiler factory, including cold reopen. Associations
 augment the heuristic matches and share the same module cap. Each entry is an exact top-level
-`class` and a list of `tests` declared in the same module; a pattern, an unknown field, a
+`class` and a list of `tests` declared in the same module. Main-class ownership follows declared
+packages and top-level Java/Kotlin types, including Kotlin file facades (`Main.kt` with top-level
+functions declares `MainKt`, or its file `JvmName`). Selecting a source adds associations for
+every class it declares, regardless of filename or directory; a pattern, an unknown field, a
 duplicate class, a missing class or an undeclared test makes the file invalid and the run not
 clean, with a message naming the entry. Tests excluded from PIT's baseline by the Gradle
 configuration (isolated allocation suites, soak and random property tests) do not run even when
@@ -356,6 +359,12 @@ stale. The job summary opens its disposition section with the added and removed 
 added entry's full justification; module sections list killed, otherwise detected, dispositioned
 (per kind) and failing mutants with their reasons. Dispositions come only from the two files: no
 flag, environment variable, label or comment adds or relaxes one.
+
+Remap lists deduplicated candidates from every eligible tier in preference order: the same
+method with other indexes, a renamed method of the same class, then the same name and descriptor
+in another class. Each candidate carries its tier and a marker when instruction indexes match.
+Counterfactual patches must edit existing files in place, with matching old/new paths; creations,
+deletions and renames are rejected before hashing or test execution.
 
 Local helpers keep a refactor cheap; CI never runs them and none writes the file:
 

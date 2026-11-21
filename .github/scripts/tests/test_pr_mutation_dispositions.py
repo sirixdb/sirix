@@ -456,14 +456,20 @@ class VerdictTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mutation.run(work.root, work.output, 10, blocking=True)
 
-    def test_two_out_of_lane_entries_resolve_declared_tests_once(self):
-        with lane() as work, patch.object(mutation, 'declared_tests',
-                                          wraps=mutation.declared_tests) as declared:
+    def test_two_out_of_lane_entries_are_accepted_and_reported(self):
+        with lane() as work:
             head = entry('killed-out-of-lane') + entry('killed-out-of-lane', indexes=[9])
-            code, _, _ = work.run([mutant('SURVIVED', 11), mutant('SURVIVED', 12, indexes=(9,))],
-                                  head=head, changed=(11, 12))
-            self.assertEqual(code, 0)
-            self.assertEqual(declared.call_count, 1)
+            code, results, summary = work.run(
+                [mutant('SURVIVED', 11), mutant('SURVIVED', 12, indexes=(9,))],
+                head=head, changed=(11, 12))
+            self.assertEqual((code, states(results)), (0, ['accepted', 'accepted']))
+            accepted = results['modules'][0]['changed']['dispositioned_out_of_lane']
+            self.assertEqual([value['entry'] for value in accepted], [1, 2])
+            reported = summary.split('Dispositioned as killed by an out-of-lane test:', 1)[1]
+            for value in accepted:
+                mutant_text = html.escape(value['mutant']).replace('|', '&#124;')
+                self.assertIn(f"{mutant_text} | entry {value['entry']} | test "
+                              'a.FooAllocationTest#allocatesNothing', reported)
 
     def test_incomplete_runs_stay_failing_whatever_the_entries(self):
         with lane() as work:
@@ -573,6 +579,36 @@ class RefactorHelperTest(unittest.TestCase):
             proposal = '\n'.join(line.strip() for line in blocks[0].splitlines()[2:8])
             values = tomllib.loads(proposal)
             self.assertEqual(mutation.parse_dispositions(entry(**values))[1], [])
+
+    def test_remap_keeps_all_overlapping_tiers_and_deduplicates_reports(self):
+        """CONV-203: a same-class decoy must not hide the moved counterpart."""
+        for same_method in (False, True):
+            with self.subTest(same_method=same_method), lane() as work:
+                (work.root / mutation.DISPOSITIONS_FILE).write_text(entry())
+                before = (work.root / mutation.DISPOSITIONS_FILE).read_bytes()
+                mutants = [mutant('SURVIVED', 20, method='other'),
+                           mutant('SURVIVED', 30, klass='a.Bar', source='Bar.java'),
+                           mutant('SURVIVED', 40, klass='a.Unrelated', method='other')]
+                if same_method:
+                    mutants.append(mutant('SURVIVED', 12, indexes=(8,)))
+                report = self.report(work.root, mutants)
+                text = mutation.remap_dispositions(work.root, [report, report])
+                header, *candidates = text.split('\n  # ')
+                self.assertIn(f'{3 if same_method else 2} candidate(s)', header)
+                proposals = [tomllib.loads('\n'.join(candidate.splitlines()[1:]))
+                             for candidate in candidates]
+                expected = ([('a.Foo', 'run', [8])] if same_method else [])
+                expected += [('a.Foo', 'other', [7]), ('a.Bar', 'run', [7])]
+                self.assertEqual([(p['class'], p['method'], p['indexes']) for p in proposals],
+                                 expected)
+                tiers = (['same method, other instruction indexes'] if same_method else [])
+                tiers += ['renamed method of the same class',
+                          'same method name and descriptor in another class']
+                for candidate, tier, proposal in zip(candidates, tiers, proposals):
+                    self.assertIn(tier, candidate.splitlines()[0])
+                    self.assertEqual('same instruction indexes' in candidate.splitlines()[0],
+                                     proposal['indexes'] == [7])
+                self.assertEqual((work.root / mutation.DISPOSITIONS_FILE).read_bytes(), before)
 
     def test_check_lists_stale_and_re_confirmation_entries_with_their_action(self):
         with lane() as work:
@@ -773,6 +809,54 @@ class AssociationTest(unittest.TestCase):
                 self.assertEqual(mutation.test_scope(module, ['src/main/java/a/Foo.java'],
                                                      associations)[2],
                                  {'src/main/java/a/Foo.java': 'over-limit'})
+
+    def test_associations_follow_every_declared_binary_class_of_a_source(self):
+        """CONV-204: language declarations own classes; filenames cannot invent a class."""
+        cases = [
+            ('java', 'a/Bundle.java',
+             'package actual;\nclass First { class Nested {} }\ninterface Second {}\n',
+             ('actual.First', 'actual.Second'), ('actual.Bundle', 'actual.Nested')),
+            ('kotlin', 'a/Main.kt',
+             'package actual\nfun main() {}\nclass First { class Nested }\nobject Second\n',
+             ('actual.MainKt', 'actual.First', 'actual.Second'),
+             ('actual.Main', 'actual.Nested')),
+            ('kotlin', 'a/Types.kt',
+             'package actual\nclass First(val amount: Int)\nfun interface Second\n',
+             ('actual.First', 'actual.Second'), ('actual.Types', 'actual.TypesKt')),
+            ('kotlin', 'a/values.kt', 'val answer = 42\n', ('ValuesKt',), ('values',)),
+            ('kotlin', 'a/Named.kt',
+             '// @file:JvmName("Ghost")\n@file:JvmName("Api")\n'
+             'package actual\nfun run() {}\n',
+             ('actual.Api',), ('actual.Named', 'actual.NamedKt')),
+        ]
+        for language, filename, text, owners, absent in cases:
+            with self.subTest(filename=filename), self.module() as (root, module):
+                source = f'src/main/{language}/{filename}'
+                path = module / source
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text + '// class Phantom {}\n')
+                pairs = {}
+                for index, owner in enumerate(owners):
+                    test = f'b.Contract{index}Test'
+                    test_path = module / f'src/test/java/b/Contract{index}Test.java'
+                    test_path.write_text(f'package b;\nclass Contract{index}Test {{}}\n')
+                    pairs[owner] = (test,)
+                association_file = root / mutation.ASSOCIATIONS_FILE
+                association_file.write_text(''.join(
+                    f'[[association]]\nclass = "{owner}"\ntests = ["{tests[0]}"]\n'
+                    for owner, tests in pairs.items()))
+                associations, errors = mutation.load_associations(root)
+                self.assertEqual((associations, errors), (pairs, []))
+                expected = [f'b.Contract{index}Test*' for index in range(len(owners))]
+                self.assertEqual(mutation.test_scope(module, [source], associations),
+                                 (expected, [], {source: 'related'}))
+                for owner in (*absent, 'actual.Phantom', 'actual.Ghost'):
+                    association_file.write_text(
+                        f'[[association]]\nclass = "{owner}"\n'
+                        'tests = ["b.AllocationBudgetTest"]\n')
+                    associations, errors = mutation.load_associations(root)
+                    self.assertEqual(associations, {})
+                    self.assertIn(f'association {owner}: no main source', errors[0])
 
     def test_invalid_associations_fail_the_run_with_a_named_entry(self):
         valid = '[[association]]\nclass = "a.Foo"\ntests = ["b.AllocationBudgetTest"]\n'
