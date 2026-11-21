@@ -70,24 +70,26 @@ second argument, e.g. `just bench JsonWritePathBenchmark compressionPipeline=NON
 
 ## Spec, mutation, exploration and learning
 
-Start every change with written behaviour, invariants and error cases in the issue or PR;
-derive tests from that spec **before writing implementation code**. Map each requirement to
-its test in the PR template. For documentation or CI changes, name the observable acceptance
-checks instead of inventing application tests.
+[How SirixDB is developed](docs/DEVELOPMENT.md) is the project's development strategy and explains
+why each practice below exists: the specification as the source of truth, tests derived from the
+requirements rather than from the code, behaviour-only tests, mutation testing, exploratory testing,
+review against the written intent, and the benchmark protocol. Read it once before your first
+change. What it asks of every pull request:
 
-Mutation-test changed logic: inspect the PIT artifact, kill surviving/uncovered mutants with
-meaningful assertions or justify each equivalent/unreachable mutant in the PR (class, method,
-line, mutation and reason). The PR lane's acceptance criterion, advisory debt, scope, local
-commands and blocking switch are documented in
-[Verification](docs/VERIFICATION.md#pr-mutation-testing).
-
-Explore beyond the happy path using adversarial inputs, property-based tests or an independent
-differential oracle. Record the cases, seeds and outcomes in the PR; promote any discovered
-failure to a deterministic regression.
-
-Every bug gets a root-cause [write-up](docs/postmortems/TEMPLATE.md), a regression test that
-fails before the fix, and an actionable entry in [Lessons](docs/LESSONS.md). Link the evidence;
-explain why the old tests missed it and how the new check would catch it.
+- State behaviour, invariants and error cases in the issue or PR, and derive the tests from them
+  **before writing implementation code**. Map each requirement to its test in the PR template. For
+  documentation or CI changes, name the observable acceptance checks instead of inventing
+  application tests.
+- Mutation-test changed logic: inspect the PIT artifact and resolve every surviving or uncovered
+  changed-line mutant — a behaviour test, a reviewed disposition with its reason and evidence, or
+  removing the code. Never write a test to kill a mutant. Scope, local commands, dispositions and
+  the blocking switch are in [Verification](docs/VERIFICATION.md#pr-mutation-testing).
+- Explore beyond the happy path using adversarial inputs, property-based tests or an independent
+  differential oracle. Record the cases, seeds and outcomes in the PR; promote any discovered
+  failure to a deterministic regression.
+- Give every bug a root-cause [write-up](docs/postmortems/TEMPLATE.md), a regression test that fails
+  before the fix, and an actionable entry in [Lessons](docs/LESSONS.md). Link the evidence; explain
+  why the old tests missed it and how the new check would catch it.
 
 ## Code Style
 
@@ -119,7 +121,7 @@ bundles/
 
 - **Bug fixes** — check [open issues](https://github.com/sirixdb/sirix/issues) labeled `bug`
 - **Documentation** — improvements to docs, examples, or inline comments
-- **Tests** — additional test coverage is always welcome
+- **Tests** — behaviour tests for requirements that have none; coverage is a diagnostic here, not a target ([why](docs/DEVELOPMENT.md#5-coverage-is-a-diagnostic-not-a-target))
 - **Features** — discuss in an issue first before starting large features
 
 ## Pull Request Guidelines
