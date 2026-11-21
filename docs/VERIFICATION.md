@@ -530,5 +530,8 @@ soak weekly and on demand.
    are decorative.
 5. If it touches a read, load or query path — run the work-budget tests, and treat a broken budget
    as a regression until shown otherwise. A bound changes only with the evidence its README asks for.
-6. Assess test independence using the
+6. A green build is weak evidence when one author (human or model) wrote both the code and its
+   tests: check that every test traces to a requirement and would fail on a plausible wrong
+   implementation. The oracle and property layers exist precisely because they are independent of
+   that author. See the
    [development strategy](DEVELOPMENT.md#independence-without-mandatory-separate-authorship).
