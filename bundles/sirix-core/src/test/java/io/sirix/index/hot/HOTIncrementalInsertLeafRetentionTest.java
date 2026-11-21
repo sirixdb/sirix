@@ -294,7 +294,7 @@ final class HOTIncrementalInsertLeafRetentionTest {
             if (failingRetirement) {
               throw retirementFailure;
             }
-          }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+          }, new char[HOTLeafPage.MAX_ENTRIES], 0, 0);
       for (int i = 0; i < 4; i++) {
         assertTrue(second.put(unitKey(0x20, i), unitValue(0x20, i)));
       }
