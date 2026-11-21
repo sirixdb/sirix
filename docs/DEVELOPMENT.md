@@ -209,10 +209,10 @@ levers that were measured and rejected.
   lower 95% bound at most 0, the median allocation delta at most 0 rounded to whole bytes, and cold
   paths included in the comparison — a change that is free when warm and expensive on a fresh
   process has not been measured until the cold arm is in the pairs.
-- **A disturbed run is rejected on evidence of the disturbance, never on its result.** Outside load,
-  thermal throttling or a competing job justifies discarding a run and retrying it; a number that
-  merely looks wrong does not. Re-running until the answer is agreeable is how a campaign fools
-  itself.
+- **A disturbed run is rejected on evidence of outside load, never on its result.** Load from
+  another process or a competing job justifies discarding a run and retrying it; a number that
+  merely looks wrong does not, and neither does throttling that the measured workload caused
+  itself. Re-running until the answer is agreeable is how a campaign fools itself.
 - **A failed gate is rerun whole**, never only its failing benchmarks, and never with more pairs
   added after a failing result. Both shortcuts turn a fixed-sample decision into a search for a pass.
 
