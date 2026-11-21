@@ -2,6 +2,12 @@
 
 ## 1.0.0 (unreleased)
 
+- Add reviewed mutation dispositions, test associations and local refactoring helpers for the
+  PR mutation lane in [CONV-201 to CONV-204](CONV-conventions.md#conv-201--mutation-disposition-record).
+  [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) defines the revised
+  survivor-resolution policy. Commands and review workflow are in
+  [Verification](../docs/VERIFICATION.md#pr-mutation-testing).
+
 - Replace the retired node-hash REST precondition with an opaque conditional-write token.
   The ETag is `<incarnation-hex>.<revision>` for the revision a response serves in every hash mode;
   the id is a 16-digit lowercase hexadecimal, cryptographically secure random 64-bit value,

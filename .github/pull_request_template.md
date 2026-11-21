@@ -14,7 +14,7 @@ observable acceptance checks for non-code changes).
 ## Mutation testing
 
 - Changed classes and PIT report/artifact:
-- Surviving or uncovered mutants killed, or individual justification (class/method/line/mutation/reason):
+- Resolution of surviving or uncovered mutants under [CONV-103](../spec/CONV-conventions.md#conv-103--specification-before-implementation):
 - Incomplete evidence (timeouts, missing reports, unsupported scope) and follow-up:
 
 ## Exploration
