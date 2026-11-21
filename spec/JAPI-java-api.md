@@ -57,7 +57,7 @@ Closing a database handle MUST release that handle’s ownership without invalid
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** The source NodeTrx threading contract is explicit; exhaustive Java API thread-affinity annotations are not present.
 
-Callers MUST confine mutable node-cursor operations to one thread unless an API explicitly coordinates them. Timed auto-commit coordination MUST use the transaction lock, including writer-visible reads that flush pending maintenance. Having an internal auto-commit lock MUST NOT be advertised as general concurrent cursor safety. Independent readers MAY execute on separate transactions.
+Callers MUST confine mutable node-cursor operations to one thread unless an API explicitly coordinates them. Timed auto-commit coordination MUST use the transaction lock, including writer-visible reads that flush pending maintenance. Having an internal auto-commit lock MUST NOT be advertised as general concurrent cursor safety. Independent readers MAY execute on separate transactions. A database handle and a resource session MAY be shared by several threads, each using its own transactions; sharing them MUST NOT change what each transaction sees.
 
 ### JAPI-105 — Cursor movement failure
 

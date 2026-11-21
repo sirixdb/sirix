@@ -2,6 +2,7 @@ package io.sirix.backup;
 
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.DatabaseType;
+import io.sirix.access.InMemoryResources;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
@@ -78,6 +79,11 @@ import static java.util.Objects.requireNonNull;
  * inside a resource's transaction-intent-log directory ({@code log/}, which only ever holds the
  * in-flight {@code .commit} marker), and atomic-write temporaries ({@code *.tmp*} — both
  * {@code dbsetting*.tmp} and diff-file {@code *.json.tmp*} spill files).
+ *
+ * <p>
+ * IN_MEMORY resources are never copied (TXN-615): their committed state lives only in the open
+ * database. A backup names them in {@link BackupSummary#notBackedUp()}, and a restore skips any of
+ * their leftovers in a cold copy.
  */
 public final class BackupManager {
 
@@ -85,11 +91,24 @@ public final class BackupManager {
   public record ResourceSummary(String resourceName, int mostRecentRevision, long bytesCopied) {
   }
 
-  /** Result of a backup or restore run. */
-  public record BackupSummary(Path sourceDir, Path targetDir, List<ResourceSummary> resources, long totalBytesCopied) {
+  /**
+   * Result of a backup or restore run.
+   *
+   * @param notBackedUp names of the IN_MEMORY resources a backup skipped (TXN-615): their state lives
+   *        only in the open database, so a backup never holds them; empty for a restore
+   */
+  public record BackupSummary(Path sourceDir, Path targetDir, List<ResourceSummary> resources, long totalBytesCopied,
+      List<String> notBackedUp) {
 
     public BackupSummary {
       resources = List.copyOf(resources);
+      notBackedUp = List.copyOf(notBackedUp);
+    }
+
+    /** A summary that skipped nothing. */
+    public BackupSummary(final Path sourceDir, final Path targetDir, final List<ResourceSummary> resources,
+        final long totalBytesCopied) {
+      this(sourceDir, targetDir, resources, totalBytesCopied, List.of());
     }
 
     /** Number of resources copied. */
@@ -152,6 +171,7 @@ public final class BackupManager {
 
     final boolean targetExisted = Files.exists(target);
     final List<ResourceSummary> resourceSummaries = new ArrayList<>();
+    final List<String> notBackedUp = new ArrayList<>();
     long totalBytes = 0;
     boolean success = false;
     try {
@@ -183,6 +203,11 @@ public final class BackupManager {
             continue; // stray non-directory entry below resources/ — not a resource
           }
           final String resourceName = resourcePath.getFileName().toString();
+          if (InMemoryResources.isInMemoryOwned(resourcePath)) {
+            // TXN-615 clause 10: an IN_MEMORY resource lives only in the open database.
+            notBackedUp.add(resourceName);
+            continue;
+          }
           final long bytes;
           final int mostRecentRevision;
           try (final ResourceSession<?, ?> session = database.beginResourceSession(resourceName)) {
@@ -211,7 +236,7 @@ public final class BackupManager {
       }
 
       success = true;
-      return new BackupSummary(source, target, resourceSummaries, totalBytes);
+      return new BackupSummary(source, target, resourceSummaries, totalBytes, notBackedUp);
     } finally {
       if (!success) {
         cleanupTarget(target, targetExisted);
@@ -272,8 +297,10 @@ public final class BackupManager {
         throw new SirixIOException("Could not create restore target directory " + target + ".", e);
       }
 
-      // A backup is cold — no locking needed; copy everything (minus transients, defensively).
-      final long totalBytes = copyTree(source, target, rel -> false,
+      // A backup is cold — no locking needed; copy everything (minus transients, defensively). A cold
+      // copy of a database may hold the leftovers of IN_MEMORY resources: a restore never creates
+      // those (TXN-615 clause 10).
+      final long totalBytes = copyTree(source, target, rel -> isInMemoryResourceDirectory(source, rel),
           rel -> isTransientDatabaseFile(rel) || isTransientResourceFile(relativeToResource(rel)));
 
       // Verification pass: open a read-only transaction on every restored resource; any
@@ -357,6 +384,12 @@ public final class BackupManager {
     } catch (final RuntimeException | IOException ignored) {
       // Best effort — the original failure is what propagates.
     }
+  }
+
+  /** Whether {@code relativePath} is a resource directory that belongs to an IN_MEMORY resource. */
+  private static boolean isInMemoryResourceDirectory(final Path databaseDir, final Path relativePath) {
+    return relativePath.getNameCount() == 2 && relativePath.getName(0).toString().equals(RESOURCES_DIR.toString())
+        && InMemoryResources.isInMemoryOwned(databaseDir.resolve(relativePath));
   }
 
   /** Database-level runtime files excluded from the backup. */

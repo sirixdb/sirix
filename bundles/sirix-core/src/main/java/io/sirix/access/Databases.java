@@ -104,18 +104,44 @@ public final class Databases {
       owner.closing = true;
     }
     try {
-      owner.database.close();
-      synchronized (Databases.class) {
-        owner.lock.close();
-        OPEN_DATABASES.remove(owner.path);
-        owner.references--;
-        MANAGER.sessions().removeObject(owner.path, handle);
+      try {
+        owner.database.close();
+      } catch (final RuntimeException | Error failure) {
+        // TXN-615 clause 7: a close that failed during session teardown keeps the instance open and
+        // owned for a retry; one that failed only removing IN_MEMORY leftovers has ended it, and a
+        // later open must create a new instance.
+        if (!owner.database.isOpen()) {
+          releaseOwnership(owner, handle, failure);
+        }
+        throw failure;
       }
+      releaseOwnership(owner, handle, null);
     } finally {
       synchronized (Databases.class) {
         owner.closing = false;
         Databases.class.notifyAll();
       }
+    }
+  }
+
+  /**
+   * Drop a closed instance's ownership; a lock-release failure joins {@code primary} if there is one.
+   */
+  private static void releaseOwnership(final OpenDatabase<?> owner, final Database<?> handle,
+      final @Nullable Throwable primary) {
+    synchronized (Databases.class) {
+      if (primary == null) {
+        owner.lock.close();
+      } else {
+        try {
+          owner.lock.close();
+        } catch (final RuntimeException | Error lockFailure) {
+          primary.addSuppressed(lockFailure);
+        }
+      }
+      OPEN_DATABASES.remove(owner.path);
+      owner.references--;
+      MANAGER.sessions().removeObject(owner.path, handle);
     }
   }
 
@@ -647,6 +673,8 @@ public final class Databases {
         final DatabaseConfiguration dbConfig = DatabaseConfiguration.deserialize(canonicalPath);
         checkDatabaseType(dbConfig, databaseType);
         final Database<M> database = createLocalDatabase(dbConfig, user);
+        // A new instance holds no IN_MEMORY state: what an earlier one left on disk goes (TXN-615).
+        ((LocalDatabase<?, ?>) database).retireInMemoryLeftovers();
         final OpenDatabase<M> owner = new OpenDatabase<>(canonicalPath, database, lock);
         OPEN_DATABASES.put(canonicalPath, owner);
         return owner.newHandle(user);

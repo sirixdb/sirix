@@ -97,7 +97,16 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
     // Timed writer hooks can call back through this handle; quiesce outside its admission monitor.
     try {
       resourceStore.close();
-      Databases.releaseDatabase(owner, this);
+      try {
+        Databases.releaseDatabase(owner, this);
+      } catch (final RuntimeException | Error failure) {
+        // TXN-615 clause 7: a close that ended the instance despite its failure released this handle;
+        // one that failed during session teardown keeps it open for a retry.
+        if (!owner.localDatabase.isOpen()) {
+          closed = true;
+        }
+        throw failure;
+      }
       closed = true;
     } finally {
       synchronized (this) {

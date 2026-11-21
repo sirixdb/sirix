@@ -29,27 +29,41 @@
   `AbstractReader`'s checksum and decode path and return a fresh, caller-owned page, so
   `returnsSharedPages()` is `false` like every other backend. Page keys start at
   `IOStorage.DATA_REGION_START`, so they never collide with the beacon offsets the writer re-reads
-  as pages on close. The committed state is a per-resource store keyed by resource path and
-  resource UUID. It outlives sessions and database handles, is dropped when the resource is removed
-  (`LocalDatabase` calls `RAMStorage.discardUnder`; removing a database removes each resource
-  first), and is replaced when a resource with another identity appears at the same path.
-  `truncateTo` still refuses. File-backed read and write paths are unchanged.
+  as pages on close. File-backed read and write paths are unchanged, and `truncateTo` still
+  refuses.
+- Lifetime, specified first as TXN-615 (captain decisions of 20 November 2026): the committed state
+  lives with the open database instance.
+  - Every writer, reader and session through any handle sees it. Only the last handle's close
+    discards it, together with the resource's on-disk footprint.
+  - A database reopened afterwards, in the same or a later process, holds none of its former
+    IN_MEMORY resources; their names are free again.
+  - If session teardown fails, the close keeps the instance, its ownership and its state for a
+    retry. If only removing leftovers fails, the close still ends the instance.
+  - Backups skip IN_MEMORY resources.
 - Why tests missed it: no test committed through a real `IN_MEMORY` resource and read the value
   back; the only RAM tests drove `RAMStorage` directly with an uber page, or pinned the
   shared-instance behaviour itself (`DurableBatchReadFailureReleaseTest` asserted `assertSame` on a
   re-read page). The class carried a `// FIXME: broken` comment.
 - Regression test: `RAMStorageCommittedRevisionTest` (JSON and XML: reopened writer, same-session
-  reader, new session, reopened database, later commit leaves earlier revisions unchanged, revert,
-  recreated resource starts empty). All eight cases of its first four methods failed on main
-  (`expected <1> but was <0>` and `moveTo` false); all pass after the fix.
+  reader, new session, later commit leaves earlier revisions unchanged, revert, a 1,500-commit
+  history read back through a new session, recreated resource starts empty). All eight cases of its
+  first four methods failed on main (`expected <1> but was <0>` and `moveTo` false); all pass after
+  the fix.
   `RAMStorageContractTest` pins the storage-level contract, including a key-value leaf page that the
   writer closes after the write and that still reads back intact under the empty, Deflate and LZ4
-  pipelines. `LocalDatabaseInMemoryRemovalTest` and `DatabasesInMemoryRemovalTest` pin the release
-  on removal. Run with `./gradlew :sirix-core:test --tests 'io.sirix.io.ram.*'`. PIT over every
-  changed line: 82 killed, 2 survived. Both survivors are unobservable: the revision table's growth
-  factor (`<<` to `>>`) still fits every revision through `Math.max(revision + 1, ...)`, and the
-  hash on the revision-root read reference only checks a private immutable array no API can corrupt.
+  pipelines. The TXN-615 acceptance criteria are derived from the spec text in
+  `LocalDatabaseInMemoryLifetimeTest`, `DatabasesInMemoryLifetimeTest` (with forked-JVM abrupt-exit
+  and small-heap memory checks) and `BackupManagerInMemoryResourcesTest`. 22 of their 28 cases
+  failed before the lifetime change; the other 6 guard behaviour the code already had. Run with
+  `./gradlew :sirix-core:test --tests 'io.sirix.io.ram.*' --tests '*InMemory*'`. The mutation
+  results are in the PR notes.
+- Found while implementing TXN-615: a plain recursive delete of a resource directory can remove
+  every file (settings included) and then fail on the directory itself, when its parent is not
+  writable. The leftover then has no settings proving it was in-memory state, so it has to be
+  treated as persistent and shows up again. The failed-cleanup acceptance criterion (AC12) caught
+  it. Retirement now renames the directory to a reserved tombstone name first, which is atomic:
+  either the name is free at once, or nothing changed and the proof is intact.
 - Lesson: a storage backend's correctness is defined by the round trip (commit, reopen, read the
   value) through the public API, not by its own methods returning without error. A "shared pages"
-  exception in an ownership contract needs the *writer's* side checked too; see
-  [LESSONS.md](../LESSONS.md).
+  exception in an ownership contract needs the *writer's* side checked too. Cleanup that must stay
+  retryable has to keep its own proof until the last step; see [LESSONS.md](../LESSONS.md).

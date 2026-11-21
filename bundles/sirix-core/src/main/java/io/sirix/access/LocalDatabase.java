@@ -40,13 +40,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import java.util.concurrent.atomic.AtomicReference;
@@ -109,6 +116,13 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private final BufferManager bufferManager;
 
   /**
+   * Names of IN_MEMORY resources whose state this instance never held but whose directories could not
+   * be removed (TXN-615 clauses 6 and 7). They are treated as absent; creating one retries the
+   * removal.
+   */
+  private final Set<String> hiddenInMemoryLeftovers = ConcurrentHashMap.newKeySet();
+
+  /**
    * Constructor.
    *
    * @param transactionManager A manager for database transactions.
@@ -156,7 +170,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
     final Path resourcePath = dataDir.resolve(canonicalName);
 
-    if (!Files.exists(resourcePath)) {
+    if (!Files.exists(resourcePath) || hiddenInMemoryLeftovers.contains(canonicalName)
+        || InMemoryResources.isRetiredResourceName(canonicalName)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
           resourcePath.toString());
     }
@@ -342,6 +357,15 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         && DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(resourceConfig.getName()))) {
       throw new SirixUsageException("Derived resource names are reserved");
     }
+    if (InMemoryResources.isRetiredResourceName(canonicalResourceName(resourceConfig.getName()))) {
+      throw new SirixUsageException("Resource names containing " + InMemoryResources.RETIRED_MARKER + " are reserved");
+    }
+
+    // A leftover of a former IN_MEMORY resource holds nothing: retry its removal (TXN-615 clause 7).
+    final String name = path.getFileName().toString();
+    if (hiddenInMemoryLeftovers.contains(name) && !retireInMemoryResource(path, name)) {
+      return false;
+    }
 
     // If file is existing, skip.
     if (Files.exists(path)) {
@@ -476,9 +500,13 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       shared.close();
     }
 
-    // If file is existing and folder is a Sirix-dataplace, delete it.
-    if (Files.exists(resourceFile) && (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)
+    if (hiddenInMemoryLeftovers.contains(canonicalName)
+        || (Files.isDirectory(resourceFile) && InMemoryResources.isInMemoryOwned(resourceFile))) {
+      // TXN-615 clause 8: an IN_MEMORY resource's state and footprint go the retirement way.
+      retireInMemoryResource(resourceFile, canonicalName);
+    } else if (Files.exists(resourceFile) && (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)
         || ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0)) {
+      // If file is existing and folder is a Sirix-dataplace, delete it.
       // CRITICAL FIX: Clear BufferManager caches for this resource BEFORE deletion
       // This prevents cache pollution when resource is removed and recreated with same IDs
       try {
@@ -498,8 +526,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       // The resource's files are deleted below — a recreated resource at this path must get its
       // fresh superblock validated again.
       SuperblockValidator.invalidateUnder(resourceFile);
-      // An in-memory resource's committed revisions live in the process, not in those files.
-      RAMStorage.discardUnder(resourceFile);
 
       // Projection decode cache is keyed by resource path — a recreated
       // resource must never be served the removed store's decoded columns.
@@ -534,6 +560,172 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       removeResourceInternal(derivedName);
     }
     return this;
+  }
+
+  /** Drop what this process caches for a resource's content, before its files go. */
+  private void discardResourceState(final Path resourceFile) {
+    // CRITICAL FIX: Clear BufferManager caches for this resource BEFORE deletion
+    // This prevents cache pollution when resource is removed and recreated with same IDs
+    try {
+      final var resourceConfig = ResourceConfiguration.deserialize(resourceFile);
+      long databaseId = dbConfig.getDatabaseId();
+      long resourceId = resourceConfig.getID();
+
+      if (bufferManager != null) {
+        bufferManager.clearCachesForResource(databaseId, resourceId);
+      }
+      AbstractResourceSession.invalidateRevisionInfoCache(databaseId, resourceId);
+    } catch (Exception e) {
+      // If deserialization fails, resource config might be corrupt - continue with deletion
+      logger.warn("Could not deserialize resource config for cache clearing: {}", e.getMessage());
+    }
+
+    // The resource's files are deleted below — a recreated resource at this path must get its
+    // fresh superblock validated again.
+    SuperblockValidator.invalidateUnder(resourceFile);
+
+    // Projection decode cache is keyed by resource path — a recreated
+    // resource must never be served the removed store's decoded columns.
+    ProjectionIndexCatalog.invalidateUnder(resourceFile.toAbsolutePath().toString());
+  }
+
+  /** Drop the process-wide caches and registrations of a resource that no longer exists on disk. */
+  private void forgetResource(final Path resourceFile, final String canonicalName) {
+    this.writeLocks.removeWriteLock(resourceFile);
+
+    // Construct the path used as key in the cache repositories
+    // This matches StorageType.getIntegerRevisionFileDataAsyncCache and getRevisionIndexHolder
+    final var cacheKey =
+        resourceFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(IOStorage.FILENAME);
+
+    final var cache = StorageType.CACHE_REPOSITORY.remove(cacheKey);
+    if (cache != null) {
+      cache.synchronous().invalidateAll();
+    }
+
+    // Clear the optimized revision index for this resource
+    StorageType.REVISION_INDEX_REPOSITORY.remove(cacheKey);
+
+    // Drop the name<->ID bimap entry — it used to survive removal, so getResourceID(name)
+    // kept answering with the dead resource's ID.
+    biMapInverseRemove(canonicalName);
+  }
+
+  /**
+   * Discard the committed state and on-disk footprint of one resource proven to be IN_MEMORY
+   * (TXN-615). The state is dropped even when the directory cannot be removed; such a directory stays
+   * hidden from this instance.
+   *
+   * @return {@code true} if the directory is gone
+   */
+  private boolean retireInMemoryResource(final Path resourceFile, final String name) {
+    try {
+      discardResourceState(resourceFile);
+    } finally {
+      // Whatever happens on disk, the committed state of the resource is gone.
+      RAMStorage.discardUnder(resourceFile);
+    }
+    // Rename first: either the whole directory leaves the name at once, or nothing changed and the
+    // settings that prove it in-memory state are still there for the next attempt. A plain
+    // recursive delete could empty the directory and then fail to remove it, leaving an unprovable
+    // leftover that TXN-615 clause 6 would have to treat as persistent.
+    final Path tombstone = resourceFile.resolveSibling(name + InMemoryResources.RETIRED_MARKER + UUID.randomUUID());
+    try {
+      Files.move(resourceFile, tombstone, StandardCopyOption.ATOMIC_MOVE);
+    } catch (final IOException | UnsupportedOperationException | SecurityException renameFailure) {
+      logger.warn("Could not remove the leftovers of in-memory resource {}", resourceFile, renameFailure);
+      hiddenInMemoryLeftovers.add(name);
+      return false;
+    }
+    forgetResource(resourceFile, name);
+    hiddenInMemoryLeftovers.remove(name);
+    removeTombstone(tombstone);
+    return true;
+  }
+
+  /**
+   * Delete a retired resource directory. Its reserved name keeps it out of every listing, so a
+   * failure only leaves garbage for the next cleanup.
+   *
+   * @return whether the tombstone is gone
+   */
+  private static boolean removeTombstone(final Path tombstone) {
+    try {
+      SirixFiles.recursiveRemove(tombstone);
+    } catch (final RuntimeException removalFailure) {
+      logger.warn("Could not delete retired resource directory {}", tombstone, removalFailure);
+    }
+    return !Files.exists(tombstone);
+  }
+
+
+  /**
+   * Discard every IN_MEMORY resource of this database, with its derived state, and remove their
+   * on-disk footprint (TXN-615 clauses 3, 6 and 8). Derived resources go first: their source's
+   * settings are the proof that they are in-memory state, so a source stays on disk (hidden) while
+   * its derived resource could not be removed.
+   *
+   * @return a failure naming every directory that could not be removed, or {@code null}
+   */
+  private synchronized @Nullable SirixIOException retireInMemoryResources() {
+    final Path resources = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    if (!Files.isDirectory(resources)) {
+      return null; // No resources folder, so no resource of any kind.
+    }
+    final List<Path> derived = new ArrayList<>();
+    final List<Path> sources = new ArrayList<>();
+    final List<Path> remaining = new ArrayList<>();
+    try (final Stream<Path> stream = Files.list(resources)) {
+      for (final Path resource : stream.toList()) {
+        if (InMemoryResources.isRetiredResourceName(resource.getFileName().toString())) {
+          if (!removeTombstone(resource)) {
+            remaining.add(resource);
+          }
+        } else if (Files.isDirectory(resource) && InMemoryResources.isInMemoryOwned(resource)) {
+          if (DerivedIndexMaintainer.isDerivedResourceName(resource.getFileName().toString())) {
+            derived.add(resource);
+          } else {
+            sources.add(resource);
+          }
+        }
+      }
+    } catch (final IOException | UncheckedIOException e) {
+      return new SirixIOException("Could not list the resources of " + dbConfig.getDatabaseFile(), e);
+    }
+    final Set<String> keptSources = new HashSet<>();
+    for (final Path resource : derived) {
+      final String name = resource.getFileName().toString();
+      if (!retireInMemoryResource(resource, name)) {
+        remaining.add(resource);
+        keptSources.add(name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length()));
+      }
+    }
+    for (final Path resource : sources) {
+      final String name = resource.getFileName().toString();
+      if (keptSources.contains(name)) {
+        // Keep the proof on disk for the derived leftover; the state itself goes now.
+        RAMStorage.discardUnder(resource);
+        hiddenInMemoryLeftovers.add(name);
+        remaining.add(resource);
+      } else if (!retireInMemoryResource(resource, name)) {
+        remaining.add(resource);
+      }
+    }
+    return remaining.isEmpty()
+        ? null
+        : new SirixIOException("Could not remove the leftovers of in-memory resources " + remaining);
+  }
+
+  /**
+   * Remove what IN_MEMORY resources left behind when an earlier instance or process ended without
+   * removing it (TXN-615 clause 6). Opening the database is not an error: a directory that cannot be
+   * removed is treated as absent, and creating its name retries the removal.
+   */
+  void retireInMemoryLeftovers() {
+    final SirixIOException failure = retireInMemoryResources();
+    if (failure != null) {
+      logger.warn("In-memory resource leftovers stay hidden in {}", dbConfig.getDatabaseFile(), failure);
+    }
   }
 
   @Override
@@ -599,7 +791,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final String canonicalName = canonicalResourceName(resourceName);
     final Path resourceFile =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(canonicalName);
-    return Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;
+    return !hiddenInMemoryLeftovers.contains(canonicalName) && !InMemoryResources.isRetiredResourceName(canonicalName)
+        && Files.exists(resourceFile) && ResourceConfiguration.ResourcePaths.compareStructure(resourceFile) == 0;
   }
 
   @Override
@@ -607,9 +800,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     assertNotClosed();
     try (final Stream<Path> stream =
         Files.list(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
-      return stream.filter(
-          path -> !DerivedIndexMaintainer.isDerivedResourceName(canonicalResourceName(path.getFileName().toString())))
-                   .toList();
+      return stream.filter(path -> {
+        final String name = canonicalResourceName(path.getFileName().toString());
+        return !DerivedIndexMaintainer.isDerivedResourceName(name) && !InMemoryResources.isRetiredResourceName(name)
+            && !hiddenInMemoryLeftovers.contains(name);
+      }).toList();
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -632,11 +827,28 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     if (derivedMaintainer != null) {
       derivedMaintainer.close();
     }
+    // A failing teardown throws here and discards nothing: the instance stays open, owned and
+    // complete, and a retry finishes the work (TXN-101, TXN-503, TXN-615 clause 7).
     resourceStore.close();
     transactionManager.close();
-    isClosed = true;
-    Databases.freeAllocatedMemory();
+
+    // TXN-615 clauses 3 and 7: no session is live any more. Discard every IN_MEMORY resource and its
+    // on-disk footprint; the instance ends even if removing leftovers fails.
+    SirixIOException retirementFailure = null;
+    try {
+      retirementFailure = retireInMemoryResources();
+    } finally {
+      // No committed IN_MEMORY state outlives the instance, whatever stayed on disk.
+      RAMStorage.discardUnder(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()));
+      isClosed = true;
+      Databases.freeAllocatedMemory();
+    }
+    if (retirementFailure != null) {
+      throw retirementFailure;
+    }
   }
+
+
 
   @Override
   public String toString() {

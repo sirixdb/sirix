@@ -56,11 +56,11 @@ import static java.util.Objects.requireNonNull;
  * is {@code false}, as for every other backend. A reader therefore never observes a page that a
  * writer or another reader closed, and a later commit can never change what an earlier revision
  * reads.</li>
- * <li>The committed state belongs to the <em>resource</em>, not to one storage instance: every
- * {@link RAMStorage} opened on the same resource (same path and resource UUID) shares it, so later
- * resource sessions of the process see every committed revision. It lives until the resource or its
- * database is removed (resource removal calls {@link #discardUnder(Path)}) or the process
- * exits.</li>
+ * <li>The committed state belongs to the resource inside its open database instance, not to one
+ * storage instance: every {@link RAMStorage} opened on the same resource (same path and resource
+ * UUID) shares it, so every later writer, reader and resource session of that instance sees every
+ * committed revision. The database's final close and the resource's removal drop it through
+ * {@link #discardUnder(Path)} (TXN-615).</li>
  * <li>Rolling back to an earlier revision is not supported ({@link Writer#supportsTruncateTo()} is
  * {@code false}).</li>
  * </ul>
@@ -130,7 +130,7 @@ public final class RAMStorage implements IOStorage {
 
   @Override
   public void close() {
-    // The committed state belongs to the resource and outlives this storage instance.
+    // The committed state belongs to the open database instance and outlives this storage instance.
   }
 
   @Override

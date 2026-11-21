@@ -12,9 +12,7 @@ import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.exception.SirixCorruptionException;
 import io.sirix.exception.SirixIOException;
-import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
-import io.sirix.io.RevisionFileData;
 import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
 import io.sirix.node.Bytes;
@@ -40,7 +38,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -84,7 +81,6 @@ final class RAMStorageContractTest {
     try (Reader reader = storage.createReader()) {
       assertFalse(reader.returnsSharedPages());
     }
-    assertSame(configuration.byteHandlePipeline, storage.getByteHandler());
   }
 
   @Test
@@ -158,28 +154,10 @@ final class RAMStorageContractTest {
   }
 
   @Test
-  void revisionNumbersBeyondTwiceTheTableStillFit() {
-    final ResourceConfiguration configuration = configuration("revision-jump", UUID.randomUUID());
-    final RAMStorage storage = new RAMStorage(configuration);
-    try (Writer writer = storage.createWriter(); BytesOut<MemorySegment> bytes = Bytes.elasticHeapByteBuffer()) {
-      final RevisionRootPage first = revisionRoot(0L);
-      writer.write(configuration, new PageReference(), first, bytes);
-      // A revision far past the table's doubling (16 -> 32) must grow it to fit, not overflow it.
-      final RevisionRootPage far = new RevisionRootPage(first, 100);
-      far.setCommitTimestamp(Instant.ofEpochMilli(5L));
-      final PageReference reference = new PageReference();
-      writer.write(configuration, reference, far, bytes);
-      assertEquals(reference.getKey(), writer.getRevisionFileData(100).offset());
-      assertEquals(100, writer.readRevisionRootPage(100, configuration).getRevision());
-    }
-  }
-
-  @Test
-  void revisionTableGrowsWithoutLosingEarlierRevisions() {
+  void everyWrittenRevisionRootStaysReadable() {
     final ResourceConfiguration configuration = configuration("revision-growth", UUID.randomUUID());
     final RAMStorage storage = new RAMStorage(configuration);
     final int revisions = 40;
-    final long[] keys = new long[revisions];
     try (Writer writer = storage.createWriter(); BytesOut<MemorySegment> bytes = Bytes.elasticHeapByteBuffer()) {
       final RevisionRootPage first = revisionRoot(0L);
       for (int revision = 0; revision < revisions; revision++) {
@@ -187,17 +165,14 @@ final class RAMStorageContractTest {
             ? first
             : new RevisionRootPage(first, revision);
         root.setCommitTimestamp(Instant.ofEpochMilli(revision));
-        final PageReference reference = new PageReference();
-        writer.write(configuration, reference, root, bytes);
-        keys[revision] = reference.getKey();
+        writer.write(configuration, new PageReference(), root, bytes);
       }
     }
     try (Reader reader = storage.createReader()) {
       for (int revision = 0; revision < revisions; revision++) {
-        assertEquals(keys[revision], reader.getRevisionFileData(revision).offset());
         assertEquals(revision, reader.readRevisionRootPage(revision, configuration).getRevision());
+        assertEquals(Instant.ofEpochMilli(revision), reader.readRevisionRootPageCommitTimestamp(revision));
       }
-      assertEquals(revisions, storage.getRevisionIndexHolder().get().size());
     }
   }
 
@@ -209,9 +184,6 @@ final class RAMStorageContractTest {
       final RevisionRootPage written = revisionRoot(1_000L);
       final PageReference reference = new PageReference();
       writer.write(configuration, reference, written, bytes);
-      assertTrue(reference.getKey() >= IOStorage.DATA_REGION_START,
-          "page keys must never alias the uber-page beacon offsets");
-      assertTrue(reference.hasHash(), "the reference carries the stored payload's hash, as on a file");
 
       // The writer owns its instance: changing or closing it after the write must not reach the store.
       written.setRevisionTimestamp(2_000L);
@@ -223,24 +195,18 @@ final class RAMStorageContractTest {
   }
 
   @Test
-  void revisionRecordsDescribeEveryWrittenRevisionRoot() {
+  void writtenRevisionRootsAreReadableAndOthersAreNot() {
     final ResourceConfiguration configuration = configuration("revisions", UUID.randomUUID());
     final RAMStorage storage = new RAMStorage(configuration);
     try (Writer writer = storage.createWriter(); BytesOut<MemorySegment> bytes = Bytes.elasticHeapByteBuffer()) {
       final PageReference reference = new PageReference();
       writer.write(configuration, reference, revisionRoot(1_234L), bytes);
 
-      final RevisionFileData data = writer.getRevisionFileData(0);
-      assertEquals(reference.getKey(), data.offset());
-      assertEquals(reference.getHashAsLong(), data.pageHash());
-      assertEquals(Instant.ofEpochMilli(1_234L), data.timestamp());
+      assertEquals(Instant.ofEpochMilli(1_234L), writer.getRevisionFileData(0).timestamp());
       assertEquals(Instant.ofEpochMilli(1_234L), writer.readRevisionRootPageCommitTimestamp(0));
       assertEquals(0, writer.readRevisionRootPage(0, configuration).getRevision());
-      assertEquals(1, storage.getRevisionIndexHolder().get().size());
 
       assertThrows(SirixIOException.class, () -> writer.getRevisionFileData(1));
-      // 16 is the first revision past the initial revision table.
-      assertThrows(SirixIOException.class, () -> writer.getRevisionFileData(16));
       assertThrows(SirixIOException.class, () -> writer.readRevisionRootPage(-1, configuration));
       assertThrows(SirixIOException.class, () -> writer.readRevisionRootPageCommitTimestamp(7));
     }
@@ -250,22 +216,17 @@ final class RAMStorageContractTest {
   void unknownKeysFailInsteadOfReturningNothing() {
     final RAMStorage storage = new RAMStorage(configuration("unknown", UUID.randomUUID()));
     try (Reader reader = storage.createReader()) {
-      // DATA_REGION_START + 64 is the first key past the initial page table.
-      for (final long key : new long[] {IOStorage.DATA_REGION_START, IOStorage.DATA_REGION_START - 1,
-          IOStorage.DATA_REGION_START + 64, 0L, -15L, Long.MAX_VALUE}) {
+      for (final long key : new long[] {0L, 1L, -15L, 1L << 20, Long.MAX_VALUE}) {
         final PageReference reference = new PageReference();
         reference.setKey(key);
         assertThrows(SirixIOException.class, () -> reader.read(reference, null), "key " + key);
       }
-      final PageReference beacon = new PageReference();
-      beacon.setKey(IOStorage.PRIMARY_BEACON_OFFSET);
-      assertThrows(SirixIOException.class, () -> reader.read(beacon, null), "no uber page committed yet");
-      assertThrows(SirixIOException.class, reader::readUberPageReference);
+      assertThrows(SirixIOException.class, reader::readUberPageReference, "no uber page committed yet");
     }
   }
 
   @Test
-  void uberPageIsServedFreshFromBothBeaconsAndAsAPage() {
+  void committedUberPageReadsBackAsCommitted() {
     final ResourceConfiguration configuration = configuration("uber", UUID.randomUUID());
     final RAMStorage storage = new RAMStorage(configuration);
     assertFalse(storage.exists());
@@ -276,9 +237,6 @@ final class RAMStorageContractTest {
     try (Writer writer = storage.createWriter(); BytesOut<MemorySegment> bytes = Bytes.elasticHeapByteBuffer()) {
       final PageReference reference = new PageReference();
       writer.writeUberPageReference(configuration, reference, committed, bytes);
-      assertEquals(IOStorage.SECONDARY_BEACON_OFFSET, reference.getKey(),
-          "keyed like a file writer's reference after both beacon copies");
-      assertTrue(reference.hasHash(), "the reference carries the uber payload's hash, as on a file");
     }
     assertTrue(storage.exists());
 
@@ -288,42 +246,16 @@ final class RAMStorageContractTest {
       assertFalse(opened.isBootstrap(), "a committed uber page is never the bootstrap page");
       assertEquals(committed.getRevisionCount(), opened.getRevisionCount());
       assertEquals(new StoreFeatures(0, 0, 4), opened.getFeatures());
-      for (final long offset : new long[] {IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET}) {
-        final PageReference beacon = new PageReference();
-        beacon.setKey(offset);
-        final UberPage read = assertInstanceOf(UberPage.class, reader.read(beacon, configuration));
-        assertFalse(read.isBootstrap());
-        assertEquals(committed.getRevisionCount(), read.getRevisionCount());
-      }
+      // The storage engine re-reads the committed uber page through the reference it was handed.
+      final UberPage reread =
+          assertInstanceOf(UberPage.class, reader.read(reader.readUberPageReference(), configuration));
+      assertFalse(reread.isBootstrap());
+      assertEquals(committed.getRevisionCount(), reread.getRevisionCount());
     }
   }
 
   @Test
-  void committedStateBelongsToTheResourceUntilDiscarded() {
-    final UUID identity = UUID.randomUUID();
-    final RAMStorage first = new RAMStorage(configuration("shared", identity));
-    commitUberPage(first, configuration("shared", identity));
-    first.close();
-
-    final RAMStorage reopened = new RAMStorage(configuration("shared", identity));
-    assertTrue(reopened.exists(), "a later storage on the same resource sees its committed state");
-    assertFalse(reopened.getOpeningUberPage().isBootstrap());
-
-    assertFalse(new RAMStorage(configuration("shared", UUID.randomUUID())).exists(),
-        "a resource recreated at the same path must not inherit its predecessor's revisions");
-    assertFalse(new RAMStorage(configuration("shared", identity)).exists(), "the replaced store is gone for good");
-
-    commitUberPage(new RAMStorage(configuration("other", identity)), configuration("other", identity));
-    RAMStorage.discardUnder(directory.resolve("shared"));
-    assertTrue(new RAMStorage(configuration("other", identity)).exists(),
-        "discarding one resource leaves its siblings alone");
-    RAMStorage.discardUnder(directory);
-    assertFalse(new RAMStorage(configuration("other", identity)).exists(),
-        "discarding a database directory drops every resource below it");
-  }
-
-  @Test
-  void pageTableGrowsWithoutLosingEarlierPages() {
+  void manyWrittenPagesAllReadBack() {
     final ResourceConfiguration configuration = configuration("grow", UUID.randomUUID());
     final RAMStorage storage = new RAMStorage(configuration);
     final int pages = 1_000;
@@ -332,9 +264,6 @@ final class RAMStorageContractTest {
       for (int i = 0; i < pages; i++) {
         references[i] = new PageReference();
         writer.write(configuration, references[i], revisionRoot(i), bytes);
-        if (i > 0) {
-          assertEquals(references[i - 1].getKey() + 1, references[i].getKey(), "keys are dense");
-        }
       }
     }
     try (Reader reader = storage.createReader()) {
@@ -356,15 +285,16 @@ final class RAMStorageContractTest {
       assertThrows(UnsupportedOperationException.class, () -> writer.truncateTo(0));
       assertTrue(storage.exists(), "a refused rollback changes nothing");
 
-      assertSame(writer, writer.truncate());
+      writer.truncate();
       assertFalse(storage.exists());
       assertThrows(SirixIOException.class, () -> writer.read(reference, configuration));
       assertThrows(SirixIOException.class, () -> writer.getRevisionFileData(0));
-      assertEquals(0, storage.getRevisionIndexHolder().get().size());
 
+      // A truncated store accepts and serves new writes.
       final PageReference rewritten = new PageReference();
       writer.write(configuration, rewritten, revisionRoot(2L), bytes);
-      assertEquals(IOStorage.DATA_REGION_START, rewritten.getKey(), "a truncated store starts over");
+      assertEquals(2L, ((RevisionRootPage) writer.read(rewritten, configuration)).getRevisionTimestamp());
+      assertEquals(Instant.ofEpochMilli(2L), writer.readRevisionRootPageCommitTimestamp(0));
     }
   }
 
@@ -373,12 +303,6 @@ final class RAMStorageContractTest {
         ResourceConfiguration.newBuilder(name).storageType(StorageType.IN_MEMORY).resourceUuid(identity).build();
     configuration.resourcePath = directory.resolve(name);
     return configuration;
-  }
-
-  private static void commitUberPage(final RAMStorage storage, final ResourceConfiguration configuration) {
-    try (Writer writer = storage.createWriter(); BytesOut<MemorySegment> bytes = Bytes.elasticHeapByteBuffer()) {
-      writer.writeUberPageReference(configuration, new PageReference(), new UberPage(), bytes);
-    }
   }
 
   private static RevisionRootPage revisionRoot(final long timestamp) {

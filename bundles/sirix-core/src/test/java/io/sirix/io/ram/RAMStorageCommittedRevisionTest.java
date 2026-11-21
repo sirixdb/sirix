@@ -12,6 +12,7 @@ import io.sirix.api.Database;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
+import io.sirix.api.RevisionInfo;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -21,6 +22,8 @@ import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.DeflateCompressor;
 import io.sirix.io.bytepipe.FFILz4Compressor;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -150,25 +153,6 @@ final class RAMStorageCommittedRevisionTest {
 
   @ParameterizedTest
   @EnumSource(Model.class)
-  void reopenedDatabaseOfTheSameProcessSeesCommittedNode(final Model model) {
-    final long key;
-    try (Database<? extends ResourceSession<?, ?>> database = openInMemoryResource(model)) {
-      try (ResourceSession<?, ?> session = database.beginResourceSession("resource")) {
-        key = insertValueAndCommit(session, model, "0");
-      }
-    }
-    try (Database<? extends ResourceSession<?, ?>> database = openDatabase(model)) {
-      try (ResourceSession<?, ?> session = database.beginResourceSession("resource");
-          NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx()) {
-        assertEquals(1, session.getMostRecentRevisionNumber());
-        assertTrue(reader.moveTo(key), "a reopened database of the same process must see the committed node");
-        assertValue(reader, model, "0");
-      }
-    }
-  }
-
-  @ParameterizedTest
-  @EnumSource(Model.class)
   void recreatedResourceStartsEmpty(final Model model) {
     try (Database<? extends ResourceSession<?, ?>> database = openInMemoryResource(model)) {
       final long key;
@@ -211,6 +195,91 @@ final class RAMStorageCommittedRevisionTest {
         }
       }
     }
+  }
+
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void everyRevisionOfALongHistoryReadsBackThroughANewSession(final Model model) {
+    // Long enough that the resource holds many thousands of pages: a committed revision must stay
+    // readable however much was committed after it.
+    final int commits = 1_500;
+    final long[] keys = new long[commits];
+    try (Database<? extends ResourceSession<?, ?>> database = openInMemoryResource(model)) {
+      try (ResourceSession<?, ?> session = database.beginResourceSession("resource")) {
+        keys[0] = insertValueAndCommit(session, model, "0");
+        for (int i = 1; i < commits; i++) {
+          try (NodeTrx writer = session.beginNodeTrx()) {
+            assertTrue(writer.moveTo(keys[i - 1]), "commit " + i + " must see the previous commit's node");
+            keys[i] = insertValueAsRightSibling(writer, model, Integer.toString(i));
+            writer.commit();
+          }
+        }
+      }
+      try (ResourceSession<?, ?> session = database.beginResourceSession("resource")) {
+        assertEquals(commits, session.getMostRecentRevisionNumber());
+        for (int revision = 1; revision <= commits; revision++) {
+          try (NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(revision)) {
+            final int newest = revision - 1;
+            assertTrue(reader.moveTo(keys[newest]), "revision " + revision + " must hold its own node");
+            assertValue(reader, model, Integer.toString(newest));
+            assertTrue(reader.moveTo(keys[0]), "revision " + revision + " must hold the first node");
+            assertValue(reader, model, "0");
+            if (revision < commits) {
+              assertFalse(reader.moveTo(keys[revision]), "revision " + revision + " must not see a later node");
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /** VER-202 and VER-205 on an IN_MEMORY resource: point-in-time reads and history. */
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void pointInTimeReadsAndHistorySeeEveryCommittedRevision(final Model model) throws InterruptedException {
+    try (Database<? extends ResourceSession<?, ?>> database = openInMemoryResource(model)) {
+      try (ResourceSession<?, ?> session = database.beginResourceSession("resource")) {
+        final long[] keys = new long[3];
+        final Instant[] committedBy = new Instant[3];
+        keys[0] = insertValueAndCommit(session, model, "0");
+        committedBy[0] = afterTheNextMillisecond();
+        for (int i = 1; i < 3; i++) {
+          try (NodeTrx writer = session.beginNodeTrx()) {
+            assertTrue(writer.moveTo(keys[i - 1]));
+            keys[i] = insertValueAsRightSibling(writer, model, Integer.toString(i));
+            writer.commit();
+          }
+          committedBy[i] = afterTheNextMillisecond();
+        }
+        for (int i = 0; i < 3; i++) {
+          // The newest revision committed at or before the instant (VER-202).
+          final int revision = i + 1;
+          assertEquals(revision, session.getRevisionNumber(committedBy[i]));
+          try (NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(committedBy[i])) {
+            assertEquals(revision, reader.getRevisionNumber());
+            assertTrue(reader.moveTo(keys[i]));
+            assertValue(reader, model, Integer.toString(i));
+            if (i < 2) {
+              assertFalse(reader.moveTo(keys[i + 1]), "a point in time never sees a later commit");
+            }
+          }
+        }
+        final List<RevisionInfo> history = session.getHistory();
+        // Newest first (VER-205); the empty bootstrap revision 0 is never reported.
+        assertEquals(List.of(3, 2, 1), history.stream().map(RevisionInfo::getRevision).toList(),
+            "history lists every committed revision newest first");
+        for (int i = 1; i < history.size(); i++) {
+          assertFalse(history.get(i).getRevisionTimestamp().isAfter(history.get(i - 1).getRevisionTimestamp()));
+        }
+      }
+    }
+  }
+
+  /** An instant strictly after every commit so far, in a later millisecond than the next one. */
+  private static Instant afterTheNextMillisecond() throws InterruptedException {
+    final Instant now = Instant.now();
+    Thread.sleep(2);
+    return now;
   }
 
   /** Byte-handler pipelines the store must round-trip through: stream-based and segment-based. */
