@@ -189,7 +189,8 @@ file (`+++ /dev/null`, excluded from the selection anyway) contributes nothing. 
 attributed through their `+++ b/<path>` header and kept only for already selected sources; a hunk
 that precedes any file header, an unparsable hunk header and a path Git had to quote all fail
 selection instead of silently reporting a file as untouched. `selection.json` records `modules`
-(what to mutate) and `changed_lines` (what to judge, one entry per selected source); `run` refuses
+(what to mutate), `changed_lines` (what to judge, one entry per selected source), and
+`dispositions_base` (the dispositions file at the merge base, or null when absent); `run` refuses
 a manifest that does not map every selected source rather than judging nothing.
 
 The checkout is the PR merge revision, matching `Build`. JVM `SourceFile` attributes map source
@@ -216,23 +217,12 @@ in package `p` the first matching step wins:
    most `PACKAGE_TEST_LIMIT` of them.
 4. Otherwise the source is **unmapped**.
 
-The reviewed file [`.github/mutation-test-associations.toml`](../.github/mutation-test-associations.toml)
-states which existing behaviour tests the lane must also run for a changed class whose tests do
-not match its name ([CONV-204](../spec/CONV-conventions.md#conv-204--lane-test-associations)),
-and nothing more. Today it selects `VectorizedReleaseCorrectnessTest` for the compile chain, both
-pipeline strategies and the refusal exception: this integration contract exercises refused and
-admitted grouping through every public compiler factory, including cold reopen. Associations
-augment the heuristic matches and share the same module cap. Each entry is an exact top-level
-`class` and a list of `tests` declared in the same module. Main-class ownership follows declared
-packages and top-level Java/Kotlin types, including Kotlin file facades (`Main.kt` with top-level
-functions declares `MainKt`, or its file `JvmName`). Selecting a source adds associations for
-every class it declares, regardless of filename or directory; a pattern, an unknown field, a
-duplicate class, a missing class or an undeclared test makes the file invalid and the run not
-clean, with a message naming the entry. Tests excluded from PIT's baseline by the Gradle
-configuration (isolated allocation suites, soak and random property tests) do not run even when
-associated; their effects use the `killed-out-of-lane` disposition below. Selecting tests by
-measured coverage of the changed classes would make associations unnecessary; it is recorded
-follow-up work.
+To select an existing behaviour test that the name-based rules miss, add an association in
+[`.github/mutation-test-associations.toml`](../.github/mutation-test-associations.toml).
+[CONV-204](../spec/CONV-conventions.md#conv-204--lane-test-associations) owns the schema,
+declared-class ownership rules, validation, module cap and PIT baseline exclusions. The file
+also owns the current association inventory, including the release-contract tests formerly
+selected by `CONTRACT_TESTS`.
 
 PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
 `[MIN_MUTANTS_PER_CLASS, MAX_MUTANTS_PER_CLASS]`, so a module's work scales with the size of the
@@ -266,29 +256,29 @@ test filters, every undetected mutant in `results.json`, HTML/XML reports, logs 
 The job summary shows, per module, the state, the number of mutated classes and test patterns, the
 unmapped sources, the changed-line counts that decide the outcome (changed lines, mutants on them,
 killed, survived, no coverage), the whole-report killed/total separately from PIT's detected/total
-score (which includes timed-out mutants), status counts, up to 100 undetected changed-line mutants
+score (which includes timed-out mutants), status counts, up to 100 failing changed-line mutants
 and - separately, marked advisory - the unchanged-line totals with the classes carrying the most
 undetected mutants; the artifact retains the full list. `results.json` holds `modules` (one
 result per module, with that split under `changed` and `unchanged`), `dispositions` and
 `associations`; each module's `changed` lists its `failing`, `dispositioned_equivalent` and
-`dispositioned_out_of_lane` mutants, with `unattributed` counting any mutant whose source file never
-mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
+`dispositioned_out_of_lane` mutants. Each module's `unattributed` counts mutants whose source file
+never mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
 Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
 
 ### Blocking criterion: the PR's own lines
 
-A run is **clean** when every module completed, PIT produced mutants, and every mutant **on a
-changed line** was detected. A mutant sits on a changed line when its `<sourceFile>` and the
-package of its `<mutatedClass>` match a changed source and its `<lineNumber>` is in that file's
-changed-line set; nested, anonymous and extra top-level classes and Kotlin file facades are
-therefore attributed to the file they were compiled from. On changed lines both `SURVIVED` and
-`NO_COVERAGE` fail, including a result whose changed-line mutants are all uncovered - untested new
-code is a finding, not the absence of one. A `SURVIVED` changed-line mutant passes only when a
-reviewed disposition added in this PR accepts it ([below](#reviewed-dispositions)); a
-`NO_COVERAGE` mutant is never dispositioned.
+[CONV-202](../spec/CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions)
+owns the clean-run criterion, including reviewed dispositions; association validation is
+specified by [CONV-204](../spec/CONV-conventions.md#conv-204--lane-test-associations).
+A mutant sits on a changed line when its `<sourceFile>` and the package of its `<mutatedClass>`
+match a changed source and its `<lineNumber>` is in that file's changed-line set; nested,
+anonymous and extra top-level classes and Kotlin file facades are therefore attributed to the
+file they were compiled from. Use the [disposition helpers below](#reviewed-dispositions) to
+inspect claims alongside a local report.
 
 Mutants on **unchanged** lines of the same classes are advisory: the summary and `results.json`
-report their counts and the classes carrying the most of them, and they never fail the job. They
+report their counts and the classes carrying the most of them. This debt alone never fails the
+job; disposition validation still applies to entries matching these mutants (CONV-202). They
 are pre-existing test debt the PR did not introduce. On
 [PR 1354](https://github.com/sirixdb/sirix/pull/1354) all 17 changed-line mutants were killed
 while 348 survivors and 2,828 uncovered mutants sat on unchanged lines of the same classes; a
@@ -311,63 +301,20 @@ classes, including those on unchanged lines.
 
 ### Reviewed dispositions
 
-Normative rules: [CONV-201 to CONV-203](../spec/CONV-conventions.md#conv-201--mutation-disposition-record).
-Dispositions are rare exceptions. Tests are derived from the specification and are never written
-to cover lines or to kill mutants for their own sake. A surviving or uncovered changed-line mutant
-is a signal, resolved in exactly one way:
+Resolve mutants under [CONV-103](../spec/CONV-conventions.md#conv-103--specification-before-implementation).
+For a reviewed disposition, edit
+[`.github/mutation-dispositions.toml`](../.github/mutation-dispositions.toml), which includes an
+example entry. [CONV-201](../spec/CONV-conventions.md#conv-201--mutation-disposition-record)
+owns the schema, equivalence standard and counterfactual evidence requirements;
+[CONV-202](../spec/CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions)
+owns the acceptance and re-confirmation rules. Review each added claim in the job summary under
+[CONV-203](../spec/CONV-conventions.md#conv-203--disposition-review-abuse-limits-and-refactoring).
 
-1. the specified behaviour that needs the code gets a behaviour test (derived from its
-   requirement, not aimed at the line), or the lane is made to run the existing behaviour tests
-   that cover it (an association, above);
-2. the mutant is `equivalent`: no observable behaviour differs for any input the contract admits.
-   Cost (allocation, work, latency) is observable, so a cost-only mutant is never equivalent;
-3. the mutant is `killed-out-of-lane`: only a test that cannot run under PIT instrumentation
-   (a clean-JVM allocation budget, a latency gate) observes it, and counterfactual evidence shows
-   that test failing with exactly this mutant injected;
-4. the code has no observable effect and is removed. A cost no test bounds gets a budget
-   (CONV-301) or its code is removed.
-
-`NO_COVERAGE` is never dispositioned: a mutant that never executed has shown nothing.
-
-An entry in [`.github/mutation-dispositions.toml`](../.github/mutation-dispositions.toml) names one
-mutant by six fields copied exactly from `mutations.xml` (`class`, `method`, `descriptor`,
-`mutator`, `indexes`, `description`; PIT's own mutation identifier plus its description, no line
-number, no pattern), its `kind`, the commit whose report was inspected (`checked_at`) and a
-`justification` argued from the contract (at least 60 characters; "hard to test", TODO, TBD and
-FIXME are rejected). A `killed-out-of-lane` entry adds `test` (`<class>#<method>`) and the
-`[mutant.evidence]` table. Across 170 saved Sirix PIT reports (40,054 mutants) this identity had no
-collision, while dropping `indexes` caused 23,853 and using the line instead 4,640.
-
-The lane, per run:
-
-- accepts a changed-line `SURVIVED` mutant only through an entry **added** in this PR (absent from
-  the merge-base file in every field);
-- fails a pre-existing entry whose own method has a changed line (per the compiled
-  line-number table) as *needs re-confirmation*: re-review it and update at least `checked_at`.
-  Entries of other methods in the same file need nothing;
-- fails a new entry that matches no `SURVIVED` mutant of this run (*unconfirmed*), an
-  `equivalent` entry that a test kills (*contradicted*), a `killed-out-of-lane` entry an in-lane
-  test now detects (*superseded*), and a *stale* entry whose class, method or named test no
-  longer exists - checked from the build on every run - or whose mutant PIT no longer generates
-  in a run without a per-class limit;
-- reports, without failing, entries it cannot judge in a sampled class, `TIMED_OUT`/`RUN_ERROR`
-  matches and pre-existing entries of unchanged methods.
-
-PIT applies its per-class limit before later equivalence filters, so a sampled class may report
-fewer mutants than the limit; the lane therefore never treats a sampled class's missing mutant as
-stale. The job summary opens its disposition section with the added and removed counts and every
-added entry's full justification; module sections list killed, otherwise detected, dispositioned
-(per kind) and failing mutants with their reasons. Dispositions come only from the two files: no
-flag, environment variable, label or comment adds or relaxes one.
-
-Remap lists deduplicated candidates from every eligible tier in preference order: the same
-method with other indexes, a renamed method of the same class, then the same name and descriptor
-in another class. Each candidate carries its tier and a marker when instruction indexes match.
-Counterfactual patches must edit existing files in place, with matching old/new paths; creations,
-deletions, renames, copies, binary patches and file-mode operations (including header-only Git
-sections) are rejected before hashing or test execution.
-
-Local helpers keep a refactor cheap; CI never runs them and none writes the file:
+After compiling the selected modules and generating PIT reports, use the local helpers below.
+Check and remap read the reports without changing files. Counterfactual temporarily applies a
+patch and runs the supplied test command before restoring the sources; its supported patch
+operations are defined by CONV-201. CI never runs these helpers, and none writes the
+dispositions file.
 
 ```bash
 # Judge entries against local PIT reports as the lane would (stale, re-confirmation, unconfirmed).
@@ -394,10 +341,8 @@ entry fails in any of the six cases.
 
 The reporter itself is mutation-tested with mutmut under the same rules; its per-mutant record
 of equivalent survivors is
-[`.github/scripts/tests/MUTATION_DISPOSITIONS.md`](../.github/scripts/tests/MUTATION_DISPOSITIONS.md). Remap proposes, in
-order, the same method with other instruction indexes, a renamed method of the same class, then
-the same method name and descriptor in another class, always with the same mutator and
-description.
+[`.github/scripts/tests/MUTATION_DISPOSITIONS.md`](../.github/scripts/tests/MUTATION_DISPOSITIONS.md),
+including the limits of the historical aggregate after review corrections.
 
 The job runs on normal `pull_request` events, including forks and Dependabot, with only
 `contents: read`, no secrets, no persisted checkout credentials and read-only Gradle caches.
@@ -412,10 +357,9 @@ undetected changed-line mutants or incomplete analysis fail its analysis step. O
 PRs have no unresolved undetected changed-line mutants or incomplete runs, maintainers can set the
 repository Actions variable
 **`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing` in branch
-protection. That single switch removes job-level tolerance; the reporter already rejects
-undetected changed-line mutants and incomplete runs. Dispositions are per-mutant entries reviewed
-in the PR diff and listed in full in the job summary; there is no silent survivor allowlist. Revert the variable to restore
-informational rollout while investigating an infrastructure failure.
+protection. That single switch removes job-level tolerance; the reporter already applies the
+CONV-202 verdict. Revert the variable to restore informational rollout while investigating an
+infrastructure failure.
 
 Local reproduction (JDK 25; compile the selected modules' `classes testClasses` first):
 
@@ -424,7 +368,7 @@ python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.p
 python3 .github/scripts/pr_mutation.py select \
   --base "$(git rev-parse origin/main)" --head "$(git rev-parse HEAD)" --output /tmp/pr-mutation
 python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1320
-# Add --blocking to reject undetected changed-line mutants and incomplete analysis locally.
+# Add --blocking to enforce the clean-run criterion locally (CONV-202, CONV-204).
 ```
 
 For a broader deterministic test selection, reuse the artifact's `targets.txt` and run:

@@ -565,7 +565,7 @@ def nonempty_text(entry, name, problems):
 
 
 def patch_paths(patch):
-    """Repository paths a unified diff writes; a header is a `+++` line right after `---`."""
+    """Paths of in-place text edits; reject Git metadata effects outside the hashed paths."""
     paths, previous = [], ''
     for line in patch.splitlines():
         if line.startswith(('old mode ', 'new mode ', 'deleted file mode ', 'new file mode ',
@@ -1318,7 +1318,8 @@ def run(root, output, seconds, blocking):
 
 
 # ---------------------------------------------------------------------------------------------
-# Local, read-only helpers that keep a refactor cheap (CONV-203). CI never runs them.
+# Local helpers (CONV-203). Check/remap are read-only; counterfactual temporarily edits sources.
+# CI never runs them, and none writes the dispositions file.
 
 FAILURE_EXCERPT_LINES = 40
 

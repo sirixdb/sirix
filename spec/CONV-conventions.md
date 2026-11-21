@@ -7,7 +7,7 @@ Existing test links are evidence inventories, not assertions that tests passed i
 
 ## Scope
 
-P0 document conventions, traceability rollout, mutation dispositions and test associations for the PR mutation lane (CONV-201 to CONV-204) and the accepted work-budget classification. This does not implement the proposed trace tool or change CI. Code fields for process requirements point to the authoritative workflow artifacts; no product method enforces them.
+P0 document conventions, traceability rollout, mutation dispositions and test associations for the PR mutation lane (CONV-201 to CONV-204) and the accepted work-budget classification. The mutation requirements are implemented in the CI reporter; the proposed trace tool remains follow-up work. Code fields for process requirements point to the authoritative workflow artifacts; no product method enforces them.
 
 ## Requirements
 
@@ -55,7 +55,7 @@ A feature or behavioral fix MUST state behavior, invariants and errors and deriv
 - **Code:** [CONTRIBUTING.md](../CONTRIBUTING.md); [VERIFICATION.md](../docs/VERIFICATION.md)
 - **Verified by:** No existing test mapped. **Planned:** SpecTraceContractTest plus fixtures for each failure, annotation discovery, default-lane versus opt-in evidence and PIT selection by requirement.
 - **Evidence class:** doc-only (unverified automation); decided target has unverified implementation gaps
-- **Gap/note:** spec_trace.py, @Verifies, CI wiring and test annotations are intentionally planned: this task changes documentation only.
+- **Gap/note:** spec_trace.py, @Verifies, traceability CI wiring and test annotations remain planned follow-up work.
 
 The traceability tool MUST report unmapped MUSTs, unknown or retired test IDs, stale generated mappings, skipped-only evidence, duplicate IDs and dangling citations. `@Verifies` MUST name the requirement and evidence kind. Initial rollout MUST be report-only; making checks blocking requires the staged adoption described below, without silently waiving old gaps.
 
@@ -143,7 +143,7 @@ The job summary and `results.json` MUST keep the two kinds apart and list, per m
 
 Dispositions are expected to be rare: behavior, budget and latency tests detect most mutants, and an entry records a reviewed exception, not a way to finish a PR. A disposition MUST apply to one mutant identity; class-, method-, mutator-, line- or file-wide waivers MUST NOT exist in the file, the reporter or the workflow. Dispositions MUST come only from the dispositions file of the checked-out revision and of the merge base; the reporter MUST NOT accept dispositions or a relaxation of CONV-202 from command-line flags, environment variables, PR labels, comments or artifacts. The job summary MUST open its disposition section with the number of added and removed entries and MUST list every added entry with its kind, identity and full justification, so a reviewer sees each claim beside the diff. A reviewer approving a PR that adds or changes entries MUST check each justification against CONV-201's standard. No per-PR numeric cap and no approval label applies: a cap would push authors toward line-targeted tests that CONV-202 forbids, and a label would need a re-run on every label event. Removing an entry MUST always be permitted; it can only withdraw dispositions and MUST NOT turn any undetected changed-line mutant from failing into accepted.
 
-A pure refactor MUST stay cheap. The reporter MUST offer local, read-only helpers that CI never runs: a *check* that, given a PIT report and the compiled classes, lists stale, re-confirmation, unconfirmed and superseded entries with the action for each; a *remap* that, for each stale entry, proposes candidate identities from the report with the same mutator and description, preferring the same method with other instruction indexes, then a renamed method of the same class, then a method of the same name and descriptor in another class, and prints every eligible candidate once in tier order, labelling each with its tier and whether its instruction indexes match, for the author to review without writing the file; and a *counterfactual* runner that hashes the touched sources, checks that the test passes on them, applies the injection patch, runs the test in its own process, reverses the patch, verifies the hashes and prints the `evidence` table, refusing to print one when the baseline fails, the injected run passes or a hash differs. No helper output MUST be applied to the file automatically.
+A pure refactor MUST stay cheap. The reporter MUST offer local helpers that CI never runs: a read-only *check* that, given a PIT report and the compiled classes, lists stale, re-confirmation, unconfirmed and superseded entries with the action for each; a read-only *remap* that, for each stale entry, proposes candidate identities from the report with the same mutator and description, preferring the same method with other instruction indexes, then a renamed method of the same class, then a method of the same name and descriptor in another class, and prints every eligible candidate once in tier order, labelling each with its tier and whether its instruction indexes match, for the author to review without writing the file; and a *counterfactual* runner that hashes the touched sources, checks that the test passes on them, applies the injection patch, runs the test in its own process, reverses the patch, verifies the hashes and prints the `evidence` table, refusing to print one when the baseline fails, the injected run passes or a hash differs. No helper output MUST be applied to the dispositions file automatically.
 
 ### CONV-204 — Lane test associations
 
@@ -165,7 +165,7 @@ The repository file `.github/mutation-test-associations.toml` MUST state which e
 - **Code:** [README.md](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md); [VERIFICATION.md](../docs/VERIFICATION.md)
 - **Verified by:** No existing test mapped. **Planned:** Budget inventory reconciliation against executable work-counter assertions; execute the six mapped suites and the Work budgets block for affected product changes.
 - **Evidence class:** doc-only (unverified automation); decided target has unverified implementation gaps
-- **Gap/note:** The official classification is decided. Command/catalogue reconciliation is planned, not performed in this spec-only task. Exact six-class inventory is below.
+- **Gap/note:** The official classification is decided. Command/catalogue reconciliation remains planned follow-up work. Exact six-class inventory is below.
 
 Existing deterministic work-bound assertions, including those outside the current Work budgets command block, MUST be treated as official performance requirements. A bound MUST NOT be widened merely to pass a regression, and a wall-clock assertion MUST NOT replace it. Read, load and query changes MUST run the applicable work budgets and allocation checks. The six classes listed below MUST join the maintained budget inventory and invocation in follow-up tooling work.
 

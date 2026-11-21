@@ -76,11 +76,9 @@ its test in the PR template. For documentation or CI changes, name the observabl
 checks instead of inventing application tests.
 
 Mutation-test changed logic: inspect the PIT artifact and resolve each surviving or uncovered
-changed-line mutant with a behaviour test derived from the spec, a test association, a reviewed
-disposition in `.github/mutation-dispositions.toml` (`equivalent` or `killed-out-of-lane`), or
-removal of code without observable effect; never with a test aimed at a line or an internal
-detail. The PR lane's acceptance criterion, dispositions, advisory debt, scope, local commands
-and blocking switch are documented in [Verification](docs/VERIFICATION.md#pr-mutation-testing).
+changed-line mutant under [CONV-103](spec/CONV-conventions.md#conv-103--specification-before-implementation).
+Use the [PR mutation workflow](docs/VERIFICATION.md#pr-mutation-testing) for local commands,
+reviewed dispositions, test associations and the blocking switch.
 
 Explore beyond the happy path using adversarial inputs, property-based tests or an independent
 differential oracle. Record the cases, seeds and outcomes in the PR; promote any discovered

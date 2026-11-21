@@ -2,18 +2,11 @@
 
 ## 1.0.0 (unreleased)
 
-- Add CONV-201 to CONV-204: reviewed mutation dispositions and test associations for the PR
-  mutation lane. An entry in `.github/mutation-dispositions.toml` names one mutant by PIT's identity
-  (class, method, descriptor, mutator, instruction indexes, description; no line number, no pattern),
-  the inspected commit and a justification, as either `equivalent` (no observable difference,
-  where cost counts as observable) or `killed-out-of-lane` (a named clean-JVM allocation, budget or
-  latency test with counterfactual evidence). A changed-line `SURVIVED` mutant passes only with an
-  added entry; `NO_COVERAGE` is never dispositioned; entries of a changed method need
-  re-confirmation; contradicted, superseded, unconfirmed and stale entries fail. Local check, remap
-  and counterfactual helpers keep refactors cheap. `.github/mutation-test-associations.toml` lists
-  existing behavior tests the lane must run for a changed class, replacing `CONTRACT_TESTS`.
-  CONV-103 names four resolutions of a surviving mutant, forbids line-targeted tests and drops
-  "unreachable" justifications: code without observable effect is removed.
+- Add reviewed mutation dispositions, test associations and local refactoring helpers for the
+  PR mutation lane in [CONV-201 to CONV-204](CONV-conventions.md#conv-201--mutation-disposition-record).
+  [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) defines the revised
+  survivor-resolution policy. Commands and review workflow are in
+  [Verification](../docs/VERIFICATION.md#pr-mutation-testing).
 
 - Replace the retired node-hash REST precondition with an opaque conditional-write token.
   The ETag is `<incarnation-hex>.<revision>` for the revision a response serves in every hash mode;
