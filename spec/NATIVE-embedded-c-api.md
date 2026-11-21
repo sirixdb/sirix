@@ -791,8 +791,8 @@ Use fixed logged seeds for release regressions and explore generated JSON/XML,
 UTF-8 chunk partitions, handle operation sequences and revision histories. Do not
 fuzz invalid non-null addresses in-process. Fault/crash cases run in subprocesses.
 PIT covers Java facade logic; scripted C mutations/native mutation tools cover
-the facade and header contracts. Kill non-equivalent survivors; justify each
-survivor by location/mutation/reason in the implementing review. No Java library
+the facade and header contracts. Resolve survivors under
+[CONV-103](CONV-conventions.md#conv-103--specification-before-implementation). No Java library
 logic changes in I1, so PIT and engine work budgets are not I1 evidence.
 
 Read/load/query changes in later issues run the complete **Work budgets** block

@@ -76,14 +76,18 @@ requirements rather than from the code, behaviour-only tests, mutation testing, 
 review against the written intent, and the benchmark protocol. Read it once before your first
 change. What it asks of every pull request:
 
-- Cite the specification's requirement IDs in the issue, then in the PR, following the
-  [spec-first workflow](docs/DEVELOPMENT.md#1-the-specification-is-the-source-of-truth).
-  Map each requirement to its test in the PR template; for documentation or CI changes, name the
-  observable acceptance checks instead of inventing application tests.
+- State behaviour, invariants and error cases and cite the specification's requirement IDs in the
+  issue, then in the PR, following the
+  [spec-first workflow](docs/DEVELOPMENT.md#1-the-specification-is-the-source-of-truth). Derive the
+  tests from those requirements **before writing implementation code**. Map each requirement to its
+  test in the PR template; for documentation or CI changes, name the observable acceptance checks
+  instead of inventing application tests.
 - Mutation-test changed logic: inspect the PIT artifact and resolve every surviving or uncovered
-  changed-line mutant — a behaviour test, a reviewed disposition with its reason and evidence, or
-  removing the code. Never write a test to kill a mutant. Scope, local commands, dispositions and
-  the blocking switch are in [Verification](docs/VERIFICATION.md#pr-mutation-testing).
+  changed-line mutant under
+  [CONV-103](spec/CONV-conventions.md#conv-103--specification-before-implementation) — a behaviour
+  test, a reviewed disposition with its reason and evidence, or removing the code. Never write a
+  test to kill a mutant. Scope, local commands, reviewed dispositions, test associations and the
+  blocking switch are in [Verification](docs/VERIFICATION.md#pr-mutation-testing).
 - Explore beyond the happy path using adversarial inputs, property-based tests or an independent
   differential oracle. Record the cases, seeds and outcomes in the PR; promote any discovered
   failure to a deterministic regression.
