@@ -876,6 +876,44 @@ final class HOTLeafBodyEncodingTest {
     }
   }
 
+  /**
+   * A packed leaf finds every key it holds, including a key that equals its whole 8-byte common prefix
+   * (an empty key tail) among longer keys. Above the routing index's 32 entries every lookup is a
+   * binary search over the packed body.
+   */
+  @Test
+  void packedLeafFindsTheKeyThatEqualsItsEightBytePrefix() throws Exception {
+    final byte[] prefix = {1, 2, 3, 4, 5, 6, 7, 8};
+    final byte[][] keys = new byte[41][];
+    keys[0] = prefix;
+    for (int i = 1; i < keys.length; i++) {
+      keys[i] = Arrays.copyOf(prefix, Long.BYTES + 1);
+      keys[i][Long.BYTES] = (byte) (i * 3);
+    }
+    try (HOTLeafPage leaf = new HOTLeafPage(7, 3, IndexType.PROJECTION)) {
+      for (int i = 0; i < keys.length; i++) {
+        assertTrue(leaf.put(keys[i], new byte[] {(byte) i, 5}));
+      }
+      final byte[] encoded = write(FULL, leaf, false);
+      assertTrue((encoded[2] & HOTLeafBody.FLAG_BODY_MODE) != 0, "the leaf is written with a packed body");
+      final ByteArrayBytesIn source = new ByteArrayBytesIn(encoded);
+      source.position(1);
+      try (HOTLeafPage packed = read(encoded); HOTLeafPage fragment = PageKind.deserializeHOTLeafFragment(source)) {
+        for (final HOTLeafPage page : new HOTLeafPage[] {packed, fragment}) {
+          assertEquals(Long.BYTES, page.getCommonPrefixLen());
+          for (int i = 0; i < keys.length; i++) {
+            assertEquals(i, page.findEntry(keys[i]), "key " + i);
+            assertArrayEquals(new byte[] {(byte) i, 5}, page.getValue(i));
+          }
+          final byte[] between = Arrays.copyOf(prefix, Long.BYTES + 1);
+          between[Long.BYTES] = 4;
+          assertEquals(-3, page.findEntry(between), "between the keys ending 3 and 6");
+          assertEquals(-1, page.findEntry(Arrays.copyOf(prefix, Long.BYTES - 1)), "shorter than the prefix");
+        }
+      }
+    }
+  }
+
   /** Readers accept any {@link BytesIn}, not only the two built-in sources. */
   @Test
   void packedLeafReadsFromAnyBytesInImplementation() throws Exception {
