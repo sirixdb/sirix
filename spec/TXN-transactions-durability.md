@@ -550,6 +550,11 @@ At backup start, backup MUST pin the set of resources and each resource’s curr
   - Resource identities remembered at session creation release known RAM caches after successful
     teardown even when filesystem discovery fails. Registry removal also clears the retired RAM
     store, so retaining a closed session does not retain its committed bytes (AC13).
+  - Resource removal uses remembered RAM ownership, including a derived sibling's remembered
+    source, even if persisted settings become unreadable. Unremembered directories still require
+    readable settings as proof. `knownOwnershipSurvivesUnreadableSettings` checks failed-rename
+    proof retention for sources and derived siblings; `unreadableSettingsRemovalReleasesMemory`
+    reuses a name while retaining closed sessions under the AC13 heap bound (clauses 6/7/8).
   - Logical discard removes both name/ID mappings, including failed renames and retained source
     proof (`discardedHiddenResourcesHaveNoNameOrId`, clauses 5/7/8).
   - Ended instances retain only exact pending cleanup paths and their original proof UUIDs.

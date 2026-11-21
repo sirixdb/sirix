@@ -168,6 +168,13 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
   }
 
+  private boolean hasKnownInMemorySource(final Path resourceFile) {
+    final String name = resourceFile.getFileName().toString();
+    return DerivedIndexMaintainer.isDerivedResourceName(name)
+        && knownInMemoryResources.containsKey(resourceFile.resolveSibling(
+            name.substring(0, name.length() - DerivedIndexMaintainer.SUFFIX.length())));
+  }
+
   @Override
   public synchronized T beginResourceSession(final String resourceName) {
     return beginResourceSession(resourceName, null);
@@ -191,10 +198,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     final ResourceConfiguration resourceConfig = ResourceConfiguration.deserialize(resourcePath);
-    if (resourceConfig.storageType == StorageType.IN_MEMORY
-        || (DerivedIndexMaintainer.isDerivedResourceName(canonicalName)
-            && knownInMemoryResources.containsKey(resourcePath.resolveSibling(
-                canonicalName.substring(0, canonicalName.length() - DerivedIndexMaintainer.SUFFIX.length()))))) {
+    if (resourceConfig.storageType == StorageType.IN_MEMORY || hasKnownInMemorySource(resourcePath)) {
       knownInMemoryResources.put(resourcePath, resourceConfig);
     } else {
       knownInMemoryResources.remove(resourcePath);
@@ -519,7 +523,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       shared.close();
     }
 
-    if (hiddenInMemoryLeftovers.contains(canonicalName)
+    if (hiddenInMemoryLeftovers.contains(canonicalName) || knownInMemoryResources.containsKey(resourceFile)
+        || hasKnownInMemorySource(resourceFile)
         || (Files.isDirectory(resourceFile) && InMemoryResources.isInMemoryOwned(resourceFile))) {
       // TXN-615 clause 8: an IN_MEMORY resource's state and footprint go the retirement way.
       retireInMemoryResource(resourceFile, canonicalName);
@@ -645,9 +650,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     if (!DerivedIndexMaintainer.isDerivedResourceName(name)) {
       final String derivedName = name + DerivedIndexMaintainer.SUFFIX;
       final Path derived = resourceFile.resolveSibling(derivedName);
-      if (Files.exists(derived)) {
+      if (!Files.notExists(derived)) {
         removeResourceInternal(derivedName);
-        if (Files.exists(derived)) {
+        if (!Files.notExists(derived)) {
           discardInMemoryResourceState(resourceFile);
           hiddenInMemoryLeftovers.add(name);
           return resourceFile;
@@ -669,6 +674,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   private @Nullable Path retireDirectory(final Path resourceFile) {
+    if (Files.notExists(resourceFile)) {
+      pendingCleanup.remove(resourceFile);
+      return null;
+    }
     final Path tombstone = resourceFile.resolveSibling(InMemoryResources.RETIRED_MARKER + UUID.randomUUID());
     try {
       Files.move(resourceFile, tombstone, StandardCopyOption.ATOMIC_MOVE);

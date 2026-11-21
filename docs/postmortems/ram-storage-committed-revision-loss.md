@@ -179,3 +179,27 @@
   and existing directory permission tests denied listing or writing rather than search permission.
 - Lesson: publish commit metadata at the commit boundary, and distinguish an unobservable path
   from a path proven absent. Mutation and broader gates remain assigned to the outer executor.
+
+## Review follow-up: remembered ownership on removal
+
+- Trigger and symptom: commit RAM history, retain the closed session, make persisted settings
+  unreadable, remove the resource and recreate its name. Removal's disk-only classification selected
+  persistent deletion, skipping RAM-store discard. Recreation replaced the registry entry while the
+  retained session still held the old payloads. Derived removal used the same incomplete dispatch.
+- Root cause: session registration remembered ownership, but resource removal did not consult that
+  proof. The final-close fix had not covered the shared source/derived removal boundary.
+- Fix: share remembered-source recognition between registration and removal; remembered resources
+  and remembered-source siblings use retirement even if settings reads fail. Unremembered paths
+  still require readable settings. Preserve unknown derived paths as proof dependencies; positively
+  absent paths finish retirement without blocking source-name reuse. No new ownership state is added.
+- Regression oracles: TXN-615 clauses 6/7/8 require failed-rename proof retention and empty name reuse
+  for JSON/XML, including derived siblings (`knownOwnershipSurvivesUnreadableSettings`). AC13's
+  existing heap bound now covers corrupt settings, repeated removal/recreation of one name and
+  retained closed sessions (`unreadableSettingsRemovalReleasesMemory`). Corrupting the resource's
+  persisted settings is an external-boundary fault, not an implementation-text assertion. The
+  missing-directory test guards the newly reachable retirement path's name-reuse behavior.
+- Why tests missed it: failed-discovery checks covered final close, and the removal memory child
+  kept settings readable. Neither combined removal, unreadable settings and retained sessions.
+- Lesson: ownership already established by the open instance must reach every state-discard path;
+  rereading persisted proof must not downgrade a known RAM resource to persistent deletion.
+  Mutation and broader gates remain assigned to the outer executor.

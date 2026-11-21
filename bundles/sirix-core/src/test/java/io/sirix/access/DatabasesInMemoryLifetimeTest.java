@@ -527,6 +527,20 @@ final class DatabasesInMemoryLifetimeTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void unreadableSettingsRemovalReleasesMemory(final Model model) throws Exception {
+    final String mode = "remove-broken-settings-retain-sessions";
+    final Process process = child("-Xmx160m", MemoryChild.class, directory.resolve(mode).toString(), model.name(), mode);
+    try {
+      assertEquals("COMPLETED", childResult(process));
+      assertTrue(process.waitFor(300, TimeUnit.SECONDS));
+      assertEquals(0, process.exitValue());
+    } finally {
+      process.destroyForcibly();
+    }
+  }
+
   /**
    * AC15, clause 7: when session teardown fails, the close throws and discards nothing. The instance
    * stays open, owned and complete, an open rejoins it with every committed revision, and a retry
@@ -741,12 +755,13 @@ final class DatabasesInMemoryLifetimeTest {
 
     private static final int DATABASES = 40;
 
-    public static void main(final String[] arguments) {
+    public static void main(final String[] arguments) throws IOException {
       final Path root = Path.of(arguments[0]);
       final Model model = Model.valueOf(arguments[1]);
       final String mode = arguments[2];
       final boolean close = mode.equals("close") || mode.equals("close-retain-sessions");
-      final boolean remove = mode.equals("remove") || mode.equals("remove-retain-sessions");
+      final boolean breakSettings = mode.equals("remove-broken-settings-retain-sessions");
+      final boolean remove = mode.equals("remove") || mode.equals("remove-retain-sessions") || breakSettings;
       final boolean retainSessions = mode.endsWith("-retain-sessions");
       final Database<? extends ResourceSession<?, ?>> shared;
       if (remove) {
@@ -763,7 +778,7 @@ final class DatabasesInMemoryLifetimeTest {
         final String name;
         if (shared != null) {
           database = shared;
-          name = VOLATILE + "-" + i;
+          name = breakSettings ? VOLATILE : VOLATILE + "-" + i;
         } else {
           final Path path = root.resolve("database-" + i);
           createDatabase(model, path);
@@ -778,6 +793,12 @@ final class DatabasesInMemoryLifetimeTest {
           if (retainSessions) {
             closedSessions.add(session);
           }
+        }
+        if (breakSettings) {
+          Files.writeString(database.getDatabaseConfig().getDatabaseFile()
+                                    .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                                    .resolve(name)
+                                    .resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()), "invalid");
         }
         if (remove) {
           database.removeResource(name);

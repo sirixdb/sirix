@@ -489,6 +489,71 @@ final class LocalDatabaseInMemoryLifetimeTest {
     }
   }
 
+  @ParameterizedTest
+  @MethodSource("modelsAndCloseOrders")
+  void knownOwnershipSurvivesUnreadableSettings(final Model model, final boolean hasDerivedSibling) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final Path resources = resourceDirectory(VOLATILE).getParent();
+    final Path settings = resourceDirectory(VOLATILE).resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath());
+    final Set<PosixFilePermission> parentPermissions = Files.getPosixFilePermissions(resources);
+    try (Database<? extends ResourceSession<?, ?>> database = open(model, databasePath())) {
+      createResource(database, VOLATILE, StorageType.IN_MEMORY);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        commitFirstValue(session, model, "old");
+      }
+      final Path derived = resourceDirectory(VOLATILE + "$derived");
+      if (hasDerivedSibling) {
+        createResource(database, "derived-fixture", StorageType.FILE_CHANNEL);
+        Files.move(resourceDirectory("derived-fixture"), derived);
+      }
+      final Set<PosixFilePermission> settingsPermissions = Files.getPosixFilePermissions(settings);
+      Files.setPosixFilePermissions(settings, Set.of());
+      Files.setPosixFilePermissions(resources, PosixFilePermissions.fromString("r-xr-xr-x"));
+      try {
+        assumeTrue(!Files.isReadable(settings), "running as a user who ignores permissions");
+        assumeTrue(!Files.isWritable(resources), "running as a user who ignores permissions");
+        database.removeResource(VOLATILE);
+        assertFalse(database.existsResource(VOLATILE));
+        assertThrows(SirixUsageException.class, () -> database.getResourceID(VOLATILE));
+        assertTrue(Files.exists(settings), "a failed rename retains the source proof");
+        if (hasDerivedSibling) {
+          assertTrue(Files.exists(derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath())));
+        }
+      } finally {
+        Files.setPosixFilePermissions(resources, parentPermissions);
+        if (Files.exists(settings)) {
+          Files.setPosixFilePermissions(settings, settingsPermissions);
+        }
+      }
+      createResource(database, VOLATILE, StorageType.IN_MEMORY);
+      assertFalse(Files.exists(derived));
+      try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        assertEquals(0, session.getMostRecentRevisionNumber());
+        assertFalse(hasContent(session));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void missingKnownDirectoryDoesNotBlockRemovalOrRecreation(final Model model) throws IOException {
+    createDatabase(model, databasePath());
+    try (Database<? extends ResourceSession<?, ?>> database = open(model, databasePath())) {
+      createResource(database, VOLATILE, StorageType.IN_MEMORY);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        commitFirstValue(session, model, "old");
+      }
+      Files.move(resourceDirectory(VOLATILE), directory.resolve("displaced"));
+      database.removeResource(VOLATILE);
+      createResource(database, VOLATILE, StorageType.IN_MEMORY);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        assertEquals(0, session.getMostRecentRevisionNumber());
+        assertFalse(hasContent(session));
+      }
+    }
+  }
+
   private Path resourceDirectory(final String name) {
     return databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
   }
