@@ -593,14 +593,7 @@ def patch_paths(patch):
     return paths
 
 
-def evidence_problems(evidence):
-    if not isinstance(evidence, dict):
-        return ['`evidence` must be a table']
-    problems = []
-    if evidence.keys() != EVIDENCE_FIELDS:
-        problems.append('`evidence` must have exactly the fields '
-                        + ', '.join(sorted(EVIDENCE_FIELDS)))
-        return problems
+def evidence_patch_paths(evidence, problems):
     touched = []
     patch = nonempty_text(evidence, 'patch', problems)
     if patch is not None:
@@ -608,6 +601,11 @@ def evidence_problems(evidence):
             touched = patch_paths(patch)
         except ValueError as error:
             problems.append(f'`evidence.patch`: {error}')
+    return touched
+
+
+def evidence_execution_problems(evidence):
+    problems = []
     command = evidence['command']
     if (not isinstance(command, list) or not command
             or not all(isinstance(part, str) and part for part in command)):
@@ -617,17 +615,28 @@ def evidence_problems(evidence):
     if not is_integer(evidence['injected_exit']) or evidence['injected_exit'] == 0:
         problems.append('`evidence.injected_exit` must be a non-zero integer: the mutant fails the test')
     nonempty_text(evidence, 'failure', problems)
-    sources = evidence['sources']
+    return problems
+
+
+def source_hash_problem(source):
+    if (not isinstance(source, dict) or source.keys() != {'path', 'sha256'}
+            or not isinstance(source['path'], str) or not isinstance(source['sha256'], str)
+            or not SHA256.fullmatch(source['sha256'])):
+        return ('each `evidence.sources` entry needs exactly `path` and a lowercase '
+                'hexadecimal SHA-256 `sha256`')
+    return None
+
+
+def evidence_source_problems(sources, touched):
+    problems = []
     if not isinstance(sources, list) or not sources:
         problems.append('`evidence.sources` must be a non-empty array of tables')
         return problems
     hashed = []
     for source in sources:
-        if (not isinstance(source, dict) or source.keys() != {'path', 'sha256'}
-                or not isinstance(source['path'], str) or not isinstance(source['sha256'], str)
-                or not SHA256.fullmatch(source['sha256'])):
-            problems.append('each `evidence.sources` entry needs exactly `path` and a lowercase '
-                            'hexadecimal SHA-256 `sha256`')
+        problem = source_hash_problem(source)
+        if problem:
+            problems.append(problem)
             return problems
         try:
             hashed.append(repository_path(source['path']))
@@ -636,6 +645,59 @@ def evidence_problems(evidence):
             return problems
     if len(set(hashed)) != len(hashed) or (touched and set(hashed) != set(touched)):
         problems.append('`evidence.sources` must hash each file the patch touches exactly once')
+    return problems
+
+
+def evidence_problems(evidence):
+    if not isinstance(evidence, dict):
+        return ['`evidence` must be a table']
+    if evidence.keys() != EVIDENCE_FIELDS:
+        return ['`evidence` must have exactly the fields '
+                + ', '.join(sorted(EVIDENCE_FIELDS))]
+    problems = []
+    touched = evidence_patch_paths(evidence, problems)
+    problems.extend(evidence_execution_problems(evidence))
+    problems.extend(evidence_source_problems(evidence['sources'], touched))
+    return problems
+
+
+def entry_identity_problems(entry):
+    problems = []
+    grammar = {'class': QUALIFIED_NAME, 'mutator': QUALIFIED_NAME, 'method': METHOD_NAME,
+               'descriptor': METHOD_DESCRIPTOR}
+    for name, pattern in grammar.items():
+        value = nonempty_text(entry, name, problems)
+        if value is not None and not pattern.fullmatch(value):
+            problems.append(f'`{name}` is not an exact, well-formed value: {value!r}')
+    description = nonempty_text(entry, 'description', problems)
+    if description is not None and (PATTERN_CHARACTERS & set(description)
+                                    or any(ord(character) < 32 for character in description)):
+        problems.append('`description` must be exact text without pattern or control characters')
+    return problems
+
+
+def entry_location_problems(entry):
+    problems = []
+    indexes = entry['indexes']
+    if (not isinstance(indexes, list) or not indexes
+            or not all(is_integer(index) and index >= 0 for index in indexes)):
+        problems.append('`indexes` must be a non-empty list of non-negative integers')
+    checked = nonempty_text(entry, 'checked_at', problems)
+    if checked is not None and not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', checked):
+        problems.append('`checked_at` must be a full lowercase hexadecimal commit ID')
+    return problems
+
+
+def entry_justification_problems(entry):
+    problems = []
+    justification = nonempty_text(entry, 'justification', problems)
+    if justification is not None:
+        if len(' '.join(justification.split())) < JUSTIFICATION_MINIMUM:
+            problems.append(f'`justification` must argue the claim in at least '
+                            f'{JUSTIFICATION_MINIMUM} characters')
+        placeholder = PLACEHOLDERS.search(justification)
+        if placeholder:
+            problems.append(f'`justification` contains the placeholder {placeholder[0]!r}')
     return problems
 
 
@@ -652,31 +714,9 @@ def entry_problems(entry):
         problems.append('unknown field(s): ' + ', '.join(sorted(unknown)))
     if problems:
         return problems
-    grammar = {'class': QUALIFIED_NAME, 'mutator': QUALIFIED_NAME, 'method': METHOD_NAME,
-               'descriptor': METHOD_DESCRIPTOR}
-    for name, pattern in grammar.items():
-        value = nonempty_text(entry, name, problems)
-        if value is not None and not pattern.fullmatch(value):
-            problems.append(f'`{name}` is not an exact, well-formed value: {value!r}')
-    description = nonempty_text(entry, 'description', problems)
-    if description is not None and (PATTERN_CHARACTERS & set(description)
-                                    or any(ord(character) < 32 for character in description)):
-        problems.append('`description` must be exact text without pattern or control characters')
-    indexes = entry['indexes']
-    if (not isinstance(indexes, list) or not indexes
-            or not all(is_integer(index) and index >= 0 for index in indexes)):
-        problems.append('`indexes` must be a non-empty list of non-negative integers')
-    checked = nonempty_text(entry, 'checked_at', problems)
-    if checked is not None and not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', checked):
-        problems.append('`checked_at` must be a full lowercase hexadecimal commit ID')
-    justification = nonempty_text(entry, 'justification', problems)
-    if justification is not None:
-        if len(' '.join(justification.split())) < JUSTIFICATION_MINIMUM:
-            problems.append(f'`justification` must argue the claim in at least '
-                            f'{JUSTIFICATION_MINIMUM} characters')
-        placeholder = PLACEHOLDERS.search(justification)
-        if placeholder:
-            problems.append(f'`justification` contains the placeholder {placeholder[0]!r}')
+    problems.extend(entry_identity_problems(entry))
+    problems.extend(entry_location_problems(entry))
+    problems.extend(entry_justification_problems(entry))
     if kind == 'killed-out-of-lane':
         test = nonempty_text(entry, 'test', problems)
         if test is not None and not TEST_NAME.fullmatch(test):
@@ -858,7 +898,6 @@ def judge_entry(entry, context):
     """(state, action) of one valid entry under CONV-202's rules, first matching rule wins."""
     identity = identity_of(entry)
     added = entry_key(entry) not in context['base_keys']
-    new = added and identity not in context['base_identities']
     stale = static_staleness(context['compiled'], entry, context['tests'])
     if stale:
         return 'stale', stale
@@ -868,6 +907,11 @@ def judge_entry(entry, context):
                                 f'it is not equivalent; delete the entry')
     if mutant and entry['kind'] == 'killed-out-of-lane' and mutant['detected']:
         return 'superseded', 'an in-lane test now detects this mutant; delete the entry'
+    return judge_entry_scope(entry, context, mutant, added)
+
+
+def judge_entry_scope(entry, context, mutant, added):
+    """Re-confirm changed methods before judging matched or unmatched PIT evidence."""
     if not added and (method_changed(context['compiled'].find(entry['class']), entry,
                                      context['changed_index'])
                       or (mutant and mutant['changed'])):
@@ -876,22 +920,30 @@ def judge_entry(entry, context):
             + (' and re-run the counterfactual' if entry['kind'] == 'killed-out-of-lane' else '')
             + ', then update the entry, at least `checked_at`'
             + ('' if mutant else '; no reported mutant matches it any more, so ' + REMAP_HINT))
-    if mutant and mutant['detected']:
+    if mutant:
+        return judge_matched_mutant(mutant, added)
+    return judge_unmatched_entry(entry, context, added)
+
+
+def judge_matched_mutant(mutant, added):
+    if mutant['detected']:
         return 'detected-other', f"matches a {mutant['status']} mutant; reported, not failed"
-    if mutant and mutant['status'] == 'SURVIVED':
+    if mutant['status'] == 'SURVIVED':
         if added:
             return 'accepted', ('on a changed line' if mutant['changed']
                                 else 'on an unchanged line of a changed file')
         return 'advisory', 'disposes of an unchanged-line survivor; advisory only'
-    if mutant:
-        if added:
-            return 'unconfirmed', (f"matches a {mutant['status']} mutant; only SURVIVED mutants "
-                                   f'can be dispositioned (NO_COVERAGE: see CONV-202)')
-        return 'inactive', f"matches a {mutant['status']} mutant of an unchanged method"
+    if added:
+        return 'unconfirmed', (f"matches a {mutant['status']} mutant; only SURVIVED mutants "
+                               f'can be dispositioned (NO_COVERAGE: see CONV-202)')
+    return 'inactive', f"matches a {mutant['status']} mutant of an unchanged method"
+
+
+def judge_unmatched_entry(entry, context, added):
     complete = context['mutated'].get(entry['class'])
     if complete:
         return 'stale', f'PIT no longer generates this mutant for its class; {REMAP_HINT}'
-    if new:
+    if added and identity_of(entry) not in context['base_identities']:
         where = ("not in this run's sample of its class" if complete is not None
                  else 'its class was not mutated in this run')
         return 'unconfirmed', (f'no reported mutant matches ({where}); a new entry must match a '

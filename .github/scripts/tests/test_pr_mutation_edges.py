@@ -86,6 +86,58 @@ class RecordMessagesTest(unittest.TestCase):
                           'entry 2: repeats the identity of entry 1',
                           'entry 3: repeats the identity of entry 1')
 
+    def test_simultaneous_field_errors_keep_the_public_diagnostic_order(self):
+        # CONV-201 field rules; parser diagnostics are an ordered public output contract.
+        invalid = {'class': '*', 'mutator': '', 'method': '', 'descriptor': '',
+                   'description': '*', 'indexes': [-1], 'checked_at': '',
+                   'justification': 'TODO'}
+        common = ["`class` is not an exact, well-formed value: '*'",
+                  '`mutator` must be a non-empty string',
+                  '`method` must be a non-empty string',
+                  '`descriptor` must be a non-empty string',
+                  '`description` must be exact text without pattern or control characters',
+                  '`indexes` must be a non-empty list of non-negative integers',
+                  '`checked_at` must be a non-empty string',
+                  '`justification` must argue the claim in at least 60 characters',
+                  "`justification` contains the placeholder 'TODO'"]
+        evidence = {**EVIDENCE, 'patch': 'text', 'command': [], 'baseline_exit': True,
+                    'injected_exit': False, 'failure': '',
+                    'sources': [{'path': '../x', 'sha256': 'ab' * 32}]}
+        out_of_lane = ['`test` must be a non-empty string',
+                       '`evidence.patch`: patch is not a unified diff with a file header and a hunk',
+                       '`evidence.command` must be a non-empty list of non-empty strings',
+                       '`evidence.baseline_exit` must be 0: the test passes without the mutant',
+                       '`evidence.injected_exit` must be a non-zero integer: the mutant fails the test',
+                       '`failure` must be a non-empty string',
+                       "`evidence.sources`: Unsafe repository path: '../x'"]
+        for kind, extra, expected in (
+                ('equivalent', {}, common),
+                ('killed-out-of-lane', {'test': '', 'evidence': evidence}, common + out_of_lane)):
+            with self.subTest(kind=kind):
+                self.assertEqual(errors_of(entry(kind, **invalid, **extra)),
+                                 ['entry 1: ' + error for error in expected])
+
+    def test_schema_and_source_errors_stop_only_their_validation_stage(self):
+        # Missing/unknown fields take precedence; a bad source must not hide prior errors.
+        for kind in ('equivalent', 'killed-out-of-lane'):
+            with self.subTest(kind=kind):
+                self.assertEqual(errors_of(entry(kind, mutator=None, line=1, indexes=[])),
+                                 ['entry 1: missing field(s): mutator',
+                                  'entry 1: unknown field(s): line'])
+        self.assertEqual(errors_of(entry('killed-out-of-lane', test='', evidence={})),
+                         ['entry 1: `test` must be a non-empty string',
+                          'entry 1: `evidence` must have exactly the fields baseline_exit, command, '
+                          'failure, injected_exit, patch, sources'])
+        for sources, error in (
+                ([], '`evidence.sources` must be a non-empty array of tables'),
+                ([{}, {'path': '../x', 'sha256': 'ab' * 32}],
+                 'each `evidence.sources` entry needs exactly `path` and a lowercase '
+                 'hexadecimal SHA-256 `sha256`')):
+            with self.subTest(sources=sources):
+                self.assertEqual(errors_of(entry('killed-out-of-lane', evidence={
+                    **EVIDENCE, 'failure': '', 'sources': sources})),
+                    ['entry 1: `failure` must be a non-empty string', 'entry 1: ' + error])
+
     def test_boundaries_of_indexes_and_justification(self):
         # PIT numbers instruction ordinals from 0.
         self.assertEqual(errors_of(entry(indexes=[0])), [])
@@ -162,6 +214,25 @@ class AssociationMessagesTest(unittest.TestCase):
 
 class VerdictEdgeTest(unittest.TestCase):
     """CONV-202: states, actions and counts that earlier tests did not observe."""
+
+    def test_refuted_claims_precede_reconfirmation_for_changed_methods(self):
+        # CONV-202: a fresh review cannot rescue a claim that PIT already refutes.
+        cases = [('equivalent', 'KILLED', 'contradicted',
+                  'a.FooTest.boundary detects this mutant, so it is not equivalent; delete the entry'),
+                 ('killed-out-of-lane', 'KILLED', 'superseded',
+                  'an in-lane test now detects this mutant; delete the entry'),
+                 ('killed-out-of-lane', 'TIMED_OUT', 'superseded',
+                  'an in-lane test now detects this mutant; delete the entry')]
+        with lane() as work:
+            for kind, status, state, action in cases:
+                for base in (None, entry(kind), entry(kind, checked_at='d' * 40)):
+                    with self.subTest(kind=kind, status=status, base=base):
+                        code, results, _ = work.run(
+                            [mutant(status, 11, killing='a.FooTest.boundary')],
+                            head=entry(kind), base=base)
+                        record = results['dispositions']['entries'][0]
+                        self.assertEqual((code, record['state'], record['action']),
+                                         (1, state, action))
 
     def test_reconfirmed_new_and_preexisting_entries_of_an_unmutated_class(self):
         bar = {'class': 'a.Bar'}
