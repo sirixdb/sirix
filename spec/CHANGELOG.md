@@ -10,6 +10,14 @@
 - Add FMT-215 for same-frame value aliases to earlier inline owners.
 - Add FMT-216 for kind-9 projection flags, codec assignments and bounded frame validation.
 - Add FMT-217 for writer conformance, with separate selection and inclusive 20% compression acceptance.
+- Amend CONV-201: a cost-only mutant may be `equivalent` when it gives the same result for every
+  admitted input and differs only at a single boundary input by at most one extra constant-time
+  step (captain's decision, 2026-11-21); fast paths stay excluded.
+- Add reviewed mutation dispositions, test associations and local refactoring helpers for the
+  PR mutation lane in [CONV-201 to CONV-204](CONV-conventions.md#conv-201--mutation-disposition-record).
+  [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) defines the revised
+  survivor-resolution policy. Commands and review workflow are in
+  [Verification](../docs/VERIFICATION.md#pr-mutation-testing).
 
 - Replace the retired node-hash REST precondition with an opaque conditional-write token.
   The ETag is `<incarnation-hex>.<revision>` for the revision a response serves in every hash mode;
@@ -33,6 +41,11 @@
   Native/SDK conditional-write entry points are planned open capabilities, not required for 1.0;
   REST reuses the shared Java core check. Nothing here is implemented: every requirement
   states its gap.
+
+- Add the [FMT-304 leaf-lifetime contract](FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime)
+  for HOT mutations. That requirement owns the normative clauses, interim retirement failure,
+  evidence and remaining deferred-reclamation gap; the consolidation method contract owns its
+  caller's retention duty.
 
 - Resolve imported timestamp ordering: preserve increasing source timestamps, adjust
   ties/regressions to the preceding effective timestamp plus 1 microsecond, and keep

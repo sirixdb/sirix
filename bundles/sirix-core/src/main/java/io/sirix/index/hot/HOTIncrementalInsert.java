@@ -1225,75 +1225,180 @@ public final class HOTIncrementalInsert {
    * {@code releaseOrphanedHOTLeaves}. Leaves carrying side references are deliberately not merged;
    * copying only their key/value slots would orphan projection segments or referenced posting pages.
    *
+   * <p>
+   * <b>Leaf lifetime, and what the caller owes.</b> A child leaf is read through its swizzled page,
+   * which the page cache may evict at any moment, so somebody has to hold every leaf this reads for
+   * as long as it reads it. The work is split:
+   *
+   * <ul>
+   * <li>This method holds the pair it inspects. Its eligibility test is already a read of both leaves
+   * -- {@code segmentRefCount} throws once a frame is retired -- and the copy that follows reads
+   * every entry, so the guards come first and are given back at the end of an attempt that skips the
+   * pair. A pair that cannot be held is left for a later attempt rather than failing.</li>
+   * <li><b>The caller must hold the node's direct leaf children</b> for the duration of this call, at
+   * least every child the page cache can evict: a child with a durable key and no transaction-log
+   * entry. The merge of a pair recompresses the parent, which resolves each surviving child's
+   * reference again and asks {@code heightOf} for its height; a reference whose swizzle the cache
+   * cleared meanwhile can no longer answer, and this method cannot recover from that because it has
+   * no storage engine to resolve through. An assertion states the precondition where assertions are
+   * enabled, which costs the production path nothing.</li>
+   * </ul>
+   *
+   * <p>
+   * The production caller satisfies it by construction, and not by accident:
+   * {@code AbstractHOTIndexWriter.consolidateLeafParent} resolves every direct child through
+   * {@code resolveHOTPageForTraversal} before calling this, which is the resolver that retains a
+   * cache-backed leaf in the mutation's guard set -- as its own comment there says, resolution is
+   * what holds such a leaf for the mutation. Those guards are released when the mutation ends, so
+   * they span this whole call. Children the resolver does not guard are the ones that need no guard:
+   * a leaf the transaction log serves, and a leaf the writer built and has not published.
+   * </p>
+   *
+   * <p>
+   * A standalone caller -- a test, or any future caller outside a mutation -- must do the same, and
+   * it may not simply resolve them: it has to keep them held until this returns.
+   * </p>
+   *
    * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
    * @return the consolidated node, or {@code node} itself when nothing was mergeable
    */
   public static HOTIndirectPage consolidateNodeLeaves(final HOTIndirectPage node, final int targetMaxEntries,
       final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator,
       final List<PageReference> droppedLeavesOut) {
+    return consolidateNodeLeaves(node, targetMaxEntries, revision, indexType, pageKeyAllocator, droppedLeavesOut,
+        new HOTLeafPage[HOTIndirectPage.MAX_NODE_ENTRIES]);
+  }
+
+  /**
+   * {@link #consolidateNodeLeaves(HOTIndirectPage, int, int, IndexType, LongSupplier, List)} on a
+   * retained-leaf array the caller owns, for a caller that consolidates often enough to care: the
+   * array is written within the call and every slot used for retention is cleared on success or
+   * failure, so one instance serves every consolidation of a writer without allocating a retention
+   * array per attempt. It must hold {@link HOTIndirectPage#MAX_NODE_ENTRIES} leaves.
+   *
+   * <p>
+   * Only original leaf children enter retention. Unpublished replacements remain privately owned by
+   * this call and are excluded at pair acquisition, so repeated merges cannot exhaust the
+   * original-child bound or defer retirement of consumed replacements. Capacity is checked before
+   * acquiring a guard, so an exhausted bound cannot leave a guard unrecorded.
+   *
+   * @param retentionScratch caller-owned space for the leaves this call holds; its contents are not
+   *        read on entry, and slots used for retention are cleared on every exit
+   */
+  public static HOTIndirectPage consolidateNodeLeaves(final HOTIndirectPage node, final int targetMaxEntries,
+      final int revision, final IndexType indexType, final LongSupplier pageKeyAllocator,
+      final List<PageReference> droppedLeavesOut, final HOTLeafPage[] retentionScratch) {
     Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(retentionScratch, "retentionScratch");
+    if (retentionScratch.length < HOTIndirectPage.MAX_NODE_ENTRIES) {
+      throw new IllegalArgumentException(
+          "retentionScratch holds " + retentionScratch.length + " leaves, needs " + HOTIndirectPage.MAX_NODE_ENTRIES);
+    }
     Objects.requireNonNull(indexType, "indexType");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
     Objects.requireNonNull(droppedLeavesOut, "droppedLeavesOut");
     HOTIndirectPage current = node;
+    final HOTLeafPage[] retainedLeaves = retentionScratch;
+    int retainedCount = 0;
     final PageReference[] ownedSpeculativeRefs = new PageReference[HOTIndirectPage.MAX_NODE_ENTRIES];
     final HOTLeafPage[] ownedSpeculativeLeaves = new HOTLeafPage[HOTIndirectPage.MAX_NODE_ENTRIES];
     int ownedSpeculativeCount = 0;
     final List<PageReference> droppedOriginalLeaves = new ArrayList<>(HOTIndirectPage.MAX_NODE_ENTRIES);
     HOTLeafPage pendingSpeculativeLeaf = null;
     try {
-      boolean merged = true;
-      while (merged && current.getNumChildren() >= 3) {
-        merged = false;
-        final boolean[] pairs = biNodePairs(current);
-        for (int i = 0; i < pairs.length; i++) {
-          final PageReference leftRef = current.getChildReference(i);
-          final PageReference rightRef = current.getChildReference(i + 1);
-          if (!pairs[i] || !(leftRef.getPage() instanceof HOTLeafPage left)
-              || !(rightRef.getPage() instanceof HOTLeafPage right)
-              || left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
-              || right.segmentRefCount() != 0) {
-            continue;
-          }
-          final HOTLeafPage mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-          pendingSpeculativeLeaf = mergedLeaf;
-          boolean fits = true;
-          for (int e = 0; e < left.getEntryCount() && fits; e++) {
-            fits = mergedLeaf.put(left.getKey(e), left.copyStoredValue(e));
-          }
-          for (int e = 0; e < right.getEntryCount() && fits; e++) {
-            fits = mergedLeaf.put(right.getKey(e), right.copyStoredValue(e));
-          }
-          if (!fits) {
-            mergedLeaf.close();
-            pendingSpeculativeLeaf = null;
-            CONSOLIDATION_PAIR_DID_NOT_FIT.incrementAndGet();
-            continue;
-          }
-
-          final PageReference mergedNodeRef =
-              mergeBiNodePairedLeaves(current, i, mergedLeaf, revision, indexType, pageKeyAllocator);
-          final HOTIndirectPage next = (HOTIndirectPage) mergedNodeRef.getPage();
-          final PageReference mergedLeafRef = next.getChildReference(i);
-          if (mergedLeafRef == null || mergedLeafRef.getPage() != mergedLeaf) {
-            final IllegalStateException failure = new IllegalStateException(
-                "HOT leaf consolidation lost ownership of its fresh replacement at slot " + i);
-            throw failure;
-          }
-
-          // Record the new leaf before retiring its inputs. If a close unexpectedly fails, the
-          // outer catch owns and retires every unpublished replacement, including this one.
-          ownedSpeculativeRefs[ownedSpeculativeCount] = mergedLeafRef;
-          ownedSpeculativeLeaves[ownedSpeculativeCount++] = mergedLeaf;
-          pendingSpeculativeLeaf = null;
-          retireConsolidationInput(leftRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
-              ownedSpeculativeCount);
-          retireConsolidationInput(rightRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
-              ownedSpeculativeCount);
-          current = next;
-          merged = true;
-          break;
+      Throwable consolidationFailure = null;
+      try {
+        if (node.getNumChildren() < 3) {
+          return node;
         }
+        boolean merged = true;
+        while (merged && current.getNumChildren() >= 3) {
+          merged = false;
+          final boolean[] pairs = biNodePairs(current);
+          for (int i = 0; i < pairs.length; i++) {
+            final PageReference leftRef = current.getChildReference(i);
+            final PageReference rightRef = current.getChildReference(i + 1);
+            if (!pairs[i] || !(leftRef.getPage() instanceof HOTLeafPage left)
+                || !(rightRef.getPage() instanceof HOTLeafPage right)) {
+              continue;
+            }
+            // Hold the pair before anything reads it. The eligibility test below is already a read of
+            // both leaves -- segmentRefCount throws once a frame is retired -- and the copy that
+            // follows reads every entry. A leaf that cannot be held was evicted already, so the pair
+            // is left for a later attempt.
+            final int heldBeforePair = retainedCount;
+            retainedCount = holdOriginalLeafOnce(retainedLeaves, retainedCount, left, ownedSpeculativeLeaves,
+                ownedSpeculativeCount);
+            if (retainedCount < 0) {
+              retainedCount = heldBeforePair;
+              continue;
+            }
+            final int afterLeft = retainedCount;
+            retainedCount = holdOriginalLeafOnce(retainedLeaves, retainedCount, right, ownedSpeculativeLeaves,
+                ownedSpeculativeCount);
+            if (retainedCount < 0) {
+              retainedCount = releaseConsolidationGuards(retainedLeaves, afterLeft, heldBeforePair, null);
+              continue;
+            }
+            if (left.getEntryCount() + right.getEntryCount() > targetMaxEntries || left.segmentRefCount() != 0
+                || right.segmentRefCount() != 0) {
+              retainedCount = releaseConsolidationGuards(retainedLeaves, retainedCount, heldBeforePair, null);
+              continue;
+            }
+            // The surviving children are the caller's to hold; see this method's contract. The
+            // parent's recompression below resolves each of their references again, so a caller that
+            // let one of them go leaves this with no height for a child that still exists. Stated as
+            // an assertion rather than assumed: it costs the production path nothing, and a
+            // standalone caller that breaks the contract learns where.
+            assert survivingChildrenAreHeld(current, i) : "HOT consolidation requires its caller to hold every "
+                + "direct leaf child of the node it consolidates; a cache-backed child of the node beside the "
+                + "pair at slot " + i + " is unheld";
+            final HOTLeafPage mergedLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+            pendingSpeculativeLeaf = mergedLeaf;
+            boolean fits = true;
+            for (int e = 0; e < left.getEntryCount() && fits; e++) {
+              fits = mergedLeaf.put(left.getKey(e), left.copyStoredValue(e));
+            }
+            for (int e = 0; e < right.getEntryCount() && fits; e++) {
+              fits = mergedLeaf.put(right.getKey(e), right.copyStoredValue(e));
+            }
+            if (!fits) {
+              mergedLeaf.close();
+              pendingSpeculativeLeaf = null;
+              retainedCount = releaseConsolidationGuards(retainedLeaves, retainedCount, heldBeforePair, null);
+              CONSOLIDATION_PAIR_DID_NOT_FIT.incrementAndGet();
+              continue;
+            }
+
+            final PageReference mergedNodeRef =
+                mergeBiNodePairedLeaves(current, i, mergedLeaf, revision, indexType, pageKeyAllocator);
+            final HOTIndirectPage next = (HOTIndirectPage) mergedNodeRef.getPage();
+            final PageReference mergedLeafRef = next.getChildReference(i);
+            if (mergedLeafRef == null || mergedLeafRef.getPage() != mergedLeaf) {
+              final IllegalStateException failure = new IllegalStateException(
+                  "HOT leaf consolidation lost ownership of its fresh replacement at slot " + i);
+              throw failure;
+            }
+
+            // Record the new leaf before retiring its inputs. If a close unexpectedly fails, the
+            // outer catch owns and retires every unpublished replacement, including this one.
+            ownedSpeculativeRefs[ownedSpeculativeCount] = mergedLeafRef;
+            ownedSpeculativeLeaves[ownedSpeculativeCount++] = mergedLeaf;
+            pendingSpeculativeLeaf = null;
+            retireConsolidationInput(leftRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
+                ownedSpeculativeCount);
+            retireConsolidationInput(rightRef, droppedOriginalLeaves, ownedSpeculativeRefs, ownedSpeculativeLeaves,
+                ownedSpeculativeCount);
+            current = next;
+            merged = true;
+            break;
+          }
+        }
+      } catch (final RuntimeException | Error failure) {
+        consolidationFailure = failure;
+        throw failure;
+      } finally {
+        releaseConsolidationGuards(retainedLeaves, retainedCount, consolidationFailure);
       }
       droppedLeavesOut.addAll(droppedOriginalLeaves);
       return current;
@@ -1309,6 +1414,99 @@ public final class HOTIncrementalInsert {
       }
       throw failure;
     }
+  }
+
+  private static void releaseConsolidationGuards(final HOTLeafPage[] leaves, final int count,
+      final @Nullable Throwable failure) {
+    releaseConsolidationGuards(leaves, count, 0, failure);
+  }
+
+  /**
+   * Release and clear the guards this call holds above {@code floor}, and answer the count that is
+   * left. A declined or ineligible attempt releases only the guards it added, with {@code floor}
+   * marking where that attempt began. Guards retained by successful merges survive later attempts and
+   * are released together at call exit, when {@code floor} is zero.
+   */
+  private static int releaseConsolidationGuards(final HOTLeafPage[] leaves, final int count, final int floor,
+      final @Nullable Throwable failure) {
+    Throwable primary = failure;
+    for (int i = count - 1; i >= floor; i--) {
+      final HOTLeafPage leaf = leaves[i];
+      leaves[i] = null; // the array outlives the call; never leave it pointing at a released leaf
+      try {
+        leaf.releaseGuard();
+      } catch (final RuntimeException | Error releaseFailure) {
+        if (primary == null) {
+          primary = releaseFailure;
+        } else {
+          addSuppressedSafely(primary, releaseFailure);
+        }
+      }
+    }
+    if (failure == null) {
+      if (primary instanceof RuntimeException runtimeFailure) {
+        throw runtimeFailure;
+      }
+      if (primary instanceof Error error) {
+        throw error;
+      }
+    }
+    return floor;
+  }
+
+  /**
+   * Take one guard on an original {@code leaf} unless this call already holds it, and answer the new
+   * held count, or {@code -1} when the leaf is already gone. Private replacements need no guard (see
+   * {@link #consolidateNodeLeaves}). One guard per original leaf however often the passes meet it
+   * again: a leaf held by an earlier merge of this same call must not be counted, or its guard would
+   * be released while the walk still needs it. The held set is one node's children, so the scan is
+   * short and goes newest first, where a repeat usually is.
+   */
+  private static int holdOriginalLeafOnce(final HOTLeafPage[] leaves, final int count, final HOTLeafPage leaf,
+      final HOTLeafPage[] ownedSpeculativeLeaves, final int ownedSpeculativeCount) {
+    for (int remaining = ownedSpeculativeCount; remaining > 0;) {
+      if (ownedSpeculativeLeaves[--remaining] == leaf) {
+        return count;
+      }
+    }
+    for (int remaining = count; remaining > 0;) {
+      if (leaves[--remaining] == leaf) {
+        return count;
+      }
+    }
+    Objects.checkIndex(count, leaves.length);
+    if (!leaf.acquireGuard()) {
+      return -1;
+    }
+    leaves[count] = leaf;
+    return count + 1;
+  }
+
+  /**
+   * Whether every surviving leaf child of {@code node} -- every one but the pair at {@code leftIndex}
+   * -- is held by somebody: the assertion that states this method's precondition.
+   *
+   * <p>
+   * Only a child the page cache can take away needs a guard. One the transaction log serves and one
+   * that was never published cannot be evicted under the call, and are exactly the children
+   * {@code AbstractHOTIndexWriter}'s resolver does not guard either, so they are exempt here as well.
+   * A child with a durable key and no log entry is the cache's, and must be held.
+   * </p>
+   */
+  private static boolean survivingChildrenAreHeld(final HOTIndirectPage node, final int leftIndex) {
+    for (int i = 0; i < node.getNumChildren(); i++) {
+      if (i == leftIndex || i == leftIndex + 1) {
+        continue;
+      }
+      final PageReference childRef = node.getChildReference(i);
+      if (childRef == null || !(childRef.getPage() instanceof HOTLeafPage leaf)) {
+        continue;
+      }
+      if (childRef.getKey() >= 0 && childRef.getLogKey() < 0 && leaf.getGuardCount() == 0) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private static void retireConsolidationInput(final PageReference inputRef,

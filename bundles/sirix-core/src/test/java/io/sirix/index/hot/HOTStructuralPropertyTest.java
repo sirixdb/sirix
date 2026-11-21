@@ -12,16 +12,18 @@ import io.brackit.query.jdm.Type;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.index.hot.reader.HOTRangeCursor;
-import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.cache.FrameSlotAllocator;
+import io.sirix.cache.FrameSlotAllocator.FrameSlot;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
+import io.sirix.index.hot.reader.HOTRangeCursor;
+import io.sirix.index.hot.reader.HOTTrieReader;
 import io.sirix.index.interval.ValidTimeKey;
 import io.sirix.index.interval.ValidTimeKeySerializer;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
@@ -38,13 +40,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -68,6 +75,9 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -133,6 +143,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * </p>
  *
  * <p>
+ * <b>The eviction lane</b> runs the same streams with {@link HOTLeafEvictionAdversary} between the
+ * writer and its storage engine: during every mutation, every leaf nobody guards is evicted at
+ * every call the writer makes on the engine, and a released frame is zero-filled. A writer that
+ * reads a sibling leaf it does not hold then reads zeros, and the complete per-operation checks see
+ * the wrong structural decision or the wrong entry that follows. It runs the one seed whose stream
+ * commits every few operations, because only a committed leaf belongs to the page cache, over the
+ * three kinds whose tries that stream grows beyond a single leaf.
+ * </p>
+ *
+ * <p>
  * A failing case is shrunk with delta debugging and reported as a replayable stream whose header
  * names the versioning, consolidation cadence and lane it failed under; {@link #replay} runs such a
  * stream under the same checks, and {@code -Dhot.diag.validationDump=true} makes the writer's own
@@ -158,6 +178,16 @@ final class HOTStructuralPropertyTest {
           ? 2
           : 1);
   private static final int DEFAULT_OPS = Integer.getInteger(PROPERTY + "ops", 1_600);
+  /**
+   * The eviction lane's seed, work and kinds. Seed 2 commits every one to four operations, so nearly
+   * every sibling leaf a mutation reads is the page cache's. Within the default budget its PATH and
+   * NAME tries grow six and three levels deep and its CAS trie one; its valid-time stream exercises
+   * the same writer as CAS, and its projection stream never leaves the root leaf, so those two would
+   * only add time.
+   */
+  private static final Kind[] EVICTION_KINDS = {Kind.CAS, Kind.PATH, Kind.NAME};
+  private static final long EVICTION_SEED = Long.getLong(PROPERTY + "eviction.seed", 2L);
+  private static final int EVICTION_OPS = Integer.getInteger(PROPERTY + "eviction.ops", DEFAULT_OPS);
   private static final long BASE_SEED = Long.getLong(PROPERTY + "seed", 1L);
   private static final long SHRINK_SECONDS = Long.getLong(PROPERTY + "shrinkSeconds", 120L);
   private static final Pattern WHITESPACE = Pattern.compile("\\s+");
@@ -231,9 +261,13 @@ final class HOTStructuralPropertyTest {
 
   private int caseCounter;
 
+  /** Leaves the adversary evicted during mutations, over every case this instance ran. */
+  private long evictedLeaves;
+
   @AfterEach
   void reset() {
     AbstractHOTIndexWriter.setConsolidationIntervalForTesting(0);
+    FrameSlotAllocator.setPoisonOnReleaseForTesting(false);
     Databases.clearGlobalCaches();
   }
 
@@ -308,6 +342,106 @@ final class HOTStructuralPropertyTest {
   }
 
   @Test
+  void recordedFailurePreservesConfiguration() {
+    final CaseConfig config = new CaseConfig(Kind.PATH, VersioningType.DIFFERENTIAL, 2L, 16, true, true, true);
+    final String header = "kind=PATH versioning=DIFFERENTIAL seed=2 consolidationInterval=16 exhaustive=true"
+        + " leafEviction=true framePoisoning=true";
+    assertEquals(header, config.header());
+    assertEquals(config, CaseConfig.parseHeader(header));
+    assertEquals(new CaseConfig(Kind.CAS, VersioningType.FULL, -1L, 0, false, false, false),
+        CaseConfig.parseHeader("kind=CAS versioning=FULL exhaustive=false"));
+    assertEquals(new CaseConfig(Kind.PATH, VersioningType.FULL, 2L, 16, true, true, true),
+        CaseConfig.forCase(Kind.PATH, 2L, 0, true, true));
+    assertEquals(new CaseConfig(Kind.PATH, VersioningType.FULL, 2L, 16, true, false, false),
+        CaseConfig.forCase(Kind.PATH, 2L, 0, true, false));
+  }
+
+  @ParameterizedTest(name = "recorded leaf eviction: {0}")
+  @ValueSource(booleans = {false, true})
+  void recordedFailureReplaysWithEviction(final boolean eviction) throws IOException {
+    final CaseConfig config = new CaseConfig(Kind.PATH, VersioningType.FULL, 2L, 16, true, eviction, eviction);
+    final StringBuilder recorded = new StringBuilder(config.header()).append("\nstream:\n");
+    for (int i = 1; i <= 600; i++) {
+      recorded.append(Op.put(i, 0, 0, i).line()).append('\n');
+    }
+    recorded.append("C\nP 1 0 0 999\nO\n");
+    final Path file = temporaryDirectory.resolve("recorded.txt");
+    Files.writeString(file, recorded, StandardCharsets.UTF_8);
+
+    final long evictions = replayRecordedFailure(file, temporaryDirectory.resolve("recorded-replay"));
+    if (eviction) {
+      assertTrue(evictions > 0, "replaying an eviction case must actually evict committed leaves");
+    } else {
+      assertEquals(0, evictions, "ordinary replay must leave adversarial eviction disabled");
+    }
+    assertReleasedFramePoisoning(false);
+  }
+
+  @ParameterizedTest(name = "eviction: {0}, poisoning: {1}, failure: {2}")
+  @CsvSource({"false, false, false", "false, true, false", "true, false, false", "true, true, false",
+      "false, false, true", "false, true, true", "true, false, true", "true, true, true"})
+  void recordedFailureScopesPoisoning(final boolean eviction, final boolean poisoning, final boolean fail) {
+    final CaseConfig config = CaseConfig.parseHeader(
+        new CaseConfig(Kind.PATH, VersioningType.FULL, 1L, 0, true, eviction, poisoning).header());
+    final IllegalStateException failure = new IllegalStateException("case failed");
+    final List<Op> operations = new AbstractList<>() {
+      @Override
+      public Op get(final int index) {
+        Objects.checkIndex(index, size());
+        assertReleasedFramePoisoning(poisoning);
+        if (fail) {
+          throw failure;
+        }
+        return Op.REOPEN_OP;
+      }
+
+      @Override
+      public int size() {
+        return 1;
+      }
+    };
+    final CaseResult result = runCase(config, operations);
+    if (fail) {
+      assertSame(failure, result.failure());
+    } else {
+      assertNull(result.failure());
+      assertEquals(1, result.applied());
+    }
+    assertReleasedFramePoisoning(false);
+  }
+
+  private static void assertReleasedFramePoisoning(final boolean poisoned) {
+    final FrameSlot slot = Objects.requireNonNull(FrameSlotAllocator.getInstance().allocateSlot(4_096));
+    final MemorySegment bytes = slot.segment();
+    try {
+      bytes.fill((byte) 0x5a);
+    } finally {
+      slot.close();
+    }
+    assertEquals(poisoned
+        ? (byte) 0
+        : (byte) 0x5a, bytes.get(ValueLayout.JAVA_BYTE, 0),
+        "released frame bytes must reflect the case's poisoning mode");
+  }
+
+  @Test
+  @DisplayName("CAS, PATH and NAME: a mutation survives the eviction of every unguarded leaf at every engine call")
+  void mutationsSurviveLeafEviction() {
+    // Every kind runs even when an earlier one fails: one unheld read rarely breaks only one of them.
+    final List<String> failures = new ArrayList<>();
+    for (final Kind kind : EVICTION_KINDS) {
+      final long evictedBefore = evictedLeaves;
+      failures.addAll(runBudget(kind, EVICTION_SEED, 1, EVICTION_OPS, true, true, true));
+      assertTrue(evictedLeaves > evictedBefore,
+          kind + ": no leaf was evicted during a mutation, so nothing was exercised");
+    }
+    if (!failures.isEmpty()) {
+      throw new AssertionError(
+          failures.size() + " case(s) failed under leaf eviction:\n" + String.join("\n", failures));
+    }
+  }
+
+  @Test
   @Tag("heavy")
   @DisplayName("extended budget over every index kind")
   void extendedBudgetAcrossEveryKind() {
@@ -333,37 +467,27 @@ final class HOTStructuralPropertyTest {
   void replayRecordedFailure() throws IOException {
     final String file = System.getProperty(PROPERTY + "replayFile");
     Assumptions.assumeTrue(file != null, "no replay file given");
-    final List<String> lines = Files.readAllLines(Path.of(file), StandardCharsets.UTF_8);
-    Kind kind = null;
-    VersioningType versioning = null;
-    int consolidationInterval = 0;
-    boolean exhaustive = true;
+    replayRecordedFailure(Path.of(file), temporaryDirectory.resolve("replay"));
+  }
+
+  private static long replayRecordedFailure(final Path file, final Path directory) throws IOException {
+    final List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+    CaseConfig config = null;
     int streamFrom = -1;
     for (int i = 0; i < lines.size(); i++) {
       final String line = lines.get(i).trim();
       if (line.startsWith("kind=")) {
-        for (final String field : WHITESPACE.splitAsStream(line).toList()) {
-          final String[] pair = field.split("=", 2);
-          switch (pair[0]) {
-            case "kind" -> kind = Kind.valueOf(pair[1]);
-            case "versioning" -> versioning = VersioningType.valueOf(pair[1]);
-            case "consolidationInterval" -> consolidationInterval = Integer.parseInt(pair[1]);
-            case "exhaustive" -> exhaustive = Boolean.parseBoolean(pair[1]);
-            default -> {
-              // seed and anything else are informational
-            }
-          }
-        }
+        config = CaseConfig.parseHeader(line);
       } else if (line.startsWith("stream")) {
         streamFrom = i + 1;
         break;
       }
     }
-    if (kind == null || versioning == null || streamFrom < 0) {
+    if (config == null || streamFrom < 0) {
       throw new IllegalArgumentException(file + " is not a recorded failure: it needs a kind= header and a stream");
     }
     final String stream = String.join("\n", lines.subList(streamFrom, lines.size()));
-    replay(kind, versioning, consolidationInterval, exhaustive, temporaryDirectory.resolve("replay"), stream);
+    return replay(config, directory, stream);
   }
 
   // ===== budget driver =====
@@ -377,6 +501,12 @@ final class HOTStructuralPropertyTest {
    */
   private List<String> runBudget(final Kind kind, final int seeds, final int ops, final boolean collect,
       final boolean exhaustive) {
+    return runBudget(kind, BASE_SEED, seeds, ops, collect, exhaustive, false);
+  }
+
+  /** {@link #runBudget(Kind, int, int, boolean, boolean)} starting at {@code firstSeed}. */
+  private List<String> runBudget(final Kind kind, final long firstSeed, final int seeds, final int ops,
+      final boolean collect, final boolean exhaustive, final boolean leafEviction) {
     final List<String> failures = new ArrayList<>();
     final Map<String, Integer> handlers = new TreeMap<>();
     final long started = System.nanoTime();
@@ -385,16 +515,18 @@ final class HOTStructuralPropertyTest {
     final Map<String, Long> countersBefore = new LinkedHashMap<>();
     REACH_COUNTERS.forEach((name, counter) -> countersBefore.put(name, counter.get()));
     for (int i = 0; i < seeds; i++) {
-      final long seed = BASE_SEED + i;
+      final long seed = firstSeed + i;
       final List<Op> stream = new StreamGenerator(kind, seed, ops).generate();
       for (int versioning = 0; versioning < VERSIONINGS.length; versioning++) {
-        final CaseConfig config = CaseConfig.forCase(kind, seed, versioning, exhaustive);
+        final CaseConfig config = CaseConfig.forCase(kind, seed, versioning, exhaustive, leafEviction);
         final CaseResult result = runCase(config, stream);
         result.handlers.forEach((handler, count) -> handlers.merge(handler, count, Integer::sum));
         maxHeight = Math.max(maxHeight, result.height);
         storedKeys += result.storedKeys;
+        evictedLeaves += result.evictedLeaves;
         System.out.println("[hot-property] " + config.header() + ": " + stream.size() + " ops, " + result.applied
-            + " applied, final slots " + result.storedKeys + ", height " + result.height + (result.failure == null
+            + " applied, final slots " + result.storedKeys + ", evicted leaves " + result.evictedLeaves + ", height "
+            + result.height + (result.failure == null
                 ? ""
                 : ", FAILED " + signature(result.failure)));
         if (result.failure == null) {
@@ -438,12 +570,16 @@ final class HOTStructuralPropertyTest {
    */
   static void replay(final Kind kind, final VersioningType versioning, final int consolidationInterval,
       final boolean exhaustive, final Path directory, final String stream) {
-    final CaseConfig config = new CaseConfig(kind, versioning, -1L, consolidationInterval, exhaustive);
+    replay(new CaseConfig(kind, versioning, -1L, consolidationInterval, exhaustive, false, false), directory, stream);
+  }
+
+  private static long replay(final CaseConfig config, final Path directory, final String stream) {
     final List<Op> ops = Op.parseStream(stream);
-    AbstractHOTIndexWriter.setConsolidationIntervalForTesting(consolidationInterval);
+    AbstractHOTIndexWriter.setConsolidationIntervalForTesting(config.consolidationInterval());
     try (Runner runner = new Runner(config, directory)) {
       try {
         runner.run(ops);
+        return runner.evictedLeaves;
       } catch (final Throwable failure) {
         System.out.println("[hot-property] replay failed at op " + runner.applied + " (" + (runner.applied < ops.size()
             ? ops.get(runner.applied).line()
@@ -457,7 +593,7 @@ final class HOTStructuralPropertyTest {
   }
 
   private record CaseResult(@Nullable Throwable failure, int applied, Map<String, Integer> handlers, int storedKeys,
-      int height, String lastHandler) {
+      int height, String lastHandler, long evictedLeaves) {
   }
 
   private CaseResult runCase(final CaseConfig config, final List<Op> ops) {
@@ -468,7 +604,7 @@ final class HOTStructuralPropertyTest {
       runner = new Runner(config, directory);
       runner.run(ops);
       return new CaseResult(null, runner.applied, runner.handlers, runner.driver.storedKeys(), runner.driver.height(),
-          runner.lastHandler);
+          runner.lastHandler, runner.evictedLeaves);
     } catch (final Throwable failure) {
       return new CaseResult(failure, runner == null
           ? 0
@@ -478,7 +614,10 @@ final class HOTStructuralPropertyTest {
               : runner.handlers,
           0, 0, runner == null
               ? "-"
-              : runner.lastHandler);
+              : runner.lastHandler,
+          runner == null
+              ? 0
+              : runner.evictedLeaves);
     } finally {
       if (runner != null) {
         runner.close();
@@ -628,21 +767,52 @@ final class HOTStructuralPropertyTest {
    * completely after every operation (the default lane) or on the heavy lane's cadences. The flag
    * belongs to the case because shrinking and replay must reproduce the checks that failed.
    */
-  record CaseConfig(Kind kind, VersioningType versioning, long seed, int consolidationInterval, boolean exhaustive) {
+  record CaseConfig(Kind kind, VersioningType versioning, long seed, int consolidationInterval, boolean exhaustive,
+      boolean leafEviction, boolean framePoisoning) {
     /**
      * The case that runs {@code seed}'s stream under {@code VERSIONINGS[versioningIndex]}. Every seed
      * is run against all four versioning types, so no versioning depends on the seed budget; the
      * consolidation cadence rotates with the pair, which cycles all four of them within one seed.
      */
-    static CaseConfig forCase(final Kind kind, final long seed, final int versioningIndex, final boolean exhaustive) {
+    static CaseConfig forCase(final Kind kind, final long seed, final int versioningIndex, final boolean exhaustive,
+        final boolean leafEviction) {
       return new CaseConfig(kind, VERSIONINGS[versioningIndex], seed,
           CONSOLIDATION_INTERVALS[(int) Math.floorMod(seed + versioningIndex, CONSOLIDATION_INTERVALS.length)],
-          exhaustive);
+          exhaustive, leafEviction, leafEviction);
     }
 
     String header() {
       return "kind=" + kind + " versioning=" + versioning + " seed=" + seed + " consolidationInterval="
-          + consolidationInterval + " exhaustive=" + exhaustive;
+          + consolidationInterval + " exhaustive=" + exhaustive + " leafEviction=" + leafEviction + " framePoisoning="
+          + framePoisoning;
+    }
+
+    static CaseConfig parseHeader(final String header) {
+      Kind kind = null;
+      VersioningType versioning = null;
+      long seed = -1L;
+      int consolidationInterval = 0;
+      boolean exhaustive = true;
+      boolean leafEviction = false;
+      boolean framePoisoning = false;
+      for (final String field : WHITESPACE.splitAsStream(header).toList()) {
+        final String[] pair = field.split("=", 2);
+        switch (pair[0]) {
+          case "kind" -> kind = Kind.valueOf(pair[1]);
+          case "versioning" -> versioning = VersioningType.valueOf(pair[1]);
+          case "seed" -> seed = Long.parseLong(pair[1]);
+          case "consolidationInterval" -> consolidationInterval = Integer.parseInt(pair[1]);
+          case "exhaustive" -> exhaustive = Boolean.parseBoolean(pair[1]);
+          case "leafEviction" -> leafEviction = Boolean.parseBoolean(pair[1]);
+          case "framePoisoning" -> framePoisoning = Boolean.parseBoolean(pair[1]);
+          default -> {
+          }
+        }
+      }
+      if (kind == null || versioning == null) {
+        throw new IllegalArgumentException("recorded failure needs a kind and versioning: " + header);
+      }
+      return new CaseConfig(kind, versioning, seed, consolidationInterval, exhaustive, leafEviction, framePoisoning);
     }
   }
 
@@ -785,6 +955,8 @@ final class HOTStructuralPropertyTest {
     private @Nullable JsonNodeTrx wtx;
     private int commits;
     private int olderRevisionCursor;
+    private @Nullable HOTLeafEvictionAdversary adversary;
+    long evictedLeaves;
     int applied;
     String lastHandler = "-";
 
@@ -805,9 +977,14 @@ final class HOTStructuralPropertyTest {
     }
 
     void run(final List<Op> ops) {
-      for (final Op op : ops) {
-        step(op);
-        applied++;
+      FrameSlotAllocator.setPoisonOnReleaseForTesting(config.framePoisoning());
+      try {
+        for (final Op op : ops) {
+          step(op);
+          applied++;
+        }
+      } finally {
+        FrameSlotAllocator.setPoisonOnReleaseForTesting(false);
       }
     }
 
@@ -818,6 +995,11 @@ final class HOTStructuralPropertyTest {
           final AbstractHOTIndexWriter<?> writer = driver.writer();
           writer.lastDispatchHandler = "-";
           final String handler;
+          final HOTLeafEvictionAdversary evictor = adversary;
+          if (evictor != null) {
+            // Armed for the mutation alone: the checks that follow read through the same engine.
+            evictor.arm(HOTLeafEvictionAdversary.EVERY_POINT);
+          }
           try {
             driver.apply(op);
           } finally {
@@ -825,6 +1007,10 @@ final class HOTStructuralPropertyTest {
             // that was dispatching when it failed.
             handler = writer.lastDispatchHandler;
             lastHandler = handler;
+            if (evictor != null) {
+              evictor.disarm();
+              evictedLeaves += evictor.evictedLeaves();
+            }
           }
           if (!"-".equals(handler)) {
             handlers.merge(handler, 1, Integer::sum);
@@ -842,7 +1028,7 @@ final class HOTStructuralPropertyTest {
             wtx = session.beginNodeTrx();
             wtx.revertTo(revision);
             driver.restore(snapshots.get(revision));
-            driver.open(wtx.getStorageEngineWriter());
+            driver.open(writerEngine(wtx.getStorageEngineWriter()));
             // The revert rebound the writer to an older trie: check it as any other operation.
             driver.verifyWriterStructure();
           }
@@ -862,8 +1048,18 @@ final class HOTStructuralPropertyTest {
     private void ensureTransaction() {
       if (wtx == null) {
         wtx = session.beginNodeTrx();
-        driver.open(wtx.getStorageEngineWriter());
+        driver.open(writerEngine(wtx.getStorageEngineWriter()));
       }
+    }
+
+    /** The engine the case's writer writes through: the transaction's own, or the adversary's. */
+    private StorageEngineWriter writerEngine(final StorageEngineWriter engine) {
+      if (!config.leafEviction()) {
+        return engine;
+      }
+      final HOTLeafEvictionAdversary evictor = new HOTLeafEvictionAdversary(engine);
+      adversary = evictor;
+      return evictor.engine();
     }
 
     private void commitIfOpen() {

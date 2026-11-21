@@ -1,0 +1,24 @@
+# Reviewed mutation dispositions for the PR mutation lane (spec/CONV-conventions.md, CONV-201 to
+# CONV-203; workflow in docs/VERIFICATION.md#pr-mutation-testing). Entries are rare exceptions:
+# behaviour, budget and latency tests detect most mutants, and tests are never written to cover
+# lines or kill mutants for their own sake. NO_COVERAGE mutants are never dispositioned.
+#
+# One [[mutant]] table per mutant. The six identity fields are copied exactly from PIT's
+# mutations.xml (no patterns, no line numbers):
+#
+#   [[mutant]]
+#   class = "io.sirix.Example$Inner"          # <mutatedClass>
+#   method = "put"                            # <mutatedMethod>
+#   descriptor = "(J[B)Z"                     # <methodDescription>
+#   mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+#   indexes = [57]                            # <indexes>, in order
+#   description = "changed conditional boundary"
+#   kind = "equivalent"                       # or "killed-out-of-lane"
+#   checked_at = "<full commit id whose PIT report you inspected>"
+#   justification = """Why no observable behaviour (results, errors, persisted state, cost)
+#   differs for any input the contract admits."""
+#
+# A "killed-out-of-lane" entry also names `test = "<test class>#<method>"` and carries the
+# [mutant.evidence] table printed by `python3 .github/scripts/pr_mutation.py counterfactual`.
+# After a refactor, `pr_mutation.py dispositions --check/--remap` lists stale entries and
+# proposes their new identities for review.

@@ -189,7 +189,8 @@ file (`+++ /dev/null`, excluded from the selection anyway) contributes nothing. 
 attributed through their `+++ b/<path>` header and kept only for already selected sources; a hunk
 that precedes any file header, an unparsable hunk header and a path Git had to quote all fail
 selection instead of silently reporting a file as untouched. `selection.json` records `modules`
-(what to mutate) and `changed_lines` (what to judge, one entry per selected source); `run` refuses
+(what to mutate), `changed_lines` (what to judge, one entry per selected source), and
+`dispositions_base` (the dispositions file at the merge base, or null when absent); `run` refuses
 a manifest that does not map every selected source rather than judging nothing.
 
 The checkout is the PR merge revision, matching `Build`. JVM `SourceFile` attributes map source
@@ -216,11 +217,12 @@ in package `p` the first matching step wins:
    most `PACKAGE_TEST_LIMIT` of them.
 4. Otherwise the source is **unmapped**.
 
-The exact compiler/refusal associations in `CONTRACT_TESTS` additionally select
-`VectorizedReleaseCorrectnessTest` for the compile chain, both pipeline strategies and the
-refusal exception. This integration contract exercises refused and admitted grouping through
-every public compiler factory, including cold reopen. Associations augment the heuristic
-matches and share the same module cap; absent test classes are never selected.
+To select an existing behaviour test that the name-based rules miss, add an association in
+[`.github/mutation-test-associations.toml`](../.github/mutation-test-associations.toml).
+[CONV-204](../spec/CONV-conventions.md#conv-204--lane-test-associations) owns the schema,
+declared-class ownership rules, validation, module cap and PIT baseline exclusions. The file
+also owns the current association inventory, including the release-contract tests formerly
+selected by `CONTRACT_TESTS`.
 
 PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
 `[MIN_MUTANTS_PER_CLASS, MAX_MUTANTS_PER_CLASS]`, so a module's work scales with the size of the
@@ -254,26 +256,29 @@ test filters, every undetected mutant in `results.json`, HTML/XML reports, logs 
 The job summary shows, per module, the state, the number of mutated classes and test patterns, the
 unmapped sources, the changed-line counts that decide the outcome (changed lines, mutants on them,
 killed, survived, no coverage), the whole-report killed/total separately from PIT's detected/total
-score (which includes timed-out mutants), status counts, up to 100 undetected changed-line mutants
+score (which includes timed-out mutants), status counts, up to 100 failing changed-line mutants
 and - separately, marked advisory - the unchanged-line totals with the classes carrying the most
-undetected mutants; the artifact retains the full list. `results.json` keeps that split per module
-under `changed` and `unchanged`, with `unattributed` counting any mutant whose source file never
-mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
+undetected mutants; the artifact retains the full list. `results.json` holds `modules` (one
+result per module, with that split under `changed` and `unchanged`), `dispositions` and
+`associations`; each module's `changed` lists its `failing`, `dispositioned_equivalent` and
+`dispositioned_out_of_lane` mutants. Each module's `unattributed` counts mutants whose source file
+never mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
 Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
 
 ### Blocking criterion: the PR's own lines
 
-A run is **clean** when every module completed, PIT produced mutants, and every mutant **on a
-changed line** was detected. A mutant sits on a changed line when its `<sourceFile>` and the
-package of its `<mutatedClass>` match a changed source and its `<lineNumber>` is in that file's
-changed-line set; nested, anonymous and extra top-level classes and Kotlin file facades are
-therefore attributed to the file they were compiled from. On changed lines both `SURVIVED` and
-`NO_COVERAGE` fail, including a result whose changed-line mutants are all uncovered - untested new
-code is a finding, not the absence of one. Inspect them; kill them or justify each with evidence
-in the PR.
+[CONV-202](../spec/CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions)
+owns the clean-run criterion, including reviewed dispositions; association validation is
+specified by [CONV-204](../spec/CONV-conventions.md#conv-204--lane-test-associations).
+A mutant sits on a changed line when its `<sourceFile>` and the package of its `<mutatedClass>`
+match a changed source and its `<lineNumber>` is in that file's changed-line set; nested,
+anonymous and extra top-level classes and Kotlin file facades are therefore attributed to the
+file they were compiled from. Use the [disposition helpers below](#reviewed-dispositions) to
+inspect claims alongside a local report.
 
 Mutants on **unchanged** lines of the same classes are advisory: the summary and `results.json`
-report their counts and the classes carrying the most of them, and they never fail the job. They
+report their counts and the classes carrying the most of them. This debt alone never fails the
+job; disposition validation still applies to entries matching these mutants (CONV-202). They
 are pre-existing test debt the PR did not introduce. On
 [PR 1354](https://github.com/sirixdb/sirix/pull/1354) all 17 changed-line mutants were killed
 while 348 survivors and 2,828 uncovered mutants sat on unchanged lines of the same classes; a
@@ -294,6 +299,53 @@ so `0` mutants judged out of many changed lines is visible rather than silent; a
 without `prMutationMaxMutations` (below) includes every PIT-generated mutant of the changed
 classes, including those on unchanged lines.
 
+### Reviewed dispositions
+
+Resolve mutants under [CONV-103](../spec/CONV-conventions.md#conv-103--specification-before-implementation).
+For a reviewed disposition, edit
+[`.github/mutation-dispositions.toml`](../.github/mutation-dispositions.toml), which includes an
+example entry. [CONV-201](../spec/CONV-conventions.md#conv-201--mutation-disposition-record)
+owns the schema, equivalence standard (a cost-only mutant is never equivalent, except one that
+differs only at a single boundary input by at most one extra constant-time step) and
+counterfactual evidence requirements;
+[CONV-202](../spec/CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions)
+owns the acceptance and re-confirmation rules. Review each added claim in the job summary under
+[CONV-203](../spec/CONV-conventions.md#conv-203--disposition-review-abuse-limits-and-refactoring).
+
+After compiling the selected modules and generating PIT reports, use the local helpers below.
+Check and remap read the reports without changing files. Counterfactual temporarily applies a
+patch and runs the supplied test command before restoring the sources; its supported patch
+operations are defined by CONV-201. CI never runs these helpers, and none writes the
+dispositions file.
+
+```bash
+# Judge entries against local PIT reports as the lane would (stale, re-confirmation, unconfirmed).
+python3 .github/scripts/pr_mutation.py dispositions --check --base "$(git rev-parse origin/main)" \
+  --report /tmp/pr-mutation/sirix-core/report/mutations.xml
+# Propose new identities for entries a rename, move or edit left stale; review before using.
+python3 .github/scripts/pr_mutation.py dispositions --remap \
+  --report /tmp/pr-mutation/sirix-core/report/mutations.xml
+# Evidence for killed-out-of-lane: the test passes, fails with the injected mutant, and the
+# sources are restored byte-identically (SHA-256 checked). Prints the [mutant.evidence] table.
+python3 .github/scripts/pr_mutation.py counterfactual --patch mutant.patch -- \
+  ./gradlew :sirix-core:test --tests 'io.sirix.SomeAllocationBudgetTest'
+```
+
+Pass `--sampled` to `--check` when the reports came from a run with a per-class limit.
+
+Measured churn of pure refactors (PIT 1.25.5 on a four-method sample class whose six surviving
+mutants were taken as reviewed entries): a line shift, an extract-method and a method reorder
+touch no entry; a rename leaves two entries stale, each remapped to one candidate marked as
+keeping its instruction indexes; an instance-to-static move leaves two stale with two
+same-mutator candidates each, chosen by line; an edit inside a method requires re-confirming
+that method's three entries, and remap re-identifies them. After applying the proposals no
+entry fails in any of the six cases.
+
+The reporter itself is mutation-tested with mutmut under the same rules; its per-mutant record
+of equivalent survivors is
+[`.github/scripts/tests/MUTATION_DISPOSITIONS.md`](../.github/scripts/tests/MUTATION_DISPOSITIONS.md),
+including the limits of the historical aggregate after review corrections.
+
 The job runs on normal `pull_request` events, including forks and Dependabot, with only
 `contents: read`, no secrets, no persisted checkout credentials and read-only Gradle caches.
 Never use `pull_request_target` or add credentials to run untrusted PR code. Reports are artifacts
@@ -303,23 +355,22 @@ and job summaries, so reporting needs no PR write token.
 reports without gating: its scope is the PR's own changed lines, a red result is normally a
 test-quality finding for the author rather than a broken build, and the per-source test mapping
 is a heuristic that can legitimately find no test. It stays visibly informational even when
-undetected changed-line mutants or incomplete analysis fail its analysis step. Once representative
-PRs have no unresolved undetected changed-line mutants or incomplete runs, maintainers can set the
+the [CONV-202 verdict](../spec/CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions)
+fails its analysis step. Once representative PRs meet that criterion, maintainers can set the
 repository Actions variable
 **`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing` in branch
-protection. That single switch removes job-level tolerance; the reporter already rejects
-undetected changed-line mutants and incomplete runs. Review documented equivalent/unreachable-mutant justifications
-before enabling; there is no silent survivor allowlist. Revert the variable to restore
-informational rollout while investigating an infrastructure failure.
+protection. That single switch removes job-level tolerance; the reporter already applies the
+CONV-202 verdict. Revert the variable to restore informational rollout while investigating an
+infrastructure failure.
 
 Local reproduction (JDK 25; compile the selected modules' `classes testClasses` first):
 
 ```bash
-python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation.py'
+python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'
 python3 .github/scripts/pr_mutation.py select \
   --base "$(git rev-parse origin/main)" --head "$(git rev-parse HEAD)" --output /tmp/pr-mutation
 python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1320
-# Add --blocking to reject undetected changed-line mutants and incomplete analysis locally.
+# Add --blocking to enforce the clean-run criterion locally (CONV-202, CONV-204).
 ```
 
 For a broader deterministic test selection, reuse the artifact's `targets.txt` and run:
@@ -437,13 +488,14 @@ adds one exploratory seed. The identity suite inherits the JVM hash default, so 
 # can repeat). Every 8th commit requests exhaustive new-revision values and its logical iterator,
 # where provided; other revision checks sample values. A cold reopen checks structure and
 # slot order for every revision, all values for the newest, and sampled values for older revisions.
-# Records each shrunk failure as a replayable stream whose header names the versioning, cadence and
-# lane it failed under (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
+# Records each shrunk failure with its case configuration, including eviction and frame poisoning
+# (-Dsirix.hot.property.kinds=CAS,PATH,NAME,VALIDTIME,PROJECTION narrows it)
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.extendedBudgetAcrossEveryKind' \
                            -Dsirix.hot.property.collect=true -Dsirix.hot.property.heavy.seeds=8 \
                            -Dsirix.hot.property.heavy.ops=15000 -Dsirix.hot.property.failureDir=/tmp/hot-property
-# Replay one recorded failure under the checks its header records; -Dhot.diag.validationDump=true
-# makes the writer's own post-publication validator describe the offending node on stderr
+# Replay one recorded failure under its recorded checks and adversarial settings. The CaseConfig
+# header parser in HOTStructuralPropertyTest owns the format and legacy defaults.
+# -Dhot.diag.validationDump=true makes the writer's post-publication validator describe the node
 ./gradlew :sirix-core:test --tests 'io.sirix.index.hot.HOTStructuralPropertyTest.replayRecordedFailure' \
                            -Dsirix.hot.property.replayFile=/tmp/hot-property/hot-property-failures/failure-cas-1-full.txt \
                            -Dhot.diag.validationDump=true

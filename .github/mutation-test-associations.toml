@@ -1,0 +1,23 @@
+# Existing behaviour tests the PR mutation lane must run for a changed class (CONV-204), when
+# their names do not match the class. Nothing more: no patterns, no reasons, no other settings.
+# `class` is the top-level binary name of a main class; `tests` are top-level test classes
+# declared in the same module. Associations share the lane's per-module test cap.
+# See docs/VERIFICATION.md#pr-mutation-testing and spec/CONV-conventions.md.
+
+# The release contract exercises refused and admitted grouping through every public compiler
+# factory, including cold reopen; its name spans these entry points.
+[[association]]
+class = "io.sirix.query.SirixCompileChain"
+tests = ["io.sirix.query.scan.VectorizedReleaseCorrectnessTest"]
+
+[[association]]
+class = "io.sirix.query.compiler.translator.SirixBlockPipelineStrategy"
+tests = ["io.sirix.query.scan.VectorizedReleaseCorrectnessTest"]
+
+[[association]]
+class = "io.sirix.query.compiler.translator.SirixPipelineStrategy"
+tests = ["io.sirix.query.scan.VectorizedReleaseCorrectnessTest"]
+
+[[association]]
+class = "io.sirix.query.scan.VectorizedRouteRefusedException"
+tests = ["io.sirix.query.scan.VectorizedReleaseCorrectnessTest"]

@@ -1247,7 +1247,7 @@ The thresholds and stored layout are owned by
       complete-frontier splice at its lexicographic position instead, counted by
       `MERGE_SPINE_ORDER_DELEGATED`. Both questions are asked of the writer's serialization buffer
       over `[0, keyLen)`, and the walk compares each neighbour's facing extreme on the leaf that
-      holds it (`extremeLeafOfSubtree` plus `HOTLeafPage.compareKeyWithBound`) rather than
+      holds it (`compareSubtreeExtreme` and its validated optimistic read, §4.9.2) rather than
       materializing that key, so the guard materializes no key arrays for an ordinary merge; only a
       declined merge materializes the exact key the frontier needs. Leaf-update allocation remains
       dependent on prefix and value handling (§3.2.2). The seeded structural property test
@@ -1885,6 +1885,41 @@ already have transaction lifetime. `ensurePathChildrenLoaded`, `ensureNodeChildr
 `ChildPageGuards` implement this boundary; `HOTStructuralChildEvictionTest` exercises it under
 a cache smaller than one leaf.
 
+**Mutation-wide retention covers sibling reads**, with the exceptions below
+([FMT-304](../spec/FMT-disk-format.md#fmt-304--hot-mutation-leaf-lifetime)).
+Direct children are a small part of what a put reads: the first and last key of a neighbouring
+subtree, every key of the leaves a strand guard planned to scan, the pair of leaves a consolidation
+merges and the source leaf of a two-leaf migration all lie outside that boundary. `doIndex`,
+`doRemovePostingBit` and `doReplacePostingChunk` therefore bracket their work (`enterMutation`,
+`exitMutation`). Inside a mutation the writer's resolver takes a guard on each leaf it resolves
+from the page cache and keeps it until the mutation ends, normally or by exception; the exit then
+releases all of them. Three kinds of page are not held, because the cache cannot evict them: a page
+the TIL owns, an indirect page (eviction only de-swizzles it), and a leaf the mutation built and has
+not published (its reference has neither a disk key nor a log key). A leaf that cannot be held,
+because eviction won between its resolution and the guard, is loaded again through the guarded
+handoff (§4.9.4); it is never read unheld. The writer lazily allocates its guard set on the first
+call to the holding resolver inside a mutation; its backing array is allocated only with the first
+retained leaf. A put that stays inside the TIL takes no guard. Two reads stay outside the rule,
+because every put makes them. The descent to the key's own leaf
+(`resolveUnheld`) copies every page it resolves into the TIL, the leaf under the guard of its
+copy-on-write (§4.9.4), and reads nothing before that. It must resolve with the guard set a
+constant `null`: that is what lets the JIT fold the holding code out of the resolver and inline
+the rest into the descent, and reading the guard set from a field there cost every put a call per
+hop. The other is optimistic: the neighbour comparison of a put that extends its leaf's range
+(`compareSubtreeExtreme`) would otherwise put a guard acquire and release, three interlocked
+instructions on a page other threads read, into every such put. It compares on the unheld leaf and
+trusts the result only if the leaf is not orphaned afterwards; otherwise it repeats the comparison
+on a held leaf. The check is sound
+because every path that releases a leaf's frame (`close`, `markOrphaned`, the last `releaseGuard`)
+sets the orphaned flag first and nothing clears it, so a leaf that is not orphaned after the read
+owned its frame during the read. It needs no stamp (§4.9.3): a committed leaf is never re-bound to
+another frame, and the flag sits in the leaf object the comparison has just read. Standalone
+consolidation splits leaf-lifetime responsibility with its caller, as documented in
+[`consolidateNodeLeaves`](../bundles/sirix-core/src/main/java/io/sirix/index/hot/HOTIncrementalInsert.java),
+which owns the retention preconditions and the scratch-array ownership bound.
+The [postmortem](postmortems/2026-11-hot-writer-unheld-leaf-reads.md) records the regression
+coverage and the writer's earlier failures.
+
 Readers inside a write transaction resolve TIL modified → TIL complete → swizzle → leaf cache → disk
 (`trx/NodeStorageEngineReader.java:4364-4434`; `trx/NodeStorageEngineWriter.java:5393-5423`), and three
 memos are disabled for them: the lookup cache, the root memo and the first-key memo
@@ -1895,7 +1930,9 @@ mutated, new pages get new offsets, and leaf history is a fragment chain (`set/V
 
 #### 4.9.3 Optimistic leaf reads (seqlock over frame-slot versions)
 
-Leaves are read without pins. The protocol (`hot/page/HOTLeafPage.java:4007-4105`):
+Query readers optimistically read leaves without pins; the writer's neighbour comparison uses
+the separate validation described in §4.9.2. The query-read protocol
+(`hot/page/HOTLeafPage.java:4007-4105`):
 
 ```
 binding = leaf.readStampBinding()     // even = stable binding; odd = rebind in flight or torn down
