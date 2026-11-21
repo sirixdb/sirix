@@ -81,7 +81,9 @@ over slow code.
 
 ## 3. Measurement discipline (why the numbers can be trusted)
 
-These rules were paid for with earlier mistakes, and every number above obeys them:
+These rules were paid for with earlier mistakes, and every number above obeys them. They describe
+the historical campaign's measurement method; current change-acceptance decisions use the
+[development strategy's benchmark protocol](DEVELOPMENT.md#the-benchmark-protocol).
 
 - **Interleaved A/B in one build.** Old binary, new binary, old, new — never two blocks.
   This laptop throttles to 1/7 clock at 99 °C; block measurement once faked a 1.7×

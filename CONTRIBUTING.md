@@ -76,10 +76,10 @@ requirements rather than from the code, behaviour-only tests, mutation testing, 
 review against the written intent, and the benchmark protocol. Read it once before your first
 change. What it asks of every pull request:
 
-- State behaviour, invariants and error cases in the issue or PR, and derive the tests from them
-  **before writing implementation code**. Map each requirement to its test in the PR template. For
-  documentation or CI changes, name the observable acceptance checks instead of inventing
-  application tests.
+- Cite the specification's requirement IDs in the issue, then in the PR, following the
+  [spec-first workflow](docs/DEVELOPMENT.md#1-the-specification-is-the-source-of-truth).
+  Map each requirement to its test in the PR template; for documentation or CI changes, name the
+  observable acceptance checks instead of inventing application tests.
 - Mutation-test changed logic: inspect the PIT artifact and resolve every surviving or uncovered
   changed-line mutant — a behaviour test, a reviewed disposition with its reason and evidence, or
   removing the code. Never write a test to kill a mutant. Scope, local commands, dispositions and

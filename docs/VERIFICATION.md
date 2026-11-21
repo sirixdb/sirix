@@ -62,7 +62,8 @@ They are the first of two layers, not the whole of performance regression testin
 sees a change in the amount of counted work; it is blind to anything that makes the same work
 slower, such as a slower call path or a native-image build setting, which is how two benchmark
 queries once lost 150 ms each with every counter unchanged. That is the job of a separate, timed
-baseline harness run on one known machine under the benchmark campaign's protocol (ClickBench's 43
+baseline harness run on one known machine under the
+[benchmark protocol](DEVELOPMENT.md#the-benchmark-protocol) (ClickBench's 43
 queries, the 100M JSONBench numbers, later the bitemporal benchmark), which is deliberately not part
 of these suites. A green budget suite means the engine did not start doing more work on the guarded
 paths; it does not mean nothing got slower.
@@ -480,5 +481,5 @@ soak weekly and on demand.
    are decorative.
 5. If it touches a read, load or query path — run the work-budget tests, and treat a broken budget
    as a regression until shown otherwise. A bound changes only with the evidence its README asks for.
-6. Never accept a green build as proof when the same author (human or model) wrote both the code
-   and its tests — the oracle/property layers exist precisely because they are independent.
+6. Review test independence against the
+   [development strategy](DEVELOPMENT.md#independence-without-mandatory-separate-authorship).
