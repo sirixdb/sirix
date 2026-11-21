@@ -405,6 +405,37 @@ final class DatabasesInMemoryLifetimeTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void failedTraversalRemainsPendingUntilRepeatedClose(final Model model) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final Path resources = databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Database<? extends ResourceSession<?, ?>> database = open(model, databasePath());
+    createResource(database, VOLATILE, StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+      final long key = commitFirstValue(session, model, "old");
+      assertEquals("old", valueAt(session, model, 1, key));
+    }
+    final Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(resources);
+    Files.setPosixFilePermissions(resources, PosixFilePermissions.fromString("r--r--r--"));
+    try {
+      assumeTrue(!Files.isExecutable(resources), "running as a user who ignores permissions");
+      assertFalse(Files.notExists(resources.resolve(VOLATILE)));
+      assertThrows(SirixIOException.class, database::close);
+      assertFalse(database.isOpen());
+    } finally {
+      Files.setPosixFilePermissions(resources, permissions);
+      if (database.isOpen()) {
+        database.close();
+      }
+    }
+    assertDoesNotThrow(database::close);
+    try (var paths = Files.list(resources)) {
+      assertTrue(paths.toList().isEmpty());
+    }
+  }
+
   static Stream<Arguments> modelsAndRenameFailures() {
     return Stream.of(Model.values()).flatMap(model -> Stream.of(Arguments.of(model, false), Arguments.of(model, true)));
   }

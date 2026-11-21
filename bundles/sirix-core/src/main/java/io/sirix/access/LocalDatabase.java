@@ -975,7 +975,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     SirixIOException retirementFailure = null;
     try {
       for (final Path path : knownInMemoryResources.keySet()) {
-        if (Files.exists(path)) {
+        if (!Files.notExists(path)) {
           rememberCleanup(path);
         }
       }

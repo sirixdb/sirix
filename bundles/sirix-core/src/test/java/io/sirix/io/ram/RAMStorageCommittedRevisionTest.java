@@ -18,6 +18,9 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.io.StorageType;
+import io.sirix.exception.SirixIOException;
+import java.io.IOException;
+import java.nio.file.Files;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.DeflateCompressor;
 import io.sirix.io.bytepipe.FFILz4Compressor;
@@ -32,6 +35,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -271,6 +275,76 @@ final class RAMStorageCommittedRevisionTest {
         for (int i = 1; i < history.size(); i++) {
           assertFalse(history.get(i).getRevisionTimestamp().isAfter(history.get(i - 1).getRevisionTimestamp()));
         }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void failedCommitDoesNotPublishATimestampEntry(final Model model) throws IOException {
+    final Path path = directory.resolve("database");
+    if (model == Model.JSON) {
+      Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    } else {
+      Databases.createXmlDatabase(new DatabaseConfiguration(path));
+    }
+    try (Database<? extends ResourceSession<?, ?>> database = openDatabase(model)) {
+      assertTrue(database.createResource(ResourceConfiguration.newBuilder("resource")
+                                                              .storageType(StorageType.IN_MEMORY)
+                                                              .customCommitTimestamps(true)
+                                                              .storeDiffs(false)
+                                                              .hashKind(HashType.NONE)
+                                                              .buildPathSummary(false)
+                                                              .build()));
+      try (ResourceSession<?, ?> session = database.beginResourceSession("resource")) {
+        final long key;
+        try (NodeTrx writer = session.beginNodeTrx()) {
+          if (model == Model.JSON) {
+            ((JsonNodeTrx) writer).insertArrayAsFirstChild();
+            ((JsonNodeTrx) writer).insertStringValueAsFirstChild("0");
+          } else {
+            ((XmlNodeTrx) writer).insertElementAsFirstChild(new QNm("root"));
+            ((XmlNodeTrx) writer).insertTextAsFirstChild("0");
+          }
+          key = writer.getNodeKey();
+          writer.commit(null, Instant.ofEpochMilli(100));
+          final Path catalogue = path.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                                     .resolve("resource")
+                                     .resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                     .resolve("2.xml");
+          Files.createDirectory(catalogue);
+          try {
+            setValue(writer, model, "failed");
+            assertThrows(SirixIOException.class, () -> writer.commit(null, Instant.ofEpochMilli(200)));
+          } finally {
+            Files.delete(catalogue);
+          }
+          assertEquals(1, session.getMostRecentRevisionNumber());
+          assertEquals(1, session.getRevisionNumber(Instant.ofEpochMilli(200)));
+          writer.rollback();
+          assertTrue(writer.moveTo(key));
+          assertValue(writer, model, "0");
+          setValue(writer, model, "2");
+          writer.commit(null, Instant.ofEpochMilli(300));
+        }
+        assertEquals(2, session.getMostRecentRevisionNumber());
+        for (final long timestamp : new long[] {100, 200, 250}) {
+          assertEquals(1, session.getRevisionNumber(Instant.ofEpochMilli(timestamp)));
+        }
+        for (final long timestamp : new long[] {300, 400}) {
+          assertEquals(2, session.getRevisionNumber(Instant.ofEpochMilli(timestamp)));
+          try (NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(Instant.ofEpochMilli(timestamp))) {
+            assertEquals(2, reader.getRevisionNumber());
+            assertTrue(reader.moveTo(key));
+            assertValue(reader, model, "2");
+          }
+        }
+        try (NodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(1)) {
+          assertTrue(reader.moveTo(key));
+          assertValue(reader, model, "0");
+        }
+        assertEquals(List.of(2, 1), session.getHistory().stream().map(RevisionInfo::getRevision).toList());
+        assertThrows(IllegalArgumentException.class, () -> session.beginNodeReadOnlyTrx(3));
       }
     }
   }

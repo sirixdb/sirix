@@ -202,6 +202,8 @@ public final class RAMStorage implements IOStorage {
     /** Revision root records by revision number. */
     private volatile RevisionRecord[] revisions = new RevisionRecord[INITIAL_REVISIONS];
 
+    private volatile RevisionRecord[] provisionalRevisions = new RevisionRecord[INITIAL_REVISIONS];
+
     /**
      * The uber page in the file storages' beacon framing ({@code [u32 len][payload][u64 hash]}), or
      * {@code null} before the first commit.
@@ -239,20 +241,46 @@ public final class RAMStorage implements IOStorage {
       return payload;
     }
 
-    synchronized void recordRevision(final int revision, final RevisionRecord revisionRecord) {
-      RevisionRecord[] current = revisions;
+    synchronized void stageRevision(final int revision, final RevisionRecord revisionRecord) {
+      RevisionRecord[] current = provisionalRevisions;
       if (revision >= current.length) {
         current = Arrays.copyOf(current, Math.max(revision + 1, current.length << 1));
-        revisions = current;
+        provisionalRevisions = current;
       }
       RECORDS.setRelease(current, revision, revisionRecord);
     }
 
-    RevisionRecord revision(final int revision) {
-      final RevisionRecord[] current = revisions;
-      final RevisionRecord revisionRecord = revision >= 0 && revision < current.length
-          ? (RevisionRecord) RECORDS.getAcquire(current, revision)
+    synchronized void publish(final int revision, final byte[] beacon) {
+      final RevisionIndex currentIndex = revisionIndexHolder.get();
+      RevisionIndex publishedIndex = currentIndex;
+      final RevisionRecord staged = recordAt(provisionalRevisions, revision);
+      if (staged != null && revision >= currentIndex.size()) {
+        if (revision != currentIndex.size()) {
+          throw new SirixIOException("Cannot publish noncontiguous in-memory revision " + revision);
+        }
+        publishedIndex = currentIndex.withNewRevision(staged.key(), staged.timestampMillis());
+        RevisionRecord[] current = revisions;
+        if (revision >= current.length) {
+          current = Arrays.copyOf(current, Math.max(revision + 1, current.length << 1));
+          revisions = current;
+        }
+        RECORDS.setRelease(current, revision, staged);
+      }
+      uberBeacon = beacon;
+      if (publishedIndex != currentIndex) {
+        revisionIndexHolder.update(publishedIndex);
+      }
+    }
+
+    private static @Nullable RevisionRecord recordAt(final RevisionRecord[] records, final int revision) {
+      return revision >= 0 && revision < records.length
+          ? (RevisionRecord) RECORDS.getAcquire(records, revision)
           : null;
+    }
+
+    RevisionRecord revision(final int revision) {
+      final RevisionRecord committed = recordAt(revisions, revision);
+      final RevisionRecord revisionRecord = committed != null ? committed : recordAt(provisionalRevisions, revision);
       if (revisionRecord == null) {
         throw new SirixIOException("In-memory storage holds no revision " + revision);
       }
@@ -262,6 +290,7 @@ public final class RAMStorage implements IOStorage {
     synchronized void clear() {
       payloads = new byte[INITIAL_PAGES][];
       revisions = new RevisionRecord[INITIAL_REVISIONS];
+      provisionalRevisions = new RevisionRecord[INITIAL_REVISIONS];
       nextSlot = 0;
       uberBeacon = null;
       revisionIndexHolder.update(RevisionIndex.EMPTY);
@@ -347,8 +376,7 @@ public final class RAMStorage implements IOStorage {
       pageReference.setHash(pageHash);
       if (page instanceof RevisionRootPage revisionRootPage) {
         final long timestamp = revisionRootPage.getRevisionTimestamp();
-        store.recordRevision(revisionRootPage.getRevision(), new RevisionRecord(key, timestamp, pageHash));
-        store.revisionIndexHolder.addRevision(key, timestamp);
+        store.stageRevision(revisionRootPage.getRevision(), new RevisionRecord(key, timestamp, pageHash));
       }
       return this;
     }
@@ -356,7 +384,7 @@ public final class RAMStorage implements IOStorage {
     @Override
     public Writer writeUberPageReference(final ResourceConfiguration resourceConfiguration,
         final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes) {
-      if (!(page instanceof UberPage)) {
+      if (!(page instanceof UberPage uberPage)) {
         throw new IllegalArgumentException("Not an uber page: " + page);
       }
       final byte[] payload = serialize(resourceConfiguration, page);
@@ -366,7 +394,7 @@ public final class RAMStorage implements IOStorage {
       final ByteBuffer beacon =
           ByteBuffer.allocate(Integer.BYTES + payload.length + Long.BYTES).order(ByteOrder.LITTLE_ENDIAN);
       beacon.putInt(payload.length).put(payload).putLong(Long.reverseBytes(pageHash));
-      store.uberBeacon = beacon.array();
+      store.publish(uberPage.getRevisionNumber(), beacon.array());
       // As a file writer leaves it after writing both beacon copies: keyed at the last one written.
       pageReference.setKey(IOStorage.SECONDARY_BEACON_OFFSET);
       pageReference.setHash(pageHash);

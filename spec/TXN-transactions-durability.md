@@ -539,6 +539,14 @@ At backup start, backup MUST pin the set of resources and each resource’s curr
     source/derived directory fixtures with denied deletion. Missing cache-release behavior on the
     retained-proof branch has no direct public cache-inspection oracle and is reviewed at the shared
     discard boundary; this round adds no internal-cache test.
+  - Provisional RAM revision roots remain separate from committed records and the timestamp index.
+    Uber-beacon publication adds each committed revision exactly once; failed catalogue persistence
+    followed by rollback/retry never contributes a timestamp entry (TXN-503, VER-202).
+    `RAMStorageCommittedRevisionTest.failedCommitDoesNotPublishATimestampEntry` checks exact,
+    between-commit and future timestamps, historical content and absent revision 3 for JSON/XML.
+  - A known path remains pending unless `Files.notExists` proves absence, including when the
+    resources directory can be listed but not traversed. The POSIX regression is
+    `DatabasesInMemoryLifetimeTest.failedTraversalRemainsPendingUntilRepeatedClose` (clause 7).
   - Resource identities remembered at session creation release known RAM caches after successful
     teardown even when filesystem discovery fails. Registry removal also clears the retired RAM
     store, so retaining a closed session does not retain its committed bytes (AC13).

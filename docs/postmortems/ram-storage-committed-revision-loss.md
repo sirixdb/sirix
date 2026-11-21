@@ -152,3 +152,30 @@
   Mutation and broader budget validation remain assigned to the outer executor.
 - Lesson: remove registry ownership and retained payloads together; separate logical state release
   from filesystem discovery and keep retry authority bound to old identities, not reusable names.
+
+## Review follow-up: publication and inaccessible known paths
+
+- Symptoms and triggers: root writing appended a timestamp-index entry before catalogue persistence
+  could fail. Retrying the same revision appended another entry, so an in-between timestamp selected
+  the failed attempt and an exact retry timestamp returned a nonexistent revision. Separately, a
+  resources directory with read permission but no search permission could be listed while child
+  existence checks returned unknown; final close silently dropped those known cleanup targets.
+- Root causes: physical root serialization was mistaken for commit publication, and `Files.exists`
+  was mistaken for a two-valued absence test at the cleanup boundary.
+- Fix: stage revision locators separately, prefer committed records on reads, and append the index
+  and committed locator once at uber-beacon publication. Preserve physical reads of provisional
+  roots for storage clients, without exposing them through timestamp lookup. Clear both record
+  arrays on store discard. Written root locators remain available throughout publication so a
+  physical reader crossing a committed-array resize never loses its fallback locator. Retain known
+  cleanup paths unless `Files.notExists` proves absence.
+- Regression oracles: TXN-503 and VER-202 require failed commits to contribute no timestamp entry.
+  `RAMStorageCommittedRevisionTest.failedCommitDoesNotPublishATimestampEntry` uses a directory at
+  the revision catalogue's output path to make public JSON/XML commits fail after root writing;
+  rollback/retry checks timestamps 100/200/250/300/400, historical values, history and absent revision
+  3. No new injection seam or implementation-shape assertion is needed. TXN-615 clause 7 requires
+  denied traversal to make close fail and repeated close to finish once permissions return;
+  `failedTraversalRemainsPendingUntilRepeatedClose` exercises POSIX read-without-search permission.
+- Why tests missed it: successful histories never revisited an unacknowledged revision number,
+  and existing directory permission tests denied listing or writing rather than search permission.
+- Lesson: publish commit metadata at the commit boundary, and distinguish an unobservable path
+  from a path proven absent. Mutation and broader gates remain assigned to the outer executor.
