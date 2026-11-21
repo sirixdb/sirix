@@ -453,6 +453,42 @@ final class LocalDatabaseInMemoryLifetimeTest {
     }
   }
 
+  @ParameterizedTest
+  @MethodSource("modelsAndCloseOrders")
+  void discardedHiddenResourcesHaveNoNameOrId(final Model model, final boolean hasDerivedSibling) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final Path resources = resourceDirectory(VOLATILE).getParent();
+    final Set<PosixFilePermission> writable = Files.getPosixFilePermissions(resources);
+    try (Database<? extends ResourceSession<?, ?>> database = open(model, databasePath())) {
+      createResource(database, VOLATILE, StorageType.IN_MEMORY);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        commitFirstValue(session, model, "old");
+      }
+      if (hasDerivedSibling) {
+        createResource(database, "derived-fixture", StorageType.FILE_CHANNEL);
+        Files.move(resourceDirectory("derived-fixture"), resourceDirectory(VOLATILE + "$derived"));
+      }
+      final long id = database.getResourceID(VOLATILE);
+      Files.setPosixFilePermissions(resources, PosixFilePermissions.fromString("r-xr-xr-x"));
+      try {
+        assumeTrue(!Files.isWritable(resources), "running as a user who ignores permissions");
+        database.removeResource(VOLATILE);
+        assertFalse(database.existsResource(VOLATILE));
+        assertThrows(SirixUsageException.class, () -> database.getResourceID(VOLATILE));
+        assertNull(database.getResourceName(id));
+      } finally {
+        Files.setPosixFilePermissions(resources, writable);
+      }
+      createResource(database, VOLATILE, StorageType.IN_MEMORY);
+      assertTrue(database.getResourceID(VOLATILE) != id);
+      try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+        assertEquals(0, session.getMostRecentRevisionNumber());
+        assertFalse(hasContent(session));
+      }
+    }
+  }
+
   private Path resourceDirectory(final String name) {
     return databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
   }

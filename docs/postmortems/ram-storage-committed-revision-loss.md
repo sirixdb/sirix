@@ -121,3 +121,34 @@
   broader verification remain assigned to the outer executor.
 - Lesson: every lifecycle exit must release ended ownership, preserve proof until its dependents
   retire, and treat incomplete discovery as pending admission; see [LESSONS.md](../LESSONS.md).
+
+## Review follow-up: retained sessions and close retries
+
+- Symptoms and triggers: retaining closed sessions retained the RAM store's complete payload and
+  revision arrays after its registry entry was removed. A failed directory scan or unreadable
+  settings prevented cache release. Failed renames left discarded names addressable by ID.
+  Repeated close returned without retrying leftover deletion.
+- Root causes: registry lifetime was mistaken for object reachability; cache release depended on
+  rediscovering identities from disk; name/ID removal depended on rename success; ended handles
+  discarded the authority needed to finish their own cleanup.
+- Fix: remove each RAM store from the registry before clearing its arrays, after users quiesce.
+  Remember known RAM resource configurations at session admission, including derived storage;
+  final teardown clears their caches independently of discovery. Shared logical discard removes
+  name/ID mappings even while settings remain. Remember exact pending cleanup paths and original
+  proof UUIDs, and retry only those paths under lifecycle admission. Retry is disk-only, checks
+  incarnation identity, preserves derived-before-source ordering, and never clears a newer store.
+- Regression oracles: TXN-615 AC13's existing small-heap child now has additional modes that keep
+  closed sessions reachable through the entire workload, after both resource removal and final
+  close (`closedSessionsDoNotRetainCommittedHistories`). Clauses 5/7/8 require both metadata lookup
+  directions to forget hidden resources (`discardedHiddenResourcesHaveNoNameOrId`). Clause 7
+  requires repeated close to report still-denied cleanup and succeed after permissions return,
+  for failed renames, failed tombstone deletion and failed directory listing. The newer-instance
+  regression commits and reads a replacement value while an old handle retries close.
+- Why tests missed it: the memory child retained open databases as its control, but did not retain
+  closed sessions; permission tests reopened the database instead of retrying the ended handle.
+- Test limitation: the failed-scan regression verifies known footprint cleanup and the ended-handle
+  behavior publicly. It does not directly measure native cache retention for missing directories
+  or unreadable settings; those release paths are reviewed against the remembered identity map.
+  Mutation and broader budget validation remain assigned to the outer executor.
+- Lesson: remove registry ownership and retained payloads together; separate logical state release
+  from filesystem discovery and keep retry authority bound to old identities, not reusable names.

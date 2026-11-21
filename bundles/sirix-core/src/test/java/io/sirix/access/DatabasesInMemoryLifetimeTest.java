@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Field;
+import java.lang.ref.Reference;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,6 +50,7 @@ import static io.sirix.access.InMemoryLifetimeFixture.open;
 import static io.sirix.access.InMemoryLifetimeFixture.resourceNames;
 import static io.sirix.access.InMemoryLifetimeFixture.valueAt;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -373,6 +375,127 @@ final class DatabasesInMemoryLifetimeTest {
     }
   }
 
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void finalCloseRetainsKnownCleanupWhenDirectoryScanningFails(final Model model) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final Path resources = databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Database<? extends ResourceSession<?, ?>> database = open(model, databasePath());
+    createResource(database, VOLATILE, StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+      final long key = commitFirstValue(session, model, "old");
+      assertEquals("old", valueAt(session, model, 1, key));
+    }
+    final Set<PosixFilePermission> readable = Files.getPosixFilePermissions(resources);
+    Files.setPosixFilePermissions(resources, PosixFilePermissions.fromString("--x--x--x"));
+    try {
+      assumeTrue(!Files.isReadable(resources), "running as a user who ignores permissions");
+      assertThrows(SirixIOException.class, database::close);
+      assertFalse(database.isOpen());
+    } finally {
+      Files.setPosixFilePermissions(resources, readable);
+      if (database.isOpen()) {
+        database.close();
+      }
+    }
+    assertDoesNotThrow(database::close);
+    try (var paths = Files.list(resources)) {
+      assertTrue(paths.toList().isEmpty());
+    }
+  }
+
+  static Stream<Arguments> modelsAndRenameFailures() {
+    return Stream.of(Model.values()).flatMap(model -> Stream.of(Arguments.of(model, false), Arguments.of(model, true)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("modelsAndRenameFailures")
+  void repeatedCloseRetriesOnlyRemainingCleanup(final Model model, final boolean renameFails) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final Path resources = databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Database<? extends ResourceSession<?, ?>> database = open(model, databasePath());
+    createResource(database, VOLATILE, StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = database.beginResourceSession(VOLATILE)) {
+      commitFirstValue(session, model, "old");
+    }
+    final Path denied = renameFails ? resources : resources.resolve(VOLATILE);
+    final Set<PosixFilePermission> writable = Files.getPosixFilePermissions(denied);
+    Files.setPosixFilePermissions(denied, PosixFilePermissions.fromString("r-xr-xr-x"));
+    try {
+      assumeTrue(!Files.isWritable(denied), "running as a user who ignores permissions");
+      assertThrows(SirixIOException.class, database::close);
+      assertFalse(database.isOpen());
+      assertThrows(SirixIOException.class, database::close);
+    } finally {
+      Files.setPosixFilePermissions(resources, writable);
+      try (var paths = Files.list(resources)) {
+        for (final Path path : paths.toList()) {
+          if (Files.isDirectory(path)) {
+            Files.setPosixFilePermissions(path, writable);
+          }
+        }
+      }
+      if (database.isOpen()) {
+        database.close();
+      }
+    }
+    assertDoesNotThrow(database::close);
+    try (var paths = Files.list(resources)) {
+      assertTrue(paths.toList().isEmpty());
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void oldClosePreservesANewerResource(final Model model) throws IOException {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    createDatabase(model, databasePath());
+    final Path resources = databasePath().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Database<? extends ResourceSession<?, ?>> old = open(model, databasePath());
+    createResource(old, VOLATILE, StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = old.beginResourceSession(VOLATILE)) {
+      commitFirstValue(session, model, "old");
+    }
+    final Set<PosixFilePermission> writable = Files.getPosixFilePermissions(resources);
+    Files.setPosixFilePermissions(resources, PosixFilePermissions.fromString("r-xr-xr-x"));
+    try {
+      assumeTrue(!Files.isWritable(resources), "running as a user who ignores permissions");
+      assertThrows(SirixIOException.class, old::close);
+    } finally {
+      Files.setPosixFilePermissions(resources, writable);
+      if (old.isOpen()) {
+        old.close();
+      }
+    }
+    try (Database<? extends ResourceSession<?, ?>> current = open(model, databasePath())) {
+      createResource(current, VOLATILE, StorageType.IN_MEMORY);
+      try (ResourceSession<?, ?> session = current.beginResourceSession(VOLATILE)) {
+        final long key = commitFirstValue(session, model, "new");
+        assertDoesNotThrow(old::close);
+        assertTrue(current.existsResource(VOLATILE));
+        assertEquals("new", valueAt(session, model, 1, key));
+      }
+    }
+    assertDoesNotThrow(old::close);
+  }
+
+  @ParameterizedTest
+  @EnumSource(Model.class)
+  void closedSessionsDoNotRetainCommittedHistories(final Model model) throws Exception {
+    for (final String mode : new String[] {"close-retain-sessions", "remove-retain-sessions"}) {
+      final Process process = child("-Xmx160m", MemoryChild.class, directory.resolve(mode).toString(), model.name(), mode);
+      try {
+        assertEquals("COMPLETED", childResult(process));
+        assertTrue(process.waitFor(300, TimeUnit.SECONDS));
+        assertEquals(0, process.exitValue());
+      } finally {
+        process.destroyForcibly();
+      }
+    }
+  }
+
   /**
    * AC15, clause 7: when session teardown fails, the close throws and discards nothing. The instance
    * stays open, owned and complete, an open rejoins it with every committed revision, and a retry
@@ -591,8 +714,9 @@ final class DatabasesInMemoryLifetimeTest {
       final Path root = Path.of(arguments[0]);
       final Model model = Model.valueOf(arguments[1]);
       final String mode = arguments[2];
-      final boolean close = mode.equals("close");
-      final boolean remove = mode.equals("remove");
+      final boolean close = mode.equals("close") || mode.equals("close-retain-sessions");
+      final boolean remove = mode.equals("remove") || mode.equals("remove-retain-sessions");
+      final boolean retainSessions = mode.endsWith("-retain-sessions");
       final Database<? extends ResourceSession<?, ?>> shared;
       if (remove) {
         createDatabase(model, root.resolve("database"));
@@ -602,6 +726,7 @@ final class DatabasesInMemoryLifetimeTest {
       }
       // Kept reachable on purpose in the control mode.
       final List<Database<? extends ResourceSession<?, ?>>> kept = new ArrayList<>();
+      final List<ResourceSession<?, ?>> closedSessions = new ArrayList<>();
       for (int i = 0; i < DATABASES; i++) {
         final Database<? extends ResourceSession<?, ?>> database;
         final String name;
@@ -619,6 +744,9 @@ final class DatabasesInMemoryLifetimeTest {
             NodeTrx writer = session.beginNodeTrx()) {
           fill(writer, model, new SplittableRandom(i));
           writer.commit();
+          if (retainSessions) {
+            closedSessions.add(session);
+          }
         }
         if (remove) {
           database.removeResource(name);
@@ -628,6 +756,7 @@ final class DatabasesInMemoryLifetimeTest {
           kept.add(database);
         }
       }
+      Reference.reachabilityFence(closedSessions);
       System.out.println("COMPLETED");
       System.out.flush();
       Runtime.getRuntime().halt(0);

@@ -89,13 +89,14 @@ final class DatabaseHandle<T extends ResourceSession<? extends NodeReadOnlyTrx, 
           throw new SirixThreadedException(e);
         }
       }
-      if (closed) {
-        return;
-      }
       closing = true;
     }
     // Timed writer hooks can call back through this handle; quiesce outside its admission monitor.
     try {
+      if (closed) {
+        Databases.retryInMemoryCleanup(owner);
+        return;
+      }
       resourceStore.close();
       try {
         Databases.releaseDatabase(owner, this);

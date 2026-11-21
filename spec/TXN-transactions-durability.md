@@ -539,6 +539,15 @@ At backup start, backup MUST pin the set of resources and each resource’s curr
     source/derived directory fixtures with denied deletion. Missing cache-release behavior on the
     retained-proof branch has no direct public cache-inspection oracle and is reviewed at the shared
     discard boundary; this round adds no internal-cache test.
+  - Resource identities remembered at session creation release known RAM caches after successful
+    teardown even when filesystem discovery fails. Registry removal also clears the retired RAM
+    store, so retaining a closed session does not retain its committed bytes (AC13).
+  - Logical discard removes both name/ID mappings, including failed renames and retained source
+    proof (`discardedHiddenResourcesHaveNoNameOrId`, clauses 5/7/8).
+  - Ended instances retain only exact pending cleanup paths and their original proof UUIDs.
+    Repeated close retries these paths under lifecycle admission without scanning or discarding
+    newer state (`repeatedCloseRetriesOnlyRemainingCleanup`, `oldClosePreservesANewerResource`).
+    Original names are renamed before deletion and derived originals retire before their proof.
   - REST opens and closes a handle per request, and its delete route closes every handle in the process. Either can perform the final close of IN_MEMORY state an embedded user created.
 
 Storage type is chosen per resource, so one database MAY hold IN_MEMORY resources alongside

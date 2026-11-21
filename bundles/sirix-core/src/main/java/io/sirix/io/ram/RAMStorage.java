@@ -113,7 +113,12 @@ public final class RAMStorage implements IOStorage {
    */
   public static void discardUnder(final Path directory) {
     final Path canonical = canonical(requireNonNull(directory));
-    STORES.keySet().removeIf(path -> path.startsWith(canonical));
+    for (final var entry : STORES.entrySet()) {
+      final Store store = entry.getValue();
+      if (entry.getKey().startsWith(canonical) && STORES.remove(entry.getKey(), store)) {
+        store.clear();
+      }
+    }
   }
 
   private static Path canonical(final Path path) {

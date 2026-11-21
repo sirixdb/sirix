@@ -124,6 +124,25 @@ public final class Databases {
     }
   }
 
+  static void retryInMemoryCleanup(final OpenDatabase<?> owner) {
+    if (owner.localDatabase.isOpen() || !owner.localDatabase.hasPendingCleanup()) {
+      return;
+    }
+    try (var gate = MutationGate.acquireDatabase(owner.path)) {
+      synchronized (Databases.class) {
+        if (OPEN_DATABASES.containsKey(owner.path)) {
+          owner.localDatabase.retryPendingCleanup(false);
+        } else if (Files.notExists(owner.path)) {
+          owner.localDatabase.retryPendingCleanup(true);
+        } else {
+          try (final DatabaseLock lock = DatabaseLock.acquire(owner.path)) {
+            owner.localDatabase.retryPendingCleanup(true);
+          }
+        }
+      }
+    }
+  }
+
   /**
    * Drop a closed instance's ownership; a lock-release failure joins {@code primary} if there is one.
    */
