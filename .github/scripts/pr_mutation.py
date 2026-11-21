@@ -1061,8 +1061,7 @@ def format_dispositions(dispositions, associations):
                      f"{escape(record['action'])}" for record in acting)
         lines.append('')
     reported = [record for record in dispositions['entries']
-                if not record['failing'] and record['state'] in
-                ('not judged', 'detected-other', 'inactive', 'advisory')]
+                if record['state'] in ('not judged', 'detected-other', 'inactive', 'advisory')]
     if reported:
         lines.extend(['### Reported entries (not failing)', ''])
         lines.extend(f"- {entry_label(record)} | {escape(record['state'])}: "

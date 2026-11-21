@@ -254,7 +254,8 @@ class SummaryEdgeTest(unittest.TestCase):
 
     def test_verdict_lines_show_counts_reasons_and_entry_details(self):
         long_argument = 'y' * mutation.SUMMARY_JUSTIFICATION_LIMIT
-        mutants = [mutant('TIMED_OUT', 11, indexes=(3,)), mutant('SURVIVED', 11),
+        mutants = [mutant('TIMED_OUT', 11, indexes=(3,)), mutant('KILLED', 11, indexes=(2,)),
+                   mutant('SURVIVED', 11),
                    mutant('SURVIVED', 12, indexes=(9,)), mutant('SURVIVED', 12, indexes=(5,))]
         head = entry(justification=long_argument) + entry('killed-out-of-lane', indexes=[9])
         with lane() as work:
@@ -569,6 +570,9 @@ class SecondRoundTest(unittest.TestCase):
             with self.subTest(size=len(image)):
                 self.assertEqual(mutation.read_class(image),
                                  ('a.Foo', 'Foo.java', {('run', '(I)Z'): frozenset((10, 11))}))
+        # An abstract or native method has no Code attribute and therefore no lines.
+        image = class_file('a.Foo', 'Foo.java', methods, abstract=[('size', '()I')])
+        self.assertEqual(mutation.read_class(image)[2][('size', '()I')], frozenset())
 
     def test_a_patch_may_delete_one_file_while_injecting_into_another(self):
         deleted = 'bundles/sirix-core/src/main/java/a/Old.java'
@@ -630,6 +634,7 @@ class SecondRoundTest(unittest.TestCase):
             first = next(line for line in added if line.startswith('- entry 1 '))
             second = next(line for line in added if line.startswith('- entry 2 '))
             self.assertNotIn('| test', first)
+            self.assertNotIn('Reported entries', summary)  # accepted entries are not reported
             self.assertNotIn('None', first)
             self.assertIn('| test a.FooAllocationTest#allocatesNothing | new |', second)
             other = {'method': 'other', 'descriptor': '()V'}
@@ -699,6 +704,13 @@ class SecondRoundTest(unittest.TestCase):
                  patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
                 self.assertEqual(mutation.main(), 0)
             self.assertIn('ok entry 1 [accepted] a.Foo.run: on a changed line', out.getvalue())
+            # A sampled run never proves a missing mutant stale: it is not judged instead.
+            (root / mutation.DISPOSITIONS_FILE).write_text(entry() + entry(indexes=[42]))
+            with patch.object(sys, 'argv', args + ['--sampled']), \
+                 patch.object(sys, 'stdout', new_callable=io.StringIO) as out:
+                self.assertEqual(mutation.main(), 1)
+            self.assertIn('entry 2 [unconfirmed]', out.getvalue())
+            self.assertIn("not in this run's sample", out.getvalue())
 
     def test_a_default_package_class_reaches_its_associated_tests(self):
         with tempfile.TemporaryDirectory() as temp:

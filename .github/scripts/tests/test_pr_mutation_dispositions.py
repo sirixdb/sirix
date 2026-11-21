@@ -45,11 +45,12 @@ OUT_OF_LANE = ('The mutant only allocates a boxed bound on each call; results ar
 METHODS = {('run', '(I)Z'): (10, 11, 12), ('other', '()V'): (20, 21)}
 
 
-def class_file(name, source, methods, handlers=0, padding=0):
+def class_file(name, source, methods, handlers=0, padding=0, abstract=()):
     """A class image with a SourceFile and, per method, a Code attribute with a LineNumberTable.
 
     `handlers` adds exception-table entries to each Code attribute; `padding` adds constant-pool
-    entries before the SourceFile name, so its index can exceed a signed 16-bit value.
+    entries before the SourceFile name, so its index can exceed a signed 16-bit value; `abstract`
+    names (method, descriptor) pairs declared without a Code attribute.
     """
     pool = []
 
@@ -75,9 +76,11 @@ def class_file(name, source, methods, handlers=0, padding=0):
                 + struct.pack('>H', 1) + struct.pack('>HI', table_name, len(table)) + table)
         encoded_methods += (struct.pack('>HHHH', 0, method_name, method_descriptor, 1)
                             + struct.pack('>HI', code_name, len(code)) + code)
+    for method, descriptor in abstract:
+        encoded_methods += struct.pack('>HHHH', 0x401, utf8(method), utf8(descriptor), 0)
     return (b'\xca\xfe\xba\xbe' + struct.pack('>HHH', 0, 69, len(pool) + 1) + b''.join(pool)
             + struct.pack('>HHHHH', 0x21, this_class, 0, 0, 0)
-            + struct.pack('>H', len(methods)) + encoded_methods
+            + struct.pack('>H', len(methods) + len(abstract)) + encoded_methods
             + struct.pack('>HHIH', 1, source_name, 2, source_value))
 
 
