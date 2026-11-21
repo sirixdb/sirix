@@ -353,8 +353,8 @@ and job summaries, so reporting needs no PR write token.
 reports without gating: its scope is the PR's own changed lines, a red result is normally a
 test-quality finding for the author rather than a broken build, and the per-source test mapping
 is a heuristic that can legitimately find no test. It stays visibly informational even when
-undetected changed-line mutants or incomplete analysis fail its analysis step. Once representative
-PRs have no unresolved undetected changed-line mutants or incomplete runs, maintainers can set the
+the [CONV-202 verdict](../spec/CONV-conventions.md#conv-202--pr-mutation-verdict-with-dispositions)
+fails its analysis step. Once representative PRs meet that criterion, maintainers can set the
 repository Actions variable
 **`MUTATION_BLOCKING=true`** and require `PIT changed-source mutation testing` in branch
 protection. That single switch removes job-level tolerance; the reporter already applies the
