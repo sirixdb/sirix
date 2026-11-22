@@ -78,7 +78,8 @@ final class FormatDiscoveryWorkBudgetTest {
   }
 
   private Path createStore(final StorageType backend, final int revisions) {
-    final Path database = directory.resolve(backend + "-" + revisions);
+    // Reopen canonicalizes this spelling, as with macOS temporary-directory aliases.
+    final Path database = directory.resolve(".").resolve(backend + "-" + revisions);
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
     try (final var opened = Databases.openJsonDatabase(database)) {
       assertTrue(opened.createResource(ResourceConfiguration.newBuilder("fixture")
@@ -140,7 +141,7 @@ final class FormatDiscoveryWorkBudgetTest {
       channels = mockStatic(FileChannel.class, invocation -> {
         final Object result = invocation.callRealMethod();
         if (discovering && invocation.getRawArguments().length == 2 && invocation.getArgument(0) instanceof Path path
-            && path.getParent().equals(data) && result instanceof FileChannel channel) {
+            && Files.isSameFile(path.getParent(), data) && result instanceof FileChannel channel) {
           return observe(channel, path.getFileName().toString().equals(IOStorage.REVISIONS_FILENAME));
         }
         return result;

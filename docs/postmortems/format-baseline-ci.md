@@ -124,3 +124,99 @@ Reproduce the alias/ownership regressions with:
   `0b9ca2a13`. Manual conflict resolution changed no production logic, so the prior
   focused mutation evidence remains applicable; no new disposition was added.
   No push, remote check trigger or pipeline control was performed.
+
+## CI follow-up: canonical paths in the discovery budget
+
+- Fix / issue: PR #1480, CI run `45054105755`, macOS core job `137308946962`.
+- Symptom: both `FormatDiscoveryWorkBudgetTest` backend cases report zero I/O despite
+  one real compatibility proof; the other macOS core tests have no failures.
+- Trigger: the observer's temporary-directory spelling differs from the canonical resource
+  path used during open (macOS temporary paths can be filesystem aliases).
+- Invariant: discovery reads of the fixture's files must be counted regardless of path
+  spelling, on both persistent backends and in normal and repeated-discovery captures.
+- Root cause: the test observer compared directory `Path` values rather than filesystem
+  identity and therefore returned unobserved channels for an alias. Production discovery
+  and its proof succeeded; the positive lower bound correctly rejected missing evidence.
+- Why tests missed it: Linux's original fixture used one directory spelling throughout.
+- Regression: retain a dot segment in the fixture's database path. On Linux this reproduces
+  the same zero-byte failure for FILE_CHANNEL and MEMORY_MAPPED before correcting the
+  observer. The existing test executes cold public database opens, asserts preserved
+  revision/content, bounds actual I/O and repeats real discovery as an excess-work control.
+  FMT-401 and CONV-301 supply the behavior and cost oracles; silently unobserved I/O and
+  doubled discovery are the wrong behaviors it rejects. No budget is widened.
+- Fix: use `Files.isSameFile` at the observer's shared file-open boundary. All data/revision
+  channels and both capture modes use that boundary. No production code changes.
+- Path audit: ordinary and aliased opens return observed real channels; data and revision
+  reads still update their separate counters; closing each capture still closes both static
+  mocks. No helper, branch or caller became unreachable.
+- Vision check: restores portable evidence for “Speed is part of correctness”; introduces
+  no engine behavior or new default.
+- Evidence: `build/ci-round4/budget-before.log` and `budget-before.xml` reproduce both
+  failures with the old observer and the dot-segment fixture. Verification results follow.
+- CodeFactor status `59601378674` belongs to the supplied target `157ca06107399a20308ad6b47b99c6730779bb88`
+  and reports one issue. Its diagnostic URL still returns HTTP 403, without rule/location;
+  it remains unresolved, not proven external or stale.
+
+The downloaded partial PIT report also contains an uncovered changed-line mutant in
+`ResourceConfiguration.requireResourceIdentity`. The already-existing FMT-102 behavior
+tests in `FormatVersionBaselineTest` exercise zero settings UUIDs and builder identities,
+but the lane did not select that suite. Added it to the existing configuration association;
+all 156 mutation-helper tests pass. The mutation scope and time budget are unchanged.
+
+The verbose reproduction retained the original 81 targets, 30 test patterns, four-mutant
+sampling and worker limits. Its baseline passed (including the corrected work budget).
+Worker dumps then showed the full `DerivedIndexMaintainerTest` being executed during
+`MutationTestMinion.findTestsForTestClasses`, before mutation timeout enforcement. Only
+two workers completed in the first several minutes; this reproduction was stopped after
+capturing the stacks rather than waiting for another deadline failure. Evidence is in
+`build/ci-round4/pit.log` and `minion-*-*.txt`.
+
+Removed the redundant `DerivedIndexMaintainerTest` association from the shared proof:
+`FormatRepairBoundaryTest.compatibilityProofAcceptsAliasesButRefusesOtherResources`
+already executes the proof's alias and ownership contract on both backends, and that suite
+retains the derived-rebuild/refusal scenarios. The full maintenance suite remains in
+ordinary CI. The reader, proof and settings associations still select the focused repair
+tests; the discovery budget stays associated with the proof, and the settings association
+also selects the existing baseline contract suite. Production target selection, mutant
+sampling, verdict and shared deadline are unchanged. The real blocking reporter was rerun
+with the resulting selection, not a manually reduced production target list.
+
+### Follow-up verification results
+
+- The complete core PIT analysis finished in 20m 42s within the unchanged 1,320-second
+  share, with the original 81 production targets and four-mutant sampling. All 13
+  changed-line mutants were killed, with zero surviving or uncovered changed-line mutants
+  and no new dispositions. The previously uncovered UUID check is killed by
+  `FormatVersionBaselineTest.zeroResourceUuidSettingIsRefusedBeforeAnyMutation`.
+- PIT generated 214 total mutants: 112 killed, two timed out, 52 surviving and 48 uncovered;
+  the latter survivors/uncovered mutants are all on unchanged lines (advisory).
+- Evidence: `build/ci-round4/selection/sirix-core/report/mutations.xml`, `pitest.log` and
+  `build/ci-round4/selection/summary.md`. The first reporter exit additionally flagged the
+  two existing CLI dispositions because only core classes had been compiled locally;
+  CI's Build stage compiles all modules. The prerequisite compilation and recheck succeeded as recorded below.
+- All 156 mutation-helper tests pass with the final associations (`helper-final.log`).
+
+- Ordinary Gradle verification passed all 325 selected main-task tests, zero failures/errors
+  and no skips, in 2m 20s. This includes both discovery-budget backend cases, all 39
+  repair-boundary cases, all nine baseline cases, every `io.sirix.format.*` and
+  `io.sirix.budget.*` test, and all 69 derived-maintenance cases. Both history sizes and
+  excess-work controls pass with the dot-segment fixture; bounds are unchanged.
+  Command: `./gradlew :sirix-core:test --tests 'io.sirix.budget.*' --tests
+  'io.sirix.access.FormatRepairBoundaryTest' --tests 'io.sirix.format.*' --tests
+  'io.sirix.index.aggregate.DerivedIndexMaintainerTest' -x
+  :sirix-core:validTimeDisabledLookupCacheTest -x :sirix-core:dictionaryReadViewAllocationTest
+  -x :sirix-core:storageEpochStoreIdentityTest`. Log: `build/ci-round4/core-after.log`;
+  counts: `build/ci-round4/test-counts.json`. The three unrelated isolated suites were
+  excluded from this focused invocation.
+
+- `./gradlew :sirix-kotlin-cli:classes` succeeded in 32s, supplying the existing CLI
+  classes absent from the initial local core-only build. The disposition recheck then
+  passed (exit 0), with both unchanged entries out of the mutated scope and zero failing
+  entries. Command: `python3 .github/scripts/pr_mutation.py dispositions --check --base
+  b2f7599e4f513dc434407ae7bd832903da8cfa63 --report
+  build/ci-round4/selection/sirix-core/report/mutations.xml --sampled`. Logs:
+  `build/ci-round4/cli-classes.log` and `dispositions-after.log`. No disposition was edited
+  or waived; the original full-driver exit 1 reflected only that local build prerequisite.
+- Final `git diff --check` passed. CodeFactor remains unresolved because its diagnostics
+  return HTTP 403 without identifying a rule or location. No remote workflow, push, PR
+  update or pipeline-control command was executed in this assigned phase.
