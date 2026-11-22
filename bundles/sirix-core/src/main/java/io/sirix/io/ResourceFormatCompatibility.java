@@ -45,8 +45,12 @@ public final class ResourceFormatCompatibility {
     }
 
     public void requireResource(final Path path) {
-      if (!resource.equals(path)) {
-        throw new IllegalArgumentException("Compatibility proof belongs to another resource");
+      try {
+        if (!resource.equals(path) && !Files.isSameFile(resource, path)) {
+          throw new IllegalArgumentException("Compatibility proof belongs to another resource");
+        }
+      } catch (final IOException failure) {
+        throw new SirixIOException(failure);
       }
     }
   }

@@ -17,6 +17,14 @@ tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.Com
 class = "io.sirix.access.trx.page.NodeStorageEngineWriter"
 tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest"]
 
+[[association]]
+class = "io.sirix.io.filechannel.FileChannelReader"
+tests = ["io.sirix.access.FormatRepairBoundaryTest"]
+
+[[association]]
+class = "io.sirix.io.ResourceFormatCompatibility"
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.index.aggregate.DerivedIndexMaintainerTest"]
+
 # The release contract exercises refused and admitted grouping through every public compiler
 # factory, including cold reopen; its name spans these entry points.
 [[association]]

@@ -1,6 +1,7 @@
 package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.exception.UnsupportedFormatVersionException;
 import io.sirix.exception.UnsupportedStoreFeatureException;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.page.HOTLeafPage;
@@ -152,8 +153,8 @@ public final class PageEnvelopeContractTest {
     final byte[] unknownVersion = oldBytes.clone();
     unknownVersion[1] = 1;
     final BytesIn<?> unknownVersionSource = Bytes.wrapForRead(unknownVersion);
-    assertThrows(unsupportedType,
-        () -> persister.deserializePage(CONFIG, unknownVersionSource, SerializationType.DATA));
+    assertEquals("unsupported format version 1", assertThrows(UnsupportedFormatVersionException.class,
+        () -> persister.deserializePage(CONFIG, unknownVersionSource, SerializationType.DATA)).getMessage());
     // A deserialized revision root keeps the epoch-microsecond commit timestamp it was committed
     // with, so a rewrite is byte-identical without pinning the timestamp here.
     final Page parsed = persister.deserializePage(CONFIG, Bytes.wrapForRead(extended), SerializationType.DATA);

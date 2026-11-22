@@ -49,6 +49,18 @@ final class FormatRepairBoundaryTest {
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void compatibilityProofAcceptsAliasesButRefusesOtherResources(final StorageType backend) throws IOException {
+    final Path database = createStore("proof-owner-" + backend, backend, false);
+    final Path resource = resourcePath(database, "fixture");
+    final Path otherDatabase = createStore("proof-other-" + backend, backend, false);
+    final var proof = ResourceFormatCompatibility.verify(ResourceConfiguration.deserialize(resource));
+    proof.requireResource(resource);
+    proof.requireResource(resource.resolve("."));
+    assertThrows(IllegalArgumentException.class, () -> proof.requireResource(resourcePath(otherDatabase, "fixture")));
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void derivedRepairRefusesForeignFormatsWithoutChangingFiles(final StorageType backend) throws IOException {
     for (final String site : new String[] {"settings", "data", "revisions", "data-missing-settings",
         "revisions-missing-settings", "uber", "root-missing-settings", "historical-root-missing-settings",

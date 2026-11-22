@@ -246,6 +246,9 @@ final class SparseRevisionHistoryTest {
                 ? 5
                 : 2;
         Files.write(revisions, original);
+        // Exercise the index loader itself even when the opening gate would reject the damage.
+        Databases.clearGlobalCaches();
+        final IOStorage storage = storage(config);
         writeTombstone(revisions, revision, revision == 0
             ? Instant.EPOCH
             : FIRST.plusSeconds(revision));
@@ -270,8 +273,6 @@ final class SparseRevisionHistoryTest {
             }
           }
         }
-        Databases.clearGlobalCaches();
-        final IOStorage storage = storage(config);
         final RevisionIndexHolder holder = new RevisionIndexHolder();
         try {
           if (revision == 2) {
