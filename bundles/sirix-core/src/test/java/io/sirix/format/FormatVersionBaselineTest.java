@@ -34,8 +34,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * FMT-401 ordinary-open coverage: these fixtures exercise foreign superblock layout versions,
  * page-envelope versions and persisted {@code binaryEncoding} settings. Their ordinary opens
  * refuse before mutation with a plain unsupported-format-version error, without naming a pre-1.0
- * development format. Page decoding fixtures cover FILE_CHANNEL and MEMORY_MAPPED; repair and
- * recovery combinations remain the tracked gap in FMT-401, task sirix-repair-format-gate.
+ * development format. Page decoding fixtures cover FILE_CHANNEL and MEMORY_MAPPED. The repair and
+ * recovery boundaries are enforced as well, through the shared compatibility discovery their
+ * destructive paths must pass; FormatRepairBoundaryTest covers those combinations. FMT-401 owns
+ * the requirement and records what is still missing there (the FMT-208 corpus).
  *
  * <p>
  * FMT-102: the development-era acceptances of a zero resource UUID and a zero revisions record
