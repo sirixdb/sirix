@@ -128,8 +128,10 @@ a separate revisions-file force on every steady-state commit. The invariants tha
   ring ONLY when the file record is missing or fails its checksum; an intact record is never
   second-guessed. The [tombstone safeguards below](#sirixrevisions) further restrict salvage and
   healing. A salvaged record is written back into the revisions file (self-heal) only when the
-  [store feature policy](#uberpage-store-feature-words) permits writes; read-only opens serve
-  the recovered value without healing. A record that is neither intact in the file nor recoverable
+  [store feature policy](#uberpage-store-feature-words) permits writes and the
+  [format compatibility gate](../spec/FMT-disk-format.md#fmt-401--10-format-baseline)
+  authorizes the repair; read-only opens serve the recovered value without healing.
+  A record that is neither intact in the file nor recoverable
   from an entry that passes its own XXH3 is a hard error naming the exhausted salvage source, never a
   silently-served garbage offset.
 - **Writer handoff.** Writers are per-transaction, so the ring image and the write frontiers are
@@ -151,9 +153,11 @@ PRIMARY is issued. Neither profile permits a visible beacon to reference an unfo
 Recovery truncation repairs both slots to the recovered revision, so a stale-forward
 secondary cannot later resurrect a discarded revision; see
 [`CrashRecoveryTest.staleForwardSecondaryBeacon_isRepairedOnRecovery`](../bundles/sirix-core/src/test/java/io/sirix/access/CrashRecoveryTest.java).
-Explicit rollback has a different ordering: `NodeStorageEngineWriter.truncateTo` first
-publishes the target uber page, retaining the committed store feature words, through the durable
-dual-beacon protocol, then truncates the discarded tail. A crash leaves either the original or target revision,
+Explicit rollback has a different ordering: after the
+[format preflight](../spec/FMT-disk-format.md#fmt-401--10-format-baseline),
+`NodeStorageEngineWriter.truncateTo` publishes the target uber page, retaining the committed
+store feature words, through the durable dual-beacon protocol, then truncates the discarded tail.
+A crash leaves either the original or target revision,
 not a beacon pointing past truncated files. See
 [`ExplicitRollbackCrashSimulationTest`](../bundles/sirix-core/src/test/java/io/sirix/crash/ExplicitRollbackCrashSimulationTest.java)
 and [`NodeStorageEngineWriter.truncateTo`](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java).

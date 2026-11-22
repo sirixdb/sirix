@@ -12,13 +12,11 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Open-time superblock validation, performed once per JVM per canonical file path.
+ * Cached superblock validation for repeated channel creation, once per JVM per canonical file path.
  * <p>
- * Storage instances are request-scoped (a REST request opens and closes its own storage), so a
- * per-instance "validated" flag re-paid two file opens + header reads on every request. The
- * superblock is immutable after the first commit; once a path's header validated, re-checking it
- * for every new storage instance buys nothing — corruption that happens AFTER the first validation
- * is caught by the per-read beacon checksums, which is the existing protection model.
+ * The shared {@link ResourceFormatCompatibility} gate checks persistent storage initialization and
+ * destructive recovery independently of this cache. Cached headers alone are not compatibility
+ * evidence for a repair; this cache only avoids repeated checks when opening further channels.
  * <p>
  * Invalidation: resource removal drops the resource's paths ({@link #invalidateUnder(Path)}); tests
  * that mutate files out-of-band simulate a cold process via {@code Databases.clearGlobalCaches()},

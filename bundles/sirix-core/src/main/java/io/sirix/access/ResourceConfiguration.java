@@ -756,8 +756,8 @@ public final class ResourceConfiguration {
   /**
    * Reads the next field name and fails fast when it is not the expected one. The resource settings
    * are format identity: required fields must not be silently misparsed (this used to be an
-   * {@code assert}, a no-op in production). Optional tail fields are dispatched separately by name;
-   * see {@code docs/DISK_FORMAT.md} for the settings contract.
+   * {@code assert}, a no-op in production). Tail fields are dispatched separately by name; see
+   * {@code spec/CONF-configuration.md} for the settings contract.
    */
   private static void expectField(final JsonReader jsonReader, final String expected, final Path configFile)
       throws IOException {
@@ -774,7 +774,8 @@ public final class ResourceConfiguration {
    *
    * @param file where the resource lies in.
    * @return a complete {@link ResourceConfiguration} instance
-   * @throws SirixIOException if an I/O error occurs
+   * @throws SirixIOException if an I/O error occurs or the resource identity is missing or zero
+   * @throws UnsupportedFormatVersionException if the persisted binary encoding is not supported
    */
   public static ResourceConfiguration deserialize(final Path file) throws SirixIOException {
     final Path configFile = file.resolve(ResourcePaths.CONFIG_BINARY.getPath());
@@ -783,8 +784,7 @@ public final class ResourceConfiguration {
       jsonReader.beginObject();
       // Binary encoding version.
       expectField(jsonReader, JSONNAMES[0], configFile);
-      final BinaryEncodingVersion binaryEncodingVersion =
-          readBinaryEncodingVersion(jsonReader, configFile);
+      final BinaryEncodingVersion binaryEncodingVersion = readBinaryEncodingVersion(jsonReader, configFile);
       // Versioning.
       expectField(jsonReader, JSONNAMES[1], configFile);
       jsonReader.beginObject();
