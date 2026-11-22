@@ -78,7 +78,7 @@ reduced workloads. Workflow triggers and the `Build` prerequisite are unchanged,
 so both jobs run on every previously covered pull request, main push, release
 branch push and scheduled run. `fail-fast: false` lets both finish after a failure.
 `Deploy` still depends on `TestCore`, which now requires both matrix jobs to
-succeed. Query and cross-platform jobs are unchanged.
+succeed. Query jobs are unchanged; the macOS and Windows core jobs are cut separately, below.
 
 ## Verification
 
@@ -93,3 +93,33 @@ A discovery pass skips execution and is coverage evidence, not a correctness run
 
 The PR's CI must execute both lanes successfully. Read each job's start/end times
 from GitHub and compare them with the unchanged 35-minute cap.
+
+## macOS and Windows core cut (2026-11-22)
+
+The Linux cut does not help the cross-platform jobs. They pass `-PexcludeHeavyTests`, which
+removes the long `HOTStructuralPropertyTest` workloads, so in
+[run 45062256488](https://github.com/sirixdb/sirix/actions/runs/45062256488) (Windows core,
+24 m 47 s Gradle time) that class took about 259 s of about 1,400 s of test output. Cutting there
+would leave one lane with 4 minutes of work. macOS and Windows core took 30-35 min in the runs
+before it (45065738370, 45068208787). The 1 min macOS job in run 45062256488 was a Gradle
+build-cache hit; its 25 min Windows job was a real run at the fast end of the 25-35 min range.
+
+Those two jobs split on the `io.sirix.index` package tree instead, with two more values of the
+same `coreTestLane` property:
+
+```bash
+./gradlew :sirix-core:test -PcoreTestLane=index     -PexcludeHeavyTests=true
+./gradlew :sirix-core:test -PcoreTestLane=non-index -PexcludeHeavyTests=true
+```
+
+`index` includes `io/sirix/index/**/*.class`, `non-index` excludes it, so the same argument as
+above gives an empty intersection and a union equal to the unpartitioned set. Summing the
+interval between successive test classes' first output lines in run 45062256488 (the same
+imprecise measure as above) gives 714 s for `index` and 689 s for `non-index`.
+
+The matrix lane names become `core-index` and `core-non-index`; the report artifacts are
+`test-reports-<os>-core-index` and `-core-non-index`. Linux `TestCore`, the coverage artifacts and
+the Sonar inputs are untouched. Each cross-platform core job ends with a `Summarize core test
+counts` step that prints its executed totals (also in the job summary); the two lines must sum to
+the unpartitioned count from the `--test-dry-run` procedure above run with
+`-PexcludeHeavyTests=true`.
