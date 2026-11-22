@@ -1,6 +1,5 @@
 package io.sirix.service.json.serialize;
 
-import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.ChildCounts;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -12,6 +11,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.io.Writer;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentMap;
 
@@ -477,7 +478,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
             out.append("{\"revisionNumber\":").append(Integer.toString(rtx.getRevisionNumber()));
             if (serializeTimestamp) {
               out.append(",\"revisionTimestamp\":\"")
-                 .append(CommitTimestamps.format(rtx.getRevisionTimestamp()))
+                 .append(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp()))
                  .append('"');
             }
             out.append(",\"revision\":");

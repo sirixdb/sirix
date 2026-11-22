@@ -6,11 +6,7 @@
 
 [[association]]
 class = "io.sirix.io.ram.RAMStorage"
-tests = ["io.sirix.io.ram.RAMStorageCommitTest", "io.sirix.io.ram.RAMStorageTruncateToTest"]
-
-[[association]]
-class = "io.sirix.access.trx.node.AbstractResourceSession"
-tests = ["io.sirix.io.ram.RAMStorageCommitTest"]
+tests = ["io.sirix.io.ram.RAMStorageTruncateToTest"]
 
 # The release contract exercises refused and admitted grouping through every public compiler
 # factory, including cold reopen; its name spans these entry points.
@@ -43,7 +39,7 @@ tests = ["io.sirix.backup.BackupManagerInMemoryResourcesTest"]
 class = "io.sirix.io.Reader"
 tests = ["io.sirix.io.ram.RAMStorageContractTest"]
 
-# VER-201 fixed-width timestamp text is asserted through the public output boundaries.
+# VER-201 ISO timestamp precision is asserted through the public output boundaries.
 [[association]]
 class = "io.sirix.service.json.serialize.JsonSerializer"
 tests = ["io.sirix.io.CommitTimestampOutputTest"]

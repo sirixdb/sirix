@@ -37,9 +37,10 @@ import java.io.UnsupportedEncodingException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentMap;
 
-import io.sirix.utils.CommitTimestamps;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -423,7 +424,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
               write(" sdb:revisionTimestamp=\"");
             }
 
-            write(CommitTimestamps.format(rtx.getRevisionTimestamp()));
+            write(DateTimeFormatter.ISO_INSTANT.withZone(ZoneOffset.UTC).format(rtx.getRevisionTimestamp()));
             write("\"");
           }
 

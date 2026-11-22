@@ -1,8 +1,6 @@
 package io.sirix.utils;
 
 import java.time.Instant;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
 
 /**
  * Conversions for the stored commit timestamp unit of VER-201: a signed count of microseconds since
@@ -16,8 +14,8 @@ import java.time.format.DateTimeFormatterBuilder;
  *
  * <p>
  * Numeric conversions are allocation-free except {@link #toInstant(long)}, which necessarily
- * materializes the {@link Instant} it returns. Text output uses a shared immutable formatter.
- * Commit and open-by-time paths use the primitive {@code long} form.
+ * materializes the {@link Instant} it returns. Commit and open-by-time paths use the primitive
+ * {@code long} form.
  */
 public final class CommitTimestamps {
 
@@ -26,8 +24,6 @@ public final class CommitTimestamps {
 
   /** Nanoseconds per microsecond. */
   private static final long NANOS_PER_MICRO = 1_000L;
-
-  private static final DateTimeFormatter ISO_FORMATTER = new DateTimeFormatterBuilder().appendInstant(6).toFormatter();
 
   private CommitTimestamps() {
     throw new AssertionError("May never be instantiated.");
@@ -70,17 +66,6 @@ public final class CommitTimestamps {
   public static Instant toInstant(final long epochMicros) {
     return Instant.ofEpochSecond(Math.floorDiv(epochMicros, MICROS_PER_SECOND),
         Math.floorMod(epochMicros, MICROS_PER_SECOND) * NANOS_PER_MICRO);
-  }
-
-  /**
-   * Format a commit timestamp as UTC ISO text with exactly six fractional digits (VER-201).
-   *
-   * @param instant the commit instant, never {@code null}
-   * @return ISO timestamp text, preserving trailing fractional zeros
-   * @throws NullPointerException if {@code instant} is {@code null}
-   */
-  public static String format(final Instant instant) {
-    return ISO_FORMATTER.format(instant);
   }
 
   /**

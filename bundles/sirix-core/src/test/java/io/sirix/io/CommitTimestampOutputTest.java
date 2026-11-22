@@ -22,16 +22,19 @@ import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/** VER-201: public commit timestamp text has six fractional digits, including trailing zeros. */
+/**
+ * VER-201: public commit timestamp text preserves every stored microsecond with ISO_INSTANT
+ * formatting.
+ */
 final class CommitTimestampOutputTest {
-  private static final String[] ISO_TIMES = {
-      "2021-03-04T05:06:07.000000Z", "2021-03-04T05:06:07.123000Z", "2021-03-04T05:06:07.123456Z"};
+  private static final String[] ISO_TIMES =
+      {"2021-03-04T05:06:07Z", "2021-03-04T05:06:07.123Z", "2021-03-04T05:06:07.123456Z"};
 
   @TempDir
   Path directory;
 
   @Test
-  void jsonSerializersEmitSixFractionalDigits() {
+  void jsonSerializersPreserveIsoTimestampPrecision() {
     Databases.createJsonDatabase(new DatabaseConfiguration(directory));
     try (final var database = Databases.openJsonDatabase(directory)) {
       database.createResource(ResourceConfiguration.newBuilder("res").customCommitTimestamps(true).build());
@@ -65,7 +68,7 @@ final class CommitTimestampOutputTest {
   }
 
   @Test
-  void xmlSerializerEmitsSixFractionalDigits() throws Exception {
+  void xmlSerializerPreservesIsoTimestampPrecision() throws Exception {
     Databases.createXmlDatabase(new DatabaseConfiguration(directory));
     try (final var database = Databases.openXmlDatabase(directory)) {
       database.createResource(ResourceConfiguration.newBuilder("res").customCommitTimestamps(true).build());
@@ -86,11 +89,14 @@ final class CommitTimestampOutputTest {
           final var factory = DocumentBuilderFactory.newInstance();
           factory.setNamespaceAware(true);
           final var document = factory.newDocumentBuilder().parse(new ByteArrayInputStream(output.toByteArray()));
-          final var items = document.getElementsByTagName(rest ? "rest:item" : "sdb:sirix-item");
+          final var items = document.getElementsByTagName(rest
+              ? "rest:item"
+              : "sdb:sirix-item");
           assertEquals(3, items.getLength(), output.toString());
           for (int index = 0; index < ISO_TIMES.length; index++) {
-            final String emitted = ((Element) items.item(index))
-                .getAttribute(rest ? "rest:revisionTimestamp" : "sdb:revisionTimestamp");
+            final String emitted = ((Element) items.item(index)).getAttribute(rest
+                ? "rest:revisionTimestamp"
+                : "sdb:revisionTimestamp");
             assertEquals(ISO_TIMES[index], emitted);
             try (final var reader = session.beginNodeReadOnlyTrx(index + 1)) {
               assertEquals(reader.getRevisionTimestamp(), Instant.parse(emitted));

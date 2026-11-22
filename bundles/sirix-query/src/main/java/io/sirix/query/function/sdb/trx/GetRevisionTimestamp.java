@@ -7,11 +7,11 @@ import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
-import io.sirix.utils.CommitTimestamps;
 import io.sirix.query.StructuredDBItem;
 import io.sirix.query.function.sdb.SDBFun;
 
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 
 /**
  * <p>
@@ -39,27 +39,11 @@ public final class GetRevisionTimestamp extends AbstractFunction {
     super(name, signature, true);
   }
 
-  /** Preserve VER-201 text without changing xs:dateTime comparisons or arithmetic. */
-  private static final class CommitDateTime extends DateTime {
-    private final String text;
-
-    private CommitDateTime(final String text) {
-      super(text);
-      this.text = text;
-    }
-
-    @Override
-    public String stringValue() {
-      // Brackit's default dateTime text drops trailing fractional zeros.
-      return text;
-    }
-  }
-
   @Override
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
     final Instant instant = document.getTrx().getRevisionTimestamp();
-    final String dateTime = CommitTimestamps.format(instant);
-    return new CommitDateTime(dateTime);
+    final String dateTime = DateTimeFormatter.ISO_INSTANT.format(instant);
+    return new DateTime(dateTime);
   }
 }

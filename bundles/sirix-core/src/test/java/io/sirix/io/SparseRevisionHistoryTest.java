@@ -61,9 +61,7 @@ final class SparseRevisionHistoryTest {
     assertEquals(Long.MIN_VALUE, buffer.getLong(8));
     assertEquals(0x5052554E45440001L, buffer.getLong(32));
     final ByteBuffer checksumInput = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN);
-    checksumInput.putLong(Long.MIN_VALUE)
-                 .putLong(CommitTimestamps.toEpochMicros(FIRST))
-                 .putLong(0x5052554E45440001L);
+    checksumInput.putLong(Long.MIN_VALUE).putLong(CommitTimestamps.toEpochMicros(FIRST)).putLong(0x5052554E45440001L);
     assertEquals(LongHashFunction.xx3().hashBytes(checksumInput.array()), buffer.getLong(24));
     final RevisionFileData data = IOStorage.decodeRevisionRecord(2, buffer.getLong(8), buffer.getLong(16),
         buffer.getLong(24), buffer.getLong(32));

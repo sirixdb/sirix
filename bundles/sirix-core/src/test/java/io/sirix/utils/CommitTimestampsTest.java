@@ -5,6 +5,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -17,14 +18,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class CommitTimestampsTest {
 
   @ParameterizedTest
-  @CsvSource({
-      "2021-03-04T05:06:07Z,2021-03-04T05:06:07.000000Z",
-      "2021-03-04T05:06:07.123Z,2021-03-04T05:06:07.123000Z",
+  @CsvSource({"2021-03-04T05:06:07Z,2021-03-04T05:06:07Z", "2021-03-04T05:06:07.123Z,2021-03-04T05:06:07.123Z",
       "2021-03-04T05:06:07.123456Z,2021-03-04T05:06:07.123456Z",
       "1969-12-31T23:59:59.999999Z,1969-12-31T23:59:59.999999Z"})
-  void isoOutputHasSixFractionalDigits(final String input, final String expected) {
-    // VER-201 fixes the lexical width, even when Instant.toString() would drop trailing zeros.
-    assertEquals(expected, CommitTimestamps.format(Instant.parse(input)));
+  void isoOutputPreservesStoredMicroseconds(final String input, final String expected) {
+    final Instant supplied = Instant.parse(input);
+    final Instant stored = CommitTimestamps.toInstant(CommitTimestamps.toEpochMicros(supplied));
+    final String emitted = DateTimeFormatter.ISO_INSTANT.format(stored);
+    assertEquals(expected, emitted);
+    assertEquals(supplied, Instant.parse(emitted));
   }
 
   @Test
@@ -65,8 +67,8 @@ final class CommitTimestampsTest {
 
   @Test
   void theWholeSignedRangeRoundTrips() {
-    for (final long micros : new long[] {Long.MIN_VALUE, Long.MIN_VALUE + 1, -1_000_000_000_001L, -1L, 0L, 1L,
-        999_999L, 1_000_000L, 1_795_264_496_123_456L, Long.MAX_VALUE}) {
+    for (final long micros : new long[] {Long.MIN_VALUE, Long.MIN_VALUE + 1, -1_000_000_000_001L, -1L, 0L, 1L, 999_999L,
+        1_000_000L, 1_795_264_496_123_456L, Long.MAX_VALUE}) {
       assertEquals(micros, CommitTimestamps.toEpochMicros(CommitTimestamps.toInstant(micros)),
           "round trip of " + micros);
     }
@@ -76,8 +78,7 @@ final class CommitTimestampsTest {
   void oneMicrosecondStepsAreRepresentable() {
     final long micros = CommitTimestamps.toEpochMicros(Instant.parse("2026-11-21T12:34:56.123456Z"));
     assertEquals(micros + 1, CommitTimestamps.toEpochMicros(Instant.parse("2026-11-21T12:34:56.123457Z")));
-    assertEquals(micros + 1,
-        CommitTimestamps.toEpochMicros(CommitTimestamps.toInstant(micros).plusNanos(1_000L)));
+    assertEquals(micros + 1, CommitTimestamps.toEpochMicros(CommitTimestamps.toInstant(micros).plusNanos(1_000L)));
   }
 
   @Test

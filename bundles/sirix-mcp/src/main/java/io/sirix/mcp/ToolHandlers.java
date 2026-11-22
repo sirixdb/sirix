@@ -15,7 +15,6 @@ import io.sirix.access.ResourceAccessScope;
 import io.sirix.exception.SirixRevisionPrunedException;
 import io.sirix.api.Database;
 import io.sirix.api.RevisionInfo;
-import io.sirix.utils.CommitTimestamps;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.SirixCompileChain;
@@ -168,14 +167,14 @@ public final class ToolHandlers {
         if (latestRevision > 1) {
           final List<RevisionInfo> history = session.getHistory(latestRevision, 1);
           if (!history.isEmpty()) {
-            info.put("lastModified", CommitTimestamps.format(history.getFirst().getRevisionTimestamp()));
-            info.put("created", CommitTimestamps.format(history.getLast().getRevisionTimestamp()));
+            info.put("lastModified", history.getFirst().getRevisionTimestamp().toString());
+            info.put("created", history.getLast().getRevisionTimestamp().toString());
           }
         } else {
           final List<RevisionInfo> history = session.getHistory(1);
           if (!history.isEmpty()) {
-            info.put("created", CommitTimestamps.format(history.getFirst().getRevisionTimestamp()));
-            info.put("lastModified", CommitTimestamps.format(history.getFirst().getRevisionTimestamp()));
+            info.put("created", history.getFirst().getRevisionTimestamp().toString());
+            info.put("lastModified", history.getFirst().getRevisionTimestamp().toString());
           }
         }
 
@@ -258,7 +257,7 @@ public final class ToolHandlers {
         for (final RevisionInfo rev : revisions) {
           final var entry = new LinkedHashMap<String, Object>();
           entry.put("revision", rev.getRevision());
-          entry.put("timestamp", CommitTimestamps.format(rev.getRevisionTimestamp()));
+          entry.put("timestamp", rev.getRevisionTimestamp().toString());
           rev.getCommitMessage().ifPresent(msg -> entry.put("message", msg));
           entry.put("user", rev.getUser().getName());
           entries.add(entry);

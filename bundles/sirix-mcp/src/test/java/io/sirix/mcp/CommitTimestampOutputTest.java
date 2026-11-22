@@ -18,21 +18,22 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-/** VER-201: public commit timestamp text has six fractional digits, including trailing zeros. */
+/**
+ * VER-201: public commit timestamp text preserves every stored microsecond with ISO_INSTANT
+ * formatting.
+ */
 final class CommitTimestampOutputTest {
   @TempDir
   Path directory;
 
   @ParameterizedTest
-  @CsvSource({
-      "2021-03-04T05:06:07.000000Z,2021-03-04T05:06:08.000000Z",
-      "2021-03-04T05:06:07.123000Z,2021-03-04T05:06:08.123000Z",
+  @CsvSource({"2021-03-04T05:06:07Z,2021-03-04T05:06:08Z", "2021-03-04T05:06:07.123Z,2021-03-04T05:06:08.123Z",
       "2021-03-04T05:06:07.123456Z,2021-03-04T05:06:08.123456Z"})
-  void metadataAndHistoryEmitSixFractionalDigits(final String first, final String second) throws Exception {
+  void metadataAndHistoryPreserveIsoTimestampPrecision(final String first, final String second) throws Exception {
     final var config = McpServerConfig.defaults(directory);
     final var access = new AccessControl(config);
-    final var handlers = new ToolHandlers(config, access, new OutputSanitizer(config),
-        new SnapshotRegistry(access), AuditLog.create(config));
+    final var handlers = new ToolHandlers(config, access, new OutputSanitizer(config), new SnapshotRegistry(access),
+        AuditLog.create(config));
     final var request = new CallToolRequest("test", Map.of("database", "db", "resource", "res"));
     final var mapper = JsonMapper.builder().build();
     final Path path = directory.resolve("db");

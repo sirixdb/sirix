@@ -37,25 +37,18 @@ final class CommitTimestampLateFailureTest {
   Path directory;
 
   @ParameterizedTest
-  @CsvSource({
-      "FILE_CHANNEL,false,2021-03-04T05:06:07.000200Z,1",
-      "FILE_CHANNEL,true,2021-03-04T05:06:07.000200Z,1",
-      "MEMORY_MAPPED,false,2021-03-04T05:06:07.000200Z,1",
-      "MEMORY_MAPPED,true,2021-03-04T05:06:07.000200Z,1",
-      "FILE_CHANNEL,false,2021-03-04T05:06:07.000400Z,1",
-      "FILE_CHANNEL,true,2021-03-04T05:06:07.000400Z,1",
-      "MEMORY_MAPPED,false,2021-03-04T05:06:07.000400Z,1",
-      "MEMORY_MAPPED,true,2021-03-04T05:06:07.000400Z,1",
-      "FILE_CHANNEL,false,2021-03-04T05:06:07.000200Z,70",
-      "FILE_CHANNEL,true,2021-03-04T05:06:07.000400Z,70",
-      "MEMORY_MAPPED,false,2021-03-04T05:06:07.000200Z,70",
-      "MEMORY_MAPPED,true,2021-03-04T05:06:07.000400Z,70"})
+  @CsvSource({"FILE_CHANNEL,false,2021-03-04T05:06:07.000200Z,1", "FILE_CHANNEL,true,2021-03-04T05:06:07.000200Z,1",
+      "MEMORY_MAPPED,false,2021-03-04T05:06:07.000200Z,1", "MEMORY_MAPPED,true,2021-03-04T05:06:07.000200Z,1",
+      "FILE_CHANNEL,false,2021-03-04T05:06:07.000400Z,1", "FILE_CHANNEL,true,2021-03-04T05:06:07.000400Z,1",
+      "MEMORY_MAPPED,false,2021-03-04T05:06:07.000400Z,1", "MEMORY_MAPPED,true,2021-03-04T05:06:07.000400Z,1",
+      "FILE_CHANNEL,false,2021-03-04T05:06:07.000200Z,70", "FILE_CHANNEL,true,2021-03-04T05:06:07.000400Z,70",
+      "MEMORY_MAPPED,false,2021-03-04T05:06:07.000200Z,70", "MEMORY_MAPPED,true,2021-03-04T05:06:07.000400Z,70"})
   void retryReplacesLateFailedRevisionInWarmIndex(final StorageType storage, final boolean phaseOne,
       final String failedText, final int committedRevisions) throws Exception {
     Databases.createJsonDatabase(new DatabaseConfiguration(directory));
     try (final var database = Databases.openJsonDatabase(directory)) {
-      database.createResource(ResourceConfiguration.newBuilder("res").storageType(storage)
-          .customCommitTimestamps(true).build());
+      database.createResource(
+          ResourceConfiguration.newBuilder("res").storageType(storage).customCommitTimestamps(true).build());
       try (final var session = database.beginResourceSession("res")) {
         try (final var writer = session.beginNodeTrx()) {
           for (int revision = 1; revision <= committedRevisions; revision++) {
@@ -91,8 +84,10 @@ final class CommitTimestampLateFailureTest {
   void automaticAsyncLateFailureRetriesAgainstCommittedPredecessor() throws Exception {
     Databases.createJsonDatabase(new DatabaseConfiguration(directory));
     try (final var database = Databases.openJsonDatabase(directory)) {
-      database.createResource(ResourceConfiguration.newBuilder("res").storageType(StorageType.FILE_CHANNEL)
-          .customCommitTimestamps(true).build());
+      database.createResource(ResourceConfiguration.newBuilder("res")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .customCommitTimestamps(true)
+                                                   .build());
       try (final var session = database.beginResourceSession("res")) {
         try (final var writer = session.beginNodeTrx()) {
           writer.commit(null, PREDECESSOR);
@@ -100,8 +95,8 @@ final class CommitTimestampLateFailureTest {
         try (final var writer = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT)) {
           failFinalPhaseOneFlushOnce(writer.getStorageEngineWriter());
           writer.insertArrayAsFirstChild();
-          final var thrown = assertThrows(IllegalStateException.class,
-              () -> writer.insertStringValueAsFirstChild("retry"));
+          final var thrown =
+              assertThrows(IllegalStateException.class, () -> writer.insertStringValueAsFirstChild("retry"));
           assertEquals("late phase-one flush failure", thrown.getMessage());
           assertEquals(1, session.getMostRecentRevisionNumber());
           writer.commit(null, RETRY);

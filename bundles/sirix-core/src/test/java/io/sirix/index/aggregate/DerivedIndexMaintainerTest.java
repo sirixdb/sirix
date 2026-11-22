@@ -74,6 +74,7 @@ final class DerivedIndexMaintainerTest {
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  @SuppressWarnings("ReturnValueIgnored") // Mockito records the Instant.now invocation for static stubbing.
   void backwardsClockKeepsDerivedMappingsValidAndMaintenanceUsable(final StorageType storage) {
     final Instant first = Instant.parse("2025-03-04T05:06:07.123456Z");
     final Instant backwards = first.minusSeconds(1);
@@ -83,8 +84,12 @@ final class DerivedIndexMaintainerTest {
     final var path = directory.toPath().resolve("backwards-clock");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder("records").storageType(storage)
-          .validTimePaths("lo", "hi").customCommitTimestamps(true).storeDiffs(false).build());
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(storage)
+                                                   .validTimePaths("lo", "hi")
+                                                   .customCommitTimestamps(true)
+                                                   .storeDiffs(false)
+                                                   .build());
       try (JsonResourceSession session = database.beginResourceSession("records");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         declareSimple(session, writer);
@@ -147,14 +152,19 @@ final class DerivedIndexMaintainerTest {
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
+  @SuppressWarnings("ReturnValueIgnored") // Mockito records the Instant.now invocation for static stubbing.
   void summaryFoldsUseTheirOwnTimelineAfterClockRegression(final boolean withBase) {
     final Instant first = Instant.parse("2025-03-04T05:06:07.123456Z");
     final Instant backwards = first.minusSeconds(1);
     final var path = directory.toPath().resolve("summary-clock");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
-      database.createResource(ResourceConfiguration.newBuilder("records").storageType(StorageType.FILE_CHANNEL)
-          .validTimePaths("lo", "hi").customCommitTimestamps(true).storeDiffs(false).build());
+      database.createResource(ResourceConfiguration.newBuilder("records")
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .validTimePaths("lo", "hi")
+                                                   .customCommitTimestamps(true)
+                                                   .storeDiffs(false)
+                                                   .build());
       try (JsonResourceSession session = database.beginResourceSession("records");
           JsonNodeTrx writer = session.beginNodeTrx()) {
         declareSimple(session, writer);
@@ -190,9 +200,13 @@ final class DerivedIndexMaintainerTest {
             assertEquals(published + 1, derived.getRevisionNumber());
             assertEquals(previous.plusNanos(1_000),
                 CommitTimestamps.toInstant(derived.getActualRevisionRootPage().getRevisionTimestampMicros()));
-            assertEquals(withBase ? 18 : 16, TemporalAggregateSummaryFolds.frontier(derived, source));
+            assertEquals(withBase
+                ? 18
+                : 16, TemporalAggregateSummaryFolds.frontier(derived, source));
           }
-          assertEquals(withBase ? 2 : 0, resource.maintainedRevision());
+          assertEquals(withBase
+              ? 2
+              : 0, resource.maintainedRevision());
           if (withBase) {
             assertClockMapping(session, 2, Instant.parse("2025-03-04T05:06:07.123457Z"));
           }

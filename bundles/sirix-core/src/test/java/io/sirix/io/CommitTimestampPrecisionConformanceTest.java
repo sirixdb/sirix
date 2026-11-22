@@ -28,8 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Behaviour of the stored commit timestamp under VER-201, VER-202/203 and TXN-310: the stored unit
  * is epoch microseconds, so commits inside one millisecond stay distinct and ordered, a tie or a
- * backwards clock step is adjusted to the predecessor plus one microsecond, open-by-time resolves at
- * microsecond precision, and a supplied sub-millisecond instant round trips unchanged.
+ * backwards clock step is adjusted to the predecessor plus one microsecond, open-by-time resolves
+ * at microsecond precision, and a supplied sub-millisecond instant round trips unchanged.
  */
 @Isolated
 final class CommitTimestampPrecisionConformanceTest {
@@ -57,8 +57,7 @@ final class CommitTimestampPrecisionConformanceTest {
       }
       assertEquals(FIRST, commitTimestampOf(session, 1));
       assertEquals(SECOND, commitTimestampOf(session, 2));
-      assertArrayEquals(
-          new long[] {CommitTimestamps.toEpochMicros(SECOND), CommitTimestamps.toEpochMicros(FIRST)},
+      assertArrayEquals(new long[] {CommitTimestamps.toEpochMicros(SECOND), CommitTimestamps.toEpochMicros(FIRST)},
           session.getHistoryTimestampsMicros());
       assertEquals(100L, CommitTimestamps.toEpochMicros(SECOND) - CommitTimestamps.toEpochMicros(FIRST));
       // Each one is separately addressable by its own microsecond.
@@ -170,9 +169,8 @@ final class CommitTimestampPrecisionConformanceTest {
       final long[] newestFirst = session.getHistoryTimestampsMicros();
       assertEquals(32, newestFirst.length);
       for (int index = 1; index < newestFirst.length; index++) {
-        assertTrue(newestFirst[index] < newestFirst[index - 1],
-            "commit timestamps must strictly increase, but " + newestFirst[index] + " follows "
-                + newestFirst[index - 1]);
+        assertTrue(newestFirst[index] < newestFirst[index - 1], "commit timestamps must strictly increase, but "
+            + newestFirst[index] + " follows " + newestFirst[index - 1]);
       }
       if (platformClockHasSubMillisecondResolution()) {
         boolean anySubMillisecond = false;
@@ -201,7 +199,8 @@ final class CommitTimestampPrecisionConformanceTest {
 
   @Test
   void aSuppliedTimestampIsRejectedWhenCustomTimestampsAreDisabled() {
-    try (final var database = createResource(false); final var session = database.beginResourceSession(RESOURCE);
+    try (final var database = createResource(false);
+        final var session = database.beginResourceSession(RESOURCE);
         final var writer = session.beginNodeTrx()) {
       assertThrows(IllegalStateException.class, () -> writer.commit(null, FIRST));
       assertEquals(0, session.getMostRecentRevisionNumber());
@@ -209,9 +208,8 @@ final class CommitTimestampPrecisionConformanceTest {
   }
 
   @ParameterizedTest
-  @CsvSource({
-      "false,2021-03-04T05:06:07.000150Z", "true,2021-03-04T05:06:07.000150Z",
-      "false,2021-03-04T05:07:07Z", "true,2021-03-04T05:07:07Z"})
+  @CsvSource({"false,2021-03-04T05:06:07.000150Z", "true,2021-03-04T05:06:07.000150Z", "false,2021-03-04T05:07:07Z",
+      "true,2021-03-04T05:07:07Z"})
   void retryUsesItsTimestampAfterSyncOrAsyncPhaseOneFailure(final boolean phaseOne, final String failedText) {
     try (final var database = createResource(true); final var session = database.beginResourceSession(RESOURCE)) {
       try (final var writer = session.beginNodeTrx()) {

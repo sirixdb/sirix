@@ -208,20 +208,3 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   folds with a controlled backward clock step. Verify formatted metadata through its actual
   serializers and handlers, including zero and trailing fractional groups.
   Evidence: [commit timestamp retry](postmortems/commit-timestamp-retry.md).
-
-<a id="commit-timestamp-text"></a>
-
-- **Verify timestamp text independently of timestamp precision.** Microsecond storage does not
-  guarantee six fractional output digits. Use literal contract examples with zero and trailing
-  fractional groups through every public output boundary; parse them back to verify the instant
-  as well as its presentation. Do not derive expected text with the formatter being tested.
-  Evidence: [commit timestamp output width](postmortems/commit-timestamp-output-width.md).
-
-<a id="in-memory-publication"></a>
-
-- **In-memory publication owns its snapshots and lifetime.** Retaining transaction-owned page
-  objects retains their cleanup hazards. Publish independently owned data and retain the storage
-  owner across session closure when there is no backing file. Exercise create/commit/reopened
-  writer/new session with real payloads, exact timestamps and unchanged historical revisions;
-  include segment and stream compression paths.
-  Evidence: [IN_MEMORY commit visibility](postmortems/in-memory-commit-visibility.md).

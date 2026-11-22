@@ -21,7 +21,6 @@
 
 package io.sirix.service.json.serialize;
 
-import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.ChildCounts;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
@@ -53,6 +52,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentMap;
 
 import static io.sirix.utils.Preconditions.checkArgument;
@@ -835,8 +836,8 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
                                             .appendSeparator();
 
         if (serializeTimestamp) {
-          appendObjectKeyValue(JsonLiterals.QUOTED_REVISION_TIMESTAMP,
-              quote(CommitTimestamps.format(rtx.getRevisionTimestamp()))).appendSeparator();
+          appendObjectKeyValue(JsonLiterals.QUOTED_REVISION_TIMESTAMP, quote(DateTimeFormatter.ISO_INSTANT.withZone(
+              ZoneOffset.UTC).format(rtx.getRevisionTimestamp()))).appendSeparator();
         }
 
         appendObjectKey(JsonLiterals.QUOTED_REVISION);

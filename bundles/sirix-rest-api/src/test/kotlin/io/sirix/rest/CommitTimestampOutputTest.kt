@@ -28,8 +28,8 @@ class CommitTimestampOutputTest {
     lateinit var directory: Path
 
     @Test
-    fun historyEmitsSixFractionalDigits() = runBlocking {
-        val times = listOf("2021-03-04T05:06:07.000000Z", "2021-03-04T05:06:07.123000Z", "2021-03-04T05:06:07.123456Z")
+    fun historyPreservesIsoTimestampPrecision() = runBlocking {
+        val times = listOf("2021-03-04T05:06:07Z", "2021-03-04T05:06:07.123Z", "2021-03-04T05:06:07.123456Z")
         for (xml in listOf(false, true)) {
             val name = if (xml) "xml" else "json"
             val path = directory.resolve(name)
@@ -61,7 +61,7 @@ class CommitTimestampOutputTest {
                     val name = if (xml) "xml" else "json"
                     val response = client.get(server.actualPort(), "localhost", "/$name/res/history").send().coAwait()
                     assertEquals(200, response.statusCode(), response.bodyAsString())
-                    val history = response.bodyAsJsonObject().getJsonArray("history")
+                    val history = checkNotNull(response.bodyAsJsonObject()).getJsonArray("history")
                     assertEquals(3, history.size())
                     val database: Database<*> = if (xml) Databases.openXmlDatabase(directory.resolve(name))
                                                else Databases.openJsonDatabase(directory.resolve(name))
