@@ -925,12 +925,14 @@ class AssociationTest(unittest.TestCase):
         associations, errors = mutation.load_associations(REPOSITORY)
         self.assertEqual(errors, [])
         contract = 'io.sirix.query.scan.VectorizedReleaseCorrectnessTest'
+        # CONV-204 permits additional valid associations; retain the former pairs.
         for name in (
             'io.sirix.query.SirixCompileChain',
             'io.sirix.query.compiler.translator.SirixBlockPipelineStrategy',
             'io.sirix.query.compiler.translator.SirixPipelineStrategy',
             'io.sirix.query.scan.VectorizedRouteRefusedException'):
-            self.assertIn(contract, associations.get(name, ()))
+            with self.subTest(name=name):
+                self.assertIn(contract, associations.get(name, ()))
         entries, errors = mutation.parse_dispositions(
             (REPOSITORY / mutation.DISPOSITIONS_FILE).read_text())
         self.assertEqual(errors, [])
