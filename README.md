@@ -40,10 +40,10 @@ session.beginNodeReadOnlyTrx(Instant.parse("2024-01-15T03:00:00Z"))
 // Both open readable snapshots of committed revisions
 ```
 
-This works because SirixDB uses **structural sharing with sub-page versioning**. Unchanged pages are shared between revisions via copy-on-write — and versioning continues *below* the page: a commit writes page fragments containing only the changed records, and the sliding-snapshot algorithm guarantees any page is reconstructible from at most N fragments. Block-level COW (ZFS-style) copies a whole page when one byte in it changes; delta-based systems make reads replay ever-growing diff chains. SirixDB pays neither cost. Revision 1000 doesn't store 1000 copies—it stores the current state plus pointers to shared history.
+This works because SirixDB uses **structural sharing with sub-page versioning**. Unchanged pages are shared between revisions via copy-on-write — and versioning continues *below* the page: under the default sliding-snapshot strategy, a commit writes page fragments containing the changed records and the few that must be carried forward to keep reads bounded, and any page is reconstructible from at most N fragments. Above the fragments, a commit rewrites the copy-on-write path up to the new revision root. Block-level COW (ZFS-style) copies a whole page when one byte in it changes; delta-based systems make reads replay ever-growing diff chains. SirixDB pays neither cost. Revision 1000 doesn't store 1000 copies—it stores the current state plus pointers to shared history.
 
 **The result:**
-- Storage: O(changed records per revision), not O(total size × revisions) — and not O(changed pages) either
+- Storage under the default sliding-snapshot strategy grows with changed and carried-forward records and the height of the rewritten path, never with the size of the data
 - Read any page from any revision: O(N) page fragment reads, where N is the configurable snapshot window (default 3)
 - No event replay, no log scanning—direct page access
 
@@ -139,9 +139,9 @@ How page versions are stored is configurable per resource:
 | DIFFERENTIAL | 2 | diffs grow between snapshots | bounded reads, uneven writes |
 | **SLIDING_SNAPSHOT** (default) | ≤ N (default 3) | small diffs, out-of-window records rescued into the newest fragment | no full-snapshot spikes, best balance |
 
-Modifying data copies only the affected pages (copy-on-write); unchanged pages are referenced
-from the new revision, and the old revision remains intact and queryable. **Storage cost** is
-O(changed records) per revision. **Read cost**: opening a revision is O(1) by number, O(log R)
+With the default sliding-snapshot strategy, writes use the [page fragments and copy-on-write paths described above](#the-solution);
+unchanged pages are referenced from the new revision, and the old revision remains intact and queryable.
+**Read cost**: opening a revision is O(1) by number, O(log R)
 by timestamp; each page read combines at most N fragments. The full strategy walkthrough is in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#mvcc--versioning).
 
