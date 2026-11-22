@@ -27,6 +27,7 @@ package io.sirix.io;
 
 
 import io.sirix.exception.SirixRevisionPrunedException;
+import io.sirix.utils.CommitTimestamps;
 
 import java.time.Instant;
 import java.util.Arrays;
@@ -87,7 +88,8 @@ public final class RevisionIndex {
   // ===== COLD PATH DATA (accessed only after search finds result) =====
 
   /**
-   * Timestamps in sorted order (epoch milliseconds). timestamps[i] = commit timestamp of revision i.
+   * Timestamps in sorted order (epoch microseconds, the stored unit of VER-201). timestamps[i] =
+   * commit timestamp of revision i.
    */
   private final long[] timestamps;
 
@@ -128,7 +130,7 @@ public final class RevisionIndex {
   /**
    * Create a RevisionIndex from arrays of timestamps and offsets.
    * 
-   * @param timestamps array of commit timestamps (epoch millis), must be sorted ascending
+   * @param timestamps array of commit timestamps (epoch micros), must be sorted ascending
    * @param offsets array of file offsets, same length as timestamps
    * @return new RevisionIndex
    * @throws IllegalArgumentException if arrays have different lengths or timestamps not sorted
@@ -196,7 +198,7 @@ public final class RevisionIndex {
    * <li>Returns {@code -(insertionPoint + 1)} if not found</li>
    * </ul>
    * 
-   * @param timestamp epoch milliseconds to search for
+   * @param timestamp epoch microseconds to search for
    * @return revision index if exact match, or {@code -(insertionPoint + 1)} if not found
    */
   public int findRevision(long timestamp) {
@@ -278,7 +280,7 @@ public final class RevisionIndex {
    * This is a copy-on-write operation. The original index is not modified.
    * 
    * @param newOffset file offset of the new revision
-   * @param newTimestamp commit timestamp of the new revision (epoch millis)
+   * @param newTimestamp commit timestamp of the new revision (epoch micros)
    * @return new RevisionIndex containing all revisions plus the new one
    * @throws IllegalArgumentException if newTimestamp < last timestamp (not monotonic)
    */
@@ -372,7 +374,7 @@ public final class RevisionIndex {
   /** Reject a pruned root without allocating metadata on the live path. */
   public void requireReadable(final int revision) {
     if (isPruned(revision)) {
-      throw new SirixRevisionPrunedException(revision, Instant.ofEpochMilli(timestamps[revision]));
+      throw new SirixRevisionPrunedException(revision, CommitTimestamps.toInstant(timestamps[revision]));
     }
   }
 
@@ -387,17 +389,17 @@ public final class RevisionIndex {
     if (revision < 0 || revision >= size) {
       throw new IndexOutOfBoundsException("Revision " + revision + " out of range [0, " + size + ")");
     }
-    return Instant.ofEpochMilli(timestamps[revision]);
+    return CommitTimestamps.toInstant(timestamps[revision]);
   }
 
   /**
-   * Get the timestamp for a revision as epoch milliseconds.
+   * Get the timestamp for a revision as epoch microseconds.
    * 
    * @param revision revision number (0-indexed)
-   * @return commit timestamp in epoch milliseconds
+   * @return commit timestamp in epoch microseconds
    * @throws IndexOutOfBoundsException if revision < 0 or revision >= size
    */
-  public long getTimestampMillis(int revision) {
+  public long getTimestampMicros(int revision) {
     if (revision < 0 || revision >= size) {
       throw new IndexOutOfBoundsException("Revision " + revision + " out of range [0, " + size + ")");
     }
@@ -405,7 +407,7 @@ public final class RevisionIndex {
   }
 
   /**
-   * Bulk-copy the commit timestamps (epoch millis) for the inclusive revision range
+   * Bulk-copy the commit timestamps (epoch micros) for the inclusive revision range
    * {@code [fromRevision, toRevision]} into a freshly allocated array, in ascending revision order.
    *
    * <p>
@@ -420,12 +422,12 @@ public final class RevisionIndex {
    *
    * @param fromRevision first revision (0-indexed, inclusive)
    * @param toRevision last revision (0-indexed, inclusive)
-   * @return a new array of {@code toRevision - fromRevision + 1} epoch-milli timestamps in ascending
+   * @return a new array of {@code toRevision - fromRevision + 1} epoch-micro timestamps in ascending
    *         revision order
    * @throws IndexOutOfBoundsException if {@code fromRevision < 0}, {@code toRevision >= size}, or
    *         {@code fromRevision > toRevision}
    */
-  public long[] timestampsMillis(int fromRevision, int toRevision) {
+  public long[] timestampsMicros(int fromRevision, int toRevision) {
     if (fromRevision < 0 || toRevision >= size || fromRevision > toRevision) {
       throw new IndexOutOfBoundsException(
           "Revision range [" + fromRevision + ", " + toRevision + "] out of bounds [0, " + size + ")");
@@ -448,8 +450,8 @@ public final class RevisionIndex {
       throw new IndexOutOfBoundsException("Revision " + revision + " out of range [0, " + size + ")");
     }
     return isPruned(revision)
-        ? RevisionFileData.pruned(Instant.ofEpochMilli(timestamps[revision]))
-        : new RevisionFileData(offsets[revision], Instant.ofEpochMilli(timestamps[revision]));
+        ? RevisionFileData.pruned(CommitTimestamps.toInstant(timestamps[revision]))
+        : new RevisionFileData(offsets[revision], CommitTimestamps.toInstant(timestamps[revision]));
   }
 
   /**

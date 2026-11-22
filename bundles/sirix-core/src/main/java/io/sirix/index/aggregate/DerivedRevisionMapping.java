@@ -31,12 +31,12 @@ record DerivedRevisionMapping(int sourceRevision, int indexRevision, int project
     }
     final ByteBuffer bytes = ByteBuffer.wrap(identity);
     return new DerivedRevisionMapping(source.getRevisionNumber(), indexRevision, projection,
-        source.getActualRevisionRootPage().getRevisionTimestamp(), bytes.getLong(), bytes.getLong());
+        source.getActualRevisionRootPage().getRevisionTimestampMicros(), bytes.getLong(), bytes.getLong());
   }
 
   boolean matches(final StorageEngineReader source) {
     if (source.getRevisionNumber() != sourceRevision
-        || source.getActualRevisionRootPage().getRevisionTimestamp() != timestamp) {
+        || source.getActualRevisionRootPage().getRevisionTimestampMicros() != timestamp) {
       return false;
     }
     return matchesIdentity(source);

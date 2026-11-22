@@ -10,7 +10,7 @@
   - The new rollback regression included live memory-mapped truncation on Windows, where mapped files cannot be shrunk. The test now uses the existing platform limitation: both backends on Linux/macOS and FILE_CHANNEL on Windows. It does not change storage behavior.
 - Why tests missed it: earlier focused lifecycle tests covered damaged records/directories but not damaged settings; they omitted the base cleanup mock. The backup test passed by itself despite leaking a handle. The snapshot rebuild control asserted only maintainer existence, so PIT could remove validation without failing it; it now checks that the invalid revision-one derived snapshot is replaced by the empty source's revision-zero bootstrap. Linux alone cannot exercise Windows file locking.
 - Regression tests / independent oracles:
-  - `DerivedIndexMaintainerTest.unavailableDerivedStoreRebuildsWithoutLosingSourceHistory` and `incompleteDerivedDirectoriesRecoverAndCascadeWithTheirSource`: the source log's committed values 10 and 20 must remain queryable after derived rebuild. A disabled rebuild returns no derived maintainer and fails.
+  - `DerivedIndexMaintainerHistoryTest.unavailableDerivedStoreRebuildsWithoutLosingSourceHistory` and `incompleteDerivedDirectoriesRecoverAndCascadeWithTheirSource`: the source log's committed values 10 and 20 must remain queryable after derived rebuild. A disabled rebuild returns no derived maintainer and fails.
   - `encryptedSnapshotsRetainSourceProtectionAcrossFoldsAndReopen`: includes missing and malformed settings, intact/mismatched encryption, exact historical aggregates and round-trip decryption with the source key. Reprobing a known snapshot using the wrong pipeline fails this control.
   - `InterruptedFirstCommitRecoveryStoreFeaturesTest.unsupportedDerivedDamageNeverTriggersRebuild`: missing/malformed settings join missing logs, missing revision records and invalid snapshots for both persistent backends and both incompat/read-only words. Independently patched, checksummed beacon fixtures must retain every file, directory and byte. Removing the destructive-boundary feature check permits deletion and fails.
   - `AbstractResourceSessionWriteFailureCleanupTest.listenerBindingFailureClosesUnregisteredWriterAndLeavesPermitReusable`: the original binding failure, suppressed close failure and reusable writer permit are the oracle; before the fixture fix, construction throws a null-feature exception instead.
@@ -37,14 +37,14 @@ mkdir -p build/ci-fix/tmp
   :sirix-core:ciFocused \
   --tests 'io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest' \
   --tests 'io.sirix.access.trx.node.AbstractResourceSessionWriteFailureCleanupTest' \
-  --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerTest' \
+  --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest' \
   --tests 'io.sirix.index.hot.HOTStructuralChildEvictionTest' \
   --tests 'io.sirix.budget.*' \
   --tests 'io.sirix.index.projection.*WorkBudgetTest' \
   --tests 'io.sirix.access.trx.page.RefusedOverflowLeafTableTest' \
   :sirix-core:pitest -PprMutationModule=sirix-core \
   -PprMutationTargetsFile=docs/postmortems/evidence/store-feature-ci/targets.txt \
-  '-PprMutationTests=io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest*,io.sirix.index.aggregate.DerivedIndexMaintainerTest*' \
+  '-PprMutationTests=io.sirix.access.InterruptedFirstCommitRecoveryStoreFeaturesTest*,io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest*' \
   -PprMutationReportDir=build/ci-fix/pit-derived-final
 ```
 

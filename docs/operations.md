@@ -244,7 +244,7 @@ For read compatibility and write fallback when `liblz4` is unavailable, see
 | Huge pages | Optional; configure host support before requesting `-XX:+UseLargePages` | See [GC](#gc) for the Gradle test setting; huge pages are not enabled by default in the JVM or Docker command. |
 | Disk | local NVMe SSD strongly preferred | Sirix's read path is page-random; spinning disks are roughly 100× slower per page read. |
 | Filesystem | ext4 or xfs | btrfs and ZFS work but add their own copy-on-write layer that interacts oddly with Sirix's CoW page format. |
-| Time source | NTP-synced | Sirix records commit timestamps; clock skew shows up as out-of-order revisions. |
+| Time source | NTP-synced | Keeps commit times close to real time; clock regression handling follows [TXN-310](../spec/TXN-transactions-durability.md#txn-310--strictly-increasing-commit-timestamps). |
 
 ---
 

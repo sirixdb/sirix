@@ -793,6 +793,28 @@ class CounterfactualTest(unittest.TestCase):
 class AssociationTest(unittest.TestCase):
     """CONV-204: existing behaviour tests the lane must run for a changed class."""
 
+    def test_path_summary_reader_selects_its_timestamp_contract_without_package_fallback(self):
+        """CONV-204 named-match precedence keeps the executable VER-201 contract focused."""
+        module = REPOSITORY / 'bundles/sirix-core'
+        source = 'src/main/java/io/sirix/index/path/summary/PathSummaryReader.java'
+        self.assertEqual(mutation.test_scope(module, [source]),
+                         (['io.sirix.index.path.summary.PathSummaryReaderTest*'], [],
+                          {source: 'named'}))
+
+    def test_timestamp_writers_select_the_commit_and_retry_contracts(self):
+        """TXN-310/311: the emitted PIT scope must include the executable timestamp contracts."""
+        associations, errors = mutation.load_associations(REPOSITORY)
+        self.assertEqual(errors, [])
+        module = REPOSITORY / 'bundles/sirix-core'
+        contracts = {'io.sirix.io.CommitTimestampPrecisionConformanceTest*',
+                     'io.sirix.io.CommitTimestampLateFailureTest*'}
+        for name in ('NodeStorageEngineWriter', 'StorageEngineWriterFactory'):
+            source = f'src/main/java/io/sirix/access/trx/page/{name}.java'
+            with self.subTest(source=source):
+                patterns, unresolved, _ = mutation.test_scope(module, [source], associations)
+                self.assertEqual(unresolved, [])
+                self.assertTrue(contracts.issubset(patterns), patterns)
+
     @contextlib.contextmanager
     def module(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -925,12 +947,14 @@ class AssociationTest(unittest.TestCase):
         associations, errors = mutation.load_associations(REPOSITORY)
         self.assertEqual(errors, [])
         contract = 'io.sirix.query.scan.VectorizedReleaseCorrectnessTest'
+        # CONV-204 permits additional valid associations; retain the former pairs.
         for name in (
             'io.sirix.query.SirixCompileChain',
             'io.sirix.query.compiler.translator.SirixBlockPipelineStrategy',
             'io.sirix.query.compiler.translator.SirixPipelineStrategy',
             'io.sirix.query.scan.VectorizedRouteRefusedException'):
-            self.assertIn(contract, associations.get(name, ()))
+            with self.subTest(name=name):
+                self.assertIn(contract, associations.get(name, ()))
         entries, errors = mutation.parse_dispositions(
             (REPOSITORY / mutation.DISPOSITIONS_FILE).read_text())
         self.assertEqual(errors, [])

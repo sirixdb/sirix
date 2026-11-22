@@ -1562,8 +1562,7 @@ sirix.data
 
 sirix.revisions
   0       Superblock (role=REVISIONS)
-  4096    REVISIONS_RECORDS_START — fixed 32-byte slots, slot N at 4096 + N*32:
-          [u64 rootPageOffset][u64 epochMillis][u64 checksum][u64 rootPageHash]
+  4096    REVISIONS_RECORDS_START — revision slots (see docs/DISK_FORMAT.md)
 \end{diagram}
 
 Endianness regimes: \emph{every} multi-byte record field is pinned \textbf{little-endian} ---
@@ -6360,7 +6359,7 @@ The pitch is the cost shape, the capability set, and embedding.
 \section{History-path improvements (different machine; shape, not absolutes)}
 \label{sec:histpath}
 
-A reworked history read path (\code{getHistoryTimestamps()} from the resident in-memory
+A reworked history read path (\code{getHistoryTimestampsMicros()} from the resident in-memory
 \code{RevisionIndex}, a \code{long[]} {+} one \code{arraycopy}) serves all 5\,001 timestamps in
 \textbf{$\sim$0.05\,ms, $\sim$40$\times$ faster} than the PostgreSQL heap scan and the prior
 SirixDB path. For a field that changes \emph{rarely} (the common real shape),
@@ -7865,8 +7864,8 @@ selection or transaction mode. \code{xn:open-revisions} requires the start time 
 time and returns each revision from the one active at the start through the one active at the end,
 inclusively. A start before creation begins at revision~1; an end before creation yields an empty
 sequence. Both endpoints use the latest committed revision captured before either lookup, so commits
-appended during evaluation cannot change the range. Timestamp lookups use millisecond precision;
-ties select the highest revision within that captured ceiling. Results are in ascending revision
+appended during evaluation cannot change the range. Timestamp lookup semantics follow VER-202/203
+in \pp{spec/VER-versioning-bitemporal.md}. Results are in ascending revision
 order, with each revision returned once, even when both endpoints select the same revision.
 Registered XML signatures are defined in \code{XMLFun}.
 

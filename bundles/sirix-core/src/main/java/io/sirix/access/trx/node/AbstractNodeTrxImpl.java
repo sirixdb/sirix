@@ -1,5 +1,6 @@
 package io.sirix.access.trx.node;
 
+import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.diff.DiagnosticDiffMap;
 import io.sirix.utils.ToStringHelper;
@@ -485,6 +486,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     assertNotRollbackOnly();
     if (commitTimestamp != null && !resourceSession.getResourceConfig().customCommitTimestamps()) {
       throw new IllegalStateException("Custom commit timestamps are not enabled for the resource.");
+    }
+    if (commitTimestamp != null) {
+      // VER-201: reject an instant that is not representable in epoch microseconds here, before any
+      // commit work starts, so the writer stays usable. Primitive conversion, so no allocation.
+      CommitTimestamps.toEpochMicros(commitTimestamp);
     }
 
     // Public commit() is always a final (non-intermediate) commit.

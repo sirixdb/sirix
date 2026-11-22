@@ -2,6 +2,20 @@
 
 ## 1.0.0 (unreleased)
 
+- Store the commit timestamp as signed epoch microseconds instead of epoch milliseconds.
+  VER-201 fixes the unit in the unchanged 64-bit timestamp field, requires truncation toward
+  the past and explicit rejection of an out-of-range instant, and requires the public API to
+  expose every stored microsecond; VER-202/203 compare point-in-time lookups at that
+  resolution, VER-205 reports history timestamps in it through the renamed
+  `getHistoryTimestampsMicros` accessor (the millisecond name is gone, so callers break
+  loudly instead of silently reinterpreting the unit), FMT-104/106 define the directory and
+  tail-log timestamp words in it, and TXN-310's one-microsecond increment becomes
+  representable. NATIVE-203 compares transaction timestamps at microseconds, and REST
+  timestamp selection and history responses resolve at microseconds. The field width and slot
+  geometry are unchanged, so no numeric layout version changes; 1.0 has exactly one format, so
+  no millisecond store is read and no conversion path exists. The unit is format-visible and
+  must land before the freeze.
+
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
   [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).
 

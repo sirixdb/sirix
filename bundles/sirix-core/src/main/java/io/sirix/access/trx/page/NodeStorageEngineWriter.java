@@ -4561,8 +4561,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       newRevisionRootPage.setCommitMessage(commitMessage);
     }
 
-    if (commitTimestamp != null) {
-      newRevisionRootPage.setCommitTimestamp(commitTimestamp);
+    newRevisionRootPage.assignCommitTimestampMicros(commitTimestamp);
+    storageEngineReader.resourceSession.prepareRevisionIndexForCommit(newRevisionRootPage.getRevision());
+    final PageReference rootReference = storageEngineReader.getUberPage().getRevisionRootReference();
+    if (rootReference.getLogKey() < 0) {
+      log.put(rootReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
     }
   }
 

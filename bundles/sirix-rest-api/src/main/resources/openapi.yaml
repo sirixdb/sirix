@@ -1303,8 +1303,8 @@ components:
                 description: Empty string when the commit carried no message.
       examples:
         - history:
-            - { revision: 2, revisionTimestamp: '2024-01-10T08:00:00.000000Z', author: admin, commitMessage: 'fix prices' }
-            - { revision: 1, revisionTimestamp: '2024-01-09T15:30:00.000000Z', author: admin, commitMessage: '' }
+            - { revision: 2, revisionTimestamp: '2024-01-10T08:00:00Z', author: admin, commitMessage: 'fix prices' }
+            - { revision: 1, revisionTimestamp: '2024-01-09T15:30:00Z', author: admin, commitMessage: '' }
 
     Diff:
       type: object

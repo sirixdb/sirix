@@ -484,7 +484,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         final NodeTrx wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.CLOSE)) {
       final var useCustomCommitTimestamps = resConfig.customCommitTimestamps();
       if (useCustomCommitTimestamps) {
-        wtx.commit(null, Instant.ofEpochMilli(0));
+        wtx.commit(null, Instant.EPOCH);
       } else {
         wtx.commit();
       }

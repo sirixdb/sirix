@@ -27,9 +27,9 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 
+import io.sirix.utils.CommitTimestamps;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -251,13 +251,13 @@ public interface IOStorage {
    * <p>
    * Zero-allocation: a thread-local 40-byte scratch buffer, no per-call array.
    */
-  static long tailLogEntryChecksum(final int revision, final long offset, final long timestampMillis,
+  static long tailLogEntryChecksum(final int revision, final long offset, final long timestampMicros,
       final long recordChecksum, final long pageHash) {
     final ByteBuffer scratch = TailLogScratch.BUFFER.get();
     scratch.putInt(0, revision);
     scratch.putInt(4, 0);
     scratch.putLong(8, offset);
-    scratch.putLong(16, timestampMillis);
+    scratch.putLong(16, timestampMicros);
     scratch.putLong(24, recordChecksum);
     scratch.putLong(32, pageHash);
     return TailLogScratch.XX3.hashBytes(scratch.array(), 0, 40);
@@ -279,49 +279,49 @@ public interface IOStorage {
       return false;
     }
     final long offset = slot.getLong(base + 8);
-    final long timestampMillis = slot.getLong(base + 16);
+    final long timestampMicros = slot.getLong(base + 16);
     final long recordChecksum = slot.getLong(base + 24);
     final long pageHash = slot.getLong(base + 32);
-    return slot.getLong(base + 40) == tailLogEntryChecksum(revision, offset, timestampMillis, recordChecksum, pageHash)
-        && recordChecksum == expectedRevisionRecordChecksum(offset, timestampMillis, pageHash);
+    return slot.getLong(base + 40) == tailLogEntryChecksum(revision, offset, timestampMicros, recordChecksum, pageHash)
+        && recordChecksum == expectedRevisionRecordChecksum(offset, timestampMicros, pageHash);
   }
 
   /**
    * XXH3-64 over (offset, timestamp, hash-or-tag), each little-endian. Reuses thread-local scratch:
    * validating a bulk history adds no per-record checksum allocation.
    */
-  static long revisionRecordChecksum(final long offset, final long timestampMillis, final long tagOrHash) {
+  static long revisionRecordChecksum(final long offset, final long timestampMicros, final long tagOrHash) {
     final ByteBuffer scratch = RevisionRecordScratch.BUFFER.get();
     scratch.putLong(0, offset);
-    scratch.putLong(8, timestampMillis);
+    scratch.putLong(8, timestampMicros);
     scratch.putLong(16, tagOrHash);
     return TailLogScratch.XX3.hashBytes(scratch.array());
   }
 
   /** The current format always protects all three identity fields. */
-  static long expectedRevisionRecordChecksum(final long offset, final long timestampMillis, final long tagOrHash) {
-    return revisionRecordChecksum(offset, timestampMillis, tagOrHash);
+  static long expectedRevisionRecordChecksum(final long offset, final long timestampMicros, final long tagOrHash) {
+    return revisionRecordChecksum(offset, timestampMicros, tagOrHash);
   }
 
   /**
    * Decode one complete disk record. Checksum verification precedes tombstone recognition. The
    * revision is supplied by the slot position; corrupt records never become tombstones.
    */
-  static RevisionFileData decodeRevisionRecord(final int revision, final long offset, final long timestampMillis,
+  static RevisionFileData decodeRevisionRecord(final int revision, final long offset, final long timestampMicros,
       final long checksum, final long tagOrHash) {
     if (revision < 0) {
       throw new IllegalArgumentException("Revision must not be negative");
     }
-    if (checksum != revisionRecordChecksum(offset, timestampMillis, tagOrHash)) {
+    if (checksum != revisionRecordChecksum(offset, timestampMicros, tagOrHash)) {
       throw new SirixIOException("Corrupt revisions record for revision " + revision + " (checksum mismatch)");
     }
     if (offset == PRUNED_REVISION_OFFSET && tagOrHash == PRUNED_REVISION_TAG) {
-      return RevisionFileData.pruned(Instant.ofEpochMilli(timestampMillis));
+      return RevisionFileData.pruned(CommitTimestamps.toInstant(timestampMicros));
     }
     if (offset < DATA_REGION_START || offset > Long.MAX_VALUE - OTHER_BEACON || tagOrHash == 0L) {
       throw new SirixIOException("Corrupt revisions record for revision " + revision + " (invalid offset or tag/hash)");
     }
-    return new RevisionFileData(offset, Instant.ofEpochMilli(timestampMillis), tagOrHash);
+    return new RevisionFileData(offset, CommitTimestamps.toInstant(timestampMicros), tagOrHash);
   }
 
   /**
@@ -329,7 +329,7 @@ public interface IOStorage {
    * the position by 32 bytes and writes little-endian independently of the buffer's order. A
    * MemorySegment caller can reuse its asByteBuffer() view.
    */
-  static void writePrunedRevisionRecord(final ByteBuffer target, final long timestampMillis) {
+  static void writePrunedRevisionRecord(final ByteBuffer target, final long timestampMicros) {
     if (target.remaining() < REVISIONS_FILE_RECORD_SIZE) {
       throw new IllegalArgumentException("A revision record requires 32 remaining bytes");
     }
@@ -337,8 +337,8 @@ public interface IOStorage {
     try {
       target.order(ByteOrder.LITTLE_ENDIAN);
       target.putLong(PRUNED_REVISION_OFFSET);
-      target.putLong(timestampMillis);
-      target.putLong(revisionRecordChecksum(PRUNED_REVISION_OFFSET, timestampMillis, PRUNED_REVISION_TAG));
+      target.putLong(timestampMicros);
+      target.putLong(revisionRecordChecksum(PRUNED_REVISION_OFFSET, timestampMicros, PRUNED_REVISION_TAG));
       target.putLong(PRUNED_REVISION_TAG);
     } finally {
       target.order(originalOrder);
@@ -508,7 +508,7 @@ public interface IOStorage {
       // the on-disk count — made request-scoped opens linear in revision count.
       final RevisionFileData[] data = reader.getRevisionFileData(0, revisionCount);
       for (int i = 0; i < revisionCount; i++) {
-        timestamps[i] = data[i].timestamp().toEpochMilli();
+        timestamps[i] = CommitTimestamps.toEpochMicros(data[i].timestamp());
         offsets[i] = data[i].offset();
       }
 

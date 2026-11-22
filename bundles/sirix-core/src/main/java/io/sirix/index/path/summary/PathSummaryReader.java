@@ -1,5 +1,6 @@
 package io.sirix.index.path.summary;
 
+import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.ReplayWorkDiagnostics;
 import io.sirix.utils.ToStringHelper;
 import io.brackit.query.atomic.QNm;
@@ -834,7 +835,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public Instant getRevisionTimestamp() {
     assertNotClosed();
-    return Instant.ofEpochMilli(storageEngineReader.getActualRevisionRootPage().getRevisionTimestamp());
+    return CommitTimestamps.toInstant(storageEngineReader.getActualRevisionRootPage().getRevisionTimestampMicros());
   }
 
   @Override

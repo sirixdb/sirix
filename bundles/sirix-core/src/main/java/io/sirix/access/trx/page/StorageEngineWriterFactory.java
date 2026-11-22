@@ -130,6 +130,12 @@ public final class StorageEngineWriterFactory {
 
       newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
       newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
+      if (!uberPage.isBootstrap()) {
+        // TXN-310: the strictly-increasing predecessor is the last committed revision of this
+        // timeline. Cloning carries the REPRESENTED revision's timestamp, which is an older,
+        // historical value when this writer reverts, so seed the predecessor explicitly.
+        newRevisionRootPage.seedPredecessorCommitTimestampMicros(lastCommitedRoot.getRevisionTimestampMicros());
+      }
       if (resourceConfig.storeNodeHistory()) {
         newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(
             lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());

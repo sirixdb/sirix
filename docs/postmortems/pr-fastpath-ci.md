@@ -81,22 +81,25 @@
 - Fix / issue: PR #1352, [CI run 43720439139](https://github.com/sirixdb/sirix/actions/runs/43720439139/job/132832004606).
 - Symptom: coverage discovery completed, but `OpenRevisionsTest.test` failed without mutation.
 - Root cause: the test created five wall-clock commits and expected the interval starting at
-  revision 1's timestamp to include all five. Persisted timestamps have millisecond precision;
+  revision 1's timestamp to include all five. At the time, persisted timestamps had millisecond precision;
   if revisions 1 and 2 tie, floor lookup correctly starts at revision 2. Instrumentation and
   runner speed change the chance of that tie, not the contract.
-- Behaviour / invariant: interval expectations must follow the last revision at a timestamp,
+- Behaviour / invariant at the time: interval expectations followed the last revision at a timestamp,
   independent of commit speed. Cover distinct timestamps and a tie at the starting boundary;
   retain the existing before-creation, after-latest and concurrent-commit interval cases.
-- Regression / acceptance checks (specified before editing): build five revisions with explicit
+- Original regression / acceptance checks (specified before editing): build five revisions with explicit
   timestamps, first with a tie between revisions 1 and 2. The old five-revision expectation must
   fail deterministically. Replace the wall-clock fixture with distinct/tied timestamp cases and
   assert exact revision IDs (1–5 / 2–5), then run the complete interval and point-in-time suites
   through ordinary tests and PIT coverage alongside the fallback-expression mutation target.
-  The independent oracle is the public `ResourceSession.getRevisionNumber(Instant, int)`
+  The independent oracle was the public `ResourceSession.getRevisionNumber(Instant, int)`
   floor/last-tie contract, with hand-selected timestamps;
   returning the first tie, skipping a revision, reordering or duplicating nodes must fail.
 - Lesson: elapsed wall-clock time is not a fixture guarantee. Specify timestamps explicitly
   when the expected result depends on their ordering or equality; see [Lessons](../LESSONS.md).
+
+The current timestamp and lookup contracts supersede those historical tie semantics; see
+[VER-201–204](../../spec/VER-versioning-bitemporal.md#ver-201--timestamp-precision-and-persistence).
 
 ### Revision-interval repair verification
 

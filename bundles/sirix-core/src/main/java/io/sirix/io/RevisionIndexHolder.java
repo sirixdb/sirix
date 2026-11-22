@@ -121,7 +121,8 @@ public final class RevisionIndexHolder {
    * {@link #update(RevisionIndex)}. The caller must still hold the commit lock.
    * 
    * @param offset file offset of the new revision
-   * @param timestamp commit timestamp of the new revision (epoch millis)
+   * @param timestamp commit timestamp in the unit of
+   *        {@link RevisionIndex#withNewRevision(long, long)}
    */
   public void addRevision(long offset, long timestamp) {
     RevisionIndex current = this.index;

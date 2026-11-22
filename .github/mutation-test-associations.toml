@@ -4,6 +4,19 @@
 # declared in the same module. Associations share the lane's per-module test cap.
 # See docs/VERIFICATION.md#pr-mutation-testing and spec/CONV-conventions.md.
 
+[[association]]
+class = "io.sirix.io.ram.RAMStorage"
+tests = ["io.sirix.io.ram.RAMStorageTruncateToTest"]
+
+# TXN-310/311 span writer construction, commit attempts, persisted history and reopen.
+[[association]]
+class = "io.sirix.access.trx.page.StorageEngineWriterFactory"
+tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest"]
+
+[[association]]
+class = "io.sirix.access.trx.page.NodeStorageEngineWriter"
+tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest"]
+
 # The release contract exercises refused and admitted grouping through every public compiler
 # factory, including cold reopen; its name spans these entry points.
 [[association]]
@@ -34,3 +47,32 @@ tests = ["io.sirix.backup.BackupManagerInMemoryResourcesTest"]
 [[association]]
 class = "io.sirix.io.Reader"
 tests = ["io.sirix.io.ram.RAMStorageContractTest"]
+
+# VER-201 ISO timestamp precision is asserted through the public output boundaries.
+[[association]]
+class = "io.sirix.service.json.serialize.JsonSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.service.json.serialize.JsonLimitedSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.service.json.serialize.JsonRecordSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.service.xml.serialize.XmlSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.query.function.sdb.trx.GetRevisionTimestamp"
+tests = ["io.sirix.query.function.sdb.trx.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.mcp.ToolHandlers"
+tests = ["io.sirix.mcp.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.HistoryHandler"
+tests = ["io.sirix.rest.CommitTimestampOutputTest"]

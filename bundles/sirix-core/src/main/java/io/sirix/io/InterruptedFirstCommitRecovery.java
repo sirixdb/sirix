@@ -367,12 +367,12 @@ public final class InterruptedFirstCommitRecovery {
         }
         record.flip();
         final long revisionRootOffset = record.getLong();
-        final long timestampMillis = record.getLong();
+        final long timestampMicros = record.getLong();
         final long storedChecksum = record.getLong();
         // Both live records and retention tombstones prove that this is not an interrupted
         // first commit. Never reinitialize a resource with a checksum-valid tombstone.
         final long pageHash = record.getLong();
-        if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(revisionRootOffset, timestampMillis, pageHash)) {
+        if (storedChecksum == IOStorage.expectedRevisionRecordChecksum(revisionRootOffset, timestampMicros, pageHash)) {
           return false;
         }
       }
