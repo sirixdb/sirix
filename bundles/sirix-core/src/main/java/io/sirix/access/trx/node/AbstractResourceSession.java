@@ -122,6 +122,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   private final DatabaseNotifications notifications;
   private final ConcurrentMap<Integer, InternalNodeTrx<?>> resourceWriters;
+  // runStorageMaintenance always restores the prior value in finally; null releases the writer.
+  @SuppressWarnings("java:S5164")
   private final ThreadLocal<@Nullable InternalNodeTrx<?>> historyExecution = new ThreadLocal<>();
 
   @Override

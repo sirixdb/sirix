@@ -831,7 +831,7 @@ Database, handle and session close MUST stop notification admission and wait at 
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [DatabaseHandle.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java):`close`; [LocalDatabase.java](../bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java):`close`; [Databases.java](../bundles/sirix-core/src/main/java/io/sirix/access/Databases.java); [AbstractResourceSession.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/node/AbstractResourceSession.java):`close`; [NodeStorageEngineWriter.java](../bundles/sirix-core/src/main/java/io/sirix/access/trx/page/NodeStorageEngineWriter.java):`truncateTo`
-- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`allLifecycleEntryPointsRejectCallbackReentry`, `closingHandleRejectsCallbackBeforeItsClosingWait`, `callbackRejectsBeforeWaitingOnAnOuterMutationGate`
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`allLifecycleEntryPointsRejectCallbackReentry`, `closingHandleRejectsCallbackBeforeItsClosingWait`, `callbackRejectsBeforeWaitingOnAnOuterMutationGate`, `callbackScopeRestoresItsCallerAfterSuccessOrFailure`
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Same-database guards cover handle, session, writer, page, mutation-gate and manager/shutdown forwarding. Source-mapped regressions are not a claim of complete default-CI conformance.
 

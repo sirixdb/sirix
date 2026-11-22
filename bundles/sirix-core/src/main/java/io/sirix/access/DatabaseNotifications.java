@@ -22,6 +22,8 @@ import org.slf4j.LoggerFactory;
 
 public final class DatabaseNotifications implements AutoCloseable {
   private static final Logger LOGGER = LoggerFactory.getLogger(DatabaseNotifications.class);
+  // Both callback finally blocks restore the parent (null outside callbacks), releasing ownership.
+  @SuppressWarnings("java:S5164")
   private static final ThreadLocal<@Nullable CallbackScope> CURRENT = new ThreadLocal<>();
 
   private record CallbackScope(DatabaseNotifications owner, @Nullable CallbackScope parent) {
@@ -86,7 +88,7 @@ public final class DatabaseNotifications implements AutoCloseable {
   }
 
   // Conversion validates representability before publishing the timeout to lifecycle callers.
-  @SuppressWarnings("ReturnValueIgnored")
+  @SuppressWarnings({"ReturnValueIgnored", "java:S2201"})
   public void setCloseTimeout(final Duration timeout) {
     Objects.requireNonNull(timeout);
     if (timeout.isZero() || timeout.isNegative()) {
@@ -136,6 +138,8 @@ public final class DatabaseNotifications implements AutoCloseable {
     }
   }
 
+  // Both callers (submit and Retirement.close) hold progress throughout submission.
+  @SuppressWarnings("java:S2273")
   private void execute(final Notification notification) {
     pending++;
     try {
@@ -285,6 +289,8 @@ public final class DatabaseNotifications implements AutoCloseable {
     }
   }
 
+  // Only retire's failure paths call this method, while holding progress.
+  @SuppressWarnings("java:S2273")
   private void abandonAfterFailure() {
     retirements--;
     failedRetirement = true;

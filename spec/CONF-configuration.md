@@ -125,7 +125,7 @@ Resource settings MUST carry an optional boolean `requirePreconditions`, default
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [DatabaseNotifications.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseNotifications.java):constructors, `setCloseTimeout`
-- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`notificationCapacityMustBePositive`, `capacityCoversMixedBacklogsAndAbandonment`, `unreturnedDeliveryRetainsReadersDropsQueueAndAllowsRetry`
+- **Verified by:** [DatabaseNotificationLifecycleTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseNotificationLifecycleTest.java):`notificationCapacityMustBePositive`, `capacityCoversMixedBacklogsAndAbandonment`, `unreturnedDeliveryRetainsReadersDropsQueueAndAllowsRetry`, `invalidTimeoutAdjustmentPreservesTheConfiguredTimeout`
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Custom capacity, invalid non-positive capacity and bounded close have mapped regressions. Exhaustive property parsing/default and timeout-boundary coverage is not asserted.
 

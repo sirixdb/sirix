@@ -346,3 +346,15 @@ early in a wrapper; exercise direct and facade callers and preserve newer instan
 For CI tooling, use the declared contract for raw PIT detection versus assertion
 kills, and keep fixture signatures and serialized result consumers current.
 See [the close-retry postmortem](postmortems/lifecycle-ci-close-retry.md).
+
+### Own the operation before racing teardown
+
+A lock protecting derived state does not keep an idle transaction alive. A concurrency
+test must acquire the operation's execution ownership before releasing a competing
+closer, then exercise the operation within that scope. Nested maintenance uses its
+owned page boundary rather than reentering the node lifecycle guard. For thread-local
+diagnostics, distinguish retaining a callback/writer from retaining a null-valued map
+entry. Trace every `finally` and parent restoration before changing working scope logic.
+Behavioral guard tests verify nesting and exception cleanup; they do not prove removal
+of empty entries.
+See [the lifecycle CI postmortem](postmortems/lifecycle-ci-contexts.md).

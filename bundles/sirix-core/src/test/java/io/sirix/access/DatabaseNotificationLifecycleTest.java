@@ -94,6 +94,51 @@ final class DatabaseNotificationLifecycleTest {
     hook.set(null, null);
   }
 
+  // CONF-201: invalid timeout adjustments must preserve the last valid configuration.
+  @Test
+  void invalidTimeoutAdjustmentPreservesTheConfiguredTimeout() {
+    try (DatabaseNotifications notifications = new DatabaseNotifications()) {
+      final Duration timeout = Duration.ofMillis(250);
+      notifications.setCloseTimeout(timeout);
+      assertThrows(NullPointerException.class, () -> notifications.setCloseTimeout(null));
+      assertThrows(IllegalArgumentException.class, () -> notifications.setCloseTimeout(Duration.ZERO));
+      final Duration negative = Duration.ofNanos(-1);
+      assertThrows(IllegalArgumentException.class, () -> notifications.setCloseTimeout(negative));
+      final Duration overflowing = Duration.ofSeconds(Long.MAX_VALUE);
+      assertThrows(ArithmeticException.class, () -> notifications.setCloseTimeout(overflowing));
+      assertEquals(timeout, notifications.getCloseTimeout());
+    }
+  }
+
+  // TXN-804: nested callbacks restore their enclosing guard, including exceptional exits.
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void callbackScopeRestoresItsCallerAfterSuccessOrFailure(final boolean fails) {
+    try (DatabaseNotifications outer = new DatabaseNotifications();
+        DatabaseNotifications inner = new DatabaseNotifications()) {
+      final IllegalStateException veto = new IllegalStateException("hook veto");
+      final Runnable nested = () -> inner.runPreCommit(() -> {
+        assertThrows(IllegalStateException.class, outer::assertNotInCallback);
+        assertThrows(IllegalStateException.class, inner::assertNotInCallback);
+        if (fails) {
+          throw veto;
+        }
+      });
+      outer.runPreCommit(() -> {
+        if (fails) {
+          assertSame(veto, assertThrows(IllegalStateException.class, nested::run));
+        } else {
+          nested.run();
+        }
+        assertThrows(IllegalStateException.class, outer::assertNotInCallback);
+        inner.assertNotInCallback();
+      });
+      DatabaseNotifications.assertOutsideCallback();
+      outer.assertNotInCallback();
+      inner.assertNotInCallback();
+    }
+  }
+
   // V05-CALLBACK-ADMISSION: docs/hooks.md forbids same-database callback lifecycle mutation.
   @ParameterizedTest
   @ValueSource(strings = {"json", "xml"})

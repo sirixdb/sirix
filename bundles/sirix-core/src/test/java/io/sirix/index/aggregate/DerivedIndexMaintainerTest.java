@@ -2,9 +2,10 @@ package io.sirix.index.aggregate;
 
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.DatabaseNotifications;
-import io.sirix.access.trx.node.AbstractResourceSession;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.AbstractResourceSession;
+import io.sirix.access.trx.node.InternalNodeTrx;
 import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -30,6 +31,7 @@ import static io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.assertS
 import static io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.declareSimple;
 import static io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.setNumber;
 import static io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.state;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -47,6 +49,7 @@ final class DerivedIndexMaintainerTest {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   @Timeout(30)
+  // TXN-504: teardown must wait for an active storage-maintenance owner.
   void historyOwnerCanTruncateWhileDerivedCleanupWaits(final boolean databaseClose) throws Exception {
     final var path = directory.toPath().resolve("database");
     Databases.createJsonDatabase(new DatabaseConfiguration(path));
@@ -76,15 +79,17 @@ final class DerivedIndexMaintainerTest {
           return null;
         });
         final Thread cleaner = new Thread(cleanup);
-        resource.lockHistory();
-        try {
-          cleaner.start();
-          assertTrue(quiescent.await(10, TimeUnit.SECONDS));
-          writer.truncateTo(1);
-          assertEquals(1, session.getMostRecentRevisionNumber());
-        } finally {
-          resource.unlockHistory();
-        }
+        ((InternalNodeTrx<?>) writer).runStorageMaintenance(() -> {
+          resource.lockHistory();
+          try {
+            cleaner.start();
+            assertTrue(assertDoesNotThrow(() -> quiescent.await(10, TimeUnit.SECONDS)));
+            writer.getStorageEngineWriter().truncateTo(1);
+            assertEquals(1, session.getMostRecentRevisionNumber());
+          } finally {
+            resource.unlockHistory();
+          }
+        });
         cleanup.get(10, TimeUnit.SECONDS);
         cleaner.join(10000);
         assertFalse(cleaner.isAlive());
