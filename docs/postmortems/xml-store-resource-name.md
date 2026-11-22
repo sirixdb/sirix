@@ -10,9 +10,7 @@
 - Root cause: `Store.execute` read `$res` but its private `create` helper did not take it, and
   called the store overloads without a resource name, although `XmlDBStore` has overloads with one
   and `xn:load` uses them. Only the append-to-existing-collection path passed the name.
-- Contract now: a single node is stored as `$res` on every path. Without `$res` a created resource
-  keeps its automatic name (`resourceN`) and an appended one is named `resource`, as before. A
-  sequence of several nodes keeps automatic names, as in `xn:load` and `jn:store`.
+- Current naming rules: [README](../../README.md#using-the-cli-native-binaries).
 - Why tests missed it: existing `xn:store` tests passed `()` as the name, appended to existing
   collections, or read the document back through the collection rather than by name.
 - Regression test: `StoreResourceNameTest.aSingleNodeIsStoredUnderTheGivenResourceNameOnEveryPath`

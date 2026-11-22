@@ -267,8 +267,8 @@ public final class Main {
 
   /**
    * Runs a query script from the {@code -iqf} file, or stdin for {@code -}. Queries are separated by
-   * blank lines, the interactive end mark, and run in order in one session; a failing query is
-   * reported and the script continues.
+   * empty or space/tab-only lines and run in order in one session; a failing query is reported and
+   * the script continues.
    *
    * @return true if every query succeeded
    */

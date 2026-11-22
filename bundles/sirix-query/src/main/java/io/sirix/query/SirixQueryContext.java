@@ -232,6 +232,12 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
     queryContextDelegate.setDefaultNodeCollection(defaultNodeCollection);
   }
 
+  /**
+   * Applies pending updates using this context's commit strategy. If operation application fails,
+   * writers opened by the apply are rolled back and closed; caller-held writers remain open under
+   * caller ownership. A runtime release failure is suppressed on the original apply failure. This
+   * cleanup does not cover failures during the subsequent automatic commit.
+   */
   @Override
   public void applyUpdates() {
     final UpdateList pending = queryContextDelegate.getUpdateList();

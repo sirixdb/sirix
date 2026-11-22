@@ -101,7 +101,6 @@ public final class Store extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-      // Absent, a created resource keeps its automatic name and an appended one is named "resource".
       final String resName = FunUtil.getString(args, 1, "resName", null, null, false);
       final Sequence nodes = args[2];
       if (nodes == null) {
