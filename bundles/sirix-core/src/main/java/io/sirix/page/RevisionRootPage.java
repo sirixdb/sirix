@@ -41,6 +41,7 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -133,26 +134,12 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   private long maxNodeKeyInRecordToRevisionsIndex;
 
-  /**
-   * Effective commit timestamp of the revision, as the epoch microseconds of VER-201. Before the
-   * revision's own timestamp is assigned, a page cloned for a new revision carries the predecessor's
-   * effective value, which is the strictly-increasing predecessor of TXN-310.
-   */
   private long revisionTimestampMicros;
 
-  /**
-   * Whether {@link #revisionTimestampMicros} already holds this revision's own effective commit
-   * timestamp. Cloning for a new revision copies the predecessor's value but not this flag, so the
-   * first {@link #ensureCommitTimestampMicros()} of a commit assigns and every later call repeats
-   * that one value.
-   */
+  private long predecessorTimestampMicros;
+
   private boolean commitTimestampAssigned;
 
-  /**
-   * Whether {@link #revisionTimestampMicros} holds a predecessor timestamp this revision must stay
-   * strictly above under TXN-310. The bootstrap revision has no predecessor, so its commit timestamp
-   * is the supplied or clock value itself.
-   */
   private boolean hasPredecessorTimestamp;
 
   /**
@@ -267,9 +254,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     maxNodeKeyInDocumentIndex = committedRevisionRootPage.maxNodeKeyInDocumentIndex;
     maxNodeKeyInChangedNodesIndex = committedRevisionRootPage.maxNodeKeyInChangedNodesIndex;
     maxNodeKeyInRecordToRevisionsIndex = committedRevisionRootPage.maxNodeKeyInRecordToRevisionsIndex;
-    // The clone keeps the source timestamp as its predecessor value; commitTimestampAssigned
-    // stays false so this revision assigns its own effective timestamp at commit.
     revisionTimestampMicros = committedRevisionRootPage.revisionTimestampMicros;
+    predecessorTimestampMicros = committedRevisionRootPage.revisionTimestampMicros;
     hasPredecessorTimestamp = true;
     commitMessage = committedRevisionRootPage.commitMessage;
     currentMaxLevelOfDocumentIndexIndirectPages = committedRevisionRootPage.currentMaxLevelOfDocumentIndexIndirectPages;
@@ -543,6 +529,16 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     this.commitTimestamp = commitTimestamp;
   }
 
+  public long assignCommitTimestampMicros(final @Nullable Instant commitTimestamp) {
+    if (commitTimestamp == null) {
+      this.commitTimestamp = null;
+    } else {
+      setCommitTimestamp(commitTimestamp);
+    }
+    commitTimestampAssigned = false;
+    return ensureCommitTimestampMicros();
+  }
+
   /**
    * Assign this revision's effective commit timestamp under TXN-310 and return it, in the epoch
    * microseconds of VER-201. The effective value is
@@ -558,10 +554,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
       final long candidate = commitTimestamp == null
           ? CommitTimestamps.nowEpochMicros()
           : CommitTimestamps.toEpochMicros(commitTimestamp);
-      // revisionTimestampMicros still holds the predecessor's effective timestamp here. The
-      // bootstrap revision has no predecessor and keeps the supplied or clock value as it is.
       revisionTimestampMicros = hasPredecessorTimestamp
-          ? Math.max(candidate, revisionTimestampMicros + 1)
+          ? Math.max(candidate, predecessorTimestampMicros + 1)
           : candidate;
       commitTimestampAssigned = true;
     }
@@ -580,6 +574,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     if (commitTimestampAssigned) {
       throw new IllegalStateException("Commit timestamp of revision " + revision + " is already assigned.");
     }
+    this.predecessorTimestampMicros = predecessorTimestampMicros;
     this.revisionTimestampMicros = predecessorTimestampMicros;
     this.hasPredecessorTimestamp = true;
   }

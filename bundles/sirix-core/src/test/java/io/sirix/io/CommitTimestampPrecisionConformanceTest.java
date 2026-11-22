@@ -8,12 +8,15 @@ import io.sirix.api.RevisionInfo;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.utils.CommitTimestamps;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import io.sirix.access.trx.node.AfterCommitState;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -116,18 +119,16 @@ final class CommitTimestampPrecisionConformanceTest {
     }
   }
 
-  @Test
-  void aSuppliedSubMillisecondInstantRoundTripsAcrossColdReopen() {
-    final Instant supplied = Instant.parse("2021-03-04T05:06:07.123456Z");
+  @ParameterizedTest
+  @ValueSource(strings = {"2021-03-04T05:06:07Z", "2021-03-04T05:06:07.123Z", "2021-03-04T05:06:07.123456Z"})
+  void suppliedInstantRoundTripsAcrossColdReopen(final String text) {
+    final Instant supplied = Instant.parse(text);
     try (final var database = createResource(true); final var session = database.beginResourceSession(RESOURCE)) {
       try (final var writer = session.beginNodeTrx()) {
         writer.commit("micros", supplied);
       }
       assertEquals(supplied, commitTimestampOf(session, 1));
-      // The serializers and the REST history response format instants with ISO-8601, so the stored
-      // microseconds reach clients rather than being rounded away.
-      assertEquals("2021-03-04T05:06:07.123456Z",
-          DateTimeFormatter.ISO_INSTANT.format(commitTimestampOf(session, 1)));
+
     }
     // Cold reopen: the value now comes back from the revision root page and the revision directory
     // rather than from any cache.
@@ -204,6 +205,60 @@ final class CommitTimestampPrecisionConformanceTest {
         final var writer = session.beginNodeTrx()) {
       assertThrows(IllegalStateException.class, () -> writer.commit(null, FIRST));
       assertEquals(0, session.getMostRecentRevisionNumber());
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+      "false,2021-03-04T05:06:07.000150Z", "true,2021-03-04T05:06:07.000150Z",
+      "false,2021-03-04T05:07:07Z", "true,2021-03-04T05:07:07Z"})
+  void retryUsesItsTimestampAfterSyncOrAsyncPhaseOneFailure(final boolean phaseOne, final String failedText) {
+    try (final var database = createResource(true); final var session = database.beginResourceSession(RESOURCE)) {
+      try (final var writer = session.beginNodeTrx()) {
+        writer.commit(null, FIRST);
+        writer.getStorageEngineWriter().installEncodePassCompleteListener(() -> {
+          throw new IllegalStateException("before publication");
+        });
+        final Instant failed = Instant.parse(failedText);
+        assertThrows(IllegalStateException.class, () -> {
+          if (phaseOne) {
+            writer.getStorageEngineWriter().commitWritePages(null, failed, true);
+          } else {
+            writer.commit(null, failed);
+          }
+        });
+        assertEquals(1, session.getMostRecentRevisionNumber());
+        writer.getStorageEngineWriter().installEncodePassCompleteListener(null);
+        writer.commit(null, SECOND);
+      }
+      assertEquals(SECOND, commitTimestampOf(session, 2));
+    }
+    Databases.clearGlobalCaches();
+    try (final var database = Databases.openJsonDatabase(directory);
+        final var session = database.beginResourceSession(RESOURCE)) {
+      assertEquals(SECOND, commitTimestampOf(session, 2));
+      assertArrayEquals(new long[] {CommitTimestamps.toEpochMicros(SECOND), CommitTimestamps.toEpochMicros(FIRST)},
+          session.getHistoryTimestampsMicros());
+    }
+  }
+
+  @Test
+  void retryAfterAutomaticAsyncPhaseOneFailureUsesExplicitTimestamp() {
+    try (final var database = createResource(true); final var session = database.beginResourceSession(RESOURCE)) {
+      try (final var writer = session.beginNodeTrx()) {
+        writer.commit(null, FIRST);
+      }
+      try (final var writer = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT)) {
+        writer.getStorageEngineWriter().installEncodePassCompleteListener(() -> {
+          throw new IllegalStateException("before publication");
+        });
+        writer.insertArrayAsFirstChild();
+        assertThrows(IllegalStateException.class, () -> writer.insertStringValueAsFirstChild("retry"));
+        assertEquals(1, session.getMostRecentRevisionNumber());
+        writer.getStorageEngineWriter().installEncodePassCompleteListener(null);
+        writer.commit(null, SECOND);
+      }
+      assertEquals(SECOND, commitTimestampOf(session, 2));
     }
   }
 

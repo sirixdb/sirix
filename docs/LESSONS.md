@@ -195,3 +195,12 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   settings in the case configuration shared by generation, shrinking and replay. Check actual
   eviction and released bytes, including cleanup after failure, rather than accepting a green replay
   with its trigger disabled. Evidence: [HOT replay follow-up](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#review-follow-up-replay-lost-the-eviction-trigger).
+
+<a id="commit-attempt-state"></a>
+
+- **Distinguish attempt state from committed state.** Retrying must derive metadata from the original
+  committed predecessor and the retry input, while repeated serialization within an attempt remains
+  stable. Exercise a failure after assignment, both increasing and decreasing replacement inputs,
+  the synchronous and asynchronous recovery paths, and cold read-back. Verify formatted metadata
+  through its actual serializers and handlers, including zero and trailing fractional groups.
+  Evidence: [commit timestamp retry](postmortems/commit-timestamp-retry.md).
