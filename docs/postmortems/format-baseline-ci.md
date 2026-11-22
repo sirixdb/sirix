@@ -220,3 +220,85 @@ with the resulting selection, not a manually reduced production target list.
 - Final `git diff --check` passed. CodeFactor remains unresolved because its diagnostics
   return HTTP 403 without identifying a rule or location. No remote workflow, push, PR
   update or pipeline-control command was executed in this assigned phase.
+
+## CI follow-up: identify CodeFactor's rule and preserve the rebase
+
+- Rebased all 20 branch commits onto `ed2c177fea2b332f4751dcfdcb9a4c91bec87357`.
+  Only two additions at the top of `docs/LESSONS.md` conflicted; each resolution retained
+  both sides. Both changelogs merged automatically and retain both branches' entries.
+  The range comparison records identical patches for all production and test changes;
+  only the lessons' surrounding context differs. Evidence: `build/ci-round6/range-diff`.
+- The previous HTTP attempts did not expose CodeFactor's diagnostics. A repository
+  request with `Accept: application/json` and `User-Agent: Mozilla/5.0` returned its
+  HTML response containing the complete `app.value('model', ...)` JSON payload.
+  The PR response reports exactly one active issue: `Complex Method`, complexity 17,
+  in `ResourceFormatCompatibility.verify`, lines 68–147, attached to revision
+  `157ca06107399a20308ad6b47b99c6730779bb88`. The fixed-issues list is empty.
+  Responses and parsed models are under `build/ci-round6/` (`json-accept.json`,
+  `pr-fixed.json`, `repository-model.json`).
+- Cross-check: CodeFactor's `/file/main/bundles/sirix-core/src/main/java/io/sirix/io/ResourceFormatCompatibility.java`
+  returns 404; the specified base also has no such file. This issue belongs to a class
+  introduced by this PR, rather than to a pre-existing main issue. Its source is identical
+  in the provider's pinned revision and the supplied target `581825088`; the older entry
+  therefore still applies. No unrelated active
+  entry was reported by this response, and no unrelated code was changed.
+- Root cause: `verify` combined bootstrap-prefix validation and ordinary envelope discovery
+  in one method. Extracted only the bootstrap block into `verifyBootstrap`, preserving
+  every check, its order, exception behavior and allocations. This removes the nested file
+  check and two exception handlers from the reported method. Ordinary opens make no new
+  call; no per-envelope loop moved. Both methods are below the reported complexity threshold.
+- Invariant and sibling audit: both file identities precede every proof, with settings UUIDs
+  on the ordinary path and a cross-file UUID check on the unreadable-settings path.
+  Both persistent backends, derived rebuilding, orphan cleanup and interrupted/bootstrap
+  recovery still enter through the same gate. Missing files retain their existing handling;
+  present foreign headers still refuse before proof issuance. The incomplete-frame table,
+  bounded discovery, alias handling, settings JSON cases and all proof consumers are unchanged.
+  Bootstrap prefix refusals still propagate, non-version incomplete-tail failures still
+  permit the existing proof, and decoded revision-zero missing-record recovery retains
+  its separate fallback. No branch, parameter or helper became unreachable.
+- Regression oracle: existing `FormatRepairBoundaryTest` and `FormatVersionBaselineTest`
+  assert FMT-401/FMT-102 refusal and whole-resource preservation; their ordinary recovery
+  controls reject an extraction that blocks compatible stores. `FormatDiscoveryWorkBudgetTest`
+  retains its cold opens, both backends, positive controls and original bounds. This is a
+  behavior-preserving extraction, so no test that merely inspects method shape was added.
+- Vision check: preserves the refusal contract and counted open work, with no new behavior
+  or default. The named `sirix-repair-format-gate` gap and FMT-402's three gaps remain intact.
+- Lesson: a provider status is not a diagnosis; retrieve the embedded issue model and
+  establish file/revision attribution before changing code. See [Lessons](../LESSONS.md).
+
+### Verification
+
+- Before the extraction, the rebased tree passed 562 main tests and 55 isolated tests,
+  with zero failures/errors and two existing arena-policy skips. Selection included all
+  core work budgets, projection budgets, refused-overflow checks, format contracts,
+  repair boundaries, interrupted recovery, session factories and derived maintenance.
+  Log: `build/ci-round6/core-tests.log`; counts: `rebase-test-counts.json`.
+- All 156 mutation-helper behavior tests pass (`build/ci-round6/helper-tests.log`).
+- The final bootstrap-only extraction passed Spotless, compilation and all 351 selected
+  main tests in 3m 2s, with zero failures/errors/skips. Selection: `io.sirix.budget.*`,
+  `FormatRepairBoundaryTest`, `io.sirix.format.*`, `InterruptedFirstCommitRecovery*`.
+  The independently completed lookup-cache, dictionary-allocation and storage-epoch
+  tasks were excluded from this focused run; other startup prerequisites completed.
+  Log: `build/ci-round6/bootstrap-after.log`; counts: `bootstrap-test-counts.json`.
+
+- Unsampled focused PIT completed in 3m 34s: 76 mutants, 52 killed, 24 survivors,
+  zero uncovered mutants. All five mutants on the new `verifyBootstrap` method and
+  its caller are killed by the existing public recovery/preservation tests:
+  `beaconlessForeignEnvelopePreventsBootstrapTruncation`,
+  `incompleteBootstrapTailRecoversWithoutForeignVersion` and
+  `zeroDataHeaderCannotHideForeignRevisionsFormat`. Report:
+  `build/ci-round6/pit-report/mutations.xml`; extracted records: `extraction-mutants.json`.
+  Reproduce with `:sirix-core:pitest -PprMutationModule=sirix-core`, target class
+  `io.sirix.io.ResourceFormatCompatibility`, and test patterns `FormatRepairBoundaryTest*`,
+  `FormatVersionBaselineTest*`, `FormatDiscoveryWorkBudgetTest*` in their declared packages.
+- Deliberately left: the unsampled survivors affect unchanged identity/feature/root checks
+  in `verify` and `verifyRepair`, and unchanged bounds/arithmetic in `requireEnvelope`,
+  `requireFramedPrefix` and `readFully`. They are not CodeFactor findings or changes made
+  by this repair; the report does not establish a clean whole-class mutation verdict.
+  No disposition, waiver, test weakening or unrelated gate refactor was added.
+- Final `git diff --check` passes. The required base is an ancestor, all 20 branch commits
+  remain, and both sides of the lessons conflicts are retained. The repair changes only
+  the bootstrap extraction, this write-up and the existing CodeFactor lesson.
+
+No push, PR state change, remote workflow trigger or pipeline-control command was performed.
+CodeFactor's remote confirmation remains for the outer executor after publication.

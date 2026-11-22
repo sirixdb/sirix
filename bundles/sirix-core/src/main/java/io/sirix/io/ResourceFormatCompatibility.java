@@ -92,16 +92,7 @@ public final class ResourceFormatCompatibility {
         uber.getFeatures().requireWritable();
       }
       if (uber.isBootstrap()) {
-        if (Files.exists(data)) {
-          try (final FileChannel channel = FileChannel.open(data, StandardOpenOption.READ)) {
-            requireFramedPrefix(channel, new ByteHandlerPipeline(config.byteHandlePipeline));
-          } catch (final UnsupportedFormatVersionException unsupported) {
-            throw unsupported;
-          } catch (final IOException | RuntimeException incomplete) {
-            return new Proof(config.resourcePath, uber);
-          }
-        }
-        return new Proof(config.resourcePath, uber);
+        return verifyBootstrap(config, data, uber);
       }
       try (final FileChannel channel = FileChannel.open(data, StandardOpenOption.READ);
           final FileChannel records = FileChannel.open(Files.exists(revisions)
@@ -138,6 +129,19 @@ public final class ResourceFormatCompatibility {
     } catch (final IOException failure) {
       throw new SirixIOException(failure);
     }
+  }
+
+  private static Proof verifyBootstrap(final ResourceConfiguration config, final Path data, final UberPage uber) {
+    if (Files.exists(data)) {
+      try (final FileChannel channel = FileChannel.open(data, StandardOpenOption.READ)) {
+        requireFramedPrefix(channel, new ByteHandlerPipeline(config.byteHandlePipeline));
+      } catch (final UnsupportedFormatVersionException unsupported) {
+        throw unsupported;
+      } catch (final IOException | RuntimeException incomplete) {
+        return new Proof(config.resourcePath, uber);
+      }
+    }
+    return new Proof(config.resourcePath, uber);
   }
 
   /** Compatibility evidence bound to the exact descriptors a direct repair will modify. */
