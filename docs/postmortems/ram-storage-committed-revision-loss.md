@@ -235,3 +235,35 @@ share; its partial output recorded 24 killed changed-line mutants, including the
 cleanup retries. That run is incomplete, not a green full-lane result. The original query CI failure
 was temporary-directory deletion after successful assertions and did not reproduce locally.
 CodeFactor's diagnostic page returned HTTP 403, leaving its findings unclassified.
+
+## CI follow-up: mutation tooling fixture isolation
+
+- Fix / issue: PR 1469's `Python mutation tooling` failures at
+  `ad0d86119e9ee6889d6912bd0e5d28b50e66b40d`.
+- Symptom: two reporter tests failed after adding valid RAM associations and dispositions,
+  preventing the coverage report and dependent mutation job from running.
+- Trigger: run `python3 -B -m unittest discover -s .github/scripts/tests -p 'test_pr_mutation*.py'`
+  with the new repository configuration; both reported failures reproduce locally.
+- Root cause: the empty-selection CLI fixture set only its output directory, so both direct
+  `main()` and module-entrypoint calls read the real repository's dispositions without its
+  merge-base manifest. The repository association test required equality with the four former
+  release-contract pairs, incorrectly forbidding valid additions under CONV-204.
+- Required behavior and oracle: an empty fixture with no dispositions or associations must
+  exit zero; valid additional associations must be accepted while every former release-contract
+  pair remains present. Both CLI entry forms now receive the fixture's explicit root. The
+  association test validates the entire file through its consumer and checks membership for
+  each required pair, allowing additions both for other classes and for an existing class.
+  Missing required pairs and invalid ownership/schema remain failures; no production validation
+  or configuration is removed.
+- Why tests missed it: the repository formerly had no dispositions and exactly the four
+  association pairs, so the accidental configuration dependencies agreed with the fixtures.
+- Regression tests: `CommandLineTest.test_run_cli_skips_empty_selection_and_module_entrypoint_exits_zero`
+  and `AssociationTest.test_repository_files_are_valid_and_keep_the_former_contract_pairs`.
+  The initial run failed both tests; the repaired tests exercise the real CLI and normalized
+  association consumer rather than implementation text.
+- Verification: all 156 `test_pr_mutation*.py` tests pass under branch coverage; coverage is
+  99%, exceeding the CI job's 85% floor, and XML generation succeeds. Reports are under
+  `build/ci-diagnostics/python-tooling/`. No production logic changed in this repair.
+  CodeFactor still reports three issues but supplies no GitHub annotations; its diagnostic
+  page returns HTTP 403, so that separate finding remains unresolved.
+- Lesson: [isolate fixtures and preserve semantic association contracts](../LESSONS.md).

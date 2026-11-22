@@ -851,7 +851,7 @@ class CommandLineTest(unittest.TestCase):
     def test_run_cli_skips_empty_selection_and_module_entrypoint_exits_zero(self):
         with tempfile.TemporaryDirectory() as temp:
             write_manifest(Path(temp), {})
-            args = ['pr_mutation.py', 'run', '--output', temp, '--blocking']
+            args = ['pr_mutation.py', 'run', '--root', temp, '--output', temp, '--blocking']
             with patch.object(sys, 'argv', args):
                 self.assertEqual(mutation.main(), 0)
                 script = str(SCRIPT)
