@@ -81,8 +81,12 @@ final class FormatDiscoveryWorkBudgetTest {
     final Path database = directory.resolve(backend + "-" + revisions);
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
     try (final var opened = Databases.openJsonDatabase(database)) {
-      assertTrue(opened.createResource(ResourceConfiguration.newBuilder("fixture").storageType(backend)
-          .byteHandlerPipeline(new ByteHandlerPipeline()).hashKind(HashType.NONE).buildPathSummary(false).build()));
+      assertTrue(opened.createResource(ResourceConfiguration.newBuilder("fixture")
+                                                            .storageType(backend)
+                                                            .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                            .hashKind(HashType.NONE)
+                                                            .buildPathSummary(false)
+                                                            .build()));
       try (final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
         writer.insertStringValueAsFirstChild("preserved");
         for (int revision = 0; revision < revisions; revision++) {
@@ -95,10 +99,10 @@ final class FormatDiscoveryWorkBudgetTest {
 
   private static long byteBudget(final Path resource, final int revision) throws Exception {
     final Path data = resource.resolve("data");
-    final ByteBuffer records = ByteBuffer.wrap(Files.readAllBytes(data.resolve(IOStorage.REVISIONS_FILENAME)))
-        .order(ByteOrder.LITTLE_ENDIAN);
-    final ByteBuffer pages = ByteBuffer.wrap(Files.readAllBytes(data.resolve(IOStorage.FILENAME)))
-        .order(ByteOrder.LITTLE_ENDIAN);
+    final ByteBuffer records =
+        ByteBuffer.wrap(Files.readAllBytes(data.resolve(IOStorage.REVISIONS_FILENAME))).order(ByteOrder.LITTLE_ENDIAN);
+    final ByteBuffer pages =
+        ByteBuffer.wrap(Files.readAllBytes(data.resolve(IOStorage.FILENAME))).order(ByteOrder.LITTLE_ENDIAN);
     long bytes = 2 * 64 + 4096 + INSPECTIONS * 32;
     for (int inspected = revision - WINDOW + 1; inspected <= revision; inspected++) {
       bytes += framedRootBytes(records, pages, inspected);
@@ -125,8 +129,8 @@ final class FormatDiscoveryWorkBudgetTest {
         "32-byte revision record slots returned during compatibility discovery", () -> recordBytes / 32);
     private final WorkCounter envelopesCounter = WorkCounter.alwaysOn("format.envelopesInspected",
         "framed page-length headers read during compatibility discovery", () -> envelopes);
-    private final WorkCounter gatesCounter = WorkCounter.alwaysOn("format.proofs",
-        "normal-open calls to the shared compatibility gate", () -> gates);
+    private final WorkCounter gatesCounter =
+        WorkCounter.alwaysOn("format.proofs", "normal-open calls to the shared compatibility gate", () -> gates);
     private final WorkCapture capture = WorkCapture.of(bytesCounter, recordsCounter, envelopesCounter, gatesCounter);
     private final MockedStatic<FileChannel> channels;
     private final MockedStatic<ResourceFormatCompatibility> compatibility;
@@ -135,9 +139,8 @@ final class FormatDiscoveryWorkBudgetTest {
       final Path data = resource.resolve("data");
       channels = mockStatic(FileChannel.class, invocation -> {
         final Object result = invocation.callRealMethod();
-        if (discovering && invocation.getRawArguments().length == 2
-            && invocation.getArgument(0) instanceof Path path && path.getParent().equals(data)
-            && result instanceof FileChannel channel) {
+        if (discovering && invocation.getRawArguments().length == 2 && invocation.getArgument(0) instanceof Path path
+            && path.getParent().equals(data) && result instanceof FileChannel channel) {
           return observe(channel, path.getFileName().toString().equals(IOStorage.REVISIONS_FILENAME));
         }
         return result;
@@ -166,9 +169,13 @@ final class FormatDiscoveryWorkBudgetTest {
         if (!invocation.getMethod().getName().equals("read")) {
           return delegate.answer(invocation);
         }
-        final long offset = invocation.getRawArguments().length == 2
-            && invocation.getArgument(1) instanceof Long position ? position : channel.position();
-        final int requested = invocation.getArgument(0) instanceof ByteBuffer buffer ? buffer.remaining() : 0;
+        final long offset =
+            invocation.getRawArguments().length == 2 && invocation.getArgument(1) instanceof Long position
+                ? position
+                : channel.position();
+        final int requested = invocation.getArgument(0) instanceof ByteBuffer buffer
+            ? buffer.remaining()
+            : 0;
         final Object result = delegate.answer(invocation);
         final long read = ((Number) result).longValue();
         if (discovering && read > 0) {
