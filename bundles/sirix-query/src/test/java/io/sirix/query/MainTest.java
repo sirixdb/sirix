@@ -340,6 +340,36 @@ final class MainTest {
   }
 
   @Test
+  void queryScriptsPreserveOtherSeparatorsAsQueryContent() throws Exception {
+    final String nl = System.lineSeparator();
+    final String frame = nl + "Query result" + nl;
+    for (final int[] separator : new int[][] {{11, 11}, {12, 12}, {13, 10}, {133, 10}, {8232, 10}, {8233, 8233}}) {
+      final String character = Character.toString(separator[0]);
+      final String middleLine = separator[0] == 13
+          ? character + "\t"
+          : character;
+      for (final String ending : List.of("\n", "\r\n")) {
+        for (final String quote : List.of("'", "\"")) {
+          final String source = "string-to-codepoints(" + quote + "a" + character + "b" + quote + ")" + ending
+              + " \t" + ending + "string-to-codepoints(" + quote + "a" + ending + middleLine + ending + "b" + quote + ")";
+          final Path script = directory.resolve("separator-content.xq");
+          Files.writeString(script, source);
+          for (final String input : List.of(script.toString(), "-")) {
+            final String[] output = capture(source,
+                () -> assertEquals(0, Main.run(new String[] {"-iqf", input, "--no-color"}, null),
+                    "script character U+" + Integer.toHexString(separator[0])));
+            final String multiline = separator[0] == 13
+                ? "97 10 10 9 10 98"
+                : "97 10 " + separator[1] + " 10 98";
+            assertEquals(frame + "97 " + separator[1] + " 98" + nl + nl + frame + multiline + nl + nl, output[0]);
+            assertEquals("", output[1]);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
   void literalLineEndsNormalizeBeforeEvaluationAndRuntimeCarriageReturnsSurviveOutput() {
     try (final SirixQueryContext context = SirixQueryContext.create()) {
       final Query literal = new Query("'first\r\nsecond'");

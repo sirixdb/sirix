@@ -52,3 +52,27 @@
 - Lesson: distinguish language line-end normalization from output framing, and test runtime
   values separately from source literals; see [Lessons](../LESSONS.md).
 - Windows CI execution belongs to the outer executor's CI phase; this review runs focused local tests.
+
+## Review follow-up: preserve non-line-break script characters
+
+- Invariant (I1–I6): only LF and CRLF delimit script lines; empty lines or lines containing
+  spaces and tabs separate queries. Every other character remains part of the query source,
+  through both file and stdin input and in both single- and double-quoted literals.
+- Trigger: `string-to-codepoints('a<U+2029>b')`, with an actual paragraph separator, returned
+  `97 10 98` instead of `97 8233 98`; a paragraph separator occupying a literal's middle line
+  could instead end the query prematurely.
+- Root cause: `\R` recognized six extra line-ending aliases, and `isBlank()` independently
+  treated several of those same characters as empty separator lines. Both decisions belonged
+  to a broader whitespace grammar than the script protocol requires.
+- Why tests missed it: LF/CRLF examples checked supported delimiters but never placed other
+  separator characters inline or alone on a physical line inside a literal.
+- Regression: `MainTest.queryScriptsPreserveOtherSeparatorsAsQueryContent` runs both script
+  entry points with LF/CRLF, both quote forms and U+000B, U+000C, lone CR, U+0085, U+2028 and
+  U+2029 inline and on their own lines (a tab follows lone CR to prevent pairing it with LF).
+  The I1–I6 oracle preserves those source characters;
+  independently specified XML 1.1 literal normalization maps CR, NEL and U+2028 to LF during
+  compilation. Expected code points distinguish data preservation from accidental replacement
+  and premature query execution; paragraph separator, vertical tab and form feed remain intact.
+- Fix: remove the extra splitter aliases and restrict blank separator content to spaces/tabs.
+- Lesson: apply the same delimiter grammar to line splitting and blank-line classification;
+  see [Lessons](../LESSONS.md).

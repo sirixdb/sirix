@@ -209,7 +209,7 @@ All notable changes to SirixDB are documented in this file.
 - **`sirix-shell -iqf` runs query scripts** — the option now takes a file (or `-` for stdin),
   runs its blank-line separated queries in one session, reports failing queries and continues,
   and exits with -1 if any query failed. LF and CRLF scripts yield the same query text on every
-  platform. Before, it could not run any query
+  platform; other separator characters remain query content. Before, it could not run any query
   ([write-up](docs/postmortems/shell-query-script-mode.md), #1470).
 - **`xn:store` stores a single node under the given resource name** on creation, recreation and
   append, including singleton sequences, as `xn:load` and `jn:store` do; before, creation and

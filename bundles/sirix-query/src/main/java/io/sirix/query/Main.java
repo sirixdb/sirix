@@ -280,8 +280,8 @@ public final class Main {
         : readFile(file);
     boolean succeeded = true;
     final StringBuilder query = new StringBuilder();
-    for (final String line : script.split("\\R", -1)) {
-      if (!line.isBlank()) {
+    for (final String line : script.split("\\r?\\n", -1)) {
+      if (!line.matches("[ \\t]*")) {
         if (!query.isEmpty())
           query.append('\n');
         query.append(line);
