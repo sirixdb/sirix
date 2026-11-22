@@ -375,3 +375,52 @@ This intermediate gap was resolved by the [foreign-root repair follow-up](#forei
   FMT-401 stays partial and its code+test evidence does not claim completeness or CI confirmation.
 - Lesson: pair recoverable corruption with readable-version refusal across both beacon states;
   see [LESSONS.md](../LESSONS.md).
+
+### Follow-up: readable version in an incomplete frame
+
+- Fix / issue: FMT-401; `review-partial-envelope-version` together with `review-bootstrap-tail`.
+- Symptom and trigger: valid baseline file identities, missing directory records and tail-log
+  copies, and either zero beacons or feature-free revision-zero beacons allow bootstrap recovery
+  to erase a partial frame whose own envelope already carries a readable foreign version.
+  An unreadable derived-settings fallback can likewise authorize deletion of those bytes.
+- Root cause: frame-length validation ran before decoding any available envelope header. Its
+  short-body error was classified as recoverable even when the available version was foreign.
+  The preceding fix correctly tolerated unreadable prefixes, but completeness cannot distinguish
+  an unreadable version from a readable foreign one.
+- Rule: for an incomplete first-commit frame, a readable foreign version requires refusal with
+  every resource file unchanged; a readable baseline version or absent/unreadable version permits
+  the existing empty-bootstrap proof. The decision table is recorded at the shared prefix boundary
+  and in FMT-401. No scan proceeds beyond the malformed frame.
+- Fix: decode only the available payload through the configured byte pipeline before rejecting
+  the short body. Both memory-segment and stream decoding check the version first. Foreign
+  exceptions still bypass both recovery catches; compatible partial frames still fail committed-root
+  validation. Ordinary complete frames retain their size, version and kind checks. The revision-zero
+  recovery handling and its independent disposable-bootstrap proof remain intact.
+- Why tests missed it: the preceding refusal fixture placed its foreign version in an earlier
+  complete frame, while the incomplete frame had only a kind byte. It could not distinguish
+  decoding the incomplete envelope from rejecting its length without examining its bytes.
+- Regression tests and independent oracle: FMT-401's table supplies the expected outcomes for
+  `FormatRepairBoundaryTest.incompleteFrameWithForeignHeaderIsRefused`,
+  `incompleteFrameWithBaselineHeaderRecovers` and `incompleteFrameWithoutReadableHeaderRecovers`.
+  All three run on FILE_CHANNEL and MEMORY_MAPPED, with and without beacons, using identity and
+  Deflate pipelines to exercise memory-segment and stream decoding. Missing or undecodable headers
+  have zero or one encoded byte. Positive cases commit known content and read it after cold reopen;
+  foreign cases require the diagnostic naming version 1 and identical whole-resource file digests.
+  `incompleteFrameForeignHeaderPreventsDerivedRebuild` covers both readable and unreadable settings;
+  `incompleteBaselineFrameCannotServeAsCommittedRoot` rejects accepting a partial committed root.
+  Earlier complete-envelope, beaconless and recovery tests remain in place.
+- Pre-fix evidence: statically tracing the new foreign-header fixture reaches the old length
+  rejection before `BinaryEncodingVersion.fromByte`, then obtains a recovery proof and truncates.
+  No counterfactual run was performed because this phase requires applying all fixes before focused
+  verification. The focused `:sirix-core:test` selection passed all 165 tests with no failures,
+  errors or skips (exit 0): 35 repair-boundary tests, 95 bootstrap/feature recovery tests, 28 strict
+  version/baseline/golden tests and seven scratch-buffer/revision-index budget tests. Unrelated
+  startup tasks were excluded and the test heap was 256 MiB/2 GiB. Log:
+  `build/review-partial-envelope-version.log`; JUnit XML:
+  `bundles/sirix-core/build/test-results/test/`. Mutation, lint and broader checks belong to the
+  outer pipeline.
+- Scope: FMT-401 remains partial with code+test evidence. Complete discovery outside the current
+  frame, latest root and bounded window remains the `sirix-repair-format-gate` gap; neither that
+  task nor the immutable-corpus or CI evidence gaps are closed here. FMT-402 is unchanged.
+- Lesson: classify recoverability from the version actually readable in the incomplete frame;
+  see [LESSONS.md](../LESSONS.md).

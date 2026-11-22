@@ -190,31 +190,48 @@ public final class ResourceFormatCompatibility {
     final ByteBuffer length = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
     readFully(channel, length, offset);
     final int size = length.getInt(0);
-    if (offset < IOStorage.DATA_REGION_START || size < 2 || size > channel.size() - offset - Integer.BYTES) {
+    if (offset < IOStorage.DATA_REGION_START || size < 2) {
       throw new SirixIOException("Invalid page frame while checking format compatibility");
     }
-    final byte[] payload = new byte[size];
+    final byte[] payload = new byte[(int) Math.min(size, channel.size() - offset - Integer.BYTES)];
     readFully(channel, ByteBuffer.wrap(payload), offset + Integer.BYTES);
+    final PageKind pageKind;
     if (handler.supportsMemorySegments()) {
       try (final DecompressionResult decoded = handler.decompressScoped(MemorySegment.ofArray(payload))) {
         if (decoded.segment().byteSize() < 2) {
           throw new SirixIOException("Truncated page envelope while checking format compatibility");
         }
         BinaryEncodingVersion.fromByte(decoded.segment().get(ValueLayout.JAVA_BYTE, 1));
-        return PageKind.getKind(decoded.segment().get(ValueLayout.JAVA_BYTE, 0));
+        pageKind = PageKind.getKind(decoded.segment().get(ValueLayout.JAVA_BYTE, 0));
+      }
+    } else {
+      try (final InputStream decoded = handler.deserialize(new ByteArrayInputStream(payload))) {
+        final int kind = decoded.read();
+        final int version = decoded.read();
+        if (kind < 0 || version < 0) {
+          throw new SirixIOException("Truncated page envelope while checking format compatibility");
+        }
+        BinaryEncodingVersion.fromByte((byte) version);
+        pageKind = PageKind.getKind((byte) kind);
       }
     }
-    try (final InputStream decoded = handler.deserialize(new ByteArrayInputStream(payload))) {
-      final int kind = decoded.read();
-      final int version = decoded.read();
-      if (kind < 0 || version < 0) {
-        throw new SirixIOException("Truncated page envelope while checking format compatibility");
-      }
-      BinaryEncodingVersion.fromByte((byte) version);
-      return PageKind.getKind((byte) kind);
+    if (payload.length != size) {
+      throw new SirixIOException("Invalid page frame while checking format compatibility");
     }
+    return pageKind;
   }
 
+  /**
+   * Incomplete first-commit frame at the shared prefix boundary:
+   * <pre>
+   * Envelope header carrying the version | Version value | Outcome
+   * Present and readable                | Not 1.0's     | REFUSE, files unchanged
+   * Present and readable                | 1.0's         | RECOVERABLE
+   * Not present, or unreadable          | n/a           | RECOVERABLE
+   * </pre>
+   * No scan beyond the malformed frame; other envelopes remain the FMT-401
+   * sirix-repair-format-gate gap (captain decision A, 2026-11-22).
+   */
   private static void requireFramedPrefix(final FileChannel channel, final ByteHandler handler) throws IOException {
     final ByteBuffer length = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
     final long size = channel.size();

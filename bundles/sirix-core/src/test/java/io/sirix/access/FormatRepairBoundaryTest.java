@@ -1,11 +1,14 @@
 package io.sirix.access;
 
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.exception.SirixIOException;
 import io.sirix.index.aggregate.DerivedIndexMaintainer;
 import io.sirix.io.IOStorage;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.RevisionIndexHolder;
+import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.DeflateCompressor;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.page.PagePersister;
@@ -19,7 +22,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.ByteOrder;
@@ -168,21 +173,7 @@ final class FormatRepairBoundaryTest {
       final Path database = createStore("incomplete-bootstrap-" + backend + "-" + beacons, backend, false);
       final Path resource = resourcePath(database, "fixture");
       damageBootstrapTail(resource, beacons, false);
-      Databases.clearGlobalCaches();
-      try (final var opened = Databases.openJsonDatabase(database);
-          final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
-        assertEquals(0, session.getMostRecentRevisionNumber());
-        writer.insertStringValueAsFirstChild("recovered");
-        writer.commit();
-        assertEquals(0, session.getMostRecentRevisionNumber());
-      }
-      Databases.clearGlobalCaches();
-      try (final var opened = Databases.openJsonDatabase(database);
-          final var session = opened.beginResourceSession("fixture"); final var reader = session.beginNodeReadOnlyTrx()) {
-        assertEquals(0, session.getMostRecentRevisionNumber());
-        assertTrue(reader.moveToFirstChild());
-        assertEquals("recovered", reader.getValue());
-      }
+      assertRecoveryCommitSurvivesReopen(database);
     }
   }
 
@@ -202,6 +193,136 @@ final class FormatRepairBoundaryTest {
       }
       assertEquals(before, snapshot(resource));
     }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void incompleteFrameWithForeignHeaderIsRefused(final StorageType backend) throws IOException {
+    for (final boolean compressed : new boolean[] {false, true}) {
+      for (final boolean beacons : new boolean[] {false, true}) {
+        final Path database = createStore("partial-foreign-" + backend + "-" + beacons + "-" + compressed,
+            backend, false, compressed);
+        final Path resource = resourcePath(database, "fixture");
+        damageIncompleteFrame(resource, beacons, new byte[] {5, 1});
+        final Map<String, String> before = snapshot(resource);
+        Databases.clearGlobalCaches();
+        try (final var opened = Databases.openJsonDatabase(database)) {
+          final RuntimeException failure = assertThrows(RuntimeException.class,
+              () -> opened.beginResourceSession("fixture"));
+          assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
+        }
+        assertEquals(before, snapshot(resource));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void incompleteFrameWithBaselineHeaderRecovers(final StorageType backend) throws IOException {
+    for (final boolean compressed : new boolean[] {false, true}) {
+      for (final boolean beacons : new boolean[] {false, true}) {
+        final Path database = createStore("partial-baseline-" + backend + "-" + beacons + "-" + compressed,
+            backend, false, compressed);
+        damageIncompleteFrame(resourcePath(database, "fixture"), beacons, new byte[] {5, 0});
+        assertRecoveryCommitSurvivesReopen(database);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void incompleteFrameWithoutReadableHeaderRecovers(final StorageType backend) throws IOException {
+    for (final boolean compressed : new boolean[] {false, true}) {
+      for (final boolean beacons : new boolean[] {false, true}) {
+        for (final int remaining : new int[] {0, 1}) {
+          final Path database = createStore("partial-unreadable-" + backend + "-" + beacons + "-" + compressed
+              + "-" + remaining, backend, false, compressed);
+          final Path resource = resourcePath(database, "fixture");
+          damageIncompleteFrame(resource, beacons, new byte[] {5, 0});
+          try (final FileChannel data = FileChannel.open(file(resource, "data"), StandardOpenOption.WRITE)) {
+            data.truncate(IOStorage.DATA_REGION_START + Integer.BYTES + remaining);
+          }
+          assertRecoveryCommitSurvivesReopen(database);
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void incompleteFrameForeignHeaderPreventsDerivedRebuild(final StorageType backend) throws IOException {
+    for (final boolean beacons : new boolean[] {false, true}) {
+      for (final boolean missingSettings : new boolean[] {false, true}) {
+        final Path database = createStore("partial-derived-" + backend + "-" + beacons + "-" + missingSettings,
+            backend, true);
+        final Path resource = resourcePath(database, "source" + DerivedIndexMaintainer.SUFFIX);
+        Files.move(resourcePath(database, "fixture"), resource);
+        damageIncompleteFrame(resource, beacons, new byte[] {5, 1});
+        if (missingSettings) {
+          Files.writeString(resource.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()), "{}");
+        }
+        final Map<String, String> before = snapshot(resource);
+        Databases.clearGlobalCaches();
+        try (final var opened = Databases.openJsonDatabase(database)) {
+          final RuntimeException failure = assertThrows(RuntimeException.class,
+              () -> opened.beginResourceSession("source"));
+          assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
+        }
+        assertEquals(before, snapshot(resource));
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void incompleteBaselineFrameCannotServeAsCommittedRoot(final StorageType backend) throws IOException {
+    for (final boolean compressed : new boolean[] {false, true}) {
+      final Path database = createStore("partial-committed-" + backend + "-" + compressed, backend, false, compressed);
+      final Path resource = resourcePath(database, "fixture");
+      damageIncompleteFrame(resource, true, new byte[] {5, 0});
+      final ResourceConfiguration config = ResourceConfiguration.deserialize(resource);
+      final Map<String, String> before = snapshot(resource);
+      try (final FileChannel data = FileChannel.open(file(resource, "data"), StandardOpenOption.READ)) {
+        assertThrows(SirixIOException.class,
+            () -> ResourceFormatCompatibility.requireRootEnvelope(data, IOStorage.DATA_REGION_START,
+                config.byteHandlePipeline));
+      }
+      assertEquals(before, snapshot(resource));
+    }
+  }
+
+  private static void assertRecoveryCommitSurvivesReopen(final Path database) {
+    Databases.clearGlobalCaches();
+    try (final var opened = Databases.openJsonDatabase(database);
+        final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+      assertEquals(0, session.getMostRecentRevisionNumber());
+      writer.insertStringValueAsFirstChild("recovered");
+      writer.commit();
+      assertEquals(0, session.getMostRecentRevisionNumber());
+    }
+    Databases.clearGlobalCaches();
+    try (final var opened = Databases.openJsonDatabase(database);
+        final var session = opened.beginResourceSession("fixture"); final var reader = session.beginNodeReadOnlyTrx()) {
+      assertEquals(0, session.getMostRecentRevisionNumber());
+      assertTrue(reader.moveToFirstChild());
+      assertEquals("recovered", reader.getValue());
+    }
+  }
+
+  private static void damageIncompleteFrame(final Path resource, final boolean beacons, final byte[] header)
+      throws IOException {
+    final ResourceConfiguration config = ResourceConfiguration.deserialize(resource);
+    final ByteArrayOutputStream payload = new ByteArrayOutputStream();
+    try (final OutputStream encoded = config.byteHandlePipeline.serialize(payload)) {
+      encoded.write(header);
+    }
+    damageBootstrapTail(resource, beacons, false);
+    final int start = (int) IOStorage.DATA_REGION_START;
+    final byte[] damaged = Arrays.copyOf(Files.readAllBytes(file(resource, "data")),
+        start + Integer.BYTES + payload.size());
+    ByteBuffer.wrap(damaged).order(ByteOrder.LITTLE_ENDIAN).putInt(start, payload.size() + 100);
+    System.arraycopy(payload.toByteArray(), 0, damaged, start + Integer.BYTES, payload.size());
+    Files.write(file(resource, "data"), damaged);
   }
 
   private static void damageBootstrapTail(final Path resource, final boolean beacons, final boolean foreign)
@@ -560,6 +681,11 @@ final class FormatRepairBoundaryTest {
   }
 
   private Path createStore(final String name, final StorageType backend, final boolean derived) {
+    return createStore(name, backend, derived, false);
+  }
+
+  private Path createStore(final String name, final StorageType backend, final boolean derived,
+      final boolean compressed) {
     final Path database = directory.resolve(name);
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
     try (final var opened = Databases.openJsonDatabase(database)) {
@@ -568,6 +694,9 @@ final class FormatRepairBoundaryTest {
             .useConventionalValidTimePaths().build()));
       }
       assertTrue(opened.createResource(ResourceConfiguration.newBuilder("fixture").storageType(backend)
+          .byteHandlerPipeline(compressed
+              ? new ByteHandlerPipeline(new DeflateCompressor())
+              : new ByteHandlerPipeline())
           .aggregateKernel(derived).build()));
       if (derived) {
         try (final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
