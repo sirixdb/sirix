@@ -69,3 +69,18 @@ per request. Requests without `nodeId` are unchanged.
   existing keys; asserts the database, resource, revision count and node are unchanged after
   every refusal). 4 of 8 cases fail on the parent commit with 204 where 400 is expected; all 8
   pass with the fix, and the offline REST suite (230 tests) passes.
+
+## CI follow-up: the mutation tooling test read the live dispositions file
+
+- Symptom: after the first reviewed dispositions were added to `.github/mutation-dispositions.toml`,
+  `Python mutation tooling` failed in
+  `test_run_cli_skips_empty_selection_and_module_entrypoint_exits_zero` (`1 != 0`). The PR mutation
+  lane itself passed.
+- Root cause: the test ran `pr_mutation.py run` with the default `--root`, which is the repository
+  checkout, so it judged the repository's real dispositions file against an empty selection. With
+  no mutated classes every new entry is "unconfirmed" and fails the run. The test only passed
+  because that file had held no entries since the lane was introduced.
+- Fix: the test passes `--root` set to its temporary directory, so it judges only its own inputs.
+- Regression: the same test, which fails on `3dd98238` and passes with the fix; the whole tooling
+  suite (156 tests, 99 % branch coverage) passes.
+- Lesson: see the isolation lesson in [Lessons](../LESSONS.md).
