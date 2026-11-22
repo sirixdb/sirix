@@ -374,8 +374,9 @@ Count-based and scheduled auto-commits cannot publish an XML list partway throug
 application. Adjacent text nodes are merged and empty text nodes removed after all
 operations have run, before publication. `CommitStrategy.AUTO` commits and closes each
 affected XML writer after successful application; `EXPLICIT` ends application without
-committing. A failed list marks every participating XML writer rollback-only; roll back
-before making further changes or committing. The publication-scope API contract is in
+committing. For application failures in either JSON or XML, see the
+[`SirixQueryContext.applyUpdates()` cleanup and writer-ownership contract](bundles/sirix-query/src/main/java/io/sirix/query/SirixQueryContext.java).
+The publication-scope API contract, including rollback-only writer restrictions, is in
 [`XmlNodeTrx`](bundles/sirix-core/src/main/java/io/sirix/api/xml/XmlNodeTrx.java).
 
 XQuery `insert nodes` preserves the source sequence order at every insertion position:

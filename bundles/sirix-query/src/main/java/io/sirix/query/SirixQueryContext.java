@@ -236,8 +236,12 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   /**
    * Applies pending updates using this context's commit strategy. If operation application fails,
    * writers opened by the apply are rolled back and closed; caller-held writers remain open under
-   * caller ownership. A runtime release failure is suppressed on the original apply failure. This
-   * cleanup does not cover failures during the subsequent automatic commit.
+   * caller ownership. JSON object targets of rolled-back sessions discard memoized values so retained
+   * items read their original committed snapshot. Caller-held XML writers remain rollback-only and
+   * must be rolled back before reuse. A runtime release failure is suppressed on the original apply
+   * failure. This cleanup does not cover failures during the subsequent automatic commit or clear the
+   * pending update list; a caller reusing the context must discard the failed query's pending
+   * updates.
    */
   @Override
   public void applyUpdates() {
