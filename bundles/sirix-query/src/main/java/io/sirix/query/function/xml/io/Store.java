@@ -25,6 +25,7 @@ import io.brackit.query.node.parser.NodeStreamSubtreeParser;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.util.annotation.FunctionAnnotation;
+import io.sirix.query.MutationAuthorization;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.xml.XMLFun;
@@ -118,6 +119,10 @@ public final class Store extends AbstractFunction {
       final Instant commitTimesstamp = args.length == 6
           ? dateTimeToInstant.convert(dateTime)
           : null;
+
+      // Store is an ordinary function call, so authorize CREATE before touching the store, as
+      // xn:load and jn:store do; the query-level updating-expression check does not cover it.
+      MutationAuthorization.requireCreate(ctx, collName, resName);
 
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {

@@ -203,6 +203,9 @@ All notable changes to SirixDB are documented in this file.
 
 ### Fixed
 
+- **`xn:store` authorizes CREATE at the query function**, as `xn:load` and `jn:store` do. The REST
+  API already refused it through its store decorators; embedders relying on the query-function
+  check were not covered ([write-up](docs/postmortems/xml-store-create-authorization.md), #1473).
 - **`sirix-shell -iqf` runs query scripts** — the option now takes a file (or `-` for stdin),
   runs its blank-line separated queries in one session, reports failing queries and continues,
   and exits with -1 if any query failed. Before, it could not run any query

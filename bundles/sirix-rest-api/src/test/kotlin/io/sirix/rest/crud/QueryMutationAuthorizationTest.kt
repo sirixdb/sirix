@@ -625,6 +625,50 @@ class QueryMutationAuthorizationTest {
         assertTrue(resourceExists("fresh"), "An authorized store/load must create the resource")
     }
 
+    /**
+     * xn:store needs CREATE on every path. The REST store and collection decorators enforce it, and
+     * the query function asks the context's authorizer too; this pins the REST outcome on its own.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = [
+        "xn:store('fresh','r',<a/>)",
+        "xn:store('existing','added',<a/>,false())",
+        "xn:store('existing','resource1',<a/>,false())",
+        "xn:store('sequence',(),(<a/>,<b/>))"
+    ])
+    fun xmlStoreWithoutCreateRoleIsRefused(query: String) {
+        withXmlRoles("view", "modify") { context, chain ->
+            val before = xmlStoreState()
+            assertRefused(query) { Query(chain, query).execute(context) }
+            assertEquals(before, xmlStoreState(), "A refused xn:store must not change the store: $query")
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource("xn:store('fresh'|'r'|<a/>),fresh,r", "xn:store('existing'|'added'|<a/>|false()),existing,added")
+    fun xmlStoreWithCreateRoleStores(query: String, database: String, resource: String) {
+        val xquery = query.replace('|', ',')
+        withXmlRoles("view", "create", "modify") { context, chain -> Query(chain, xquery).execute(context) }
+        assertTrue(Files.isDirectory(directory.resolve(database).resolve("resources").resolve(resource)), xquery)
+    }
+
+    /** An XML fixture with database `existing` (resource `resource1`); the caller holds exactly [roles]. */
+    private fun withXmlRoles(vararg roles: String, body: (SirixQueryContext, SirixCompileChain) -> Unit) {
+        val user = userWith(*roles)
+        BasicXmlDBStore.newBuilder().location(directory).build().use { store ->
+            store.create("existing", DocumentParser("<root/>"))
+            val guarded = XmlSessionDBStore(Mockito.mock(RoutingContext::class.java), store, user, authorizations())
+            SirixQueryContext.createWithNodeStore(guarded).use { context ->
+                SirixCompileChain.createWithNodeStore(guarded).use { chain -> body(context, chain) }
+            }
+        }
+    }
+
+    private fun xmlStoreState(): Pair<List<String>, List<String>> {
+        fun names(path: Path) = Files.list(path).use { entries -> entries.map { it.fileName.toString() }.sorted().toList() }
+        return names(directory) to names(directory.resolve("existing").resolve("resources"))
+    }
+
     /** Both REST functions take inline content; local URI loading is tested in sirix-query. */
     private fun storeOrLoad(function: String, resourceName: String, createNew: Boolean): String {
         val flag = if (createNew) ",true()" else ",false()"
