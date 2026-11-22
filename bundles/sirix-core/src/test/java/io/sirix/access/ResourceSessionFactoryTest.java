@@ -36,7 +36,8 @@ class ResourceSessionFactoryTest {
         assertEquals(resource, location);
         return database.beginResourceSession("resource");
       };
-      try (final var session = legacyFactory.create(configuration, buffers, resource, ResourceFormatCompatibility.verify(configuration))) {
+      try (final var session =
+          legacyFactory.create(configuration, buffers, resource, ResourceFormatCompatibility.verify(configuration))) {
         assertPersistedValue(session);
       }
       final var delegate = new ResourceStoreImpl<>(new PathBasedPool<>(), legacyFactory);
@@ -78,7 +79,8 @@ class ResourceSessionFactoryTest {
         }
       };
       try (legacyStore;
-          final var session = legacyStore.beginResourceSession(configuration, buffers, resource, ResourceFormatCompatibility.verify(configuration))) {
+          final var session = legacyStore.beginResourceSession(configuration, buffers, resource,
+              ResourceFormatCompatibility.verify(configuration))) {
         assertTrue(legacyStore.hasOpenResourceSession(resource));
         assertSame(session, legacyStore.getOpenResourceSession(resource));
         assertPersistedValue(session);

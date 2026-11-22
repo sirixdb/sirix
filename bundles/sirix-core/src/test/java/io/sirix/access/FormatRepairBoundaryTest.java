@@ -70,7 +70,9 @@ final class FormatRepairBoundaryTest {
               : patched);
         }
       } else if (site.endsWith("root-missing-settings")) {
-        patchRoot(derived, site.startsWith("historical") ? 0 : 1);
+        patchRoot(derived, site.startsWith("historical")
+            ? 0
+            : 1);
         Files.writeString(derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()), "{}");
       } else if (site.equals("uber")) {
         final Path data = file(derived, "data");
@@ -79,11 +81,14 @@ final class FormatRepairBoundaryTest {
         final int offset = (int) IOStorage.PRIMARY_BEACON_OFFSET;
         final int length = slot.getInt(offset);
         bytes[offset + Integer.BYTES + 1] = 1;
-        slot.order(ByteOrder.BIG_ENDIAN).putLong(offset + Integer.BYTES + length,
-            LongHashFunction.xx3().hashBytes(bytes, offset + Integer.BYTES, length));
+        slot.order(ByteOrder.BIG_ENDIAN)
+            .putLong(offset + Integer.BYTES + length,
+                LongHashFunction.xx3().hashBytes(bytes, offset + Integer.BYTES, length));
         Files.write(data, bytes);
       } else {
-        patchHeader(file(derived, site.startsWith("data") ? "data" : "revisions"), "version");
+        patchHeader(file(derived, site.startsWith("data")
+            ? "data"
+            : "revisions"), "version");
         if (site.endsWith("missing-settings")) {
           Files.writeString(derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()), "{}");
         }
@@ -91,8 +96,8 @@ final class FormatRepairBoundaryTest {
       final Map<String, String> before = snapshot(derived);
       final byte[] dataBefore = Files.readAllBytes(file(derived, "data"));
       final byte[] revisionsBefore = Files.readAllBytes(file(derived, "revisions"));
-      final byte[] settingsBefore = Files.readAllBytes(
-          derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()));
+      final byte[] settingsBefore =
+          Files.readAllBytes(derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()));
       Databases.clearGlobalCaches();
       try (final var opened = Databases.openJsonDatabase(database)) {
         final RuntimeException refusal = assertThrows(RuntimeException.class, () -> {
@@ -100,13 +105,15 @@ final class FormatRepairBoundaryTest {
           }
         });
         assertTrue(messageChain(refusal).contains("unsupported format version"), messageChain(refusal));
-        assertTrue(messageChain(refusal).contains(site.startsWith("settings") ? "V7" : "1"), messageChain(refusal));
+        assertTrue(messageChain(refusal).contains(site.startsWith("settings")
+            ? "V7"
+            : "1"), messageChain(refusal));
       }
       assertEquals(before, snapshot(derived), site);
       assertArrayEquals(dataBefore, Files.readAllBytes(file(derived, "data")));
       assertArrayEquals(revisionsBefore, Files.readAllBytes(file(derived, "revisions")));
-      assertArrayEquals(settingsBefore, Files.readAllBytes(
-          derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath())));
+      assertArrayEquals(settingsBefore,
+          Files.readAllBytes(derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath())));
     }
   }
 
@@ -150,16 +157,17 @@ final class FormatRepairBoundaryTest {
       final Path resource = resourcePath(database, "fixture");
       patchRoot(resource, 0);
       final byte[] data = Files.readAllBytes(file(resource, "data"));
-      Arrays.fill(data, zeroHeader ? 0 : (int) IOStorage.PRIMARY_BEACON_OFFSET,
-          (int) IOStorage.DATA_REGION_START, (byte) 0);
+      Arrays.fill(data, zeroHeader
+          ? 0
+          : (int) IOStorage.PRIMARY_BEACON_OFFSET, (int) IOStorage.DATA_REGION_START, (byte) 0);
       Files.write(file(resource, "data"), data);
       Files.write(file(resource, "revisions"),
           Arrays.copyOf(Files.readAllBytes(file(resource, "revisions")), (int) IOStorage.REVISIONS_RECORDS_START));
       final Map<String, String> before = snapshot(resource);
       Databases.clearGlobalCaches();
       try (final var opened = Databases.openJsonDatabase(database)) {
-        final RuntimeException failure = assertThrows(RuntimeException.class,
-            () -> opened.beginResourceSession("fixture"));
+        final RuntimeException failure =
+            assertThrows(RuntimeException.class, () -> opened.beginResourceSession("fixture"));
         assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
       }
       assertEquals(before, snapshot(resource));
@@ -187,8 +195,8 @@ final class FormatRepairBoundaryTest {
       final Map<String, String> before = snapshot(resource);
       Databases.clearGlobalCaches();
       try (final var opened = Databases.openJsonDatabase(database)) {
-        final RuntimeException failure = assertThrows(RuntimeException.class,
-            () -> opened.beginResourceSession("fixture"));
+        final RuntimeException failure =
+            assertThrows(RuntimeException.class, () -> opened.beginResourceSession("fixture"));
         assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
       }
       assertEquals(before, snapshot(resource));
@@ -200,15 +208,15 @@ final class FormatRepairBoundaryTest {
   void incompleteFrameWithForeignHeaderIsRefused(final StorageType backend) throws IOException {
     for (final boolean compressed : new boolean[] {false, true}) {
       for (final boolean beacons : new boolean[] {false, true}) {
-        final Path database = createStore("partial-foreign-" + backend + "-" + beacons + "-" + compressed,
-            backend, false, compressed);
+        final Path database =
+            createStore("partial-foreign-" + backend + "-" + beacons + "-" + compressed, backend, false, compressed);
         final Path resource = resourcePath(database, "fixture");
         damageIncompleteFrame(resource, beacons, new byte[] {5, 1});
         final Map<String, String> before = snapshot(resource);
         Databases.clearGlobalCaches();
         try (final var opened = Databases.openJsonDatabase(database)) {
-          final RuntimeException failure = assertThrows(RuntimeException.class,
-              () -> opened.beginResourceSession("fixture"));
+          final RuntimeException failure =
+              assertThrows(RuntimeException.class, () -> opened.beginResourceSession("fixture"));
           assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
         }
         assertEquals(before, snapshot(resource));
@@ -221,8 +229,8 @@ final class FormatRepairBoundaryTest {
   void incompleteFrameWithBaselineHeaderRecovers(final StorageType backend) throws IOException {
     for (final boolean compressed : new boolean[] {false, true}) {
       for (final boolean beacons : new boolean[] {false, true}) {
-        final Path database = createStore("partial-baseline-" + backend + "-" + beacons + "-" + compressed,
-            backend, false, compressed);
+        final Path database =
+            createStore("partial-baseline-" + backend + "-" + beacons + "-" + compressed, backend, false, compressed);
         damageIncompleteFrame(resourcePath(database, "fixture"), beacons, new byte[] {5, 0});
         assertRecoveryCommitSurvivesReopen(database);
       }
@@ -235,8 +243,9 @@ final class FormatRepairBoundaryTest {
     for (final boolean compressed : new boolean[] {false, true}) {
       for (final boolean beacons : new boolean[] {false, true}) {
         for (final int remaining : new int[] {0, 1}) {
-          final Path database = createStore("partial-unreadable-" + backend + "-" + beacons + "-" + compressed
-              + "-" + remaining, backend, false, compressed);
+          final Path database =
+              createStore("partial-unreadable-" + backend + "-" + beacons + "-" + compressed + "-" + remaining, backend,
+                  false, compressed);
           final Path resource = resourcePath(database, "fixture");
           damageIncompleteFrame(resource, beacons, new byte[] {5, 0});
           try (final FileChannel data = FileChannel.open(file(resource, "data"), StandardOpenOption.WRITE)) {
@@ -253,8 +262,8 @@ final class FormatRepairBoundaryTest {
   void incompleteFrameForeignHeaderPreventsDerivedRebuild(final StorageType backend) throws IOException {
     for (final boolean beacons : new boolean[] {false, true}) {
       for (final boolean missingSettings : new boolean[] {false, true}) {
-        final Path database = createStore("partial-derived-" + backend + "-" + beacons + "-" + missingSettings,
-            backend, true);
+        final Path database =
+            createStore("partial-derived-" + backend + "-" + beacons + "-" + missingSettings, backend, true);
         final Path resource = resourcePath(database, "source" + DerivedIndexMaintainer.SUFFIX);
         Files.move(resourcePath(database, "fixture"), resource);
         damageIncompleteFrame(resource, beacons, new byte[] {5, 1});
@@ -264,8 +273,8 @@ final class FormatRepairBoundaryTest {
         final Map<String, String> before = snapshot(resource);
         Databases.clearGlobalCaches();
         try (final var opened = Databases.openJsonDatabase(database)) {
-          final RuntimeException failure = assertThrows(RuntimeException.class,
-              () -> opened.beginResourceSession("source"));
+          final RuntimeException failure =
+              assertThrows(RuntimeException.class, () -> opened.beginResourceSession("source"));
           assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
         }
         assertEquals(before, snapshot(resource));
@@ -283,9 +292,8 @@ final class FormatRepairBoundaryTest {
       final ResourceConfiguration config = ResourceConfiguration.deserialize(resource);
       final Map<String, String> before = snapshot(resource);
       try (final FileChannel data = FileChannel.open(file(resource, "data"), StandardOpenOption.READ)) {
-        assertThrows(SirixIOException.class,
-            () -> ResourceFormatCompatibility.requireRootEnvelope(data, IOStorage.DATA_REGION_START,
-                config.byteHandlePipeline));
+        assertThrows(SirixIOException.class, () -> ResourceFormatCompatibility.requireRootEnvelope(data,
+            IOStorage.DATA_REGION_START, config.byteHandlePipeline));
       }
       assertEquals(before, snapshot(resource));
     }
@@ -294,7 +302,8 @@ final class FormatRepairBoundaryTest {
   private static void assertRecoveryCommitSurvivesReopen(final Path database) {
     Databases.clearGlobalCaches();
     try (final var opened = Databases.openJsonDatabase(database);
-        final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+        final var session = opened.beginResourceSession("fixture");
+        final var writer = session.beginNodeTrx()) {
       assertEquals(0, session.getMostRecentRevisionNumber());
       writer.insertStringValueAsFirstChild("recovered");
       writer.commit();
@@ -302,7 +311,8 @@ final class FormatRepairBoundaryTest {
     }
     Databases.clearGlobalCaches();
     try (final var opened = Databases.openJsonDatabase(database);
-        final var session = opened.beginResourceSession("fixture"); final var reader = session.beginNodeReadOnlyTrx()) {
+        final var session = opened.beginResourceSession("fixture");
+        final var reader = session.beginNodeReadOnlyTrx()) {
       assertEquals(0, session.getMostRecentRevisionNumber());
       assertTrue(reader.moveToFirstChild());
       assertEquals("recovered", reader.getValue());
@@ -318,8 +328,8 @@ final class FormatRepairBoundaryTest {
     }
     damageBootstrapTail(resource, beacons, false);
     final int start = (int) IOStorage.DATA_REGION_START;
-    final byte[] damaged = Arrays.copyOf(Files.readAllBytes(file(resource, "data")),
-        start + Integer.BYTES + payload.size());
+    final byte[] damaged =
+        Arrays.copyOf(Files.readAllBytes(file(resource, "data")), start + Integer.BYTES + payload.size());
     ByteBuffer.wrap(damaged).order(ByteOrder.LITTLE_ENDIAN).putInt(start, payload.size() + 100);
     System.arraycopy(payload.toByteArray(), 0, damaged, start + Integer.BYTES, payload.size());
     Files.write(file(resource, "data"), damaged);
@@ -357,7 +367,8 @@ final class FormatRepairBoundaryTest {
       final Path database = createStore("historical-" + backend + "-" + tornLatest, backend, false);
       final Path resource = resourcePath(database, "fixture");
       try (final var opened = Databases.openJsonDatabase(database);
-          final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+          final var session = opened.beginResourceSession("fixture");
+          final var writer = session.beginNodeTrx()) {
         writer.commit();
         writer.commit();
         writer.commit();
@@ -365,8 +376,7 @@ final class FormatRepairBoundaryTest {
       patchRoot(resource, 1);
       if (tornLatest) {
         final byte[] records = Files.readAllBytes(file(resource, "revisions"));
-        Arrays.fill(records, (int) IOStorage.revisionsFileOffset(3),
-            (int) IOStorage.revisionsFileOffset(4), (byte) 0);
+        Arrays.fill(records, (int) IOStorage.revisionsFileOffset(3), (int) IOStorage.revisionsFileOffset(4), (byte) 0);
         Files.write(file(resource, "revisions"), records);
       }
       final Path spill = resource.resolve("projection-sort-spill/build-999999999-orphan");
@@ -375,8 +385,8 @@ final class FormatRepairBoundaryTest {
       final Map<String, String> before = snapshot(resource);
       Databases.clearGlobalCaches();
       try (final var opened = Databases.openJsonDatabase(database)) {
-        final RuntimeException failure = assertThrows(RuntimeException.class,
-            () -> opened.beginResourceSession("fixture"));
+        final RuntimeException failure =
+            assertThrows(RuntimeException.class, () -> opened.beginResourceSession("fixture"));
         assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
       }
       assertEquals(before, snapshot(resource));
@@ -385,14 +395,16 @@ final class FormatRepairBoundaryTest {
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
-  void derivedRepairStillRebuildsWhenNoForeignSettingsVersionIsReadable(final StorageType backend)
-      throws IOException {
+  void derivedRepairStillRebuildsWhenNoForeignSettingsVersionIsReadable(final StorageType backend) throws IOException {
     for (final String version : new String[] {"\"V0\"", "null", "", "absent"}) {
-      final Path database = createStore("readable-settings-" + backend + "-" + version.replace('"', '_'), backend, true);
+      final Path database =
+          createStore("readable-settings-" + backend + "-" + version.replace('"', '_'), backend, true);
       final Path derived = resourcePath(database, "source" + DerivedIndexMaintainer.SUFFIX);
       Files.move(resourcePath(database, "fixture"), derived);
       Files.writeString(derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()),
-          version.equals("absent") ? "{}" : "{\"unexpected\":{},\"binaryEncoding\":" + version + "}");
+          version.equals("absent")
+              ? "{}"
+              : "{\"unexpected\":{},\"binaryEncoding\":" + version + "}");
       Databases.clearGlobalCaches();
       try (final var opened = Databases.openJsonDatabase(database);
           final var session = opened.beginResourceSession("source")) {
@@ -416,7 +428,8 @@ final class FormatRepairBoundaryTest {
     final byte[] revisionsBefore = Files.readAllBytes(revisions);
     Databases.clearGlobalCaches();
     try (final var opened = Databases.openJsonDatabase(database)) {
-      final RuntimeException refusal = assertThrows(RuntimeException.class, () -> opened.beginResourceSession("fixture"));
+      final RuntimeException refusal =
+          assertThrows(RuntimeException.class, () -> opened.beginResourceSession("fixture"));
       assertTrue(messageChain(refusal).contains("unsupported format version"), messageChain(refusal));
     }
     assertArrayEquals(dataBefore, Files.readAllBytes(data));
@@ -430,10 +443,13 @@ final class FormatRepairBoundaryTest {
     for (final String crash : new String[] {"orphan-spill", "commit-marker", "torn-record", "bootstrap"}) {
       final Path database = createStore("foreign-root-" + backend + "-" + crash, backend, false);
       final Path resource = resourcePath(database, "fixture");
-      final int revision = crash.equals("bootstrap") ? 0 : 1;
+      final int revision = crash.equals("bootstrap")
+          ? 0
+          : 1;
       if (revision == 1) {
         try (final var opened = Databases.openJsonDatabase(database);
-            final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+            final var session = opened.beginResourceSession("fixture");
+            final var writer = session.beginNodeTrx()) {
           writer.commit();
         }
       }
@@ -444,8 +460,9 @@ final class FormatRepairBoundaryTest {
         Files.writeString(spill.resolve("run.bin"), "must survive refusal");
       } else if (crash.equals("commit-marker")) {
         Files.write(file(resource, "data"), new byte[4096], StandardOpenOption.APPEND);
-        Files.writeString(resource.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
-            .resolve(".commit"), "");
+        Files.writeString(
+            resource.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath()).resolve(".commit"),
+            "");
       } else {
         final byte[] records = Files.readAllBytes(file(resource, "revisions"));
         final int start = (int) IOStorage.revisionsFileOffset(revision);
@@ -480,7 +497,8 @@ final class FormatRepairBoundaryTest {
     final Path database = createStore("mixed-salvage-" + backend, backend, false);
     final Path resource = resourcePath(database, "fixture");
     try (final var opened = Databases.openJsonDatabase(database);
-        final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+        final var session = opened.beginResourceSession("fixture");
+        final var writer = session.beginNodeTrx()) {
       writer.commit();
       writer.commit();
       writer.commit();
@@ -508,7 +526,8 @@ final class FormatRepairBoundaryTest {
       final Path database = createStore("truncate-target-" + backend + "-" + target, backend, false);
       final Path resource = resourcePath(database, "fixture");
       try (final var opened = Databases.openJsonDatabase(database);
-          final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+          final var session = opened.beginResourceSession("fixture");
+          final var writer = session.beginNodeTrx()) {
         for (int revision = 1; revision <= 20; revision++) {
           writer.commit();
         }
@@ -542,7 +561,8 @@ final class FormatRepairBoundaryTest {
       final Path database = createStore("lost-revisions-" + backend + "-" + state, backend, false);
       final Path resource = resourcePath(database, "fixture");
       try (final var opened = Databases.openJsonDatabase(database);
-          final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+          final var session = opened.beginResourceSession("fixture");
+          final var writer = session.beginNodeTrx()) {
         writer.insertStringValueAsFirstChild("preserved");
         writer.commit();
       }
@@ -554,14 +574,16 @@ final class FormatRepairBoundaryTest {
       } else {
         Files.write(revisions, new byte[0]);
       }
-      Files.writeString(resource.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
-          .resolve(".commit"), "");
+      Files.writeString(
+          resource.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath()).resolve(".commit"),
+          "");
       final Map<String, String> before = snapshot(resource);
       Databases.clearGlobalCaches();
       if (state.equals("foreign") || backend == StorageType.MEMORY_MAPPED) {
         try (final var opened = Databases.openJsonDatabase(database)) {
           final RuntimeException failure = assertThrows(RuntimeException.class, () -> {
-            try (final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+            try (final var session = opened.beginResourceSession("fixture");
+                final var writer = session.beginNodeTrx()) {
               writer.commit();
             }
           });
@@ -572,14 +594,16 @@ final class FormatRepairBoundaryTest {
         assertEquals(before, snapshot(resource));
       } else {
         try (final var opened = Databases.openJsonDatabase(database);
-            final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+            final var session = opened.beginResourceSession("fixture");
+            final var writer = session.beginNodeTrx()) {
           assertEquals(1, session.getMostRecentRevisionNumber());
           writer.commit();
           assertEquals(2, session.getMostRecentRevisionNumber());
         }
         Databases.clearGlobalCaches();
         try (final var opened = Databases.openJsonDatabase(database);
-            final var session = opened.beginResourceSession("fixture"); final var reader = session.beginNodeReadOnlyTrx(1)) {
+            final var session = opened.beginResourceSession("fixture");
+            final var reader = session.beginNodeReadOnlyTrx(1)) {
           assertTrue(reader.moveToFirstChild());
           assertEquals("preserved", reader.getValue());
         }
@@ -593,7 +617,8 @@ final class FormatRepairBoundaryTest {
       for (final String site : new String[] {"data", "revisions", "root"}) {
         final Path database = createStore("direct-" + repair + "-" + site, StorageType.FILE_CHANNEL, false);
         try (final var opened = Databases.openJsonDatabase(database);
-            final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+            final var session = opened.beginResourceSession("fixture");
+            final var writer = session.beginNodeTrx()) {
           writer.commit();
         }
         final Path resource = resourcePath(database, "fixture");
@@ -613,21 +638,22 @@ final class FormatRepairBoundaryTest {
         }
         final Map<String, String> before = snapshot(resource);
         final AsyncCache<Integer, RevisionFileData> cache = Caffeine.newBuilder().buildAsync();
-        try (final FileChannel data = FileChannel.open(file(resource, "data"), StandardOpenOption.READ,
-                StandardOpenOption.WRITE);
-            final FileChannel revisions = FileChannel.open(file(resource, "revisions"), StandardOpenOption.READ,
-                StandardOpenOption.WRITE);
-            final FileChannelReader reader = new FileChannelReader(data, revisions,
-                new ByteHandlerPipeline(config.byteHandlePipeline), SerializationType.DATA, new PagePersister(),
-                cache.synchronous())) {
+        try (
+            final FileChannel data =
+                FileChannel.open(file(resource, "data"), StandardOpenOption.READ, StandardOpenOption.WRITE);
+            final FileChannel revisions =
+                FileChannel.open(file(resource, "revisions"), StandardOpenOption.READ, StandardOpenOption.WRITE);
+            final FileChannelReader reader =
+                new FileChannelReader(data, revisions, new ByteHandlerPipeline(config.byteHandlePipeline),
+                    SerializationType.DATA, new PagePersister(), cache.synchronous())) {
           final RuntimeException failure;
           if (repair.equals("heal")) {
             failure = assertThrows(RuntimeException.class, () -> reader.getRevisionFileData(1), repair + " " + site);
           } else {
-            try (final FileChannelWriter writer = new FileChannelWriter(data, revisions, data, SerializationType.DATA,
-                new PagePersister(), cache, new RevisionIndexHolder(), reader, false, false,
-                file(resource, "revisions"), config.resourceUuid.getMostSignificantBits(),
-                config.resourceUuid.getLeastSignificantBits())) {
+            try (final FileChannelWriter writer =
+                new FileChannelWriter(data, revisions, data, SerializationType.DATA, new PagePersister(), cache,
+                    new RevisionIndexHolder(), reader, false, false, file(resource, "revisions"),
+                    config.resourceUuid.getMostSignificantBits(), config.resourceUuid.getLeastSignificantBits())) {
               failure = assertThrows(RuntimeException.class, () -> writer.truncateTo(1), repair + " " + site);
             }
           }
@@ -648,7 +674,8 @@ final class FormatRepairBoundaryTest {
     }
     try (final var paths = Files.walk(resource)) {
       for (final Path path : paths.filter(Files::isRegularFile).toList()) {
-        files.put(resource.relativize(path).toString(), Files.size(path) + ":" + HexFormat.of().formatHex(hash.digest(Files.readAllBytes(path))));
+        files.put(resource.relativize(path).toString(),
+            Files.size(path) + ":" + HexFormat.of().formatHex(hash.digest(Files.readAllBytes(path))));
       }
     }
     return files;
@@ -690,14 +717,16 @@ final class FormatRepairBoundaryTest {
     assertTrue(Databases.createJsonDatabase(new DatabaseConfiguration(database)));
     try (final var opened = Databases.openJsonDatabase(database)) {
       if (derived) {
-        assertTrue(opened.createResource(ResourceConfiguration.newBuilder("source").storageType(backend)
-            .useConventionalValidTimePaths().build()));
+        assertTrue(opened.createResource(
+            ResourceConfiguration.newBuilder("source").storageType(backend).useConventionalValidTimePaths().build()));
       }
-      assertTrue(opened.createResource(ResourceConfiguration.newBuilder("fixture").storageType(backend)
-          .byteHandlerPipeline(compressed
-              ? new ByteHandlerPipeline(new DeflateCompressor())
-              : new ByteHandlerPipeline())
-          .aggregateKernel(derived).build()));
+      assertTrue(opened.createResource(ResourceConfiguration.newBuilder("fixture")
+                                                            .storageType(backend)
+                                                            .byteHandlerPipeline(compressed
+                                                                ? new ByteHandlerPipeline(new DeflateCompressor())
+                                                                : new ByteHandlerPipeline())
+                                                            .aggregateKernel(derived)
+                                                            .build()));
       if (derived) {
         try (final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
           writer.commit();
@@ -728,7 +757,9 @@ final class FormatRepairBoundaryTest {
 
   private static Path file(final Path resource, final String role) {
     return resource.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-        .resolve(role.equals("data") ? IOStorage.FILENAME : IOStorage.REVISIONS_FILENAME);
+                   .resolve(role.equals("data")
+                       ? IOStorage.FILENAME
+                       : IOStorage.REVISIONS_FILENAME);
   }
 
   private static String messageChain(final Throwable failure) {

@@ -16,11 +16,8 @@ public final class BinaryEncodingVersionStrictTest {
     assertSame(BinaryEncodingVersion.V0, BinaryEncodingVersion.fromByte((byte) 0));
     for (int id = 1; id < 256; id++) {
       final byte version = (byte) id;
-      assertTrue(
-          assertThrows(UnsupportedFormatVersionException.class, () -> BinaryEncodingVersion.fromByte(version)).getMessage()
-                                                                                                  .contains(
-                                                                                                      Byte.toString(
-                                                                                                          version)));
+      assertTrue(assertThrows(UnsupportedFormatVersionException.class,
+          () -> BinaryEncodingVersion.fromByte(version)).getMessage().contains(Byte.toString(version)));
     }
   }
 }

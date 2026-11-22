@@ -32,12 +32,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * FMT-401 ordinary-open coverage: these fixtures exercise foreign superblock layout versions,
- * page-envelope versions and persisted {@code binaryEncoding} settings. Their ordinary opens
- * refuse before mutation with a plain unsupported-format-version error, without naming a pre-1.0
+ * page-envelope versions and persisted {@code binaryEncoding} settings. Their ordinary opens refuse
+ * before mutation with a plain unsupported-format-version error, without naming a pre-1.0
  * development format. Page decoding fixtures cover FILE_CHANNEL and MEMORY_MAPPED. The repair and
  * recovery boundaries are enforced as well, through the shared compatibility discovery their
- * destructive paths must pass; FormatRepairBoundaryTest covers those combinations. FMT-401 owns
- * the requirement and records what is still missing there (the FMT-208 corpus).
+ * destructive paths must pass; FormatRepairBoundaryTest covers those combinations. FMT-401 owns the
+ * requirement and records what is still missing there (the FMT-208 corpus).
  *
  * <p>
  * FMT-102: the development-era acceptances of a zero resource UUID and a zero revisions record
@@ -183,8 +183,9 @@ final class FormatVersionBaselineTest {
             final int offset = (int) IOStorage.PRIMARY_BEACON_OFFSET;
             final int length = bytes.getInt(offset);
             data[offset + Integer.BYTES + 1] = (byte) candidate;
-            bytes.order(ByteOrder.BIG_ENDIAN).putLong(offset + Integer.BYTES + length,
-                LongHashFunction.xx3().hashBytes(data, offset + Integer.BYTES, length));
+            bytes.order(ByteOrder.BIG_ENDIAN)
+                 .putLong(offset + Integer.BYTES + length,
+                     LongHashFunction.xx3().hashBytes(data, offset + Integer.BYTES, length));
           } else {
             final byte[] revisions = Files.readAllBytes(revisionsFile(databasePath));
             final ByteBuffer records = ByteBuffer.wrap(revisions).order(ByteOrder.LITTLE_ENDIAN);
@@ -194,8 +195,12 @@ final class FormatVersionBaselineTest {
             data[offset + Integer.BYTES + 1] = (byte) candidate;
             final long hash = LongHashFunction.xx3().hashBytes(data, offset + Integer.BYTES, length);
             records.putLong(record + 24, hash);
-            final byte[] identity = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
-                .putLong(offset).putLong(records.getLong(record + 8)).putLong(hash).array();
+            final byte[] identity = ByteBuffer.allocate(24)
+                                              .order(ByteOrder.LITTLE_ENDIAN)
+                                              .putLong(offset)
+                                              .putLong(records.getLong(record + 8))
+                                              .putLong(hash)
+                                              .array();
             records.putLong(record + 16, LongHashFunction.xx3().hashBytes(identity));
             Files.write(revisionsFile(databasePath), revisions);
           }
@@ -221,8 +226,10 @@ final class FormatVersionBaselineTest {
     final Path databasePath = directory.resolve(name);
     Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE).storageType(backend)
-          .byteHandlerPipeline(new ByteHandlerPipeline()).build());
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                   .storageType(backend)
+                                                   .byteHandlerPipeline(new ByteHandlerPipeline())
+                                                   .build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
           final var trx = session.beginNodeTrx()) {
         trx.commit();
@@ -233,8 +240,8 @@ final class FormatVersionBaselineTest {
   }
 
   /**
-   * Opens the store and asks for a writer — the first mutation the engine would perform. Returns
-   * the refusal message after proving both persistent files are byte-for-byte what they were.
+   * Opens the store and asks for a writer — the first mutation the engine would perform. Returns the
+   * refusal message after proving both persistent files are byte-for-byte what they were.
    */
   private String assertRefusedWithoutMutating(final Path databasePath) throws IOException {
     final byte[] dataBefore = Files.readAllBytes(dataFile(databasePath));
@@ -252,8 +259,7 @@ final class FormatVersionBaselineTest {
     });
 
     assertArrayEquals(dataBefore, Files.readAllBytes(dataFile(databasePath)), "sirix.data was mutated");
-    assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile(databasePath)),
-        "sirix.revisions was mutated");
+    assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile(databasePath)), "sirix.revisions was mutated");
 
     return messageChain(refusal);
   }
@@ -285,7 +291,7 @@ final class FormatVersionBaselineTest {
 
   private static Path dataFile(final Path databasePath) {
     return resourcePath(databasePath).resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-                                    .resolve(IOStorage.FILENAME);
+                                     .resolve(IOStorage.FILENAME);
   }
 
   private static Path revisionsFile(final Path databasePath) {

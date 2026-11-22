@@ -9,10 +9,10 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The superblock's resource UUID cross-links the binary files to their resource-settings JSON:
- * a matching pair validates, a mismatched pair (files restored from a different resource's
- * backup) fails fast, and a zero stored UUID is refused outright (FMT-102). A zero EXPECTED UUID
- * is the caller saying it does not know the resource identity yet, and skips only the cross-check.
+ * The superblock's resource UUID cross-links the binary files to their resource-settings JSON: a
+ * matching pair validates, a mismatched pair (files restored from a different resource's backup)
+ * fails fast, and a zero stored UUID is refused outright (FMT-102). A zero EXPECTED UUID is the
+ * caller saying it does not know the resource identity yet, and skips only the cross-check.
  */
 public final class SuperblockResourceUuidTest {
 

@@ -30,8 +30,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * FMT-402: exporting a 1.0 resource writes every revision with its committed content, commit
- * timestamp, author and message, and importing that export into a newly created 1.0 store keeps
- * the source revision order without dropping a revision. The source stays unchanged.
+ * timestamp, author and message, and importing that export into a newly created 1.0 store keeps the
+ * source revision order without dropping a revision. The source stays unchanged.
  *
  * <p>
  * The export/import here is the documented composition of the shipped building blocks — the
@@ -54,8 +54,7 @@ final class HistoryPreservingExportImportTest {
 
   private static final String[] MESSAGES = {"first import", "second \"quoted\" import", ""};
 
-  private static final User[] AUTHORS = {
-      new User("alice", UUID.fromString("00000000-0000-0000-0000-00000000a11c")),
+  private static final User[] AUTHORS = {new User("alice", UUID.fromString("00000000-0000-0000-0000-00000000a11c")),
       new User("bob", UUID.fromString("00000000-0000-0000-0000-00000000b0b0")),
       new User("alice", UUID.fromString("00000000-0000-0000-0000-00000000a11c"))};
 
@@ -91,8 +90,7 @@ final class HistoryPreservingExportImportTest {
 
     Databases.clearGlobalCaches();
     assertArrayEquals(dataBefore, Files.readAllBytes(dataFile(sourcePath)), "export mutated sirix.data");
-    assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile(sourcePath)),
-        "export mutated sirix.revisions");
+    assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile(sourcePath)), "export mutated sirix.revisions");
   }
 
   private static void assertHistoryMatchesFixture(final List<Revision> history, final Instant[] sourceTimestamps,
@@ -169,9 +167,9 @@ final class HistoryPreservingExportImportTest {
 
   /**
    * Commit timestamps for the source history. They sit just after both stores' bootstrap commits
-   * because the engine refuses a commit timestamp below the preceding revision's, and the sleep
-   * only lets the wall clock pass them — it refuses a timestamp in the future. Nothing here
-   * asserts on elapsed time.
+   * because the engine refuses a commit timestamp below the preceding revision's, and the sleep only
+   * lets the wall clock pass them — it refuses a timestamp in the future. Nothing here asserts on
+   * elapsed time.
    */
   private static Instant[] commitTimestamps() throws InterruptedException {
     final Instant base = Instant.now().truncatedTo(ChronoUnit.MILLIS);
