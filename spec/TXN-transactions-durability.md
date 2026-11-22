@@ -702,6 +702,11 @@ Acceptance criteria, each observable through the public API, for JSON and XML:
   - A later open creates a new instance (it does not rejoin the failed one), and the resource is
     absent there.
   - After the directory becomes deletable again, the name can be created at revision 0.
+  - If another process holds database ownership, a repeated close of the ended instance throws
+    `SirixDatabaseLockException` without deleting its pending original directory or tombstone.
+    After that owner releases the lock, repeated close removes the leftover and becomes idempotent
+    (TXN-101). `DatabaseOwnershipTest.repeatedCloseRespectsAnotherProcessesOwnership` checks both
+    representations for JSON and XML with a real child-process lock holder.
 - AC15 (failed teardown; clause 7): make session teardown fail once at the final close.
   - The close throws, and the handle stays open.
   - An open that rejoins the instance sees every committed revision.

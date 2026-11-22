@@ -150,6 +150,10 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   Keep child-JVM lifetime and memory tests in a separate ordinary-CI suite: children load
   unmutated classes and cannot observe PIT instrumentation in their parent. Verify the full
   bounded lane and use counterfactual evidence for effects observable only in clean processes.
+  For cross-process exclusion, let a child hold the real OS lock while the parent retries cleanup;
+  assert refusal and later recovery for both original paths and tombstones. Parent-side operations
+  remain observable under PIT even though the independent lock holder is unmutated.
+  [Ownership-retry follow-up](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-cleanup-retry-must-respect-independent-ownership).
   [Forked-contract follow-up](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-isolate-forked-lifetime-contracts-from-pit).
 
 - **Check semantic state beyond scratch-capacity boundaries.** A lossless streaming

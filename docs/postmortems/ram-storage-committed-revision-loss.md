@@ -313,3 +313,42 @@ CodeFactor's diagnostic page returned HTTP 403, leaving its findings unclassifie
   in the lane. Reports and commands are under `build/ci-lifetime-split/pr-mutation-final/`.
   SonarCloud must analyze the updated fields on the next CI revision; no remote scan is claimed.
 - Lesson: [match mutation selection to the process that observes mutations](../LESSONS.md).
+
+## CI follow-up: cleanup retry must respect independent ownership
+
+- Fix / issue: PR 1469, failed PIT job
+  [137202797551](https://github.com/sirixdb/sirix/actions/runs/45020284859/job/137202797551).
+- Symptom: the complete bounded report has one changed-line survivor: negating the directory
+  absence check in `Databases.retryInMemoryCleanup` bypasses OS lock acquisition for an existing
+  database. All other changed-line mutants were detected or already dispositioned.
+- Root cause: retry coverage exercised no owner and a newer in-process owner, but never an
+  independent OS owner. Both original directories and tombstones were removable without the
+  tests noticing that ownership had been bypassed. Production already acquires the lock correctly;
+  this repair strengthens its executable contract without changing runtime behavior.
+- Required behavior and independent oracle: TXN-101 and TXN-615 clause 7 / AC12 require refusal
+  while another process owns the database. `DatabaseOwnershipTest.repeatedCloseRespectsAnotherProcessesOwnership`
+  creates committed JSON/XML content, forces final-close cleanup to leave either an original
+  directory or a tombstone, restores permissions and uses the existing `lock-only` child to hold
+  the real OS lock. Parent close must throw `SirixDatabaseLockException` and preserve the footprint;
+  after the child releases ownership, close must delete it and a further close must succeed.
+- Why tests missed it: successful cleanup and in-process generation isolation do not establish
+  cross-process exclusion. This child only holds the lock; the parent executes the cleanup under
+  test and therefore observes PIT instrumentation, unlike child-only storage/memory contracts.
+- Regression evidence: the targeted contract, an injected lock-bypass counterfactual and the
+  bounded lane are recorded under `build/ci-pit-fix/`.
+  The four JSON/XML × original/tombstone cases pass without skips. The CONV-203
+  counterfactual helper reports baseline exit 0 and injected exit 1: all four cases reject
+  the lock bypass because the required `SirixDatabaseLockException` is absent. It restores
+  `Databases.java` byte-identically (SHA-256
+  `42f97c91c8cb6d158cf1cbe8ae4a9135c2e73c9050ee9a3d345231430df862e1`).
+  The unchanged automatic PIT selection also marks the exact reported mutant (instruction
+  index 50, `NegateConditionalsMutator` in `retryInMemoryCleanup`) KILLED by the new contract's
+  JSON/tombstone case. No association, disposition, sampling limit or deadline was changed.
+  The full local run is nevertheless incomplete: core exceeded its unchanged 1,200-second
+  module share. The partial XML and extracted identity in `build/ci-pit-fix/reported-mutant.json`
+  retain the kill evidence; they do not establish a clean full-lane verdict. CI must rerun the
+  bounded lane on the updated test. CLI completes with three changed-line kills, its two existing
+  accepted equivalence dispositions and no failures. The overall bounded command exits 1 solely
+  because core timed out. Compilation and Spotless apply succeed; `git diff --check` is clean.
+- Lesson: exercise independent ownership at the retry boundary for both cleanup representations;
+  [extend the existing RAM ownership lesson](../LESSONS.md).

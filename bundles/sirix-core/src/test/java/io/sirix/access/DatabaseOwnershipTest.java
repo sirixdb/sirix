@@ -1,6 +1,7 @@
 package io.sirix.access;
 
 import io.brackit.query.atomic.QNm;
+import io.sirix.access.InMemoryLifetimeFixture.Model;
 import io.sirix.api.Database;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
@@ -13,6 +14,7 @@ import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixDatabaseLockException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
+import io.sirix.io.StorageType;
 import io.sirix.utils.SirixFiles;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,9 +39,12 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.Files;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.OpenOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -65,6 +70,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
@@ -1067,6 +1073,70 @@ final class DatabaseOwnershipTest {
   @Test
   void ownerExitReleasesLock() throws Exception {
     assertOwnerRelease(false);
+  }
+
+  /** TXN-101 / TXN-615 AC12: cleanup retries cannot mutate a database owned by another process. */
+  @ParameterizedTest
+  @CsvSource({"JSON,false", "JSON,true", "XML,false", "XML,true"})
+  void repeatedCloseRespectsAnotherProcessesOwnership(final Model model, final boolean tombstone) throws Exception {
+    assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"), "needs POSIX permissions");
+    final Path path = directory.resolve("database");
+    InMemoryLifetimeFixture.createDatabase(model, path);
+    final Database<? extends ResourceSession<?, ?>> database = InMemoryLifetimeFixture.open(model, path);
+    final Path resources = path.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Path resource = resources.resolve("volatile");
+    InMemoryLifetimeFixture.createResource(database, "volatile", StorageType.IN_MEMORY);
+    try (ResourceSession<?, ?> session = database.beginResourceSession("volatile")) {
+      final long key = InMemoryLifetimeFixture.commitFirstValue(session, model, "old");
+      assertEquals("old", InMemoryLifetimeFixture.valueAt(session, model, 1, key));
+    }
+    final Path denied = tombstone
+        ? resource
+        : resources;
+    final Set<PosixFilePermission> writable = Files.getPosixFilePermissions(denied);
+    try {
+      Files.setPosixFilePermissions(denied, PosixFilePermissions.fromString("r-xr-xr-x"));
+      final Path leftover;
+      try {
+        assumeTrue(!Files.isWritable(denied), "running as a user who ignores permissions");
+        assertThrows(SirixIOException.class, database::close);
+        assertFalse(database.isOpen());
+        try (var paths = Files.list(resources)) {
+          final List<Path> remaining = paths.toList();
+          assertEquals(1, remaining.size());
+          leftover = remaining.getFirst();
+        }
+      } finally {
+        if (!tombstone || Files.exists(resource)) {
+          Files.setPosixFilePermissions(denied, writable);
+        } else {
+          try (var paths = Files.list(resources)) {
+            for (final Path remaining : paths.toList()) {
+              Files.setPosixFilePermissions(remaining, writable);
+            }
+          }
+        }
+      }
+      assertEquals(!tombstone, leftover.equals(resource), "exercise both cleanup representations");
+      final Process owner = child(path, "lock-only");
+      try {
+        assertEquals("OPEN", childResult(owner));
+        assertThrows(SirixDatabaseLockException.class, database::close);
+        assertTrue(Files.exists(leftover), "a refused cleanup leaves the pending footprint intact");
+        owner.getOutputStream().write('\n');
+        owner.getOutputStream().flush();
+        assertTrue(owner.waitFor(30, TimeUnit.SECONDS));
+        assertEquals(0, owner.exitValue());
+      } finally {
+        stopChild(owner);
+      }
+      database.close();
+      assertFalse(Files.exists(leftover), "cleanup completes after the other owner releases its lock");
+      database.close();
+    } finally {
+      database.close();
+      Databases.removeDatabase(path);
+    }
   }
 
   @Test
