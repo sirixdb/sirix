@@ -5156,13 +5156,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Create the commit marker, tolerating a marker that is already there.
    *
    * <p>
-   * This runs at the head of EVERY commit, before any data is written. The previous
-   * {@code while (!Files.exists(file)) Files.createFile(file)} paid a {@code stat} on top of the
-   * {@code create} — and the loop could only ever run twice, since {@code createFile} either succeeds
-   * or throws. Creating directly and treating "already exists" as success is the same outcome in one
-   * syscall, and it is also race-free: two callers no longer both observe "absent" and race into
-   * {@code createFile}, where the loser previously surfaced the {@link FileAlreadyExistsException} as
-   * a commit failure.
+   * Durable backends call this before commit data is written; non-durable storage never creates a
+   * marker. The previous {@code while (!Files.exists(file)) Files.createFile(file)} paid a
+   * {@code stat} on top of the {@code create} — and the loop could only ever run twice, since
+   * {@code createFile} either succeeds or throws. Creating directly and treating "already exists" as
+   * success is the same outcome in one syscall, and it is also race-free: two callers no longer both
+   * observe "absent" and race into {@code createFile}, where the loser previously surfaced the
+   * {@link FileAlreadyExistsException} as a commit failure.
    *
    * @param file the commit marker path
    */

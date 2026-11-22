@@ -229,9 +229,9 @@ in package `p` the first matching step wins:
 To select an existing behaviour test that the name-based rules miss, add an association in
 [`.github/mutation-test-associations.toml`](../.github/mutation-test-associations.toml).
 [CONV-204](../spec/CONV-conventions.md#conv-204--lane-test-associations) owns the schema,
-declared-class ownership rules, validation, module cap and PIT baseline exclusions. The file
-also owns the current association inventory, including the release-contract tests formerly
-selected by `CONTRACT_TESTS`.
+declared-class ownership rules, validation, test-cap rules and PIT baseline exclusions. The file
+also owns the reviewed association inventory. The runner augments selection with its
+`CONTRACT_TESTS` release-contract mappings; those mappings count toward the same selection cap.
 
 PIT samples at most `MUTANT_BUDGET / changed classes` mutants per class, clamped to
 `[MIN_MUTANTS_PER_CLASS, MAX_MUTANTS_PER_CLASS]`, so a module's work scales with the size of the
@@ -245,15 +245,15 @@ For every mutant of a class, omit `prMutationMaxMutations` in a focused Gradle r
 artifact's `targets.txt`, as in the example below.
 
 A source that resolves to nothing never changes the scope chosen for the other changed sources;
-the union is capped at `MODULE_TEST_LIMIT` distinct declared test names. Named matches are
-admitted before related matches, then package fallbacks; any source whose full candidate set
+within each analysis partition, the union is capped at `MODULE_TEST_LIMIT` distinct declared test
+names. Named matches are admitted before related matches, then package fallbacks; any source whose full candidate set
 would exceed the cap is marked `over-limit`, including a named match. Selected names receive a
 trailing `*` to include nested classes; other classes sharing that prefix can also match.
-When any tests are selected, all changed classes remain in `targetClasses`; mutants without
-coverage from those tests report `NO_COVERAGE`. A source without its own mapping may still be
+When any tests are selected, all changed classes in that partition remain in `targetClasses`;
+mutants without coverage from those tests report `NO_COVERAGE`. A source without its own mapping may still be
 covered by tests selected for another source. `results.json` records unresolved sources
 (`unmapped` or `over-limit`) and every source's resolution kind; the job summary lists unresolved
-sources. A module where nothing maps reports state `unmapped` instead of running PIT without a
+sources. An analysis partition where nothing maps reports state `unmapped` instead of running PIT without a
 baseline. This focused selection can omit integration assertions; if a survivor is
 already killed by a broader deterministic test, rerun with that test included and link the report.
 Random jqwik/property exploration, the random model oracle, HOT structural properties and soak
@@ -262,15 +262,15 @@ promote discovered seeds to deterministic regressions. The weekly curated core P
 
 The `pr-mutation` artifact contains source selection with its changed-line map, exact targets and
 test filters, every undetected mutant in `results.json`, HTML/XML reports, logs and `summary.md`.
-The job summary shows, per module, the state, the number of mutated classes and test patterns, the
+The job summary shows, per module/partition, the state, the number of mutated classes and test patterns, the
 unmapped sources, the changed-line counts that decide the outcome (changed lines, mutants on them,
 killed, survived, no coverage), the whole-report killed/total separately from PIT's detected/total
 score (which includes timed-out mutants), status counts, up to 100 failing changed-line mutants
 and - separately, marked advisory - the unchanged-line totals with the classes carrying the most
 undetected mutants; the artifact retains the full list. `results.json` holds `modules` (one
-result per module, with that split under `changed` and `unchanged`), `dispositions` and
-`associations`; each module's `changed` lists its `failing`, `dispositioned_equivalent` and
-`dispositioned_out_of_lane` mutants. Each module's `unattributed` counts mutants whose source file
+result per module/partition, with that split under `changed` and `unchanged`), `dispositions` and
+`associations`; each result's `changed` lists its `failing`, `dispositioned_equivalent` and
+`dispositioned_out_of_lane` mutants. Each result's `unattributed` counts mutants whose source file
 never mapped to a changed source (normally zero, since `targetClasses` holds only changed classes).
 Zero mutations, setup failures, malformed/missing XML and timeouts are incomplete, not 100%.
 
@@ -380,7 +380,8 @@ python3 .github/scripts/pr_mutation.py run --output /tmp/pr-mutation --seconds 1
 # Add --blocking to enforce the clean-run criterion locally (CONV-202, CONV-204).
 ```
 
-For a broader deterministic test selection, reuse the artifact's `targets.txt` and run:
+For a broader deterministic test selection, reuse the artifact's `targets.txt` and run. For a
+partitioned module, substitute its `sirix-core/part-N` directory for `sirix-core` in these paths:
 
 ```bash
 ./gradlew :sirix-core:pitest -PprMutationModule=sirix-core \

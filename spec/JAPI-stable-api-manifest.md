@@ -1721,9 +1721,9 @@ Source: [DiffDepth.java](../bundles/sirix-core/src/main/java/io/sirix/diff/DiffD
 ## Required API additions not present at this baseline
 
 JAPI-106 requires a normal revision-N success receipt, CommitOutcomeUnknownException
-for uncertain durability, and the recovered N-present/N-absent result. TXN-805 and
-JAPI-201 require resume-after-revision registration and HistoryLostException. These
-are decided behavior/name requirements, not existing compiled declarations. The
+for uncertain durability, and the recovered N-present/N-absent result. These
+are decided behavior/name requirements, not existing compiled declarations. Listener
+resume/replay APIs are deferred under [TXN-805](TXN-transactions-durability.md#txn-805--revision-token-replay-and-bounded-queue). The
 current writer-returning commit signatures below must be reconciled with the receipt
 contract before freezing. Exact fields/method descriptors remain implementation work.
 FMT-402/VER-205 also require queryable original timestamp metadata for adjusted imported

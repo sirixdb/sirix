@@ -6,7 +6,7 @@ Post-commit hooks and revision listeners run asynchronously on one dedicated not
 
 A dispatcher-thread callback may not close/commit/rollback/truncate the same database, any of its handles/sessions/writer transactions or database-wide manager/shutdown operations. Rejection occurs before locks and waits, including a second close while an external close is already underway. Different databases remain independent. Ordinary enclosing writer execution retains the existing pre-lock retirement rejection.
 
-Database/handle/session close stops notification admission, drains admitted callbacks up to the configured bound, then discards queued notifications with a warning if the bound expires. The default bound is five seconds, configurable with `sirix.notifications.closeTimeoutMillis` or the database dispatcher's timeout configuration. No close path waits unboundedly on callback delivery. If a running pre-hook or listener still owns readers at the deadline, close reports a timeout and retains those readers, storage, registration and file ownership for retry. It does not close state beneath a running callback. The notification thread is a daemon, and dropped jobs have not opened views. A later close can finish after the callback returns. During successful handle/session retirement, publications from other open sessions are deferred until retirement releases ownership; final database close discards them. Notifications from a closing or closed source session are dropped. Concurrent pre-hook admission during retirement rejects before publication and may be retried. A successful final database close stops the dispatcher. Notification admission stays stopped after timeout until successful retirement/retry.
+Database/handle/session close stops notification admission, drains admitted callbacks up to the configured bound, then discards queued notifications with a warning if the bound expires. Configuration and defaults are defined by [CONF-201](../spec/CONF-configuration.md#conf-201--dispatcher-queue-and-close-defaults). No close path waits unboundedly on callback delivery. If a running pre-hook or listener still owns readers at the deadline, close reports a timeout and retains those readers, storage, registration and file ownership for retry. It does not close state beneath a running callback. The notification thread is a daemon, and dropped jobs have not opened views. A later close can finish after the callback returns. During successful handle/session retirement, publications from other open sessions are deferred until retirement releases ownership; final database close discards them. Notifications from a closing or closed source session are dropped. Concurrent pre-hook admission during retirement rejects before publication and may be retried. A successful final database close stops the dispatcher. Notification admission stays stopped after timeout until successful retirement/retry.
 
 Writer close does not wait for post notifications: their independent read views belong to the session, and session/database retirement owns their drain. Acquiring a writer for close or destructive truncation is bounded as well, so an in-transaction hook cannot pin an external closer forever. Non-callback async storage workers retain their existing positive termination fence. Destructive truncation establishes bounded notification quiescence before invalidating history; timeout preserves the pinned history and exposes failure.
 
@@ -63,12 +63,14 @@ remain permitted until final closure; failure retains the admission boundary and
 for a later close retry.
 
 Notification capacity is a single per-database retained-work budget, including the active callback,
-the executor queue and retirement-deferred work together. It defaults to 1,024 jobs and is configurable
-before opening the database with `sirix.notifications.capacity` (a positive integer). Overflow drops
+the executor queue and retirement-deferred work together. Configure it before opening the database
+as specified by
+[CONF-201](../spec/CONF-configuration.md#conf-201--dispatcher-queue-and-close-defaults). Overflow drops
 the new job with a warning; it never runs a callback on the committing thread. A job has opened no
 read view until delivery, so dropped/abandoned jobs release their retained references without reader
 ownership to close. Jobs run at most once; source closure, submission failure, timeout and shutdown
-can prevent delivery, and handler failure can prevent successful handling. Neither is unconditional. Hooks expose `getRevisionNumber()` on their committed
+can prevent delivery, and handler failure can prevent successful handling. Hooks expose
+`getRevisionNumber()` on their committed
 view, and revision listeners receive that revision number. No resume/replay API or durable replay
 infrastructure is provided in this change.
 

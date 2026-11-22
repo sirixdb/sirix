@@ -9,7 +9,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.Writer;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
-import io.sirix.node.BytesOut;
+import io.sirix.node.MemorySegmentBytesOut;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.AfterEach;
@@ -17,22 +17,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.mock;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
+ * RAM publication exposes the latest committed root through both beacon references, while
  * {@code RAMStorage.truncateTo} must not report a rollback it cannot perform.
  *
  * <p>
  * Its callers — crash recovery in {@code AbstractResourceSession} and explicit rollback via
  * {@code NodeStorageEngineWriter.truncateTo} — treat a normal return as "the resource is now at
- * that revision", and go on to commit on top of that assumption. This storage keeps pages in a flat
- * {@code pageKey -> Page} map with no record of which revision wrote them, and retains only the
- * current uber-page pointer, so it can identify neither the pages to discard nor the uber page to
- * restore. The method was an empty {@code // TODO} that returned successfully.
+ * that revision", and go on to commit on top of that assumption. This backend does not support
+ * truncation and must advertise that limitation before callers begin destructive maintenance.
  * </p>
  */
 @Isolated
@@ -57,16 +54,18 @@ public final class RAMStorageTruncateToTest {
       config = session.getResourceConfig();
     }
     final RAMStorage storage = new RAMStorage(config);
-    try (final Writer writer = storage.createWriter()) {
-      final BytesOut<?> buffer = mock(BytesOut.class);
+    try (final Writer writer = storage.createWriter();
+        final MemorySegmentBytesOut buffer = MemorySegmentBytesOut.synchronousScratch(Writer.FLUSH_SIZE)) {
       writer.write(config, new PageReference(), new UberPage(1), buffer);
       final UberPage published = new UberPage(2);
       final PageReference written = new PageReference();
       writer.writeUberPageReference(config, written, published, buffer);
       final PageReference reference = writer.readUberPageReference();
-      assertEquals(written.getKey(), reference.getKey());
-      assertSame(published, reference.getPage());
-      assertSame(published, writer.read(reference, config));
+      // TXN-615: publication preserves the committed revision, not caller object identity.
+      // Redundant beacon references may use different keys; both must decode the latest root.
+      assertEquals(2, ((UberPage) reference.getPage()).getRevisionCount());
+      assertEquals(2, ((UberPage) writer.read(reference, config)).getRevisionCount());
+      assertEquals(2, ((UberPage) writer.read(written, config)).getRevisionCount());
     } finally {
       storage.close();
     }

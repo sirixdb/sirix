@@ -15,6 +15,12 @@
   geometry are unchanged, so no numeric layout version changes; 1.0 has exactly one format, so
   no millisecond store is read and no conversion path exists. The unit is format-visible and
   must land before the freeze.
+- Align [TXN-801–806](TXN-transactions-durability.md#txn-801--pre-commit-hooks) with the
+  lifecycle implementation: revision-pinned asynchronous callbacks, bounded best-effort
+  notification retention and retryable close ownership. The later bounded-queue decision
+  defers replay to follow-up work.
+  [CONF-201](CONF-configuration.md#conf-201--dispatcher-queue-and-close-defaults) owns current
+  defaults and configuration, and JAPI-201 points to the hook contract.
 
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
   [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).
@@ -73,9 +79,7 @@
 
 - Apply the final review decisions: known durable cleanup failures return success;
   unknown durability stops writes and throws CommitOutcomeUnknownException without
-  fsync retry. Add revision-token notification replay, queue default 10,000 and close
-  default 5 seconds, callback-scoped views and no retry of listener exceptions.
-  Reject beta stores with history-preserving export/import guidance; require an
+  fsync retry. Reject beta stores with history-preserving export/import guidance; require an
   immutable 1.0 corpus in CI. Truncate fails fast for affected open readers. Backups
   pin startup resource/revision membership; dropping a pinned resource fails fast.
 
