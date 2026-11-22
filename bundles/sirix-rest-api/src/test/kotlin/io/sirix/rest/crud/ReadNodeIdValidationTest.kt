@@ -134,10 +134,10 @@ class ReadNodeIdValidationTest {
     fun queryWithBadNodeIdFailsInsteadOfEvaluatingElsewhere(format: Format, hash: HashType) = runBlocking {
         val fixture = createResource(format, hash)
         serve { client, port ->
-            val ok = get(client, port, format, "?nodeId=${fixture.firstItemKey}&query=.")
+            val ok = get(client, port, format, "?nodeId=${fixture.firstItemKey}&query=1")
             assertEquals(200, ok.statusCode(), ok.bodyAsString())
-            assertError(get(client, port, format, "?nodeId=999999&query=."), 404, "unknown nodeId with query")
-            assertError(get(client, port, format, "?nodeId=abc&query=."), 400, "non-numeric nodeId with query")
+            assertError(get(client, port, format, "?nodeId=999999&query=1"), 404, "unknown nodeId with query")
+            assertError(get(client, port, format, "?nodeId=abc&query=1"), 400, "non-numeric nodeId with query")
         }
     }
 
@@ -202,11 +202,11 @@ class ReadNodeIdValidationTest {
                     val wtx = trx as NodeCursor
                     if (format == Format.XML) {
                         val xtx = trx as XmlNodeTrx
-                        xtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<r><a>first</a></r>"), XmlNodeTrx.Commit.NO)
+                        xtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<r><a>first</a></r>"), XmlNodeTrx.Commit.No)
                         xtx.commit()
                         wtx.moveToDocumentRoot(); wtx.moveToFirstChild(); wtx.moveToFirstChild()
                         val first = wtx.nodeKey
-                        xtx.insertSubtreeAsRightSibling(XmlShredder.createStringReader("<b>second</b>"), XmlNodeTrx.Commit.NO)
+                        xtx.insertSubtreeAsRightSibling(XmlShredder.createStringReader("<b>second</b>"), XmlNodeTrx.Commit.No)
                         val second = wtx.nodeKey
                         xtx.commit()
                         Fixture(first, second)

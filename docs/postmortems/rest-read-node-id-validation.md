@@ -27,13 +27,14 @@
   hash. The query path's comment described the hazard, but only for the cursor, not for the
   status the helper produced.
 - Regression test: `ReadNodeIdValidationTest` in `sirix-rest-api`
-  (`./gradlew :sirix-rest-api:test --tests 'io.sirix.rest.crud.ReadNodeIdValidationTest'`).
+  (`./gradlew :sirix-rest-api:offlineTest --tests 'io.sirix.rest.crud.ReadNodeIdValidationTest'`).
   For JSON and XML, with hashes `NONE` and `ROLLING`: valid key (subtree body, the node's own
   hash as ETag, differing from the whole-resource ETag), unknown keys including negative and
   `Long.MAX_VALUE` (404, error body, no ETag), malformed keys including an overflowing number
   and the empty string (400 naming `nodeId`), a key present in revision 2 only, requested at
   revision 1 and over the range 1..2 (404), the same cases through `query`, and `HEAD`
-  agreeing with `GET`. 24 cases; 19 fail before the fix, all pass after.
+  agreeing with `GET`. 24 cases: 18 fail on the parent commit, all 24 pass with the fix, and the
+  whole offline REST suite (222 tests) passes.
 - Lesson: see [Lessons](../LESSONS.md): validate request-addressed keys at the boundary, parse
   strictly, and give "not found" an explicit HTTP status rather than a generic exception type.
 
