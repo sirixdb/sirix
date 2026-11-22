@@ -784,7 +784,7 @@ public final class ResourceConfiguration {
       // Binary encoding version.
       expectField(jsonReader, JSONNAMES[0], configFile);
       final BinaryEncodingVersion binaryEncodingVersion =
-          parseBinaryEncodingVersion(jsonReader.nextString(), configFile);
+          readBinaryEncodingVersion(jsonReader, configFile);
       // Versioning.
       expectField(jsonReader, JSONNAMES[1], configFile);
       jsonReader.beginObject();
@@ -967,8 +967,8 @@ public final class ResourceConfiguration {
       reader.beginObject();
       while (reader.hasNext()) {
         final String name = reader.nextName();
-        if (name.equals(JSONNAMES[0]) && reader.peek() == JsonToken.STRING) {
-          parseBinaryEncodingVersion(reader.nextString(), configFile);
+        if (name.equals(JSONNAMES[0])) {
+          readBinaryEncodingVersion(reader, configFile);
         } else {
           reader.skipValue();
         }
@@ -976,6 +976,15 @@ public final class ResourceConfiguration {
     } catch (final IOException | IllegalStateException unreadable) {
       return;
     }
+  }
+
+  private static BinaryEncodingVersion readBinaryEncodingVersion(final JsonReader reader, final Path configFile)
+      throws IOException {
+    final JsonToken token = reader.peek();
+    if (token != JsonToken.STRING && token != JsonToken.NUMBER) {
+      throw new UnsupportedFormatVersionException(configFile + ": unsupported format version '" + token + "'");
+    }
+    return parseBinaryEncodingVersion(reader.nextString(), configFile);
   }
 
   /**

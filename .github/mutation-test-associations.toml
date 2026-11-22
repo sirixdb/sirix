@@ -23,7 +23,11 @@ tests = ["io.sirix.access.FormatRepairBoundaryTest"]
 
 [[association]]
 class = "io.sirix.io.ResourceFormatCompatibility"
-tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.index.aggregate.DerivedIndexMaintainerTest"]
+tests = ["io.sirix.access.FormatRepairBoundaryTest", "io.sirix.index.aggregate.DerivedIndexMaintainerTest", "io.sirix.budget.FormatDiscoveryWorkBudgetTest"]
+
+[[association]]
+class = "io.sirix.access.ResourceConfiguration"
+tests = ["io.sirix.access.FormatRepairBoundaryTest"]
 
 # The release contract exercises refused and admitted grouping through every public compiler
 # factory, including cold reopen; its name spans these entry points.

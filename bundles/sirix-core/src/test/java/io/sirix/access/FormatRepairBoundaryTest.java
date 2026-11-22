@@ -407,8 +407,38 @@ final class FormatRepairBoundaryTest {
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void everyPresentInvalidSettingsVersionPreventsDerivedRebuild(final StorageType backend) throws IOException {
+    final String[] versions = {"7", "7.0", "7e0", "{}", "{\"version\":\"V0\"}", "[]", "[\"V0\"]",
+        "true", "false", "null", "\"V7\"", "\"\"", "\"V0 \""};
+    for (int version = 0; version < versions.length; version++) {
+      for (final boolean versionFirst : new boolean[] {false, true}) {
+        final Path database = createStore("invalid-settings-" + backend + "-" + version + "-" + versionFirst,
+            backend, true);
+        final Path derived = resourcePath(database, "source" + DerivedIndexMaintainer.SUFFIX);
+        Files.move(resourcePath(database, "fixture"), derived);
+        final String member = "\"binaryEncoding\":" + versions[version];
+        Files.writeString(derived.resolve(ResourceConfiguration.ResourcePaths.CONFIG_BINARY.getPath()), versionFirst
+            ? "{" + member + ",\"unexpected\":{}}"
+            : "{\"unexpected\":{}," + member + "}");
+        final Map<String, String> before = snapshot(derived);
+        Databases.clearGlobalCaches();
+        try (final var opened = Databases.openJsonDatabase(database)) {
+          final RuntimeException failure = assertThrows(RuntimeException.class,
+              () -> opened.beginResourceSession("source"));
+          assertTrue(messageChain(failure).contains("unsupported format version"), messageChain(failure));
+          if (version == 0) {
+            assertTrue(messageChain(failure).contains("'7'"), messageChain(failure));
+          }
+        }
+        assertEquals(before, snapshot(derived), versions[version]);
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void derivedRepairStillRebuildsWhenNoForeignSettingsVersionIsReadable(final StorageType backend) throws IOException {
-    for (final String version : new String[] {"\"V0\"", "null", "", "absent"}) {
+    for (final String version : new String[] {"\"V0\"", "", "absent"}) {
       final Path database =
           createStore("readable-settings-" + backend + "-" + version.replace('"', '_'), backend, true);
       final Path derived = resourcePath(database, "source" + DerivedIndexMaintainer.SUFFIX);
