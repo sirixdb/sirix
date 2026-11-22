@@ -70,43 +70,48 @@ final class HistoryPreservingExportImportTest {
     writeHistory(sourcePath, sourceTimestamps);
 
     final List<Revision> exported = export(sourcePath);
-    assertEquals(DOCUMENTS.length, exported.size(), "export dropped a revision");
+    assertHistoryMatchesFixture(exported, sourceTimestamps, "export");
 
     importHistory(targetPath, exported);
 
     final List<Revision> imported = export(targetPath);
-    assertEquals(exported.size(), imported.size(), "import dropped a revision");
-    for (int index = 0; index < exported.size(); index++) {
-      final Revision source = exported.get(index);
-      final Revision destination = imported.get(index);
-      final String where = "revision " + destination.revision();
-      assertEquals(source.revision(), destination.revision(), where + ": revision order changed");
-      assertEquals(source.content(), destination.content(), where + ": content changed");
-      assertEquals(source.message(), destination.message(), where + ": commit message changed");
-      assertEquals(source.author().getName(), destination.author().getName(), where + ": author name changed");
-      assertEquals(source.author().getId(), destination.author().getId(), where + ": author id changed");
-      assertEquals(sourceTimestamps[index], destination.timestamp(), where + ": effective commit timestamp changed");
-      if (index > 0) {
-        assertTrue(destination.timestamp().isAfter(imported.get(index - 1).timestamp()),
-            where + ": effective commit timestamps are not strictly increasing");
-      }
-    }
+    assertHistoryMatchesFixture(imported, sourceTimestamps, "import");
   }
 
   @Test
   void exportLeavesTheSourceStoreUnchanged() throws Exception {
     final Path sourcePath = createStore("read-only-source");
-    writeHistory(sourcePath, commitTimestamps());
+    final Instant[] sourceTimestamps = commitTimestamps();
+    writeHistory(sourcePath, sourceTimestamps);
 
     final byte[] dataBefore = Files.readAllBytes(dataFile(sourcePath));
     final byte[] revisionsBefore = Files.readAllBytes(revisionsFile(sourcePath));
 
-    assertEquals(DOCUMENTS.length, export(sourcePath).size());
+    assertHistoryMatchesFixture(export(sourcePath), sourceTimestamps, "export");
 
     Databases.clearGlobalCaches();
     assertArrayEquals(dataBefore, Files.readAllBytes(dataFile(sourcePath)), "export mutated sirix.data");
     assertArrayEquals(revisionsBefore, Files.readAllBytes(revisionsFile(sourcePath)),
         "export mutated sirix.revisions");
+  }
+
+  private static void assertHistoryMatchesFixture(final List<Revision> history, final Instant[] sourceTimestamps,
+      final String phase) {
+    assertEquals(DOCUMENTS.length, history.size(), phase + " dropped a revision");
+    for (int index = 0; index < DOCUMENTS.length; index++) {
+      final Revision revision = history.get(index);
+      final String where = phase + " revision " + (index + 1);
+      assertEquals(index + 1, revision.revision(), where + ": revision order changed");
+      assertEquals(DOCUMENTS[index], revision.content(), where + ": content changed");
+      assertEquals(MESSAGES[index], revision.message(), where + ": commit message changed");
+      assertEquals(AUTHORS[index].getName(), revision.author().getName(), where + ": author name changed");
+      assertEquals(AUTHORS[index].getId(), revision.author().getId(), where + ": author id changed");
+      assertEquals(sourceTimestamps[index], revision.timestamp(), where + ": effective commit timestamp changed");
+      if (index > 0) {
+        assertTrue(revision.timestamp().isAfter(history.get(index - 1).timestamp()),
+            where + ": effective commit timestamps are not strictly increasing");
+      }
+    }
   }
 
   // ==================== export / import ====================

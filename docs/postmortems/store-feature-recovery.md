@@ -153,3 +153,24 @@
   unchanged in this round; FMT-402 was unchanged in full.
 - Lesson: document the boundary exercised by a regression matrix. Separate version and recovery
   tests cannot establish version refusal before recovery side effects; see [LESSONS.md](../LESSONS.md).
+
+
+## History preservation: independent fixture oracle
+
+- Finding: R5. The history round-trip compared export and import outputs from the same helper,
+  allowing consistent loss of content, messages, authors or revision identity to pass.
+- Root cause: checking that two derived results agree does not establish that either preserves the
+  committed fixture required by FMT-402. Timestamp checks already used known input values, but
+  sibling fields lacked that independent oracle.
+- Why tests missed it: the declared `DOCUMENTS`, `MESSAGES` and `AUTHORS` constants were used to
+  write the source, but not to assert its exported or imported records. A serializer returning
+  `[]` for every revision, or consistently blank metadata, could satisfy the former comparison.
+- Regression: `HistoryPreservingExportImportTest` now checks both stages against those constants,
+  revision numbers 1 through the fixture length, and the known source timestamps. The same
+  assertion checks the export in the separate source-byte-preservation test. Revision count,
+  order, increasing timestamps and unchanged source data/revisions files remain checked.
+- Verification: `./gradlew :sirix-core:test --tests io.sirix.format.HistoryPreservingExportImportTest`
+  with unrelated startup tasks excluded passed both tests, with zero failures, errors or skips.
+  Output is recorded in `build/review-history-oracle.log`. No production code changed.
+- Lesson: assert each stage of a round trip against known inputs; agreement between outputs from
+  the same decoder cannot establish preservation. See [LESSONS.md](../LESSONS.md).
