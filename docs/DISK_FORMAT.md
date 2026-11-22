@@ -16,16 +16,6 @@ flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-st
 byte (PIXM/PIXD/PIXS/PIX1, per-record versions). The golden pins make changes to pinned structures
 deliberate (see §2, "PathStats trailer").
 
-Ordinary resource opens on FILE_CHANNEL and MEMORY_MAPPED refuse a foreign format version before
-any mutation, with an "unsupported format version" error naming the value found. Protection across
-repair and recovery is partial: derived-resource rebuilding, tail-log record healing, orphan-spill
-deletion, crash-leftover truncation and interrupted-first-commit recovery can still change foreign
-page-format bytes before decoding their version. This includes the mapped bootstrap case with a
-foreign revision-zero root and a torn directory record. The full decided requirement and its gap
-are recorded under [FMT-401](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
-The repair-ownership redesign, task `sirix-repair-format-gate`, is mandatory before any second
-format version exists.
-
 The current V0 layout omits the eight-byte hash and its offset-table entry from fused JSON primitive leaves
 (`OBJECT_NAMED_BOOLEAN`, `OBJECT_NAMED_NUMBER`, `OBJECT_NAMED_STRING`, `OBJECT_NAMED_NULL`).
 Their hashes are computed on demand from the existing node identity, links, name, and typed
@@ -41,7 +31,7 @@ A resource directory contains:
 |---|---|
 | `data/sirix.data` | Append-only page store + dual uber-page beacons |
 | `data/sirix.revisions` | Fixed-slot revision index: 32-byte records (`IOStorage.revisionsFileOffset`) |
-| resource settings JSON | Format identity: `binaryVersion`, byte-pipeline classes, `storageType`, `hashAlgorithm`, `verifyChecksumsOnRead` |
+| resource settings JSON | Format settings; schema owned by [CONF-102](../spec/CONF-configuration.md#persisted-resource-schema-conf-102) |
 
 Both binary files open with the 64-byte superblock (magic, layout version, endianness check,
 file role, geometry, resource UUID, XXH3 checksum — see below); the *rest* of the format
@@ -50,14 +40,15 @@ whose settings contract is described below. It is
 cross-linked to the binary files by the **resource UUID**: the JSON persists it, both
 superblocks embed it, and opening a data file with a different resource's settings (wrong-backup
 restore) fails fast. A stored zero UUID is refused outright; the cross-check itself is skipped only
-on recovery paths that run before the settings identity is known. These identity checks cover
-ordinary opens and selected repair cases; the full before-mutation protection across repair and
-recovery remains the FMT-401 gap described above.
+on recovery paths that run before the settings identity is known. Compatibility checks before
+repair and recovery follow [FMT-401](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
 
 The resource settings file (`ressetting.obj`) requires the fields through `storeChildCount` in
-writer order. Later optional fields are dispatched by name: they may be omitted or reordered
-without shifting the interpretation of subsequent fields. Unknown fields are refused with a
-message naming the field, including unknown members of `revisioning` and `validTimeConfig`.
+writer order. Tail fields are dispatched by name and may be reordered without shifting the
+interpretation of subsequent fields; required members and omitted-field defaults are owned by
+[CONF-102](../spec/CONF-configuration.md#persisted-resource-schema-conf-102).
+Unknown fields are refused with a message naming the field, including unknown members of
+`revisioning` and `validTimeConfig`.
 The sole skip namespace is a top-level `"extensions"` **object**: its entire contents, including
 nested values, are ignored. A non-object value is refused. Do not put settings required to
 interpret or safely rewrite a resource there; skipped contents are not retained on rewrite.
@@ -565,8 +556,8 @@ Unknown UberPage versions raise its `UnsupportedFormatVersionException` subtype 
 "unsupported format version" diagnostic and the value found; unknown flags and required entries
 raise `UnsupportedStoreFeatureException`.
 Store-feature refusal from either selected beacon propagates immediately, preserving the
-store's feature requirements. Format-version protection across repair and recovery remains partial,
-as recorded in FMT-401 and task `sirix-repair-format-gate`.
+store's feature requirements. Format-version protection follows
+[FMT-401](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
 An unknown read-only-compatible bit also forbids implicit file creation, record healing and
 orphan-spill cleanup. Reads still require intact or recoverable revision metadata; a missing
 revisions file cannot be created to make such an open succeed.

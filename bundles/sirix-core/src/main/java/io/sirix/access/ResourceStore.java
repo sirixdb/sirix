@@ -3,7 +3,6 @@ package io.sirix.access;
 import io.sirix.io.ResourceFormatCompatibility.Proof;
 
 import org.jspecify.annotations.Nullable;
-import io.sirix.io.ResourceFormatCompatibility;
 import io.sirix.cache.BufferManager;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;

@@ -374,8 +374,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
           if (encrypted) {
             probe.byteHandlerPipeline(new ByteHandlerPipeline(source.getResourceConfig().byteHandlePipeline));
           }
-          compatibility = ResourceFormatCompatibility.verifyWithoutSettings(
-              probe.build().setDatabaseConfiguration(dbConfig));
+          compatibility =
+              ResourceFormatCompatibility.verifyWithoutSettings(probe.build().setDatabaseConfiguration(dbConfig));
         }
         compatibility.uberPage().getFeatures().requireWritable();
         compatibility.requireResource(derivedPath);

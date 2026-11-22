@@ -235,8 +235,8 @@ public final class InterruptedFirstCommitRecovery {
       if (!Files.isRegularFile(dataFile) || Files.size(dataFile) == 0) {
         return false;
       }
-      requireValidFileIdentity(dataFile, Superblock.ROLE_DATA,
-          resourceConfig.resourceUuid.getMostSignificantBits(), resourceConfig.resourceUuid.getLeastSignificantBits());
+      requireValidFileIdentity(dataFile, Superblock.ROLE_DATA, resourceConfig.resourceUuid.getMostSignificantBits(),
+          resourceConfig.resourceUuid.getLeastSignificantBits());
       requireValidFileIdentity(revisionsFile, Superblock.ROLE_REVISIONS,
           resourceConfig.resourceUuid.getMostSignificantBits(), resourceConfig.resourceUuid.getLeastSignificantBits());
       final byte[] header = readDataFileHeaderRegion(dataFile);

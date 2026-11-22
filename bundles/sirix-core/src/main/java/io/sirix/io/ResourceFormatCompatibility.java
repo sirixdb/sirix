@@ -27,8 +27,7 @@ import java.nio.file.StandardOpenOption;
 
 /** Side-effect-free FMT-401 gate shared by persistent storage and destructive recovery. */
 public final class ResourceFormatCompatibility {
-  private ResourceFormatCompatibility() {
-  }
+  private ResourceFormatCompatibility() {}
 
   /** Only this gate can construct the resource-bound evidence used by destructive callers. */
   public static final class Proof {
@@ -65,8 +64,12 @@ public final class ResourceFormatCompatibility {
     final Path data = directory.resolve(IOStorage.FILENAME);
     final Path revisions = directory.resolve(IOStorage.REVISIONS_FILENAME);
     try {
-      final long msb = knownIdentity ? config.resourceUuid.getMostSignificantBits() : 0L;
-      final long lsb = knownIdentity ? config.resourceUuid.getLeastSignificantBits() : 0L;
+      final long msb = knownIdentity
+          ? config.resourceUuid.getMostSignificantBits()
+          : 0L;
+      final long lsb = knownIdentity
+          ? config.resourceUuid.getLeastSignificantBits()
+          : 0L;
       InterruptedFirstCommitRecovery.requireValidFileIdentity(data, Superblock.ROLE_DATA, msb, lsb);
       InterruptedFirstCommitRecovery.requireValidFileIdentity(revisions, Superblock.ROLE_REVISIONS, msb, lsb);
       if (!knownIdentity && Files.exists(data) && Files.size(data) >= Superblock.BYTES) {
@@ -86,11 +89,12 @@ public final class ResourceFormatCompatibility {
         return new Proof(config.resourcePath, uber);
       }
       try (final FileChannel channel = FileChannel.open(data, StandardOpenOption.READ);
-          final FileChannel records = FileChannel.open(Files.exists(revisions) ? revisions : data,
-              StandardOpenOption.READ);
-          final FileChannelReader reader = new FileChannelReader(channel, records,
-              new ByteHandlerPipeline(config.byteHandlePipeline), SerializationType.DATA, new PagePersister(),
-              Caffeine.newBuilder().build())) {
+          final FileChannel records = FileChannel.open(Files.exists(revisions)
+              ? revisions
+              : data, StandardOpenOption.READ);
+          final FileChannelReader reader =
+              new FileChannelReader(channel, records, new ByteHandlerPipeline(config.byteHandlePipeline),
+                  SerializationType.DATA, new PagePersister(), Caffeine.newBuilder().build())) {
         reader.setStoreFeatures(uber.getFeatures());
         final RevisionFileData root;
         try {
@@ -123,6 +127,7 @@ public final class ResourceFormatCompatibility {
       this.revisions = revisions;
     }
 
+    @SuppressWarnings("ReferenceEquality") // Proofs authorize these exact descriptors, not equal wrappers.
     public void requireChannels(final FileChannel dataChannel, final FileChannel revisionsChannel) {
       if (data != dataChannel || revisions != revisionsChannel) {
         throw new IllegalArgumentException("Compatibility proof belongs to other storage files");
@@ -189,8 +194,7 @@ public final class ResourceFormatCompatibility {
     }
   }
 
-  private static void requireFramedPrefix(final FileChannel channel, final ByteHandler handler)
-      throws IOException {
+  private static void requireFramedPrefix(final FileChannel channel, final ByteHandler handler) throws IOException {
     final ByteBuffer length = ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN);
     final long size = channel.size();
     for (long offset = IOStorage.DATA_REGION_START; offset + Integer.BYTES <= size;) {

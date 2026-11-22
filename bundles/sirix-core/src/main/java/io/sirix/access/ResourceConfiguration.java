@@ -433,8 +433,8 @@ public final class ResourceConfiguration {
    * Per-resource identity UUID, generated at resource creation and written into both files'
    * superblocks (reserved bytes [40, 56)). Cross-links the binary files to this settings file:
    * opening a data file with a different resource's settings — the classic "restored the JSON from
-   * the wrong backup" corruption — fails fast instead of misreading. Never {@code null} and never
-   * the all-zero UUID: 1.0 settings must identify their resource (FMT-102).
+   * the wrong backup" corruption — fails fast instead of misreading. Never {@code null} and never the
+   * all-zero UUID: 1.0 settings must identify their resource (FMT-102).
    */
   public final UUID resourceUuid;
 
@@ -1487,8 +1487,8 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Sets the resource identity UUID. Deserialization passes the persisted value; new resources
-     * keep the generated random default. The all-zero UUID is not an identity (FMT-102).
+     * Sets the resource identity UUID. Deserialization passes the persisted value; new resources keep
+     * the generated random default. The all-zero UUID is not an identity (FMT-102).
      *
      * @param resourceUuid the persisted nonzero UUID
      * @return reference to the builder object

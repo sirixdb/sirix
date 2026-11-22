@@ -129,6 +129,9 @@
 
 ## Deferred repair ownership: documentation scope correction
 
+This intermediate gap was resolved by the [foreign-root repair follow-up](#foreign-root-envelopes-at-repair-boundaries);
+[FMT-401](../../spec/FMT-disk-format.md#fmt-401--10-format-baseline) owns current coverage and remaining gaps.
+
 - Findings: R4 and review-1 identify the same remaining ownership gap. Ordinary opens refuse foreign
   versions before mutation on both persistent backends, but that evidence does not cover derived
   rebuilding, torn-record healing from the tail log, orphan-spill deletion, crash-leftover truncation
@@ -141,7 +144,7 @@
 - Decision: retain delivered production checks and every behavior test; record the remaining
   gap in FMT-102/FMT-401 and scope factual claims to ordinary opens. The normative MUST requirements
   remain the decided target, and FMT-402's three timestamp gaps remain unchanged.
-- Mandatory follow-up: task `sirix-repair-format-gate`, before any second format version exists.
+- Follow-up identified in this round: task `sirix-repair-format-gate`, before any second format version exists.
   It needs side-effect-free discovery of affected records and envelopes and a resource-bound proof
   required by every repair entry point, replacing the bare opening snapshot across factories and
   reaching direct reader and writer APIs. This documentation round adds no production behavior.

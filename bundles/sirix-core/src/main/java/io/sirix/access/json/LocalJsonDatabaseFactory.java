@@ -25,7 +25,6 @@ import io.sirix.cache.BufferManager;
 import io.sirix.io.IOStorage;
 import io.sirix.io.InterruptedFirstCommitRecovery;
 import io.sirix.page.UberPage;
-import io.sirix.io.ResourceFormatCompatibility;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

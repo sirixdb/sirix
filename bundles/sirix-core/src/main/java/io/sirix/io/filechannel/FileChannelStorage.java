@@ -218,7 +218,8 @@ public final class FileChannelStorage implements IOStorage {
       final @Nullable Proof compatibility) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     final Proof verified = compatibility == null
-        ? ResourceFormatCompatibility.verify(resourceConfig) : compatibility;
+        ? ResourceFormatCompatibility.verify(resourceConfig)
+        : compatibility;
     verified.requireResource(resourceConfig.resourcePath);
     this.openingUberPage = verified.uberPage();
     this.openingUberPage.getFeatures().requireReadable();
@@ -244,7 +245,7 @@ public final class FileChannelStorage implements IOStorage {
     this(resourceConfig, cache, new RevisionIndexHolder());
   }
 
-  /** Resource identity UUID halves from the configuration; always nonzero (FMT-102). */
+  /** Halves of the configuration's nonzero resource identity UUID (FMT-102). */
   private final long resourceUuidMsb;
   private final long resourceUuidLsb;
 

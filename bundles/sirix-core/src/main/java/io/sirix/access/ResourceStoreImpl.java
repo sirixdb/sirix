@@ -2,7 +2,6 @@ package io.sirix.access;
 
 import io.sirix.io.ResourceFormatCompatibility.Proof;
 
-import io.sirix.io.ResourceFormatCompatibility;
 import static java.util.Objects.requireNonNull;
 
 import io.sirix.access.trx.node.AbstractResourceSession;

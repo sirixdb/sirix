@@ -91,9 +91,9 @@ public final class Superblock {
   }
 
   /**
-   * Validates a superblock whose resource identity is not yet known — recovery paths that run
-   * before the configuration is loaded. The stored UUID must still be nonzero; only the
-   * cross-check against the settings identity is left out.
+   * Validates a superblock whose resource identity is not yet known — recovery paths that run before
+   * the configuration is loaded. The stored UUID must still be nonzero; only the cross-check against
+   * the settings identity is left out.
    */
   public static void validate(final ByteBuffer raw, final byte expectedRole, final String fileLabel) {
     validate(raw, expectedRole, fileLabel, 0L, 0L);
@@ -103,9 +103,9 @@ public final class Superblock {
    * Validates a superblock read from offset 0. Throws {@link SirixIOException} with an actionable
    * message on any mismatch — wrong magic (not a sirix file / pre-superblock layout), wrong layout
    * version, foreign endianness, wrong file role, geometry drift, checksum corruption, or a
-   * resource-UUID mismatch (the file belongs to a different resource than the settings JSON). A
-   * zero stored UUID is refused outright; a zero expected UUID means the caller does not know the
-   * resource identity yet and only skips the cross-check.
+   * resource-UUID mismatch (the file belongs to a different resource than the settings JSON). A zero
+   * stored UUID is refused outright; a zero expected UUID means the caller does not know the resource
+   * identity yet and only skips the cross-check.
    */
   public static void validate(final ByteBuffer raw, final byte expectedRole, final String fileLabel,
       final long expectedUuidMsb, final long expectedUuidLsb) {

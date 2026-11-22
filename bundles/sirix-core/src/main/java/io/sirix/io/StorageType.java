@@ -342,8 +342,7 @@ public enum StorageType {
     return getStorage(resourceConf, null);
   }
 
-  public static IOStorage getStorage(final ResourceConfiguration resourceConf,
-      final @Nullable Proof compatibility) {
+  public static IOStorage getStorage(final ResourceConfiguration resourceConf, final @Nullable Proof compatibility) {
     final String typeName = resourceConf.storageType.name();
 
     // Check if an external provider wants to handle this storage type

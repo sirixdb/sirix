@@ -86,16 +86,11 @@
   [CONV-304](CONV-conventions.md#conv-304--nightly-trend-tier) the nightly trend tier that reports
   cumulative drift above 2%. The development strategy states the reasons in
   [The benchmark protocol](../docs/DEVELOPMENT.md#the-benchmark-protocol).
-- Make 1.0 the only on-disk format. FMT-401 becomes the 1.0 format baseline: a store carrying any
-  other format version is rejected before any mutation on the ordinary open path with a plain
-  unsupported-format-version error, on FILE_CHANNEL and MEMORY_MAPPED. Repair and recovery paths
-  are not yet fully covered; FMT-401 remains partial and records the mandatory repair-ownership
-  redesign before a second format version exists, tracked as `sirix-repair-format-gate`.
-  No pre-1.0 development format is detected, named or special-cased. FMT-102 drops the
-  zero-UUID and zero-revision-stride acceptances, so a stored resource UUID must be nonzero and the
-  stride must be 32; CONF-102 refuses an absent `resourceUuid`. FMT-402 becomes history-preserving
-  export and import of 1.0 resources, keeping the captain-decision-010 timestamp rule unchanged and
-  no longer framed as beta migration.
+
+- Make 1.0 the only on-disk format under
+  [FMT-401](FMT-disk-format.md#fmt-401--10-format-baseline), with strict identity checks under
+  FMT-102/CONF-102 and history-preserving export/import under
+  [FMT-402](FMT-disk-format.md#fmt-402--history-preserving-export-and-import).
 
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the
   [development strategy's test derivation policy](../docs/DEVELOPMENT.md#2-tests-are-derived-from-the-requirements-not-from-the-code).
@@ -154,8 +149,10 @@
 
 - Apply the final review decisions: known durable cleanup failures return success;
   unknown durability stops writes and throws CommitOutcomeUnknownException without
-  fsync retry. Reject beta stores with history-preserving export/import guidance; require an
-  immutable 1.0 corpus in CI. Truncate fails fast for affected open readers. Backups
+  fsync retry.
+  The format baseline and export/import policy follow
+  [FMT-401–402](FMT-disk-format.md#fmt-401--10-format-baseline).
+  Truncate fails fast for affected open readers. Backups
   pin startup resource/revision membership; dropping a pinned resource fails fast.
 
 - Classify Java declarations into the decided small stable core, labelled expert tier

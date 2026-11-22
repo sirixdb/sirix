@@ -388,8 +388,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
    *        the lazy-revision-record profile (see {@link #lazyRevisionRecords}); must be {@code false}
    *        when that channel is write-through. Only honored together with the preallocated profile
    * @param revisionsFilePath path of the revisions file, identity key for the durability state
-   * @param resourceUuidMsb most significant resource-UUID half; nonzero for a 1.0 resource
-   * @param resourceUuidLsb least significant resource-UUID half; nonzero for a 1.0 resource
+   * @param resourceUuidMsb most significant half of the nonzero resource UUID
+   * @param resourceUuidLsb least significant half of the nonzero resource UUID
    * @param releaseAction callback for a writer borrowing the storage's SHARED channel triple:
    *        {@link #close()} runs it INSTEAD of closing the channels, so the storage can close the
    *        pool once the last borrower is gone. {@code null} means this writer owns its channels and

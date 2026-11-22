@@ -17,12 +17,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * Storage instances are request-scoped (a REST request opens and closes its own storage), so a
  * per-instance "validated" flag re-paid two file opens + header reads on every request. The
  * superblock is immutable after the first commit; once a path's header validated, re-checking it
- * for every new storage instance buys nothing — corruption that happens AFTER the first
- * validation is caught by the per-read beacon checksums, which is the existing protection model.
+ * for every new storage instance buys nothing — corruption that happens AFTER the first validation
+ * is caught by the per-read beacon checksums, which is the existing protection model.
  * <p>
- * Invalidation: resource removal drops the resource's paths ({@link #invalidateUnder(Path)});
- * tests that mutate files out-of-band simulate a cold process via
- * {@code Databases.clearGlobalCaches()}, which calls {@link #clear()}.
+ * Invalidation: resource removal drops the resource's paths ({@link #invalidateUnder(Path)}); tests
+ * that mutate files out-of-band simulate a cold process via {@code Databases.clearGlobalCaches()},
+ * which calls {@link #clear()}.
  *
  * @author Johannes Lichtenberger
  */
@@ -41,7 +41,8 @@ public final class SuperblockValidator {
    * superblock, and the next open after that must actually check it.
    *
    * @param path the data or revisions file
-   * @param role expected file role ({@link Superblock#ROLE_DATA} or {@link Superblock#ROLE_REVISIONS})
+   * @param role expected file role ({@link Superblock#ROLE_DATA} or
+   *        {@link Superblock#ROLE_REVISIONS})
    * @throws SirixIOException if the superblock is invalid or an I/O error occurs
    */
   public static void validateOnce(final Path path, final byte role) {
@@ -50,8 +51,8 @@ public final class SuperblockValidator {
 
   /**
    * Validates like {@link #validateOnce(Path, byte)} and additionally cross-checks the superblock's
-   * resource UUID against the resource-settings identity. A zero EXPECTED UUID means the caller
-   * does not know that identity yet and skips only the cross-check; a zero STORED UUID is refused.
+   * resource UUID against the resource-settings identity. A zero EXPECTED UUID means the caller does
+   * not know that identity yet and skips only the cross-check; a zero STORED UUID is refused.
    */
   public static void validateOnce(final Path path, final byte role, final long expectedUuidMsb,
       final long expectedUuidLsb) {
@@ -65,8 +66,8 @@ public final class SuperblockValidator {
   }
 
   /**
-   * Drops every validated path below {@code directory} — call when a resource's files are deleted
-   * so a recreated resource at the same path gets its new superblock validated again.
+   * Drops every validated path below {@code directory} — call when a resource's files are deleted so
+   * a recreated resource at the same path gets its new superblock validated again.
    */
   public static void invalidateUnder(final Path directory) {
     final Path canonical = canonical(directory);
@@ -83,8 +84,8 @@ public final class SuperblockValidator {
   }
 
   /**
-   * @return {@code true} if a superblock was actually validated, {@code false} for a fresh/empty
-   *         file (nothing to validate yet)
+   * @return {@code true} if a superblock was actually validated, {@code false} for a fresh/empty file
+   *         (nothing to validate yet)
    */
   private static boolean validate(final Path path, final byte role, final long expectedUuidMsb,
       final long expectedUuidLsb) {
