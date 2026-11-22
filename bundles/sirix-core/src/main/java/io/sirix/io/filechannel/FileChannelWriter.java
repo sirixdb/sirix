@@ -452,11 +452,21 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
+  public void requireCompatibleRevisionRoots(final int lastRevision) {
+    try {
+      reader.requireCompatibleRevisionRoots(lastRevision);
+    } catch (final IOException failure) {
+      throw new SirixIOException(failure);
+    }
+  }
+
+  @Override
   public Writer truncateTo(final int revision) {
     try {
       final RepairProof compatibility =
           ResourceFormatCompatibility.verifyRepair(dataFileChannel, revisionsFileChannel, reader);
       compatibility.requireChannels(dataFileChannel, revisionsFileChannel);
+      requireCompatibleRevisionRoots(revision);
       final long fileSize = dataFileChannel.size();
       final int durableRevision = durableBeaconRevision();
       if (durableRevision < revision) {

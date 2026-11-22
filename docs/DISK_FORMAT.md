@@ -47,7 +47,7 @@ surviving framed prefix during beaconless bootstrap recovery. Unreadable setting
 for a readable `binaryEncoding` by name before rebuilding. Complete envelope discovery before
 destructive repair remains task `sirix-repair-format-gate`; envelopes outside these subsets
 or beyond a malformed frame or unwritten gap are not covered. Explicit truncate validates its
-target before publishing downgraded beacons. FILE_CHANNEL can recover an absent revisions
+target and the bounded window ending at that target before publishing downgraded beacons. FILE_CHANNEL can recover an absent revisions
 header from the validated data identity and tail-log evidence, including with a commit marker;
 a present header still requires validation. MEMORY_MAPPED does not salvage lost revision records.
 

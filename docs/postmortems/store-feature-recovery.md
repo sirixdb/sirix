@@ -280,7 +280,7 @@ This intermediate gap was resolved by the [foreign-root repair follow-up](#forei
 - Why tests missed it: foreign-root cases lived within the discovery window or invoked the raw
   writer directly. Recovery cases did not combine a missing revisions header with a commit marker.
 - Regression tests and independent oracle: FMT-401 requires refusal and whole-resource preservation;
-  `FormatRepairBoundaryTest.truncateRefusesForeignTargetBeforeBeaconPublication` checks every file
+  `FormatRepairBoundaryTest.truncateRefusesForeignFrontierBeforeBeaconPublication` checks every file
   and the unchanged session revision after a refused truncate on both backends. The recovery
   contract and known committed string are the oracle for
   `commitMarkerRecoveryDistinguishesAbsentAndForeignHeaders`: FILE_CHANNEL must commit again and
@@ -298,3 +298,37 @@ This intermediate gap was resolved by the [foreign-root repair follow-up](#forei
   recoverable framed prefix remains task `sirix-repair-format-gate`; this task cannot close.
 - Lesson: validate the destination before publishing a transition, and distinguish absent recovery
   metadata from a present foreign identity. See [LESSONS.md](../LESSONS.md).
+
+
+## Prospective truncate window before publication
+
+- Symptom and trigger: with 20 revisions committed and a foreign revision-1 envelope, a cold
+  open succeeds because the current bounded window is revisions 5–20. Truncating to compatible
+  revision 2 used to publish revision-2 beacons and change the session revision before the I/O
+  gate checked revisions 0–2 and refused the foreign revision. Subsequent opens then failed.
+- Root cause: preflight validated only the selected root, although the post-publication repair
+  gate validates the entire bounded window at the new frontier. The violated invariant is that
+  every format check required at the prospective frontier must pass before beacon publication
+  or session-state changes. Both backends share the same writer and reader boundaries.
+- Fix: expose the existing read-only bounded-root check through Writer and forward it through
+  the fault-injection decorator. Both explicit truncate preflight and direct writer truncate
+  invoke it before mutation. Unsupported writers refuse the check; RAM truncation remains
+  unsupported. The existing target decode and descriptor-bound repair proof remain in place.
+- Why tests missed it: the preceding regression truncated directly to the foreign root, so its
+  target decode caught the problem without exercising a compatible target and foreign neighbor.
+- Regression and independent oracle: FMT-401 requires an unchanged resource after refusal.
+  `FormatRepairBoundaryTest.truncateRefusesForeignFrontierBeforeBeaconPublication` now tries
+  targets 1, 2 and 16 with foreign revision 1 on both backends. It checks the plain format
+  diagnostic, unchanged session revision and every resource file's names, sizes and content
+  digests immediately, after closing and after a fresh cold open. Targets 2 and 16 reject a
+  target-only preflight, including the first revision of a full 16-record prospective window.
+- Verification: the failing sequence was traced before edits; the single focused verification
+  passed all 177 selected tests with no failures, errors or skips (exit 0), including successful
+  truncate, absent-header recovery, the fault decorator, golden byte pins, format diagnostics
+  and storage work budgets. Log: `build/review-format-frontier-window.log`; JUnit XML:
+  `bundles/sirix-core/build/test-results/test/`. The outer pipeline owns mutation, lint and broader
+  validation.
+- Remaining gap: complete discovery beyond the current/latest and bounded prospective windows
+  stays deferred to `sirix-repair-format-gate`; FMT-401 remains partial and the task cannot close.
+- Lesson: when a transition changes the validation frontier, preflight the same bounded evidence
+  that the destination state will require. See [LESSONS.md](../LESSONS.md).

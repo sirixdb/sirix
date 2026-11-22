@@ -93,7 +93,7 @@
   [FMT-402](FMT-disk-format.md#fmt-402--history-preserving-export-and-import).
   FMT-401 remains partial: beaconless framed-prefix and bounded historical-root checks
   do not replace the complete envelope scan deferred to `sirix-repair-format-gate`. Explicit
-  truncate checks the target before publishing beacons; absent revisions headers remain
+  truncate checks the target and its bounded root window before publishing beacons; absent revisions headers remain
   recoverable with validated data identity and tail-log evidence.
 
 - Align [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) with the

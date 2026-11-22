@@ -314,28 +314,36 @@ final class FormatRepairBoundaryTest {
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
-  void truncateRefusesForeignTargetBeforeBeaconPublication(final StorageType backend) throws IOException {
-    final Path database = createStore("truncate-target-" + backend, backend, false);
-    final Path resource = resourcePath(database, "fixture");
-    try (final var opened = Databases.openJsonDatabase(database);
-        final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
-      for (int revision = 1; revision <= 20; revision++) {
-        writer.commit();
+  void truncateRefusesForeignFrontierBeforeBeaconPublication(final StorageType backend) throws IOException {
+    for (final int target : new int[] {1, 2, 16}) {
+      final Path database = createStore("truncate-target-" + backend + "-" + target, backend, false);
+      final Path resource = resourcePath(database, "fixture");
+      try (final var opened = Databases.openJsonDatabase(database);
+          final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+        for (int revision = 1; revision <= 20; revision++) {
+          writer.commit();
+        }
       }
-    }
-    patchRoot(resource, 1);
-    final Map<String, String> before = snapshot(resource);
-    Databases.clearGlobalCaches();
-    try (final var opened = Databases.openJsonDatabase(database);
-        final var session = opened.beginResourceSession("fixture");
-        final var writer = session.createStorageEngineWriter()) {
-      assertEquals(20, session.getMostRecentRevisionNumber());
-      final RuntimeException failure = assertThrows(RuntimeException.class, () -> writer.truncateTo(1));
-      assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
-      assertEquals(20, session.getMostRecentRevisionNumber());
+      patchRoot(resource, 1);
+      final Map<String, String> before = snapshot(resource);
+      Databases.clearGlobalCaches();
+      try (final var opened = Databases.openJsonDatabase(database);
+          final var session = opened.beginResourceSession("fixture");
+          final var writer = session.createStorageEngineWriter()) {
+        assertEquals(20, session.getMostRecentRevisionNumber());
+        final RuntimeException failure = assertThrows(RuntimeException.class, () -> writer.truncateTo(target));
+        assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
+        assertEquals(20, session.getMostRecentRevisionNumber());
+        assertEquals(before, snapshot(resource));
+      }
+      assertEquals(before, snapshot(resource));
+      Databases.clearGlobalCaches();
+      try (final var opened = Databases.openJsonDatabase(database);
+          final var session = opened.beginResourceSession("fixture")) {
+        assertEquals(20, session.getMostRecentRevisionNumber());
+      }
       assertEquals(before, snapshot(resource));
     }
-    assertEquals(before, snapshot(resource));
   }
 
   @ParameterizedTest
