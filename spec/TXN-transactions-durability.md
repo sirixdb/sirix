@@ -487,11 +487,11 @@ Automatic empty rebootstrap MUST occur only when the files prove no committed re
 - **Status:** partial
 - **Since:** 1.0
 - **Code:** [DerivedIndexMaintainer.java](../bundles/sirix-core/src/main/java/io/sirix/index/aggregate/DerivedIndexMaintainer.java)
-- **Verified by:** [DerivedIndexCrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedIndexCrashRecoveryTest.java):`restartsAtDurableDerivedFrontier`; [DerivedRevisionMappingTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedRevisionMappingTest.java)
+- **Verified by:** [DerivedIndexCrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedIndexCrashRecoveryTest.java):`restartsAtDurableDerivedFrontier`; [DerivedRevisionMappingTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedRevisionMappingTest.java); [DerivedIndexMaintainerTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedIndexMaintainerTest.java):`backwardsClockKeepsDerivedMappingsValidAndMaintenanceUsable`, `summaryFoldsUseTheirOwnTimelineAfterClockRegression`
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Crash suite is opt-in. Full cross-resource atomicity is not promised; source/derived revision mapping carries the relationship.
 
-A derived resource MUST recover its own durable state and source-revision mapping, then catch up from the source’s durable frontier. Source revision numbers and derived revision numbers MUST NOT be assumed numerically equal. A crash between source and derived publication MUST leave a recoverable source of truth.
+A derived resource MUST recover its own durable state and source-revision mapping, then catch up from the source’s durable frontier. Derived batch publications, aggregate folds and summary folds MUST assign commit timestamps from the derived timeline’s own clock and predecessor under TXN-310. They MUST NOT forward a source or previously effective timestamp as custom input: effective timestamps can legitimately exceed a regressed wall clock. Source-revision mappings MUST retain the source root’s exact effective microsecond timestamp for validation; a backward clock step MUST NOT poison maintenance. Source revision numbers and derived revision numbers MUST NOT be assumed numerically equal. A crash between source and derived publication MUST leave a recoverable source of truth.
 
 ### TXN-613 — Backups include derived resources
 

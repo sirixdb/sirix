@@ -21,7 +21,6 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.sirix.utils.CommitTimestamps;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -380,11 +379,10 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
           final DerivedRevisionMapping replacement = new DerivedRevisionMapping(base.sourceRevision(),
               writer.getRevisionNumber(), base.projection(), base.timestamp(), base.identityHigh(), base.identityLow());
           replacement.write(writer.getStorageEngineWriter());
-          writer.commit("summary fold through src=" + last, CommitTimestamps.toInstant(base.timestamp()));
+          writer.commit("summary fold through src=" + last);
           mappings.put(maintained, replacement);
         } else {
-          writer.commit("summary fold through src=" + last,
-              CommitTimestamps.toInstant(derivedReader.getActualRevisionRootPage().getRevisionTimestampMicros()));
+          writer.commit("summary fold through src=" + last);
         }
         return true;
       }
@@ -607,7 +605,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
         recordDocumentPages(transaction.getStorageEngineWriter());
         transaction.commit(first == last
             ? "src=" + last
-            : "src=" + first + ".." + last, reader.getRevisionTimestamp());
+            : "src=" + first + ".." + last);
         mappings.put(last, mapping);
         while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
           mappings.pollFirstEntry();
@@ -771,7 +769,7 @@ public final class DerivedIndexMaintainer implements AutoCloseable {
             transaction.getRevisionNumber(), previous.projection());
         mapping.write(transaction.getStorageEngineWriter());
         recordDocumentPages(transaction.getStorageEngineWriter());
-        transaction.commit("fold src=" + maintained, sourceReader.getRevisionTimestamp());
+        transaction.commit("fold src=" + maintained);
         mappings.put(maintained, mapping);
         while (mappings.size() > DerivedRevisionMapping.CACHE_CAPACITY) {
           mappings.pollFirstEntry();

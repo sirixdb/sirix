@@ -30,8 +30,10 @@ import io.sirix.index.hot.page.HOTLeafPage;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.SirixFiles;
+import io.sirix.utils.CommitTimestamps;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.MockedStatic;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -63,10 +65,161 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
 
 final class DerivedIndexMaintainerTest {
   @TempDir
   File directory;
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void backwardsClockKeepsDerivedMappingsValidAndMaintenanceUsable(final StorageType storage) {
+    final Instant first = Instant.parse("2025-03-04T05:06:07.123456Z");
+    final Instant backwards = first.minusSeconds(1);
+    final Instant second = Instant.parse("2025-03-04T05:06:07.123457Z");
+    final Instant third = Instant.parse("2025-03-04T05:06:07.123458Z");
+    final Instant last = Instant.parse("2025-03-04T05:06:07.123487Z");
+    final var path = directory.toPath().resolve("backwards-clock");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records").storageType(storage)
+          .validTimePaths("lo", "hi").customCommitTimestamps(true).storeDiffs(false).build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        try (final MockedStatic<Instant> clock = mockStatic(Instant.class, CALLS_REAL_METHODS)) {
+          clock.when(Instant::now).thenReturn(first);
+          writer.commit(null, first);
+          resource.drain();
+          assertSum(session, 1, 10);
+          clock.when(Instant::now).thenReturn(backwards);
+          setNumber(writer, 20);
+          writer.commit(null, backwards);
+          try (final JsonNodeReadOnlyTrx reader = session.beginNodeReadOnlyTrx(2)) {
+            assertEquals(second, reader.getRevisionTimestamp());
+            assertTrue(reader.getRevisionTimestamp().isAfter(Instant.now()));
+          }
+          assertTrue(resource.maintainNextBatch(1));
+          resource.drain();
+          assertClockMapping(session, 2, second);
+          assertSum(session, 2, 20);
+          assertNull(resource.failure());
+          assertEquals(-1, resource.poisonedRevision());
+          assertThrows(IllegalStateException.class, () -> writer.commit(null, first));
+          assertEquals(2, session.getMostRecentRevisionNumber());
+          boolean folded = false;
+          for (int revision = 3; revision <= 32; revision++) {
+            setNumber(writer, revision * 10L);
+            writer.commit(null, backwards);
+            assertTrue(resource.maintainNextBatch(1));
+            final int published;
+            try (StorageEngineReader derived = resource.openSummaryReader()) {
+              published = derived.getRevisionNumber();
+            }
+            resource.drain();
+            try (StorageEngineReader derived = resource.openSummaryReader()) {
+              folded |= derived.getRevisionNumber() > published;
+            }
+            assertEquals(revision, resource.maintainedRevision());
+          }
+          assertTrue(folded, "Sustained updates must allow an independent aggregate-fold commit");
+          assertClockMapping(session, 3, third);
+          assertClockMapping(session, 32, last);
+          assertSum(session, 32, 320);
+          assertNull(resource.failure());
+          assertEquals(-1, resource.poisonedRevision());
+        }
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path);
+        JsonResourceSession session = database.beginResourceSession("records")) {
+      state(session).pause();
+      assertClockMapping(session, 2, second);
+      assertClockMapping(session, 3, third);
+      assertClockMapping(session, 32, last);
+      assertSum(session, 32, 320);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void summaryFoldsUseTheirOwnTimelineAfterClockRegression(final boolean withBase) {
+    final Instant first = Instant.parse("2025-03-04T05:06:07.123456Z");
+    final Instant backwards = first.minusSeconds(1);
+    final var path = directory.toPath().resolve("summary-clock");
+    Databases.createJsonDatabase(new DatabaseConfiguration(path));
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(path)) {
+      database.createResource(ResourceConfiguration.newBuilder("records").storageType(StorageType.FILE_CHANNEL)
+          .validTimePaths("lo", "hi").customCommitTimestamps(true).storeDiffs(false).build());
+      try (JsonResourceSession session = database.beginResourceSession("records");
+          JsonNodeTrx writer = session.beginNodeTrx()) {
+        declareSimple(session, writer);
+        final DerivedIndexMaintainer.Resource resource = state(session);
+        resource.pause();
+        try (final MockedStatic<Instant> clock = mockStatic(Instant.class, CALLS_REAL_METHODS)) {
+          clock.when(Instant::now).thenReturn(first);
+          writer.commit(null, first);
+          if (withBase) {
+            resource.drain();
+          }
+          for (int revision = 2; revision <= 18; revision++) {
+            setNumber(writer, revision);
+            writer.commit(null, first);
+            if (withBase && revision == 2) {
+              resource.drain();
+            }
+          }
+          assertTrue(resource.foldNextSummaryBatch());
+          final int published;
+          final Instant previous;
+          try (StorageEngineReader derived = resource.openSummaryReader()) {
+            published = derived.getRevisionNumber();
+            previous = CommitTimestamps.toInstant(derived.getActualRevisionRootPage().getRevisionTimestampMicros());
+            if (!withBase) {
+              assertEquals(first, previous);
+            }
+          }
+          clock.when(Instant::now).thenReturn(backwards);
+          assertTrue(resource.foldNextSummaryBatch());
+          try (StorageEngineReader derived = resource.openSummaryReader();
+              StorageEngineReader source = session.createStorageEngineReader()) {
+            assertEquals(published + 1, derived.getRevisionNumber());
+            assertEquals(previous.plusNanos(1_000),
+                CommitTimestamps.toInstant(derived.getActualRevisionRootPage().getRevisionTimestampMicros()));
+            assertEquals(withBase ? 18 : 16, TemporalAggregateSummaryFolds.frontier(derived, source));
+          }
+          assertEquals(withBase ? 2 : 0, resource.maintainedRevision());
+          if (withBase) {
+            assertClockMapping(session, 2, Instant.parse("2025-03-04T05:06:07.123457Z"));
+          }
+          resource.drain();
+          assertEquals(18, resource.maintainedRevision());
+          assertClockMapping(session, 18, Instant.parse("2025-03-04T05:06:07.123473Z"));
+          assertSum(session, 18, 18);
+          assertNull(resource.failure());
+          assertEquals(-1, resource.poisonedRevision());
+        }
+      }
+    }
+  }
+
+  private static void assertClockMapping(final JsonResourceSession session, final int revision,
+      final Instant expectedTimestamp) {
+    try (StorageEngineReader source = session.createStorageEngineReader(revision)) {
+      assertEquals(expectedTimestamp,
+          CommitTimestamps.toInstant(source.getActualRevisionRootPage().getRevisionTimestampMicros()));
+      final StorageEngineReader derived = source.getDerivedIndexReader();
+      assertNotNull(derived);
+      final DerivedRevisionMapping mapping = DerivedRevisionMapping.read(derived, revision);
+      assertNotNull(mapping);
+      assertEquals(CommitTimestamps.toEpochMicros(expectedTimestamp), mapping.timestamp());
+      assertTrue(mapping.matches(source));
+    }
+  }
 
   @ParameterizedTest
   @EnumSource(VersioningType.class)

@@ -111,7 +111,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   List<RevisionInfo> getHistory(int fromRevision, int toRevision);
 
   /**
-   * Get the commit timestamps (epoch milliseconds) of all revisions, newest-first.
+   * Get the effective commit timestamps (epoch microseconds) of all revisions, newest-first.
    *
    * <p>
    * This is a fast path for callers that only need the timestamps of the history (not the commit
@@ -119,7 +119,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * revision index: no {@link StorageEngineReader} is opened, no {@code RevisionRootPage} is read,
    * and no per-revision asynchronous work is scheduled. Covers revisions
    * {@code [1, mostRecentRevision]} (revision {@code 0} is the empty bootstrap, mirroring
-   * {@link #getHistory()}). Pruned revisions retain their original timestamps in this result.
+   * {@link #getHistory()}). Pruned revisions retain their effective commit timestamps in this result.
    *
    * @return the commit timestamps as epoch microseconds, the stored unit of VER-201, ordered
    *         most-recent revision first (empty if the resource has no committed revisions yet)
@@ -407,12 +407,12 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Get the revision number that was valid at the given point in time using floor semantics.
    *
    * <p>
-   * Compares timestamps at millisecond precision. A timestamp between revisions selects the earlier
-   * revision; an exact match selects a revision with that timestamp. If multiple revisions share the
-   * matched timestamp, the selected revision is unspecified; use
-   * {@link #getRevisionNumber(Instant, int)} for deterministic tie selection. A timestamp before all
-   * revisions selects the bootstrap revision 0, and one after all revisions selects the most recent
-   * revision. Pruned revisions participate in this metadata lookup and may be returned; opening such
+   * Compares timestamps at microsecond precision, truncating the requested instant toward the past
+   * to a whole microsecond. Effective commit timestamps strictly increase, so an exact stored
+   * microsecond identifies exactly one revision. A timestamp between revisions selects the earlier
+   * revision. A timestamp before all revisions selects the bootstrap revision 0, and one after all
+   * revisions selects the most recent revision. Pruned revisions participate in this metadata lookup
+   * and may be returned; opening such
    * a revision throws {@link SirixRevisionPrunedException}.
    *
    * @param pointInTime the point in time
@@ -425,9 +425,11 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Get the revision valid at the given point in time within a committed revision ceiling.
    *
    * <p>
-   * Compares timestamps at millisecond precision and selects the highest revision number at or below
-   * {@code revisionCeiling} committed at or before the requested timestamp, including when multiple
-   * revisions share that timestamp. Returns the bootstrap revision 0 if no revision qualifies. Later
+   * Compares timestamps at microsecond precision, truncating the requested instant toward the past
+   * to a whole microsecond, and selects the highest revision number at or below
+   * {@code revisionCeiling} committed at or before that instant. Effective commit timestamps strictly
+   * increase, so an exact stored microsecond belonging to a revision at or below the ceiling
+   * identifies that revision. Returns the bootstrap revision 0 if no revision qualifies. Later
    * commits cannot change the result for the same point in time and ceiling; capture
    * {@link #getMostRecentRevisionNumber()} once and reuse it when resolving related timestamps.
    * Pruned revisions participate, both as the ceiling and as the result.
