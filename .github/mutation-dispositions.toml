@@ -88,21 +88,6 @@ Were it ever null, the very next instruction (the inlined getOrNull reading the 
 throws the same NullPointerException, so results, errors, state and cost are identical either way."""
 
 [[mutant]]
-class = "io.sirix.rest.crud.AbstractHeadHandler"
-method = "head"
-descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;)V"
-mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
-indexes = [228]
-description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
-kind = "equivalent"
-checked_at = "11f89417b5c9c0f2df77d599be3fd50f6c787af7"
-justification = """Kotlin's compiler-inserted null check on the read-only transaction returned by the Java API
-ResourceSession.beginNodeReadOnlyTrx(revision). That method either returns an open transaction or
-throws; it never returns null (it is also used unchecked by every other REST read). Were it ever
-null, the next instruction (the NodeCursor moveTo / cast on the same reference) throws the same
-NullPointerException, so results, errors, state and cost are identical for every input."""
-
-[[mutant]]
 class = "io.sirix.rest.crud.AbstractGetHandler"
 method = "get"
 descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;Ljava/lang/String;Lio/vertx/core/Context;Lio/vertx/ext/auth/User;Lio/vertx/core/json/JsonObject;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;"
@@ -146,3 +131,33 @@ RoutingContext.queryParam("nodeId"). Vert.x documents and implements queryParam 
 non-null list (empty when the parameter is absent), so the check never fires for any request.
 Were it ever null, the very next instruction (the inlined getOrNull reading the list's size)
 throws the same NullPointerException, so results, errors, state and cost are identical either way."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractHeadHandler"
+method = "eTagOf"
+descriptor = "(Lio/sirix/api/ResourceSession;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Long;)Ljava/lang/String;"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [118]
+description = "removed call to kotlin/jdk7/AutoCloseableKt::closeFinally"
+kind = "equivalent"
+checked_at = "2974051f65aea1827e5d5a9292f47b8bd9f019bf"
+justification = """Removes the close of the read-only transaction that eTagOf opens with `use`. The caller
+holds the owning ResourceSession in its own `use` block, and AbstractResourceSession.close closes
+every read-only transaction the session still holds, within the same request a few statements
+later, on success and on the 404 path alike. Results, errors, persisted state and the work done
+are identical; only the point in the same request at which the one close call runs differs."""
+
+[[mutant]]
+class = "io.sirix.rest.crud.AbstractHeadHandler"
+method = "head"
+descriptor = "(Ljava/lang/String;Lio/vertx/ext/web/RoutingContext;Ljava/lang/String;)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.VoidMethodCallMutator"
+indexes = [174]
+description = "removed call to kotlin/jvm/internal/Intrinsics::checkNotNull"
+kind = "equivalent"
+checked_at = "2974051f65aea1827e5d5a9292f47b8bd9f019bf"
+justification = """Kotlin's compiler-inserted null check on the platform-typed session returned by the Java
+API Database.beginResourceSession, passed to eTagOf's non-null parameter. The resource's
+existence is checked just before, and beginResourceSession returns an open session or throws; it
+never returns null. Were it ever null, eTagOf's first statement reads manager.resourceConfig and
+throws the same NullPointerException, so results, errors, state and cost are identical."""
