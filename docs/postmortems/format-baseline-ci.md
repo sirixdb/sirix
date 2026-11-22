@@ -302,3 +302,140 @@ with the resulting selection, not a manually reduced production target list.
 
 No push, PR state change, remote workflow trigger or pipeline-control command was performed.
 CodeFactor's remote confirmation remains for the outer executor after publication.
+
+## CI follow-up: rebased mutation attribution and native builder failure
+
+- Fix / issue: PR #1480, run `45068208787`, jobs `137350207566` (PIT) and
+  `137349035057` (query native image).
+- Rebased all 22 branch commits onto `350cf2511dd050e02cfca58d85c7ab68492950b2`.
+  Retained both changelogs' entries, both sides' lessons, the format decision table,
+  aliases/settings cases, recovery tests, work budgets and their registrations. The base's
+  microsecond timestamp implementation and precision contracts remain. The envelope test
+  retains the branch's named refusal and the base's timestamp-preserving rewrite control;
+  mutation associations retain both branches' mappings. `build/ci-round8/range-diff`
+  records the replay; no production conflict required manual resolution.
+- PIT symptom: the downloaded complete report has 13 changed-line mutants, 12 killed
+  and one survivor: the conditional boundary in `ResourceFormatCompatibility.readFully`.
+  This is a changed-line survivor, not advisory unchanged-line debt or a selection stall.
+- Invariant: a compatibility read must make progress or refuse that check, rather than
+  retrying unread bytes. The same helper reads the unreadable-settings cross-file identity,
+  direct-repair data/revisions identities, frame lengths, envelope payloads and bootstrap
+  prefix lengths. Existing bootstrap catches still apply the incomplete-frame decision
+  table; this repair changes neither recovery nor refusal behavior.
+- Root cause / why tests missed it: all selected fixtures used successful regular-file reads
+  or EOF; none exercised the zero-byte result admitted by the channel interface. The
+  production guard already rejects both zero and negative results. Its boundary mutation
+  admits zero and retries, so the existing tests could not distinguish it.
+- Regression: `FormatRepairBoundaryTest.envelopeDiscoveryRefusesReadsWithoutProgress`
+  uses a real persisted compatible revision-root frame and verifies a normal public
+  `requireRootEnvelope` call succeeds. A channel wrapper injects one zero-byte read at
+  the frame-length or payload boundary, then delegates subsequent reads to the real file.
+  FMT-401's progress/refusal contract supplies the oracle: each injected case must refuse
+  and preserve the whole resource. Retrying and accepting the frame is the plausible wrong
+  behavior. No private state, source-text assertion, wall-clock limit or mock-call assertion
+  supplies the result. The existing lane association selects both cases.
+- Path trace: positive reads advance the buffer until complete; EOF and zero refuse in
+  the shared helper before the direct check returns. Both persistent backends and every
+  proof consumer retain their existing paths. No production branch, helper, alias or
+  parameter changed or became unreachable. No selector, sample, timeout, target or budget
+  bound was changed, and no mutation disposition was added.
+- Lesson: cover incomplete reads as well as incomplete files; see [Lessons](../LESSONS.md).
+- Vision check: preserves the counted open-work contract and format refusal semantics,
+  with no engine behavior or default added. The named full-scan gap remains deferred.
+
+### Native-image attribution
+
+The complete job log fails inside GraalVM's `SimulateClassInitializerSupport.publishResults`,
+publishing contradictory simulation results (`true` and `false`) for Netty's
+`TypeParameterMatcher`; its cluster also contains `Socks4ClientEncoder` and the anonymous
+matcher initializer. This is an internal builder invariant failure, not a missing reflection
+entry, missing downcall registration, forbidden image-heap handle, or application exception.
+The [GraalVM implementation](https://github.com/oracle/graal/blob/release/graal-vm/25.0/substratevm/src/com.oracle.svm.hosted/src/com/oracle/svm/hosted/classinitialization/SimulateClassInitializerSupport.java)
+reports this error when two simulation publications disagree.
+
+Audited both new types first: neither `ResourceFormatCompatibility` nor
+`UnsupportedFormatVersionException` has static fields or a class initializer (`javap`
+output: `build/ci-round8/new-types.txt`), native-handle aliases, reflection-based construction
+or a new downcall signature requiring metadata. Native properties, downcall metadata and
+query native build configuration are unchanged. The preceding query image job
+`137305419665` succeeded with the same GraalVM `25.0.4+7.1`, Netty `4.2.15.Final`,
+metadata versions and four builder threads. These observations identify an upstream
+simulation inconsistency; they do not establish its exact scheduling trigger.
+
+The local `./gradlew :sirix-query:nativeSmokeTest --no-daemon --info` completed successfully
+in 6m 8s, building the executable and passing all 49 native tests. Its analysis registered
+the same 24 downcalls and one upcall. This uses the GraalVM 25.0.3 already on PATH, rather
+than CI's 25.0.4; it supports the builder-failure attribution but is not a reproduction on
+the exact CI compiler patch. Logs: `build/ci-round8/native-local.log`, `upstream-native.log`
+and `previous-native.log`. No build-policy workaround, job exclusion, weakened runtime
+check or CodeFactor change is included.
+
+### Rebased verification
+
+- All 158 mutation-helper behavior tests pass (`build/ci-round8/helper-tests.log`).
+- The two new public-envelope progress cases pass against the existing guard
+  (`progress-baseline.log`, `progress-baseline.xml`). Injecting the exact reported
+  `<= 0` to `< 0` mutation makes both cases fail: expected `SirixIOException`, but
+  no exception was thrown (`progress-injected.log`, `progress-injected.xml`). The
+  injection command exited 1, the baseline exited 0, and the production source was
+  restored byte-for-byte; `counterfactual.json` records the command and source hash.
+  No injected production change remains.
+- The restored rebased tree passed 582 main-task tests and 55 isolated tests in 5m 3s,
+  with zero failures/errors and two existing arena-policy skips. Selection included
+  all core work budgets, projection work budgets, refused-overflow checks, format/golden
+  contracts, repair boundaries, interrupted recovery, session factories, derived
+  maintenance, UUID/header checks, direct-reader corruption tests and the base's
+  timestamp precision conformance. No bounds changed. Results:
+  `build/ci-round8/core-tests.log`, `test-counts.json`.
+- The first combined test/CLI command was rejected before execution because `--tests`
+  was attached to the non-test CLI task. The successful invocation ran core tests alone;
+  CLI compilation is separate. The initial selector also correctly rejected symbolic
+  `HEAD`; the final manifest uses its full hexadecimal commit ID. Neither invocation
+  failure was a source defect or changed any verification policy.
+- CLI prerequisite compilation passed in 17s (`cli-classes.log`). The first full local
+  PIT run retained 81 targets, 32 test patterns, four-mutant sampling and the 1,320s
+  execution share, but reached that deadline with an incomplete report. It had killed
+  the original `readFully` survivor and every published changed-line mutant; this is
+  not a clean full-lane verdict. No disposition error was reported. Evidence remains
+  under `build/ci-round8/selection/`.
+- Worker stacks showed active test execution during JUnit/PIT discovery, including the
+  base's timestamp conformance tests. The local JDK is GraalVM with JVMCI compilation;
+  CI uses Temurin. Repeating the entire unchanged lane with the same installed JDK's
+  C2 compiler (`JAVA_TOOL_OPTIONS=-XX:-UseJVMCICompiler`) tests that local runtime
+  difference without changing source, selectors, test associations, sampling, deadline
+  or any repository/native build flag. That separate report is under
+  `build/ci-round8/c2/`; the incomplete run is preserved, not overwritten.
+- The C2 repeat also reached the unchanged 1,320s share. Both full reports therefore
+  remain **incomplete**, with zero disposition errors, and do not establish a green
+  blocking lane. C2 did not eliminate the local execution cost, so the evidence does
+  not isolate JVMCI as its cause. The eight changed-line results published in the C2
+  partial report were all killed. No association, target, test, sample or timeout was
+  removed or relaxed to turn either incomplete result into a pass.
+- A separate supplemental run uses the six classes that produced the CI report's
+  13 changed-line mutants, the same four-mutant sampling and all 32 current test
+  patterns. It checks those identities on the rebased bytecode. This follows the
+  [focused-run guidance](../VERIFICATION.md#pr-mutation-testing); it is individual
+  mutant evidence, not a replacement full-lane completeness claim. Command, targets
+  and report are under `build/ci-round8/focused/`.
+- Supplemental analysis completed in 3m 59s: 20 mutants, 18 killed and two uncovered;
+  **all 13 changed-line mutants are killed**, with zero surviving or uncovered
+  changed-line mutants and zero unattributed results. The original boundary mutant
+  is killed by `envelopeDiscoveryRefusesReadsWithoutProgress` (payload case).
+  `attribution.json` uses the repository reporter and the rebased changed-line map;
+  `dispositions --check --base 350cf2511dd050e02cfca58d85c7ab68492950b2 --sampled`
+  also passed with no new or failing disposition.
+  All 13 identities exactly match the CI report's changed-line identities, despite
+  the rebase's line movement; this is a rerun of the reported set, not a different
+  sample substituted for it.
+- Deliberately left advisory: `FileChannelReader.readRegionsFromChunk` line 579
+  (addition/subtraction) and `ResourceConfiguration.equals` line 584 (true return)
+  are uncovered on **unchanged** lines. Neither is a new format-gate regression;
+  no waiver or unrelated behavior test was added. The supplemental result resolves
+  the CI-reported changed-line mutants but does not make either incomplete full run
+  complete. Full blocking CI must still be rechecked by the outer executor.
+- Final core Java Spotless verification and `git diff --check` passed. The specified
+  base is an ancestor of HEAD and all 22 replayed commits remain.
+
+No push, PR update, remote workflow trigger, pipeline-control command, system installation
+or global configuration change was performed in this CI phase. All intentional evidence
+and source/document edits remain inside the worktree.

@@ -21,6 +21,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -37,15 +38,53 @@ import java.util.HexFormat;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 final class FormatRepairBoundaryTest {
   @TempDir
   Path directory;
+
+  /** FMT-401: neither a stalled frame length nor a stalled payload establishes compatibility. */
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void envelopeDiscoveryRefusesReadsWithoutProgress(final boolean payload) throws IOException {
+    final Path database = createStore("no-progress-" + payload, StorageType.FILE_CHANNEL, false);
+    final Path resource = resourcePath(database, "fixture");
+    final ByteBuffer records =
+        ByteBuffer.wrap(Files.readAllBytes(file(resource, "revisions"))).order(ByteOrder.LITTLE_ENDIAN);
+    final long rootOffset = records.getLong(4096); // FMT-104: revision zero's directory slot.
+    final Map<String, String> before = snapshot(resource);
+    try (final FileChannel channel = FileChannel.open(file(resource, "data"), StandardOpenOption.READ)) {
+      final ByteHandlerPipeline pipeline = new ByteHandlerPipeline();
+      ResourceFormatCompatibility.requireRootEnvelope(channel, rootOffset, pipeline);
+      final FileChannel stalled = mock(FileChannel.class, delegatesTo(channel));
+      final AtomicBoolean pending = new AtomicBoolean(true);
+      final long stalledOffset = rootOffset + (payload
+          ? Integer.BYTES
+          : 0);
+      doAnswer(call -> {
+        final ByteBuffer target = call.getArgument(0);
+        final long position = call.getArgument(1);
+        if (position == stalledOffset && pending.getAndSet(false)) {
+          return 0;
+        }
+        return channel.read(target, position);
+      }).when(stalled).read(any(ByteBuffer.class), anyLong());
+      assertThrows(SirixIOException.class,
+          () -> ResourceFormatCompatibility.requireRootEnvelope(stalled, rootOffset, pipeline));
+    }
+    assertEquals(before, snapshot(resource));
+  }
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})

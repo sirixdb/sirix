@@ -402,6 +402,11 @@ See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-ope
   directory and tail-log records, then assert a durable new commit for recovery and unchanged
   whole-resource bytes for refusal, on both persistent backends. Evidence:
   [bootstrap-tail regression](postmortems/store-feature-recovery.md#incomplete-bootstrap-tail-with-revision-zero-beacons).
+- **Exercise incomplete reads as well as incomplete files.** A compatibility check must either
+  consume bytes or refuse; test EOF and zero progress at frame-length and payload boundaries,
+  alongside a successful real-file control. Keep the oracle on the public refusal and persisted
+  bytes, not on private loop iterations. Evidence:
+  [format CI follow-up](postmortems/format-baseline-ci.md#ci-follow-up-rebased-mutation-attribution-and-native-builder-failure).
 - **Bind resource proofs to filesystem identity.** A verified path and its canonical alias must
   authorize the same resource, while a different resource must still be refused. Test I/O
   observers must also match filesystem identity; retain a dot-segment fixture so Linux exercises
