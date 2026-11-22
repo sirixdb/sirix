@@ -164,12 +164,11 @@ implicit cross-resource snapshot is promised.
 
 Timestamp begin MUST capture head H once and select the greatest revision `r <= H` whose commit
 timestamp is at/before the requested instant; before all revisions selects bootstrap 0, after H
-selects H. Equal timestamps select greatest r. Transaction timestamps are compared at the
-microsecond precision of VER-201 with checked epoch conversion; valid-time filtering retains
-Instant precision. An
-out-of-range timestamp gets RANGE. The selector returns the resolved revision to the caller, and
-must not skip a pruned selected revision. Use `getRevisionNumber(Instant,H)`, not the
-tie-unspecified one-argument overload.
+selects H. Timestamp precision and unique resolution follow
+[VER-201–204](VER-versioning-bitemporal.md#ver-201--timestamp-precision-and-persistence), with
+checked epoch conversion; valid-time filtering retains Instant precision. An out-of-range
+timestamp gets RANGE. The selector returns the resolved revision to the caller, and must not skip
+a pruned selected revision. Use `getRevisionNumber(Instant,H)` to preserve the captured ceiling.
 
 #### NATIVE-204 — writer admission
 
@@ -769,7 +768,7 @@ processing instructions, constructed nodes and typed XQuery atomics.
 | NATIVE-104 | NativeHandleStateMachine | Seeded valid-storage handle walks, stale/wrong-kind/wrong-runtime tokens, generation exhaustion; remove generation/type checks |
 | NATIVE-201 | NativeDatabaseContract | Create-existing never overwrites, open-missing never creates, model mismatch, Unicode/aliases, invalid UTF-8/NUL, subprocess locks; invert create/open checks |
 | NATIVE-202 | NativeRevisionOracle | Bootstrap, head capture under commit, int overflow, tombstone; remove head pin/prune check |
-| NATIVE-203 | NativeRevisionOracle | Linear timestamp oracle, commits one microsecond apart, same-microsecond ties, negative epoch, before/after head, overflow; flip <= or drop ceiling |
+| NATIVE-203 | NativeRevisionOracle | Linear timestamp oracle, commits one microsecond apart, adjusted ties/regressions under TXN-310, negative epoch, before/after head, overflow; flip <= or drop ceiling |
 | NATIVE-204 | NativeWriterAdmission | Latch-controlled same-resource races across aliases, independent resources, reads during write; remove core admission/release |
 | NATIVE-205 | NativeTransactionModel | Model replay of explicit actions, malformed JSON/XML, XML attr/ns/name constraints, uncommitted isolation, cursor BUSY, commit consumption; enable auto-commit or omit rollback |
 | NATIVE-206 | NativeCommitFaults | Fault before/after publication and each cleanup action, null error storage, kill/reopen recovery; swap outcome/consumed status or omit independent cleanup |

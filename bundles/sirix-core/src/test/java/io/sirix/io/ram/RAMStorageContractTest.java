@@ -84,7 +84,7 @@ final class RAMStorageContractTest {
       final Page second = writer.read(reference, null);
       assertNotSame(first, second, "two reads of one key must not share a page instance");
       first.close();
-      assertEquals(1_000L, ((RevisionRootPage) writer.read(reference, null)).getRevisionTimestamp(),
+      assertEquals(1_000L, ((RevisionRootPage) writer.read(reference, null)).getRevisionTimestampMicros(),
           "closing a page a reader received must not affect later reads");
     }
     try (Reader reader = storage.createReader()) {
@@ -155,7 +155,7 @@ final class RAMStorageContractTest {
     try (Writer writer = storage.createWriter(); BytesOut<MemorySegment> bytes = Bytes.elasticHeapByteBuffer()) {
       // Non-leaf metadata must use the same configured encoding as leaf payloads.
       writer.write(configuration, new PageReference(), revisionRoot(1_234L), bytes);
-      assertEquals(1_234L, writer.readRevisionRootPage(0, configuration).getRevisionTimestamp());
+      assertEquals(1_234L, writer.readRevisionRootPage(0, configuration).getRevisionTimestampMicros());
       written.setSlot(record, 7);
       writer.write(configuration, reference, written, bytes);
       assertFalse(written.isClosed(), "writing must leave the writer's page with the writer");
@@ -191,14 +191,14 @@ final class RAMStorageContractTest {
         final RevisionRootPage root = revision == 0
             ? first
             : new RevisionRootPage(first, revision);
-        root.setCommitTimestamp(Instant.ofEpochMilli(revision));
+        root.setCommitTimestamp(Instant.ofEpochSecond(0, revision * 1_000L));
         writer.write(configuration, new PageReference(), root, bytes);
       }
     }
     try (Reader reader = storage.createReader()) {
       for (int revision = 0; revision < revisions; revision++) {
         assertEquals(revision, reader.readRevisionRootPage(revision, configuration).getRevision());
-        assertEquals(Instant.ofEpochMilli(revision), reader.readRevisionRootPageCommitTimestamp(revision));
+        assertEquals(Instant.ofEpochSecond(0, revision * 1_000L), reader.readRevisionRootPageCommitTimestamp(revision));
       }
     }
   }
@@ -213,11 +213,11 @@ final class RAMStorageContractTest {
       writer.write(configuration, reference, written, bytes);
 
       // The writer owns its instance: changing or closing it after the write must not reach the store.
-      written.setRevisionTimestamp(2_000L);
+      written.assignCommitTimestampMicros(Instant.ofEpochSecond(0, 2_000_000L));
       written.close();
       final RevisionRootPage stored = writer.readRevisionRootPage(0, configuration);
       assertNotSame(written, stored);
-      assertEquals(1_000L, stored.getRevisionTimestamp());
+      assertEquals(1_000L, stored.getRevisionTimestampMicros());
     }
   }
 
@@ -229,8 +229,8 @@ final class RAMStorageContractTest {
       final PageReference reference = new PageReference();
       writer.write(configuration, reference, revisionRoot(1_234L), bytes);
 
-      assertEquals(Instant.ofEpochMilli(1_234L), writer.getRevisionFileData(0).timestamp());
-      assertEquals(Instant.ofEpochMilli(1_234L), writer.readRevisionRootPageCommitTimestamp(0));
+      assertEquals(Instant.ofEpochSecond(0, 1_234_000L), writer.getRevisionFileData(0).timestamp());
+      assertEquals(Instant.ofEpochSecond(0, 1_234_000L), writer.readRevisionRootPageCommitTimestamp(0));
       assertEquals(0, writer.readRevisionRootPage(0, configuration).getRevision());
 
       assertThrows(SirixIOException.class, () -> writer.getRevisionFileData(1));
@@ -296,7 +296,7 @@ final class RAMStorageContractTest {
     }
     try (Reader reader = storage.createReader()) {
       for (int i = 0; i < pages; i++) {
-        assertEquals(i, ((RevisionRootPage) reader.read(references[i], configuration)).getRevisionTimestamp());
+        assertEquals(i, ((RevisionRootPage) reader.read(references[i], configuration)).getRevisionTimestampMicros());
       }
     }
   }
@@ -321,8 +321,8 @@ final class RAMStorageContractTest {
       // A truncated store accepts and serves new writes.
       final PageReference rewritten = new PageReference();
       writer.write(configuration, rewritten, revisionRoot(2L), bytes);
-      assertEquals(2L, ((RevisionRootPage) writer.read(rewritten, configuration)).getRevisionTimestamp());
-      assertEquals(Instant.ofEpochMilli(2L), writer.readRevisionRootPageCommitTimestamp(0));
+      assertEquals(2L, ((RevisionRootPage) writer.read(rewritten, configuration)).getRevisionTimestampMicros());
+      assertEquals(Instant.ofEpochSecond(0, 2_000L), writer.readRevisionRootPageCommitTimestamp(0));
     }
   }
 
@@ -350,7 +350,7 @@ final class RAMStorageContractTest {
         Reader neighbourReader = neighbourStorage.createReader()) {
       assertThrows(SirixIOException.class, () -> retiredReader.read(retiredPage, retired));
       assertThrows(SirixIOException.class, () -> retiredReader.getRevisionFileData(0));
-      assertEquals(2L, ((RevisionRootPage) neighbourReader.read(neighbourPage, neighbour)).getRevisionTimestamp());
+      assertEquals(2L, ((RevisionRootPage) neighbourReader.read(neighbourPage, neighbour)).getRevisionTimestampMicros());
     }
     assertEquals(0, retiredStorage.getRevisionIndexHolder().get().size());
   }
@@ -384,7 +384,7 @@ final class RAMStorageContractTest {
         final RevisionRootPage root = revision == 0
             ? first
             : new RevisionRootPage(first, revision);
-        root.setCommitTimestamp(Instant.ofEpochMilli(revision));
+        root.setCommitTimestamp(Instant.ofEpochSecond(0, revision * 1_000L));
         writer.write(configuration, new PageReference(), root, bytes);
         writer.writeUberPageReference(configuration, new PageReference(), new UberPage(revision + 1), bytes);
       }
@@ -399,10 +399,10 @@ final class RAMStorageContractTest {
     return configuration;
   }
 
-  private static RevisionRootPage revisionRoot(final long timestamp) {
+  private static RevisionRootPage revisionRoot(final long timestampMicros) {
     // Serialization stamps the commit timestamp (or the current time when none is set).
     final RevisionRootPage page = new RevisionRootPage();
-    page.setCommitTimestamp(Instant.ofEpochMilli(timestamp));
+    page.setCommitTimestamp(Instant.ofEpochSecond(0, timestampMicros * 1_000L));
     return page;
   }
 }

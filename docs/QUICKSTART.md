@@ -131,8 +131,8 @@ curl -s http://localhost:9443/mydb/products/history
 ```
 ```json
 {"history":[
-  {"revision":2,"revisionTimestamp":"2026-06-11T13:15:23.069000Z","author":"admin","commitMessage":""},
-  {"revision":1,"revisionTimestamp":"2026-06-11T13:15:08.577000Z","author":"admin","commitMessage":""}]}
+  {"revision":2,"revisionTimestamp":"2026-06-11T13:15:23.069Z","author":"admin","commitMessage":""},
+  {"revision":1,"revisionTimestamp":"2026-06-11T13:15:08.577Z","author":"admin","commitMessage":""}]}
 ```
 
 ```bash

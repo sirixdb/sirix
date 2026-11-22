@@ -213,4 +213,6 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   monotonic adjustment can place them ahead of a regressed clock. Verify dependent maintenance and
   folds with a controlled backward clock step. Verify formatted metadata through its actual
   serializers and handlers, including zero and trailing fractional groups.
+  Recompile merged test sources after a unit-bearing API rename: newly integrated fixtures must
+  migrate both accessors and their independent numeric oracles.
   Evidence: [commit timestamp retry](postmortems/commit-timestamp-retry.md).

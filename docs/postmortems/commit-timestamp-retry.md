@@ -46,3 +46,21 @@ Focused commands (the review invocation disabled unrelated attached test tasks):
 ```sh
 ./gradlew :sirix-core:test --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerTest.*Clock*' --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerTest.smallPublicationsAdvanceTheBaseWithoutRedundantSummaryCommits' --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerTest.durableSnapshotsLagRevertAndReopen' --tests io.sirix.index.aggregate.DerivedRevisionMappingTest --tests io.sirix.io.CommitTimestampPrecisionConformanceTest --tests io.sirix.io.CommitTimestampLateFailureTest --tests io.sirix.io.CommitTimestampOutputTest --tests io.sirix.page.PageEnvelopeContractTest --tests io.sirix.page.LegacyEnvelopeImagesTest
 ```
+
+## Rebase follow-up: RAM storage contract fixtures
+
+The test-phase build after the RAM storage merge failed with seven unresolved calls to the old
+revision-root timestamp getter/setter in `RAMStorageContractTest`. The API rename intentionally
+breaks callers, but these newly merged tests had not been migrated. Existing timestamp checks had
+run before that integration, so they could not catch the merged compilation failure.
+
+Migrate the test fixtures to epoch microseconds, use `getRevisionTimestampMicros()` and assign a
+new timestamp attempt when testing writer-page ownership. Keep the independent `Instant` oracle
+in nanoseconds and preserve all storage assertions. The focused regression is
+`RAMStorageContractTest`; compilation of the merged test sources is part of the verification.
+
+Verification: the initial targeted build failed in `compileTestJava` on those seven removed
+methods; after fixture migration, `./gradlew --no-daemon :sirix-core:test --tests
+'io.sirix.io.ram.RAMStorageContractTest' -PtestHeapMin=256m -PtestHeapMax=2g` passed as part
+of the focused timestamp test selection. The test continues to check stored ownership, historical
+reads and publication; it now also exercises distinct microseconds within one millisecond.
