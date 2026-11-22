@@ -162,6 +162,11 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   Writer-lifecycle regressions must also distinguish historical update targets from the latest
   committed head, and caller-held edits from apply-created state, under both commit strategies.
   [XML snapshot and ownership coverage](postmortems/shell-query-failure-recovery.md#ci-follow-up-xml-snapshot-and-writer-ownership-coverage).
+  Cross-class timestamp suites also need explicit associations to writer entry points;
+  exercise a commit after reverting content so an older represented root cannot stand in
+  for the latest committed predecessor. CLI fixtures must own their repository metadata
+  as well as their output manifest. Evidence:
+  [timestamp mutation follow-up](postmortems/commit-timestamp-ci-associations.md#follow-up-timestamp-mutation-scope-and-revert-coverage).
 
 - **Check semantic state beyond scratch-capacity boundaries.** A lossless streaming
   renderer can still lose container context and style keys as values. Exercise

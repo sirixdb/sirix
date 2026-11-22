@@ -54,3 +54,20 @@ any constructed summary. This Kotlin-generated platform-type assertion has no re
 failure arm. Removing it changes no output, errors, allocations or resource iteration; the
 quiet/verbose BackupTest cases execute both empty and nonempty summaries. No nullable input
 or substitute implementation of the final record is admitted by this contract."""
+
+[[mutant]]
+class = "io.sirix.utils.CommitTimestamps"
+method = "toEpochMicros"
+descriptor = "(Ljava/time/Instant;)J"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [19]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "378e162e89d7a69f019cfb20ac25a48da86cf3e2"
+justification = """VER-201 requires the floor of epoch microseconds, rejecting signed-long overflow.
+Changing seconds < 0 to seconds <= 0 only changes the path at the boundary seconds=0,
+with positive subsecond micros u. Both 0*1000000+u and (0+1)*1000000+(u-1000000)
+return u exactly without overflow. Null handling, truncation and range errors are unchanged.
+Only that boundary takes one extra constant-time compensation step under CONV-201,
+with no allocation or data-dependent work added.
+The hosted sampled report executed 600 tests and retained this exact boundary mutant."""

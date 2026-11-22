@@ -8,6 +8,15 @@
 class = "io.sirix.io.ram.RAMStorage"
 tests = ["io.sirix.io.ram.RAMStorageTruncateToTest"]
 
+# TXN-310/311 span writer construction, commit attempts, persisted history and reopen.
+[[association]]
+class = "io.sirix.access.trx.page.StorageEngineWriterFactory"
+tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest"]
+
+[[association]]
+class = "io.sirix.access.trx.page.NodeStorageEngineWriter"
+tests = ["io.sirix.io.CommitTimestampPrecisionConformanceTest", "io.sirix.io.CommitTimestampLateFailureTest"]
+
 # The release contract exercises refused and admitted grouping through every public compiler
 # factory, including cold reopen; its name spans these entry points.
 [[association]]

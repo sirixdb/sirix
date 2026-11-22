@@ -1,6 +1,7 @@
 package io.sirix.io;
 
 import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.DatabaseType;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.Database;
@@ -115,6 +116,47 @@ final class CommitTimestampPrecisionConformanceTest {
         assertEquals(2, reader.getRevisionNumber());
         assertEquals(FIRST.plusNanos(1_000L), reader.getRevisionTimestamp());
       }
+    }
+  }
+
+  /** TXN-310: reverting content does not rewind the timeline's timestamp predecessor. */
+  @ParameterizedTest
+  @CsvSource({"JSON,FILE_CHANNEL", "JSON,MEMORY_MAPPED", "XML,FILE_CHANNEL", "XML,MEMORY_MAPPED"})
+  void revertUsesTheLatestCommittedTimestamp(final DatabaseType type, final StorageType storage) throws Exception {
+    final DatabaseConfiguration configuration = new DatabaseConfiguration(directory);
+    if (type == DatabaseType.JSON) {
+      Databases.createJsonDatabase(configuration);
+    } else {
+      Databases.createXmlDatabase(configuration);
+    }
+    final Instant expected = Instant.parse("2021-03-04T05:06:07.000201Z");
+    try (final Database<?> database = type == DatabaseType.JSON
+        ? Databases.openJsonDatabase(directory)
+        : Databases.openXmlDatabase(directory)) {
+      database.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE).storageType(storage).customCommitTimestamps(true).build());
+      try (final var session = database.beginResourceSession(RESOURCE); final var writer = session.beginNodeTrx()) {
+        writer.commit(null, FIRST);
+        writer.commit(null, SECOND);
+        writer.revertTo(1);
+        writer.commit(null, FIRST.minusSeconds(1));
+        try (final var reader = session.beginNodeReadOnlyTrx(3)) {
+          assertEquals(expected, reader.getRevisionTimestamp());
+        }
+        assertEquals(3, session.getRevisionNumber(expected));
+        assertArrayEquals(new long[] {1_614_834_367_000_201L, 1_614_834_367_000_200L, 1_614_834_367_000_100L},
+            session.getHistoryTimestampsMicros());
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (final Database<?> database = type == DatabaseType.JSON
+        ? Databases.openJsonDatabase(directory)
+        : Databases.openXmlDatabase(directory);
+        final var session = database.beginResourceSession(RESOURCE);
+        final var reader = session.beginNodeReadOnlyTrx(3)) {
+      assertEquals(expected, reader.getRevisionTimestamp());
+      assertEquals(SECOND, session.getHistory().get(1).getRevisionTimestamp());
+      assertEquals(3, session.getRevisionNumber(expected));
     }
   }
 

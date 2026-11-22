@@ -793,6 +793,20 @@ class CounterfactualTest(unittest.TestCase):
 class AssociationTest(unittest.TestCase):
     """CONV-204: existing behaviour tests the lane must run for a changed class."""
 
+    def test_timestamp_writers_select_the_commit_and_retry_contracts(self):
+        """TXN-310/311: the emitted PIT scope must include the executable timestamp contracts."""
+        associations, errors = mutation.load_associations(REPOSITORY)
+        self.assertEqual(errors, [])
+        module = REPOSITORY / 'bundles/sirix-core'
+        contracts = {'io.sirix.io.CommitTimestampPrecisionConformanceTest*',
+                     'io.sirix.io.CommitTimestampLateFailureTest*'}
+        for name in ('NodeStorageEngineWriter', 'StorageEngineWriterFactory'):
+            source = f'src/main/java/io/sirix/access/trx/page/{name}.java'
+            with self.subTest(source=source):
+                patterns, unresolved, _ = mutation.test_scope(module, [source], associations)
+                self.assertEqual(unresolved, [])
+                self.assertTrue(contracts.issubset(patterns), patterns)
+
     @contextlib.contextmanager
     def module(self):
         with tempfile.TemporaryDirectory() as temp:
