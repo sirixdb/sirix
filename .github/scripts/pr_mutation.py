@@ -464,7 +464,7 @@ def test_scope(module_root, sources, associations=None, tests=None):
     for source in sources:
         path = source_path(module_root, source)
         classes = source_classes(path, file_facade=True)
-        stem, package = Path(source).stem, source_package(module_root, source)
+        stem, package = Path(source).stem, declared_package(path.read_text())
         explicit = LIFECYCLE_TESTS.get(f'{package}.{stem}')
         if explicit is None:
             patterns, kind = resolve_tests(stem, package, tests)

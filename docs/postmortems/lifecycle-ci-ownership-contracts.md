@@ -45,3 +45,9 @@
   authorized follow-up. The interrupted exploratory core attempt is invalid, not complete evidence.
 - Lesson: test retirement admission with cancellation still set, use canonical registry identity,
   and map ownership suites explicitly. See [Lessons](../LESSONS.md#cancellation-must-allow-its-own-cleanup).
+
+CI follow-up: run 45043300388 exposed that the timeout-gate test described above
+contradicted CONV-202. The lane accepts PIT's `detected=true` independently of raw
+`KILLED`; it must retain `TIMED_OUT` and never call it an assertion kill. That test's
+gate expectation is corrected, without changing reporter policy or the qualified
+historical dispositions. See [the close-retry CI write-up](lifecycle-ci-close-retry.md).

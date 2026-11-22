@@ -41,6 +41,10 @@ class = "io.sirix.access.DatabaseHandle"
 tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest"]
 
 [[association]]
+class = "io.sirix.access.LocalDatabase"
+tests = ["io.sirix.access.DatabasesInMemoryLifetimeTest", "io.sirix.access.LocalDatabaseInMemoryLifetimeTest"]
+
+[[association]]
 class = "io.sirix.access.InMemoryResources"
 tests = ["io.sirix.backup.BackupManagerInMemoryResourcesTest"]
 

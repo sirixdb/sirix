@@ -7,6 +7,15 @@ The CI repair started at `edd24138101c0b7fb636430bc32a36cb88fd2269`, based on
 main/head comparison, including `ParallelJsonShredder` and its nested workers, remain
 outstanding. Source-only cleanup does not supply that evidence.
 
+The subsequent CI repair based on `316d75f6ddaf5a7bebe1c2ab7d8709c3a4fdc337`
+corrects database close retry/admission and the Python mutation-selector failures.
+Its focused, unsampled run over `LocalDatabase.close` and `closeQuiescent` reports
+14 `KILLED`, five `SURVIVED`, three `NO_COVERAGE`, and no timeouts. The three mutants
+on **that repair's** changed lines are all killed; the other eight records are outside
+that repair's diff. This does not judge all of PR #1353's changed lines or supply the
+missing four-partition/query/REST proof, compiled comparison, or a new disposition.
+See [the CI close-retry write-up](postmortems/lifecycle-ci-close-retry.md).
+
 The governing evidence rule is [CONV-102](../spec/CONV-conventions.md#conv-102--conformance-and-evidence-honesty).
 Behavioral oracles come from TXN-503 (cleanup/error preservation), TXN-504 (worker
 lifetime) and TXN-804 (callback rejection), rather than private maps or permit counts.

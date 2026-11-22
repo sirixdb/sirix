@@ -690,7 +690,7 @@ class ReportingTest(unittest.TestCase):
                                   '<lineNumber>1</lineNumber></mutation></mutations>')
                 return 0
 
-            def prepare(root, directory, module, selected, result):
+            def prepare(root, directory, module, selected, result, associations):
                 result.update(targets=['a.First' if selected == sources[:1] else 'a.Second'],
                               tests=['a.ReleaseTest*'], unmapped=[], resolution={})
                 return ['unused']
@@ -701,7 +701,7 @@ class ReportingTest(unittest.TestCase):
                  patch.object(mutation, 'prepare_analysis', side_effect=prepare), \
                  patch.object(mutation, 'execute', side_effect=execute):
                 self.assertEqual(mutation.run(output, output, 10, blocking=True), 1)
-            results = json.loads((output / 'results.json').read_text())
+            results = json.loads((output / 'results.json').read_text())['modules']
             self.assertEqual([result['state'] for result in results], ['timed out', 'complete'])
             self.assertEqual([source for result in results for source in result['sources']], sources)
             self.assertNotEqual(calls[0][0], calls[1][0], 'partition evidence must never overwrite a sibling')
@@ -728,7 +728,9 @@ class ReportingTest(unittest.TestCase):
             for timeout in timeouts[1:]:
                 self.assertGreaterEqual(timeout, floor)
 
-    def test_timeout_detection_does_not_prove_an_assertion_killed_a_changed_mutant(self):
+    def test_timeout_is_detected_but_not_reported_as_an_assertion_kill(self):
+        # CONV-202 retains PIT's detected verdict, including infrastructure detections.
+        # It must not relabel these raw statuses as assertion kills or survivors.
         with tempfile.TemporaryDirectory() as temp:
             report = Path(temp) / 'mutations.xml'
             report.write_text('<mutations><mutation detected="true" status="TIMED_OUT">'
@@ -740,9 +742,9 @@ class ReportingTest(unittest.TestCase):
                       **mutation.read_report(report, {('a', 'Owner.java'): {7}})}
             self.assertEqual(result['changed']['detected'], 1)  # PIT's metric stays available.
             self.assertEqual(result['changed']['killed'], 0)
-            self.assertFalse(mutation.is_clean([result]))
-            self.assertEqual(len(result['changed']['survivors']), 1,
-                             'the unresolved timeout must be listed for follow-up')
+            self.assertTrue(mutation.is_clean([result]))
+            self.assertEqual(result['statuses'], {'TIMED_OUT': 1})
+            self.assertEqual(result['changed']['survivors'], [])
 
     def test_only_complete_reports_without_undetected_changed_lines_are_clean(self):
         complete = {'module': 'sirix-core', 'state': 'complete', 'total': 4, 'killed': 2,

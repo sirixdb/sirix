@@ -712,6 +712,8 @@ Acceptance criteria, each observable through the public API, for JSON and XML:
 - AC15 (failed teardown; clause 7): make session teardown fail once at the final close.
   - The close throws, and the handle stays open.
   - An open that rejoins the instance sees every committed revision.
+  - After user sessions drain, a failed backend teardown leaves the rejoined instance able
+    to admit writers and deliver their pre/post-commit hooks (TXN-801, TXN-802, TXN-803).
   - A retried close succeeds, and the next reopen holds no former IN_MEMORY resource.
 - AC13 (memory released at close; forked JVM with a small heap): in a child JVM whose heap
   cannot hold the IN_MEMORY state of many databases at once, repeatedly open a database, create

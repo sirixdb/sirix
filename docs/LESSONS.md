@@ -334,3 +334,15 @@ Unused imports and misplaced package directories can pass runtime tests. Remove 
 imports after fixture changes, keep standalone Java fixtures under their declared package,
 and verify their real build consumer. Do not add source-string tests as behavioral evidence.
 See [the lifecycle CI hygiene postmortem](postmortems/lifecycle-ci-source-hygiene.md).
+
+## Retryable teardown must restore admission
+
+An open flag alone does not prove that an instance survived failed close. Rejoin it,
+read old revisions, commit new work with hooks, then retry close. Restore admission
+after backend failure once user sessions have drained; retain refusal while a user
+owner is still live. Defer irreversible shutdown until dependent teardown succeeds.
+Route repeated close through existing cleanup retry rather than returning
+early in a wrapper; exercise direct and facade callers and preserve newer instances.
+For CI tooling, use the declared contract for raw PIT detection versus assertion
+kills, and keep fixture signatures and serialized result consumers current.
+See [the close-retry postmortem](postmortems/lifecycle-ci-close-retry.md).

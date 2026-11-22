@@ -1076,9 +1076,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     assertCanClose();
     try (DatabaseNotifications.Retirement ignored = notifications.retire()) {
       synchronized (this) {
-        if (isClosed) {
-          return;
-        }
         closing = true;
       }
       closeQuiescent();
@@ -1101,7 +1098,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     }
 
     logger.trace("Close local database instance.");
-    notifications.close();
     if (derivedMaintainer != null) {
       derivedMaintainer.close();
     }
@@ -1125,8 +1121,18 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       }
     }
     ShardedPageCache.rethrowCleanupFailure(failure);
-    resourceStore.close();
-    transactionManager.close();
+    try {
+      resourceStore.close();
+      transactionManager.close();
+    } catch (final RuntimeException | Error teardownFailure) {
+      // User sessions have drained; a backend failure leaves the committed instance usable.
+      // Earlier user-session refusal keeps admission closed until those live owners finish.
+      synchronized (this) {
+        closing = false;
+      }
+      throw teardownFailure;
+    }
+    notifications.close();
 
     // TXN-615 clauses 3 and 7: no session is live any more. Discard every IN_MEMORY resource and its
     // on-disk footprint; the instance ends even if removing leftovers fails.
