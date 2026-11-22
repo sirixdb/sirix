@@ -14,6 +14,8 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +56,8 @@ import static org.mockito.Mockito.mock;
  * scanned as {@code 1..159, 192..196, 160..191}). That is the shape an order-sensitive reader gets
  * wrong, and the parallel walk's whole premise is that order does not matter.
  */
+@Isolated
+@Order(Integer.MAX_VALUE)
 final class ProjectionParallelDirectoryWalkTest {
 
   private static final String RESOURCE_NAME = "testResource";

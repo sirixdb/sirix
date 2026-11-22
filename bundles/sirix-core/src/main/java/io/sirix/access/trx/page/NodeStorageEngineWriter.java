@@ -58,6 +58,7 @@ import io.sirix.node.PooledGrowingSegment;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
 import io.sirix.io.Writer;
+import io.sirix.io.StorageType;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.json.ObjectNamedStringNode;
@@ -4406,8 +4407,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
 
-      // Issues with windows that it's not created in the first time?
-      createIfAbsent(commitFile);
+      // Only durable backends need crash-recovery markers; RAM must remain writable after failure.
+      if (storageEngineReader.resourceSession.getResourceConfig().getStorageType() != StorageType.IN_MEMORY) {
+        createIfAbsent(commitFile);
+      }
 
       final UberPage uberPage = storageEngineReader.getUberPage();
 

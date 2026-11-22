@@ -14,8 +14,10 @@ import java.nio.file.Path;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import io.sirix.access.ResourceStore;
@@ -54,12 +56,15 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Isolated
+@Order(Integer.MAX_VALUE)
 final class AbstractResourceSessionWriteFailureCleanupTest {
+
 
   @TempDir
   Path directory;
@@ -79,7 +84,8 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
       try (JsonResourceSession first = firstDatabase.beginResourceSession("resource");
           JsonResourceSession second = secondDatabase.beginResourceSession("resource")) {
         final JsonNodeTrx transaction = first.beginNodeTrx();
-        final StorageEngineWriter writer = spy(transaction.getStorageEngineWriter());
+        final StorageEngineWriter original = transaction.getStorageEngineWriter();
+        final StorageEngineWriter writer = mock(StorageEngineWriter.class, delegatesTo(original));
         final Field writerField = AbstractNodeTrxImpl.class.getDeclaredField("storageEngineWriter");
         writerField.setAccessible(true);
         writerField.set(transaction, writer);
@@ -91,12 +97,13 @@ final class AbstractResourceSessionWriteFailureCleanupTest {
         session.storageEngineWriterMap.put(transaction.getId(), writer);
         final RuntimeException refusal = new IllegalStateException("worker still owns writer");
         final AtomicInteger attempts = new AtomicInteger();
-        doThrow(refusal).doCallRealMethod().when(writer).rollback();
+        doThrow(refusal).doAnswer(invocation -> original.rollback()).when(writer).rollback();
         doAnswer(invocation -> {
           if (attempts.getAndIncrement() < refusals) {
             throw refusal;
           }
-          return invocation.callRealMethod();
+          original.close();
+          return null;
         }).when(writer).close();
         final Field schedulerField = AbstractNodeTrxImpl.class.getDeclaredField("commitScheduler");
         schedulerField.setAccessible(true);

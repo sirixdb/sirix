@@ -650,7 +650,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       }
 
       try {
-        notifyAsyncCommitTestHook("before-submit");
         CompletableFuture.runAsync(() -> {
           try {
             hardenAndPublish(committingWriter, pendingUberPage, publishUpdateDiffs, committingHooks);

@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -18,7 +20,10 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 
+@Isolated
+@Order(Integer.MAX_VALUE)
 final class BufferManagerTeardownTest {
+
   private static final List<String> CACHE_FIELDS = List.of("pageCache", "recordPageCache", "recordPageFragmentCache",
       "revisionRootPageCache", "namesCache", "globalVerdictCache", "segmentVerdictCache", "globalDictionaryRecordCache",
       "globalDictionaryWarmMarkers", "pathSummaryCache", "hotLeafPageCache", "hotLeafFragmentCache", "hotMiniPageCache",

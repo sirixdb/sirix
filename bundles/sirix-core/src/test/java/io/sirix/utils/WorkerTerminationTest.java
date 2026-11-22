@@ -3,6 +3,8 @@ package io.sirix.utils;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -14,6 +16,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@Isolated
+@Order(Integer.MAX_VALUE)
 final class WorkerTerminationTest {
   @ParameterizedTest
   @CsvSource({"false,false", "false,true", "true,false", "true,true"})

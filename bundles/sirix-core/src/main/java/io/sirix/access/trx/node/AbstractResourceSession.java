@@ -947,7 +947,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       writer = storage.createWriter();
     } catch (final RuntimeException | Error failure) {
       final Path marker = getCommitFile();
-      if (recoveryIdentity.equals(RECOVERY_REQUIRED.get(marker)) || !Files.notExists(marker)) {
+      if (resourceConfig.getStorageType() != StorageType.IN_MEMORY
+          && (recoveryIdentity.equals(RECOVERY_REQUIRED.get(marker)) || !Files.notExists(marker))) {
         throw new SirixIOException("Recovery of " + marker + " failed during backend open", failure);
       }
       throw failure;
@@ -1037,6 +1038,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public final void requireCommitRecovery() {
+    // RAM has no durable bytes to recover; a marker would permanently refuse later writers.
+    if (resourceConfig.getStorageType() == StorageType.IN_MEMORY) {
+      return;
+    }
     final Path marker = getCommitFile();
     RECOVERY_REQUIRED.put(marker, recoveryIdentity);
     try {
@@ -1054,6 +1059,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @SuppressWarnings("java:S1181")
   private UberPage truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(final Writer writer,
       final UberPage committedPage) {
+    if (resourceConfig.getStorageType() == StorageType.IN_MEMORY) {
+      return committedPage;
+    }
     final Path marker = getCommitFile();
     if (!recoveryIdentity.equals(RECOVERY_REQUIRED.get(marker)) && Files.notExists(marker)) {
       return committedPage;

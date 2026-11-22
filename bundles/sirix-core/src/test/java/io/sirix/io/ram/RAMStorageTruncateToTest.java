@@ -10,6 +10,8 @@ import io.sirix.io.Writer;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import io.sirix.node.BytesOut;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * restore. The method was an empty {@code // TODO} that returned successfully.
  * </p>
  */
+@Isolated
+@Order(Integer.MAX_VALUE)
 public final class RAMStorageTruncateToTest {
 
   @BeforeEach

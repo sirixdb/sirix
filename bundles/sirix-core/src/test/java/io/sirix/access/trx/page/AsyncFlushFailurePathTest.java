@@ -28,7 +28,9 @@ import io.sirix.page.OverflowPage;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 import io.sirix.settings.VersioningType;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -89,7 +91,10 @@ import static org.mockito.Mockito.mockStatic;
  * two cause-chain tests fail with "the real cause was lost on the way out", and the
  * preparation-fault test parks indefinitely — the incident itself.
  */
+@Isolated
+@Order(Integer.MAX_VALUE)
 final class AsyncFlushFailurePathTest {
+
 
   private static final String RESOURCE = "async-flush-failure-resource";
 

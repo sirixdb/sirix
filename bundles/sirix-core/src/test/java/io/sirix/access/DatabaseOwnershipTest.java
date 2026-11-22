@@ -19,6 +19,8 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.io.StorageType;
 import io.sirix.utils.SirixFiles;
 import org.jspecify.annotations.Nullable;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
@@ -78,6 +80,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 
+@Isolated
+@Order(Integer.MAX_VALUE)
 final class DatabaseOwnershipTest {
   @TempDir
   Path directory;

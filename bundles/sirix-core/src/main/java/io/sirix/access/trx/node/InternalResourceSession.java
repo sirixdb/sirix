@@ -74,6 +74,7 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   Path getCommitFile();
 
+  /** Require marker-driven recovery for durable storage; a no-op for {@code IN_MEMORY}. */
   void requireCommitRecovery();
 
   void assertNotInCommitCallback();

@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import io.sirix.access.DatabaseNotifications;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Isolated;
@@ -52,7 +53,9 @@ import static org.mockito.Mockito.mock;
 
 @Isolated
 @Timeout(60)
+@Order(Integer.MAX_VALUE)
 final class SharedCallbackLifetimeTest {
+
   @TempDir
   Path directory;
 

@@ -419,8 +419,8 @@ resource at the desired revision number or timestamp via
 
 ### Marker recovery
 
-`log/.commit` can remain after a crash, failed commit, aborted prewrites or failed
-teardown. Ordinary close preserves this signal; successful commit or rollback
+For durable storage, `log/.commit` can remain after a crash, failed commit, aborted
+prewrites or failed teardown. Ordinary close preserves this signal; successful commit or rollback
 removes it. Do not delete it to bypass a failed admission.
 
 When the marker or process guard requires recovery, ordinary node-bound and
@@ -434,12 +434,18 @@ published revision. The beacon protocol is owned by [DISK_FORMAT.md](DISK_FORMAT
 Recovery failures reject writer admission, name the marker and failing stage,
 close the temporary backend and release temporary write ownership. This includes
 backend-open failure and unsupported truncation; recovery is never silently
-skipped for such a backend. Correct the reported cause and retry admission.
+skipped for a durable backend. Correct the reported cause and retry admission.
 If marker creation itself fails, an in-process guard keyed by marker path and
 persisted database/resource identity retains the obligation across session close;
 admission must establish the marker before recovery can proceed. Successful
 explicit resource deletion retires this guard. It does not replace a persistent
 marker across process exit.
+
+`IN_MEMORY` has no durable state to recover and never writes a `.commit` marker,
+including after a failed commit or teardown. It does not retain a durable-recovery
+admission guard; once the failed transaction releases ownership, another writer
+can open. This exception is based on storage durability, not truncate support:
+a durable backend that cannot truncate still refuses unsafe admission.
 
 ---
 

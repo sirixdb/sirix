@@ -313,3 +313,17 @@ loops are killed by assertions rather than process timeouts.
 See [the CI coordination postmortem](postmortems/lifecycle-ci-interrupt-coordination.md).
 After the final test edit, run the configured Spotless check as well as test compilation;
 an assertion-only repair can still block every downstream runtime and mutation job on formatting.
+
+## Assert exhaustion before explicit cleanup
+
+A set operation can finish while an unused operand still produces results. Hold that producer
+with latches and assert termination and owned-resource release immediately after the public
+exhaustion call, before test cleanup. Keep borrowed transactions usable. An explicit-close
+assertion cannot detect a missing natural-exhaustion fence. Always release and close the fixture
+in `finally` so a removed fence fails an assertion instead of a mutation timeout.
+See [the exhaustion-oracle postmortem](postmortems/concurrent-set-exhaustion-oracle.md).
+
+Inline fault injection changes shared runtime classes. Prefer interface delegates for real
+owners, and isolate suites requiring that instrumentation from normal hot-workload execution.
+Use the framework's class-ordering boundary, retaining every case and assertion. Diagnose with
+per-test A/B durations while preserving workloads and keeping elapsed-time assertions out of CI.

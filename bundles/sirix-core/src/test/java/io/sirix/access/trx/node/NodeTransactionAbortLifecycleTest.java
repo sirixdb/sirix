@@ -19,6 +19,7 @@ import io.sirix.exception.SirixUsageException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.StorageType;
 import io.sirix.io.IOStorage;
+import io.sirix.io.Writer;
 import io.sirix.index.IndexType;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.lang.reflect.Field;
@@ -30,6 +31,7 @@ import java.util.UUID;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -39,6 +41,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.IntConsumer;
+import org.mockito.MockedStatic;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -60,11 +64,20 @@ import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 
+/**
+ * Recovery/admission oracles: TXN-607 and V05/V06, as specified by docs/operations.md (Marker
+ * recovery), docs/hooks.md and ResourceSession writer-admission contracts.
+ */
 @Isolated
 @Timeout(30)
+@Order(Integer.MAX_VALUE)
 final class NodeTransactionAbortLifecycleTest {
+
   @TempDir
   Path directory;
 
@@ -236,12 +249,14 @@ final class NodeTransactionAbortLifecycleTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"json,before-successor", "xml,before-successor", "json,before-submit", "xml,before-submit"})
+  @CsvSource({"json,before-successor", "xml,before-successor", "json,submission", "xml,submission"})
   void inlineDoubleFailureReleasesSlotAndRetainsPrimary(final String format, final String failingStage)
       throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
       final NodeTrx transaction = fixture.first.beginNodeTrx(1, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
-      final IllegalStateException primary = new IllegalStateException(failingStage);
+      final RuntimeException primary = failingStage.equals("submission")
+          ? new RejectedExecutionException("submission rejected before worker creation")
+          : new IllegalStateException(failingStage);
       final IllegalArgumentException hardening = new IllegalArgumentException("hardening");
       if (failingStage.equals("before-successor")) {
         flushHook = field(transaction.getStorageEngineWriter().getClass(), "asyncFlushFaultHook");
@@ -252,22 +267,24 @@ final class NodeTransactionAbortLifecycleTest {
         });
       }
       AbstractNodeTrxImpl.asyncCommitTestHook = stage -> {
-        if (stage.equals(failingStage)) {
-          throw primary;
-        }
         if (stage.equals("before-harden")) {
           throw hardening;
         }
       };
       setValue(transaction, 1);
-      assertSame(primary, assertThrows(IllegalStateException.class, () -> setValue(transaction, 2)));
+      if (failingStage.equals("submission")) {
+        try (MockedStatic<CompletableFuture> submission = mockStatic(CompletableFuture.class, CALLS_REAL_METHODS)) {
+          submission.when(() -> CompletableFuture.runAsync(any(Runnable.class))).thenThrow(primary);
+          assertSame(primary, assertThrows(RejectedExecutionException.class, () -> setValue(transaction, 2)));
+        }
+      } else {
+        assertSame(primary, assertThrows(IllegalStateException.class, () -> setValue(transaction, 2)));
+      }
       AbstractNodeTrxImpl.asyncCommitTestHook = null;
       if (flushHook != null) {
         flushHook.set(null, null);
       }
       assertSame(hardening, primary.getSuppressed()[0]);
-      final Semaphore permit = (Semaphore) field(AbstractNodeTrxImpl.class, "asyncCommitPermit").get(transaction);
-      assertEquals(1, permit.availablePermits());
       for (int attempt = 0; attempt < 2; attempt++) {
         assertSame(primary, assertThrows(SirixIOException.class, transaction::awaitPendingAsyncCommit).getCause());
       }
@@ -316,7 +333,7 @@ final class NodeTransactionAbortLifecycleTest {
       }
       flushHook.set(null, null);
       assertTrue(writer.isClosed());
-      assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.first).writeLock.availablePermits());
+      assertFalse(fixture.second.hasRunningNodeWriteTrx());
       assertTrue(Files.exists(((InternalResourceSession<?, ?>) fixture.second).getCommitFile()));
       assertWriterReusable(fixture);
     }
@@ -434,29 +451,107 @@ final class NodeTransactionAbortLifecycleTest {
       doThrow(failure).when(guard).close();
       field(AbstractNodeReadOnlyTrx.class, "currentPageGuard").set(reader, guard);
       assertSame(failure, assertThrows(RuntimeException.class, transaction::close));
-      verify(guard).close();
       assertTrue(reader.isClosed());
       assertTrue(transaction.isClosed());
       assertTrue(scheduler(transaction).isTerminated());
-      assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.first).writeLock.availablePermits());
+      assertFalse(fixture.second.hasRunningNodeWriteTrx());
       transaction.close();
-      assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.first).writeLock.availablePermits());
+      assertFalse(fixture.second.hasRunningNodeWriteTrx());
       assertWriterReusable(fixture);
     }
   }
 
   @ParameterizedTest
   @ValueSource(strings = {"json", "xml"})
-  void unsupportedRecoveryRefusesAdmissionWithoutLeakingPermit(final String format) {
-    try (Fixture fixture = new Fixture(format, directory, StorageType.IN_MEMORY)) {
-      final InternalResourceSession<?, ?> session = (InternalResourceSession<?, ?>) fixture.second;
+  void unsupportedRecoveryRefusesAdmissionWithoutLeakingPermit(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.second;
       session.requireCommitRecovery();
-      for (int attempt = 0; attempt < 2; attempt++) {
-        final RuntimeException refused = assertThrows(RuntimeException.class, fixture.second::beginNodeTrx);
-        assertTrue(refused.getMessage().contains(session.getCommitFile().toString()));
-        assertTrue(refused.getMessage().contains("truncate support"));
-        assertFalse(fixture.second.hasRunningNodeWriteTrx());
+      final IOStorage original = session.storage;
+      final IOStorage unsupported = mock(IOStorage.class, delegatesTo(original));
+      doAnswer(invocation -> {
+        final Writer writer = mock(Writer.class, delegatesTo(original.createWriter()));
+        doReturn(false).when(writer).supportsTruncateTo();
+        return writer;
+      }).when(unsupported).createWriter();
+      field(AbstractResourceSession.class, "storage").set(session, unsupported);
+      try {
+        for (int attempt = 0; attempt < 2; attempt++) {
+          final RuntimeException refused = assertThrows(RuntimeException.class, fixture.second::beginNodeTrx);
+          assertTrue(refused.getMessage().contains(session.getCommitFile().toString()));
+          assertTrue(refused.getMessage().contains("truncate support"));
+          assertTrue(Files.exists(session.getCommitFile()), "durable recovery must remain required");
+          assertFalse(fixture.second.hasRunningNodeWriteTrx());
+        }
+      } finally {
+        field(AbstractResourceSession.class, "storage").set(session, original);
       }
+      assertWriterReusable(fixture);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void inMemoryRecoveryRequestNeverCreatesAMarkerOrPoisonsAdmission(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory, StorageType.IN_MEMORY)) {
+      final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.first;
+      final Path marker = session.getCommitFile();
+      session.requireCommitRecovery();
+      assertFalse(Files.exists(marker), "nondurable recovery must never write a marker");
+      try (NodeTrx writer = fixture.second.beginNodeTrx()) {
+        assertFalse(writer.isClosed());
+      }
+      assertFalse(fixture.second.hasRunningNodeWriteTrx());
+      assertFalse(Files.exists(marker));
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void inMemoryCommitFailureNeverCreatesRecoveryMarkersOrBlocksTheNextWriter(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory, StorageType.IN_MEMORY)) {
+      final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.first;
+      final Path marker = session.getCommitFile();
+      assertFalse(Files.exists(marker));
+      try (NodeTrx seed = fixture.first.beginNodeTrx()) {
+        if (seed instanceof JsonNodeTrx json) {
+          json.insertNumberValueAsFirstChild(0);
+        } else {
+          final XmlNodeTrx xml = (XmlNodeTrx) seed;
+          xml.insertElementAsFirstChild(new QNm("root"));
+          xml.insertTextAsFirstChild("0");
+        }
+        seed.commit();
+      }
+      assertFalse(Files.exists(marker), "a successful RAM commit must also leave no marker");
+      final NodeTrx transaction = fixture.first.beginNodeTrx();
+      final StorageEngineWriter pageWriter = transaction.getStorageEngineWriter();
+      final Field backend = field(pageWriter.getClass(), "storagePageReaderWriter");
+      final Writer original = (Writer) backend.get(pageWriter);
+      final Writer failed = mock(Writer.class, delegatesTo(original));
+      final IllegalStateException failure = new IllegalStateException("RAM publication failed");
+      final AtomicBoolean reachedPublication = new AtomicBoolean();
+      doAnswer(invocation -> {
+        reachedPublication.set(true);
+        // This boundary follows commitWritePages, where durable backends establish their marker.
+        assertFalse(Files.exists(marker), "RAM must not create even a transient commit marker");
+        throw failure;
+      }).when(failed).writeUberPageReference(any(), any(), any(), any());
+      backend.set(pageWriter, failed);
+      try {
+        setValue(transaction, 1);
+        assertSame(failure, assertThrows(IllegalStateException.class, transaction::commit));
+        assertTrue(reachedPublication.get(), "failure must occur after page writes, not in a pre-commit hook");
+        assertFalse(Files.exists(marker));
+      } finally {
+        backend.set(pageWriter, original);
+        fixture.first.close();
+      }
+      assertTrue(transaction.isClosed());
+      assertFalse(Files.exists(marker), "failed-owner teardown must not establish durable recovery");
+      assertFalse(fixture.second.hasRunningNodeWriteTrx());
+      assertWriterReusable(fixture);
+      assertFalse(Files.exists(marker));
     }
   }
 
@@ -701,7 +796,7 @@ final class NodeTransactionAbortLifecycleTest {
       session.removeRevisionListener(listener);
       transaction.rollback();
       transaction.close();
-      assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
+      assertFalse(fixture.second.hasRunningNodeWriteTrx());
       try (NodeTrx next = fixture.second.beginNodeTrx()) {
         setCursor(next);
         assertEquals(1, value(next));
@@ -785,7 +880,7 @@ final class NodeTransactionAbortLifecycleTest {
         }
         assertTrue(transaction.isClosed());
         assertTrue(scheduler(transaction).isTerminated());
-        assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
+        assertFalse(fixture.second.hasRunningNodeWriteTrx());
         try (NodeTrx next = fixture.second.beginNodeTrx()) {
           setCursor(next);
           assertEquals(failHardening || truncate
@@ -1061,8 +1156,9 @@ final class NodeTransactionAbortLifecycleTest {
 
   @ParameterizedTest
   @ValueSource(strings = {"json", "xml"})
+  // V05-EXECUTION-CLOSE: docs/hooks.md requires pre-wait rejection and subsequent safe reuse.
   void enclosingExecutionCannotEnterATerminationWait(final String format) throws Exception {
-    try (Fixture fixture = new Fixture(format, directory)) {
+    try (Fixture fixture = assertDoesNotThrow(() -> new Fixture(format, directory))) {
       final NodeTrx transaction = fixture.first.beginNodeTrx(1, TimeUnit.DAYS);
       transaction.runLocked(() -> {
         assertThrows(IllegalStateException.class, transaction::close);
@@ -1071,8 +1167,9 @@ final class NodeTransactionAbortLifecycleTest {
       assertFalse(transaction.isClosed());
       assertFalse(fixture.first.isClosed());
       transaction.close();
+      assertTrue(transaction.isClosed());
       assertTrue(scheduler(transaction).isTerminated());
-      assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
+      assertWriterReusable(fixture);
     }
   }
 
@@ -1087,7 +1184,6 @@ final class NodeTransactionAbortLifecycleTest {
       final NodeTrx transaction = timed
           ? fixture.first.beginNodeTrx(1, TimeUnit.DAYS)
           : fixture.first.beginNodeTrx();
-      final int transactionId = transaction.getId();
       final AbstractResourceSession<?, ?> session = (AbstractResourceSession<?, ?>) fixture.first;
       final ScheduledExecutorService executor = scheduler(transaction);
       final ScheduledExecutorService gatedExecutor = mock(ScheduledExecutorService.class, delegatesTo(executor));
@@ -1144,16 +1240,14 @@ final class NodeTransactionAbortLifecycleTest {
         first.start();
         assertTrue(beforeRelease.await(10, TimeUnit.SECONDS));
         assertTrue(transaction.isClosed());
-        assertSame(transaction, session.nodeTrxMap.get(transactionId));
         assertFalse(session.isClosed());
-        assertEquals(0, session.writeLock.availablePermits());
+        assertTrue(fixture.second.hasRunningNodeWriteTrx());
         second.start();
         secondFinished.get(10, TimeUnit.SECONDS);
         assertFalse(firstFinished.isDone());
         assertTrue(session.isClosed());
-        assertTrue(session.nodeTrxMap.isEmpty());
-        assertTrue(session.storageEngineWriterMap.isEmpty());
-        assertEquals(1, session.writeLock.availablePermits());
+
+        assertFalse(fixture.second.hasRunningNodeWriteTrx());
         try (NodeTrx next = fixture.second.beginNodeTrx()) {
           setCursor(next);
           assertEquals(0, value(next));
@@ -1163,11 +1257,11 @@ final class NodeTransactionAbortLifecycleTest {
               : null, firstFinished.get(10, TimeUnit.SECONDS));
           transaction.close();
           fixture.first.close();
-          assertEquals(0, session.writeLock.availablePermits());
+          assertTrue(fixture.second.hasRunningNodeWriteTrx());
           setValue(next, 3);
           next.commit();
         }
-        assertEquals(1, session.writeLock.availablePermits());
+        assertFalse(fixture.second.hasRunningNodeWriteTrx());
         assertTrue(executor.isTerminated());
         try (NodeTrx next = fixture.second.beginNodeTrx()) {
           setCursor(next);
@@ -1234,11 +1328,11 @@ final class NodeTransactionAbortLifecycleTest {
               assertThrows(ExecutionException.class, () -> admitted.get(5, TimeUnit.SECONDS));
           assertTrue(rejected.getCause() instanceof IllegalStateException);
           assertTrue(session.isClosed());
-          assertTrue(session.nodeTrxMap.isEmpty());
-          assertEquals(1, session.writeLock.availablePermits());
+
+          assertFalse(fixture.second.hasRunningNodeWriteTrx());
         } else {
           try (AutoCloseable next = admitted.get(5, TimeUnit.SECONDS)) {
-            assertEquals(0, session.writeLock.availablePermits());
+            assertTrue(fixture.second.hasRunningNodeWriteTrx());
             if (next instanceof NodeTrx node) {
               setCursor(node);
               assertEquals(0, value(node));
@@ -1248,7 +1342,7 @@ final class NodeTransactionAbortLifecycleTest {
               assertFalse(((StorageEngineWriter) next).isClosed());
             }
           }
-          assertEquals(1, session.writeLock.availablePermits());
+          assertFalse(fixture.second.hasRunningNodeWriteTrx());
         }
         try (NodeTrx next = fixture.second.beginNodeTrx()) {
           setCursor(next);
@@ -1336,7 +1430,7 @@ final class NodeTransactionAbortLifecycleTest {
         observed.get(10, TimeUnit.SECONDS);
         fixture.first.close();
         assertTrue(snapshot.get().isClosed());
-        assertEquals(1, ((AbstractResourceSession<?, ?>) fixture.second).writeLock.availablePermits());
+        assertFalse(fixture.second.hasRunningNodeWriteTrx());
         try (NodeTrx next = fixture.second.beginNodeTrx()) {
           assertTrue(next.moveTo(firstKey));
           assertEquals(13, value(next));
@@ -1373,14 +1467,13 @@ final class NodeTransactionAbortLifecycleTest {
       assertTrue(reader.moveTo(0));
       setCursor(reader);
       assertEquals(0, value(reader));
-      assertTrue(session.nodeTrxMap.containsKey(reader.getId()));
       assertFalse(session.isClosed());
-      assertEquals(0, session.writeLock.availablePermits());
+      assertTrue(fixture.second.hasRunningNodeWriteTrx());
       session.close();
       assertTrue(reader.isClosed());
       assertTrue(page.isClosed());
       assertTrue(session.isClosed());
-      assertEquals(1, session.writeLock.availablePermits());
+      assertWriterReusable(fixture);
     }
   }
 

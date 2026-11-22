@@ -126,6 +126,8 @@ artifacts {
 }
 
 test {
+    // Inline fault injection redefines shared hot classes; run those isolated suites last.
+    systemProperty 'junit.jupiter.testclass.order.default', 'org.junit.jupiter.api.ClassOrderer$OrderAnnotation'
     systemProperty 'sirix.changelog.workDiag', System.getProperty('sirix.changelog.workDiag', 'true')
     systemProperty 'sirix.projection.segmentDiag', System.getProperty('sirix.projection.segmentDiag', 'true')
     // Partition the existing test task rather than copying its JVM flags, engine configuration,

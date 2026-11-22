@@ -9,6 +9,8 @@ import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.Database;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
+import io.sirix.api.Transaction;
+import io.sirix.utils.WorkerTermination;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.RevisionRootPage;
@@ -20,8 +22,8 @@ import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.io.IOException;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Assumptions;
-import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,6 +32,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.Semaphore;
@@ -38,6 +41,7 @@ import java.util.ArrayDeque;
 import java.util.function.IntConsumer;
 import org.junit.jupiter.api.Test;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
@@ -61,6 +65,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -71,13 +76,16 @@ import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.any;
 
 @Isolated
 @Timeout(30)
+@Order(Integer.MAX_VALUE)
 final class DatabaseNotificationLifecycleTest {
+
   @TempDir
   Path directory;
 
@@ -85,6 +93,207 @@ final class DatabaseNotificationLifecycleTest {
   void resetProbe() throws ReflectiveOperationException {
     final Field hook = field(AbstractNodeTrxImpl.class, "asyncCommitTestHook");
     hook.set(null, null);
+  }
+
+  // V05-CALLBACK-ADMISSION: docs/hooks.md forbids same-database callback lifecycle mutation.
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void contractNotificationCallbackRejectsResourceCreation(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory); NodeTrx writer = fixture.second.beginNodeTrx()) {
+      final CompletableFuture<Void> checked = new CompletableFuture<>();
+      writer.addPostCommitHook(view -> {
+        try {
+          assertThrows(IllegalStateException.class,
+              () -> fixture.firstDatabase.createResource(ResourceConfiguration.newBuilder("forbidden").build()));
+          assertFalse(fixture.firstDatabase.existsResource("forbidden"));
+          checked.complete(null);
+        } catch (final Throwable failure) {
+          checked.completeExceptionally(failure);
+          throw failure;
+        }
+      });
+      writer.commit();
+      checked.get(10, TimeUnit.SECONDS);
+      assertFalse(fixture.firstDatabase.existsResource("forbidden"));
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"json,resource-create", "xml,resource-create", "json,commit", "xml,commit", "json,auto-commit",
+      "xml,auto-commit"})
+  void contractCallbackPreflightRejectsBeforeAContendedOwnerLock(final String format, final String operation)
+      throws Exception {
+    try (Fixture fixture = new Fixture(format, directory);
+        NodeTrx writer = operation.equals("auto-commit")
+            ? fixture.second.beginNodeTrx(1)
+            : fixture.second.beginNodeTrx()) {
+      if (operation.equals("auto-commit")) {
+        setValue(writer, 7);
+      }
+      final int revision = writer.getRevisionNumber();
+      final ReentrantLock execution = (ReentrantLock) field(AbstractNodeTrxImpl.class, "executionLock").get(writer);
+      final AutoCloseable hold;
+      if (operation.equals("resource-create")) {
+        hold = MutationGate.acquireDatabase(fixture.path);
+      } else if (operation.equals("auto-commit") && writer instanceof XmlNodeTrx) {
+        // XML takes execution at mutator entry; JSON below isolates the inner commit preflight.
+        hold = () -> {
+        };
+      } else {
+        execution.lock();
+        hold = execution::unlock;
+      }
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch completed = new CountDownLatch(1);
+      final AtomicReference<Throwable> failure = new AtomicReference<>();
+      final ExecutorService callback = Executors.newSingleThreadExecutor();
+      final Runnable invoke = () -> {
+        try {
+          fixture.notifications().runPreCommit(() -> {
+            entered.countDown();
+            if (operation.equals("resource-create")) {
+              fixture.firstDatabase.createResource(ResourceConfiguration.newBuilder("forbidden").build());
+            } else if (operation.equals("auto-commit")) {
+              setValue(writer, 9);
+            } else {
+              writer.commit();
+            }
+          });
+        } catch (final Throwable thrown) {
+          failure.set(thrown);
+        } finally {
+          completed.countDown();
+        }
+      };
+      boolean refusedBeforeRelease = false;
+      try {
+        callback.execute(invoke);
+        assertTrue(entered.await(1, TimeUnit.SECONDS), "callback must enter its scope");
+        refusedBeforeRelease = completed.await(1, TimeUnit.SECONDS);
+      } finally {
+        try {
+          hold.close();
+        } finally {
+          WorkerTermination.shutdownAndAwait(callback, false);
+        }
+      }
+      try {
+        assertTrue(callback.isTerminated(), "callback must terminate before the fixture closes");
+        assertTrue(refusedBeforeRelease, "callback preflight must reject before waiting for the owner's lock");
+        assertTrue(failure.get() instanceof IllegalStateException, String.valueOf(failure.get()));
+        assertTrue(failure.get().getMessage().contains("callback"));
+        assertFalse(fixture.firstDatabase.existsResource("forbidden"));
+        if (operation.equals("auto-commit")) {
+          assertValue(writer, 7);
+          assertEquals(revision, writer.getRevisionNumber(), "refused auto-commit must not publish a revision");
+        }
+      } finally {
+        if (operation.equals("auto-commit")) {
+          writer.rollback();
+        }
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void contractFacadeRollbackRefusesBeforeChangingAnUnrelatedResource(final String format) throws Exception {
+    try (Fixture source = new Fixture(format, directory.resolve("source"));
+        Fixture other = new Fixture(format, directory.resolve("other"));
+        NodeTrx sourceWriter = source.second.beginNodeTrx();
+        NodeTrx otherWriter = other.second.beginNodeTrx();
+        Transaction transaction = new TransactionManagerImpl().beginTransaction().add(otherWriter).add(sourceWriter)) {
+      setValue(otherWriter, 7);
+      setValue(sourceWriter, 9);
+      source.notifications().runPreCommit(() -> {
+        assertThrows(IllegalStateException.class, transaction::rollback);
+        assertValue(otherWriter, 7);
+        assertValue(sourceWriter, 9);
+      });
+      assertValue(otherWriter, 7);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"json", "xml"})
+  void contractResourceRemovalReleasesItsRecoveryRequirement(final String format) throws Exception {
+    try (Fixture fixture = new Fixture(format, directory)) {
+      final Path marker = fixture.second.getCommitFile();
+      fixture.second.requireCommitRecovery();
+      // TXN-607-DURABLE-RECOVERY: deletion must not poison a replacement at the same path.
+      fixture.first.close();
+      fixture.second.close();
+      fixture.firstDatabase.removeResource("resource");
+      assertFalse(Files.exists(marker));
+      fixture.firstDatabase.createResource(
+          ResourceConfiguration.newBuilder("resource").storageType(StorageType.FILE_CHANNEL).build());
+      try (var replacement = fixture.firstDatabase.beginResourceSession("resource");
+          var writer = replacement.beginNodeTrx()) {
+        writer.commit();
+      }
+    }
+  }
+
+  @Test
+  void contractCallbackRetirementRejectsBeforeWaitingForItself() {
+    try (DatabaseNotifications notifications = new DatabaseNotifications()) {
+      notifications.setCloseTimeout(Duration.ofMillis(100));
+      notifications.runPreCommit(() -> {
+        assertThrows(IllegalStateException.class, notifications::retire);
+        assertThrows(IllegalStateException.class, () -> notifications.retireHistory(1, 1));
+      });
+      assertDoesNotThrow(() -> notifications.awaitIdle(Duration.ofMillis(100)));
+    }
+  }
+
+  @Test
+  void contractNotificationThreadDoesNotKeepTheProcessAlive() throws Exception {
+    try (DatabaseNotifications notifications = new DatabaseNotifications()) {
+      notifications.setCloseTimeout(Duration.ofMillis(100));
+      final CompletableFuture<Boolean> daemon = new CompletableFuture<>();
+      notifications.submit(1, 1, revision -> daemon.complete(Thread.currentThread().isDaemon()));
+      assertTrue(daemon.get(1, TimeUnit.SECONDS), "notification workers must be daemon threads");
+      notifications.awaitIdle(Duration.ofMillis(100));
+    }
+  }
+
+  @Test
+  void contractCompletedDeliveryLeavesNoPendingWork() throws Exception {
+    try (DatabaseNotifications notifications = new DatabaseNotifications()) {
+      notifications.setCloseTimeout(Duration.ofMillis(100));
+      final CountDownLatch delivered = new CountDownLatch(1);
+      notifications.submit(1, 1, revision -> delivered.countDown());
+      assertTrue(delivered.await(1, TimeUnit.SECONDS), "submitted notification must execute");
+      assertDoesNotThrow(() -> notifications.awaitIdle(Duration.ofMillis(100)),
+          "completed delivery must balance pending work");
+    }
+  }
+
+  @Test
+  void contractOnlyTheLastRetirementReopensAdmissionAndDeliversDeferredWork() throws Exception {
+    try (DatabaseNotifications notifications = new DatabaseNotifications()) {
+      notifications.setCloseTimeout(Duration.ofMillis(100));
+      final AtomicInteger deliveries = new AtomicInteger();
+      final CountDownLatch delivered = new CountDownLatch(1);
+      try (var first = notifications.retire(); var second = notifications.retire()) {
+        notifications.submit(1, 1, revision -> {
+          deliveries.incrementAndGet();
+          delivered.countDown();
+        });
+        assertThrows(DatabaseNotifications.RetirementInProgressException.class, () -> notifications.runPreCommit(() -> {
+        }));
+        first.close();
+        assertThrows(DatabaseNotifications.RetirementInProgressException.class, () -> notifications.runPreCommit(() -> {
+        }), "the second scope still owns retirement");
+        assertEquals(0, deliveries.get());
+        second.close();
+        assertDoesNotThrow(() -> notifications.runPreCommit(() -> {
+        }), "closing the last scope must reopen admission");
+        assertTrue(delivered.await(1, TimeUnit.SECONDS), "deferred work must be delivered after retirement");
+        notifications.awaitIdle(Duration.ofMillis(100));
+        assertEquals(1, deliveries.get(), "closing a scope again must not redeliver work");
+      }
+    }
   }
 
   @ParameterizedTest
@@ -1193,13 +1402,9 @@ final class DatabaseNotificationLifecycleTest {
   void inlineHardeningFallbackStillDeliversDurableHooks(final String format) throws Exception {
     try (Fixture fixture = new Fixture(format, directory)) {
       final NodeTrx writer = fixture.second.beginNodeTrx(2, AfterCommitState.KEEP_OPEN_ASYNC_COMMIT);
-      final IllegalStateException primary = new IllegalStateException("submission failed before worker creation");
+      final RejectedExecutionException primary =
+          new RejectedExecutionException("submission rejected before worker creation");
       final CompletableFuture<Void> delivered = new CompletableFuture<>();
-      field(AbstractNodeTrxImpl.class, "asyncCommitTestHook").set(null, (Consumer<String>) stage -> {
-        if (stage.equals("before-submit")) {
-          throw primary;
-        }
-      });
       writer.addPostCommitHook(view -> {
         try {
           assertEquals(2, view.getRevisionNumber());
@@ -1212,7 +1417,11 @@ final class DatabaseNotificationLifecycleTest {
       });
       setValue(writer, 1);
       setValue(writer, 2);
-      assertSame(primary, assertThrows(IllegalStateException.class, () -> setValue(writer, 3)));
+      // Scope the rejection to the actual submission on this thread; callbacks retain real futures.
+      try (MockedStatic<CompletableFuture> submission = mockStatic(CompletableFuture.class, CALLS_REAL_METHODS)) {
+        submission.when(() -> CompletableFuture.runAsync(any(Runnable.class))).thenThrow(primary);
+        assertSame(primary, assertThrows(RejectedExecutionException.class, () -> setValue(writer, 3)));
+      }
       delivered.get(10, TimeUnit.SECONDS);
       writer.close();
     }

@@ -1,16 +1,27 @@
 package io.sirix.axis.concurrent;
 
 import io.sirix.api.Axis;
+import io.sirix.api.Database;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.ResourceSession;
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.Filter;
 import io.sirix.axis.ForAxis;
+import io.sirix.axis.AbstractAxis;
+import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.NestedAxis;
 import io.sirix.axis.NonStructuralWrapperAxis;
 import io.sirix.axis.SelfAxis;
 import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.PredicateFilterAxis;
 import java.util.concurrent.ExecutorService;
+import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
 import io.sirix.exception.SirixThreadedException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.BlockingQueue;
@@ -21,10 +32,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -40,7 +55,107 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.anyLong;
 
 @Timeout(10)
+@Isolated
+@Order(Integer.MAX_VALUE)
 final class ConcurrentAxisLifecycleTest {
+  @ParameterizedTest
+  @CsvSource({"json, except", "xml, except", "json, intersectLeft", "xml, intersectLeft", "json, intersectRight",
+      "xml, intersectRight"})
+  void setExhaustionFencesUnusedProducerAndReleasesOwnedReader(final String format, final String operation,
+      @TempDir final Path directory) throws Exception {
+    final Path databasePath = directory.resolve("database");
+    if (format.equals("json")) {
+      Databases.createJsonDatabase(new DatabaseConfiguration(databasePath));
+    } else {
+      Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
+    }
+    try (final Database<? extends ResourceSession<?, ?>> database = format.equals("json")
+        ? Databases.openJsonDatabase(databasePath)
+        : Databases.openXmlDatabase(databasePath)) {
+      database.createResource(new ResourceConfiguration.Builder("resource").build());
+      try (final var session = database.beginResourceSession("resource")) {
+        assertSetExhaustion(session, operation);
+      }
+    }
+  }
+
+  private static <R extends NodeReadOnlyTrx & NodeCursor> void assertSetExhaustion(final ResourceSession<R, ?> session,
+      final String operation) throws Exception {
+    try (final var consumer = session.beginNodeReadOnlyTrx();
+        final var emptyReader = session.beginNodeReadOnlyTrx();
+        final var intermediate = session.beginNodeReadOnlyTrx();
+        final var ownedReader = session.beginNodeReadOnlyTrx()) {
+      final CountDownLatch entered = new CountDownLatch(1);
+      final CountDownLatch publish = new CountDownLatch(1);
+      final CountDownLatch finish = new CountDownLatch(1);
+      // This fixture explicitly owns its reader. All surrounding axes borrow their cursors.
+      final Axis source = new AbstractAxis(ownedReader) {
+        private boolean first = true;
+
+        @Override
+        protected long nextKey() {
+          if (first) {
+            first = false;
+            entered.countDown();
+            awaitUninterruptibly(publish);
+            return 0;
+          }
+          try {
+            finish.await();
+          } catch (final InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+          }
+          return done();
+        }
+
+        @Override
+        public void close() {
+          ownedReader.close();
+        }
+      };
+      try (final ConcurrentAxis<R> live = new ConcurrentAxis<>(intermediate, source)) {
+        final Axis empty = new DescendantAxis(emptyReader);
+        final Axis result = switch (operation) {
+          case "except" -> new ConcurrentExceptAxis<>(consumer, empty, live);
+          case "intersectLeft" -> new ConcurrentIntersectAxis<>(consumer, empty, live);
+          default -> new ConcurrentIntersectAxis<>(consumer, live, empty);
+        };
+        final CompletableFuture<Boolean> exhausted = new CompletableFuture<>();
+        final Thread owner = new Thread(() -> {
+          try {
+            exhausted.complete(result.hasNext());
+          } catch (final Throwable failure) {
+            exhausted.completeExceptionally(failure);
+          }
+        });
+        try (result) {
+          owner.start();
+          try {
+            entered.await();
+            assertFalse(ownedReader.isClosed());
+            assertFalse(live.executorService.isTerminated());
+            publish.countDown();
+            // Empty except X and either intersection with empty have no results (set identities).
+            assertFalse(exhausted.get());
+            // Assert before explicit close: cleanup in finally must not mask a missing done fence.
+            assertTrue(live.executorService.isTerminated(), "exhaustion must terminate the unused producer");
+            assertTrue(ownedReader.isClosed(), "exhaustion must release the producer-owned reader");
+            assertFalse(consumer.isClosed());
+            assertFalse(emptyReader.isClosed());
+            assertFalse(intermediate.isClosed());
+            assertTrue(consumer.moveTo(0));
+            assertTrue(emptyReader.moveTo(0));
+            assertTrue(intermediate.moveTo(0));
+          } finally {
+            publish.countDown();
+            finish.countDown();
+            owner.join();
+          }
+        }
+      }
+    }
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {"close", "reset"})
   void cancellationClosesNestedConcurrentProducers(final String mode) throws InterruptedException {
