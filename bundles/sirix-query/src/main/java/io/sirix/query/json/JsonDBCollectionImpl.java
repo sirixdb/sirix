@@ -28,8 +28,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.Objects.requireNonNull;
@@ -275,10 +273,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       requireNonNull(reader);
     }
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    final String[] names = resolveResourceNames(readers.size());
-    for (int i = 0; i < names.length; i++) {
-      createAndWriteResource(names[i], readers.get(i), resourceOptions);
-    }
+    addUnderFreeNames(readers, resourceOptions);
   }
 
   @Override
@@ -296,10 +291,7 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       for (final String uri : uris) {
         readers.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(uri))));
       }
-      final String[] names = resolveResourceNames(uris.size());
-      for (int i = 0; i < names.length; i++) {
-        createAndWriteResource(names[i], readers.get(i), resourceOptions);
-      }
+      addUnderFreeNames(readers, resourceOptions);
     } catch (final IOException e) {
       throw new UncheckedIOException(e);
     } finally {
@@ -313,25 +305,31 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
     }
   }
 
-  private String[] resolveResourceNames(final int count) {
-    final String[] names = new String[count];
-    synchronized (database.getDatabaseConfig()) {
-      final Set<String> resources = new HashSet<>();
-      for (final Path resource : database.listResources()) {
-        resources.add(resource.getFileName().toString());
-      }
-      final int initialSize = resources.size();
-      for (int i = 0; i < names.length; i++) {
-        final String requested = "resource" + (initialSize + i);
-        final String resolved = resources.contains(requested)
-            ? requested + "1"
-            : requested;
-        MutationAuthorization.requireStore(name, resolved, resources.contains(resolved));
-        names[i] = resolved;
-        resources.add(resolved);
+  /** Write each reader into a new resource under the next free automatic name (#1478). */
+  private void addUnderFreeNames(final List<JsonReader> readers, final Options resourceOptions) {
+    final int[] next = {database.listResources().size()};
+    for (final JsonReader reader : readers) {
+      writeUnderFreeName(next, reader, resourceOptions);
+    }
+  }
+
+  /**
+   * Write {@code reader} into a new resource named {@code resource<n>} for the first free
+   * {@code n >= next[0]}, advancing {@code next[0]} past it (#1478). A name is claimed by creating
+   * it, which fails for a name that already exists - even one another caller created a moment ago -
+   * so an automatic name never writes into an existing resource. Claiming and writing happen under
+   * the name's resource hold, which orders them with a replacement.
+   */
+  private JsonDBItem writeUnderFreeName(final int[] next, final JsonReader reader, final Options resourceOptions) {
+    while (true) {
+      final String candidate = "resource" + next[0]++;
+      try (var gate = MutationGate.acquireResource(databaseDirectory(), candidate)) {
+        MutationAuthorization.requireStore(name, candidate, false);
+        if (database.createResource(ResourceConfigurations.create(candidate, resourceOptions))) {
+          return writeResource(candidate, reader, resourceOptions);
+        }
       }
     }
-    return names;
   }
 
   private JsonDBItem createAndWriteResource(final String resourceName, final JsonReader reader,
@@ -455,12 +453,8 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
   }
 
   private JsonDBItem add(final JsonReader reader, final Object options) {
-    final String resourceName;
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    synchronized (database.getDatabaseConfig()) {
-      resourceName = "resource" + (database.listResources().size() + 1);
-    }
-    return createAndWriteResource(resourceName, reader, resourceOptions);
+    return writeUnderFreeName(new int[] {database.listResources().size() + 1}, reader, resourceOptions);
   }
 
   @Override

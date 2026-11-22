@@ -28,8 +28,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -285,33 +283,41 @@ public final class XmlDBCollectionImpl extends AbstractNodeCollection<AbstractTe
   @Override
   public XmlDBNode add(NodeSubtreeParser parser) throws DocumentException {
     try {
-      final String resourceName = "resource" + (database.listResources().size() + 1);
-      return createResource(parser, resourceName, null, null);
+      return writeUnderFreeName(new int[] {database.listResources().size() + 1}, parser);
     } catch (final SirixException e) {
       LOG_WRAPPER.error(e.getMessage(), e);
       return null;
     }
   }
 
+  /** Store each parser's document as a new resource under the next free automatic name (#1478). */
   @Override
   public void addAll(final List<NodeSubtreeParser> parsers) {
     requireNonNull(parsers);
-    final String[] names = new String[parsers.size()];
-    synchronized (database.getDatabaseConfig()) {
-      final Set<String> resources = new HashSet<>();
-      for (final Path resource : database.listResources()) {
-        resources.add(resource.getFileName().toString());
-      }
-      for (int i = 0; i < names.length; i++) {
-        requireNonNull(parsers.get(i));
-        final String resourceName = "resource" + (resources.size() + 1);
-        MutationAuthorization.requireStore(getName(), resourceName, resources.contains(resourceName));
-        names[i] = resourceName;
-        resources.add(resourceName);
-      }
+    for (final NodeSubtreeParser parser : parsers) {
+      requireNonNull(parser);
     }
-    for (int i = 0; i < names.length; i++) {
-      createResource(parsers.get(i), names[i], null, null).getTrx().close();
+    final int[] next = {database.listResources().size() + 1};
+    for (final NodeSubtreeParser parser : parsers) {
+      writeUnderFreeName(next, parser).getTrx().close();
+    }
+  }
+
+  /**
+   * Store {@code parser}'s document as a new resource named {@code resource<n>} for the first free
+   * {@code n >= next[0]}, advancing {@code next[0]} past it (#1478). A name is claimed by creating
+   * it, which fails for a name that already exists - even one another caller created a moment ago -
+   * so an automatic name never writes into an existing resource.
+   */
+  private XmlDBNode writeUnderFreeName(final int[] next, final NodeSubtreeParser parser) {
+    while (true) {
+      final String candidate = "resource" + next[0]++;
+      try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), candidate)) {
+        MutationAuthorization.requireStore(getName(), candidate, false);
+        if (database.createResource(resourceOptions.create(candidate, null))) {
+          return writeResource(parser, candidate, null, null);
+        }
+      }
     }
   }
 

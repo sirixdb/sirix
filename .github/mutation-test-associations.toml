@@ -95,7 +95,7 @@ tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
 
 [[association]]
 class = "io.sirix.query.function.xml.io.Load"
-tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest"]
+tests = ["io.sirix.query.function.xml.io.StoreIntoExistingDatabaseTest", "io.sirix.query.node.XmlDBCollectionAutomaticNamesTest"]
 
 [[association]]
 class = "io.sirix.query.function.ExistingResourceTarget"
@@ -108,3 +108,8 @@ tests = ["io.sirix.query.function.jn.io.StoreIntoExistingDatabaseTest"]
 [[association]]
 class = "io.sirix.query.json.JsonDBCollectionImpl"
 tests = ["io.sirix.query.LoadSourceAcquisitionTest"]
+
+# Automatic resource names (#1478): xn:load's unnamed inputs are specified with the collection API.
+[[association]]
+class = "io.sirix.query.node.XmlDBCollectionImpl"
+tests = ["io.sirix.query.node.XmlDBCollectionAutomaticNamesTest"]

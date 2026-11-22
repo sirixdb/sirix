@@ -168,14 +168,25 @@ public final class Load extends AbstractFunction {
       final Sequence resources, final @Nullable String commitMessage, final @Nullable Instant commitTimestamp,
       final boolean contentOnly) {
     try (final ParserStream parsers = new ParserStream(resources, contentOnly)) {
-      long resourceNumber = resName == null
-          ? coll.getDocumentCount() + 1
-          : 0;
+      long next = coll.getDocumentCount() + 1;
       for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-        final String resourceName = resName == null
-            ? "resource" + resourceNumber++
-            : resName;
-        coll.add(resourceName, parser, commitMessage, commitTimestamp).getTrx().close();
+        if (resName != null) {
+          coll.add(resName, parser, commitMessage, commitTimestamp).getTrx().close();
+          continue;
+        }
+        // An automatic name is always a new resource (#1478): skip names that exist, checked under
+        // the name's resource hold so a gated caller cannot take it in between.
+        final Path databaseFile = coll.getDatabase().getDatabaseConfig().getDatabaseFile();
+        boolean written = false;
+        while (!written) {
+          final String candidate = "resource" + next++;
+          try (var gate = MutationGate.acquireResource(databaseFile, candidate)) {
+            if (!coll.getDatabase().existsResource(candidate)) {
+              coll.add(candidate, parser, commitMessage, commitTimestamp).getTrx().close();
+              written = true;
+            }
+          }
+        }
       }
     }
     return coll;

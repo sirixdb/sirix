@@ -203,6 +203,11 @@ All notable changes to SirixDB are documented in this file.
 
 ### Fixed
 
+- **Automatic resource names are always new** — adding unnamed items to a collection (`jn:store`,
+  `jn:load`, `xn:store`, `xn:load` and the collection API) could pick a `resourceN` name that
+  already existed and write into that resource. Each item now claims the next free name by creating
+  it, so it never reaches an existing resource, also against a concurrent caller; CREATE suffices
+  ([write-up](docs/postmortems/automatic-resource-names.md), #1478).
 - **Storing into an existing database no longer drops it** (breaking) — `jn:store`, `jn:load`,
   `xn:store` and `xn:load` used to delete and recreate the whole database whenever `$create-new`
   was true (the default), destroying every other resource. Now a new resource name is added beside

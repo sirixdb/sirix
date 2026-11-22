@@ -576,9 +576,14 @@ class QueryMutationAuthorizationTest {
         }
     }
 
+    /**
+     * Generated names are always new (#1478): a batch append skips every existing name, including
+     * those the former naming resolved to (resource21, resource41), so CREATE suffices and no
+     * existing resource is written into.
+     */
     @ParameterizedTest
     @CsvSource("store,0", "store,1", "load,0", "load,1")
-    fun generatedAppendCannotOverwriteAnyResolvedTarget(function: String, position: Int) {
+    fun generatedAppendNeverReachesAnExistingResource(function: String, position: Int) {
         val target = if (position == 0) "resource21" else "resource41"
         createDatabase(resourceName = target)
         Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
@@ -587,26 +592,16 @@ class QueryMutationAuthorizationTest {
                 database.createResource(ResourceConfiguration.newBuilder("resource4").storageType(StorageType.FILE_CHANNEL).build())
             }
         }
+        val before = databaseWitness(target)
         val input = "'{}'"
         val query = "jn:$function('auth','fresh',($input,$input),false())"
         withRoles("auth-view", "create") { fixture ->
-            val database = fixture.store.lookup("auth")!!.database
-            val resources = database.listResources().toSet()
-            database.beginResourceSession(target).use { session ->
-                val before = witness(session)
-                assertRefused(query) { run(fixture, query, Mockito.mock(OAuth2Auth::class.java)) }
-                assertEquals(resources, database.listResources().toSet(), "An earlier batch input must not create a resource")
-                assertWitnessUnchanged(before, witness(session), query)
-            }
+            run(fixture, query, Mockito.mock(OAuth2Auth::class.java))
         }
-        withRoles("auth-view", "create", "modify") { fixture ->
-            val database = fixture.store.lookup("auth")!!.database
-            database.beginResourceSession(target).use { session ->
-                val revision = session.mostRecentRevisionNumber
-                run(fixture, query, Mockito.mock(OAuth2Auth::class.java))
-                assertEquals(revision + 1, session.mostRecentRevisionNumber)
-            }
-        }
+        val after = databaseWitness(target)
+        assertEquals(2, (after.first - before.first).size, "Both inputs must be added as new resources: ${after.first}")
+        assertTrue(after.first.containsAll(before.first), "No existing resource may disappear")
+        assertWitnessUnchanged(before.second, after.second, query)
     }
 
     private fun replacementQuery(function: String, target: String): String {
