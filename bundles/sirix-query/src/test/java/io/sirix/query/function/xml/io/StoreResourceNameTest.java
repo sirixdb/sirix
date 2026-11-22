@@ -24,8 +24,7 @@ final class StoreResourceNameTest {
   Path directory;
 
   @ParameterizedTest
-  @ValueSource(strings = {"%s", "xn:sort(%s)",
-      "(for $n in (%s, <unused/>) where name($n) != 'unused' return $n)"})
+  @ValueSource(strings = {"%s", "xn:sort(%s)", "(for $n in (%s, <unused/>) where name($n) != 'unused' return $n)"})
   void aSingleNodeIsStoredUnderTheGivenResourceNameOnEveryPath(final String representation) {
     final String a = representation.formatted("<a/>");
     final String b = representation.formatted("<b/>");
@@ -52,8 +51,7 @@ final class StoreResourceNameTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"%s", "xn:sort(%s)",
-      "(for $n in (%s, <unused/>) where name($n) != 'unused' return $n)"})
+  @ValueSource(strings = {"%s", "xn:sort(%s)", "(for $n in (%s, <unused/>) where name($n) != 'unused' return $n)"})
   void withoutANameOrForSeveralNodesResourcesKeepTheirAutomaticNames(final String representation) {
     final String one = representation.formatted("<a/>");
     final String several = representation.formatted("(<a/>,<b/>)");

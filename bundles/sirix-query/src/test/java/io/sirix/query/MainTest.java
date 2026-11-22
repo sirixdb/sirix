@@ -82,8 +82,8 @@ final class MainTest {
     assertNull(Main.readStringFromScannerWithEndMark(interrupted, "sirix> ", new ShellHighlighter(ShellPalette.NONE)));
     final LineReader interruptedQuery = mock(LineReader.class);
     when(interruptedQuery.readLine(anyString())).thenReturn("1+1").thenThrow(new UserInterruptException(""));
-    assertNull(Main.readStringFromScannerWithEndMark(interruptedQuery, "sirix> ",
-        new ShellHighlighter(ShellPalette.NONE)));
+    assertNull(
+        Main.readStringFromScannerWithEndMark(interruptedQuery, "sirix> ", new ShellHighlighter(ShellPalette.NONE)));
   }
 
   @Test
@@ -263,7 +263,7 @@ final class MainTest {
     Files.writeString(file, script);
     final LineReader reader = mock(LineReader.class);
     when(reader.readLine(anyString())).thenReturn(store, "", missing, "", queryError, "", "1+1", "")
-                                    .thenThrow(new EndOfFileException());
+                                      .thenThrow(new EndOfFileException());
     final Terminal terminal = mock(Terminal.class);
     when(terminal.writer()).thenAnswer(invocation -> Main.outputWriter(System.out));
     final TerminalBuilder terminals = mock(TerminalBuilder.class, RETURNS_SELF);
@@ -291,8 +291,10 @@ final class MainTest {
         final MockedStatic<LineReaderBuilder> readerFactory = mockStatic(LineReaderBuilder.class)) {
       terminalFactory.when(TerminalBuilder::builder).thenReturn(terminals);
       readerFactory.when(LineReaderBuilder::builder).thenReturn(readers);
-      final String[] output = capture(script,
-          () -> assertEquals(interactive ? 0 : -1, Main.run(arguments.toArray(String[]::new), mode.equals("terminal")
+      final String[] output = capture(script, () -> assertEquals(interactive
+          ? 0
+          : -1,
+          Main.run(arguments.toArray(String[]::new), mode.equals("terminal")
               ? console
               : null)));
       final List<String> reports = output[1].lines().filter(line -> line.startsWith("Error:")).toList();
@@ -302,7 +304,9 @@ final class MainTest {
       assertEquals("Error: err:FOER0000: query\\ndetail", reports.get(1));
       final String nl = System.lineSeparator();
       assertTrue(output[0].contains(nl + "Query result" + nl + "2" + nl + nl), output[0]);
-      assertEquals(debug ? 2 : 0, diagnostics.list.size());
+      assertEquals(debug
+          ? 2
+          : 0, diagnostics.list.size());
       if (debug) {
         assertTrue(diagnostics.list.get(0).getThrowableProxy().getCause().getMessage().contains("bad/\nname"));
         assertTrue(diagnostics.list.get(1).getThrowableProxy().getMessage().contains("query\ndetail"));
@@ -364,8 +368,7 @@ final class MainTest {
   void emptySubmissionsKeepBothInteractiveModesAliveUntilEof() throws Exception {
     for (final boolean defaultMode : new boolean[] {false, true}) {
       final LineReader reader = mock(LineReader.class);
-      when(reader.readLine(anyString())).thenReturn("", "", "1+1", "", "")
-                                      .thenThrow(new EndOfFileException());
+      when(reader.readLine(anyString())).thenReturn("", "", "1+1", "", "").thenThrow(new EndOfFileException());
       final Terminal terminal = mock(Terminal.class);
       when(terminal.writer()).thenAnswer(invocation -> Main.outputWriter(System.out));
       final TerminalBuilder terminals = mock(TerminalBuilder.class, RETURNS_SELF);
@@ -380,7 +383,8 @@ final class MainTest {
         readerFactory.when(LineReaderBuilder::builder).thenReturn(readers);
         final String[] output = capture("", () -> assertEquals(0, Main.run(defaultMode
             ? new String[] {"--no-color"}
-            : new String[] {"-iq", "--no-color"}, defaultMode
+            : new String[] {"-iq", "--no-color"},
+            defaultMode
                 ? console
                 : null)));
         final String nl = System.lineSeparator();
@@ -401,8 +405,8 @@ final class MainTest {
       Files.writeString(script, source);
       for (final String input : List.of(script.toString(), "-")) {
         final String[] output = invoke(source, "-iqf", input, "--no-color");
-        assertEquals(nl + "Query result" + nl + "first\n  second" + nl + nl + nl + "Query result" + nl
-            + "third\nfourth" + nl + nl, output[0]);
+        assertEquals(nl + "Query result" + nl + "first\n  second" + nl + nl + nl + "Query result" + nl + "third\nfourth"
+            + nl + nl, output[0]);
         assertEquals("", output[1]);
       }
     }
@@ -419,13 +423,13 @@ final class MainTest {
           : character;
       for (final String ending : List.of("\n", "\r\n")) {
         for (final String quote : List.of("'", "\"")) {
-          final String source = "string-to-codepoints(" + quote + "a" + character + "b" + quote + ")" + ending
-              + " \t" + ending + "string-to-codepoints(" + quote + "a" + ending + middleLine + ending + "b" + quote + ")";
+          final String source = "string-to-codepoints(" + quote + "a" + character + "b" + quote + ")" + ending + " \t"
+              + ending + "string-to-codepoints(" + quote + "a" + ending + middleLine + ending + "b" + quote + ")";
           final Path script = directory.resolve("separator-content.xq");
           Files.writeString(script, source);
           for (final String input : List.of(script.toString(), "-")) {
-            final String[] output = capture(source,
-                () -> assertEquals(0, Main.run(new String[] {"-iqf", input, "--no-color"}, null),
+            final String[] output =
+                capture(source, () -> assertEquals(0, Main.run(new String[] {"-iqf", input, "--no-color"}, null),
                     "script character U+" + Integer.toHexString(separator[0])));
             final String multiline = separator[0] == 13
                 ? "97 10 10 9 10 98"

@@ -132,8 +132,8 @@ final class ShellOutputTest {
     final String originalDescription = failure.getDescription();
     for (final ShellPalette palette : ShellPalette.values()) {
       final StringWriter err = new StringWriter();
-      new ShellOutput(palette, new PrintWriter(Writer.nullWriter()), new PrintWriter(new BufferedWriter(err)))
-          .error(failure);
+      new ShellOutput(palette, new PrintWriter(Writer.nullWriter()), new PrintWriter(new BufferedWriter(err))).error(
+          failure);
       assertEquals(palette.enabled()
           ? palette.red() + "Error [err:XPTY0004]: " + escaped + palette.reset() + System.lineSeparator()
           : "Error: err:XPTY0004: " + escaped + System.lineSeparator(), err.toString());
