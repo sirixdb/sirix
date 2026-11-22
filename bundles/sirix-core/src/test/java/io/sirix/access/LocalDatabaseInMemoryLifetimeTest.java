@@ -41,7 +41,6 @@ import static io.sirix.access.InMemoryLifetimeFixture.insertValueAfter;
 import static io.sirix.access.InMemoryLifetimeFixture.open;
 import static io.sirix.access.InMemoryLifetimeFixture.resourceNames;
 import static io.sirix.access.InMemoryLifetimeFixture.valueAt;
-import static io.sirix.access.InMemoryLifetimeFixture.valueOf;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -128,7 +127,8 @@ final class LocalDatabaseInMemoryLifetimeTest {
             readerOpen.countDown();
             await(committed);
             // [held reader's view of the first value, held reader's view of the new value]
-            return new String[] {valueOf(reader, model, first), String.valueOf(reader.getRevisionNumber())};
+            return new String[] {InMemoryLifetimeFixture.valueOf(reader, model, first),
+                String.valueOf(reader.getRevisionNumber())};
           }
         }, readerThread);
         await(readerOpen);

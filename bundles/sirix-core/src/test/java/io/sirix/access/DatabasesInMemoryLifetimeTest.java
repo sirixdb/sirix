@@ -760,6 +760,8 @@ final class DatabasesInMemoryLifetimeTest {
 
     private static final int DATABASES = 40;
 
+    // The fence keeps retained sessions alive through the entire loop before this child halts.
+    @SuppressWarnings("ReachabilityFenceUsage")
     public static void main(final String[] arguments) throws IOException {
       final Path root = Path.of(arguments[0]);
       final Model model = Model.valueOf(arguments[1]);
@@ -776,6 +778,7 @@ final class DatabasesInMemoryLifetimeTest {
         shared = null;
       }
       // Kept reachable on purpose in the control mode.
+      @SuppressWarnings("ModifiedButNotUsed")
       final List<Database<? extends ResourceSession<?, ?>>> kept = new ArrayList<>();
       final List<ResourceSession<?, ?>> closedSessions = new ArrayList<>();
       for (int i = 0; i < DATABASES; i++) {
