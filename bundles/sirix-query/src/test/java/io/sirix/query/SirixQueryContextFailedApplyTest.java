@@ -67,8 +67,8 @@ final class SirixQueryContextFailedApplyTest {
 
   @ParameterizedTest
   @MethodSource("jsonRecoveryCases")
-  void failedJsonApplyReleasesTheWriterItOpenedWithoutItsChanges(final CommitStrategy strategy,
-      final boolean mixed, final String mutation) {
+  void failedJsonApplyReleasesTheWriterItOpenedWithoutItsChanges(final CommitStrategy strategy, final boolean mixed,
+      final String mutation) {
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
         final BasicXmlDBStore xmlStore = BasicXmlDBStore.newBuilder().location(directory).build();
         final SirixCompileChain chain = SirixCompileChain.createWithNodeAndJsonStore(xmlStore, store);
@@ -135,8 +135,7 @@ final class SirixQueryContextFailedApplyTest {
   void failedJsonApplyLeavesACallerHeldWriterOpen(final CommitStrategy strategy) {
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory).build();
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
-        final SirixQueryContext context =
-            SirixQueryContext.createWithJsonStoreAndCommitStrategy(store, strategy)) {
+        final SirixQueryContext context = SirixQueryContext.createWithJsonStoreAndCommitStrategy(store, strategy)) {
       final JsonDBCollection collection = store.create("json", "data", "{\"a\":1,\"arr\":[1,2]}");
       final JsonResourceSession session = collection.getDocument("data").getResourceSession();
       final JsonNodeTrx held = session.beginNodeTrx();
