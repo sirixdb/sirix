@@ -26,6 +26,7 @@ It explains the *why*. The authoritative detail lives in the documents it points
 | [AGENTS.md](../AGENTS.md) | The HFT and low-latency hot-path rules every change must respect. |
 | [budget README](../bundles/sirix-core/src/test/java/io/sirix/budget/README.md) | Work-budget rules and how to add one. |
 | [docs/postmortems/TEMPLATE.md](postmortems/TEMPLATE.md), [docs/LESSONS.md](LESSONS.md) | Bug write-ups and the lessons taken from them. |
+| [changelog.d/README.md](../changelog.d/README.md) | How a pull request adds a changelog or lesson entry, and how a release collects them. |
 | [docs/BENCHMARK_CAMPAIGNS.md](BENCHMARK_CAMPAIGNS.md) | The performance campaign record, its numbers and its measurement discipline. |
 
 ## 1. The specification is the source of truth
@@ -261,7 +262,11 @@ do, in rounds, before any committer takes it.
 ## 9. Every bug leaves a lesson
 
 A bug fix is three artifacts, not one: a root-cause [write-up](postmortems/TEMPLATE.md), a
-regression test that fails before the fix, and an entry in [LESSONS.md](LESSONS.md).
+regression test that fails before the fix, and a lesson. The lesson arrives as one fragment file in
+[lessons.d/](lessons.d/README.md), which a release collects into [LESSONS.md](LESSONS.md); a
+changelog entry arrives the same way, in [changelog.d/](../changelog.d/README.md). Shared files that
+every branch appends to turn each merge into a rebase for every other open pull request, and a
+rebase costs a full revalidation — one file per entry costs nothing and conflicts with nothing.
 
 The write-up's load-bearing field is *why tests missed it*. The root cause explains this bug; that
 field explains the hole that let it through, and it is the only part that prevents the next one.
