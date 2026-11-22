@@ -126,9 +126,11 @@ A pull request does not write its entry here: it adds one fragment file under
 
 - **1.0 is the only on-disk format.** A store whose format version is not 1.0's — the superblock
   layout version, a page-envelope version byte or the persisted `binaryEncoding` setting — is
-  refused before any mutation with a plain unsupported-format-version error. Nothing detects,
-  names or special-cases a pre-1.0 development format, and no compatibility or conversion path
-  exists; moving data between stores is export and import. The development-era acceptances are
+  refused before any mutation on the ordinary open path with a plain unsupported-format-version
+  error, on FILE_CHANNEL and MEMORY_MAPPED. Repair and recovery paths are not yet fully covered;
+  the repair-ownership redesign is mandatory before a second format version exists, tracked as
+  `sirix-repair-format-gate`. Nothing detects, names or special-cases a pre-1.0 development format,
+  and no compatibility or conversion path exists; moving data between stores is export and import. The development-era acceptances are
   gone with it: a resource settings file must carry a nonzero `resourceUuid`, a superblock must
   carry that same nonzero UUID, and the revisions record stride must be 32. See
   [FMT-401](spec/FMT-disk-format.md#fmt-401--10-format-baseline) and

@@ -16,6 +16,16 @@ flags byte (additive page features), `LAYOUT_VERSION` (file layout), or a sub-st
 byte (PIXM/PIXD/PIXS/PIX1, per-record versions). The golden pins make changes to pinned structures
 deliberate (see §2, "PathStats trailer").
 
+Ordinary resource opens on FILE_CHANNEL and MEMORY_MAPPED refuse a foreign format version before
+any mutation, with an "unsupported format version" error naming the value found. Protection across
+repair and recovery is partial: derived-resource rebuilding, tail-log record healing, orphan-spill
+deletion, crash-leftover truncation and interrupted-first-commit recovery can still change foreign
+page-format bytes before decoding their version. This includes the mapped bootstrap case with a
+foreign revision-zero root and a torn directory record. The full decided requirement and its gap
+are recorded under [FMT-401](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
+The repair-ownership redesign, task `sirix-repair-format-gate`, is mandatory before any second
+format version exists.
+
 The current V0 layout omits the eight-byte hash and its offset-table entry from fused JSON primitive leaves
 (`OBJECT_NAMED_BOOLEAN`, `OBJECT_NAMED_NUMBER`, `OBJECT_NAMED_STRING`, `OBJECT_NAMED_NULL`).
 Their hashes are computed on demand from the existing node identity, links, name, and typed
@@ -40,7 +50,9 @@ whose settings contract is described below. It is
 cross-linked to the binary files by the **resource UUID**: the JSON persists it, both
 superblocks embed it, and opening a data file with a different resource's settings (wrong-backup
 restore) fails fast. A stored zero UUID is refused outright; the cross-check itself is skipped only
-on recovery paths that run before the settings identity is known.
+on recovery paths that run before the settings identity is known. These identity checks cover
+ordinary opens and selected repair cases; the full before-mutation protection across repair and
+recovery remains the FMT-401 gap described above.
 
 The resource settings file (`ressetting.obj`) requires the fields through `storeChildCount` in
 writer order. Later optional fields are dispatched by name: they may be omitted or reordered
@@ -68,7 +80,7 @@ Page keys (`PageReference.getKey()`) are absolute byte offsets of the record's l
 The header region stays a sparse hole until the first commit writes it (`IOStorage.exists()`
 checks size > 0 to distinguish fresh resources). Beacon recovery validates
 `[len][payload][XXH3]` bounds and checksum before decoding the root. The crash-window contract
-below defines beacon selection. Storage open validates the superblock
+below defines beacon selection. Ordinary storage open validates the superblock
 (magic/version/endianness/role/checksum) and fails fast with an
 actionable message on any mismatch. The three spare bytes at offsets 13–15 must be zero;
 nonzero values are refused even when the checksum is valid. Their future use requires a
@@ -549,9 +561,12 @@ defines the access policy for unknown bits:
 
 This build implements the words but assigns no supported feature bits. Feature-word refusal raises
 `UnsupportedStoreFeatureException`, naming the word and hexadecimal mask and requesting an upgrade.
-Unknown UberPage versions, flags and required entries also raise this exception.
-Compatibility refusal from either selected beacon propagates immediately, preserving the
-store's requirements. Recovery must preserve unsupported derived stores.
+Unknown UberPage versions raise its `UnsupportedFormatVersionException` subtype with the plain
+"unsupported format version" diagnostic and the value found; unknown flags and required entries
+raise `UnsupportedStoreFeatureException`.
+Store-feature refusal from either selected beacon propagates immediately, preserving the
+store's feature requirements. Format-version protection across repair and recovery remains partial,
+as recorded in FMT-401 and task `sirix-repair-format-gate`.
 An unknown read-only-compatible bit also forbids implicit file creation, record healing and
 orphan-spill cleanup. Reads still require intact or recoverable revision metadata; a missing
 revisions file cannot be created to make such an open succeed.

@@ -31,10 +31,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * FMT-401: 1.0 is the only on-disk format. A store carrying any other format version — in the
- * superblock layout version, in a page envelope or in the persisted {@code binaryEncoding} setting
- * — is refused before any mutation with a plain unsupported-format-version error, and nothing in
- * the refusal detects or names a pre-1.0 development format.
+ * FMT-401 ordinary-open coverage: these fixtures exercise foreign superblock layout versions,
+ * page-envelope versions and persisted {@code binaryEncoding} settings. Their ordinary opens
+ * refuse before mutation with a plain unsupported-format-version error, without naming a pre-1.0
+ * development format. Page decoding fixtures cover FILE_CHANNEL and MEMORY_MAPPED; repair and
+ * recovery combinations remain the tracked gap in FMT-401, task sirix-repair-format-gate.
  *
  * <p>
  * FMT-102: the development-era acceptances of a zero resource UUID and a zero revisions record

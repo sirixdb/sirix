@@ -104,7 +104,9 @@
 - Regression tests and independent oracle: `FormatRepairBoundaryTest` opens real stores with
   checksum-valid foreign versions, mismatched UUIDs/roles/strides and missing derived settings.
   FMT-102/FMT-401 require refusal and byte-for-byte unchanged data, revisions and derived settings;
-  these tests reject rebuilding or truncating any such image. `FormatVersionBaselineTest` decodes
+  these tests reject rebuilding or truncating the selected settings, superblock and uber-page
+  images; they do not establish full page-envelope protection through repair or recovery.
+  `FormatVersionBaselineTest` decodes
   foreign uber and revision-root envelopes through cold store opens, including a compatible
   secondary beacon; the observable oracle is the specified plain refusal and unchanged files.
   `HistoryPreservingExportImportTest` imports exported timestamps directly and compares with the
@@ -124,3 +126,30 @@
 - Lesson: extend the existing compatibility-before-repair lesson in [LESSONS.md](../LESSONS.md):
   version refusals need the same repair immunity as required-feature refusals, and every persistent
   file must establish its identity before interpreting records as evidence that deletion is safe.
+
+## Deferred repair ownership: documentation scope correction
+
+- Findings: R4 and review-1 identify the same remaining ownership gap. Ordinary opens refuse foreign
+  versions before mutation on both persistent backends, but that evidence does not cover derived
+  rebuilding, torn-record healing from the tail log, orphan-spill deletion, crash-leftover truncation
+  or interrupted-first-commit recovery. The mapped bootstrap case can truncate a foreign
+  revision-zero root when its directory record is torn.
+- Root cause of the overstatement: the earlier regression matrix tested foreign settings,
+  superblocks and uber pages through selected repair paths, and page envelopes through ordinary
+  opens. Combining a foreign envelope with repair-triggering state exposes mutations before
+  envelope decoding. Passing those separate fixture groups did not prove the combined invariant.
+- Decision: retain delivered production checks and every behavior test; record the remaining
+  gap in FMT-102/FMT-401 and scope factual claims to ordinary opens. The normative MUST requirements
+  remain the decided target, and FMT-402's three timestamp gaps remain unchanged.
+- Mandatory follow-up: task `sirix-repair-format-gate`, before any second format version exists.
+  It needs side-effect-free discovery of affected records and envelopes and a resource-bound proof
+  required by every repair entry point, replacing the bare opening snapshot across factories and
+  reaching direct reader and writer APIs. This documentation round adds no production behavior.
+- Verification: 28 focused tests passed with zero failures, errors or skips:
+  `FormatVersionBaselineTest` (9), `GoldenFormatTest` (16), `GoldenCompositePageTest` (2) and
+  `BinaryEncodingVersionStrictTest` (1). The run used `:sirix-core:test` with those four selections
+  and excluded unrelated startup tasks; output is in `build/review-format-doc-scope.log`.
+  Production sources, test bodies, golden pins and the FMT-102/FMT-401 normative paragraphs were
+  unchanged in this round; FMT-402 was unchanged in full.
+- Lesson: document the boundary exercised by a regression matrix. Separate version and recovery
+  tests cannot establish version refusal before recovery side effects; see [LESSONS.md](../LESSONS.md).
