@@ -11,9 +11,9 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.pitest.mutationtest.engine.Location;
 import org.pitest.mutationtest.engine.MutationDetails;
 import org.pitest.mutationtest.engine.MutationIdentifier;
-import org.pitest.mutationtest.engine.Location;
 
 /**
  * The identities of the mutants the changed-line restriction removed (CONV-205).
@@ -34,6 +34,8 @@ import org.pitest.mutationtest.engine.Location;
  * record two passes both wrote is counted once.
  */
 public final class RestrictionCensus {
+
+  private static final char[] HEX = "0123456789abcdef".toCharArray();
 
   private final Path path;
 
@@ -83,11 +85,6 @@ public final class RestrictionCensus {
     pending.clear();
   }
 
-  /** The number of distinct mutants recorded so far, for the factory's log line. */
-  public synchronized int recorded() {
-    return written.size();
-  }
-
   private static String render(final MutationDetails mutation) {
     final MutationIdentifier id = mutation.getId();
     final Location location = id.getLocation();
@@ -125,7 +122,8 @@ public final class RestrictionCensus {
         case '\t' -> quoted.append("\\t");
         default -> {
           if (character < 0x20) {
-            quoted.append(String.format("\\u%04x", (int) character));
+            // A control character JSON cannot carry literally; no locale is involved.
+            quoted.append("\\u00").append(HEX[character >> 4]).append(HEX[character & 0xF]);
           } else {
             quoted.append(character);
           }

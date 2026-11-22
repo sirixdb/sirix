@@ -19,9 +19,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pitest.bytecode.analysis.ClassTree;
 import org.pitest.classinfo.ClassName;
+import org.pitest.mutationtest.build.CompoundMutationInterceptor;
 import org.pitest.mutationtest.build.InterceptorParameters;
 import org.pitest.mutationtest.build.InterceptorType;
-import org.pitest.mutationtest.build.CompoundMutationInterceptor;
 import org.pitest.mutationtest.build.MutationInterceptor;
 import org.pitest.mutationtest.engine.Location;
 import org.pitest.mutationtest.engine.Mutater;
@@ -195,6 +195,21 @@ final class ChangedLineInterceptorTest {
     final List<String> records = Files.readAllLines(census());
     assertEquals(1, records.size(), "an embedded newline must not split the record");
     assertTrue(records.get(0).contains("\\\"x\\\"\\nwith \\\\null"), records.get(0));
+  }
+
+  @Test
+  void escapesAControlCharacterAsAJsonEscape() throws IOException {
+    final ChangedLineMap changed = ChangedLineMap.read(map("io.sirix.api\tNodeTrx.java\t24"));
+    final MutationInterceptor interceptor =
+        new ChangedLineInterceptor(changed, RestrictionCensus.at(census()));
+    final MutationDetails awkward = new MutationDetails(new MutationIdentifier(
+        Location.location(ClassName.fromString("io.sirix.api.NodeTrx"), "commit", "()V"),
+        List.of(1), MUTATOR), "NodeTrx.java", "replaced \u0001 and \u001f", 36, 0);
+
+    run(interceptor, List.of(awkward));
+
+    assertTrue(Files.readAllLines(census()).get(0).contains("replaced \\u0001 and \\u001f"),
+        Files.readAllLines(census()).get(0));
   }
 
   @Test
