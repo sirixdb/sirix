@@ -643,8 +643,8 @@ the open database instance that holds it, in the process that opened it:
    cannot open the database while the owner holds it (TXN-101, `SirixDatabaseLockException`).
    It has no durability. The TXN-302 exemption and TXN-607 are unchanged.
 10. **Backup.** A backup (TXN-613, TXN-614) MUST skip every IN_MEMORY resource and its derived
-    state (clause 8). Its pinned set contains only persistent resources, and none of their files
-    or settings is copied. The backup's result MUST list each skipped IN_MEMORY resource by name
+    state (clause 8). Its pinned set contains only persistent resources.
+    The backup's result MUST list each skipped IN_MEMORY resource by name
     as not backed up. A restore MUST never create an IN_MEMORY resource or its derived state.
 
 Acceptance criteria, each observable through the public API, for JSON and XML:

@@ -47,7 +47,7 @@ import static java.util.Objects.requireNonNull;
  * In-memory storage: the committed pages of a resource kept in the JVM heap instead of a file.
  *
  * <p>
- * Contract, identical to the file-backed storages except for durability across processes:
+ * Page ownership and encoding match file-backed storage; state lifetime follows TXN-615:
  * </p>
  * <ul>
  * <li>A page is <em>serialized</em> when it is written: the stored bytes are exactly the payload a

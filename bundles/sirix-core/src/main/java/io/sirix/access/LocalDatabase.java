@@ -117,9 +117,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private final BufferManager bufferManager;
 
   /**
-   * Names of IN_MEMORY resources whose state this instance never held but whose directories could not
-   * be removed (TXN-615 clauses 6 and 7). They are treated as absent; creating one retries the
-   * removal.
+   * Names of discarded IN_MEMORY resources whose directories could not be retired (TXN-615 clauses 6,
+   * 7 and 8). They are treated as absent; creating one retries the retirement.
    */
   private final Set<String> hiddenInMemoryLeftovers = ConcurrentHashMap.newKeySet();
 
