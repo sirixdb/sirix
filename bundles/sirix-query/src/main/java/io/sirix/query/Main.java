@@ -36,6 +36,7 @@ import io.sirix.query.shell.ShellHighlighter;
 import io.sirix.query.shell.ShellOutput;
 import io.sirix.query.shell.ShellPalette;
 import io.sirix.query.shell.ShellPrompt;
+import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Query;
@@ -254,11 +255,7 @@ public final class Main {
         if (query == null)
           break;
 
-        try {
-          executeQuery(config, compileChain, ctx, query);
-        } catch (QueryException e) {
-          handleQueryException(config, e);
-        }
+        executeInteractively(config, compileChain, ctx, query);
       }
     }
   }
@@ -277,6 +274,32 @@ public final class Main {
         handleQueryException(config, e);
       }
     }
+  }
+
+  /**
+   * Runs one query of an interactive session. Whatever runtime failure the query raises while it is
+   * compiled, evaluated, applied or serialized ends only that query: it is reported with an error
+   * code and the session continues with the next prompt. Errors are not caught.
+   */
+  private static void executeInteractively(Config config, CompileChain compileChain, QueryContext ctx, String query) {
+    try {
+      executeQuery(config, compileChain, ctx, query);
+    } catch (final RuntimeException failure) {
+      // The session reuses one context: a failed query's pending updates must never be applied
+      // by a later query.
+      ctx.setUpdateList(null);
+      handleQueryException(config, asQueryException(failure));
+    }
+  }
+
+  /** A non-query failure is reported under Brackit's internal dynamic error code. */
+  static QueryException asQueryException(final RuntimeException failure) {
+    if (failure instanceof QueryException queryException)
+      return queryException;
+    final String message = failure.getMessage();
+    return new QueryException(failure, ErrorCode.BIT_DYN_INT_ERROR, "%s", message == null || message.isBlank()
+        ? failure.getClass().getName()
+        : message.strip());
   }
 
   private static void handleQueryException(Config config, QueryException e) {

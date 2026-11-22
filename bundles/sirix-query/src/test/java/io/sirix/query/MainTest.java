@@ -1,6 +1,8 @@
 package io.sirix.query;
 
 import org.junit.jupiter.api.Test;
+import io.brackit.query.ErrorCode;
+import io.brackit.query.QueryException;
 import io.sirix.query.shell.ShellHighlighter;
 import io.sirix.query.shell.ShellPalette;
 import org.jline.reader.LineReader;
@@ -35,6 +37,7 @@ import static org.mockito.Mockito.RETURNS_SELF;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
@@ -196,6 +199,70 @@ final class MainTest {
     }
   }
 
+  @Test
+  void interactiveShellReturnsToThePromptAfterAnyQueryFailureWithoutApplyingItsUpdates() throws Exception {
+    final String document = "jn:doc('shell-failure','data')";
+    final LineReader reader = mock(LineReader.class);
+    when(reader.readLine(anyString())).thenReturn("jn:store('shell-failure','data','{\"a\":1}')", "",
+        // A store failure (not a QueryException) after an update was already queued.
+        "for $n in ('data','missing') return insert json {'x':1} into jn:doc('shell-failure',$n)", "",
+        // A dynamic query error after an update was already queued.
+        "for $i in (1,0) return insert json {'y': 1 idiv $i} into " + document, "",
+        "insert json {'c':3} into " + document, "", document, "").thenThrow(new EndOfFileException());
+    final TerminalBuilder terminals = mock(TerminalBuilder.class, RETURNS_SELF);
+    when(terminals.build()).thenReturn(mock(Terminal.class));
+    final LineReaderBuilder readers = mock(LineReaderBuilder.class, RETURNS_SELF);
+    when(readers.build()).thenReturn(reader);
+    final Logger logger = (Logger) LoggerFactory.getLogger(Main.class);
+    final ListAppender<ILoggingEvent> diagnostics = new ListAppender<>();
+    diagnostics.start();
+    logger.addAppender(diagnostics);
+    try (final MockedStatic<TerminalBuilder> terminalFactory = mockStatic(TerminalBuilder.class);
+        final MockedStatic<LineReaderBuilder> readerFactory = mockStatic(LineReaderBuilder.class)) {
+      terminalFactory.when(TerminalBuilder::builder).thenReturn(terminals);
+      readerFactory.when(LineReaderBuilder::builder).thenReturn(readers);
+      final String[] output = capture("", () -> assertEquals(0, Main.run(new String[] {"-iq", "-d"}, null)));
+      final String nl = System.lineSeparator();
+      final String banner = "Enter query string (terminate with Control-D):" + nl;
+      // Every query got a prompt and the session ended only at end of input.
+      assertEquals(6, occurrences(output[0], banner), output[0]);
+      // Neither failed query's queued insert reached the database.
+      assertTrue(output[0].endsWith(nl + "Query result" + nl + "{\"a\":1,\"c\":3}" + nl + nl + banner), output[0]);
+      // With -d the logger also writes stack traces to stderr; the reports are the "Error:" lines.
+      final List<String> errors = output[1].lines().filter(line -> line.startsWith("Error:")).toList();
+      assertEquals(2, errors.size(), output[1]);
+      assertTrue(errors.get(0).startsWith("Error: bit:BIDY0300: Resource could not be opened"), errors.get(0));
+      assertTrue(errors.get(1).startsWith("Error: err:FOAR0001"), errors.get(1));
+      assertEquals(2, diagnostics.list.size());
+      assertEquals("io.sirix.exception.SirixUsageException",
+          diagnostics.list.getFirst().getThrowableProxy().getCause().getClassName());
+    } finally {
+      logger.detachAppender(diagnostics);
+      diagnostics.stop();
+    }
+  }
+
+  @Test
+  void nonQueryFailuresAreReportedUnderTheInternalErrorCodeWithAnIdentifyingMessage() {
+    final QueryException query = new QueryException(ErrorCode.ERR_DIVISION_BY_ZERO);
+    assertSame(query, Main.asQueryException(query));
+    for (final String[] failure : new String[][] {{"resource is missing ", "resource is missing"},
+        {null, "java.lang.IllegalStateException"}, {" ", "java.lang.IllegalStateException"}}) {
+      final IllegalStateException cause = new IllegalStateException(failure[0]);
+      final QueryException reported = Main.asQueryException(cause);
+      assertEquals(ErrorCode.BIT_DYN_INT_ERROR, reported.getCode());
+      assertEquals("bit:BIDY0300: " + failure[1], reported.getMessage());
+      assertSame(cause, reported.getCause());
+    }
+  }
+
+  private static int occurrences(final String text, final String part) {
+    int count = 0;
+    for (int at = text.indexOf(part); at >= 0; at = text.indexOf(part, at + part.length()))
+      count++;
+    return count;
+  }
+
   private static String[] invoke(final String input, final String... arguments) {
     return invoke(0, input, arguments);
   }
@@ -217,6 +284,15 @@ final class MainTest {
   }
 
   private static String[] invoke(final int expectedStatus, final String input, final String... arguments) {
+    return capture(input, () -> {
+      if (expectedStatus == 0)
+        Main.main(arguments);
+      else
+        assertEquals(expectedStatus, Main.run(arguments, null));
+    });
+  }
+
+  private static String[] capture(final String input, final Runnable action) {
     final InputStream previousIn = System.in;
     final PrintStream previousOut = System.out;
     final PrintStream previousErr = System.err;
@@ -227,10 +303,7 @@ final class MainTest {
       System.setIn(new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)));
       System.setOut(out);
       System.setErr(err);
-      if (expectedStatus == 0)
-        Main.main(arguments);
-      else
-        assertEquals(expectedStatus, Main.run(arguments, null));
+      action.run();
       return new String[] {output.toString(StandardCharsets.UTF_8), error.toString(StandardCharsets.UTF_8)};
     } finally {
       System.setIn(previousIn);

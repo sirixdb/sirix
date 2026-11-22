@@ -203,6 +203,13 @@ All notable changes to SirixDB are documented in this file.
 
 ### Fixed
 
+- **The shell returns to its prompt after any query failure, and failed updates no longer leak** —
+  a store failure such as opening a missing resource used to end `sirix-shell`; it is now reported
+  with an error code (`bit:BIDY0300` for non-query failures) and the next prompt follows. A failed
+  query's pending updates are discarded instead of being committed by the next updating query, and
+  `SirixQueryContext` rolls back and closes the writers a failed update application opened, so
+  later queries neither commit partial changes nor meet a rollback-only writer
+  ([write-up](docs/postmortems/shell-query-failure-recovery.md), #1430).
 - **A HOT index range could start past its lower bound** — `HOTTrieReader.lowerBound` and
   `upperBound` returned the first entry of the leaf an absent search key was routed to even when the
   key sorted below that leaf and earlier leaves held keys in range, so a scan from such a bound
