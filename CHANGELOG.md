@@ -203,6 +203,13 @@ All notable changes to SirixDB are documented in this file.
 
 ### Fixed
 
+- **`sirix-shell -iqf` runs query scripts** — the option now takes a file (or `-` for stdin),
+  runs its blank-line separated queries in one session, reports failing queries and continues,
+  and exits with -1 if any query failed. Before, it could not run any query
+  ([write-up](docs/postmortems/shell-query-script-mode.md), #1470).
+- **`xn:store` stores a single node under the given resource name** when it creates the
+  database, as `xn:load` and `jn:store` do; before, the document was stored as `resource1`
+  ([write-up](docs/postmortems/xml-store-resource-name.md), #1471).
 - **The shell returns to its prompt after any query failure, and failed updates no longer leak** —
   a store failure such as opening a missing resource used to end `sirix-shell`; it is now reported
   with an error code (`bit:BIDY0300` for non-query failures) and the next prompt follows. A failed

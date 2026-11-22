@@ -34,6 +34,7 @@ import io.sirix.query.node.XmlDBStore;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
 /**
  * <p>
@@ -99,7 +100,8 @@ public final class Store extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     try {
       final String collName = FunUtil.getString(args, 0, "collName", "collection", null, true);
-      final String resName = FunUtil.getString(args, 1, "resName", "resource", null, false);
+      // Absent, a created resource keeps its automatic name and an appended one is named "resource".
+      final String resName = FunUtil.getString(args, 1, "resName", null, null, false);
       final Sequence nodes = args[2];
       if (nodes == null) {
         throw new QueryException(new QNm("No sequence of nodes specified!"));
@@ -119,13 +121,15 @@ public final class Store extends AbstractFunction {
 
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
       if (createNew) {
-        create(store, collName, nodes, commitMessage, commitTimesstamp);
+        create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
       } else {
         final XmlDBCollection coll = store.lookup(collName);
         if (coll == null) {
-          create(store, collName, nodes, commitMessage, commitTimesstamp);
+          create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
         } else {
-          add(coll, resName, nodes, commitMessage, commitTimesstamp);
+          add(coll, resName == null
+              ? "resource"
+              : resName, nodes, commitMessage, commitTimesstamp);
         }
       }
 
@@ -150,10 +154,13 @@ public final class Store extends AbstractFunction {
     }
   }
 
-  private static void create(final XmlDBStore store, final String collName, final Sequence nodes,
-      final String commitMessage, final Instant commitTimestamp) throws DocumentException {
+  /**
+   * A single node is stored as {@code resName}; several nodes keep automatic names, as in xn:load.
+   */
+  private static void create(final XmlDBStore store, final String collName, final @Nullable String resName,
+      final Sequence nodes, final String commitMessage, final Instant commitTimestamp) throws DocumentException {
     if (nodes instanceof Node<?> n) {
-      store.create(collName, new StoreParser(n), commitMessage, commitTimestamp);
+      store.create(collName, resName, new StoreParser(n), commitMessage, commitTimestamp);
     } else {
       store.create(collName, new ParserStream(nodes));
     }

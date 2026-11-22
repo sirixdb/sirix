@@ -256,6 +256,35 @@ final class MainTest {
     }
   }
 
+  @Test
+  void queryScriptsRunEveryBlankLineSeparatedQueryInOneSessionAndReportFailuresInTheStatus() throws Exception {
+    // Initialize logging before stdout is captured, so its one-time status output stays out of it.
+    LoggerFactory.getLogger(Main.class);
+    final String document = "jn:doc('script-session','data')";
+    final Path script = directory.resolve("session script.xq");
+    // CRLF line ends, a multi-line query, repeated and whitespace-only separators, no final blank line.
+    Files.writeString(script,
+        String.join("\r\n", "jn:store('script-session','data','{\"a\":1}')", "", "",
+            "for $i in (1,0) return insert json {'y': 1 idiv $i} into " + document, "  ",
+            "insert json {'c':3} into " + document, "", "let $d := " + document, "return $d.c"));
+    final String[] failed = invoke(-1, "", "-iqf", script.toString(), "--no-color");
+    final String nl = System.lineSeparator();
+    assertEquals(nl + "Query result" + nl + nl + nl + nl + "Query result" + nl + nl + "Query result" + nl + nl + nl + nl
+        + "Query result" + nl + "3" + nl + nl, failed[0]);
+    assertEquals(1, failed[1].lines().count(), failed[1]);
+    assertTrue(failed[1].startsWith("Error: err:FOAR0001"), failed[1]);
+    // The failed query's queued insert was discarded; stdin works with "-" and success exits with 0.
+    // A query's lines are joined as written: a string literal keeps its line break.
+    final String[] succeeded = invoke("1+1" + nl + nl + document + nl + nl + "'first" + nl + "second'", "-iqf", "-");
+    assertEquals(nl + "Query result" + nl + "2" + nl + nl + nl + "Query result" + nl + "{\"a\":1,\"c\":3}" + nl + nl
+        + nl + "Query result" + nl + "first" + nl + "second" + nl + nl, succeeded[0]);
+    assertEquals("", succeeded[1]);
+    final Path missing = directory.resolve("missing script.xq");
+    final String[] unreadable = invoke(-1, "", "-iqf", missing.toString());
+    assertEquals("", unreadable[0]);
+    assertEquals("I/O Error: " + missing + nl, unreadable[1]);
+  }
+
   private static int occurrences(final String text, final String part) {
     int count = 0;
     for (int at = text.indexOf(part); at >= 0; at = text.indexOf(part, at + part.length()))

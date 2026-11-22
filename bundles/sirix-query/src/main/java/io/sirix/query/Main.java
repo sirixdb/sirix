@@ -102,6 +102,7 @@ public final class Main {
 
   static int run(final String[] args, final @Nullable Console console) {
     Config config = new Config();
+    final boolean succeeded;
     try {
       config = parseParams(args);
       final boolean tty = console != null && console.isTerminal();
@@ -123,7 +124,7 @@ public final class Main {
         QueryContext ctx = createQueryContext(nodeStore, jsonStore, config);
 
         CompileChain compileChain = SirixCompileChain.createWithNodeAndJsonStore(nodeStore, jsonStore);
-        executeUserQueries(config, compileChain, ctx);
+        succeeded = executeUserQueries(config, compileChain, ctx);
       }
     } catch (Exception e) {
       if (e instanceof QueryException queryException) {
@@ -132,7 +133,9 @@ public final class Main {
         handleException(e);
       return -1;
     }
-    return 0;
+    return succeeded
+        ? 0
+        : -1;
   }
 
   static PrintWriter outputWriter(final PrintStream stream) {
@@ -184,7 +187,8 @@ public final class Main {
     }
   }
 
-  private static void executeUserQueries(Config config, CompileChain compileChain, QueryContext ctx)
+  /** Runs the requested queries; false when a query script had a failing query. */
+  private static boolean executeUserQueries(Config config, CompileChain compileChain, QueryContext ctx)
       throws IOException {
     if (config.isSet("-qf") && !"-".equals(config.getValue("-qf"))) {
       executeFileQuery(config, compileChain, ctx);
@@ -193,7 +197,7 @@ public final class Main {
     } else if (config.isSet("-iq")) {
       executeInteractiveQuery(config, compileChain, ctx);
     } else if (config.isSet("-iqf")) {
-      executeFileInteractiveQuery(config, compileChain, ctx);
+      return executeQueryScript(config, compileChain, ctx);
     } else if (config.terminal != null) {
       // No query given and stdin is a terminal: start the interactive shell.
       // Piped input (e.g. `echo '1+1' | sirix-shell`) is still read as a single query below.
@@ -201,6 +205,7 @@ public final class Main {
     } else {
       executeQuery(config, compileChain, ctx, readString());
     }
+    return true;
   }
 
   private static void executeFileQuery(Config config, CompileChain compileChain, QueryContext ctx) throws IOException {
@@ -260,35 +265,54 @@ public final class Main {
     }
   }
 
-  private static void executeFileInteractiveQuery(Config config, CompileChain compileChain, QueryContext ctx)
+  /**
+   * Runs a query script from the {@code -iqf} file, or stdin for {@code -}. Queries are separated by
+   * blank lines, the interactive end mark, and run in order in one session; a failing query is
+   * reported and the script continues.
+   *
+   * @return true if every query succeeded
+   */
+  private static boolean executeQueryScript(Config config, CompileChain compileChain, QueryContext ctx)
       throws IOException {
-    while (true) {
-      System.out.println("Enter query string (terminate with Control-D):");
-      String query = readFile(config.getValue("-iqf"));
-      if (query == null)
-        break;
-
-      try {
-        executeQuery(config, compileChain, ctx, query);
-      } catch (QueryException e) {
-        handleQueryException(config, e);
+    final String file = config.getValue("-iqf");
+    final String script = "-".equals(file)
+        ? readString()
+        : readFile(file);
+    boolean succeeded = true;
+    final StringBuilder query = new StringBuilder();
+    for (final String line : script.split("\\R", -1)) {
+      if (!line.isBlank()) {
+        if (!query.isEmpty())
+          query.append(System.lineSeparator());
+        query.append(line);
+      } else if (!query.isEmpty()) {
+        succeeded &= executeInteractively(config, compileChain, ctx, query.toString());
+        query.setLength(0);
       }
     }
+    if (!query.isEmpty())
+      succeeded &= executeInteractively(config, compileChain, ctx, query.toString());
+    return succeeded;
   }
 
   /**
    * Runs one query of an interactive session. Whatever runtime failure the query raises while it is
    * compiled, evaluated, applied or serialized ends only that query: it is reported with an error
-   * code and the session continues with the next prompt. Errors are not caught.
+   * code and the session continues with the next query. Errors are not caught.
+   *
+   * @return true if the query succeeded
    */
-  private static void executeInteractively(Config config, CompileChain compileChain, QueryContext ctx, String query) {
+  private static boolean executeInteractively(Config config, CompileChain compileChain, QueryContext ctx,
+      String query) {
     try {
       executeQuery(config, compileChain, ctx, query);
+      return true;
     } catch (final RuntimeException failure) {
       // The session reuses one context: a failed query's pending updates must never be applied
       // by a later query.
       ctx.setUpdateList(null);
       handleQueryException(config, asQueryException(failure));
+      return false;
     }
   }
 
@@ -412,7 +436,7 @@ public final class Main {
     List<Option> opts = new ArrayList<>();
     opts.add(new Option("-qf", "query file [use '-' for stdin (default)]", true));
     opts.add(new Option("-q", "query string", true));
-    opts.add(new Option("-iqf", "query files [use '-' for stdin (default)]", false));
+    opts.add(new Option("-iqf", "query script, queries separated by blank lines [use '-' for stdin]", true));
     opts.add(new Option("-iq", "query strings", false));
     opts.add(new Option("-fType", "default document type", true));
     opts.add(new Option("-f", "default document", true));

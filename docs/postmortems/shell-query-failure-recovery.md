@@ -47,7 +47,7 @@
   discards its pending state and releases the resources it opened, and test failures that happen
   after side effects have started. See [Lessons](../LESSONS.md).
 
-Not changed here: `-iqf` is declared without a value, so its loop calls `Path.of(null)` and fails
-before any query runs, and would re-read one file forever if it did not (#1470).
-`xn:store` ignores its resource-name argument when creating a database (#1471). A failure while committing (rather
-than applying) keeps its existing semantics, tracked in #1380.
+Follow-ups found here and fixed in the same pull request: `-iqf` could not run any query
+([write-up](shell-query-script-mode.md), #1470), and `xn:store` ignored its resource name when
+creating a database ([write-up](xml-store-resource-name.md), #1471). A failure while committing
+(rather than applying) keeps its existing semantics, tracked in #1380.
