@@ -1,6 +1,8 @@
 package io.sirix.query;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import io.brackit.query.ErrorCode;
 import io.brackit.query.Query;
 import io.brackit.query.jdm.Iter;
@@ -248,17 +250,84 @@ final class MainTest {
     }
   }
 
+  @ParameterizedTest
+  @CsvSource({"interactive,false", "interactive,true", "terminal,false", "terminal,true", "stdin,false", "stdin,true",
+      "file,false", "file,true"})
+  void multilineFailuresHaveOneReportLineAndKeepDebugDiagnostics(final String mode, final boolean debug)
+      throws Exception {
+    final String store = "jn:store('report-lines','r','{}')";
+    final String missing = "jn:doc('report-lines',concat('bad/',codepoints-to-string(10),'name'))";
+    final String queryError = "error(xs:QName('err:FOER0000'),concat('query',codepoints-to-string(10),'detail'))";
+    final String script = String.join("\n\n", store, missing, queryError, "1+1");
+    final Path file = directory.resolve("error-reports.xq");
+    Files.writeString(file, script);
+    final LineReader reader = mock(LineReader.class);
+    when(reader.readLine(anyString())).thenReturn(store, "", missing, "", queryError, "", "1+1", "")
+                                    .thenThrow(new EndOfFileException());
+    final Terminal terminal = mock(Terminal.class);
+    when(terminal.writer()).thenAnswer(invocation -> Main.outputWriter(System.out));
+    final TerminalBuilder terminals = mock(TerminalBuilder.class, RETURNS_SELF);
+    when(terminals.build()).thenReturn(terminal);
+    final LineReaderBuilder readers = mock(LineReaderBuilder.class, RETURNS_SELF);
+    when(readers.build()).thenReturn(reader);
+    final Console console = mock(Console.class);
+    when(console.isTerminal()).thenReturn(true);
+    final List<String> arguments = new ArrayList<>(switch (mode) {
+      case "interactive" -> List.of("-iq");
+      case "terminal" -> List.of();
+      case "stdin" -> List.of("-iqf", "-");
+      case "file" -> List.of("-iqf", file.toString());
+      default -> throw new IllegalArgumentException(mode);
+    });
+    arguments.add("--no-color");
+    if (debug)
+      arguments.add("-d");
+    final boolean interactive = mode.equals("interactive") || mode.equals("terminal");
+    final Logger logger = (Logger) LoggerFactory.getLogger(Main.class);
+    final ListAppender<ILoggingEvent> diagnostics = new ListAppender<>();
+    diagnostics.start();
+    logger.addAppender(diagnostics);
+    try (final MockedStatic<TerminalBuilder> terminalFactory = mockStatic(TerminalBuilder.class);
+        final MockedStatic<LineReaderBuilder> readerFactory = mockStatic(LineReaderBuilder.class)) {
+      terminalFactory.when(TerminalBuilder::builder).thenReturn(terminals);
+      readerFactory.when(LineReaderBuilder::builder).thenReturn(readers);
+      final String[] output = capture(script,
+          () -> assertEquals(interactive ? 0 : -1, Main.run(arguments.toArray(String[]::new), mode.equals("terminal")
+              ? console
+              : null)));
+      final List<String> reports = output[1].lines().filter(line -> line.startsWith("Error:")).toList();
+      assertEquals(2, reports.size(), output[1]);
+      assertTrue(reports.get(0).startsWith("Error: bit:BIDY0300:"), reports.get(0));
+      assertTrue(reports.get(0).contains("bad/\\nname"), reports.get(0));
+      assertEquals("Error: err:FOER0000: query\\ndetail", reports.get(1));
+      final String nl = System.lineSeparator();
+      assertTrue(output[0].contains(nl + "Query result" + nl + "2" + nl + nl), output[0]);
+      assertEquals(debug ? 2 : 0, diagnostics.list.size());
+      if (debug) {
+        assertTrue(diagnostics.list.get(0).getThrowableProxy().getCause().getMessage().contains("bad/\nname"));
+        assertTrue(diagnostics.list.get(1).getThrowableProxy().getMessage().contains("query\ndetail"));
+      } else {
+        assertEquals(2, output[1].lines().count(), output[1]);
+      }
+    } finally {
+      logger.detachAppender(diagnostics);
+      diagnostics.stop();
+    }
+  }
+
   @Test
   void nonQueryFailuresAreReportedUnderTheInternalErrorCodeWithAnIdentifyingMessage() {
     final QueryException query = new QueryException(ErrorCode.ERR_DIVISION_BY_ZERO);
     assertSame(query, Main.asQueryException(query));
     for (final String[] failure : new String[][] {{"resource is missing ", "resource is missing"},
-        {null, "java.lang.IllegalStateException"}, {" ", "java.lang.IllegalStateException"}}) {
+        {" line\r\nbreak ", "line\r\nbreak"}, {null, "java.lang.IllegalStateException"},
+        {" ", "java.lang.IllegalStateException"}}) {
       final IllegalStateException cause = new IllegalStateException(failure[0]);
       final QueryException reported = Main.asQueryException(cause);
       assertEquals(ErrorCode.BIT_DYN_INT_ERROR, reported.getCode());
       assertEquals("bit:BIDY0300: " + failure[1], reported.getMessage());
       assertSame(cause, reported.getCause());
+      assertEquals(failure[0], cause.getMessage());
     }
   }
 

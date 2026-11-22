@@ -67,3 +67,28 @@ creating a database ([write-up](xml-store-resource-name.md), #1471). A failure w
   still discards accumulated input and ends the session.
 - Lesson: distinguish an empty command from end of input at their shared reader boundary;
   see [Lessons](../LESSONS.md).
+
+## Review follow-up: multiline error messages
+
+- Invariant (R2): every coded query failure occupies exactly one report line in plain or colored
+  output, while the exception, its cause and their original messages remain available to `-d`.
+  This applies to mapped runtime failures and QueryExceptions in explicit/default interactive
+  mode and file/stdin scripts, and to batch QueryExceptions sharing the same renderer.
+- Trigger: store `jn:store('db','r','{}')`, then evaluate
+  `jn:doc('db',concat('bad/',codepoints-to-string(10),'name'))`. Resource-name validation includes
+  the supplied LF in its exception message, splitting the rendered report across two lines.
+- Root cause: exception mapping stripped only outer whitespace, while both presentation branches
+  printed embedded terminators verbatim. Changing the mapped exception would miss QueryException
+  passthrough and lose diagnostic fidelity; the report renderer owns the one-line contract.
+- Why tests missed it: diagnostic assertions used single-line exception messages or counted only
+  lines beginning with `Error:`, which cannot detect an extra unprefixed continuation line.
+- Fix: escape CR, LF, vertical tab, form feed, NEL, line separator and paragraph separator in the
+  assembled report, retaining each exception and cause unchanged for logging.
+- Regressions: `ShellOutputTest.errorReportsEscapeEveryLineTerminatorWithoutChangingTheException`
+  uses literal expected escape sequences under every palette and asserts unchanged exception
+  messages, descriptions, codes and cause identity. `MainTest.multilineFailuresHaveOneReportLineAndKeepDebugDiagnostics`
+  exercises the reported resource-name failure and an explicit query error through both interactive
+  dispatches and both script inputs, with debug logging on/off and a successful query afterward.
+  R2 supplies the one-line oracle; an unescaped terminator or a modified debug message violates it.
+- Lesson: enforce a report's framing at its shared presentation boundary rather than modifying
+  diagnostic objects; see [Lessons](../LESSONS.md).

@@ -217,7 +217,8 @@ All notable changes to SirixDB are documented in this file.
   ([write-up](docs/postmortems/xml-store-resource-name.md), #1471).
 - **The shell returns to its prompt after any query failure, and failed updates no longer leak** —
   a store failure such as opening a missing resource used to end `sirix-shell`; it is now reported
-  with an error code (`bit:BIDY0300` for non-query failures) and the next prompt follows. Empty
+  with an error code (`bit:BIDY0300` for non-query failures) and the next prompt follows. Embedded
+  line terminators are escaped in reports while debug diagnostics retain the original messages. Empty
   submissions also keep both interactive modes open until EOF or interrupt. A failed
   query's pending updates are discarded instead of being committed by the next updating query, and
   `SirixQueryContext` rolls back and closes the writers a failed update application opened, so
