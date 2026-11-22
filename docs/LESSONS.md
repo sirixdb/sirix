@@ -393,3 +393,9 @@ must all collect its first unreported failure before replacing the worker or clo
 Use first-close-only failures to distinguish worker error retention from a later close retry.
 Keep process-exit ordering with the embedding application through explicit shutdown.
 See [the cold-open and worker-failure postmortem](postmortems/lifecycle-cold-open-worker-failure.md).
+
+- **Pair recovery and refusal across discovery states.** A missing beacon and a valid revision-zero
+  beacon must preserve the same distinction between an incomplete first-commit tail and a readable
+  foreign version. Remove both directory and tail-log records, then assert a durable new commit for
+  recovery and unchanged whole-resource bytes for refusal, on both persistent backends. Evidence:
+  [bootstrap-tail regression](postmortems/store-feature-recovery.md#incomplete-bootstrap-tail-with-revision-zero-beacons).

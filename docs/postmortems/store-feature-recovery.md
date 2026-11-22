@@ -332,3 +332,46 @@ This intermediate gap was resolved by the [foreign-root repair follow-up](#forei
   stays deferred to `sirix-repair-format-gate`; FMT-401 remains partial and the task cannot close.
 - Lesson: when a transition changes the validation frontier, preflight the same bounded evidence
   that the destination state will require. See [LESSONS.md](../LESSONS.md).
+
+## Incomplete bootstrap tail with revision-zero beacons
+
+- Fix / issue: FMT-401; `review-bootstrap-tail`.
+- Symptom and trigger: feature-free revision-zero beacons survive, but the directory record and
+  tail-log copies are lost and the surviving framed prefix ends in an incomplete baseline frame.
+  Opening repeatedly fails instead of recovering an empty resource on either persistent backend.
+- Root cause: the compatibility gate tolerated non-version prefix failures only when no beacon
+  decoded. A decoded revision-zero beacon takes a separate missing-record path, where the same
+  prefix failure escaped; the recovery attempt repeated that gate and failed before reinitializing.
+  The invariant is that an unreadable first-commit tail permits empty-bootstrap recovery when no
+  foreign version is readable, regardless of whether feature-free revision-zero beacons survived.
+- Fix: apply the existing prefix exception distinction to missing-record discovery as well.
+  Unsupported versions still propagate; non-version failures permit a proof only at revision zero.
+  Recovery still independently proves feature-free bootstrap beacons and no valid revision records
+  before truncation. Intact roots and later-revision failures keep their existing paths.
+- Why tests missed it: beaconless garbage-tail recovery and foreign bootstrap envelope refusal
+  were covered, but no matched pair combined surviving revision-zero beacons, lost records and
+  tail-log copies, and an incomplete prefix.
+- Regression tests and independent oracle: FMT-401 requires usable recovery without a readable
+  foreign version and unchanged resource bytes on foreign refusal.
+  `FormatRepairBoundaryTest.incompleteBootstrapTailRecoversWithoutForeignVersion` commits known
+  content and checks it after a cold reopen;
+  `incompleteBootstrapTailRefusesReadableForeignVersion` requires the plain error naming version 1
+  and compares every resource file's name, length and content digest. Both exercise FILE_CHANNEL
+  and MEMORY_MAPPED with and without revision-zero beacons, retaining the older beaconless cases.
+  The tests reject both unconditional refusal of incomplete tails and swallowing version errors.
+- Verification: the pre-fix failing path was traced statically; no separate counterfactual run was
+  performed because this phase requires all fixes before focused verification. The first focused
+  core run passed 153 of 155 tests; both new recovery cases failed only because the test expected
+  revision 1 for the first commit after empty reinitialization, which creates revision 0. That
+  test-only expectation was corrected while retaining the durable-content oracle. The affected-class
+  rerun (`./gradlew :sirix-core:test --tests io.sirix.access.FormatRepairBoundaryTest`, unrelated
+  startup tasks excluded, 256 MiB/2 GiB test heap) passed all 25 cases with no failures, errors or
+  skips, exit 0. Log: `build/review-bootstrap-tail-rerun.log`; JUnit XML:
+  `bundles/sirix-core/build/test-results/test/TEST-io.sirix.access.FormatRepairBoundaryTest.xml`.
+  The other 130 tests passed in the initial run: bootstrap and feature recovery, both golden
+  suites, format-baseline diagnostics, strict binary versions, sparse revision-index work budgets
+  and scratch-buffer budgets. Mutation, lint and broader validation belong to the outer pipeline.
+- Scope: complete historical envelope discovery remains the named `sirix-repair-format-gate` gap;
+  FMT-401 stays partial and its code+test evidence does not claim completeness or CI confirmation.
+- Lesson: pair recoverable corruption with readable-version refusal across both beacon states;
+  see [LESSONS.md](../LESSONS.md).

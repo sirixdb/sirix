@@ -113,7 +113,15 @@ public final class ResourceFormatCompatibility {
           reader.requireCompatibleRevisionRoots(uber.getRevisionNumber());
         } catch (final SirixIOException missing) {
           // A backend without a tail-log copy must inspect surviving envelopes before recovery.
-          requireFramedPrefix(channel, reader.getByteHandler());
+          try {
+            requireFramedPrefix(channel, reader.getByteHandler());
+          } catch (final UnsupportedFormatVersionException unsupported) {
+            throw unsupported;
+          } catch (final IOException | RuntimeException incomplete) {
+            if (uber.getRevisionNumber() != 0) {
+              throw missing;
+            }
+          }
           if (uber.getRevisionNumber() != 0) {
             throw missing;
           }

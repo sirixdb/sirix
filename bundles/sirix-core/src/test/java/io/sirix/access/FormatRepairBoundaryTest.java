@@ -163,6 +163,74 @@ final class FormatRepairBoundaryTest {
 
   @ParameterizedTest
   @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void incompleteBootstrapTailRecoversWithoutForeignVersion(final StorageType backend) throws IOException {
+    for (final boolean beacons : new boolean[] {false, true}) {
+      final Path database = createStore("incomplete-bootstrap-" + backend + "-" + beacons, backend, false);
+      final Path resource = resourcePath(database, "fixture");
+      damageBootstrapTail(resource, beacons, false);
+      Databases.clearGlobalCaches();
+      try (final var opened = Databases.openJsonDatabase(database);
+          final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+        assertEquals(0, session.getMostRecentRevisionNumber());
+        writer.insertStringValueAsFirstChild("recovered");
+        writer.commit();
+        assertEquals(0, session.getMostRecentRevisionNumber());
+      }
+      Databases.clearGlobalCaches();
+      try (final var opened = Databases.openJsonDatabase(database);
+          final var session = opened.beginResourceSession("fixture"); final var reader = session.beginNodeReadOnlyTrx()) {
+        assertEquals(0, session.getMostRecentRevisionNumber());
+        assertTrue(reader.moveToFirstChild());
+        assertEquals("recovered", reader.getValue());
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void incompleteBootstrapTailRefusesReadableForeignVersion(final StorageType backend) throws IOException {
+    for (final boolean beacons : new boolean[] {false, true}) {
+      final Path database = createStore("foreign-incomplete-bootstrap-" + backend + "-" + beacons, backend, false);
+      final Path resource = resourcePath(database, "fixture");
+      damageBootstrapTail(resource, beacons, true);
+      final Map<String, String> before = snapshot(resource);
+      Databases.clearGlobalCaches();
+      try (final var opened = Databases.openJsonDatabase(database)) {
+        final RuntimeException failure = assertThrows(RuntimeException.class,
+            () -> opened.beginResourceSession("fixture"));
+        assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
+      }
+      assertEquals(before, snapshot(resource));
+    }
+  }
+
+  private static void damageBootstrapTail(final Path resource, final boolean beacons, final boolean foreign)
+      throws IOException {
+    final byte[] original = Files.readAllBytes(file(resource, "data"));
+    final int start = (int) IOStorage.DATA_REGION_START;
+    final int length = ByteBuffer.wrap(original).order(ByteOrder.LITTLE_ENDIAN).getInt(start);
+    final int nextFrame = (start + Integer.BYTES + length + 7) & ~7;
+    final byte[] damaged = Arrays.copyOf(original, nextFrame + Integer.BYTES + 1);
+    if (beacons) {
+      for (final long slot : new long[] {IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET}) {
+        Arrays.fill(damaged, (int) slot + IOStorage.REVISION_RECORD_TAIL_LOG_SLOT_OFFSET,
+            (int) slot + IOStorage.BEACON_SLOT_BYTES, (byte) 0);
+      }
+    } else {
+      Arrays.fill(damaged, (int) IOStorage.PRIMARY_BEACON_OFFSET, start, (byte) 0);
+    }
+    if (foreign) {
+      damaged[start + Integer.BYTES + 1] = 1;
+    }
+    ByteBuffer.wrap(damaged).order(ByteOrder.LITTLE_ENDIAN).putInt(nextFrame, 2);
+    damaged[nextFrame + Integer.BYTES] = 5;
+    Files.write(file(resource, "data"), damaged);
+    Files.write(file(resource, "revisions"),
+        Arrays.copyOf(Files.readAllBytes(file(resource, "revisions")), (int) IOStorage.REVISIONS_RECORDS_START));
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
   void validHistoricalRootIsCheckedBeforeCleanupOrHealing(final StorageType backend) throws IOException {
     for (final boolean tornLatest : new boolean[] {false, true}) {
       final Path database = createStore("historical-" + backend + "-" + tornLatest, backend, false);
