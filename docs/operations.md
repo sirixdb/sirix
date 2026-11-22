@@ -6,8 +6,8 @@ flags, cache budgets, OS limits, observability, backups — rather than on API
 usage. For API documentation, see the project README and JavaDoc; for storage-
 format internals, see [DISK_FORMAT.md](DISK_FORMAT.md).
 
-> **Storage compatibility.** Check the current format and migration policy in
-> [DISK_FORMAT.md](DISK_FORMAT.md) before opening an existing resource with a new build.
+> **Storage compatibility.** Check the format baseline and export/import policy in
+> [FMT-401–402](../spec/FMT-disk-format.md#fmt-401--10-format-baseline) before opening an existing resource with a new build.
 
 ---
 
@@ -370,8 +370,8 @@ resource at the desired revision number or timestamp via
    refreshing dependencies can select a different Brackit build. Published
    Sirix artifacts may declare a different Brackit version; inspect their POM.
 
-3. **Storage upgrades.** Follow the compatibility and migration policy in
-   [DISK_FORMAT.md](DISK_FORMAT.md).
+3. **Storage upgrades.** Follow the
+   [format baseline and export/import policy](../spec/FMT-disk-format.md#fmt-401--10-format-baseline).
 
 4. **Auto-commit features are in flight on multiple branches**
    (`feature/warm-auto-commit-v1`, `feature/async-auto-commit`,
