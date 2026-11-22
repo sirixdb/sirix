@@ -48,6 +48,6 @@
   after side effects have started. See [Lessons](../LESSONS.md).
 
 Not changed here: `-iqf` is declared without a value, so its loop calls `Path.of(null)` and fails
-before any query runs, and would re-read one file forever if it did not; it needs its own fix.
-`xn:store` with `createNew` ignores its resource-name argument. A failure while committing (rather
+before any query runs, and would re-read one file forever if it did not (#1470).
+`xn:store` ignores its resource-name argument when creating a database (#1471). A failure while committing (rather
 than applying) keeps its existing semantics, tracked in #1380.
