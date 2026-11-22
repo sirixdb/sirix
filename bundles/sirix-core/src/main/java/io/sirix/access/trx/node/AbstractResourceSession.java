@@ -492,7 +492,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       if (sharedSession.userSessionCount <= 0) {
         throw new IllegalStateException("No user session is registered");
       }
-      if (sharedSession.userSessionCount == 1 && !sharedSession.retainedForDerivedIndexes) {
+      // RAM has no backing file to reopen: the database owns its committed state until close.
+      if (sharedSession.userSessionCount == 1 && !sharedSession.retainedForDerivedIndexes
+          && resourceConfig.storageType != StorageType.IN_MEMORY) {
         sharedSession.close();
       }
       sharedSession.userSessionCount--;

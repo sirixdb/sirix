@@ -216,3 +216,12 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   fractional groups through every public output boundary; parse them back to verify the instant
   as well as its presentation. Do not derive expected text with the formatter being tested.
   Evidence: [commit timestamp output width](postmortems/commit-timestamp-output-width.md).
+
+<a id="in-memory-publication"></a>
+
+- **In-memory publication owns its snapshots and lifetime.** Retaining transaction-owned page
+  objects retains their cleanup hazards. Publish independently owned data and retain the storage
+  owner across session closure when there is no backing file. Exercise create/commit/reopened
+  writer/new session with real payloads, exact timestamps and unchanged historical revisions;
+  include segment and stream compression paths.
+  Evidence: [IN_MEMORY commit visibility](postmortems/in-memory-commit-visibility.md).
