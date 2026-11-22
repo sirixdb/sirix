@@ -46,7 +46,10 @@ Current discovery checks the latest root, live roots in the bounded tail-log win
 surviving framed prefix during beaconless bootstrap recovery. Unreadable settings are probed
 for a readable `binaryEncoding` by name before rebuilding. Complete envelope discovery before
 destructive repair remains task `sirix-repair-format-gate`; envelopes outside these subsets
-or beyond a malformed frame or unwritten gap are not covered.
+or beyond a malformed frame or unwritten gap are not covered. Explicit truncate validates its
+target before publishing downgraded beacons. FILE_CHANNEL can recover an absent revisions
+header from the validated data identity and tail-log evidence, including with a commit marker;
+a present header still requires validation. MEMORY_MAPPED does not salvage lost revision records.
 
 The resource settings file (`ressetting.obj`) requires the fields through `storeChildCount` in
 writer order. Tail fields are dispatched by name and may be reordered without shifting the

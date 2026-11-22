@@ -6698,6 +6698,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           "Storage backend " + storagePageReaderWriter.getClass().getSimpleName() + " cannot truncate to revision "
               + revision + " — rollback and crash recovery need a persistent StorageType.");
     }
+    storagePageReaderWriter.readRevisionRootPage(revision, getResourceSession().getResourceConfig());
     // Rollback semantics: any buffered (uncommitted) page writes refer to the world being
     // truncated away — discard them before touching the files.
     bufferBytes.clear();

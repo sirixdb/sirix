@@ -262,3 +262,39 @@ This intermediate gap was resolved by the [foreign-root repair follow-up](#forei
   or unwritten gaps. FMT-401 remains partial and the follow-up cannot close.
 - Lesson: extend the compatibility-before-repair lesson in [LESSONS.md](../LESSONS.md): distinguish
   missing pointers from missing evidence, and checksum validity from format compatibility.
+
+
+## Truncate publication and absent revisions headers
+
+- Symptom: explicit truncate to a foreign historical root published downgraded beacons before
+  refusing its format. Separately, a lost or empty revisions file plus an interrupted-commit
+  marker blocked a FILE_CHANNEL write transaction indefinitely, despite usable tail-log records.
+- Trigger: commit 20 revisions, retain a foreign revision-1 envelope below compatible later roots,
+  cold-open and truncate to revision 1. For recovery, commit a known string at revision 1, remove
+  or empty the revisions file, retain `.commit`, cold-open and begin a write transaction.
+- Root cause: target decoding occurred only in the final I/O truncate, after the caller published
+  beacons. The shared repair gate also demanded a revisions header even when the supported
+  recovery protocol intentionally postpones recreating it until the next commit. Required
+  invariants are target compatibility before publication, and validated data identity plus tail-log
+  roots for an absent revisions header, with strict validation of every present header.
+- Why tests missed it: foreign-root cases lived within the discovery window or invoked the raw
+  writer directly. Recovery cases did not combine a missing revisions header with a commit marker.
+- Regression tests and independent oracle: FMT-401 requires refusal and whole-resource preservation;
+  `FormatRepairBoundaryTest.truncateRefusesForeignTargetBeforeBeaconPublication` checks every file
+  and the unchanged session revision after a refused truncate on both backends. The recovery
+  contract and known committed string are the oracle for
+  `commitMarkerRecoveryDistinguishesAbsentAndForeignHeaders`: FILE_CHANNEL must commit again and
+  preserve the original content across cold reopen; both backends must preserve all files when a
+  foreign header is present. MEMORY_MAPPED has no lost-record salvage, so its missing/empty cases
+  must still refuse without changing files. Existing beaconless/settings regressions retain both
+  backend coverage for the earlier contained fixes.
+- Verification: failing sequences were traced before editing; the single focused verification
+  passed all 165 selected tests with no failures, errors or skips (exit 0), including these cases,
+  ordinary successful truncate, bootstrap recovery, golden byte pins, plain format diagnostics
+  and storage work budgets. Log: `build/review-format-truncate.log`; JUnit XML:
+  `bundles/sirix-core/build/test-results/test/`. Mutation, lint and broader validation remain
+  owned by the outer pipeline.
+- Remaining gap: complete discovery of envelopes outside the latest root, bounded tail window and
+  recoverable framed prefix remains task `sirix-repair-format-gate`; this task cannot close.
+- Lesson: validate the destination before publishing a transition, and distinguish absent recovery
+  metadata from a present foreign identity. See [LESSONS.md](../LESSONS.md).

@@ -154,10 +154,12 @@ public final class ResourceFormatCompatibility {
     Superblock.validate(header, Superblock.ROLE_DATA, IOStorage.FILENAME);
     final long msb = header.getLong(40);
     final long lsb = header.getLong(48);
-    header.clear();
-    readFully(revisions, header, 0L);
-    header.flip();
-    Superblock.validate(header, Superblock.ROLE_REVISIONS, IOStorage.REVISIONS_FILENAME, msb, lsb);
+    if (revisions.size() != 0) {
+      header.clear();
+      readFully(revisions, header, 0L);
+      header.flip();
+      Superblock.validate(header, Superblock.ROLE_REVISIONS, IOStorage.REVISIONS_FILENAME, msb, lsb);
+    }
     final UberPage uber = reader.readOpeningUberPage();
     uber.getFeatures().requireWritable();
     final RevisionFileData root = reader.getRevisionFileDataWithoutHealing(uber.getRevisionNumber());

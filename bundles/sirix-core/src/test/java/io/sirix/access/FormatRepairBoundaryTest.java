@@ -312,6 +312,84 @@ final class FormatRepairBoundaryTest {
     assertEquals(before, snapshot(resource), "an earlier compatible record must not heal before foreign refusal");
   }
 
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void truncateRefusesForeignTargetBeforeBeaconPublication(final StorageType backend) throws IOException {
+    final Path database = createStore("truncate-target-" + backend, backend, false);
+    final Path resource = resourcePath(database, "fixture");
+    try (final var opened = Databases.openJsonDatabase(database);
+        final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+      for (int revision = 1; revision <= 20; revision++) {
+        writer.commit();
+      }
+    }
+    patchRoot(resource, 1);
+    final Map<String, String> before = snapshot(resource);
+    Databases.clearGlobalCaches();
+    try (final var opened = Databases.openJsonDatabase(database);
+        final var session = opened.beginResourceSession("fixture");
+        final var writer = session.createStorageEngineWriter()) {
+      assertEquals(20, session.getMostRecentRevisionNumber());
+      final RuntimeException failure = assertThrows(RuntimeException.class, () -> writer.truncateTo(1));
+      assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
+      assertEquals(20, session.getMostRecentRevisionNumber());
+      assertEquals(before, snapshot(resource));
+    }
+    assertEquals(before, snapshot(resource));
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = StorageType.class, names = {"FILE_CHANNEL", "MEMORY_MAPPED"})
+  void commitMarkerRecoveryDistinguishesAbsentAndForeignHeaders(final StorageType backend) throws IOException {
+    for (final String state : new String[] {"missing", "empty", "foreign"}) {
+      final Path database = createStore("lost-revisions-" + backend + "-" + state, backend, false);
+      final Path resource = resourcePath(database, "fixture");
+      try (final var opened = Databases.openJsonDatabase(database);
+          final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+        writer.insertStringValueAsFirstChild("preserved");
+        writer.commit();
+      }
+      final Path revisions = file(resource, "revisions");
+      if (state.equals("foreign")) {
+        patchHeader(revisions, "version");
+      } else if (state.equals("missing")) {
+        Files.delete(revisions);
+      } else {
+        Files.write(revisions, new byte[0]);
+      }
+      Files.writeString(resource.resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
+          .resolve(".commit"), "");
+      final Map<String, String> before = snapshot(resource);
+      Databases.clearGlobalCaches();
+      if (state.equals("foreign") || backend == StorageType.MEMORY_MAPPED) {
+        try (final var opened = Databases.openJsonDatabase(database)) {
+          final RuntimeException failure = assertThrows(RuntimeException.class, () -> {
+            try (final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+              writer.commit();
+            }
+          });
+          if (state.equals("foreign")) {
+            assertTrue(messageChain(failure).contains("unsupported format version 1"), messageChain(failure));
+          }
+        }
+        assertEquals(before, snapshot(resource));
+      } else {
+        try (final var opened = Databases.openJsonDatabase(database);
+            final var session = opened.beginResourceSession("fixture"); final var writer = session.beginNodeTrx()) {
+          assertEquals(1, session.getMostRecentRevisionNumber());
+          writer.commit();
+          assertEquals(2, session.getMostRecentRevisionNumber());
+        }
+        Databases.clearGlobalCaches();
+        try (final var opened = Databases.openJsonDatabase(database);
+            final var session = opened.beginResourceSession("fixture"); final var reader = session.beginNodeReadOnlyTrx(1)) {
+          assertTrue(reader.moveToFirstChild());
+          assertEquals("preserved", reader.getValue());
+        }
+      }
+    }
+  }
+
   @Test
   void directRepairsValidateFileAndRootFormats() throws IOException {
     for (final String repair : new String[] {"heal", "truncate"}) {

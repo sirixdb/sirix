@@ -129,7 +129,8 @@ A pull request does not write its entry here: it adds one fragment file under
   [FMT-401](spec/FMT-disk-format.md#fmt-401--10-format-baseline) and
   [FMT-402](spec/FMT-disk-format.md#fmt-402--history-preserving-export-and-import).
   Repair discovery remains partial: complete envelope scanning before destructive repair
-  is deferred to `sirix-repair-format-gate`.
+  is deferred to `sirix-repair-format-gate`. Explicit truncate checks the target before beacon
+  publication; FILE_CHANNEL recovery permits a lost revisions header with valid tail-log evidence.
 
 - **Node hashes are off by default.** Newly created Java, query-store and CLI resources now
   match REST's `NONE` default. Existing resources retain their persisted hash kind and need no
