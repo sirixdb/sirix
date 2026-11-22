@@ -288,7 +288,7 @@ deletes, insertion, rollback, grouping rollup and exact-instant admission under 
 types. `TemporalAggregateColumnarOutputTest` checks ordered integral output, missing operands,
 mutable retained results, rollups and large sums, with and without stored child counts.
 `ColumnarLongOrderingTest` compares primitive stable ordering with Brackit across ordering modifiers,
-missing values, ties and long extrema. `DerivedIndexMaintainerTest` covers lag, batching,
+missing values, ties and long extrema. `DerivedIndexMaintainerHistoryTest` covers lag, batching,
 declaration changes, revert and truncate, mapping-cache eviction, encryption, resource aliases,
 poisoned maintenance and rebuilding missing
 or damaged derived resources. `TemporalAggregateDerivedLagTest` checks query answers against an

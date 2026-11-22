@@ -216,3 +216,10 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   Recompile merged test sources after a unit-bearing API rename: newly integrated fixtures must
   migrate both accessors and their independent numeric oracles.
   Evidence: [commit timestamp retry](postmortems/commit-timestamp-retry.md).
+
+- **Give public reader metadata a focused behavior contract.** The mutation selector's package
+  fallback can pull unrelated integration suites for a one-getter change; JUnit 5 executes them
+  again during mutation discovery. Verify exact historical/current metadata through the public
+  reader, then check the selector's emitted scope without widening its limits or excluding tests.
+  Keep independent clock and history contracts separately executable, retaining both in ordinary tests.
+  Evidence: [timestamp CI associations](postmortems/commit-timestamp-ci-associations.md#follow-up-focused-path-summary-timestamp-contract).

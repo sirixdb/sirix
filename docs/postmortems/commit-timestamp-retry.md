@@ -44,7 +44,7 @@ Focused commands (the review invocation disabled unrelated attached test tasks):
 - Lesson: distinguish another timeline's effective metadata from validated custom input; test clock regression through the dependent commits, not only the source assignment.
 
 ```sh
-./gradlew :sirix-core:test --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerTest.*Clock*' --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerTest.smallPublicationsAdvanceTheBaseWithoutRedundantSummaryCommits' --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerTest.durableSnapshotsLagRevertAndReopen' --tests io.sirix.index.aggregate.DerivedRevisionMappingTest --tests io.sirix.io.CommitTimestampPrecisionConformanceTest --tests io.sirix.io.CommitTimestampLateFailureTest --tests io.sirix.io.CommitTimestampOutputTest --tests io.sirix.page.PageEnvelopeContractTest --tests io.sirix.page.LegacyEnvelopeImagesTest
+./gradlew :sirix-core:test --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerTest.*Clock*' --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.smallPublicationsAdvanceTheBaseWithoutRedundantSummaryCommits' --tests 'io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest.durableSnapshotsLagRevertAndReopen' --tests io.sirix.index.aggregate.DerivedRevisionMappingTest --tests io.sirix.io.CommitTimestampPrecisionConformanceTest --tests io.sirix.io.CommitTimestampLateFailureTest --tests io.sirix.io.CommitTimestampOutputTest --tests io.sirix.page.PageEnvelopeContractTest --tests io.sirix.page.LegacyEnvelopeImagesTest
 ```
 
 ## Rebase follow-up: RAM storage contract fixtures

@@ -113,3 +113,99 @@ CodeFactor annotations or review comments. No speculative analyzer fix is includ
   with no failing changed-line mutants. Because incomplete core reports are not admitted as
   mutation evidence, that run marks the new equivalence entry unconfirmed; the completed
   focused report and its successful disposition check above are the evidence for the entry.
+
+## Follow-up: focused path-summary timestamp contract
+
+- Fix / issue: PR #1475, PIT job `137263674580` in run `45040174645`.
+- Symptom: core exceeded its unchanged 1,200-second execution share; XML was truncated.
+  Query completed without changed-line failures. The incomplete core run could not confirm
+  the existing `CommitTimestamps` disposition.
+- Root cause (first selection): the path-summary timestamp getter had no named behavior suite. The selector's
+  specified package fallback added 14 statistics suites, whose database commits are executed
+  again by the JUnit 5 adapter during each mutation minion's discovery. Hosted initial coverage
+  took 49 seconds. A local verbose reproduction and thread dump confirmed repeated integration
+  execution inside `JUnit5TestUnitFinder`, before a mutant's selected test runs.
+- Invariant and scope: VER-201 requires public readers to return the exact stored microsecond,
+  including historical/current path summaries, JSON/XML and file-channel, memory-mapped and
+  in-memory storage. Node-reader paths already have timestamp conformance coverage. The missing
+  path-summary contract now has its own `PathSummaryReaderTest`, selected by the existing named
+  match rule. All other source mappings, targets, sampling, caps and deadlines remain unchanged.
+- Regression tests: `PathSummaryReaderTest.revisionTimestampsPreserveMicroseconds` commits at
+  `.000100Z` and `.000101Z`, then checks the historical and current public path-summary readers
+  against those explicit instants. VER-201 is the oracle; treating the timestamp as milliseconds
+  or returning the head's timestamp for both readers would fail. The selector regression executes
+  `test_scope` and asserts its emitted filters/resolution, under CONV-204's named-match rule.
+  It failed without the new suite (14 package filters) and passes with it (one named filter).
+  Full core selection drops from 41 filters to 28, replacing only this package fallback.
+- Trace before verification: `prepare_analysis` still calls `test_scope`, which resolves the
+  new exact test name before related/package candidates and emits its normal trailing wildcard.
+  The class uses the same public session open/commit/close paths as the conformance suite; both
+  model branches create/open the matching database, and both reader lifetimes end before session
+  close. No production code, caller contract, helper or parameter changes.
+- Lesson: give changed public timestamp readers a focused executable contract, so package fallback
+  does not turn one getter change into repeated unrelated integration discovery.
+
+### Separate the clock and history contracts
+
+The first local rerun confirmed a second expensive selection: the existing exact
+`DerivedIndexMaintainerTest` match executed all history/fold/truncation scenarios during
+minion discovery, although this PR adds only two clock-regression methods there. Its
+initial coverage completed, but the run was stopped after thread dumps confirmed repeated
+history-suite discovery. This interrupted run is not a clean mutation result.
+
+The invariant applies to both expensive selections: preserve every behavior assertion while
+keeping the timestamp contract independently executable. The pre-existing history cases and
+helpers now live in `DerivedIndexMaintainerHistoryTest`; the original exact class name owns
+the two unchanged clock-regression methods and their mapping assertion. Three existing helpers
+become package-visible so the focused suite can share their unchanged declarations, edits and
+aggregate oracles. No inheritance, exclusions, caps, timeouts or selector changes are added.
+The ordinary test task still discovers both suites. This is the same focused-contract correction
+as the reader suite, applied to the other broad selection in this change.
+
+Trace before verification: both clock methods create their own temporary resource, pause
+maintenance, scope and close the clock mock, and use the same four shared helpers. Their
+historical/current mapping assertions and clock/fold transitions are unchanged. Every caller
+of those helpers in the history suite remains in that suite with the same arguments and bodies;
+there are no removed cases or unused compatibility aliases. The named-match selector still
+emits the exact clock-suite wildcard and all other source mappings remain unchanged. Run both
+suites in the ordinary lane to verify the shared helpers and all historical callers.
+
+### Verification of the focused contracts
+
+- All 158 Python mutation-tooling tests pass. The unchanged CI coverage floor passes at 99%.
+  Logs and coverage output are under `build/ci-current/python-coverage/`.
+- The ordinary combined Java run passes all 79 cases: four clock cases, 69 history cases and
+  six public path-summary cases. The hosted original maintainer report had 73 cases; the split
+  retains all 73. `build/ci-current/split-tests.log` records the successful task and its required
+  isolated forks. Core Spotless and `git diff --check` pass.
+- Query test classes and CLI main classes compile. The latter are needed to validate the unchanged
+  backup dispositions against compiled bytecode; missing local CLI output is not evidence of a
+  stale repository disposition.
+- The final full bounded reproduction uses the original base/head, 1,320-second total budget,
+  per-class sample and all changed targets. Output is under `build/ci-current/final/`; earlier
+  interrupted diagnostic attempts under `baseline`/`fixed` are not clean mutation evidence.
+- CodeFactor still reports three issues without annotations; its PR report returns HTTP 403 via
+  direct HTTP, the browser and the web reader. No guessed analyzer fix or suppression is included.
+
+### Remaining check status
+
+The final local core analysis still **timed out at its unchanged 1,200-second module share**.
+Initial coverage completed in 105 seconds, and thread dumps show the narrowed clock suite and
+other selected integration suites executing in mutation/discovery. The smaller selection and
+passing behavior suites do **not** establish that the full PIT timeout is fixed. The partial XML
+is incomplete and cannot confirm the existing equivalence entry under CONV-202. No disposition,
+threshold, sampling limit or deadline was changed to treat this run as clean. Further full-run
+completeness evidence is still needed; CodeFactor's three issue details are also still unavailable.
+
+The final reporter exits 1: query analysis is complete with no failing changed-line mutants;
+core is timed out and the one new utility disposition is consequently unconfirmed. Association
+validation has no errors. The compiled CLI baseline dispositions are not stale.
+
+```bash
+./gradlew :sirix-core:test \
+  --tests io.sirix.index.aggregate.DerivedIndexMaintainerTest \
+  --tests io.sirix.index.aggregate.DerivedIndexMaintainerHistoryTest \
+  --tests io.sirix.index.path.summary.PathSummaryReaderTest
+./gradlew :sirix-core:spotlessJavaCheck
+python3 .github/scripts/pr_mutation.py run --seconds 1320 --blocking --output build/ci-current/final
+```
