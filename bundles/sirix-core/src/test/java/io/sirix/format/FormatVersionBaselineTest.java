@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * development format. Page decoding fixtures cover FILE_CHANNEL and MEMORY_MAPPED. The repair and
  * recovery boundaries are enforced as well, through the shared compatibility discovery their
  * destructive paths must pass; FormatRepairBoundaryTest covers those combinations. FMT-401 owns the
- * requirement and records what is still missing there (the FMT-208 corpus).
+ * requirement and remaining gaps in spec/FMT-disk-format.md#fmt-401--10-format-baseline.
  *
  * <p>
  * FMT-102: the development-era acceptances of a zero resource UUID and a zero revisions record

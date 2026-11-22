@@ -29,21 +29,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * FMT-402: exporting a 1.0 resource writes every revision with its committed content, commit
- * timestamp, author and message, and importing that export into a newly created 1.0 store keeps the
- * source revision order without dropping a revision. The source stays unchanged.
+ * FMT-402 round-trip fixture: every revision retains its content, author, message, source order and
+ * already-increasing timestamp; exporting leaves the source files byte-for-byte unchanged.
  *
  * <p>
- * The export/import here is the documented composition of the shipped building blocks — the
- * serializer reads each revision, the shredder writes it back, and {@code commit(message,
- * timestamp)} carries the commit metadata — because no single export/import tool exists yet.
- *
- * <p>
- * Two clauses of FMT-402 are deliberately NOT exercised, because the engine cannot express them at
- * this baseline and a test asserting today's behaviour would pin the gap as correct: the
- * one-microsecond adjustment of a tie or regression (commit timestamps persist at millisecond
- * precision) and the queryable original timestamp of an adjusted revision (no such metadata
- * exists).
+ * The serializer reads each revision, the shredder writes it back, and {@code commit(message,
+ * timestamp)} carries the commit metadata. This fixture does not exercise timestamp adjustment;
+ * spec/FMT-disk-format.md#fmt-402--history-preserving-export-and-import owns the requirement,
+ * evidence and remaining gaps.
  */
 final class HistoryPreservingExportImportTest {
 
@@ -166,10 +159,9 @@ final class HistoryPreservingExportImportTest {
   }
 
   /**
-   * Commit timestamps for the source history. They sit just after both stores' bootstrap commits
-   * because the engine refuses a commit timestamp below the preceding revision's, and the sleep only
-   * lets the wall clock pass them — it refuses a timestamp in the future. Nothing here asserts on
-   * elapsed time.
+   * Already-increasing source timestamps, later than both bootstrap commits, isolate the unchanged
+   * timestamp arm of FMT-402. The sleep lets the wall clock pass them before they are supplied to
+   * commit; nothing here asserts on elapsed time. FMT-402 owns the timestamp import requirement.
    */
   private static Instant[] commitTimestamps() throws InterruptedException {
     final Instant base = Instant.now().truncatedTo(ChronoUnit.MILLIS);
