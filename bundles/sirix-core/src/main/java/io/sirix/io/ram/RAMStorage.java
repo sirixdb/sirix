@@ -195,20 +195,28 @@ public final class RAMStorage implements IOStorage {
      * file offset would be: keys never collide with the uber-page beacon offsets, which the storage
      * engine reads through {@link Reader#read} like any other page.
      */
+    // Acquire/release slots, locked array replacement; avoid atomic-array indirection.
+    @SuppressWarnings("java:S3077")
     private volatile byte[][] payloads = new byte[INITIAL_PAGES][];
 
     /** The slot of the next page; guarded by {@code this}. */
     private int nextSlot;
 
     /** Revision root records by revision number. */
+    // Acquire/release slots, locked array replacement; avoid atomic-array indirection.
+    @SuppressWarnings("java:S3077")
     private volatile RevisionRecord[] revisions = new RevisionRecord[INITIAL_REVISIONS];
 
+    // Acquire/release slots, locked array replacement; avoid atomic-array indirection.
+    @SuppressWarnings("java:S3077")
     private volatile RevisionRecord[] provisionalRevisions = new RevisionRecord[INITIAL_REVISIONS];
 
     /**
      * The uber page in the file storages' beacon framing ({@code [u32 len][payload][u64 hash]}), or
      * {@code null} before the first commit.
      */
+    // Immutable bytes are published under the store lock; an atomic array adds read-path indirection.
+    @SuppressWarnings("java:S3077")
     volatile byte @Nullable [] uberBeacon;
 
     Store(final @Nullable UUID resourceUuid) {

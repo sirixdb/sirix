@@ -267,3 +267,49 @@ CodeFactor's diagnostic page returned HTTP 403, leaving its findings unclassifie
   CodeFactor still reports three issues but supplies no GitHub annotations; its diagnostic
   page returns HTTP 403, so that separate finding remains unresolved.
 - Lesson: [isolate fixtures and preserve semantic association contracts](../LESSONS.md).
+
+## CI follow-up: isolate forked lifetime contracts from PIT
+
+- Fix / issue: PR 1469, PIT module timeout and SonarCloud reliability findings.
+- Symptom: the core changed-source mutation run exceeded its 1,200-second share; SonarCloud
+  reported S3077 on the four volatile array fields in `RAMStorage.Store`.
+- Trigger: PIT selected `DatabasesInMemoryLifetimeTest` by its production-name prefix and
+  repeatedly ran its abrupt-exit and bounded-heap child processes for parent-JVM mutants.
+- Root cause: a child JVM loads unmutated classes, so repeated child work cannot detect a
+  mutation in the parent. The tests mixed in-process contracts with process-isolated contracts.
+  The array warning also did not account for acquire/release slot access, locked replacement,
+  and the beacon's immutable snapshot publication.
+- Required behavior: every existing lifetime assertion continues to run in ordinary CI;
+  process-isolated tests do not consume the bounded parent-JVM mutation lane. Keep RAM's
+  publication semantics and direct array reads. All six child-launching tests, both child main
+  classes, and their exclusive helpers move unchanged to `InMemoryLifetimeForkedJvmTest`;
+  in-process lifecycle tests remain selected. Four field-scoped S3077 suppressions document
+  the publication discipline without adding atomic-array indirection.
+- Why tests missed it: ordinary passing tests establish lifecycle behavior but say nothing
+  about whether their child processes can observe PIT's parent-only instrumentation. Earlier
+  focused mutation runs did not establish full-lane completion.
+- Regression evidence: execute both lifetime suites unchanged, then the actual bounded PR
+  lane; record any out-of-lane memory kills with the CONV-203 counterfactual helper.
+- Extraction verification: both lifetime suites pass all 46 cases (28 in-process, 18 forked),
+  without skips. The forked suite takes 135 seconds and the in-process suite 5.5 seconds locally.
+  Evidence is under `build/ci-lifetime-split/`; the unchanged full lane is run with
+  `python3 .github/scripts/pr_mutation.py run --output build/ci-lifetime-split/pr-mutation
+  --seconds 1320 --blocking`.
+- The first full core run completed in 17m20s, within its 1,200-second share. It detected
+  52 of 53 changed-line mutants and reported no changed-line survivors. The one uncovered
+  mutant identified pending initial discovery as a contract only the extracted abrupt-exit test
+  exercised. The spec already requires refusal while discovery remains pending and recovery
+  before every admission path; `pendingInitialScanBlocksAdmissionUntilDiscoverySucceeds`
+  now checks those behaviors in-process, with a committed persistent neighbour as its oracle,
+  across JSON/XML and existence, listing, session opening and resource creation. Skipping
+  discovery would admit the resource instead of raising the required error. The unchanged
+  forked test retains the abrupt-exit/RAM-leftover assertions. No uncovered mutant is dispositioned.
+- Final verification: the 36 in-process cases pass without skips, including all eight pending-scan
+  admissions; together with the unchanged 18 forked cases, all 54 lifetime cases pass. The final
+  bounded lane exits zero: core completes in 17m14s against its 1,200-second share and detects
+  all 53 changed-line mutants, with no survivors or uncovered cases. CLI completes with three
+  changed-line kills and its two existing equivalence dispositions. No new out-of-lane
+  dispositions are needed; the sampled store-clearing and cleanup-retry mutants are detected
+  in the lane. Reports and commands are under `build/ci-lifetime-split/pr-mutation-final/`.
+  SonarCloud must analyze the updated fields on the next CI revision; no remote scan is claimed.
+- Lesson: [match mutation selection to the process that observes mutations](../LESSONS.md).

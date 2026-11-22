@@ -147,6 +147,10 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   [word-buffer mutation scope](postmortems/shell-pit-word-buffer-scope.md) and
   [HOT retirement diagnostics](postmortems/2026-11-hot-writer-unheld-leaf-reads.md#ci-follow-up-retirement-diagnostic-coverage) and
   [RAM lifetime contracts](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-executable-contracts-and-mutation-selection).
+  Keep child-JVM lifetime and memory tests in a separate ordinary-CI suite: children load
+  unmutated classes and cannot observe PIT instrumentation in their parent. Verify the full
+  bounded lane and use counterfactual evidence for effects observable only in clean processes.
+  [Forked-contract follow-up](postmortems/ram-storage-committed-revision-loss.md#ci-follow-up-isolate-forked-lifetime-contracts-from-pit).
 
 - **Check semantic state beyond scratch-capacity boundaries.** A lossless streaming
   renderer can still lose container context and style keys as values. Exercise
