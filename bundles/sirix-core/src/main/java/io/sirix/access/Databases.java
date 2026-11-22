@@ -432,63 +432,87 @@ public final class Databases {
     }
     try {
       if (owner != null) {
-        logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.", path,
-            handles.size());
-        Throwable failure = null;
-        for (final Database<?> handle : handles) {
-          try {
-            handle.close();
-          } catch (final RuntimeException | Error e) {
-            if (failure == null) {
-              failure = e;
-            } else if (failure != e) {
-              failure.addSuppressed(e);
-            }
-          }
-        }
-        if (failure instanceof RuntimeException exception) {
-          throw exception;
-        }
-        if (failure instanceof Error error) {
-          throw error;
-        }
-        try {
-          owner.database.close();
-        } catch (final RuntimeException | Error closeFailure) {
-          if (!owner.database.isOpen()) {
-            releaseOwnership(owner, closeFailure);
-          }
-          throw closeFailure;
-        }
+        forceCloseForRemoval(path, owner, handles);
       }
-      try (lock) {
-        if (DatabaseConfiguration.DatabasePaths.compareStructure(path) == 0) {
-          final DatabaseConfiguration config = DatabaseConfiguration.deserialize(path);
-          try (final Database<?> database = createLocalDatabase(config, createAdminUser())) {
-            removeResources(database);
-          }
-          final long databaseId = config.getDatabaseId();
-          clearCachesForDatabase(databaseId);
-          CLAIMED_DATABASE_IDS.remove(databaseId, path);
-        }
-        SuperblockValidator.invalidateUnder(path);
-        ProjectionIndexCatalog.invalidateUnder(path.toString());
-
-        removeDatabaseFiles(path);
-      } catch (final IOException e) {
-        throw new SirixIOException("Could not remove database at " + path, e);
-      } finally {
-        if (owner != null) {
-          synchronized (Databases.class) {
-            OPEN_DATABASES.remove(path, owner);
-          }
-        }
-      }
+      removeDatabaseContents(path, owner, lock);
       removeEmptyDatabaseDirectory(path);
       freeAllocatedMemory();
     } finally {
       synchronized (Databases.class) {
         REMOVING_DATABASES.remove(path);
+      }
+    }
+  }
+
+  /**
+   * Close every handle still open on a database about to be removed, then its instance. A close that
+   * ended the instance despite failing releases its ownership before the failure propagates (TXN-615
+   * clauses 7 and 8).
+   */
+  private static void forceCloseForRemoval(final Path path, final OpenDatabase<?> owner,
+      final Set<Database<?>> handles) {
+    logger.warn("removeDatabase({}): {} database handle(s) still open — force-closing before removal.", path,
+        handles.size());
+    closeHandlesForRemoval(handles);
+    try {
+      owner.database.close();
+    } catch (final RuntimeException | Error closeFailure) {
+      if (!owner.database.isOpen()) {
+        releaseOwnership(owner, closeFailure);
+      }
+      throw closeFailure;
+    }
+  }
+
+  /** Close each handle; rethrow the first failure, with the later ones suppressed. */
+  private static void closeHandlesForRemoval(final Set<Database<?>> handles) {
+    Throwable failure = null;
+    for (final Database<?> handle : handles) {
+      try {
+        handle.close();
+      } catch (final RuntimeException | Error e) {
+        if (failure == null) {
+          failure = e;
+        } else if (failure != e) {
+          failure.addSuppressed(e);
+        }
+      }
+    }
+    if (failure instanceof RuntimeException exception) {
+      throw exception;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a closed database's resources and files while holding its lock, then drop its
+   * registration.
+   */
+  private static void removeDatabaseContents(final Path path, final @Nullable OpenDatabase<?> owner,
+      final DatabaseLock lock) {
+    try (lock) {
+      if (DatabaseConfiguration.DatabasePaths.compareStructure(path) == 0) {
+        final DatabaseConfiguration config = DatabaseConfiguration.deserialize(path);
+        try (final Database<?> database = createLocalDatabase(config, createAdminUser())) {
+          removeResources(database);
+        }
+        final long databaseId = config.getDatabaseId();
+        clearCachesForDatabase(databaseId);
+        CLAIMED_DATABASE_IDS.remove(databaseId, path);
+      }
+      SuperblockValidator.invalidateUnder(path);
+      ProjectionIndexCatalog.invalidateUnder(path.toString());
+
+      removeDatabaseFiles(path);
+    } catch (final IOException e) {
+      throw new SirixIOException("Could not remove database at " + path, e);
+    } finally {
+      if (owner != null) {
+        synchronized (Databases.class) {
+          OPEN_DATABASES.remove(path, owner);
+        }
       }
     }
   }
