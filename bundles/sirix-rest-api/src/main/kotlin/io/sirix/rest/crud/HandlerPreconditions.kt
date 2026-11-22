@@ -20,6 +20,22 @@ fun requireLongParam(name: String, value: String): Long =
     value.toLongOrNull() ?: throw IllegalArgumentException("$name must be a long: '$value'")
 
 /**
+ * Parses the `nodeId` of a DELETE strictly. It addresses one subtree, so it is only meaningful
+ * with a resource in the path: given on a database or server-wide delete it would otherwise be
+ * ignored and the delete widened to whole databases. Returns `null` when absent.
+ *
+ * @throws IllegalArgumentException (400) if `nodeId` is not a long, or is given without a resource
+ */
+fun requireSubtreeNodeId(ctx: RoutingContext): Long? {
+    val raw = ctx.queryParam("nodeId").getOrNull(0) ?: return null
+    val nodeId = requireLongParam("nodeId", raw)
+    if (ctx.pathParam("resource") == null) {
+        throw IllegalArgumentException("nodeId addresses a node of a resource and requires a resource in the path.")
+    }
+    return nodeId
+}
+
+/**
  * Optimistic-concurrency precondition shared by the update and delete paths: the standard
  * "If-Match" header (preferred) or the legacy request-"ETag" header must carry the node hash
  * (RFC 7232 quotes are stripped). Callers gate on hashType/document-root themselves — see the

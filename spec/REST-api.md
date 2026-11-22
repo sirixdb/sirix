@@ -78,6 +78,8 @@ Node selection by `nodeId` on GET (with or without `query`) and HEAD, for JSON a
 - A 64-bit integer that is not a node key in every selected revision: 404, with no body bytes serialized and no ETag.
 - An existing node key: 200 with that node's subtree; the ETag, when hashes are kept, is that node's hash in the first selected revision.
 
+A `nodeId` on DELETE narrows the delete to one subtree and MUST NOT widen it: a value that is not a decimal 64-bit integer is a 400, a `nodeId` on a route without a resource (all databases, one database) is a 400, and a key that is not a node of the most recent revision is a 404. Each refusal MUST leave every database, resource and revision unchanged. Verified by [DeleteNodeIdValidationTest.kt](../bundles/sirix-rest-api/src/test/kotlin/io/sirix/rest/crud/DeleteNodeIdValidationTest.kt).
+
 ### REST-204 — Conditional-write token preconditions
 
 - **Level:** MUST

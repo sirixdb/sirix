@@ -53,8 +53,19 @@
 Cost: one read-only transaction per selected revision for requests that carry `nodeId`, once
 per request. Requests without `nodeId` are unchanged.
 
-## Not changed
+## Follow-up: DELETE widened a malformed or misplaced `nodeId`
 
-`DELETE` still parses `nodeId` with `toLongOrNull()`. A malformed value therefore reads as
-"no nodeId", which on that route deletes the whole resource. That is the same defect class with
-a worse outcome, and is reported separately rather than folded into this read-path fix.
+- Symptom: `DELETE /db/res?nodeId=abc` returned 204 and removed the whole resource with its
+  history. `DELETE /db?nodeId=2` returned 204 and removed the database; `DELETE /?nodeId=…`
+  removed every database. A parameter meant to narrow the delete widened it.
+- Root cause: the same lenient `toLongOrNull()` parse in `AbstractDeleteHandler`, where "no
+  nodeId" means "delete the resource". The database and server-wide routes never looked at
+  `nodeId` at all.
+- Fix: `requireSubtreeNodeId` parses strictly (400) and rejects a `nodeId` without a resource in
+  the path (400). `DeleteHandler` calls it before any destructive step, including closing open
+  databases; `AbstractDeleteHandler` calls it again for direct callers. An unknown key is a 404
+  through `moveToOrNotFound`, as above.
+- Regression test: `DeleteNodeIdValidationTest` (JSON and XML; malformed, misplaced, unknown and
+  existing keys; asserts the database, resource, revision count and node are unchanged after
+  every refusal). 4 of 8 cases fail on the parent commit with 204 where 400 is expected; all 8
+  pass with the fix, and the offline REST suite (230 tests) passes.

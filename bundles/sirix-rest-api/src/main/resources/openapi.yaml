@@ -206,10 +206,12 @@ paths:
       description: |
         Closes every open database and removes **all** databases under the
         server's storage location. Requires the global `delete` role.
+        A `nodeId` query parameter is rejected with 400 and nothing is removed.
       operationId: deleteAllDatabases
       responses:
         '204':
           description: All databases removed.
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/ServerError' }
@@ -436,10 +438,13 @@ paths:
     delete:
       tags: [database]
       summary: Delete a database
+      description: |
+        A `nodeId` query parameter is rejected with 400 and nothing is removed.
       operationId: deleteDatabase
       responses:
         '204':
           description: Database removed.
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -688,6 +693,9 @@ paths:
         Without `nodeId`: removes the whole resource (history included). With
         `nodeId`: removes that subtree in a new revision; subject to the same
         `If-Match` precondition as updates when the resource stores hashes.
+        A `nodeId` that is not a 64-bit integer is a 400 and one that is not a
+        node of the most recent revision is a 404; neither removes anything,
+        and a malformed `nodeId` never falls back to removing the resource.
       operationId: deleteResource
       parameters:
         - $ref: '#/components/parameters/nodeId'

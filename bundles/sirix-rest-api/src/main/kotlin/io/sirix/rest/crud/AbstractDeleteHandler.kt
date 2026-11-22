@@ -24,7 +24,9 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
         val databaseName: String? = ctx.pathParam("database") ?: ctx.get("databaseName")
         val resource: String? = ctx.pathParam("resource")
-        val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
+        // A nodeId narrows the delete to one subtree. A malformed one must never read as "absent",
+        // which would widen the delete to the whole resource.
+        val nodeId: Long? = requireSubtreeNodeId(ctx)
 
         if (databaseName != null) {
             PathValidation.validatePathParam(databaseName, "database")
@@ -36,7 +38,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         if (databaseName == null) {
             dropDatabasesOfType(ctx, getDatabaseType())
         } else {
-            delete(databaseName, resource, nodeId?.toLongOrNull(), ctx)
+            delete(databaseName, resource, nodeId, ctx)
         }
 
         return ctx.currentRoute()!!
