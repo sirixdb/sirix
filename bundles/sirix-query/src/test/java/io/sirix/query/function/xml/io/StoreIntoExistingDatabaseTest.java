@@ -1,0 +1,228 @@
+package io.sirix.query.function.xml.io;
+
+import io.brackit.query.Query;
+import io.brackit.query.QueryException;
+import io.brackit.query.node.parser.DocumentParser;
+import io.sirix.access.MutationGate;
+import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.query.SirixCompileChain;
+import io.sirix.query.SirixQueryContext;
+import io.sirix.query.function.xml.XMLFun;
+import io.sirix.query.node.BasicXmlDBStore;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+/**
+ * {@code xn:store} and {@code xn:load} into an existing database (#1384), with the same rule as
+ * {@code jn:store} and {@code jn:load}: a new resource name adds the resource; an existing name is
+ * replaced alone when {@code $create-new} is true and refused when it is false. No call drops the
+ * database, and every other resource keeps its content, revisions and indexes.
+ */
+final class StoreIntoExistingDatabaseTest {
+  private static final String OTHER = "xn:doc('db','other')";
+
+  @TempDir
+  Path directory;
+
+  private Path content;
+
+  @BeforeEach
+  void writeInputFiles() throws IOException {
+    content = Files.createDirectories(directory.resolve("input"));
+    Files.writeString(content.resolve("new.xml"), "<v>new</v>");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"store", "load"})
+  void aNewResourceNameAddsTheResourceAndKeepsTheRest(final String function) {
+    for (final String flag : new String[] {"", ",true()", ",false()"}) {
+      withDatabase(function + flag, (chain, context, store) -> {
+        final Witness before = witness(chain, context, store);
+        run(chain, context, call(function, "added", flag));
+        assertEquals(List.of("added", "first", "other"), resources(store));
+        assertEquals("<v>new</v>", run(chain, context, "xn:doc('db','added')"));
+        assertEquals(before, witness(chain, context, store), function + flag);
+      });
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"store", "load"})
+  void anExistingNameIsReplacedAloneWithANewHistoryWhenCreateNewIsTrue(final String function) {
+    for (final String flag : new String[] {"", ",true()"}) {
+      withDatabase(function + flag, (chain, context, store) -> {
+        // The query context already holds a session on the resource it replaces.
+        assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"));
+        final Witness before = witness(chain, context, store);
+        run(chain, context, call(function, "first", flag));
+        assertEquals(List.of("first", "other"), resources(store));
+        assertEquals("<v>new</v>", run(chain, context, "xn:doc('db','first')"));
+        assertEquals(1, revisions(store, "first"), "a replaced resource starts a new history");
+        assertEquals(before, witness(chain, context, store), function + flag);
+      });
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"store", "load"})
+  void anExistingNameIsRefusedUnchangedWhenCreateNewIsFalse(final String function) {
+    withDatabase(function, (chain, context, store) -> {
+      final Witness before = witness(chain, context, store);
+      final QueryException refused =
+          assertThrows(QueryException.class, () -> run(chain, context, call(function, "first", ",false()")));
+      assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
+      assertEquals(List.of("first", "other"), resources(store));
+      assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"));
+      assertEquals(2, revisions(store, "first"));
+      assertEquals(before, witness(chain, context, store));
+    });
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"store", "load"})
+  void severalItemsAreAddedUnderNewNamesWithoutReplacingAnything(final String function) {
+    withDatabase(function, (chain, context, store) -> {
+      final Witness before = witness(chain, context, store);
+      final String file = "'" + content.resolve("new.xml").toUri() + "'";
+      final String items = "store".equals(function)
+          ? "(<a/>,<b/>)"
+          : "(" + file + "," + file + ")";
+      run(chain, context, "xn:" + function + "('db',()," + items + ")");
+      assertEquals(4, resources(store).size(), resources(store).toString());
+      assertEquals(2, revisions(store, "first"));
+      assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"));
+      assertEquals(before, witness(chain, context, store));
+    });
+  }
+
+  /** xn:load names one target for several inputs: it is checked once, like a single input. */
+  @Test
+  void aNamedMultiInputLoadFollowsTheSingleInputRule() throws IOException {
+    Files.writeString(content.resolve("second.xml"), "<w>second</w>");
+    final String inputs =
+        "('" + content.resolve("new.xml").toUri() + "','" + content.resolve("second.xml").toUri() + "')";
+    withDatabase("named-multi", (chain, context, store) -> {
+      final Witness before = witness(chain, context, store);
+      final QueryException refused =
+          assertThrows(QueryException.class, () -> run(chain, context, "xn:load('db','first'," + inputs + ",false())"));
+      assertEquals(XMLFun.ERR_RESOURCE_EXISTS, refused.getCode(), refused.getMessage());
+      assertEquals(2, revisions(store, "first"));
+      assertEquals("<v>first-2</v>", run(chain, context, "xn:doc('db','first')"));
+      // Replaced alone, then every input is written into the new resource.
+      run(chain, context, "xn:load('db','first'," + inputs + ")");
+      assertEquals(2, revisions(store, "first"));
+      assertEquals("<w>second</w><v>new</v>", run(chain, context, "xn:doc('db','first')/*"));
+      assertEquals(List.of("first", "other"), resources(store));
+      assertEquals(before, witness(chain, context, store));
+    });
+  }
+
+  /** xn:load returns the collection it loaded into, whether it created it or added to it. */
+  @Test
+  void loadReturnsTheCollectionItLoadedInto() {
+    withDatabase("load-result", (chain, context, store) -> {
+      assertEquals("true", run(chain, context, "exists(" + call("load", "added", "") + ")"));
+      assertEquals("true",
+          run(chain, context, "exists(" + call("load", "first", "").replace("'db'", "'created'") + ")"));
+    });
+  }
+
+  /**
+   * A caller that finds the database missing creates it under the exclusive database hold and looks
+   * again once it holds it: a database another caller created meanwhile is written into, not dropped
+   * and recreated.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"store", "load"})
+  void aDatabaseCreatedByARacingCallerIsKept(final String function) throws Exception {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(directory.resolve(function)).build();
+        final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
+        final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store)) {
+      final Thread caller;
+      try (var gate = MutationGate.acquireDatabase(store.databaseDirectory("db"))) {
+        caller = new Thread(() -> run(chain, context, call(function, "added", "")));
+        caller.start();
+        // Without the hold the caller would create the database now; with it, it parks.
+        while (caller.getState() != Thread.State.WAITING && caller.isAlive()) {
+          Thread.onSpinWait();
+        }
+        store.create("db", "racer", new DocumentParser("<v>racer</v>"));
+      }
+      caller.join();
+      assertEquals(List.of("added", "racer"), resources(store));
+      assertEquals("<v>racer</v>", run(chain, context, "xn:doc('db','racer')"));
+    }
+  }
+
+  /** Everything the call must leave alone: the other resource's content, history and index. */
+  private record Witness(String content, int revisions, String index) {
+  }
+
+  private Witness witness(final SirixCompileChain chain, final SirixQueryContext context, final BasicXmlDBStore store) {
+    return new Witness(run(chain, context, OTHER), revisions(store, "other"),
+        run(chain, context, "xn:find-path-index(" + OTHER + ",'/v')"));
+  }
+
+  private String call(final String function, final String resource, final String flag) {
+    final String input = "store".equals(function)
+        ? "<v>new</v>"
+        : "'" + content.resolve("new.xml").toUri() + "'";
+    return "xn:" + function + "('db','" + resource + "'," + input + flag + ")";
+  }
+
+  private interface Body {
+    void run(SirixCompileChain chain, SirixQueryContext context, BasicXmlDBStore store);
+  }
+
+  /**
+   * Database {@code db}: {@code first} with two revisions, {@code other} with two and a path index.
+   */
+  private void withDatabase(final String name, final Body body) {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(directory.resolve(name)).build();
+        final SirixCompileChain chain = SirixCompileChain.createWithNodeStore(store);
+        final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store)) {
+      run(chain, context, "xn:store('db','first',<v>first-1</v>)");
+      run(chain, context, "xn:store('db','other',<v>other-1</v>,false())");
+      run(chain, context, "replace value of node xn:doc('db','first')/v with 'first-2'");
+      run(chain, context, "replace value of node " + OTHER + "/v with 'other-2'");
+      run(chain, context,
+          "let $doc := " + OTHER + " let $i := xn:create-path-index($doc,'/v') return sdb:commit($doc)");
+      body.run(chain, context, store);
+    }
+  }
+
+  private static List<String> resources(final BasicXmlDBStore store) {
+    return store.lookup("db")
+                .getDatabase()
+                .listResources()
+                .stream()
+                .map(path -> path.getFileName().toString())
+                .sorted()
+                .toList();
+  }
+
+  private static int revisions(final BasicXmlDBStore store, final String resource) {
+    final XmlResourceSession session = store.lookup("db").getDatabase().beginResourceSession(resource);
+    return session.getMostRecentRevisionNumber();
+  }
+
+  private static String run(final SirixCompileChain chain, final SirixQueryContext context, final String query) {
+    final StringWriter out = new StringWriter();
+    try (final PrintWriter writer = new PrintWriter(out)) {
+      new Query(chain, query).serialize(context, writer);
+    }
+    return out.toString();
+  }
+}

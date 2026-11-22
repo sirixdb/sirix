@@ -46,6 +46,7 @@ import io.vertx.ext.web.handler.HttpException
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -300,7 +301,9 @@ class QueryMutationAuthorizationTest {
      * Both the store decorator and [PermissionCheckingQuery]'s updating-expression check refuse
      * mutations with [HttpException] 403. A query validation error is not an authorization refusal.
      */
-    private fun assertRefused(query: String, body: () -> Unit) {
+    private fun assertRefused(query: String, body: () -> Unit) = assertRefused(query, 403, body)
+
+    private fun assertRefused(query: String, status: Int, body: () -> Unit) {
         val thrown = assertThrows(RuntimeException::class.java, body)
         val routing = Mockito.mock(RoutingContext::class.java)
         val response = Mockito.mock(HttpServerResponse::class.java, Mockito.RETURNS_SELF)
@@ -309,7 +312,7 @@ class QueryMutationAuthorizationTest {
         Mockito.`when`(routing.request()).thenReturn(Mockito.mock(HttpServerRequest::class.java))
         Mockito.`when`(routing.response()).thenReturn(response)
         routerFailureHandler().handle(routing)
-        Mockito.verify(response, Mockito.description(query)).setStatusCode(403)
+        Mockito.verify(response, Mockito.description(query)).setStatusCode(status)
     }
 
     /** Everything a refused mutation could have touched, captured as comparable bytes. */
@@ -405,11 +408,10 @@ class QueryMutationAuthorizationTest {
      * the resource sessions they registered, which would close the session the assertions read.
      */
     /**
-     * Writing into a resource that already exists is a modification, so CREATE alone must not reach
-     * it. Both functions previously ended at the store's and collection's CREATE-checked entry
-     * points only, which let a caller holding CREATE but not MODIFY overwrite existing data — the
-     * create-new flag does not decide this, because the create path shreds into a resource that is
-     * already there instead of refusing it.
+     * CREATE alone must never change a resource that already exists. With create-new true the store
+     * would replace it, which needs MODIFY and DELETE (403); with create-new false an existing name is
+     * refused as a client error before anything is written (400, #1384). Either way the resource and
+     * its writer state are untouched.
      */
     @ParameterizedTest
     @CsvSource("store,true", "store,false", "load,true", "load,false")
@@ -423,23 +425,48 @@ class QueryMutationAuthorizationTest {
         withRoles("auth-view", "create") { fixture ->
             fixture.store.lookup("auth")!!.database.beginResourceSession("records1").use { session ->
                 val before = witness(session)
-                assertRefused(query) { run(fixture, query, keycloak) }
+                assertRefused(query, if (createNew) 403 else 400) { run(fixture, query, keycloak) }
                 assertTrue(session.nodeTrx.isEmpty, "A refused store/load must leave no write transaction open")
                 assertWitnessUnchanged(before, witness(session), query)
             }
         }
     }
 
+    /**
+     * Storing into an existing database adds resources and never drops the database (#1384), so
+     * CREATE suffices and every existing resource keeps its content and history.
+     */
     @ParameterizedTest
     @CsvSource(
-        "store,named", "store,existing", "store,generated", "store,multiple",
-        "load,named", "load,existing", "load,generated", "load,multiple"
+        "store,named,fresh", "store,generated,resource", "store,multiple,resource1|resource2",
+        "load,named,fresh", "load,generated,resource", "load,multiple,resource1|resource2"
     )
-    fun createRoleCannotReplaceAnExistingDatabase(function: String, target: String) {
+    fun createRoleAddsResourcesWithoutTouchingTheOthers(function: String, target: String, added: String) {
         createDatabase()
         val before = databaseWitness()
         val query = replacementQuery(function, target)
         withRoles("auth-view", "create") { fixture ->
+            run(fixture, query, Mockito.mock(OAuth2Auth::class.java))
+        }
+        val after = databaseWitness()
+        assertEquals(before.first + added.split('|'), after.first, query)
+        assertWitnessUnchanged(before.second, after.second, query)
+    }
+
+    /**
+     * Replacing an existing resource discards its history, so it needs CREATE, MODIFY and DELETE;
+     * any one missing is refused before anything changes.
+     */
+    @ParameterizedTest
+    @CsvSource(
+        "store,create", "store,create|modify", "store,create|delete",
+        "load,create", "load,create|modify", "load,create|delete"
+    )
+    fun replacingAResourceNeedsCreateModifyAndDelete(function: String, roles: String) {
+        createDatabase()
+        val before = databaseWitness()
+        val query = replacementQuery(function, "existing")
+        withRoles("auth-view", *roles.split('|').toTypedArray()) { fixture ->
             assertRefused(query) { run(fixture, query, Mockito.mock(OAuth2Auth::class.java)) }
         }
         val after = databaseWitness()
@@ -513,26 +540,39 @@ class QueryMutationAuthorizationTest {
         }
     }
 
+    /**
+     * With CREATE, MODIFY and DELETE an existing name is replaced alone, with a new history; other
+     * names are added beside it. The database itself is never dropped (#1384).
+     */
     @ParameterizedTest
     @CsvSource(
         "store,named", "store,existing", "store,generated", "store,multiple",
         "load,named", "load,existing", "load,generated", "load,multiple"
     )
-    fun createAndDeleteRolesCanReplaceAnExistingDatabase(function: String, target: String) {
+    fun createModifyAndDeleteRolesReplaceOnlyTheNamedResource(function: String, target: String) {
         createDatabase()
-        withRoles("auth-view", "create", "delete") { fixture ->
+        withRoles("auth-view", "create", "modify", "delete") { fixture ->
             run(fixture, replacementQuery(function, target), Mockito.mock(OAuth2Auth::class.java))
         }
         Databases.clearGlobalCaches()
         Databases.openJsonDatabase(directory.resolve("auth")).use { database ->
             val expected = when (target) {
-                "named" -> setOf("fresh")
+                "named" -> setOf("records", "fresh")
                 "existing" -> setOf("records")
-                "generated" -> setOf("resource")
-                "multiple" -> setOf("resource1", "resource2")
+                "generated" -> setOf("records", "resource")
+                "multiple" -> setOf("records", "resource1", "resource2")
                 else -> error(target)
             }
             assertEquals(expected, database.listResources().map { it.fileName.toString() }.toSet())
+            if (target == "existing") {
+                database.beginResourceSession("records").use { session ->
+                    assertEquals(1, session.mostRecentRevisionNumber, "A replaced resource starts a new history")
+                    session.beginNodeReadOnlyTrx().use { reader ->
+                        assertNotEquals(Instant.parse("2024-01-15T00:00:00Z"), reader.revisionTimestamp,
+                            "The head must be the replacement, not the fixture's original commit")
+                    }
+                }
+            }
         }
     }
 

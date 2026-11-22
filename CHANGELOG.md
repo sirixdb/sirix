@@ -203,6 +203,14 @@ All notable changes to SirixDB are documented in this file.
 
 ### Fixed
 
+- **Storing into an existing database no longer drops it** (breaking) — `jn:store`, `jn:load`,
+  `xn:store` and `xn:load` used to delete and recreate the whole database whenever `$create-new`
+  was true (the default), destroying every other resource. Now a new resource name is added beside
+  the others. An existing name is replaced alone when `$create-new` is true (needs CREATE, MODIFY
+  and DELETE) and refused with `SIRIXDBF0006` when it is false. **Migration:** to replace a whole
+  database, call `jn:drop-database`/`xn:drop-database` first. To write into an existing resource,
+  use `jn:import`/`xn:import` instead of store/load with `$create-new` false
+  ([write-up](docs/postmortems/store-into-existing-database.md), #1384).
 - **`xn:store` authorizes CREATE at the query function**, as `xn:load` and `jn:store` do. The REST
   API already refused it through its store decorators; embedders relying on the query-function
   check were not covered ([write-up](docs/postmortems/xml-store-create-authorization.md), #1473).

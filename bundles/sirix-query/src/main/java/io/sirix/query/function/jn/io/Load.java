@@ -28,6 +28,8 @@ import io.sirix.query.ContentOnlyStore;
 import io.sirix.query.function.ImportInput;
 import io.sirix.query.function.DateTimeToInstant;
 import io.sirix.query.function.FunUtil;
+import io.sirix.query.function.jn.JNFun;
+import io.sirix.query.function.ExistingResourceTarget;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonDBStore;
 
@@ -49,8 +51,12 @@ import java.util.List;
  *
  */
 @FunctionAnnotation(
-    description = "Store the given fragments in a collection. "
-        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
+    description = "Load the given resources into a collection. "
+        + "A missing collection is created. In an existing collection a new resource name is added "
+        + "and every other resource is kept; an existing name is replaced alone, with a new history, "
+        + "when $create-new is true (the default) and refused with SIRIXDBF0006 when it is false. "
+        + "Several resources are added under new automatic names. No call drops a collection: "
+        + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Load extends AbstractFunction {
 
@@ -129,30 +135,35 @@ public final class Load extends AbstractFunction {
         return store.lookup(collectionName);
       }
 
-      // Only the create path can replace the whole database, so only it takes the exclusive
-      // database hold. Appending into an existing collection takes nothing here: each target's
-      // check and write are ordered on that resource's own hold, inside the collection, so two
-      // callers writing different resources of one database never wait on each other.
+      // An existing database is never replaced (#1384); see jn:store.
       final Path databaseDirectory = store.databaseDirectory(collectionName);
-      final boolean mayReplaceDatabase = createIfNotExists || store.lookup(collectionName) == null;
-      try (var gate = databaseDirectory == null || !mayReplaceDatabase
-          ? null
-          : MutationGate.acquireDatabase(databaseDirectory)) {
-        if (createIfNotExists) {
-          collection = create(store, collectionName, resourceName, resources, options);
-        } else {
+      collection = store.lookup(collectionName);
+      if (collection == null) {
+        try (var gate = databaseDirectory == null
+            ? null
+            : MutationGate.acquireDatabase(databaseDirectory)) {
           collection = store.lookup(collectionName);
           if (collection == null) {
-            collection = create(store, collectionName, resourceName, resources, options);
-          } else {
-            add(collection, resourceName, resources, options);
+            return create(store, collectionName, resourceName, resources, options);
           }
         }
-
+      }
+      if (resources instanceof Atomic) {
+        final var database = collection.getDatabase();
+        try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resourceName)) {
+          ExistingResourceTarget.prepare(ctx, JNFun.ERR_RESOURCE_EXISTS, collectionName, database, collection::remove,
+              resourceName, createIfNotExists);
+          add(collection, resourceName, resources, options);
+        }
+      } else {
+        add(collection, resourceName, resources, options);
       }
 
       return collection;
     } catch (final Exception e) {
+      if (e instanceof QueryException refusal && JNFun.ERR_RESOURCE_EXISTS.equals(refusal.getCode())) {
+        throw refusal;
+      }
       // (Throwable, QNm) is the cause-attaching overload. The (QNm, Object) one this used to bind to
       // renders the throwable into the message and drops it, so an authorization refusal reached the
       // caller with no HttpException in its chain and the REST failure handler could not map it to a

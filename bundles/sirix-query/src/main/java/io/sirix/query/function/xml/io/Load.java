@@ -24,6 +24,7 @@ import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.util.annotation.FunctionAnnotation;
 import io.brackit.query.util.io.URIHandler;
 import io.sirix.query.function.DateTimeToInstant;
+import io.sirix.query.function.ExistingResourceTarget;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBStore;
@@ -46,8 +47,13 @@ import java.nio.file.Path;
  * @author Johannes Lichtenberger
  */
 @FunctionAnnotation(
-    description = "Store the given fragments in a collection. "
-        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
+    description = "Load the given resources into a collection. "
+        + "A missing collection is created. In an existing collection a new resource name is added "
+        + "and every other resource is kept; an existing name is replaced alone, with a new history, "
+        + "when $create-new is true (the default) and refused with SIRIXDBF0006 when it is false. "
+        + "Several inputs go under new automatic names, or with $res all into that one resource "
+        + "after the same check. No call drops a collection: "
+        + "use drop-database first to replace one, and import to write into an existing resource.",
     parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Load extends AbstractFunction {
 
@@ -123,26 +129,36 @@ public final class Load extends AbstractFunction {
       final Sequence inputs = contentOnly
           ? ImportInput.strings(resources, true)
           : resources;
+      // An existing database is never replaced (#1384); see xn:store.
       final Path databasePath = store.databaseDirectory(collName);
-      final boolean mayReplace = createNew || store.lookup(collName) == null;
-      try (var gate = databasePath == null || !mayReplace
-          ? null
-          : MutationGate.acquireDatabase(databasePath)) {
-        XmlDBCollection coll;
-        if (createNew) {
-          coll = create(store, collName, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
-        } else {
+      XmlDBCollection coll = store.lookup(collName);
+      if (coll == null) {
+        try (var gate = databasePath == null
+            ? null
+            : MutationGate.acquireDatabase(databasePath)) {
           coll = store.lookup(collName);
           if (coll == null) {
-            coll = create(store, collName, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
-          } else {
-            add(coll, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
+            return create(store, collName, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
           }
         }
-
-        return coll;
       }
+      if (resName != null) {
+        // A named target is checked once, before any input is written: added, or replaced alone or
+        // refused per $create-new. Several inputs are then all written into that resource.
+        final var database = coll.getDatabase();
+        try (var gate = MutationGate.acquireResource(database.getDatabaseConfig().getDatabaseFile(), resName)) {
+          ExistingResourceTarget.prepare(ctx, XMLFun.ERR_RESOURCE_EXISTS, collName, database, coll::remove, resName,
+              createNew);
+          add(coll, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
+        }
+      } else {
+        add(coll, resName, inputs, commitMessage, commitTimesstamp, contentOnly);
+      }
+      return coll;
     } catch (final Exception e) {
+      if (e instanceof QueryException refusal && XMLFun.ERR_RESOURCE_EXISTS.equals(refusal.getCode())) {
+        throw refusal;
+      }
       throw new QueryException(e, new QNm(e.getMessage()));
     }
   }

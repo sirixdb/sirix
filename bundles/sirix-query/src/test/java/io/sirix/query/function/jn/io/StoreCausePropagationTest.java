@@ -138,9 +138,10 @@ final class StoreCausePropagationTest {
       throw unsupported();
     }
 
+    /** The collection is absent, so jn:store takes its create path (#1384 looks it up first). */
     @Override
     public JsonDBCollection lookup(final String name) {
-      throw unsupported();
+      return null;
     }
 
     @Override

@@ -78,7 +78,8 @@ final class ConstructedXmlNamespaceTest {
         "ELEMENT|urn:b|repeat|", "ELEMENT|urn:b|item|p", "ELEMENT|urn:a|item|p", "ELEMENT|urn:b|item|p",
         "ELEMENT|urn:a|item|p", "ELEMENT||item|");
     for (final String input : List.of(XML, nested)) {
-      run(versioning, "xn:store('serialized',()," + input + ")");
+      // Each input replaces resource1; storing into the existing database never drops it (#1384).
+      run(versioning, "xn:store('serialized','resource1'," + input + ")");
       final List<String> expectedNames = input.equals(XML)
           ? EXPECTED_NAMES
           : nestedNames;

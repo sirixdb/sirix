@@ -99,6 +99,19 @@ public final class MutationAuthorization {
     }
   }
 
+  /**
+   * Authorize discarding data of database {@code databaseName}, such as the history of a resource a
+   * store replaces, or do nothing when the context's store does not authorize mutations.
+   */
+  public static void requireDelete(final QueryContext ctx, final String databaseName) {
+    Objects.requireNonNull(ctx, "ctx");
+    Objects.requireNonNull(databaseName, "databaseName");
+    final MutationAuthorizer authorizer = authorizerOf(ctx);
+    if (authorizer != null) {
+      authorizer.authorizeDelete(databaseName);
+    }
+  }
+
   public static void requireCreate(final QueryContext ctx, final String databaseName,
       final @Nullable String resourceName) {
     Objects.requireNonNull(ctx, "ctx");

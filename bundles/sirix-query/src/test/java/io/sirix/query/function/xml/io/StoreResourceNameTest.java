@@ -39,13 +39,13 @@ final class StoreResourceNameTest {
       run(chain, context, "xn:store('missing','products'," + a + ",false())");
       assertEquals(List.of("products"), resources(store, "missing"));
       assertEquals("<a/>", run(chain, context, "xn:doc('missing','products')"));
-      // Recreating replaces the database, again under the given name.
+      // Storing another name into the existing database adds it (#1384).
       run(chain, context, "xn:store('created','orders'," + b + ")");
-      assertEquals(List.of("orders"), resources(store, "created"));
+      assertEquals(List.of("orders", "products"), resources(store, "created"));
       assertEquals("<b/>", run(chain, context, "xn:doc('created','orders')"));
       // Appending to an existing collection.
       run(chain, context, "xn:store('created','customers'," + c + ",false())");
-      assertEquals(List.of("customers", "orders"), resources(store, "created"));
+      assertEquals(List.of("customers", "orders", "products"), resources(store, "created"));
       assertEquals("<c/>", run(chain, context, "xn:doc('created','customers')"));
     }
   }
@@ -63,16 +63,19 @@ final class StoreResourceNameTest {
       run(chain, context, "xn:store('unnamed',()," + one + ",false())");
       assertEquals(List.of("resource", "resource1"), resources(store, "unnamed"));
       run(chain, context, "xn:store('unnamed',()," + one + ")");
-      assertEquals(List.of("resource1"), resources(store, "unnamed"));
+      assertEquals(List.of("resource", "resource1"), resources(store, "unnamed"));
       run(chain, context, "xn:store('unnamed-missing',()," + one + ",false())");
       assertEquals(List.of("resource1"), resources(store, "unnamed-missing"));
       for (final String name : List.of("'ignored'", "()")) {
-        run(chain, context, "xn:store('several'," + name + "," + several + ")");
-        assertEquals(List.of("resource1", "resource2"), resources(store, "several"));
-        run(chain, context, "xn:store('several'," + name + "," + several + ",false())");
-        assertEquals(List.of("resource1", "resource2", "resource3", "resource4"), resources(store, "several"));
-        assertEquals("<a/>", run(chain, context, "xn:doc('several','resource3')"));
-        assertEquals("<b/>", run(chain, context, "xn:doc('several','resource4')"));
+        final String collection = name.equals("()")
+            ? "several-unnamed"
+            : "several-named";
+        run(chain, context, "xn:store('" + collection + "'," + name + "," + several + ")");
+        assertEquals(List.of("resource1", "resource2"), resources(store, collection));
+        run(chain, context, "xn:store('" + collection + "'," + name + "," + several + ",false())");
+        assertEquals(List.of("resource1", "resource2", "resource3", "resource4"), resources(store, collection));
+        assertEquals("<a/>", run(chain, context, "xn:doc('" + collection + "','resource3')"));
+        assertEquals("<b/>", run(chain, context, "xn:doc('" + collection + "','resource4')"));
       }
       run(chain, context, "xn:store('several-missing','ignored'," + several + ",false())");
       assertEquals(List.of("resource1", "resource2"), resources(store, "several-missing"));

@@ -289,12 +289,26 @@ public final class JsonDBCollectionImpl extends AbstractJsonItemCollection<JsonD
       requireNonNull(uri);
     }
     final Options resourceOptions = OptionsFactory.createOptions(options, jsonDbStore.options());
-    final String[] names = resolveResourceNames(uris.size());
-    for (int i = 0; i < names.length; i++) {
-      try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(uris.get(i))))) {
-        createAndWriteResource(names[i], reader, resourceOptions);
-      } catch (final IOException e) {
-        throw new UncheckedIOException(e);
+    // Acquire every source before writing any, as creating a database from URIs does: a source that
+    // cannot be read must not leave the earlier ones half-loaded into the existing database.
+    final List<JsonReader> readers = new ArrayList<>(uris.size());
+    try {
+      for (final String uri : uris) {
+        readers.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(uri))));
+      }
+      final String[] names = resolveResourceNames(uris.size());
+      for (int i = 0; i < names.length; i++) {
+        createAndWriteResource(names[i], readers.get(i), resourceOptions);
+      }
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    } finally {
+      for (final JsonReader reader : readers) {
+        try {
+          reader.close();
+        } catch (final IOException closeFailure) {
+          LOG_WRAPPER.debug("closing load input failed", closeFailure);
+        }
       }
     }
   }

@@ -85,6 +85,12 @@ public final class JNFun {
    */
   public static final QNm ERR_NOT_A_STORED_ITEM = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "SIRIXDBF0005");
 
+  /**
+   * {@code jn:store} or {@code jn:load} with {@code $create-new} false named a resource that already
+   * exists in the target database; nothing was written.
+   */
+  public static final QNm ERR_RESOURCE_EXISTS = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "SIRIXDBF0006");
+
   public static void register() {
     // dummy function to cause static block
     // to be executed exactly once
