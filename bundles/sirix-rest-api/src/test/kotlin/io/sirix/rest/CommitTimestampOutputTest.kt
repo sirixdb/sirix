@@ -28,8 +28,8 @@ class CommitTimestampOutputTest {
     lateinit var directory: Path
 
     @Test
-    fun historyPreservesVer201IsoTimestampText() = runBlocking {
-        val times = listOf("2021-03-04T05:06:07Z", "2021-03-04T05:06:07.123Z", "2021-03-04T05:06:07.123456Z")
+    fun historyEmitsSixFractionalDigits() = runBlocking {
+        val times = listOf("2021-03-04T05:06:07.000000Z", "2021-03-04T05:06:07.123000Z", "2021-03-04T05:06:07.123456Z")
         for (xml in listOf(false, true)) {
             val name = if (xml) "xml" else "json"
             val path = directory.resolve(name)

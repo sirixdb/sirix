@@ -18,16 +18,17 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+/** VER-201: public commit timestamp text has six fractional digits, including trailing zeros. */
 final class CommitTimestampOutputTest {
   @TempDir
   Path directory;
 
   @ParameterizedTest
   @CsvSource({
-      "2021-03-04T05:06:07Z,2021-03-04T05:06:08Z",
-      "2021-03-04T05:06:07.123Z,2021-03-04T05:06:08.123Z",
+      "2021-03-04T05:06:07.000000Z,2021-03-04T05:06:08.000000Z",
+      "2021-03-04T05:06:07.123000Z,2021-03-04T05:06:08.123000Z",
       "2021-03-04T05:06:07.123456Z,2021-03-04T05:06:08.123456Z"})
-  void metadataAndHistoryPreserveVer201IsoTimestampText(final String first, final String second) throws Exception {
+  void metadataAndHistoryEmitSixFractionalDigits(final String first, final String second) throws Exception {
     final var config = McpServerConfig.defaults(directory);
     final var access = new AccessControl(config);
     final var handlers = new ToolHandlers(config, access, new OutputSanitizer(config),

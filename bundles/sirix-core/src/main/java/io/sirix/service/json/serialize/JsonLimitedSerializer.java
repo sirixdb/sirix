@@ -21,6 +21,7 @@
 
 package io.sirix.service.json.serialize;
 
+import io.sirix.utils.CommitTimestamps;
 import io.sirix.utils.ChildCounts;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -32,8 +33,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Writer;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.Callable;
 
 import static java.util.Objects.requireNonNull;
@@ -822,8 +821,8 @@ public final class JsonLimitedSerializer implements Callable<Void> {
                                           .appendSeparator();
 
       if (serializeTimestamp) {
-        appendObjectKeyValue(JsonLiterals.QUOTED_REVISION_TIMESTAMP, quote(DateTimeFormatter.ISO_INSTANT.withZone(
-            ZoneOffset.UTC).format(rtx.getRevisionTimestamp()))).appendSeparator();
+        appendObjectKeyValue(JsonLiterals.QUOTED_REVISION_TIMESTAMP,
+              quote(CommitTimestamps.format(rtx.getRevisionTimestamp()))).appendSeparator();
       }
 
       appendObjectKey(JsonLiterals.QUOTED_REVISION);

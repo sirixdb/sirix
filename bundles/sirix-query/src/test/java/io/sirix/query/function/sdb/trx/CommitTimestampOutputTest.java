@@ -20,13 +20,14 @@ import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/** VER-201: public commit timestamp text has six fractional digits, including trailing zeros. */
 final class CommitTimestampOutputTest {
   @TempDir
   Path directory;
 
   @ParameterizedTest
-  @ValueSource(strings = {"2021-03-04T05:06:07Z", "2021-03-04T05:06:07.123Z", "2021-03-04T05:06:07.123456Z"})
-  void timestampFunctionPreservesVer201IsoTimestampText(final String text) throws Exception {
+  @ValueSource(strings = {"2021-03-04T05:06:07.000000Z", "2021-03-04T05:06:07.123000Z", "2021-03-04T05:06:07.123456Z"})
+  void timestampFunctionEmitsSixFractionalDigits(final String text) throws Exception {
     final Path json = directory.resolve("json");
     Databases.createJsonDatabase(new DatabaseConfiguration(json));
     try (final var database = Databases.openJsonDatabase(json)) {
@@ -45,6 +46,10 @@ final class CommitTimestampOutputTest {
       }
       assertEquals(text, output.toString());
       assertEquals(Instant.parse(text), Instant.parse(output.toString()));
+      final String function = "sdb:timestamp(jn:doc('json','res'))";
+      assertEquals("true", new Query(chain, function + " instance of xs:dateTime").evaluate(context).toString());
+      assertEquals("true", new Query(chain, function + " eq xs:dateTime('" + text + "')")
+          .evaluate(context).toString());
     }
     final Path xml = directory.resolve("xml");
     Databases.createXmlDatabase(new DatabaseConfiguration(xml));
@@ -64,6 +69,10 @@ final class CommitTimestampOutputTest {
       }
       assertEquals(text, output.toString());
       assertEquals(Instant.parse(text), Instant.parse(output.toString()));
+      final String function = "sdb:timestamp(xn:doc('xml','res'))";
+      assertEquals("true", new Query(chain, function + " instance of xs:dateTime").evaluate(context).toString());
+      assertEquals("true", new Query(chain, function + " eq xs:dateTime('" + text + "')")
+          .evaluate(context).toString());
     }
   }
 }

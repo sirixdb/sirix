@@ -5,7 +5,8 @@
 - Store the commit timestamp as signed epoch microseconds instead of epoch milliseconds.
   VER-201 fixes the unit in the unchanged 64-bit timestamp field, requires truncation toward
   the past and explicit rejection of an out-of-range instant, and requires the public API to
-  expose every stored microsecond; VER-202/203 compare point-in-time lookups at that
+  expose every stored microsecond with exactly six fractional digits in public ISO commit
+  timestamp text; VER-202/203 compare point-in-time lookups at that
   resolution, VER-205 reports history timestamps in it through the renamed
   `getHistoryTimestampsMicros` accessor (the millisecond name is gone, so callers break
   loudly instead of silently reinterpreting the unit), FMT-104/106 define the directory and

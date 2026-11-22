@@ -1,6 +1,8 @@
 package io.sirix.utils;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.time.Instant;
 
@@ -13,6 +15,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * an unrepresentable instant rejected rather than wrapped.
  */
 final class CommitTimestampsTest {
+
+  @ParameterizedTest
+  @CsvSource({
+      "2021-03-04T05:06:07Z,2021-03-04T05:06:07.000000Z",
+      "2021-03-04T05:06:07.123Z,2021-03-04T05:06:07.123000Z",
+      "2021-03-04T05:06:07.123456Z,2021-03-04T05:06:07.123456Z",
+      "1969-12-31T23:59:59.999999Z,1969-12-31T23:59:59.999999Z"})
+  void isoOutputHasSixFractionalDigits(final String input, final String expected) {
+    // VER-201 fixes the lexical width, even when Instant.toString() would drop trailing zeros.
+    assertEquals(expected, CommitTimestamps.format(Instant.parse(input)));
+  }
 
   @Test
   void epochIsZeroAndRoundTrips() {

@@ -34,3 +34,32 @@ tests = ["io.sirix.backup.BackupManagerInMemoryResourcesTest"]
 [[association]]
 class = "io.sirix.io.Reader"
 tests = ["io.sirix.io.ram.RAMStorageContractTest"]
+
+# VER-201 fixed-width timestamp text is asserted through the public output boundaries.
+[[association]]
+class = "io.sirix.service.json.serialize.JsonSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.service.json.serialize.JsonLimitedSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.service.json.serialize.JsonRecordSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.service.xml.serialize.XmlSerializer"
+tests = ["io.sirix.io.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.query.function.sdb.trx.GetRevisionTimestamp"
+tests = ["io.sirix.query.function.sdb.trx.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.mcp.ToolHandlers"
+tests = ["io.sirix.mcp.CommitTimestampOutputTest"]
+
+[[association]]
+class = "io.sirix.rest.crud.HistoryHandler"
+tests = ["io.sirix.rest.CommitTimestampOutputTest"]

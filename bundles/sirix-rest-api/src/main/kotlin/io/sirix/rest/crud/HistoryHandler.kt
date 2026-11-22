@@ -16,6 +16,7 @@ import io.sirix.api.Database
 import io.sirix.rest.Auth
 import io.sirix.rest.AuthRole
 import io.sirix.service.json.serialize.StringValue
+import io.sirix.utils.CommitTimestamps
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
@@ -76,7 +77,7 @@ class HistoryHandler(private val location: Path, private val authz: Authorizatio
                         buffer.append(",")
 
                         buffer.append("\"revisionTimestamp\":\"")
-                        buffer.append(revisionTuple.revisionTimestamp)
+                        buffer.append(CommitTimestamps.format(revisionTuple.revisionTimestamp))
                         buffer.append("\",")
 
                         buffer.append("\"author\":\"")

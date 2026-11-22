@@ -22,15 +22,16 @@ import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/** VER-201: public commit timestamp text has six fractional digits, including trailing zeros. */
 final class CommitTimestampOutputTest {
   private static final String[] ISO_TIMES = {
-      "2021-03-04T05:06:07Z", "2021-03-04T05:06:07.123Z", "2021-03-04T05:06:07.123456Z"};
+      "2021-03-04T05:06:07.000000Z", "2021-03-04T05:06:07.123000Z", "2021-03-04T05:06:07.123456Z"};
 
   @TempDir
   Path directory;
 
   @Test
-  void jsonSerializersPreserveVer201IsoTimestampText() {
+  void jsonSerializersEmitSixFractionalDigits() {
     Databases.createJsonDatabase(new DatabaseConfiguration(directory));
     try (final var database = Databases.openJsonDatabase(directory)) {
       database.createResource(ResourceConfiguration.newBuilder("res").customCommitTimestamps(true).build());
@@ -64,7 +65,7 @@ final class CommitTimestampOutputTest {
   }
 
   @Test
-  void xmlSerializerPreservesVer201IsoTimestampText() throws Exception {
+  void xmlSerializerEmitsSixFractionalDigits() throws Exception {
     Databases.createXmlDatabase(new DatabaseConfiguration(directory));
     try (final var database = Databases.openXmlDatabase(directory)) {
       database.createResource(ResourceConfiguration.newBuilder("res").customCommitTimestamps(true).build());
