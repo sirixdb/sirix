@@ -914,6 +914,43 @@ final class HOTLeafBodyEncodingTest {
     }
   }
 
+  /**
+   * A key tail is the group prefix and the suffix together. In a leaf with group prefixes, a one-byte key
+   * that equals some entry's one-byte suffix is not that entry's key; selection on heap and native frames
+   * and through an uncached image must report it absent and still find every stored key.
+   */
+  @Test
+  void oneByteProbeDoesNotMatchASuffixBehindAGroupPrefix() throws Exception {
+    try (HOTLeafPage leaf = new HOTLeafPage(7, 3, IndexType.PROJECTION)) {
+      final byte[][] keys = new byte[34][];
+      for (int i = 0; i < keys.length; i++) {
+        keys[i] = new byte[] {(byte) (i >>> 4), 5, 7, 9, 11, 13, (byte) (i * 2)};
+        assertTrue(leaf.put(keys[i], new byte[] {(byte) i, 9}));
+      }
+      final byte[] encoded = write(FULL, leaf, false);
+      assertTrue((encoded[3] & HOTLeafBody.GROUP_PREFIXES) != 0, "the body groups key prefixes");
+      try (Arena arena = Arena.ofConfined()) {
+        final BytesIn<?>[] sources =
+            {new ByteArrayBytesIn(encoded), new MemorySegmentBytesIn(arena.allocateFrom(ValueLayout.JAVA_BYTE, encoded))};
+        for (final BytesIn<?> source : sources) {
+          for (int i = 0; i < keys.length; i++) {
+            source.position(1);
+            assertArrayEquals(new byte[] {(byte) i, 9}, PageKind.deserializeHOTProjectionEntry(source, keys[i], 0).value());
+            source.position(1);
+            assertNull(PageKind.deserializeHOTProjectionEntry(source, new byte[] {keys[i][6]}, 0), "one-byte probe " + i);
+          }
+        }
+      }
+      final ByteArrayBytesIn imageSource = new ByteArrayBytesIn(encoded);
+      imageSource.position(1);
+      final HOTProjectionImage image = HOTProjectionImage.copyIfFits(imageSource);
+      for (int i = 0; i < keys.length; i++) {
+        assertArrayEquals(new byte[] {(byte) i, 9}, image.select(keys[i], 0).value());
+        assertNull(image.select(new byte[] {keys[i][6]}, 0), "uncached image, one-byte probe " + i);
+      }
+    }
+  }
+
   /** Readers accept any {@link BytesIn}, not only the two built-in sources. */
   @Test
   void packedLeafReadsFromAnyBytesInImplementation() throws Exception {
