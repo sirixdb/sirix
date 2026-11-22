@@ -2,6 +2,7 @@ package io.sirix.rest.crud.xml
 
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.file.OpenOptions
+import io.vertx.ext.auth.User as VertxUser
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
@@ -64,7 +65,7 @@ class XmlCreate(
                     )
                         .useDeweyIDs(useDeweyIDs)
                         .customCommitTimestamps(commitTimestampAsString != null).build()
-                createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
+                createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher, ctx.get<VertxUser>("user")!!, ctx.pathParam("database"))
                 try {
                     withCleanupOnFailedShred(database, resPathName, dispatcher) {
                         val manager = database.beginResourceSession(resPathName)

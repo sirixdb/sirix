@@ -2,6 +2,7 @@ package io.sirix.rest.crud
 
 import io.vertx.core.Context
 import io.vertx.core.buffer.Buffer
+import io.vertx.ext.auth.User as VertxUser
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
@@ -17,6 +18,8 @@ import io.sirix.access.trx.node.HashType
 import io.sirix.access.Databases
 import io.sirix.api.Database
 import io.sirix.api.ResourceSession
+import io.sirix.rest.Auth
+import io.sirix.rest.AuthRole
 import io.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
@@ -28,6 +31,26 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
 ) : Handler {
     companion object {
         protected const val MAX_NODES_TO_SERIALIZE = 5000
+
+        /**
+         * Create [resPathName], or replace it when it already exists. Creating needs only the CREATE
+         * role the route checked. Replacing discards the resource's history, so it also needs MODIFY
+         * and DELETE on [databaseName], both checked before anything is removed (REST-210, #1477).
+         */
+        fun createOrReplaceResource(
+            database: Database<*>,
+            resConfig: ResourceConfiguration?,
+            resPathName: String,
+            user: VertxUser,
+            databaseName: String
+        ) {
+            if (!database.createResource(resConfig)) {
+                Auth.checkIfAuthorized(user, databaseName, AuthRole.MODIFY)
+                Auth.checkIfAuthorized(user, databaseName, AuthRole.DELETE)
+                database.removeResource(resPathName)
+                database.createResource(resConfig)
+            }
+        }
         private val logger = LogWrapper(LoggerFactory.getLogger(AbstractCreateHandler::class.java))
     }
 
@@ -110,13 +133,11 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
     suspend fun createOrRemoveAndCreateResource(
         database: Database<*>,
         resConfig: ResourceConfiguration?,
-        resPathName: String, dispatcher: CoroutineDispatcher
+        resPathName: String, dispatcher: CoroutineDispatcher,
+        user: VertxUser, databaseName: String
     ) {
         withContext(dispatcher) {
-            if (!database.createResource(resConfig)) {
-                database.removeResource(resPathName)
-                database.createResource(resConfig)
-            }
+            createOrReplaceResource(database, resConfig, resPathName, user, databaseName)
         }
     }
 
@@ -150,7 +171,7 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
                     val fileName = fileUpload.fileName()
                     val resConfig = ResourceConfiguration.Builder(fileName).useDeweyIDs(useDeweyIDs)
                         .hashKind(HashType.valueOf(hashType.uppercase())).build()
-                    createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher)
+                    createOrRemoveAndCreateResource(database, resConfig, fileName, dispatcher, ctx.get<VertxUser>("user")!!, databaseName)
 
                     val manager = database.beginResourceSession(fileName)
 

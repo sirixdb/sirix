@@ -203,6 +203,11 @@ All notable changes to SirixDB are documented in this file.
 
 ### Fixed
 
+- **REST PUT needs MODIFY and DELETE to replace an existing resource** — `PUT /:database/:resource`
+  and the multipart `PUT /:database` replaced an existing resource, discarding its history, with
+  only the CREATE role. Replacing now also needs MODIFY and DELETE, checked before anything is
+  removed, the same rule as the query functions (REST-210). Creating a new resource still needs only
+  CREATE ([write-up](docs/postmortems/rest-put-replace-authorization.md), #1477).
 - **Automatic resource names are always new** — adding unnamed items to a collection (`jn:store`,
   `jn:load`, `xn:store`, `xn:load` and the collection API) could pick a `resourceN` name that
   already existed and write into that resource. Each item now claims the next free name by creating

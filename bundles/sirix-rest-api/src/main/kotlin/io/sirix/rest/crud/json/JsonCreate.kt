@@ -2,6 +2,7 @@ package io.sirix.rest.crud.json
 
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.parsetools.JsonParser
+import io.vertx.ext.auth.User as VertxUser
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
 import io.vertx.kotlin.coroutines.dispatcher
@@ -101,7 +102,7 @@ class JsonCreate(
 
                 val resConfig = resConfigBuilder.build()
 
-                createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher)
+                createOrRemoveAndCreateResource(database, resConfig, resPathName, dispatcher, ctx.get<VertxUser>("user")!!, ctx.pathParam("database"))
 
                 withCleanupOnFailedShred(database, resPathName, dispatcher) {
                     val manager = database.beginResourceSession(resPathName)
