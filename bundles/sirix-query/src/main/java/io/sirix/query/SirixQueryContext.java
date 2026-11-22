@@ -295,45 +295,9 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
     final Map<XmlResourceId, XmlNodeTrx> writersByResource = HashMap.newHashMap(1);
     final List<UpdateOp> originals = new ArrayList<>(operations);
     try {
-      for (final UpdateOp operation : originals) {
-        if (operation.getTarget() instanceof XmlDBNode source) {
-          final XmlNodeReadOnlyTrx reader = source.getTrx();
-          final XmlNodeTrx writer = reader.getResourceSession().getNodeTrx().orElse(null);
-          if (writer != null) {
-            suppliedWriters.putIfAbsent(XmlResourceId.of(reader), writer);
-          }
-        }
-      }
-      for (final UpdateOp operation : originals) {
-        if (operation.getTarget() instanceof XmlDBNode source) {
-          final XmlNodeReadOnlyTrx reader = source.getTrx();
-          final XmlResourceSession session = reader.getResourceSession();
-          final XmlResourceId resource = XmlResourceId.of(reader);
-          if (!writersByResource.containsKey(resource)) {
-            final XmlNodeTrx supplied = suppliedWriters.get(resource);
-            final boolean created = supplied == null;
-            final XmlNodeTrx writer = supplied == null
-                ? session.beginNodeTrx()
-                : supplied;
-            if (created) {
-              createdWriters.add(writer);
-            }
-            writer.beginAtomicOperation();
-            writers.add(writer);
-            writersByResource.put(resource, writer);
-            if (created && reader.getRevisionNumber() < session.getMostRecentRevisionNumber()) {
-              writer.revertTo(reader.getRevisionNumber());
-            }
-          }
-        }
-      }
-      for (int i = 0; i < originals.size(); i++) {
-        final UpdateOp operation = originals.get(i);
-        if (operation.getTarget() instanceof XmlDBNode source) {
-          final XmlNodeTrx writer = requireNonNull(writersByResource.get(XmlResourceId.of(source.getTrx())));
-          operations.set(i, new XmlNodeUpdate(operation, source.writerView(writer)));
-        }
-      }
+      collectSuppliedXmlWriters(originals, suppliedWriters);
+      beginXmlWriters(originals, suppliedWriters, writersByResource, writers, createdWriters);
+      bindXmlUpdateTargets(originals, operations, writersByResource);
       queryContextDelegate.applyUpdates();
     } catch (final RuntimeException | Error failure) {
       for (final XmlNodeTrx writer : writers) {
@@ -342,21 +306,78 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
       failed = failure;
       throw failure;
     } finally {
-      // Keep original snapshot identities and targets available to the caller after application.
-      operations.clear();
-      operations.addAll(originals);
-      for (int i = writers.size() - 1; i >= 0; i--) {
-        writers.get(i).endAtomicOperation();
-      }
-      // A rollback-only writer left on the session would refuse every later update of the
-      // resource. Release the writers this apply opened; supplied writers stay with their owner.
-      if (failed != null) {
-        for (final XmlNodeTrx writer : createdWriters) {
-          release(writer, failed);
+      finishXmlUpdates(operations, originals, writers, createdWriters, failed);
+    }
+    return writers;
+  }
+
+  private static void collectSuppliedXmlWriters(final List<UpdateOp> originals,
+      final Map<XmlResourceId, XmlNodeTrx> suppliedWriters) {
+    for (final UpdateOp operation : originals) {
+      if (operation.getTarget() instanceof XmlDBNode source) {
+        final XmlNodeReadOnlyTrx reader = source.getTrx();
+        final XmlNodeTrx writer = reader.getResourceSession().getNodeTrx().orElse(null);
+        if (writer != null) {
+          suppliedWriters.putIfAbsent(XmlResourceId.of(reader), writer);
         }
       }
     }
-    return writers;
+  }
+
+  private static void beginXmlWriters(final List<UpdateOp> originals,
+      final Map<XmlResourceId, XmlNodeTrx> suppliedWriters, final Map<XmlResourceId, XmlNodeTrx> writersByResource,
+      final List<XmlNodeTrx> writers, final List<XmlNodeTrx> createdWriters) {
+    for (final UpdateOp operation : originals) {
+      if (operation.getTarget() instanceof XmlDBNode source) {
+        final XmlNodeReadOnlyTrx reader = source.getTrx();
+        final XmlResourceSession session = reader.getResourceSession();
+        final XmlResourceId resource = XmlResourceId.of(reader);
+        if (!writersByResource.containsKey(resource)) {
+          final XmlNodeTrx supplied = suppliedWriters.get(resource);
+          final boolean created = supplied == null;
+          final XmlNodeTrx writer = supplied == null
+              ? session.beginNodeTrx()
+              : supplied;
+          if (created) {
+            createdWriters.add(writer);
+          }
+          writer.beginAtomicOperation();
+          writers.add(writer);
+          writersByResource.put(resource, writer);
+          if (created && reader.getRevisionNumber() < session.getMostRecentRevisionNumber()) {
+            writer.revertTo(reader.getRevisionNumber());
+          }
+        }
+      }
+    }
+  }
+
+  private static void bindXmlUpdateTargets(final List<UpdateOp> originals, final List<UpdateOp> operations,
+      final Map<XmlResourceId, XmlNodeTrx> writersByResource) {
+    for (int i = 0; i < originals.size(); i++) {
+      final UpdateOp operation = originals.get(i);
+      if (operation.getTarget() instanceof XmlDBNode source) {
+        final XmlNodeTrx writer = requireNonNull(writersByResource.get(XmlResourceId.of(source.getTrx())));
+        operations.set(i, new XmlNodeUpdate(operation, source.writerView(writer)));
+      }
+    }
+  }
+
+  private static void finishXmlUpdates(final List<UpdateOp> operations, final List<UpdateOp> originals,
+      final List<XmlNodeTrx> writers, final List<XmlNodeTrx> createdWriters, final @Nullable Throwable failed) {
+    // Keep original snapshot identities and targets available to the caller after application.
+    operations.clear();
+    operations.addAll(originals);
+    for (int i = writers.size() - 1; i >= 0; i--) {
+      writers.get(i).endAtomicOperation();
+    }
+    // A rollback-only writer left on the session would refuse every later update of the
+    // resource. Release the writers this apply opened; supplied writers stay with their owner.
+    if (failed != null) {
+      for (final XmlNodeTrx writer : createdWriters) {
+        release(writer, failed);
+      }
+    }
   }
 
   /**

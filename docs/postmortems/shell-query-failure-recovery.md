@@ -52,6 +52,32 @@ Follow-ups found here and fixed in the same pull request: `-iqf` could not run a
 creating a database ([write-up](xml-store-resource-name.md), #1471). A failure while committing
 (rather than applying) keeps its existing semantics, tracked in #1380.
 
+## CI follow-up: XML apply complexity
+
+- Symptom: CodeFactor rejected PR #1472 with one `Complex Method` issue on
+  `SirixQueryContext.applyXmlUpdates` (reported complexity 17).
+- Root cause: writer discovery, acquisition, target binding and failure cleanup accumulated
+  in the same orchestration method. Runtime regression tests do not measure method complexity.
+- Invariant: extraction preserves R4 and its caller-ownership control, including XML resource
+  aliases, current/historical snapshots, AUTO/EXPLICIT commits, mixed JSON/XML updates, success,
+  rollback-only marking, reverse atomic-operation completion and suppressed release failures.
+- Fix: extract the three complete loops and the entire finally cleanup into private static
+  helpers. Keep all allocations, loop bodies, ordering and the catch block unchanged; no helper
+  call is added per update operation. On failure, mark writers rollback-only, restore the original
+  operations, end atomic operations in reverse order, and release only writers this apply opened.
+  On success, return the same writers to the existing AUTO/EXPLICIT commit path.
+- Regression oracles: existing `SirixQueryContextFailedApplyTest` checks R4's persisted result,
+  writer ownership and suppressed failures. `XmlPendingUpdateRegressionTest` and
+  `XmlAliasIdentityRegressionTest` check snapshots, alias sharing, caller-supplied writers and
+  successful updates. The documented work-budget suites guard counted work and allocation.
+  No behavior changes or source-text tests are needed for this maintainability correction;
+  the external CodeFactor rerun must confirm the analyzer result after publication.
+- Local verification: `:sirix-query:spotlessJavaCheck` and the three named regression suites
+  passed, as did all three *Work budgets* commands in `docs/VERIFICATION.md`, including their
+  isolated allocation checks. Runs used `-PtestHeapMin=512m -PtestHeapMax=3g`.
+- Lesson: split lifecycle orchestration at whole-loop boundaries so method complexity can fall
+  without adding per-operation dispatch; see [Lessons](../LESSONS.md).
+
 ## Review follow-up: empty interactive submissions
 
 - Invariant (R1): an empty submission preserves the session in explicit `-iq` and default

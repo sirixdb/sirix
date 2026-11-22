@@ -181,6 +181,9 @@ neutral. Evidence: [input backslashes](postmortems/shell-input-backslashes.md).
   helper extraction changes bytecode, so retain pinned allocation budgets and
   recapture compiled shape before claiming latency neutrality. Evidence:
   [HOT complexity follow-up](postmortems/hot-codefactor-complexity.md).
+- Split update lifecycle orchestration at whole-loop boundaries, preserving writer ownership,
+  cleanup order and failure suppression without adding per-operation calls. Evidence:
+  [XML apply complexity](postmortems/shell-query-failure-recovery.md#ci-follow-up-xml-apply-complexity).
 - **Bound retained pages by ownership.** A full-fanout node can produce additional private leaves
   during repeated merges. Exclude those replacements at the shared acquisition boundary and
   check capacity before taking a guard. Exercise full fanout and count live frames to catch guards
