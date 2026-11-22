@@ -29,8 +29,8 @@ fun requireLongParam(name: String, value: String): Long =
 fun requireSubtreeNodeId(ctx: RoutingContext): Long? {
     val raw = ctx.queryParam("nodeId").getOrNull(0) ?: return null
     val nodeId = requireLongParam("nodeId", raw)
-    if (ctx.pathParam("resource") == null) {
-        throw IllegalArgumentException("nodeId addresses a node of a resource and requires a resource in the path.")
+    requireNotNull(ctx.pathParam("resource")) {
+        "nodeId addresses a node of a resource and requires a resource in the path."
     }
     return nodeId
 }

@@ -156,7 +156,16 @@ class ReadNodeIdValidationTest {
                 assertEquals(etag, get(client, port, format, "?nodeId=${fixture.firstItemKey}")
                     .getHeader(HttpHeaders.ETAG.toString()))
             }
-            assertEquals(200, head(client, port, format, "").statusCode())
+            // nodeId absent: the ETag names the document root's first child, as on GET (REST-203).
+            val whole = head(client, port, format, "")
+            assertEquals(200, whole.statusCode())
+            if (hash == HashType.NONE) {
+                assertEquals("", whole.getHeader(HttpHeaders.ETAG.toString()))
+            } else {
+                assertEquals(documentFirstChildHash(format, 2).toString(), whole.getHeader(HttpHeaders.ETAG.toString()))
+                assertEquals(whole.getHeader(HttpHeaders.ETAG.toString()),
+                    get(client, port, format, "").getHeader(HttpHeaders.ETAG.toString()))
+            }
             assertEquals(404, head(client, port, format, "?nodeId=999999").statusCode())
             assertEquals(404, head(client, port, format, "?nodeId=${fixture.secondItemKey}&revision=1").statusCode())
             assertEquals(400, head(client, port, format, "?nodeId=abc").statusCode())
@@ -183,6 +192,17 @@ class ReadNodeIdValidationTest {
             db.beginResourceSession("res").use { session ->
                 session.beginNodeReadOnlyTrx(revision).use { rtx ->
                     assertTrue((rtx as NodeCursor).moveTo(nodeKey))
+                    (rtx as NodeReadOnlyTrx).hash
+                }
+            }
+        }
+
+    private fun documentFirstChildHash(format: Format, revision: Int): Long =
+        openDatabase(format).use { db ->
+            db.beginResourceSession("res").use { session ->
+                session.beginNodeReadOnlyTrx(revision).use { rtx ->
+                    (rtx as NodeCursor).moveToDocumentRoot()
+                    assertTrue((rtx as NodeCursor).moveToFirstChild())
                     (rtx as NodeReadOnlyTrx).hash
                 }
             }
