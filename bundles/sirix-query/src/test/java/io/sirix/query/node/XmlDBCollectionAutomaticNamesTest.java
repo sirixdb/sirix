@@ -4,6 +4,8 @@ import io.brackit.query.Query;
 import io.brackit.query.node.parser.DocumentParser;
 import io.sirix.access.MutationGate;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.query.MutationAuthorization;
+import io.sirix.query.MutationAuthorizer;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import java.io.IOException;
@@ -18,6 +20,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 
 /**
  * Several XML documents added to an existing collection get automatic names that are always new
@@ -64,11 +71,30 @@ final class XmlDBCollectionAutomaticNamesTest {
         final SirixQueryContext context = SirixQueryContext.createWithNodeStore(store)) {
       final XmlDBCollection collection = store.create("db", "resource1", new DocumentParser("<kept/>"));
       run(chain, context, "xn:store('db','resource3',<kept/>,false())");
-      collection.add(new DocumentParser("<added/>")).getTrx().close();
+      final XmlDBNode added = collection.add(new DocumentParser("<added/>"));
+      assertEquals("resource4", added.getTrx().getResourceSession().getResourceConfig().getName(),
+          "add returns the document it stored");
+      added.getTrx().close();
       assertEquals(List.of("resource1", "resource3", "resource4"), resources(store));
       assertEquals(1, revisions(store, "resource3"));
       assertEquals("<kept/>", run(chain, context, "xn:doc('db','resource3')"));
       assertEquals("<added/>", run(chain, context, "xn:doc('db','resource4')"));
+    }
+  }
+
+  /** An automatic name creates a resource, so it needs CREATE; a refusal creates nothing. */
+  @Test
+  void anAutomaticNameNeedsCreate() {
+    try (final BasicXmlDBStore store = BasicXmlDBStore.newBuilder().location(directory.resolve("db")).build()) {
+      final XmlDBCollection collection = store.create("db", "resource1", new DocumentParser("<kept/>"));
+      final MutationAuthorizer refusing = mock(MutationAuthorizer.class);
+      final SecurityException refusal = new SecurityException("create refused");
+      doThrow(refusal).when(refusing).authorizeCreate(any(), any());
+      final SecurityException thrown = assertThrows(SecurityException.class,
+          () -> MutationAuthorization.where(refusing)
+                                     .run(() -> collection.addAll(List.of(new DocumentParser("<added/>")))));
+      assertSame(refusal, thrown);
+      assertEquals(List.of("resource1"), resources(store));
     }
   }
 

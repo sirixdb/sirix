@@ -7,6 +7,8 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Sequence;
 import io.sirix.access.MutationGate;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.query.MutationAuthorization;
+import io.sirix.query.MutationAuthorizer;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -22,6 +24,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 
 /**
  * Several JSON items added to an existing collection get automatic names that are always new
@@ -72,11 +79,28 @@ final class JsonDBCollectionAutomaticNamesTest {
         final SirixQueryContext context = SirixQueryContext.createWithJsonStore(store)) {
       final JsonDBCollection collection = store.create("db", "resource1", "{\"v\":\"kept\"}");
       run(chain, context, "jn:store('db','resource3','{\"v\":\"kept\"}',false())");
-      collection.add("{\"v\":\"added\"}");
+      final JsonDBItem added = collection.add("{\"v\":\"added\"}");
+      assertEquals("resource4", added.getResourceSession().getResourceConfig().getName(),
+          "add returns the document it stored");
       assertEquals(List.of("resource1", "resource3", "resource4"), resources(store));
       assertEquals(1, revisions(store, "resource3"));
       assertEquals("{\"v\":\"kept\"}", run(chain, context, "jn:doc('db','resource3')"));
       assertEquals("{\"v\":\"added\"}", run(chain, context, "jn:doc('db','resource4')"));
+    }
+  }
+
+  /** An automatic name creates a resource, so it needs CREATE; a refusal creates nothing. */
+  @Test
+  void anAutomaticNameNeedsCreate() {
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(directory.resolve("db")).build()) {
+      final JsonDBCollection collection = store.create("db", "resource1", "{\"v\":\"kept\"}");
+      final MutationAuthorizer refusing = mock(MutationAuthorizer.class);
+      final SecurityException refusal = new SecurityException("create refused");
+      doThrow(refusal).when(refusing).authorizeCreate(any(), any());
+      final SecurityException thrown = assertThrows(SecurityException.class,
+          () -> MutationAuthorization.where(refusing).run(() -> collection.add("{\"v\":\"added\"}")));
+      assertSame(refusal, thrown);
+      assertEquals(List.of("resource1"), resources(store));
     }
   }
 
