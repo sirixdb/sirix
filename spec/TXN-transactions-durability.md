@@ -501,7 +501,7 @@ A derived resource MUST recover its own durable state and source-revision mappin
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
 - **Gap/note:** Current backup iterates listResources(), which hides $derived, and reads each current head only when its per-resource writer lock is acquired. It lacks the decided common start resource/revision pin set.
 
-Backup MUST copy hidden `$derived` resources as well as visible resources from the pinned start snapshot in TXN-614, including settings, catalogues, revision files and source-revision mapping through each pinned head. It MUST omit transient lock/log/temp files. The copied derived source-frontier mapping MUST NOT refer beyond the pinned copied source head. Restore MUST preserve the copied derived state and permit normal catch-up; silently omitting derived resources or copying a later head is not conforming.
+For resources included under TXN-615 clause 10, backup MUST copy hidden `$derived` resources as well as visible resources from the pinned start snapshot in TXN-614, including settings, catalogues, revision files and source-revision mapping through each pinned head. It MUST omit transient lock/log/temp files. The copied derived source-frontier mapping MUST NOT refer beyond the pinned copied source head. Restore MUST preserve the copied derived state and permit normal catch-up; silently omitting derived resources or copying a later head is not conforming.
 
 ### TXN-614 — Backup start snapshot and fail-fast resource drop
 
@@ -513,7 +513,217 @@ Backup MUST copy hidden `$derived` resources as well as visible resources from t
 - **Evidence class:** code+test (source inspection); decided target has unverified implementation gaps
 - **Gap/note:** Current backup enumerates visible resources then copies each under its own writer semaphore, choosing the head at copy time. LocalDatabase.removeResource rejects open sessions generically, but has no backup pin registry or required diagnostic. Exact start pins and admission/failure cleanup remain implementation work.
 
-At backup start, backup MUST pin the set of resources and each resource’s current committed revision and MUST copy exactly that set at those pinned revisions. Resources created after the start MUST NOT enter the backup; commits after the start MUST NOT advance a copied head. Pins MUST keep the selected immutable revision data available until copying finishes or fails. Dropping a resource in any running backup’s pinned set MUST fail immediately with a clear "backup in progress" error, without waiting or changing anything. Snapshot capture and resource create/drop admission MUST be coordinated to avoid a membership race. Completion/failure MUST release only that backup’s pins; another active backup’s pins remain effective.
+At backup start, subject to TXN-615 clause 10, backup MUST pin the set of resources and each resource’s current committed revision and MUST copy exactly that set at those pinned revisions. Resources created after the start MUST NOT enter the backup; commits after the start MUST NOT advance a copied head. Pins MUST keep the selected immutable revision data available until copying finishes or fails. Dropping a resource in any running backup’s pinned set MUST fail immediately with a clear "backup in progress" error, without waiting or changing anything. Snapshot capture and resource create/drop admission MUST be coordinated to avoid a membership race. Completion/failure MUST release only that backup’s pins; another active backup’s pins remain effective.
+
+### TXN-615 — In-memory state lives with the open database
+
+- **Level:** MUST
+- **Status:** partial
+- **Since:** 1.0
+- **Code:** [RAMStorage.java](../bundles/sirix-core/src/main/java/io/sirix/io/ram/RAMStorage.java); [InMemoryResources.java](../bundles/sirix-core/src/main/java/io/sirix/access/InMemoryResources.java); [LocalDatabase.java](../bundles/sirix-core/src/main/java/io/sirix/access/LocalDatabase.java):`close`, `retireInMemoryLeftovers`, `createResource`, `removeResource`, `listResources`, `existsResource`, `beginResourceSession`; [Databases.java](../bundles/sirix-core/src/main/java/io/sirix/access/Databases.java):`openDatabase`, `releaseDatabase`; [DatabaseHandle.java](../bundles/sirix-core/src/main/java/io/sirix/access/DatabaseHandle.java):`close`; [BackupManager.java](../bundles/sirix-core/src/main/java/io/sirix/backup/BackupManager.java):`backupDatabase`, `restoreDatabase`
+- **Verified by:** [RAMStorageCommittedRevisionTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/ram/RAMStorageCommittedRevisionTest.java) (AC1); [LocalDatabaseInMemoryLifetimeTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/LocalDatabaseInMemoryLifetimeTest.java) (AC2, AC3, AC4 except its token bullet, AC5, AC8, AC9, AC11); [DatabasesInMemoryLifetimeTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabasesInMemoryLifetimeTest.java) (AC6, AC7, AC12, AC15); [InMemoryLifetimeForkedJvmTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/InMemoryLifetimeForkedJvmTest.java) (AC10, AC13); [BackupManagerInMemoryResourcesTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupManagerInMemoryResourcesTest.java) (AC14); all JSON and XML. **Planned:** AC4's token bullet, behind FMT-209, TXN-311 and JAPI-111.
+- **CI regressions:** `DatabasesInMemoryLifetimeTest.repeatedCloseFinishesOnlyTheEndedInstancesCleanup` checks direct/facade retries and newer-instance isolation; `RAMStorageContractTest` checks retained-provider discard, unknown-key boundaries and a budget of 8 KiB allocated per small revision across staging/publication; `InMemoryResourcesTest` checks unknown and tombstone classification; CLI `BackupTest` checks omitted-resource output in quiet and verbose modes.
+- **Review regressions:** TXN-615 clauses 3 and 5 cover filesystem-valid resource names up to 220 characters, on close and removal, in `LocalDatabaseInMemoryLifetimeTest.longResourceNamesAreRetiredAndReusable`; clause 7 covers a successful rename followed by failed deletion in `DatabasesInMemoryLifetimeTest.failedTombstoneDeletionStillEndsTheInstance`; clause 10 covers incomplete tombstones in backup and restore in `BackupManagerInMemoryResourcesTest.incompleteTombstonesDoNotBlockBackupOrRestore`. The existing RAM storage contract and committed-revision tests cover caller ownership across scratch reuse.
+- **Evidence class:** code+test (source inspection). AC10 and AC13 run forked JVMs; AC12 needs POSIX permissions and a non-root user and is skipped elsewhere, which is not evidence (CONV-102).
+- **Gap/note:** Captain decisions of 20 November 2026: lifetime; ownership option 1 of the IN_MEMORY design comparison; backups exclude IN_MEMORY resources (call B, option 1).
+  - Implemented: committed state lives in the open instance and its final close discards it.
+  - Leftovers are removed at close and at the next open. A resource directory is retired by renaming it to `$retired-<uuid>` before deleting it, so a failure never leaves an unprovable half-deleted directory. The tombstone length is independent of the original name. A successful rename frees the name even if deletion fails; final close still reports the remaining tombstone. Resource names containing `$retired-` are therefore reserved.
+  - A failed session teardown keeps the instance for a retry; a failure only in removing leftovers ends it.
+  - Backups skip IN_MEMORY resources and list them.
+  - A failed initial directory scan remains pending. Resource admission retries it before opening,
+    listing, existence checks or creation; no new RAM state is admitted before the scan succeeds.
+  - Source settings remain proof until the derived sibling leaves its original name, including
+    removal and hidden-name creation retries. Retaining settings never retains cached source content.
+  - Review regressions: `failedForcedRemovalReleasesAdmission` covers AC9/AC12's ended-instance
+    release; `InMemoryLifetimeForkedJvmTest.failedInitialScanIsRetriedBeforeResourceAdmission` covers
+    clause 6 after abrupt exit, and
+    `DatabasesInMemoryLifetimeTest.pendingInitialScanBlocksAdmissionUntilDiscoverySucceeds`
+    covers refusal and recovery at each admission path in-process; `derivedLeftoversAreRetiredBeforeSourceNameReuse` covers clauses 7/8 using persisted
+    source/derived directory fixtures with denied deletion. Missing cache-release behavior on the
+    retained-proof branch has no direct public cache-inspection oracle and is reviewed at the shared
+    discard boundary; this round adds no internal-cache test.
+  - Provisional RAM revision roots remain separate from committed records and the timestamp index.
+    Uber-beacon publication adds each committed revision exactly once; failed catalogue persistence
+    followed by rollback/retry never contributes a timestamp entry (TXN-503, VER-202).
+    `RAMStorageCommittedRevisionTest.failedCommitDoesNotPublishATimestampEntry` checks exact,
+    between-commit and future timestamps, historical content and absent revision 3 for JSON/XML.
+  - A known path remains pending unless `Files.notExists` proves absence, including when the
+    resources directory can be listed but not traversed. The POSIX regression is
+    `DatabasesInMemoryLifetimeTest.failedTraversalRemainsPendingUntilRepeatedClose` (clause 7).
+  - Resource identities remembered at session creation release known RAM caches after successful
+    teardown even when filesystem discovery fails. Registry removal also clears the retired RAM
+    store, so retaining a closed session does not retain its committed bytes (AC13).
+  - Resource removal uses remembered RAM ownership, including a derived sibling's remembered
+    source, even if persisted settings become unreadable. Unremembered directories still require
+    readable settings as proof. `knownOwnershipSurvivesUnreadableSettings` checks failed-rename
+    proof retention for sources and derived siblings; `unreadableSettingsRemovalReleasesMemory`
+    reuses a name while retaining closed sessions under the AC13 heap bound (clauses 6/7/8).
+  - Logical discard removes both name/ID mappings, including failed renames and retained source
+    proof (`discardedHiddenResourcesHaveNoNameOrId`, clauses 5/7/8).
+  - Ended instances retain only exact pending cleanup paths and their original proof UUIDs.
+    Repeated close retries these paths under lifecycle admission without scanning or discarding
+    newer state (`repeatedCloseRetriesOnlyRemainingCleanup`, `oldClosePreservesANewerResource`).
+    Original names are renamed before deletion and derived originals retire before their proof.
+  - REST opens and closes a handle per request, and its delete route closes every handle in the process. Either can perform the final close of IN_MEMORY state an embedded user created.
+
+Storage type is chosen per resource, so one database MAY hold IN_MEMORY resources alongside
+FILE_CHANNEL or MEMORY_MAPPED resources. This requirement governs only the IN_MEMORY resources
+and the state derived from them (clause 8). Persistent resources in the same database keep their
+committed revisions and follow TXN-302 unchanged. The committed state of an IN_MEMORY resource
+consists of its revisions, its name, its settings and its index definitions. It MUST belong to
+the open database instance that holds it, in the process that opened it:
+
+1. **Open database.** While the instance is open, every revision committed on the resource
+   MUST stay visible to every later writer, read-only transaction and resource session of that
+   instance. This holds through every handle, whether or not other sessions were open in
+   between, including after every resource session was closed (TXN-201, TXN-204, VER-101).
+   Uncommitted changes stay private (TXN-202).
+2. **Handles and threads.** All handles opened on the same database in the owner process share
+   one instance and its ownership (TXN-101). Paths that resolve to the same real directory
+   (relative paths, `..` segments, symbolic links) MUST reach the same instance and state.
+   Closing a handle while another handle to the instance is open MUST NOT discard anything
+   (JAPI-103). A database handle and a resource session MAY be shared by several threads, each
+   using its own transactions (JAPI-104).
+3. **Final close.** The instance closes when its last handle closes. A handle that is never
+   closed keeps the instance, and its IN_MEMORY state, open until the process exits. That close
+   MUST first tear down its sessions and transactions; a transaction with uncommitted changes is
+   aborted, never committed (TXN-505). Then, while it still holds the database's admission, the
+   close MUST:
+   - discard the committed state of every IN_MEMORY resource of the instance;
+   - remove its on-disk footprint: the resource directory (including `ressetting.obj`,
+     `indexes/` and `update-operations/`) and its derived state (clause 8).
+
+   Afterwards Sirix MUST retain no reference to that state, so its memory is reclaimable.
+   Persistent resources, other than the derived state of clause 8, are untouched.
+4. **Close racing an open.** An open of the same database that arrives while the final close
+   is in progress MUST NOT observe a partly discarded state. It MUST either complete against the
+   closing instance before teardown starts (and then keep it open), or wait and be admitted to a
+   new instance only after the discard finished.
+5. **Reopen.** A database opened after its instance closed MUST NOT contain the former IN_MEMORY
+   resources:
+   - They MUST be absent from resource listing and existence checks.
+   - Opening one by name MUST fail with `SirixUsageException`, as for a name that never existed.
+   - Opening the database itself is not an error, and an all-IN_MEMORY database opens with no
+     resources.
+   - Creating a resource under a former name MUST succeed. The new resource starts at bootstrap
+     revision 0 with no content and a fresh incarnation id (FMT-209), so tokens and cached state
+     of the former resource never apply to it (TXN-311).
+6. **Abrupt end.** The same holds when the process ends without closing the database. A later
+   process MUST treat any directories or settings the former IN_MEMORY resources left behind as
+   absent, and MUST NOT expose them as resources without revisions. Reserved retirement names
+   containing `$retired-` identify tombstones, not resources, and do not require readable settings.
+   For other names, before hiding or removing leftovers, it MUST verify from readable persisted
+   settings that they belong to an IN_MEMORY resource or its derived state (clause 8). Leftovers
+   whose settings are missing, empty or unreadable MUST be treated as a persistent resource under
+   TXN-611, and never removed by this cleanup. No other persistent resource may be hidden or
+   removed by it.
+7. **Failed cleanup.** This clause extends TXN-503's teardown rule to the final database close.
+   - If tearing down sessions and transactions fails, the close MUST throw that failure and discard
+     nothing. The instance stays open, owned and complete, and a retry completes only the
+     remaining work (TXN-101, TXN-503).
+   - Once teardown has succeeded, the IN_MEMORY state MUST be discarded and its memory released,
+     even if removing its on-disk footprint fails. That close MUST nevertheless end the instance
+     and release the admission, and a later open MUST create a new instance. It throws the first
+     failure, with later ones suppressed.
+   - Leftovers of a failed removal are treated as in 6. The next open or a repeated close
+     completes only the remaining cleanup, and the name remains reusable.
+   - Memory reachable from a fenced worker (TXN-504) MUST NOT be released until that worker has
+     stopped.
+8. **Removal and derived state.** Removing an IN_MEMORY resource from an open database MUST
+   discard its committed state and on-disk footprint at once. It is subject to the same
+   open-session precondition as removing a persistent resource. A TXN-614 backup pin never
+   covers it (clause 10).
+   A resource later created under that name follows 5. Removing an open database
+   (`Databases.removeDatabase`) MUST close its instance as in 3 before it removes it.
+
+   State derived from an IN_MEMORY resource, including update-diff sidecars and the derived
+   index resource built from it, belongs to that resource regardless of its own storage type. It
+   MUST be removed when the source's state is discarded (clauses 3, 5 and 8), and MUST NOT
+   reappear under a later resource of the same name. A derived resource is identified by its
+   reserved name and its recorded source, never by its own storage type. Clauses 3 and 6 protect
+   persistent resources other than these.
+9. **No durability.** IN_MEMORY state is never visible to another process. A second process
+   cannot open the database while the owner holds it (TXN-101, `SirixDatabaseLockException`).
+   It has no durability. The TXN-302 exemption and TXN-607 are unchanged.
+10. **Backup.** A backup (TXN-613, TXN-614) MUST skip every IN_MEMORY resource and its derived
+    state (clause 8). Its pinned set contains only persistent resources.
+    The backup's result MUST list each skipped IN_MEMORY resource by name
+    as not backed up. A restore MUST never create an IN_MEMORY resource or its derived state.
+
+Acceptance criteria, each observable through the public API, for JSON and XML:
+
+- AC1 (#1463 oracle): in an open database, insert and commit, then close the writer. Open
+  another writer, a read-only transaction, and a new resource session after closing every
+  session. Each sees the committed node and value, and every earlier revision reads unchanged.
+- AC2 (handles): with two handles open, commit through one. Close the handles in both orders.
+  After the first close, a new session through the remaining handle sees the committed
+  revision. After the second close, AC4 holds.
+- AC3 (threads): two threads share one handle and one resource session, each with its own
+  transaction. One commits while the other holds a reader on the earlier revision. The reader
+  keeps its revision, and a reader opened afterwards sees the commit.
+- AC4 (reopen): commit, close the last handle, then reopen.
+  - The IN_MEMORY resource is absent from `listResources()` and `existsResource`.
+  - `beginResourceSession` with its name fails with `SirixUsageException`.
+  - After opening a session on every resource `listResources()` returns,
+    `getResourceID(formerName)` throws `SirixUsageException`.
+  - `createResource` with the name succeeds, and the new resource reports revision 0 with no
+    content.
+  - **Planned** behind FMT-209, TXN-311 and JAPI-111: a token (ETag/incarnation) from the former
+    resource is rejected by the new one.
+- AC5 (mixed database): the database holds one FILE_CHANNEL and one IN_MEMORY resource. Before
+  final close, both are listed and readable. After reopen, the FILE_CHANNEL resource is listed,
+  reads all its revisions, and `getResourceID` returns its ID once a session on it is opened. The
+  IN_MEMORY resource meets AC4.
+- AC6 (alias paths, regression guard): open the database through two path spellings of the same
+  directory (a relative path, or one with a `..` segment or a symbolic link). Each sees the
+  other's commits. Closing both discards the state as in AC4.
+- AC7 (close racing open): repeatedly run the final close on one thread and an open of the same
+  database on another, without an internal hook. Every open sees either all committed revisions
+  or AC4's empty state. None sees a partial state or fails with an internal error. The two
+  admissible branches of clause 4 are not distinguished from outside.
+- AC8 (dirty transaction at close): close the last handle while a writer with uncommitted
+  changes is open, then reopen. The result meets AC4, and nothing uncommitted was committed.
+- AC9 (removal):
+  - `removeResource` of a committed IN_MEMORY resource in an open database (no sessions open),
+    then create the same name: revision 0, no content.
+  - With a session open, removal is refused, as for a persistent resource.
+  - `Databases.removeDatabase` with handles open, then create and open a database at the same
+    path: empty.
+- AC10 (abrupt end, forked JVM): a child JVM creates a database holding a committed IN_MEMORY
+  resource and a committed FILE_CHANNEL resource, then exits without closing. A fresh JVM opening
+  the directory meets AC5. The FILE_CHANNEL resource and its files are intact.
+- AC11 (leftover verification): a resource directory whose settings file is missing, empty or
+  unreadable, and a FILE_CHANNEL resource whose data files are empty, are never hidden or
+  removed by the cleanup of clause 6.
+- AC12 (failed cleanup and retry; POSIX, non-root): make an IN_MEMORY resource's directory
+  undeletable, then close the last handle.
+  - Close throws the cleanup failure, the old handle reports itself closed, and the committed
+    state is gone.
+  - A later open creates a new instance (it does not rejoin the failed one), and the resource is
+    absent there.
+  - After the directory becomes deletable again, the name can be created at revision 0.
+  - If another process holds database ownership, a repeated close of the ended instance throws
+    `SirixDatabaseLockException` without deleting its pending original directory or tombstone.
+    After that owner releases the lock, repeated close removes the leftover and becomes idempotent
+    (TXN-101). `DatabaseOwnershipTest.repeatedCloseRespectsAnotherProcessesOwnership` checks both
+    representations for JSON and XML with a real child-process lock holder.
+- AC15 (failed teardown; clause 7): make session teardown fail once at the final close.
+  - The close throws, and the handle stays open.
+  - An open that rejoins the instance sees every committed revision.
+  - A retried close succeeds, and the next reopen holds no former IN_MEMORY resource.
+- AC13 (memory released at close; forked JVM with a small heap): in a child JVM whose heap
+  cannot hold the IN_MEMORY state of many databases at once, repeatedly open a database, create
+  an IN_MEMORY resource, commit content of a sizeable fraction of that heap, and close the
+  database. The loop completes without OutOfMemoryError. In a second child with the same heap,
+  an otherwise identical loop that keeps every database open fails with OutOfMemoryError, which
+  proves the bound bites. A third child with the same heap keeps one database open and
+  repeatedly creates, fills and removes an IN_MEMORY resource under a new name. Its loop also
+  completes (clause 8). The children isolate the failure from the shared test JVM.
+- AC14 (backup): back up a mixed database holding a committed FILE_CHANNEL and a committed
+  IN_MEMORY resource, then restore it to a new location and open it.
+  - The backup's result lists the IN_MEMORY resource as not backed up.
+  - The restored FILE_CHANNEL resource is complete: every revision reads as in the source.
+  - The IN_MEMORY name is absent there, as in AC4.
 
 ### TXN-701 — Async flush semantics
 
@@ -800,6 +1010,7 @@ Neither model nor a crash CI lane is delivered by this chapter.
 | TXN-612 | [DerivedIndexCrashRecoveryTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedIndexCrashRecoveryTest.java):`restartsAtDurableDerivedFrontier`; [DerivedRevisionMappingTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedRevisionMappingTest.java) | partial |
 | TXN-613 | [BackupRestoreTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupRestoreTest.java); [DerivedRevisionMappingTest.java](../bundles/sirix-core/src/test/java/io/sirix/index/aggregate/DerivedRevisionMappingTest.java) **Planned:** DerivedBackupConformance: source/derived revisions advancing during copy, backup start barrier, copy hidden resources at pinned heads, restore elsewhere and compare history/mappings/queries before and after catch-up; interrupted copy rejects partial target. | designed |
 | TXN-614 | [BackupRestoreTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupRestoreTest.java); [DatabaseOwnershipTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabaseOwnershipTest.java) **Planned:** BackupStartSnapshotConformance: barrier at start, concurrent create/commit/drop, assert exact resource/head manifest; pinned drop names backup in progress and preserves all state; later-created resource excluded; two overlapping backups and failed-copy cleanup; restore and compare every pinned revision plus hidden derived state. | designed |
+| TXN-615 | [RAMStorageCommittedRevisionTest.java](../bundles/sirix-core/src/test/java/io/sirix/io/ram/RAMStorageCommittedRevisionTest.java) (AC1); [LocalDatabaseInMemoryLifetimeTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/LocalDatabaseInMemoryLifetimeTest.java) (AC2-AC5, AC8, AC9, AC11); [DatabasesInMemoryLifetimeTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/DatabasesInMemoryLifetimeTest.java) (AC6, AC7, AC12, AC15); [InMemoryLifetimeForkedJvmTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/InMemoryLifetimeForkedJvmTest.java) (AC10, AC13); [BackupManagerInMemoryResourcesTest.java](../bundles/sirix-core/src/test/java/io/sirix/backup/BackupManagerInMemoryResourcesTest.java) (AC14) **Planned:** AC4 token bullet behind FMT-209/TXN-311/JAPI-111. | partial |
 | TXN-701 | [AsyncAutoCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/AsyncAutoCommitTest.java); [AsyncFlushColdReopenVersioningTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushColdReopenVersioningTest.java) | partial |
 | TXN-702 | [AsyncFlushFailurePathTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/page/AsyncFlushFailurePathTest.java):`unboundCloseBlocksSuccessorUntilAbortedTrieTailIsSafeToReuse` **Planned:** AsyncTailRecoveryConformance: abort after page append, warm and cold reopen, sibling resource active, assert no stale page. | designed |
 | TXN-703 | [AsyncCommitTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/AsyncCommitTest.java); [AsyncCommitFrontierOrderingTest.java](../bundles/sirix-core/src/test/java/io/sirix/access/trx/node/AsyncCommitFrontierOrderingTest.java) **Planned:** AsyncPipelineConformance: barrier-observed successor overlap; successor-construction plus inline-hardening double failure; submission rejection; assert balanced slot and original cause. | designed |

@@ -21,7 +21,7 @@ Persistent file identity, geometry, page framing, strict readers, feature negoti
 - **Evidence class:** code+test (source inspection)
 - **Gap/note:** Mapped source/tests inspected; runtime conformance was not executed for this documentation change.
 
-A built-in persistent FILE_CHANNEL or MEMORY_MAPPED resource MUST keep its page store in `data/sirix.data`, revision directory in `data/sirix.revisions`, resource settings in `ressetting.obj`, index catalogues in `indexes/`, encryption-key material when configured in `encryption/`, update-diff sidecars in `update-operations/`, and recovery marker at `log/.commit`. The database settings file is `dbsetting.obj`. Settings and page files MUST identify the same resource; a zero UUID or UUID mismatch MUST fail open. IN_MEMORY has no durability guarantee and follows TXN-607.
+A built-in persistent FILE_CHANNEL or MEMORY_MAPPED resource MUST keep its page store in `data/sirix.data`, revision directory in `data/sirix.revisions`, resource settings in `ressetting.obj`, index catalogues in `indexes/`, encryption-key material when configured in `encryption/`, update-diff sidecars in `update-operations/`, and recovery marker at `log/.commit`. The database settings file is `dbsetting.obj`. Settings and page files MUST identify the same resource; a zero UUID or UUID mismatch MUST fail open. IN_MEMORY has no durability guarantee and follows TXN-607 and TXN-615.
 
 ### FMT-102 — Superblock bytes
 

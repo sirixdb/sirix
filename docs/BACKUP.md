@@ -1,13 +1,15 @@
 # Backup & Restore
 
-SirixDB databases are directories of append-only files, which makes backups simple: a copy of
-the database directory taken while no commit is in flight is a complete, valid backup. The
-`io.sirix.backup.BackupManager` API automates this safely for a *live* database from within
+Persistent SirixDB resources use append-only files: a copy of the database directory taken
+while no commit is in flight preserves their committed history. IN_MEMORY state is excluded
+under [TXN-615](../spec/TXN-transactions-durability.md#txn-615--in-memory-state-lives-with-the-open-database).
+The `io.sirix.backup.BackupManager` API automates this safely for a *live* database from within
 its owning process. The `backup`/`restore` CLI verbs use the same API.
 Sirix has no streaming or incremental backup tool.
 
 Backup and restore apply the strict [store feature policy](DISK_FORMAT.md#uberpage-store-feature-words)
 before opening resources or creating a target, including hidden derived resources in the preflight.
+Retirement tombstones are not resources and are ignored by that preflight.
 
 ## Backup (CLI)
 
@@ -23,7 +25,7 @@ sirix-cli -l /path/to/database backup /path/to/backup-dir -v
 
 ### What it guarantees
 
-- **Per-resource point-in-time consistency.** For each resource, the backup acquires the
+- **Per-resource point-in-time consistency.** For each persistent resource copied, the backup acquires the
   resource's writer lock (the same semaphore `beginNodeTrx` uses, shared across every open
   handle to that resource in the JVM) and holds it while that resource's files —
   `data/sirix.data`, `data/sirix.revisions`, `ressetting.obj`, `indexes/`,
@@ -37,6 +39,9 @@ sirix-cli -l /path/to/database backup /path/to/backup-dir -v
 - **Full history.** SirixDB never rewrites old revisions, so the backup contains *all*
   revisions up to the backup point, per resource.
 - **Independence.** Commits made to the original after the backup do not affect the backup.
+- **Skipped resources.** `BackupSummary.notBackedUp()` lists the IN_MEMORY resources omitted
+  under TXN-615. The CLI prints these names even without `-v`; their files and settings are
+  excluded along with their derived state.
 - Runtime files are skipped: the database `.lock` file, the per-resource intent-log
   (`log/`, including the `.commit` marker) and atomic-write temporaries (`*.tmp*`).
 
@@ -63,7 +68,7 @@ sirix-cli --location /path/to/backup-dir restore /path/to/new-database
 restored to (must not exist yet or be empty). The restore:
 
 1. validates the backup has the database directory structure,
-2. copies it to the target,
+2. copies it to the target, excluding runtime files and IN_MEMORY leftovers under TXN-615,
 3. **verifies** the result by opening the restored database and a read-only transaction on each
    resource at its most recent revision (this exercises superblock validation, beacon checksums, the
    checksummed revision slots and the page-checksum chain on the root page),
@@ -84,7 +89,7 @@ run alongside its original without any manual step.
 ## Cold-copy alternative (stopped server)
 
 If the SirixDB process is stopped (or the database is guaranteed to have no active writer), a
-plain recursive copy is an equally valid backup — no tooling required:
+plain recursive copy is an equally valid backup of its persistent resources — no tooling required:
 
 ```bash
 cp -a /path/to/database /path/to/backup-dir     # or rsync -a
@@ -95,6 +100,9 @@ A cold copy may include the runtime files the CLI skips (`.lock`, `log/.commit`,
 directory. Do **not** cold-copy while a writer is active: a commit could interleave with the
 copy and leave the data/revisions pair inconsistent; use `BackupManager` within the owning
 process for an online backup instead.
+
+Copying IN_MEMORY settings does not preserve their committed state; their lifetime and
+leftover cleanup follow TXN-615.
 
 Filesystem snapshots (LVM, ZFS) are safe only if the snapshot is atomic across all files of
 the resource. ext4 + LVM is fine; per-file snapshots are not.

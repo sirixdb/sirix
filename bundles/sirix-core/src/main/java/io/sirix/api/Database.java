@@ -31,9 +31,9 @@ import java.util.List;
 
 /**
  * <p>
- * This interface describes database instances handled by Sirix. A database is a persistent place
- * where all data is stored. {@link ResourceSession}s are used to access the data in individual
- * resources.
+ * This interface describes database instances handled by Sirix. Resources may use persistent or
+ * in-memory storage. {@link ResourceSession}s are used to access their data; the in-memory lifetime
+ * and cleanup contract is defined by TXN-615 in {@code spec/TXN-transactions-durability.md}.
  * </p>
  *
  * <p>

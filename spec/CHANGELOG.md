@@ -12,6 +12,12 @@
   counterfactual evidence, or removal of the code. The development strategy states the same
   exception in [Development](../docs/DEVELOPMENT.md#4-mutation-testing-as-a-complement).
 
+- Add [TXN-615](TXN-transactions-durability.md#txn-615--in-memory-state-lives-with-the-open-database)
+  for IN_MEMORY lifetime, cleanup, reserved retirement names and backup exclusions; FMT-101
+  references it. Implementation status and remaining token work are recorded there.
+  [JAPI-104](JAPI-java-api.md#japi-104--transaction-threading-boundary) clarifies shared handles
+  and sessions with independent transactions.
+
 - Add reviewed mutation dispositions, test associations and local refactoring helpers for the
   PR mutation lane in [CONV-201 to CONV-204](CONV-conventions.md#conv-201--mutation-disposition-record).
   [CONV-103](CONV-conventions.md#conv-103--specification-before-implementation) defines the revised

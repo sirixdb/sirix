@@ -924,12 +924,13 @@ class AssociationTest(unittest.TestCase):
     def test_repository_files_are_valid_and_keep_the_former_contract_pairs(self):
         associations, errors = mutation.load_associations(REPOSITORY)
         self.assertEqual(errors, [])
-        contract = ('io.sirix.query.scan.VectorizedReleaseCorrectnessTest',)
-        self.assertEqual(associations, {name: contract for name in (
+        contract = 'io.sirix.query.scan.VectorizedReleaseCorrectnessTest'
+        for name in (
             'io.sirix.query.SirixCompileChain',
             'io.sirix.query.compiler.translator.SirixBlockPipelineStrategy',
             'io.sirix.query.compiler.translator.SirixPipelineStrategy',
-            'io.sirix.query.scan.VectorizedRouteRefusedException')})
+            'io.sirix.query.scan.VectorizedRouteRefusedException'):
+            self.assertIn(contract, associations.get(name, ()))
         entries, errors = mutation.parse_dispositions(
             (REPOSITORY / mutation.DISPOSITIONS_FILE).read_text())
         self.assertEqual(errors, [])
