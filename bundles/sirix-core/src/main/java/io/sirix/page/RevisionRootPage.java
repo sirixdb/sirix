@@ -222,9 +222,8 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   RevisionRootPage(final Page delegate, final int revision, final long maxNodeKeyInDocumentIndex,
       final long maxNodeKeyInChangedNodesIndex, final long maxNodeKeyInRecordToRevisionsIndex,
       final long revisionTimestampMicros, final String commitMessage,
-      final int currentMaxLevelOfDocumentIndexIndirectPages,
-      final int currentMaxLevelOfChangedNodesIndirectPages, final int currentMaxLevelOfRecordToRevisionsIndirectPages,
-      final User user) {
+      final int currentMaxLevelOfDocumentIndexIndirectPages, final int currentMaxLevelOfChangedNodesIndirectPages,
+      final int currentMaxLevelOfRecordToRevisionsIndirectPages, final User user) {
     this.delegate = delegate;
     this.revision = revision;
     this.maxNodeKeyInDocumentIndex = maxNodeKeyInDocumentIndex;
@@ -384,7 +383,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   /**
    * Get timestamp of revision.
    *
-   * @return Revision timestamp.
+   * @return the effective commit timestamp as epoch microseconds (VER-201)
    */
   public long getRevisionTimestampMicros() {
     return revisionTimestampMicros;
@@ -508,11 +507,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   }
 
   /**
-   * Set the commit timestamp supplied by the caller. The value is validated here and resolved
-   * against the predecessor by {@link #ensureCommitTimestampMicros()} when the revision commits: a
-   * timestamp that ties with or precedes the predecessor is adjusted there under TXN-310, rather
-   * than rejected. A timestamp in the future is rejected, and so is one outside the representable
-   * epoch-microsecond range of VER-201.
+   * Set the commit timestamp supplied by the caller. The value is validated here and resolved against
+   * the predecessor by {@link #ensureCommitTimestampMicros()} when the revision commits: a timestamp
+   * that ties with or precedes the predecessor is adjusted there under TXN-310, rather than rejected.
+   * A timestamp in the future is rejected, and so is one outside the representable epoch-microsecond
+   * range of VER-201.
    *
    * @param commitTimestamp the commit timestamp to use
    * @throws NullPointerException if {@code commitTimestamp} is {@code null}
@@ -544,8 +543,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * microseconds of VER-201. The effective value is
    * {@code max(supplied or wall clock, predecessor + 1 microsecond)}, so commit timestamps strictly
    * increase even when two commits fall inside one millisecond or the wall clock repeats or moves
-   * backwards. The first call of a commit assigns; every later call on the same page repeats that
-   * one value, so serializing a revision twice yields the same bytes.
+   * backwards. The first call of a commit attempt assigns; later calls within that attempt repeat
+   * that value, so repeated serialization is stable. {@link #assignCommitTimestampMicros(Instant)}
+   * starts a new attempt using the original committed predecessor and the new input.
    *
    * @return the effective commit timestamp in epoch microseconds
    */

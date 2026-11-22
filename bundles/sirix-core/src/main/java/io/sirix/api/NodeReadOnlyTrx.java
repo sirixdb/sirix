@@ -31,9 +31,9 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   int getRevisionNumber();
 
   /**
-   * UNIX-style timestamp of the commit of the revision.
+   * Effective commit timestamp of the revision.
    *
-   * @return instant, representing the milliseconds from unix epoch.
+   * @return the stored instant at microsecond precision (VER-201)
    */
   Instant getRevisionTimestamp();
 

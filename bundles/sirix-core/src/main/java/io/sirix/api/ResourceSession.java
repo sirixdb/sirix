@@ -407,13 +407,12 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Get the revision number that was valid at the given point in time using floor semantics.
    *
    * <p>
-   * Compares timestamps at microsecond precision, truncating the requested instant toward the past
-   * to a whole microsecond. Effective commit timestamps strictly increase, so an exact stored
+   * Compares timestamps at microsecond precision, truncating the requested instant toward the past to
+   * a whole microsecond. Effective commit timestamps strictly increase, so an exact stored
    * microsecond identifies exactly one revision. A timestamp between revisions selects the earlier
    * revision. A timestamp before all revisions selects the bootstrap revision 0, and one after all
    * revisions selects the most recent revision. Pruned revisions participate in this metadata lookup
-   * and may be returned; opening such
-   * a revision throws {@link SirixRevisionPrunedException}.
+   * and may be returned; opening such a revision throws {@link SirixRevisionPrunedException}.
    *
    * @param pointInTime the point in time
    * @return the revision number valid at that time
@@ -425,14 +424,14 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * Get the revision valid at the given point in time within a committed revision ceiling.
    *
    * <p>
-   * Compares timestamps at microsecond precision, truncating the requested instant toward the past
-   * to a whole microsecond, and selects the highest revision number at or below
-   * {@code revisionCeiling} committed at or before that instant. Effective commit timestamps strictly
-   * increase, so an exact stored microsecond belonging to a revision at or below the ceiling
-   * identifies that revision. Returns the bootstrap revision 0 if no revision qualifies. Later
-   * commits cannot change the result for the same point in time and ceiling; capture
-   * {@link #getMostRecentRevisionNumber()} once and reuse it when resolving related timestamps.
-   * Pruned revisions participate, both as the ceiling and as the result.
+   * Compares timestamps at microsecond precision, truncating the requested instant toward the past to
+   * a whole microsecond, and selects the highest revision number at or below {@code revisionCeiling}
+   * committed at or before that instant. Effective commit timestamps strictly increase, so an exact
+   * stored microsecond belonging to a revision at or below the ceiling identifies that revision.
+   * Returns the bootstrap revision 0 if no revision qualifies. Later commits cannot change the result
+   * for the same point in time and ceiling; capture {@link #getMostRecentRevisionNumber()} once and
+   * reuse it when resolving related timestamps. Pruned revisions participate, both as the ceiling and
+   * as the result.
    *
    * @param pointInTime the point in time
    * @param revisionCeiling the inclusive upper bound on committed revision numbers

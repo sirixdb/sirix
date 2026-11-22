@@ -68,8 +68,8 @@ public final class OpenRevisions extends AbstractFunction {
     // requested instant — dereferencing unconditionally NPE'd (HTTP 500) for a timestamp
     // before the resource existed. Raise a clean query error instead.
     if (startDocNode == null || endDocNode == null) {
-      throw new QueryException(new QNm(
-          "No revision exists at the given point(s) in time (the resource was created later)."));
+      throw new QueryException(
+          new QNm("No revision exists at the given point(s) in time (the resource was created later)."));
     }
 
     var startRevision = startDocNode.getTrx().getRevisionNumber();

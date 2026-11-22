@@ -5582,7 +5582,7 @@ public enum PageKind {
       final int currentMaxLevelOfRecordToRevisionsIndirectPages =
           revisionRootPage.getCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
       // The effective commit timestamp of TXN-310 in the epoch microseconds of VER-201; assigned
-      // once per revision, so serializing the same page twice writes the same value.
+      // once per commit attempt, so repeated serialization within that attempt is stable.
       final long revisionTimestampMicros = revisionRootPage.ensureCommitTimestampMicros();
 
       sink.writeInt(revision);

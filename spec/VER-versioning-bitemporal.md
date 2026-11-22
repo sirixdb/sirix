@@ -185,7 +185,7 @@ Transaction-time revision selection MUST use commit history. Enabling valid-time
 
 ## Deferred work
 
-- VER-201/204: implement precision-preserving 1.0 timestamp encoding, checked representable-range behavior and custom-input integration. Strict generation and unique lookup are decided. Direct beta access is rejected; imported timestamp normalization and original metadata preservation are decided by FMT-402. Their storage/query implementation remains pending.
+- VER-201/204: remaining timestamp evidence and implementation gaps are recorded under each requirement above; historical import follows FMT-402.
 - VER-303: automatic retention scheduling and physical reclamation remain deferred designs. Explicit truncate now has the decided fail-fast reader protection in TXN-404.
 - VER-206: complete structural stamping is a decided target with a recorded implementation mismatch. It is the precondition the revision-based conditional check of TXN-311 depends on, and it is not delivered by this specification change.
 - Storage amplification is strategy-dependent. No unmeasured constant-factor or globally minimal storage promise is introduced; CONV-301 preserves existing work budgets.

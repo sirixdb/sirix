@@ -27,8 +27,7 @@ public final class CommitTimestamps {
   /** Nanoseconds per microsecond. */
   private static final long NANOS_PER_MICRO = 1_000L;
 
-  private static final DateTimeFormatter ISO_FORMATTER =
-      new DateTimeFormatterBuilder().appendInstant(6).toFormatter();
+  private static final DateTimeFormatter ISO_FORMATTER = new DateTimeFormatterBuilder().appendInstant(6).toFormatter();
 
   private CommitTimestamps() {
     throw new AssertionError("May never be instantiated.");
@@ -52,8 +51,7 @@ public final class CommitTimestamps {
       if (seconds < 0 && subSecondMicros > 0) {
         // Scaling the most negative representable second would overflow even though the complete
         // value fits, so scale the following second and subtract, as Instant.toEpochMilli does.
-        return Math.addExact(Math.multiplyExact(seconds + 1, MICROS_PER_SECOND),
-            subSecondMicros - MICROS_PER_SECOND);
+        return Math.addExact(Math.multiplyExact(seconds + 1, MICROS_PER_SECOND), subSecondMicros - MICROS_PER_SECOND);
       }
       return Math.addExact(Math.multiplyExact(seconds, MICROS_PER_SECOND), subSecondMicros);
     } catch (final ArithmeticException e) {

@@ -131,8 +131,8 @@ curl -s http://localhost:9443/mydb/products/history
 ```
 ```json
 {"history":[
-  {"revision":2,"revisionTimestamp":"2026-06-11T13:15:23.069Z","author":"admin","commitMessage":""},
-  {"revision":1,"revisionTimestamp":"2026-06-11T13:15:08.577Z","author":"admin","commitMessage":""}]}
+  {"revision":2,"revisionTimestamp":"2026-06-11T13:15:23.069000Z","author":"admin","commitMessage":""},
+  {"revision":1,"revisionTimestamp":"2026-06-11T13:15:08.577000Z","author":"admin","commitMessage":""}]}
 ```
 
 ```bash
@@ -163,7 +163,7 @@ choosing a new expected head. After a network timeout, read history before
 retrying. Close and restart the server with the same data directory, then repeat
 these reads to verify persistence across a cold reopen.
 
-For the complete JVM, REST and query workflow, as-of timestamps, ties and
+For the complete JVM, REST and query workflow, as-of timestamps and
 retention behavior, see the [agent quickstart](AGENT_QUICKSTART.md).
 
 ---

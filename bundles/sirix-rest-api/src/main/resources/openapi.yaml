@@ -1176,7 +1176,7 @@ components:
       examples:
         - rest:
             - revisionNumber: 1
-              revisionTimestamp: '2024-01-09T15:30:00Z'
+              revisionTimestamp: '2024-01-09T15:30:00.000000Z'
               revision: { foo: bar }
 
     QueryResultWithPlan:

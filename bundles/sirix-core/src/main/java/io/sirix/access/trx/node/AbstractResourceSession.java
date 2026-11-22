@@ -977,7 +977,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     final RevisionIndexHolder holder = storage.getRevisionIndexHolder();
     final RevisionIndex index = holder.get();
     if (index.size() > revision) {
-      holder.update(revision == 0 ? RevisionIndex.EMPTY : index.truncateTo(revision - 1));
+      holder.update(revision == 0
+          ? RevisionIndex.EMPTY
+          : index.truncateTo(revision - 1));
     }
   }
 

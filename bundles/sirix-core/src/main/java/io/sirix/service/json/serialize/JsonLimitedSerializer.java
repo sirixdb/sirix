@@ -822,7 +822,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
 
       if (serializeTimestamp) {
         appendObjectKeyValue(JsonLiterals.QUOTED_REVISION_TIMESTAMP,
-              quote(CommitTimestamps.format(rtx.getRevisionTimestamp()))).appendSeparator();
+            quote(CommitTimestamps.format(rtx.getRevisionTimestamp()))).appendSeparator();
       }
 
       appendObjectKey(JsonLiterals.QUOTED_REVISION);

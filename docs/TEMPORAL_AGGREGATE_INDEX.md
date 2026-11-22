@@ -96,7 +96,8 @@ maintainer, which retains the source and derived sessions independently of appli
 A shared revision listener wakes it only after the source revision is durable and published; a
 one-second recheck also finds missed notifications. Ordinary source commits neither acquire the
 derived writer lock nor write aggregate pages. The hidden resource uses `FILE_CHANNEL`,
-`SLIDING_SNAPSHOT`, custom source timestamps, and no diffs, node history or path summary.
+`SLIDING_SNAPSHOT` and no diffs, node history or path summary. Derived commit timestamps and source
+timestamp mappings follow [TXN-612](../spec/TXN-transactions-durability.md#txn-612--derived-frontier-recovery).
 For an encrypted source, it inherits the source byte-handler pipeline and encryption key reference.
 Opening an existing derived resource checks that it preserves the source's encryption configuration.
 An encryption mismatch uses the recreation rules below.
@@ -203,7 +204,7 @@ mapping (replaying slabs from the preceding mapped revision for a batch interior
 the new slab. Mapping entries for previously published branches survive the
 revert. Truncation invalidates mappings above the surviving source frontier and serializes against
 active maintenance, without putting a lock on normal source commits. Before replaying a replacement
-history, the maintainer truncates its own discarded revisions. Equal source timestamps are safe:
+history, the maintainer truncates its own discarded revisions. Source timestamps reused after truncation are safe:
 revision identity, rather than timestamps alone, determines admissibility. After a process crash,
 normal Sirix beacon/commit-marker recovery chooses the durable derived root. Restart resumes from
 the last mapping with a verified source log identity. Declaration-free mappings have no such identity
