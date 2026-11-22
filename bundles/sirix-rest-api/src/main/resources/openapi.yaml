@@ -469,6 +469,7 @@ paths:
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -959,7 +960,11 @@ components:
     nodeId:
       name: nodeId
       in: query
-      description: Node key selecting the target node/subtree (unique, stable per resource).
+      description: |
+        Node key selecting the target node/subtree (unique, stable per resource).
+        On reads (GET, HEAD) a value that is not a 64-bit integer is a 400, and
+        a key that is not a node in every selected revision is a 404; the
+        response never falls back to the whole resource.
       schema: { type: integer, format: int64 }
     maxLevel:
       name: maxLevel

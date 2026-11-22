@@ -61,7 +61,9 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         val startRevisionTimestamp: String? = ctx.queryParam("start-revision-timestamp").getOrNull(0)
         val endRevisionTimestamp: String? = ctx.queryParam("end-revision-timestamp").getOrNull(0)
 
-        val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
+        // REST-203: parse before any I/O. A malformed nodeId is a 400; it must never be read as
+        // "absent" (toLongOrNull) and answered with the whole resource.
+        val nodeId: Long? = ctx.queryParam("nodeId").getOrNull(0)?.let { requireLongParam("nodeId", it) }
 
         var body: Buffer?
 
@@ -83,7 +85,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                             endRevisionTimestamp, manager, revision, revisionTimestamp
                         )
 
-                    serializeResource(manager, revisions, nodeId?.toLongOrNull(), ctx, vertxContext)
+                    serializeResource(manager, revisions, nodeId, ctx, vertxContext)
                 }
             }
         }
@@ -98,7 +100,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
     private suspend fun queryResource(
         databaseName: String?, database: Database<T>, revision: String?,
         revisionTimestamp: String?, manager: T, ctx: RoutingContext,
-        nodeId: String?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
+        nodeId: Long?, query: String, vertxContext: Context, user: User, jsonBody: JsonObject?
     ): Buffer? {
         val dbCollection = getDBCollection(databaseName, database)
         dbCollection.use {
@@ -125,7 +127,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
     suspend fun xquery(
         manager: T?,
         dbCollection: W?,
-        nodeId: String?,
+        nodeId: Long?,
         revisionNumber: IntArray?, query: String, routingContext: RoutingContext, vertxContext: Context,
         user: User, startResultSeqIndex: Long?, endResultSeqIndex: Long?, jsonBody: JsonObject?
     ): Buffer? {
@@ -174,7 +176,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
                             // An unchecked moveTo would bind the context item to the document
                             // root: the JSON path throws AssertionError (HTTP 500) and the XML
                             // path silently evaluates the query against the WRONG context.
-                            rtx.moveToOrNotFound(nodeId.toLong())
+                            rtx.moveToOrNotFound(nodeId)
                         }
 
                         handleQueryExtra(rtx, dbCollection, queryCtx, jsonDBStore)
@@ -223,8 +225,22 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         // ordered = false: read-only serialization, no reason to serialize it behind every
         // other blocking task on this verticle context.
         return vertxContext.executeBlocking(Callable {
+            if (nodeId != null) {
+                requireNodeInEveryRevision(manager, revisions, nodeId)
+            }
             getSerializedBody(manager, revisions, nodeId, ctx)
         }, false).coAwait()!!
+    }
+
+    /**
+     * REST-203: the serializers fall back to the document root for a start key they cannot move to,
+     * so a missing node must be rejected up front, in every selected revision, before a single byte
+     * or ETag is produced.
+     */
+    private fun requireNodeInEveryRevision(manager: T, revisions: IntArray, nodeId: Long) {
+        for (revision in revisions) {
+            manager.beginNodeReadOnlyTrx(revision).use { rtx -> (rtx as NodeCursor).moveToOrNotFound(nodeId) }
+        }
     }
 
     abstract suspend fun openDatabase(dbFile: Path): Database<T>

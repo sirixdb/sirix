@@ -1,8 +1,10 @@
 package io.sirix.rest.crud
 
 import io.sirix.api.NodeCursor
+import io.netty.handler.codec.http.HttpResponseStatus
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.handler.HttpException
 
 /**
  * Shared parse-and-precondition helpers for the REST handlers. Error status mapping belongs
@@ -38,10 +40,12 @@ fun checkNodeHashPrecondition(ctx: RoutingContext, actualHash: Long) {
 
 /**
  * Reject failed movement before a handler can serialize or mutate the previous cursor position.
- * The exception does not itself select an HTTP status; RequestFailureHandling owns that mapping.
+ * Throws an [HttpException] carrying 404: the node key came from the request, so an unknown key
+ * is a client-visible "not found", not an internal failure (an IllegalStateException surfaced
+ * as 500).
  */
 fun NodeCursor.moveToOrNotFound(nodeId: Long) {
     if (!moveTo(nodeId)) {
-        throw IllegalStateException("Node with ID $nodeId not found.")
+        throw HttpException(HttpResponseStatus.NOT_FOUND.code(), "Node with ID $nodeId not found.")
     }
 }

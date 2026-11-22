@@ -35,6 +35,9 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
         return ctx.currentRoute()!!
     }
     fun head(databaseName: String, ctx: RoutingContext, resource: String) {
+        // REST-203: same nodeId contract as GET. Parse before any I/O; a malformed value is a 400.
+        val nodeId: Long? = ctx.queryParam("nodeId").getOrNull(0)?.let { requireLongParam("nodeId", it) }
+
         // Check if database exists first
         val dbPath = location.resolve(databaseName)
         if (!Databases.existsDatabase(dbPath)) {
@@ -43,8 +46,6 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
         }
         val revision = ctx.queryParam("revision").getOrNull(0)
         val revisionTimestamp = ctx.queryParam("revision-timestamp").getOrNull(0)
-
-        val nodeId = ctx.queryParam("nodeId").getOrNull(0)
 
         val database = openDatabase(location.resolve(databaseName))
 
@@ -58,24 +59,23 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
             val manager = database.beginResourceSession(resource)
 
             manager.use {
-                if (manager.resourceConfig.hashType == HashType.NONE) {
+                val withoutHashes = manager.resourceConfig.hashType == HashType.NONE
+                // Without hashes and without a nodeId there is nothing to read. Otherwise the node
+                // must exist in the selected revision, hashes or not, exactly as on GET.
+                if (withoutHashes && nodeId == null) {
                     ctx.response().putHeader(HttpHeaders.ETAG, "")
                 } else {
                     val revisionNumber = getRevisionNumber(revision, revisionTimestamp, manager)
 
-                    val rtx = manager.beginNodeReadOnlyTrx(revisionNumber)
-
-                    rtx.use {
+                    manager.beginNodeReadOnlyTrx(revisionNumber).use { rtx ->
+                        val cursor = rtx as NodeCursor
                         if (nodeId != null) {
-                            if (!rtx.moveTo(nodeId.toLong())) {
-                                ctx.response().setStatusCode(404).end()
-                                return
-                            }
+                            cursor.moveToOrNotFound(nodeId)
                         } else if (rtx.isDocumentRoot) {
-                            (rtx as NodeCursor).moveToFirstChild()
+                            cursor.moveToFirstChild()
                         }
 
-                        ctx.response().putHeader(HttpHeaders.ETAG, rtx.hash.toString())
+                        ctx.response().putHeader(HttpHeaders.ETAG, if (withoutHashes) "" else rtx.hash.toString())
                     }
                 }
             }
