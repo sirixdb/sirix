@@ -10,6 +10,9 @@ Workflow: `CONTRIBUTING.md`.
   kill a mutant.
 - Every bug needs a root-cause write-up, a regression test and a lesson; use
   `docs/postmortems/TEMPLATE.md` and `docs/LESSONS.md`.
+- Test every change against the vision (`STRATEGY.md#vision`) in the PR template's *Vision check*:
+  a rule that does not align or cannot be told, or a new default, needs the maintainer's explicit
+  decision before merge.
 
 ## Code Style
 
