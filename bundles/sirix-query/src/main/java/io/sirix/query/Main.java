@@ -283,7 +283,7 @@ public final class Main {
     for (final String line : script.split("\\R", -1)) {
       if (!line.isBlank()) {
         if (!query.isEmpty())
-          query.append(System.lineSeparator());
+          query.append('\n');
         query.append(line);
       } else if (!query.isEmpty()) {
         succeeded &= executeInteractively(config, compileChain, ctx, query.toString());
@@ -360,8 +360,13 @@ public final class Main {
         // Control-C: exit the shell.
         return null;
       }
-      if (line == null || line.isEmpty())
+      if (line == null)
         break;
+      if (line.isEmpty()) {
+        if (strbuf.isEmpty())
+          continue;
+        break;
+      }
       if (!strbuf.isEmpty())
         strbuf.append(System.lineSeparator());
       strbuf.append(line);

@@ -51,3 +51,19 @@ Follow-ups found here and fixed in the same pull request: `-iqf` could not run a
 ([write-up](shell-query-script-mode.md), #1470), and `xn:store` ignored its resource name when
 creating a database ([write-up](xml-store-resource-name.md), #1471). A failure while committing
 (rather than applying) keeps its existing semantics, tracked in #1380.
+
+## Review follow-up: empty interactive submissions
+
+- Invariant (R1): an empty submission preserves the session in explicit `-iq` and default
+  terminal mode; only EOF or interrupt terminates it.
+- Trigger: press Enter at an empty prompt, then submit `1+1`, then EOF.
+- Root cause: the shared reader returned `null` for both an empty submission and EOF, and both
+  interactive entry paths interpreted it as termination.
+- Why tests missed it: tests terminated nonempty queries with blank lines but never started
+  a session with one.
+- Regression: `MainTest.emptySubmissionsKeepBothInteractiveModesAliveUntilEof` checks result `2`,
+  no error and EOF consumption through both command dispatches. Returning before executing
+  the query violates its R1 oracle. Accumulated input still executes at EOF, and interrupt
+  still discards accumulated input and ends the session.
+- Lesson: distinguish an empty command from end of input at their shared reader boundary;
+  see [Lessons](../LESSONS.md).

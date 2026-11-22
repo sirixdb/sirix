@@ -2,6 +2,8 @@ package io.sirix.query;
 
 import org.junit.jupiter.api.Test;
 import io.brackit.query.ErrorCode;
+import io.brackit.query.Query;
+import io.brackit.query.jdm.Iter;
 import io.brackit.query.QueryException;
 import io.sirix.query.shell.ShellHighlighter;
 import io.sirix.query.shell.ShellPalette;
@@ -76,6 +78,10 @@ final class MainTest {
     final LineReader interrupted = mock(LineReader.class);
     when(interrupted.readLine(anyString())).thenThrow(new UserInterruptException(""));
     assertNull(Main.readStringFromScannerWithEndMark(interrupted, "sirix> ", new ShellHighlighter(ShellPalette.NONE)));
+    final LineReader interruptedQuery = mock(LineReader.class);
+    when(interruptedQuery.readLine(anyString())).thenReturn("1+1").thenThrow(new UserInterruptException(""));
+    assertNull(Main.readStringFromScannerWithEndMark(interruptedQuery, "sirix> ",
+        new ShellHighlighter(ShellPalette.NONE)));
   }
 
   @Test
@@ -277,12 +283,80 @@ final class MainTest {
     // A query's lines are joined as written: a string literal keeps its line break.
     final String[] succeeded = invoke("1+1" + nl + nl + document + nl + nl + "'first" + nl + "second'", "-iqf", "-");
     assertEquals(nl + "Query result" + nl + "2" + nl + nl + nl + "Query result" + nl + "{\"a\":1,\"c\":3}" + nl + nl
-        + nl + "Query result" + nl + "first" + nl + "second" + nl + nl, succeeded[0]);
+        + nl + "Query result" + nl + "first\nsecond" + nl + nl, succeeded[0]);
     assertEquals("", succeeded[1]);
     final Path missing = directory.resolve("missing script.xq");
     final String[] unreadable = invoke(-1, "", "-iqf", missing.toString());
     assertEquals("", unreadable[0]);
     assertEquals("I/O Error: " + missing + nl, unreadable[1]);
+  }
+
+  @Test
+  void emptySubmissionsKeepBothInteractiveModesAliveUntilEof() throws Exception {
+    for (final boolean defaultMode : new boolean[] {false, true}) {
+      final LineReader reader = mock(LineReader.class);
+      when(reader.readLine(anyString())).thenReturn("", "", "1+1", "", "")
+                                      .thenThrow(new EndOfFileException());
+      final Terminal terminal = mock(Terminal.class);
+      when(terminal.writer()).thenAnswer(invocation -> Main.outputWriter(System.out));
+      final TerminalBuilder terminals = mock(TerminalBuilder.class, RETURNS_SELF);
+      when(terminals.build()).thenReturn(terminal);
+      final LineReaderBuilder readers = mock(LineReaderBuilder.class, RETURNS_SELF);
+      when(readers.build()).thenReturn(reader);
+      final Console console = mock(Console.class);
+      when(console.isTerminal()).thenReturn(true);
+      try (final MockedStatic<TerminalBuilder> terminalFactory = mockStatic(TerminalBuilder.class);
+          final MockedStatic<LineReaderBuilder> readerFactory = mockStatic(LineReaderBuilder.class)) {
+        terminalFactory.when(TerminalBuilder::builder).thenReturn(terminals);
+        readerFactory.when(LineReaderBuilder::builder).thenReturn(readers);
+        final String[] output = capture("", () -> assertEquals(0, Main.run(defaultMode
+            ? new String[] {"--no-color"}
+            : new String[] {"-iq", "--no-color"}, defaultMode
+                ? console
+                : null)));
+        final String nl = System.lineSeparator();
+        final String banner = "Enter query string (terminate with Control-D):" + nl;
+        assertEquals(banner + nl + "Query result" + nl + "2" + nl + nl + banner, output[0]);
+        assertEquals("", output[1]);
+        verify(reader, times(6)).readLine(anyString());
+      }
+    }
+  }
+
+  @Test
+  void queryScriptsUseLfInsideLiteralsForFilesAndStdin() throws Exception {
+    final String nl = System.lineSeparator();
+    for (final String ending : List.of("\n", "\r\n")) {
+      final String source = String.join(ending, "'first", "  second'", "", "\"third", "fourth\"");
+      final Path script = directory.resolve("line-ends.xq");
+      Files.writeString(script, source);
+      for (final String input : List.of(script.toString(), "-")) {
+        final String[] output = invoke(source, "-iqf", input, "--no-color");
+        assertEquals(nl + "Query result" + nl + "first\n  second" + nl + nl + nl + "Query result" + nl
+            + "third\nfourth" + nl + nl, output[0]);
+        assertEquals("", output[1]);
+      }
+    }
+  }
+
+  @Test
+  void literalLineEndsNormalizeBeforeEvaluationAndRuntimeCarriageReturnsSurviveOutput() {
+    try (final SirixQueryContext context = SirixQueryContext.create()) {
+      final Query literal = new Query("'first\r\nsecond'");
+      try (final Iter values = literal.evaluate(context).iterate()) {
+        assertEquals("first\nsecond", values.next().atomize().stringValue());
+        assertNull(values.next());
+      }
+      final StringWriter out = new StringWriter();
+      try (final PrintWriter writer = new PrintWriter(out)) {
+        literal.serialize(context, new SirixStringSerializer(writer));
+      }
+      assertEquals("first\nsecond", out.toString());
+      final String[] output = invoke("", "-q", "codepoints-to-string((102,13,10,115))", "--no-color");
+      final String nl = System.lineSeparator();
+      assertEquals(nl + "Query result" + nl + "f\r\ns" + nl + nl, output[0]);
+      assertEquals("", output[1]);
+    }
   }
 
   private static int occurrences(final String text, final String part) {

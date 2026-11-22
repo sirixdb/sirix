@@ -22,3 +22,19 @@
 - Lesson: when sibling functions share a parameter (`xn:load`, `xn:store`, `jn:store`), test the
   parameter on every path through each, reading the result back by that parameter; see
   [Lessons](../LESSONS.md).
+
+## Review follow-up: singleton sequence representations
+
+- Invariant (S1–S3): one node uses `$res` for creation, missing-database creation with
+  `false()`, recreation and append, regardless of its sequence representation; absent names
+  and multiple nodes retain the existing automatic names on those same paths.
+- Trigger: `xn:store('db','products',xn:sort(<a/>))`.
+- Root cause: dispatch classified Java `Node` instances as singleton inputs; a sorted singleton
+  is a sequence, so both create and append selected bulk operations that ignore `$res`.
+- Why tests missed it: singleton tests supplied only bare element constructors, and automatic
+  naming tests omitted bulk append and recreation.
+- Regression: `StoreResourceNameTest` exercises bare nodes, sorted singletons and lazy filtered
+  singletons on all four paths, plus absent-name and multi-node controls. The oracle is the
+  S1–S3 resource-name contract and retrieval by name; automatic `resource1` rejects the singleton
+  case. Parser lookahead must consume the input once and close its iterator on every path.
+- Lesson: test cardinality independently of runtime representation; see [Lessons](../LESSONS.md).

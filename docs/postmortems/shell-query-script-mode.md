@@ -29,3 +29,26 @@
   test JVM exited through `printUsage`.
 - Lesson: an unreachable public entry point is a defect to repair or remove, not a mutation
   disposition; see [Lessons](../LESSONS.md).
+
+## Review follow-up: platform-independent query text
+
+- Invariant (I1–I6): file and stdin scripts with LF or CRLF endings assemble query lines with LF
+  on every host, retaining indentation and the shell framing's native output newlines.
+- Root cause: script assembly inserted `System.lineSeparator()` into the query source, and
+  the regression oracle expected that host separator inside a literal's result as well.
+- CR trace: Brackit's tokenizer preserves the CR; `compiler.translator.Compiler` translates
+  string literals using `Whitespace.normalizeXML11`, which maps CRLF to LF before evaluation.
+  `StringSerializer` writes the resulting atomic string unchanged. Thus the observed LF is
+  compiler line-end normalization, not serialization corruption.
+- Why tests missed it: Linux uses LF for both query values and framing, concealing the oracle's
+  conflation until the Windows job used CRLF framing.
+- Regressions: `MainTest.queryScriptsUseLfInsideLiteralsForFilesAndStdin` checks LF/CRLF inputs
+  and both literal quote forms through both script entry points; the existing session test
+  expects LF only inside the value. `literalLineEndsNormalizeBeforeEvaluationAndRuntimeCarriageReturnsSurviveOutput`
+  checks the evaluated string and serialized output separately, including runtime-generated CR.
+  I1–I6 supply the script oracle; compiler line-end normalization supplies the literal oracle;
+  code point 13 supplies the independent serialization control. A serializer that discards CR
+  fails that control.
+- Lesson: distinguish language line-end normalization from output framing, and test runtime
+  values separately from source literals; see [Lessons](../LESSONS.md).
+- Windows CI execution belongs to the outer executor's CI phase; this review runs focused local tests.

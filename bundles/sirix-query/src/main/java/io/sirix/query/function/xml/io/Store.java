@@ -125,49 +125,35 @@ public final class Store extends AbstractFunction {
       MutationAuthorization.requireCreate(ctx, collName, resName);
 
       final XmlDBStore store = (XmlDBStore) ctx.getNodeStore();
-      if (createNew) {
-        create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
-      } else {
-        final XmlDBCollection coll = store.lookup(collName);
-        if (coll == null) {
-          create(store, collName, resName, nodes, commitMessage, commitTimesstamp);
+      try (final Iter iterator = nodes.iterate()) {
+        final ParserStream parsers = new ParserStream(iterator);
+        final boolean singleton = parsers.readFirstParsers();
+        final XmlDBCollection coll = createNew
+            ? null
+            : store.lookup(collName);
+        if (singleton) {
+          final NodeSubtreeParser parser = parsers.next();
+          if (coll == null) {
+            store.create(collName, resName, parser, commitMessage, commitTimesstamp);
+          } else {
+            coll.add(resName == null
+                ? "resource"
+                : resName, parser, commitMessage, commitTimesstamp).getTrx().close();
+          }
+        } else if (coll == null) {
+          store.create(collName, parsers);
         } else {
-          add(coll, resName == null
-              ? "resource"
-              : resName, nodes, commitMessage, commitTimesstamp);
+          final List<NodeSubtreeParser> inputs = new ArrayList<>();
+          for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
+            inputs.add(parser);
+          }
+          coll.addAll(inputs);
         }
       }
 
       return null;
     } catch (final Exception e) {
       throw new QueryException(e, new QNm(e.getMessage()));
-    }
-  }
-
-  private static void add(final XmlDBCollection coll, final String resName, final Sequence nodes,
-      final String commitMessage, final Instant commitTimestamp) throws DocumentException {
-    if (nodes instanceof Node<?> n) {
-      coll.add(resName, new StoreParser(n), commitMessage, commitTimestamp).getTrx().close();
-    } else {
-      try (ParserStream parsers = new ParserStream(nodes)) {
-        final List<NodeSubtreeParser> inputs = new ArrayList<>();
-        for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
-          inputs.add(parser);
-        }
-        coll.addAll(inputs);
-      }
-    }
-  }
-
-  /**
-   * A single node is stored as {@code resName}; several nodes keep automatic names, as in xn:load.
-   */
-  private static void create(final XmlDBStore store, final String collName, final @Nullable String resName,
-      final Sequence nodes, final String commitMessage, final Instant commitTimestamp) throws DocumentException {
-    if (nodes instanceof Node<?> n) {
-      store.create(collName, resName, new StoreParser(n), commitMessage, commitTimestamp);
-    } else {
-      store.create(collName, new ParserStream(nodes));
     }
   }
 
@@ -272,13 +258,31 @@ public final class Store extends AbstractFunction {
 
   private static class ParserStream implements Stream<NodeSubtreeParser> {
     private final Iter it;
+    private @Nullable NodeSubtreeParser first;
+    private @Nullable NodeSubtreeParser second;
 
-    public ParserStream(final Sequence locs) {
-      it = locs.iterate();
+    public ParserStream(final Iter iterator) {
+      it = iterator;
+    }
+
+    private boolean readFirstParsers() {
+      first = readNext();
+      second = readNext();
+      return first != null && second == null;
     }
 
     @Override
     public NodeSubtreeParser next() throws DocumentException {
+      if (first != null) {
+        final NodeSubtreeParser parser = first;
+        first = second;
+        second = null;
+        return parser;
+      }
+      return readNext();
+    }
+
+    private NodeSubtreeParser readNext() throws DocumentException {
       try {
         final Item i = it.next();
         if (i == null) {
@@ -296,8 +300,6 @@ public final class Store extends AbstractFunction {
     }
 
     @Override
-    public void close() {
-      it.close();
-    }
+    public void close() {}
   }
 }
