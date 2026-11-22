@@ -22,3 +22,95 @@
 # [mutant.evidence] table printed by `python3 .github/scripts/pr_mutation.py counterfactual`.
 # After a refactor, `pr_mutation.py dispositions --check/--remap` lists stale entries and
 # proposes their new identities for review.
+
+# HOT leaf packed bodies (FMT-210..217): HOTLeafBody. Cost exception per CONV-201 (captain, 2026-11-21).
+
+[[mutant]]
+class = "io.sirix.index.hot.page.HOTLeafBody"
+method = "keyTailWord"
+descriptor = "(II)J"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [26]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "48d3fe9efdfbe9031ce1faea43eb71ff2e749570"
+justification = """Same result; differs only at a single boundary input by at most one extra constant-time
+step. The single input is pos == groupLength: the original reads the suffix word from the suffix start;
+the mutant takes the group arm, reads a zero-length group word (0) and ORs the same suffix word shifted
+by zero bits. That zero-length readWord call is the one extra constant-time step. Every other pos takes
+the same arm in both programs."""
+
+[[mutant]]
+class = "io.sirix.index.hot.page.HOTLeafBody"
+method = "differingBit"
+descriptor = "(II)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [27]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "48d3fe9efdfbe9031ce1faea43eb71ff2e749570"
+justification = """Same result; differs only at a single boundary input by at most one extra constant-time
+step. The single input is a common tail length end that is a multiple of 8 with no difference found
+before it: the mutant runs one more iteration at pos == end. keyTailWord pads bytes beyond a key with
+zeros, so for equal lengths both words are zero and the loop ends as before (-1); for unequal lengths
+the existing Math.min caps the returned bit at end * 8, the original's result. That iteration is the one
+extra constant-time step."""
+
+[[mutant]]
+class = "io.sirix.index.hot.page.HOTLeafBody"
+method = "readWord"
+descriptor = "(II)J"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.MathMutator"
+indexes = [61]
+description = "Replaced integer subtraction with addition"
+kind = "equivalent"
+checked_at = "48d3fe9efdfbe9031ce1faea43eb71ff2e749570"
+justification = """The shift count 48 - i * 8 becomes 48 + i * 8, where i is 0 or 4 at this statement. For
+i = 0 both are 48. For i = 4 the original shifts by 16 and the mutant by 80; the JLS masks a long
+shift count to its low six bits (80 & 63 = 16), so both execute the identical shift. Results, errors and
+cost are the same for every input."""
+
+[[mutant]]
+class = "io.sirix.index.hot.page.HOTLeafBody"
+method = "findLongSuffix"
+descriptor = "([BI)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [98]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "48d3fe9efdfbe9031ce1faea43eb71ff2e749570"
+justification = """start <= maxWordStart becomes start < maxWordStart. They differ only at start ==
+maxWordStart, where the forward word ends exactly at the slot region's end; the mutant takes the back-read
+arm instead, whose start - prefix >= slots holds there (the suffix fills the last word). Both arms make
+one 8-byte load of the same suffix bytes, count one suffix probe and compare the same masked word, so
+result, errors, probe count and loads are the same."""
+
+[[mutant]]
+class = "io.sirix.index.hot.page.HOTLeafBody"
+method = "findLongSuffix"
+descriptor = "([BI)I"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [122]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "48d3fe9efdfbe9031ce1faea43eb71ff2e749570"
+justification = """start - prefix >= slots becomes start - prefix > slots. They differ only where the
+back-read word would start exactly at the slot region. A forward word does not fit there only when the
+suffix is one or two bytes (slot layout: one or two length bytes, the suffix, the value header). The
+mutant then reads that suffix with readWord: a single byte or short load, counted as one probe, the same
+count and value as the original's one 8-byte back-read."""
+
+[[mutant]]
+class = "io.sirix.index.hot.page.HOTLeafBody"
+method = "requireEarlierOwner"
+descriptor = "(II)V"
+mutator = "org.pitest.mutationtest.engine.gregor.mutators.ConditionalsBoundaryMutator"
+indexes = [11]
+description = "changed conditional boundary"
+kind = "equivalent"
+checked_at = "48d3fe9efdfbe9031ce1faea43eb71ff2e749570"
+justification = """target >= index * 2 becomes target > index * 2, admitting only target == index * 2: a shared
+value pointing at its own directory entry. checkedSharedValueRef then resolves the owner as the same entry,
+whose slot ends after the slot being read, and refuses it as an overlapping shared target with the same
+IllegalStateException. Every such frame is refused in both programs; only the message text differs, which
+no contract specifies."""
